@@ -42,17 +42,22 @@ function reducer(state, action) {
     }
     case 'picked': {
       const { data } = action;
+      // A Pick is attributed by Team (#113, contract #112): `teamId` and
+      // `teamName` come straight off the broadcast, and `by` - which carried
+      // the picking manager's account id and username - is reduced to the one
+      // thing about it that is not account identity, the autopick flag.
       const pick = {
         pick_number: data.pickNumber,
-        team_id: data.teamId,
+        teamId: data.teamId,
+        teamName: data.teamName ?? null,
         player_id: data.player.id,
         name: data.player.name,
         position: data.player.position,
         nfl_team: data.player.nfl_team,
-        by: data.by,
+        auto: !!data.by?.auto,
       };
       const nextOnTheClock = data.nextTeamId
-        ? state.teams.find((t) => t.id === data.nextTeamId) || null
+        ? state.teams.find((t) => t.teamId === data.nextTeamId) || null
         : null;
 
       // Server sends the new deadline directly; fall back to a client-side
@@ -110,10 +115,41 @@ function reducer(state, action) {
  * teams/league/deadline needed. The on-clock edge is detected separately,
  * off the derived `isMyTurn` value, so it doesn't need a stale-closure-prone
  * team lookup inside the long-lived socket handlers either.
+ *
+ * It also owns the viewer-relative half of the Team identity contract (#113,
+ * contract #112): `viewerTeamId` is the viewer's own Team on this league, and
+ * it can only come from the `draft:join` acknowledgement, which is answered to
+ * one socket. It deliberately never rides on `draft:state`, `draft:picked` or
+ * `draft:presence`, because one of those payloads is broadcast to the whole
+ * league room and no viewer-relative field on it could be true for every
+ * recipient. The server answers the ack BEFORE the first snapshot, so this
+ * hook knows its own Team before it holds any Team identity to compare it
+ * against, and "which one of these is me" is `entry.teamId === viewerTeamId`
+ * rather than any comparison of account ids.
+ *
+ * `isCommissioner` is the room's other per-viewer fact and travels the same
+ * way, on the same ack, for the same reason (#178): the server decides it
+ * with the predicate every commissioner-gated route authorizes with, so the
+ * owner and a co-commissioner answer alike. It could never have come off
+ * `draft:state`, whose league is a bare `SELECT *` on `leagues` - the room
+ * used to ask that row for an `is_commissioner` it has no column for, and
+ * silently fell through to an owner-only account comparison.
+ *
+ * The room reads this and nothing else - there is no client-side fallback to
+ * fall back to - which makes re-reading it on EVERY join, not just the
+ * first, the load-bearing part: a dropped socket mid-draft must not quietly
+ * take a commissioner's controls away.
+ *
+ * A REFUSED join is read the same way, off its `code` and never its message:
+ * only `NOT_A_MEMBER` clears these two, and every other refusal - unknown
+ * codes and no code included - leaves them standing (#230, the codes renamed
+ * to SCREAMING_SNAKE in #265, and the join handler below for why).
  */
-export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) {
+export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [error, setError] = useState(null);
+  const [viewerTeamId, setViewerTeamId] = useState(null);
+  const [isCommissioner, setIsCommissioner] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   const socketRef = useRef(null);
@@ -127,6 +163,15 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
   }, [onPickLanded]);
 
   useEffect(() => {
+    // Which Team the viewer holds is a fact about THIS league, so it is torn
+    // down with the socket that answered it. Nothing can match a stale one
+    // (a Team ID is unique across leagues), but leaving it standing would
+    // mean the hook briefly reported a Team for a league it had left.
+    setViewerTeamId(null);
+    // Same reasoning, and the same tear-down: holding a commissioner's role
+    // over from the league just left would offer this viewer controls on a
+    // league where they may hold none.
+    setIsCommissioner(false);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 
@@ -135,7 +180,37 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
     // (the resync mechanism for whatever happened while we were offline).
     const joinDraftRoom = () => {
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
-        if (resp?.error) setError(resp.error);
+        if (resp?.error) {
+          setError(resp.error);
+          // The refusal's CODE decides whether the two viewer-relative values
+          // survive it, and nothing else does - never the message, which is
+          // copy and differs per room on the generic failure (#230).
+          //
+          // 'NOT_A_MEMBER' is the one refusal that is a statement about this
+          // viewer: they hold no Team in this league, so the Team and the
+          // commissioner flag they were shown are now false and go. Every
+          // other refusal - and an ack whose code this client does not
+          // recognise, or carries none at all, which is what a server older
+          // than #230 sends - says the ATTEMPT failed, not that the viewer
+          // lost anything, and the room keeps what it last knew. This runs on
+          // every reconnect, so clearing on a transient failure would flicker
+          // a manager's own controls off and back on a blip.
+          //
+          // That unrecognised-code branch is also what made #265's rename of
+          // these codes affordable; ADR 0008 carries the reasoning and the
+          // convention, and useDraftSocket.test.js pins both halves.
+          if (resp.code === 'NOT_A_MEMBER') {
+            setViewerTeamId(null);
+            setIsCommissioner(false);
+          }
+          return;
+        }
+        // Re-read on every join, not just the first: a reconnect re-runs this
+        // and the answer is the authority on which Team the viewer is and on
+        // whether they may act as commissioner here. Strictly `=== true`: an
+        // ack that says nothing about the role is not a grant of it.
+        setViewerTeamId(resp?.viewerTeamId ?? null);
+        setIsCommissioner(resp?.isCommissioner === true);
       });
     };
 
@@ -184,9 +259,9 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
 
   const isMyTurn = !!(
     state.onTheClock &&
-    userId != null &&
-    state.onTheClock.owner_id != null &&
-    state.onTheClock.owner_id === userId
+    viewerTeamId != null &&
+    state.onTheClock.teamId != null &&
+    state.onTheClock.teamId === viewerTeamId
   );
 
   // Fires the "you're on the clock" alert exactly once per turn: only on the
@@ -214,6 +289,8 @@ export default function useDraftSocket(leagueId, userId, { onPickLanded } = {}) 
     teams: state.teams,
     picks: state.picks,
     onTheClock: state.onTheClock,
+    viewerTeamId,
+    isCommissioner,
     secondsLeft: state.secondsLeft,
     reconnecting,
     isMyTurn,

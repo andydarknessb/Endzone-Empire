@@ -19,7 +19,14 @@ function intOrNull(value) {
 function handle(res, error, fallback) {
   if (error.statusCode) {
     return res.status(error.statusCode).json(
-      error.code ? { error: error.code, message: error.message } : { error: error.message }
+      error.code
+        ? {
+            error: error.code,
+            message: error.message,
+            ...(error.leagueId != null ? { leagueId: error.leagueId } : {}),
+            ...(error.season != null ? { season: error.season } : {}),
+          }
+        : { error: error.message }
     );
   }
   console.error(fallback, error);

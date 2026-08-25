@@ -23,12 +23,15 @@ function prefersReducedMotion() {
 function BoomFrame({ play, refFrame, ptsLabel, isStatic }) {
   const nameColors = getNameColors(play.nflTeam);
   return (
-    <div className={`tecmo-refscene${isStatic ? ' tecmo-refscene--static' : ''}`}>
+    <div
+      className={`tecmo-refscene${isStatic ? ' tecmo-refscene--static' : ''}`}
+      data-testid="tecmo-boom-frame"
+    >
       <div className="tecmo-refstage" aria-hidden="true">
         <div className="tecmo-daysky" />
         <div className="tecmo-crowd" />
-        <GoalPostSprite className="tecmo-goalpost" />
-        <RefereeSprite frame={refFrame} className="tecmo-ref" />
+        <GoalPostSprite className="tecmo-goalpost" testId="tecmo-goalpost" />
+        <RefereeSprite frame={refFrame} className="tecmo-ref" testId="tecmo-referee" />
       </div>
       <div className="tecmo-boomband" style={{ borderTopColor: nameColors.stripe }}>
         <div className="tecmo-boom">BOOM!</div>
@@ -131,7 +134,7 @@ function TecmoCutscene({ play, onDone }) {
             <div className="tecmo-sky" aria-hidden="true" />
             <div className="tecmo-field" aria-hidden="true">
               <div className="tecmo-endzone" />
-              <div className="tecmo-runner">
+              <div className="tecmo-runner" data-testid="tecmo-runner">
                 <Sprite kit={defender} frame={frame === 0 ? 1 : 0} className="tecmo-sprite tecmo-sprite--defender" />
                 <Sprite kit={runner} frame={frame} className="tecmo-sprite tecmo-sprite--runner" />
               </div>

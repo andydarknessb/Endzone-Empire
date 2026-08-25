@@ -25,6 +25,7 @@ const {
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
 const { isMember, joinLeague } = require('../services/leagueMembership.service');
+const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 
@@ -279,6 +280,14 @@ router.get('/preview', previewRateLimiter, async (req, res) => {
 // GET /api/league — leagues the caller belongs to
 router.get('/', async (req, res) => {
   try {
+    // `is_owner` and `is_commissioner` are the viewer's role on each league,
+    // answered here so no card has to rebuild it from `leagues.owner_id` and
+    // the signed-in account id (#188). `is_owner` is the creator-alone half,
+    // covering the powers leagueRole.service's header keeps owner-shaped
+    // (deleting the league, granting or revoking co-commissioners);
+    // `is_commissioner` is the half a co-commissioner holds too. Both are
+    // per-viewer, evaluated against $1, and this response is the list's only
+    // per-viewer channel, so they belong on the row.
     const result = await pool.query(
       `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
               "teams"."avatar_url" AS "my_team_avatar_url",
@@ -286,6 +295,7 @@ router.get('/', async (req, res) => {
               "teams"."waiver_priority" AS "my_team_waiver_priority",
               "teams"."faab_remaining" AS "my_team_faab_remaining",
               (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count",
+              ("leagues"."owner_id" = $1) AS "is_owner",
               ${commissionerPredicate(1)} AS "is_commissioner"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
@@ -305,9 +315,15 @@ router.get('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
+    // The creator's Team identity rides beside their account identity (#112,
+    // parent #108): the league is a shared surface, so a consumer must be
+    // able to name the creator by Team. LEFT JOIN because a creator who has
+    // been removed from their own league leaves no team behind.
     const leagueResult = await pool.query(
-      `SELECT "leagues".*, "users"."username" AS "owner_username"
+      `SELECT "leagues".*, "users"."username" AS "owner_username",
+              ${teamIdentityColumns('owner_team', 'owner')}
          FROM "leagues" JOIN "users" ON "users"."id" = "leagues"."owner_id"
+         ${teamIdentityJoin('"leagues"."id"', '"leagues"."owner_id"', 'owner_team')}
         WHERE "leagues"."id" = $1`,
       [leagueId]
     );
@@ -323,6 +339,7 @@ router.get('/:id', async (req, res) => {
               "teams"."faab_remaining", "teams"."locked", "teams"."draft_ready",
               "teams"."avatar_url", "teams"."avatar_static_url",
               "teams"."owner_id",
+              ${teamIdentityColumns()},
               "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
@@ -346,7 +363,13 @@ router.get('/:id', async (req, res) => {
     league.co_commissioners = await listCoCommissioners(pool, leagueId);
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
-    res.json({ league, teams: teamsResult.rows });
+    // viewerTeamId is how a consumer answers "which of these is me" without
+    // holding another manager's account ID (#112): teamId === viewerTeamId.
+    res.json({
+      viewerTeamId: viewerTeamIdOf(teamsResult.rows, req.user.id),
+      league,
+      teams: teamsResult.rows,
+    });
   } catch (error) {
     console.error('Error fetching league details', error);
     res.status(500).json({ error: 'failed to fetch league details' });
@@ -405,7 +428,13 @@ router.post('/:id/start-draft', async (req, res) => {
   }
 });
 
-// DELETE /api/league/:id — owner deletes the league
+// DELETE /api/league/:id — owner deletes the league.
+//
+// Sanctioned direct owner_id comparison, the first of the three
+// leagueRole.service's header enumerates: this power does not delegate, so a
+// co-commissioner is refused here exactly as a member is. The WHERE clause IS
+// the gate rather than a filter in front of one - no row deleted means the
+// caller was not the creator - which is why the 403 is decided on rowCount.
 router.delete('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -593,6 +622,13 @@ router.get('/:id/matchups', async (req, res) => {
 });
 
 // GET /api/league/:id/chat — last 50 chat messages, oldest first
+// Chat authors are identified by Team beside their account (#112, parent
+// #108). The join is LEFT so a message from a manager who has since left the
+// league still reads back rather than dropping out of the history; its Team
+// identity is simply null. This response is a bare array with no root to
+// carry `viewerTeamId`, so a viewer takes theirs from the `league:join`
+// acknowledgement the chat panel already makes, and compares `message.teamId`
+// against it.
 router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -603,8 +639,10 @@ router.get('/:id/chat', async (req, res) => {
     const result = await pool.query(
       `SELECT * FROM (
          SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-                "chat_messages"."user_id", "users"."username"
+                "chat_messages"."user_id", "users"."username",
+                ${teamIdentityColumns()}
          FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
+         ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
          WHERE "chat_messages"."league_id" = $1
            AND NOT EXISTS (
              SELECT 1 FROM "user_blocks"
@@ -888,10 +926,13 @@ router.get('/:id/history', async (req, res) => {
     }
     const historyResult = await pool.query(
       `SELECT "league_history"."season", "league_history"."standings",
+              "league_history"."pickem_result",
+              "leagues"."pickem_only",
               "league_history"."champion_team_id", "teams"."name" AS "champion_name",
               "teams"."avatar_url" AS "champion_avatar_url",
               "teams"."avatar_static_url" AS "champion_avatar_static_url"
        FROM "league_history"
+       JOIN "leagues" ON "leagues"."id" = "league_history"."league_id"
        LEFT JOIN "teams" ON "teams"."id" = "league_history"."champion_team_id"
        WHERE "league_history"."league_id" = $1
        ORDER BY "league_history"."season" DESC`,
@@ -900,6 +941,13 @@ router.get('/:id/history', async (req, res) => {
     const trophies = require('../services/trophy.service');
     const seasons = [];
     for (const row of historyResult.rows) {
+      const pickemResult = row.pickem_result && typeof row.pickem_result === 'string'
+        ? JSON.parse(row.pickem_result)
+        : row.pickem_result;
+      const champions = pickemResult && Array.isArray(pickemResult.champions)
+        ? pickemResult.champions
+        : null;
+      const firstPickemChampion = champions && champions[0];
       let seasonTrophies = [];
       let trophiesErrored = false;
       try {
@@ -927,14 +975,27 @@ router.get('/:id/history', async (req, res) => {
 
       seasons.push({
         season: row.season,
-        champion: row.champion_team_id
-          ? {
-              teamId: row.champion_team_id,
-              name: row.champion_name,
-              avatarUrl: row.champion_avatar_url,
-              avatarStaticUrl: row.champion_avatar_static_url,
-            }
-          : null,
+        outcome: pickemResult ? pickemResult.outcome : null,
+        champions,
+        // Deprecated compatibility projection. Declaration order has no
+        // championship significance; new consumers use `champions`.
+        champion: pickemResult
+          ? (firstPickemChampion
+              ? {
+                  teamId: firstPickemChampion.teamId,
+                  name: firstPickemChampion.teamName,
+                  avatarUrl: firstPickemChampion.avatarUrl,
+                  avatarStaticUrl: firstPickemChampion.avatarStaticUrl,
+                }
+              : null)
+          : (!row.pickem_only && row.champion_team_id
+              ? {
+                  teamId: row.champion_team_id,
+                  name: row.champion_name,
+                  avatarUrl: row.champion_avatar_url,
+                  avatarStaticUrl: row.champion_avatar_static_url,
+                }
+              : null),
         standings: row.standings,
         trophies: seasonTrophies,
         trophiesErrored,

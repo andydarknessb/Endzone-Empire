@@ -19,7 +19,6 @@ import { isPickemOnly } from '../../lib/leagueType';
 // DE/DT/LB/CB/S/DB are individual defenders (DP-enabled leagues) — literal
 // Tank01 position codes, not the DL/LB/DB roster-eligibility group keys.
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DE', 'DT', 'LB', 'CB', 'S', 'DB'];
-const PLAYERS_PAGE_SIZE = 25; // matches the server page size; for ADP rank numbers
 
 const headCellSx = { fontWeight: 'bold', backgroundColor: 'primary.main', color: 'primary.contrastText' };
 // Keep the action column reachable when the table overflows horizontally on
@@ -29,14 +28,6 @@ const stickyActionHeadSx = { ...headCellSx, position: 'sticky', right: 0, zIndex
 // Body sticky cell inherits the row's (striped/hover) background so the pinned
 // column reads as part of the row with no vertical seam at its left edge.
 const stickyActionCellSx = { position: 'sticky', right: 0, backgroundColor: 'inherit', zIndex: 1 };
-
-// Opaque zebra striping + hover so rows are scannable and the sticky column
-// (which inherits these) has no seam. Values are theme tokens.
-const stripedRowsSx = {
-  '& tbody tr': { backgroundColor: 'var(--surface)' },
-  '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
-  '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
-};
 
 // Keep the sort arrow/label legible on the colored (primary.main) header.
 const sortLabelSx = {
@@ -300,10 +291,9 @@ function PlayerManagement() {
       </div>
 
       <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, width: '100%', maxWidth: 1100, overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 900, ...stripedRowsSx }}>
+        <Table sx={{ minWidth: 900 }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={headCellSx} align="right">Row</TableCell>
               <TableCell sx={headCellSx}>
                 <TableSortLabel
                   active={sort === 'name'}
@@ -353,16 +343,13 @@ function PlayerManagement() {
           <TableBody>
             {shownPlayers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={8} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No players matching “${search}”` : 'No players found'}
                 </TableCell>
               </TableRow>
             )}
-            {shownPlayers.map((player, idx) => (
+            {shownPlayers.map((player) => (
               <TableRow key={player.id}>
-                <TableCell align="right" sx={{ color: 'text.secondary' }}>
-                  {(pageNumber - 1) * PLAYERS_PAGE_SIZE + idx + 1}
-                </TableCell>
                 <TableCell component="th" scope="row">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <PlayerAvatar
@@ -421,7 +408,7 @@ function PlayerManagement() {
 
       <Typography variant="h6" sx={{ mt: 3 }}>My Roster</Typography>
       <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, maxWidth: 900 }}>
-        <Table sx={{ minWidth: 650, ...stripedRowsSx }}>
+        <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={headCellSx}>Name</TableCell>

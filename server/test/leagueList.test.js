@@ -70,3 +70,40 @@ test('GET league list exposes caller team waiver balances and preserves existing
   assert.equal(response.body[0].my_team_name, 'Priority Team');
   assert.equal(response.body[0].team_count, 10);
 });
+
+// #188: the leagues list answers the viewer's league ROLE itself, on two
+// per-viewer flags beside each other, rather than shipping `leagues.owner_id`
+// and letting each card rebuild the answer by comparing it against the
+// signed-in account id. `is_owner` is the creator-alone half (deleting the
+// league, granting or revoking co-commissioners); `is_commissioner` is the
+// half a co-commissioner holds too. Both are computed against $1, the caller,
+// so neither can come out true for the wrong reader.
+test('GET league list answers the viewer role with per-viewer is_owner and is_commissioner flags', async (t) => {
+  let leagueQuery = null;
+
+  t.mock.method(pool, 'query', async (sql, params) => {
+    leagueQuery = String(sql);
+    assert.deepEqual(params, [7]);
+    return {
+      rows: [
+        { id: 1, name: 'Mine', is_owner: true, is_commissioner: true },
+        { id: 2, name: 'Granted', is_owner: false, is_commissioner: true },
+        { id: 3, name: 'Just a member', is_owner: false, is_commissioner: false },
+      ],
+    };
+  });
+
+  const token = signToken({ id: 7, username: 'member' });
+  const response = await request(app)
+    .get('/api/league')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  // Derived server-side from the caller's own id rather than read off a
+  // column: the point is that the answer arrives already decided.
+  assert.match(leagueQuery, /"leagues"\."owner_id" = \$1\) AS "is_owner"/);
+  assert.equal(response.body[0].is_owner, true);
+  assert.equal(response.body[1].is_owner, false);
+  assert.equal(response.body[1].is_commissioner, true);
+  assert.equal(response.body[2].is_commissioner, false);
+});

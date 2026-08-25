@@ -7,6 +7,23 @@ const { rosterCapacity } = require('./irPolicy.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 
+/**
+ * Who may act on a trade (#188, recorded here rather than beside each check).
+ *
+ * Every `owner_id !== userId` in this module is a CALLER comparison and never
+ * a role one: `owner_id` here is a `teams` row's, so it asks "is this team the
+ * signed-in manager's own", and the error message beside each one states the
+ * rule it enforces. Only the two managers in a trade may move it, and which of
+ * them may do what is the whole of the rule: the receiving manager responds
+ * and counters, the proposing manager cancels.
+ *
+ * Being a commissioner grants nothing here. The one commissioner-shaped power
+ * over a trade is commissionerDecide's force-approve/veto, which authorizes
+ * through isLeagueCommissioner like every other commissioner-gated action, so
+ * a co-commissioner holds it. A commissioner has no standing to accept a trade
+ * on a manager's behalf, and nothing in here should acquire one by comparing
+ * against `leagues.owner_id`.
+ */
 class TradeError extends Error {
   constructor(statusCode, message) {
     super(message);
@@ -394,10 +411,25 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     }
   }
   for (const item of items) {
+    // Delete-and-insert rather than UPDATE ... SET team_id (#197). Moving the
+    // row keeps the GIVING team's created_at, so "when this team acquired
+    // him" is wrong on every traded player, for as long as he stays. A fresh
+    // row dates the acquisition it actually records, which is what a
+    // post-kickoff exclusion has to read. The delete comes first: the unique
+    // constraint on (league_id, player_id) would refuse the insert otherwise.
     await client.query(
-      `UPDATE "team_players" SET "team_id" = $1, "updated_at" = now()
-       WHERE "team_id" = $2 AND "player_id" = $3`,
-      [item.to_team_id, item.from_team_id, item.player_id]
+      `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
+      [item.from_team_id, item.player_id]
+    );
+    // The giving side's lineup follows its roster, and it is settled before
+    // the receiving side is touched: benchAcquiredPlayer materializes the
+    // receiving team's week, and these two must not interleave.
+    await lineupService.removeLineupEntries(client, {
+      league, teamId: item.from_team_id, playerId: item.player_id,
+    });
+    await client.query(
+      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+      [league.id, item.to_team_id, item.player_id]
     );
     // Acquired by trade: bench, never directly into IR (#94, user story 13).
     await lineupService.benchAcquiredPlayer(client, { league, teamId: item.to_team_id, playerId: item.player_id });

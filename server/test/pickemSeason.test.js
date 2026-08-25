@@ -269,10 +269,10 @@ test('seasonOverMessage names one, two or three winners and counts beyond that',
   assert.equal(four, "The pick'em season is over. 4 managers share the title with 12 points.");
   const three = seasonOverMessage([winner(long), winner(long), winner(long)]);
   assert.ok(three.length <= 500, `three maximal names must fit: ${three.length}`);
-  // A username stands in for a missing team name.
+  // A Team id, never account identity, is the defensive fallback.
   assert.equal(
-    seasonOverMessage([{ userId: 9, teamName: null, username: 'zed', points: 3, correct: 3 }]),
-    "The pick'em season is over. zed wins with 3 points."
+    seasonOverMessage([{ teamId: 9, teamName: null, points: 3, correct: 3 }]),
+    "The pick'em season is over. Team 9 wins with 3 points."
   );
 });
 

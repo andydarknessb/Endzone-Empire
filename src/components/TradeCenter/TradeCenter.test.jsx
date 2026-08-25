@@ -77,7 +77,8 @@ const rostersWithProjections = rosters.map((team) => ({
 }));
 
 const leagueResponse = (overrides = {}) => ({
-  league: { id: 1, name: 'Test League', owner_id: 1, ...overrides },
+  viewerTeamId: 1,
+  league: { id: 1, name: 'Test League', ownerTeamId: 1, ...overrides },
   teams: [],
 });
 
@@ -118,9 +119,7 @@ afterEach(() => {
 // PlayerNameLink renders the player's name inside a nested <button>, so a
 // "Name (POS)" query is now split across elements — a plain string no
 // longer matches (RTL only reads an element's own direct text nodes).
-// These content-matching functions check the full textContent instead.
-const byLabel = (text) => (_, element) =>
-  element?.tagName?.toLowerCase() === 'label' && element.textContent === text;
+// This content-matching function checks the full textContent instead.
 const byText = (text) => (_, element) => element?.textContent === text;
 
 test('shows a loading skeleton before data arrives', () => {
@@ -412,7 +411,7 @@ test('cancel button appears for the proposing team on a pending trade and calls 
 });
 
 test('vote to veto button appears for an uninvolved team on an accepted trade', async () => {
-  mockGetSequence({ trades: [pendingTrade({ status: 'accepted' })], myTeamId: 30, league: leagueResponse({ owner_id: 3 }) });
+  mockGetSequence({ trades: [pendingTrade({ status: 'accepted' })], myTeamId: 30, league: leagueResponse({ ownerTeamId: 3 }) });
   apiClient.post.mockResolvedValue({});
 
   renderScreen();
@@ -427,7 +426,7 @@ test('vote to veto button appears for an uninvolved team on an accepted trade', 
 });
 
 test('commissioner sees force approve and can force-approve a pending trade', async () => {
-  mockGetSequence({ trades: [pendingTrade()], myTeamId: 30, league: leagueResponse({ owner_id: 1 }) });
+  mockGetSequence({ trades: [pendingTrade()], myTeamId: 30, league: leagueResponse({ ownerTeamId: 1 }) });
   apiClient.post.mockResolvedValue({});
 
   renderScreenWithToasts();

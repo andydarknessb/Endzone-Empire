@@ -11,10 +11,10 @@ jest.mock('../api/apiClient', () => ({
 // Thin on purpose: the caching machinery is pinned in resourceCache.test.js
 // and useResource.test.js. What is league-specific is the key, the url, the
 // returned shape and the write-through.
-const TEAMS = [{ id: 11, user_id: 5, team_name: 'Team One' }];
+const TEAMS = [{ teamId: 11, teamName: 'Team One' }];
 
 const leagueResponse = (overrides = {}) => ({
-  data: { league: { id: 1, name: 'Sunday Ballers', ...overrides }, teams: TEAMS },
+  data: { viewerTeamId: 11, league: { id: 1, name: 'Sunday Ballers', ...overrides }, teams: TEAMS },
 });
 
 const pending = () => {
@@ -44,7 +44,26 @@ test('requests /api/league/:id and returns the row together with its teams', asy
   expect(apiClient.get).toHaveBeenCalledWith('/api/league/1');
   expect(result.current.league).toEqual({ id: 1, name: 'Sunday Ballers' });
   expect(result.current.teams).toEqual(TEAMS);
+  expect(result.current.viewerTeamId).toBe(11);
   expect(result.current.error).toBeNull();
+});
+
+test('surfaces viewerTeamId from the response root, and keeps it through a write-through', async () => {
+  apiClient.get.mockResolvedValue(leagueResponse());
+  const { result } = renderHook(() => useLeague(1));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  // The viewer-relative field lives at the root of the response, beside
+  // `league` and `teams`, and is how a consumer answers "which of these is
+  // me" without holding another manager's account id (#113, contract #112).
+  expect(result.current.viewerTeamId).toBe(11);
+
+  // Both write-throughs rebuild the cached value, so either could silently
+  // drop a root field that neither of them is about.
+  act(() => { result.current.updateLeague({ name: 'Renamed' }); });
+  expect(result.current.viewerTeamId).toBe(11);
+  act(() => { result.current.updateTeams((teams) => [...teams]); });
+  expect(result.current.viewerTeamId).toBe(11);
 });
 
 test('a null leagueId never requests and reads as an empty league', () => {
@@ -54,6 +73,7 @@ test('a null leagueId never requests and reads as an empty league', () => {
   expect(result.current.loading).toBe(false);
   expect(result.current.league).toBeNull();
   expect(result.current.teams).toEqual([]);
+  expect(result.current.viewerTeamId).toBeNull();
 });
 
 test('a league stays cached for a minute and is fetched again past that', async () => {
@@ -124,7 +144,12 @@ test('updateLeague merges the change into the cached row, keeps the teams, and n
 
   expect(a.current.league).toEqual({ id: 1, name: 'Renamed', draft_type: 'auction' });
   expect(a.current.teams).toEqual(TEAMS);
+  // setResource replaces the cached entry whole; a write-through that forgot
+  // this field would silently null it out for every mount, unguarding the
+  // removable-teams filter in CommissionerTools (#185) for the rest of the TTL.
+  expect(a.current.viewerTeamId).toBe(11);
   expect(b.current.league.name).toBe('Renamed'); // every mount on the league
+  expect(b.current.viewerTeamId).toBe(11);
   expect(apiClient.get).not.toHaveBeenCalled();
 });
 
@@ -185,6 +210,7 @@ test('updateTeams patches the membership through the updater, keeps the league r
 
   expect(a.current.teams).toEqual([{ ...TEAMS[0], avatar_url: '/a.png' }]);
   expect(a.current.league).toEqual({ id: 1, name: 'Sunday Ballers' }); // the row survives
+  expect(a.current.viewerTeamId).toBe(11); // and so does which team is the viewer's own (#185)
   expect(b.current.teams[0].avatar_url).toBe('/a.png'); // every mount on the league
   expect(apiClient.get).not.toHaveBeenCalled();
 });

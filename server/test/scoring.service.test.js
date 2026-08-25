@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
+const { tenureHandlers } = require('./helpers/tenureFakes');
 const {
   calculateFantasyPoints,
   tank01Body,
@@ -33,11 +34,18 @@ test('scoreMatchups excludes IR occupants from the best-ball candidate pool', as
     [/^SELECT "lineup_entries"\."player_id"/, (text, params) => ({
       rows: params[0] === 10
         ? [
-            { player_id: 1, position: 'QB', slot: 'IR', stats: { passingYards: 300, passingTDs: 2 } },
-            { player_id: 2, position: 'QB', slot: 'BENCH', stats: { passingYards: 100 } },
+            { player_id: 1, position: 'QB', slot: 'IR', nfl_team: 'IRT', stats: { passingYards: 300, passingTDs: 2 } },
+            { player_id: 2, position: 'QB', slot: 'BENCH', nfl_team: 'IRT', stats: { passingYards: 100 } },
           ]
-        : [{ player_id: 3, position: 'QB', slot: 'BENCH', stats: { passingYards: 50 } }],
+        : [{ player_id: 3, position: 'QB', slot: 'BENCH', nfl_team: 'IRT', stats: { passingYards: 50 } }],
     })],
+    // A final week, so the tenure exclusion runs (#228). This test is about
+    // the IR slot, so everyone is held since long before kickoff and the
+    // exclusion takes nobody: what it measures stays the slot rule.
+    ...tenureHandlers({
+      schedule: { IRT: new Date('2026-10-25T17:00:00Z') },
+      heldSince: new Date('2026-08-01T00:00:00Z'),
+    }),
     [update('matchups'), () => ({ rows: [] })],
   ]).install(t);
 

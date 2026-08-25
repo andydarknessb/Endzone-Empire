@@ -2,9 +2,14 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { tank01Get } = require('../modules/tank01Client');
-const { materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS } = require('./lineup.service');
+const {
+  materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
+  playersNotHeldAtKickoff,
+} = require('./lineup.service');
+const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR } = require('./nflTeam');
 const { getIo } = require('../modules/io');
 const { fantasySideWhereSql } = require('./leagueType');
+const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -526,24 +531,25 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats) {
   };
 }
 
-// Full NFL team name -> Tank01 abbreviation, used only to match a league's
-// seeded/rostered DEF-unit player (stored with either a full name or an
-// abbreviation in nfl_team) against the live box score's teamAbv.
-const NFL_TEAM_NAME_TO_ABBR = {
-  'ARIZONA CARDINALS': 'ARI', 'ATLANTA FALCONS': 'ATL', 'BALTIMORE RAVENS': 'BAL',
-  'BUFFALO BILLS': 'BUF', 'CAROLINA PANTHERS': 'CAR', 'CHICAGO BEARS': 'CHI',
-  'CINCINNATI BENGALS': 'CIN', 'CLEVELAND BROWNS': 'CLE', 'DALLAS COWBOYS': 'DAL',
-  'DENVER BRONCOS': 'DEN', 'DETROIT LIONS': 'DET', 'GREEN BAY PACKERS': 'GB',
-  'HOUSTON TEXANS': 'HOU', 'INDIANAPOLIS COLTS': 'IND', 'JACKSONVILLE JAGUARS': 'JAX',
-  'KANSAS CITY CHIEFS': 'KC', 'LAS VEGAS RAIDERS': 'LV', 'LOS ANGELES CHARGERS': 'LAC',
-  'LOS ANGELES RAMS': 'LAR', 'MIAMI DOLPHINS': 'MIA', 'MINNESOTA VIKINGS': 'MIN',
-  'NEW ENGLAND PATRIOTS': 'NE', 'NEW ORLEANS SAINTS': 'NO', 'NEW YORK GIANTS': 'NYG',
-  'NEW YORK JETS': 'NYJ', 'PHILADELPHIA EAGLES': 'PHI', 'PITTSBURGH STEELERS': 'PIT',
-  'SAN FRANCISCO 49ERS': 'SF', 'SEATTLE SEAHAWKS': 'SEA', 'TAMPA BAY BUCCANEERS': 'TB',
-  'TENNESSEE TITANS': 'TEN', 'WASHINGTON COMMANDERS': 'WAS',
-};
-
-/** A players.nfl_team value (full name or already-an-abbreviation) -> Tank01 abbreviation. */
+/**
+ * A players.nfl_team value (full name or already-an-abbreviation) -> Tank01
+ * abbreviation, used only to match a league's seeded/rostered DEF-unit player
+ * against the live box score's teamAbv.
+ *
+ * The 32-name table it reads (`NFL_TEAM_NAME_TO_ABBR`) now lives in
+ * services/nflTeam.js, next to the alias table and under the guard that holds
+ * both against the migration defining fn_normalize_nfl_team (#227). It was a
+ * third copy of the same rows, and a renamed or relocated franchise had to be
+ * remembered in three places.
+ *
+ * This function is NOT `normalizeNflTeam`, and the difference is the
+ * short-circuit below: an already-abbreviated input is returned as-is, so
+ * `WSH` stays `WSH` here where the shared helper would fold it to `WAS`. That
+ * is correct for this caller - both sides of its comparison are Tank01's own
+ * spelling - but it means this is a second resolver, and #227 deliberately did
+ * not merge them: nothing here is kickoff-keyed, and changing how a live box
+ * score matches a DEF unit is a behaviour change that ticket did not ask for.
+ */
 function normalizeTeamAbbr(nflTeam) {
   const raw = String(nflTeam || '').trim();
   if (!raw) return null;
@@ -928,9 +934,10 @@ function gamesNeedingBoxScore(rows) {
  * needs one (see gamesNeedingBoxScore) — every player in those games whose
  * external_id we know gets a player_stats upsert.
  *
- * The week's game list comes from live_game_states, which the live engine keeps
- * fresh for free off ESPN, so the old always-on `/getNFLGamesForWeek` call is
- * now only a fallback for a week we have no live rows for.
+ * The week's game list comes from live_game_states, which live scoring
+ * (modules/liveGameEngine.js) keeps fresh for free off ESPN, so the old
+ * always-on `/getNFLGamesForWeek` call is now only a fallback for a week we
+ * have no live rows for.
  *
  * Returns typed touchdown events (`plays`) for the live UI — see
  * applyGameBoxScore.
@@ -946,9 +953,9 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   if (stateRes.rows.length > 0) {
     targets = gamesNeedingBoxScore(stateRes.rows);
   } else {
-    // No live rows for this week (a historical week, or the engine hasn't run
-    // yet): fall back to one counted schedule call and treat every game as
-    // needing a fetch.
+    // No live rows for this week (a historical week, or live scoring has not
+    // run yet; see modules/liveGameEngine.js): fall back to one counted
+    // schedule call and treat every game as needing a fetch.
     const gamesResponse = await tank01Get('/getNFLGamesForWeek', {
       params: { week, seasonType: 'reg', season },
       transport: api, // tests inject; uncounted when present
@@ -1571,6 +1578,20 @@ async function generateMatchups({ leagueId, season, week }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // #194: this is the third path that inserts matchups, so it carries the
+    // same phase refusal as season operations' own two entry points. Read
+    // through this transaction's client for the same reason they do.
+    const leagueResult = await client.query(
+      `SELECT "pickem_only", "draft_status", "season_status" FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    if (!seasonOperationsAvailable(leagueResult.rows[0])) {
+      // Thrown, not rolled back here: this function's own catch rolls back
+      // and rethrows, and rolling back twice is an error in its own right.
+      const err = new Error(SEASON_BEFORE_DRAFT_MESSAGE);
+      err.statusCode = 409;
+      throw err;
+    }
     const existing = await client.query(
       `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
       [leagueId, season, week]
@@ -1618,23 +1639,65 @@ async function generateMatchups({ leagueId, season, week }) {
 /**
  * Score every matchup for a league week: each team's score is the sum of its
  * STARTERS' fantasy points for that week (bench and IR don't count), computed
- * from raw stats under the LEAGUE'S scoring rules. Lineups are materialized
- * first so teams that never touched theirs still get their carried-forward
- * (or default-bench) lineup. Transactional per league.
+ * from raw stats under the LEAGUE'S scoring rules. Transactional per league.
  *
- * Finality changes the semantics so re-scoring is idempotent (stat
- * corrections re-run this for settled weeks):
- * - Live weeks join against team_players, the CURRENT roster — a player
- *   dropped mid-week stops scoring immediately.
- * - Final weeks score straight from that week's lineup_entries, the
- *   historical record: a player traded or dropped SINCE then still counts,
- *   and the lineup is never re-materialized against today's roster.
+ * Materializing first - so a team that never touched its lineup still gets a
+ * carried-forward or default-bench one - is the LIVE population's behaviour
+ * and only its own. Do not read it as a property of this function: the other
+ * two populations exist precisely because re-materializing a closed week is
+ * what hands a post-game acquisition a row.
+ *
+ * THREE populations, not two. Which one a call gets is decided by the week's
+ * finality and by the `settle` option, never inferred from anything else:
+ *
+ * - LIVE (an open week, no `settle`): materialize first, then join
+ *   team_players, the CURRENT roster - a player dropped mid-week stops
+ *   scoring immediately. This is the scheduler's in-flight path, the manual
+ *   POST /league/:id/score route, and any re-score of a week still open.
+ * - SETTLE (an open week, `settle: true`): the week AS PLAYED. No
+ *   materialize and no roster join - the population is the week's existing
+ *   lineup_entries rows - minus any row no tenure of this team covered at
+ *   its player's kickoff (#228's `playersNotHeldAtKickoff`). Only
+ *   advance-week asks for this, to compute the score of record before
+ *   finalizing (#190).
+ *   Consequence worth knowing: a team with NO rows for the week scores 0
+ *   here, where the live path would have materialized a carried-forward
+ *   lineup for it first. That is the price of not re-materializing, and
+ *   re-materializing is the whole bug - it is what hands a post-game
+ *   acquisition a row. In practice the week is already materialized by
+ *   then: the scheduler live-scores every league whose week has had a
+ *   kickoff in the last 8 hours, and that path does materialize. A week
+ *   with no synced schedule and no manager who ever opened his lineup is
+ *   the case that reaches 0.
+ * - FINAL (`matchups.final`): the SAME population and the SAME exclusion as
+ *   SETTLE. A player traded or dropped SINCE then still counts, and the
+ *   lineup is never re-materialized against today's roster (#106).
+ *
+ * SETTLE and FINAL are deliberately one rule, and that is the resolution of
+ * #190's second escalation rather than a tidy-up. They were once two: the
+ * exclusion applied only while settling, on the argument that "once the week
+ * is final nothing new can reach its lineup_entries anyway". True of rows
+ * ARRIVING after finality; false of rows already there and excluded at settle
+ * time, which is the entire population this exclusion is about. Nothing
+ * deletes an excluded row, so it survived into finality, and
+ * `correction.service` re-scores final weeks with no `settle` on every
+ * correction sweep - so the score of record was right until the first sweep
+ * after the advance and wrong afterwards, and the league was ANNOUNCED the
+ * movement as a stat correction.
+ *
+ * What makes one rule sufficient here, where it was not before, is that the
+ * exclusion reads a recorded fact rather than the current roster. That
+ * argument belongs with the predicate and is made once, on `heldRows` below.
+ *
+ * So do not reintroduce a `!isFinal` guard on the exclusion, and do not add a
+ * second population that happens to agree with this one. Both have been tried
+ * on this ticket and both reverted the score of record.
  *
  * Best-ball leagues ignore the slots owners set: the score is the OPTIMAL
- * legal lineup over that week's players (same live/final population rules),
- * computed server-side every time — there is no lineup to manage.
+ * legal lineup over that week's players (same three population rules),
+ * computed server-side every time - there is no lineup to manage.
  */
-async function scoreMatchups({ leagueId, season, week, plays = [] }) {
+async function scoreMatchups({ leagueId, season, week, plays = [], settle = false }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1648,11 +1711,55 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
     );
-    const teamScore = async (teamId, isFinal) => {
-      if (!isFinal) {
+    // The week's schedule is one answer shared by every team in this pass, so
+    // it is fetched once and memoised here rather than once per team per
+    // matchup (#261). Scoped to this call deliberately: the schedule is only
+    // stable within one pass, so a longer-lived cache would be correct until
+    // the first time a sync-schedule run landed mid-pass.
+    const kickoffCache = new Map();
+    /**
+     * The rows that count when a week is scored AS PLAYED. A lineup row
+     * counts only if a tenure of this team covered its player's kickoff
+     * (#228): the week's card is the record of what was played, and a player
+     * acquired after his game had already been played was not part of it
+     * however he came to have a row.
+     *
+     * ONE exclusion, on BOTH the settle and the final population, which is
+     * the point of #228 and the whole of #190's second escalation. The
+     * predicate reads `roster_tenures`, a fact that is appended and closed
+     * and never rewritten, so it answers the same way at settle time, at
+     * finality, and after any later roster move. Every earlier attempt on
+     * #190 evaluated a proxy over the CURRENT roster, and each died the same
+     * death: cut the excluded pickup a week later, the proxy stops firing and
+     * his points come back on the next correction sweep. Asking a tenure
+     * cannot go that way - cutting him closes the tenure, it does not erase
+     * the one that failed to cover kickoff.
+     *
+     * A LIVE week is the one population this does NOT govern. It answers a
+     * different and correct question by joining the CURRENT roster, so a
+     * dropped player stops scoring immediately mid-week.
+     *
+     * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
+     * to the module that owns the schedule and the lineup lock, so #227 has
+     * one place to fix rather than one per consumer.
+     */
+    const heldRows = async (rows, teamId, asPlayed) => {
+      if (!asPlayed || rows.length === 0) return rows;
+      const notHeld = await playersNotHeldAtKickoff(client, {
+        teamId,
+        season,
+        week,
+        players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+        kickoffCache,
+      });
+      return rows.filter((row) => !notHeld.has(row.player_id));
+    };
+
+    const teamScore = async (teamId, asPlayed) => {
+      if (!asPlayed) {
         await materializeLineup(client, { leagueId, teamId, season, week });
       }
-      const currentRosterJoin = isFinal
+      const currentRosterJoin = asPlayed
         ? ''
         : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
            AND "team_players"."player_id" = "lineup_entries"."player_id"`;
@@ -1661,7 +1768,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
         // occupants remain stashed and do not participate in scoring.
         const r = await client.query(
           `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
-                  "players"."position", "player_stats"."stats"
+                  "players"."position", "players"."nfl_team", "player_stats"."stats"
            FROM "lineup_entries"
            ${currentRosterJoin}
            JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -1671,7 +1778,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
              AND "lineup_entries"."week" = $3`,
           [teamId, season, week]
         );
-        const candidateRows = r.rows.filter((row) => row.slot !== 'IR');
+        const candidateRows = (await heldRows(r.rows, teamId, asPlayed))
+          .filter((row) => row.slot !== 'IR');
         const candidates = candidateRows.map((row) => ({ playerId: row.player_id, position: row.position }));
         const pointsFor = new Map(
           candidateRows.map((row) => [row.player_id, calculateFantasyPoints(row.stats, rules)])
@@ -1680,9 +1788,10 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
         return optimalLineup(candidates, rosterSlots, pointsFor).total;
       }
       const r = await client.query(
-        `SELECT "player_stats"."stats"
+        `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats"
          FROM "lineup_entries"
          ${currentRosterJoin}
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
          WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
@@ -1690,13 +1799,19 @@ async function scoreMatchups({ leagueId, season, week, plays = [] }) {
            AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
         [teamId, season, week]
       );
-      const total = r.rows.reduce((sum, row) => sum + calculateFantasyPoints(row.stats, rules), 0);
+      const counted = await heldRows(r.rows, teamId, asPlayed);
+      const total = counted.reduce((sum, row) => sum + calculateFantasyPoints(row.stats, rules), 0);
       return Math.round(total * 100) / 100;
     };
     const scored = [];
     for (const matchup of matchupsResult.rows) {
-      const homeScore = await teamScore(matchup.home_team_id, matchup.final);
-      const awayScore = await teamScore(matchup.away_team_id, matchup.final);
+      // The ONE place the population is chosen. A settled week and a final
+      // week are the same population - the week as played - so `settle` and
+      // finality select it together rather than through two branches that
+      // have to be kept agreeing (#190, #228).
+      const asPlayed = settle || matchup.final;
+      const homeScore = await teamScore(matchup.home_team_id, asPlayed);
+      const awayScore = await teamScore(matchup.away_team_id, asPlayed);
       await client.query(
         `UPDATE "matchups" SET "home_score" = $1, "away_score" = $2 WHERE "id" = $3`,
         [homeScore, awayScore, matchup.id]

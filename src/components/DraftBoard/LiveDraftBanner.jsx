@@ -56,7 +56,7 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
           flexShrink: 0,
         }}
       >
-        {initialsFor(onTheClock?.name)}
+        {initialsFor(onTheClock?.teamName)}
       </Avatar>
       {/* aria-live scoped to just who's-on-the-clock, not the whole banner:
           that changes once per pick (worth announcing), while the seconds
@@ -73,13 +73,8 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
           noWrap
           sx={{ fontWeight: 'bold', color: isMyTurn ? 'primary.main' : 'text.primary' }}
         >
-          {isMyTurn ? 'Your pick!' : onTheClock ? `${onTheClock.name} is on the clock` : 'Waiting…'}
+          {isMyTurn ? 'Your pick!' : onTheClock ? `${onTheClock.teamName} is on the clock` : 'Waiting…'}
         </Typography>
-        {onTheClock?.owner && (
-          <Typography variant="body2" noWrap sx={{ color: 'text.secondary' }}>
-            {onTheClock.owner}
-          </Typography>
-        )}
       </Box>
       {secondsLeft !== null ? (
         <Typography

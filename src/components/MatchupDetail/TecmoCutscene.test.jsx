@@ -34,10 +34,11 @@ afterEach(() => {
 
 test('beat 1 shows the runner, then cuts to the referee BOOM frame with name and points', () => {
   setReducedMotion(false);
-  const { container } = render(<TecmoCutscene play={play} onDone={jest.fn()} />);
+  render(<TecmoCutscene play={play} onDone={jest.fn()} />);
 
-  // Beat 1: runner on the field, no BOOM frame yet.
-  expect(container.querySelector('.tecmo-runner')).toBeInTheDocument();
+  // Beat 1: runner on the field, no BOOM frame yet. The sprites are decorative
+  // (aria-hidden), so they are reached by test id rather than by role.
+  expect(screen.getByTestId('tecmo-runner')).toBeInTheDocument();
   expect(screen.queryByText('BOOM!')).not.toBeInTheDocument();
   expect(screen.queryByText('P. Mahomes')).not.toBeInTheDocument();
 
@@ -46,9 +47,15 @@ test('beat 1 shows the runner, then cuts to the referee BOOM frame with name and
   expect(screen.getByText('BOOM!')).toBeInTheDocument();
   expect(screen.getByText('P. Mahomes')).toBeInTheDocument();
   expect(screen.getByText('+6')).toBeInTheDocument();
-  expect(container.querySelector('.tecmo-ref')).toBeInTheDocument();
-  expect(container.querySelector('.tecmo-goalpost')).toBeInTheDocument();
-  expect(container.querySelector('.tecmo-runner')).not.toBeInTheDocument();
+  expect(screen.getByTestId('tecmo-referee')).toBeInTheDocument();
+  expect(screen.getByTestId('tecmo-goalpost')).toBeInTheDocument();
+  expect(screen.queryByTestId('tecmo-runner')).not.toBeInTheDocument();
+
+  // The test ids are a test-only seam. The sprites stay decoration: hidden
+  // from the accessibility tree, and named by nothing a screen reader reads.
+  expect(screen.getByTestId('tecmo-referee')).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.getByTestId('tecmo-goalpost')).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.queryByLabelText(/runner|referee|goal ?post/i)).not.toBeInTheDocument();
 });
 
 test("the scorer's name renders in their team colors", () => {
@@ -65,13 +72,13 @@ test("the scorer's name renders in their team colors", () => {
 test('reduced motion shows the static BOOM frame and auto-dismisses at 1.8s', () => {
   setReducedMotion(true);
   const onDone = jest.fn();
-  const { container } = render(<TecmoCutscene play={play} onDone={onDone} />);
+  render(<TecmoCutscene play={play} onDone={onDone} />);
 
   // Static path: the referee frame is up immediately, no animated runner.
-  expect(container.querySelector('.tecmo-overlay--static')).toBeInTheDocument();
-  expect(container.querySelector('.tecmo-refscene--static')).toBeInTheDocument();
-  expect(container.querySelector('.tecmo-ref')).toBeInTheDocument();
-  expect(container.querySelector('.tecmo-runner')).not.toBeInTheDocument();
+  expect(screen.getByRole('alertdialog')).toHaveClass('tecmo-overlay--static');
+  expect(screen.getByTestId('tecmo-boom-frame')).toHaveClass('tecmo-refscene--static');
+  expect(screen.getByTestId('tecmo-referee')).toBeInTheDocument();
+  expect(screen.queryByTestId('tecmo-runner')).not.toBeInTheDocument();
   expect(screen.getByText('BOOM!')).toBeInTheDocument();
   expect(screen.getByText('P. Mahomes')).toBeInTheDocument();
 

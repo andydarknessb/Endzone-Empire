@@ -18,6 +18,35 @@ function appOrigin(req) {
   return process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
 }
 
+/**
+ * The account object this router publishes to its own owner, as a named
+ * allowlist over a `users` row (#201).
+ *
+ * These three routes are reachable with no session at all - they are where a
+ * session comes from - so their payload is public in the sense that matters:
+ * whatever it carries is what an unauthenticated caller can obtain by
+ * presenting credentials. The login query MUST select the password hash in
+ * order to compare it, and it used to publish `result.rows[0]` with the hash
+ * `delete`d off afterwards. That is a delete-list, the shape #173 found on the
+ * presenter board: publication is the default, and the only thing between a
+ * bcrypt hash and the wire is one line that a refactor can move or drop.
+ * Building the response instead means the hash is never in it to begin with.
+ *
+ * Adding a field here publishes it. The exact key set is pinned in
+ * authPayloadShape.test.js.
+ */
+function publicUser(row) {
+  // `?? null` so the key set belongs to THIS function rather than to whatever
+  // the query happened to select: a narrower query answers null, it never
+  // drops a key the client reads unconditionally. Same rule as the invite
+  // preview (#181) and the presenter board (#199).
+  return {
+    id: row.id ?? null,
+    username: row.username ?? null,
+    email: row.email ?? null,
+  };
+}
+
 router.post('/register', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const email = String(req.body?.email || '').trim().toLowerCase();
@@ -50,7 +79,7 @@ router.post('/register', async (req, res) => {
        VALUES ($1, $2, $3) RETURNING "id", "username", "email"`,
       [username, email, hash]
     );
-    const user = result.rows[0];
+    const user = publicUser(result.rows[0]);
     const refreshToken = await tokens.issueRefreshToken({ userId: user.id }, client);
     await client.query('COMMIT');
     setRefreshCookie(res, refreshToken);
@@ -78,11 +107,11 @@ router.post('/login', async (req, res) => {
        WHERE lower("username") = lower($1) AND "deleted_at" IS NULL`,
       [String(username).trim()]
     );
-    const user = result.rows[0];
-    if (!user || !(await encryptLib.comparePassword(password, user.password))) {
+    const row = result.rows[0];
+    if (!row || !(await encryptLib.comparePassword(password, row.password))) {
       return res.status(401).json({ error: 'invalid username or password' });
     }
-    delete user.password;
+    const user = publicUser(row);
     const refreshToken = await tokens.issueRefreshToken({ userId: user.id });
     setRefreshCookie(res, refreshToken);
     return res.json({ token: signToken(user), user });
@@ -101,11 +130,12 @@ router.post('/refresh', requireTrustedOrigin, async (req, res) => {
        WHERE "id" = $1 AND "deleted_at" IS NULL`,
       [rotated.userId]
     );
-    const user = result.rows[0];
-    if (!user) {
+    const row = result.rows[0];
+    if (!row) {
       clearRefreshCookie(res);
       return res.status(401).json({ error: 'invalid refresh token' });
     }
+    const user = publicUser(row);
     setRefreshCookie(res, rotated.refreshToken);
     return res.json({
       token: signToken(user, { authenticatedAt: rotated.authenticatedAt }),

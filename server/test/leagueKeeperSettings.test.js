@@ -70,8 +70,23 @@ test('reducing keeper count below existing assignments rolls back with a clear c
 
   assert.equal(response.status, 409);
   assert.match(response.body.error, /team 11 has 2/);
-  assert.ok(tx.calls.includes('ROLLBACK'));
-  assert.ok(!tx.calls.some((sql) => sql.startsWith('UPDATE "leagues"')));
+  assert.ok(tx.calls.includes('ROLLBACK')); // complementary only
+  // #274. UPDATE "leagues" is the live half of this assertion and the reason
+  // it exists: transactionClient answers it, so a guard moved below it saves
+  // the settings and returns this identical 409.
+  //
+  // DELETE FROM "keepers" is swept alongside it for completeness, and is NOT
+  // load-bearing today - said plainly so nobody reads it as proof it is not.
+  // keeperSettingsPlan returns clearAssignments: false on every branch where
+  // it also sets error (draftValidation.service.js:177-181), and the DELETE is
+  // gated on clearAssignments, so a conflict and a wipe are mutually exclusive
+  // by construction. It is here to catch a future refactor that decouples
+  // them, not to catch a moved guard.
+  assert.deepEqual(
+    tx.calls.filter((sql) => /^(UPDATE "leagues"|DELETE FROM "keepers")/.test(sql)),
+    [],
+    'the settings write did not run (and no keeper wipe, which this branch cannot reach)'
+  );
 });
 
 test('a valid keeper-count update preserves assignments and commits', async (t) => {

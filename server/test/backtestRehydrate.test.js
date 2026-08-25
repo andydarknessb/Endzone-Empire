@@ -877,7 +877,9 @@ for (const [fileLabel, fileName] of [
 }
 
 test('rehydrate() independently re-verifies source-manifest.json against expectedSourceManifestSha256, refusing a mismatch even if the manifest\'s own fixedFiles entry agrees', () => {
-  const { publishRoot, manifestSha256 } = packageFixturePublication('independent-pin-mismatch');
+  // Only publishRoot is wanted here: the point of this test is to pass an
+  // expectedSourceManifestSha256 that is NOT the fixture's real hash.
+  const { publishRoot } = packageFixturePublication('independent-pin-mismatch');
   assert.throws(
     () => rehydrate.rehydrate({
       publishRoot,

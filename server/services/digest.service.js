@@ -212,6 +212,16 @@ async function sendLineupReminders() {
       try {
         await lineupClient.query('BEGIN');
         await materializeLineup(lineupClient, { leagueId, teamId: team.id, season, week });
+        // `on_bye` is read off the LEFT JOIN, so the join predicate IS the
+        // bye rule here. `nfl_games` keys teams by Tank01 abbreviation (DEN,
+        // WSH) while `players.nfl_team` holds a FULL TEAM NAME for every DEF
+        // unit and the app's own WAS for Washington, so raw equality never
+        // matched a DEF unit and told the manager his defense was on bye in
+        // all 17 weeks it plays (#287). `fn_normalize_nfl_team` on BOTH sides is
+        // the same fold `bye.service.computeByeWeeks` uses, and the functional
+        // index `idx_players_nfl_team_normalized` backs the players side.
+        // This is a SQL join, so it normalises in SQL; `services/nflTeam.js`
+        // is for consumers that have already read a side into memory.
         entriesResult = await lineupClient.query(
           `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
                   "players"."name", "players"."injury_status",
@@ -221,7 +231,8 @@ async function sendLineupReminders() {
              AND "team_players"."player_id" = "lineup_entries"."player_id"
            JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
            LEFT JOIN "nfl_games" ON "nfl_games"."season" = $2 AND "nfl_games"."week" = $3
-             AND "nfl_games"."nfl_team" = "players"."nfl_team"
+             AND fn_normalize_nfl_team("nfl_games"."nfl_team")
+                 = fn_normalize_nfl_team("players"."nfl_team")
            WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
              AND "lineup_entries"."week" = $3`,
           [team.id, season, week]

@@ -1390,7 +1390,7 @@ function evaluateClaim({
     }
     if (component.catastrophicVeto === true) {
       if (key !== 'f') throw new Error(`${label}: only component (f) may set catastrophicVeto`);
-      vetoedReasons.push(`${key}: ${component.veto && component.veto.reason || 'catastrophic veto'}`);
+      vetoedReasons.push(`${key}: ${(component.veto && component.veto.reason) || 'catastrophic veto'}`);
     }
     if (component.status === 'unevaluable') {
       results[key] = {

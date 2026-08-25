@@ -7,7 +7,7 @@ const {
   entriesForLineupValidation,
 } = require('./lineup.service');
 const { computeStandings } = require('./season.service');
-const { placeOnWaivers } = require('./waiver.service');
+const { placeOnWaiversUndoable } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
@@ -16,13 +16,14 @@ const { isIrEligible, rosterCapacity } = require('./irPolicy.service');
 const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
-const { pickemChampions } = require('./pickemSeason.service');
-const { getPickemChampionTeamIds } = require('./trophy.service');
+const { OUTCOME: PICKEM_RESULT_OUTCOME, resultOf: pickemSeasonResultOf } = require('./pickemSeasonResult.service');
 
 class CommissionerError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, { code, ...details } = {}) {
     super(message);
     this.statusCode = statusCode;
+    if (code) this.code = code;
+    Object.assign(this, details);
   }
 }
 
@@ -49,7 +50,23 @@ async function requireCommissioner(client, { leagueId, userId, forUpdate = false
 /**
  * Remove a team from the league. Before the draft this is clean; later it
  * also cascades the team's roster, lineups, and matchups (history rewrites
- * are on the commissioner). The commissioner's own team can't be removed.
+ * are on the commissioner). Two separate rules refuse a removal, and they
+ * answer separate questions, so they carry separate messages:
+ *
+ * - No commissioner of either kind may remove their own team. That compares
+ *   the target against the CALLER (`userId`), never against the league
+ *   owner: a co-commissioner is a commissioner, and removing their team
+ *   would delete their `league_commissioners` grant on the way past.
+ * - The league creator's team cannot be removed by anyone, a co-commissioner
+ *   included. That compares against `leagues.owner_id`, and it is one of the
+ *   three direct owner_id comparisons leagueRole.service sanctions.
+ *
+ * Both apply to the creator removing their own team, and the first answers:
+ * the caller is being told about themselves, which is the more useful of the
+ * two things true about that request.
+ *
+ * Every other removal proceeds, including revoking the removed manager's
+ * co-commissioner grant.
  */
 async function removeTeam({ leagueId, userId, teamId }) {
   const client = await pool.connect();
@@ -62,8 +79,11 @@ async function removeTeam({ leagueId, userId, teamId }) {
     );
     const team = teamResult.rows[0];
     if (!team) throw new CommissionerError(404, 'team not found in this league');
+    if (team.owner_id === userId) {
+      throw new CommissionerError(409, "you can't remove your own team");
+    }
     if (team.owner_id === league.owner_id) {
-      throw new CommissionerError(409, "the commissioner's own team can't be removed");
+      throw new CommissionerError(409, "the league creator's team can't be removed");
     }
     await client.query(`DELETE FROM "teams" WHERE "id" = $1`, [teamId]);
     // Leaving the league gives up commissioner powers with it.
@@ -97,6 +117,14 @@ async function removeTeam({ leagueId, userId, teamId }) {
  * Commissioner force-sets any team's lineup for a week. Bypasses ownership
  * and lineup locks, but still validates slot counts and eligibility so the
  * result is a legal lineup.
+ *
+ * A week before the league's current week is settled and refused outright
+ * (409), mirroring the manager path's own past-week guard: once a matchup is
+ * final its lineups are the record of the week as played, never a working
+ * lineup, so the force path may not edit one. matchups.final has a single
+ * writer that advances current_week in the same transaction, so
+ * `week < current_week` is equivalent to "settled" here and needs no matchup
+ * lookup of its own.
  */
 async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
   if (!Array.isArray(moves) || moves.length === 0) {
@@ -113,6 +141,9 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
     if (!teamResult.rows[0]) throw new CommissionerError(404, 'team not found in this league');
     const season = league.current_season;
     const targetWeek = week || league.current_week;
+    if (targetWeek < league.current_week) {
+      throw new CommissionerError(409, 'cannot edit a settled week');
+    }
 
     await materializeLineup(client, { leagueId, teamId, season, week: targetWeek });
     const entriesResult = await client.query(
@@ -289,6 +320,20 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
       // closed. There is no roster to keep anything from.
       throw new CommissionerError(409, "this is a pick'em league; it has no rosters or keepers");
     }
+    const pickemResult = pickemOnly
+      ? await pickemSeasonResultOf({ db: client, leagueId, season: league.current_season })
+      : null;
+    if (pickemResult?.outcome === PICKEM_RESULT_OUTCOME.MISSING) {
+      throw new CommissionerError(
+        409,
+        `Pick'em season result is missing for league ${leagueId}, season ${league.current_season}`,
+        {
+          code: 'PICKEM_SEASON_RESULT_MISSING',
+          leagueId,
+          season: Number(league.current_season),
+        }
+      );
+    }
 
     const teamsResult = await client.query(
       `SELECT "id", "name", "owner_id" FROM "teams" WHERE "league_id" = $1`,
@@ -300,14 +345,10 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
     let championTeamId;
     let championUserId;
     if (pickemOnly) {
-      // A pick'em-only league has no matchups or rosters: the season record
-      // is the pick'em standings, the champion is whoever season completion
-      // crowned (the pickem_champion trophy rows, first of the co-champions
-      // on a tie), and those rows are the awards. Reading the empty matchup
-      // table here would have crowned standings[0] of an all-zero table, an
-      // arbitrary team. The declared champion is read back rather than
-      // recomputed: a recap landing after completion must not make history
-      // name a different winner than the trophy and the notification did.
+      // A pick'em-only league has no matchups or rosters. Its current table is
+      // archived as standings, while the immutable season result supplies the
+      // complete historical champion set. Trophies remain display projections
+      // and never participate in this decision.
       // The season's games are read on the pool, not this client: the recap
       // probe inside getSeasonSlate swallows a missing-table error, which
       // inside an open transaction would poison every statement after it.
@@ -321,20 +362,14 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         return { ...row, teamId: team ? team.id : null, name: team ? team.name : row.teamName };
       });
       rosters = [];
-      const declared = await getPickemChampionTeamIds({
-        db: client, leagueId, season: league.current_season,
-      });
-      if (declared.length > 0) {
-        championTeamId = declared[0];
-        championUserId =
-          teamsResult.rows.find((team) => team.id === championTeamId)?.owner_id || null;
-      } else {
-        // Nothing was crowned (no picks resolved, or the winner had no teams
-        // row): the best answer left is the leader as the table stands.
-        const champion = pickemChampions(final.standings)[0] || null;
-        championUserId = champion ? champion.userId : null;
-        championTeamId = teamByOwner.get(championUserId)?.id || null;
-      }
+      const firstChampion = pickemResult.outcome === PICKEM_RESULT_OUTCOME.CHAMPIONS
+        ? pickemResult.champions[0]
+        : null;
+      const currentChampionTeam = firstChampion
+        ? teamsResult.rows.find((team) => team.id === firstChampion.teamId)
+        : null;
+      championTeamId = currentChampionTeam ? currentChampionTeam.id : null;
+      championUserId = currentChampionTeam ? currentChampionTeam.owner_id : null;
     } else {
       const matchupsResult = await client.query(
         `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2`,
@@ -396,14 +431,15 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
 
     await client.query(
       `INSERT INTO "league_history"
-         ("league_id", "season", "champion_team_id", "champion_user_id", "standings", "rosters", "awards")
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ("league_id", "season", "champion_team_id", "champion_user_id", "standings", "rosters", "awards", "pickem_result")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT ("league_id", "season")
        DO UPDATE SET "champion_team_id" = EXCLUDED."champion_team_id",
                      "champion_user_id" = EXCLUDED."champion_user_id",
                      "standings" = EXCLUDED."standings",
                      "rosters" = EXCLUDED."rosters",
-                     "awards" = EXCLUDED."awards"`,
+                     "awards" = EXCLUDED."awards",
+                     "pickem_result" = EXCLUDED."pickem_result"`,
       [
         leagueId,
         league.current_season,
@@ -412,6 +448,7 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         JSON.stringify(standings),
         JSON.stringify(rosters),
         JSON.stringify(awardsResult.rows),
+        pickemResult ? JSON.stringify(pickemResult) : null,
       ]
     );
 
@@ -434,6 +471,24 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         );
       } else {
         await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
+      }
+
+      // The lineup follows the roster (#197). This is the one removal path
+      // that prunes in a single bulk statement rather than player by player,
+      // so the pairs it removed are derived from the roster read above
+      // rather than being at hand. A path modelled on the other five - one
+      // call beside one delete - would silently clean nothing here.
+      //
+      // It runs against the season being ARCHIVED (the league row is still
+      // pre-rollover), which is the season those rows belong to. In practice
+      // it removes little: a completed season's current week has played, so
+      // the kickoff guard keeps its rows, and there is rarely a later week.
+      const keptPairs = new Set(keeperPairs.map(([teamId, playerId]) => `${teamId}:${playerId}`));
+      for (const row of rosters) {
+        if (keptPairs.has(`${row.team_id}:${row.player_id}`)) continue;
+        await lineupService.removeLineupEntries(client, {
+          league, teamId: row.team_id, playerId: row.player_id,
+        });
       }
 
       await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
@@ -616,12 +671,10 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         [teamId, playerId]
       );
       if (deleted.rowCount === 0) throw new CommissionerError(404, 'player is not on that roster');
-      await placeOnWaivers(client, {
-        leagueId,
-        playerId,
-        waiverPeriodHours: league.waiver_period_hours,
-        droppedByTeamId: teamId,
-      });
+      // A forced drop is still a drop: the lineup follows the roster, and
+      // the hold records what it interrupted so the undo can replay it
+      // (#197). It is undoable on the same hold as a manager drop.
+      await placeOnWaiversUndoable(client, { league, teamId, playerId });
     }
 
     await logTransaction(client, {

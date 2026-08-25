@@ -28,10 +28,11 @@ import CloseIcon from '@mui/icons-material/Close';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import { visuallyHidden } from '@mui/utils';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
-import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { SORT_FIELDS } from './sortFields';
@@ -43,18 +44,46 @@ import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 // empty result for an unused week is a normal, honest "no match", not a bug.
 const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 
-// SORT_FIELDS drives the mobile "Sort by" Select below (issue 122 acceptance
-// criterion 4: mobile keeps the full sort capability, not a stripped-down
-// view of it) - see sortFields.js for why it's shared with usePlayerPool's
-// own `?sort=` URL validation rather than defined here.
+// SORT_FIELDS drives both the mobile "Sort by" Select below and the desktop
+// table's TableSortLabel header row (issue 122 acceptance criterion 4:
+// mobile keeps the full sort capability, not a stripped-down view of it; issue
+// #163: the desktop headers used to hardcode this same key/label pairing a
+// second time, free to drift from usePlayerPool's `?sort=` URL validation -
+// see sortFields.js for why the list lives there instead of here) so all
+// three - validation, the mobile select, and the desktop headers - read one
+// list and can't drift apart again.
 //
-// Known duplication (code-review finding, deferred rather than expanding
-// this PR further): the desktop table's six TableSortLabel headers below
-// hardcode this same key/label pairing individually inline in their own
-// JSX. Unifying the two would mean making the header row itself
-// data-driven off this same list, which touches that stable, already
-// well-tested markup - a follow-up, not a change to make alongside a
-// layout PR.
+// RIGHT_ALIGNED_SORT_KEYS below is presentation-only (which sortable columns
+// are numeric and get the right-aligned header treatment: a label:definition
+// accessible name and a hover/focus tooltip, the same STAT_DEFINITIONS-keyed
+// pattern AbbreviationTooltip supplies everywhere else in this table - built
+// inline in SortableHeaderCell rather than by nesting an AbbreviationTooltip
+// inside it, because that nesting gave every numeric header two Tab stops
+// instead of one: AbbreviationTooltip's own focusable span nested inside the
+// header's already-focusable TableSortLabel (issue #212)) - not a second
+// list of sortable fields, since it's keyed off SORT_FIELDS' own keys rather
+// than repeating them. That said, it is its own hand-maintained membership
+// list, and the "can't drift apart again" guarantee above is about the
+// key/label pairing only - it does nothing to protect this Set. A numeric
+// SORT_FIELDS key missing here doesn't just render left-aligned: it's what
+// decides whether the header gets a definition at all, so the header renders
+// unwrapped and a screen-reader user gets a bare abbreviation with no
+// definition, silently (issue #211). Tests assert the accessible name of all
+// four current members (Bye, ADP, Pos rank, 17-game pace), so dropping any
+// one of them fails a test; a separate test catches a stray key added here
+// that isn't a SORT_FIELDS key (a dead entry, never rendered, rather than a
+// crash). Neither test derives this list from SORT_FIELDS - adding a new
+// numeric SORT_FIELDS entry still means remembering to add its key here and
+// a matching accessible-name assertion.
+const RIGHT_ALIGNED_SORT_KEYS = new Set(['bye_week', 'adp', 'position_rank', 'proj']);
+
+// Keyed lookup onto SORT_FIELDS (code-review finding on issue #163: the
+// header row below places each SortableHeaderCell by key rather than by
+// SORT_FIELDS' array position/slice, so reordering SORT_FIELDS - which only
+// needs to stay meaningful for the mobile "Sort by" Select's option order -
+// can't silently desync the desktop headers from the TableBody's own,
+// independently fixed column sequence).
+const sortFieldsByKey = Object.fromEntries(SORT_FIELDS.map((field) => [field.key, field]));
 
 // Applies to every numeric column (Bye, ADP, Pos rank, 17-game pace): fixed-
 // width digit glyphs so a column of numbers lines up instead of drifting with
@@ -83,13 +112,6 @@ export const stickyActionHeadSx = {
 // vertical seam against the row.
 export const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'inherit', zIndex: 1 };
 
-// Opaque zebra striping + hover; the sticky action cell inherits these.
-const stripedRowsSx = {
-  '& tbody tr': { backgroundColor: 'var(--surface)' },
-  '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
-  '& tbody tr:hover': { backgroundColor: 'var(--row-hover)' },
-};
-
 // Fetch the next page once the scroller is within this many pixels of the
 // bottom, so the next window of rows is ready before the user hits the edge.
 const NEAR_BOTTOM_PX = 200;
@@ -110,6 +132,108 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
   const overlap = (byeOverlapByWeek.get(player.bye_week) || []).filter((p) => p.id !== player.id);
   const queued = queue.some((p) => p.id === player.id);
   return { isDrafted, canManualPick, pickUnavailable, overlap, queued };
+}
+
+/** One desktop sortable column header, driven off a single SORT_FIELDS entry
+ * (issue #163) - active/direction/onSort/touch-target behaviour identical to
+ * what the six hardcoded headers had. Numeric columns (RIGHT_ALIGNED_SORT_KEYS)
+ * right-align and carry the same label:definition accessible name and
+ * hover/focus tooltip AbbreviationTooltip supplies everywhere else in this
+ * table (issue #211); Name and NFL Team show their label plain, same as
+ * before.
+ *
+ * The definition is built inline off STAT_DEFINITIONS rather than by nesting
+ * an AbbreviationTooltip inside this header's own TableSortLabel (issue
+ * #212): AbbreviationTooltip's definition span carries its own tabIndex=0,
+ * and nesting it inside TableSortLabel's already-focusable button gave every
+ * numeric header two Tab stops instead of one. Wrapping the WHOLE
+ * TableSortLabel in a Tooltip keeps the tooltip reachable from that single
+ * focusable control instead of dropping it from the tab order - the same
+ * trap #211 was about, just moved rather than fixed.
+ *
+ * numericAriaLabel is passed to TableSortLabel itself, NOT left to
+ * name-from-content, and NOT left to MUI's Tooltip to fill in on its own -
+ * two code-review findings on this issue, both about where an aria-label
+ * ends up winning:
+ *
+ * 1. Wrapping TableSortLabel in <Tooltip title={definition}> without an
+ *    explicit aria-label on TableSortLabel does NOT fall back to computing
+ *    the name from content. MUI's Tooltip (describeChild default: false)
+ *    itself injects `aria-label: title` onto whatever it clones, UNLESS
+ *    the child already carries its own aria-label prop (children.props is
+ *    spread after Tooltip's own props, so an explicit one wins) - so
+ *    omitting it here doesn't restore content-based naming, it just hands
+ *    the override to Tooltip's own auto-injected (and prefix-less) one
+ *    instead of this component's.
+ * 2. Whichever aria-label wins completely replaces the computed name -
+ *    content is never consulted once aria-label is present - so a STATIC
+ *    aria-label (just "label: definition", independent of active/direction)
+ *    silently discards the sibling "sorted ascending"/"sorted descending"
+ *    text below for exactly these four headers. That's the same kind of
+ *    silent loss #211 was about, moved from the definition onto the
+ *    direction announcement. numericAriaLabel is built to include the
+ *    direction phrase whenever this header is active, so there is nothing
+ *    left for it to silently discard.
+ *
+ * The hidden direction Box still renders unconditionally by `active` (not
+ * gated on `alignRight`) so its DOM presence stays a single, uniform rule
+ * across every header - for Name/NFL Team (no aria-label anywhere in their
+ * header) it's what makes the direction reach the name via ordinary
+ * name-from-content; for the numeric headers it's redundant with
+ * numericAriaLabel already saying so, not a second, divergent source of
+ * truth for whether the direction is announced.
+ *
+ * The active column also carries aria-sort - TableCell's sortDirection prop
+ * (MUI renders aria-sort="ascending"/"descending" when it's 'asc'/'desc' and
+ * omits the attribute entirely, rather than writing aria-sort="none", when
+ * it's false) - following the MUI table-sorting example pattern (this
+ * repo's own visuallyHidden convention - see Countdown.jsx and
+ * ReadinessAnnouncer.jsx) for the hidden text. */
+function SortableHeaderCell({ field, sort, dir, onSort }) {
+  const alignRight = RIGHT_ALIGNED_SORT_KEYS.has(field.key);
+  const active = sort === field.key;
+  const direction = active ? dir : 'asc';
+  const definition = STAT_DEFINITIONS[field.label];
+  const sortStatusText = active ? (direction === 'desc' ? 'sorted descending' : 'sorted ascending') : null;
+  const numericAriaLabel = `${field.label}: ${definition || field.label}${sortStatusText ? `, ${sortStatusText}` : ''}`;
+
+  const sortLabel = (
+    <TableSortLabel
+      active={active}
+      direction={direction}
+      onClick={() => onSort(field.key)}
+      sx={MIN_TOUCH_TARGET_SX}
+      {...(alignRight ? { 'aria-label': numericAriaLabel } : {})}
+    >
+      {alignRight ? (
+        <Box
+          component="span"
+          sx={{ ...ABBREVIATION_STYLE }}
+        >
+          {field.label}
+        </Box>
+      ) : (
+        field.label
+      )}
+      {sortStatusText && (
+        <Box component="span" sx={visuallyHidden}>
+          {sortStatusText}
+        </Box>
+      )}
+    </TableSortLabel>
+  );
+
+  return (
+    <TableCell sx={headCellSx} align={alignRight ? 'right' : undefined} sortDirection={active ? dir : false}>
+      {alignRight ? (
+        <Tooltip title={definition || field.label} arrow>
+          {sortLabel}
+        </Tooltip>
+      ) : (
+        sortLabel
+      )}
+    </TableCell>
+  );
 }
 
 /** Draft/Queue action row, identical gating logic and shared with the table's action cell. */
@@ -321,8 +445,13 @@ function PlayerPoolTable({
       </Stack>
       <TextField
         size="small"
-        label="Search"
-        placeholder="Search by name…"
+        // The pool's own filter, named apart from the Nav bar's global player
+        // search (issue #123 acceptance criterion 6): this narrows the
+        // available players already on screen; that one looks up any player in
+        // the league's world. Two controls named "Search" on one page left the
+        // difference carried by position alone.
+        label="Filter available"
+        placeholder="Filter by name…"
         value={searchInput}
         onChange={(e) => onSearchInputChange(e.target.value)}
         sx={{ minWidth: 200 }}
@@ -330,7 +459,7 @@ function PlayerPoolTable({
           endAdornment: searchInput ? (
             <IconButton
               size="small"
-              aria-label="Clear search"
+              aria-label="Clear filter"
               onClick={() => onSearchInputChange('')}
               sx={{
                 // Growing this button's own box to 44x44 (like everywhere
@@ -538,70 +667,24 @@ function PlayerPoolTable({
         data-testid="players-scroll-region"
         sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
       >
-        <Table stickyHeader sx={stripedRowsSx}>
+        <Table stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell sx={headCellSx}>
-                <TableSortLabel
-                  active={sort === 'name'}
-                  direction={sort === 'name' ? dir : 'asc'}
-                  onClick={() => onSort('name')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  Name
-                </TableSortLabel>
-              </TableCell>
+              {/* Column order is fixed markup here, same as the equally-fixed
+                  TableBody row below it - each SortableHeaderCell is looked
+                  up by key rather than taken from SORT_FIELDS' array
+                  position, so reordering SORT_FIELDS (its order only has to
+                  stay meaningful for the mobile "Sort by" Select) can't
+                  silently reorder these headers out of step with the body's
+                  independently-fixed column sequence. Position and Actions
+                  are the two non-sortable columns and aren't in SORT_FIELDS. */}
+              <SortableHeaderCell field={sortFieldsByKey.name} sort={sort} dir={dir} onSort={onSort} />
               <TableCell sx={headCellSx}>Position</TableCell>
-              <TableCell sx={headCellSx}>
-                <TableSortLabel
-                  active={sort === 'nfl_team'}
-                  direction={sort === 'nfl_team' ? dir : 'asc'}
-                  onClick={() => onSort('nfl_team')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  NFL Team
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'bye_week'}
-                  direction={sort === 'bye_week' ? dir : 'asc'}
-                  onClick={() => onSort('bye_week')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="Bye" />
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'adp'}
-                  direction={sort === 'adp' ? dir : 'asc'}
-                  onClick={() => onSort('adp')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="ADP" />
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'position_rank'}
-                  direction={sort === 'position_rank' ? dir : 'asc'}
-                  onClick={() => onSort('position_rank')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="Pos rank" />
-                </TableSortLabel>
-              </TableCell>
-              <TableCell sx={headCellSx} align="right">
-                <TableSortLabel
-                  active={sort === 'proj'}
-                  direction={sort === 'proj' ? dir : 'asc'}
-                  onClick={() => onSort('proj')}
-                  sx={MIN_TOUCH_TARGET_SX}
-                >
-                  <AbbreviationTooltip term="17-game pace" />
-                </TableSortLabel>
-              </TableCell>
+              <SortableHeaderCell field={sortFieldsByKey.nfl_team} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.bye_week} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.adp} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.position_rank} sort={sort} dir={dir} onSort={onSort} />
+              <SortableHeaderCell field={sortFieldsByKey.proj} sort={sort} dir={dir} onSort={onSort} />
               <TableCell sx={stickyActionHeadSx} align="center">
                 Actions
               </TableCell>

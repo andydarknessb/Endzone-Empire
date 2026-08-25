@@ -278,14 +278,22 @@ test('POST /join (invite code): a completed pick\'em-only league is refused 409 
 
 test('POST /join (invite code): a fantasy league past pre-draft is refused 409 draft-started with the historic message', async (t) => {
   const app = makeApp();
-  mockClient(t, [
+  const calls = mockClient(t, [
     ...TXN,
     [/FROM "leagues" WHERE "invite_code" = \$1 FOR UPDATE/, () => ({ rows: [{ ...FANTASY_DRAFTED, invite_code: 'abcdef01' }] })],
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [FANTASY_DRAFTED] })],
+    // #274: the reads and the write a join would need past this guard, so the
+    // count below is an observation and not this fake's unexpected-query throw
+    // standing in for one.
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    [/INSERT INTO "teams"/, () => ({ rows: [{ id: 99 }] })],
   ]);
   const res = await request(app).post('/api/league/join').set('Authorization', authed()).send({ inviteCode: 'abcdef01' });
   assert.equal(res.status, 409);
   assert.deepEqual(res.body, { error: 'league draft already started', reason: 'draft-started' });
+  assert.equal(inserted(calls).length, 0, 'no team was created');
+  assert.equal(committed(calls), false); // complementary only
 });
 
 test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league accepts the team', async (t) => {
@@ -308,12 +316,18 @@ test('POST /join (invite code): an in-season (rolled-over) pick\'em-only league 
 
 test('POST /:id/join-public: the 409 body carries the reason', async (t) => {
   const app = makeApp();
-  mockClient(t, [
+  const calls = mockClient(t, [
     ...TXN,
     [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [COMPLETED_PICKEM] })],
+    // #274: as above, the write is answered so the absence is observed.
+    [/SELECT 1 FROM "teams"/, () => ({ rows: [] })],
+    [/SELECT COUNT\(\*\)::int AS n FROM "teams"/, () => ({ rows: [{ n: 3 }] })],
+    [/INSERT INTO "teams"/, () => ({ rows: [{ id: 99 }] })],
   ]);
   const res = await request(app).post('/api/league/7/join-public').set('Authorization', authed()).send({});
   assert.equal(res.status, 409, JSON.stringify(res.body));
   assert.equal(res.body.reason, 'season-complete');
   assert.match(res.body.error, /season/i);
+  assert.equal(inserted(calls).length, 0, 'no team was created');
+  assert.equal(committed(calls), false); // complementary only
 });

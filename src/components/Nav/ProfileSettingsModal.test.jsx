@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MockAdapter from 'axios-mock-adapter';
 import apiClient from '../../api/apiClient';
@@ -15,16 +15,6 @@ jest.mock('react-redux', () => ({
 let mock;
 let teamProfileUpdates;
 let handleTeamProfileUpdate;
-
-const setupUser = () => {
-  const user = userEvent.setup();
-  return Object.fromEntries(
-    ['click', 'type', 'upload'].map((method) => [
-      method,
-      (...args) => act(async () => { await user[method](...args); }),
-    ])
-  );
-};
 
 beforeEach(() => {
   mock = new MockAdapter(apiClient);
@@ -50,7 +40,7 @@ const league = {
 
 test('shows the avatar uploader for the selected league', async () => {
   mock.onGet('/api/league').reply(200, [league]);
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await user.click(await screen.findByLabelText('League'));
@@ -77,7 +67,7 @@ test('avatar-only change enables the button and saves just the avatar', async ()
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/logo.png', avatar_static_url: null });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);
@@ -86,7 +76,7 @@ test('avatar-only change enables the button and saves just the avatar', async ()
   const submit = screen.getByRole('button', { name: /^(Save|Rename)$/ });
   expect(submit).toBeDisabled();
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   const file = new File(['bytes'], 'logo.png', { type: 'image/png' });
   await user.upload(input, file);
 
@@ -113,7 +103,7 @@ test('name-only change still renames the team', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPut('/api/team/5').reply(200, { id: 5 });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);
@@ -135,13 +125,13 @@ test('name and avatar changed together fire both requests', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/logo.png', avatar_static_url: null });
   mock.onPut('/api/team/5').reply(200, { id: 5 });
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await selectLeague(user);
 
   await user.type(screen.getByLabelText('New Team Name'), 'Bandits');
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, new File(['bytes'], 'logo.png', { type: 'image/png' }));
 
   await user.click(await screen.findByRole('button', { name: 'Save' }));
@@ -159,7 +149,7 @@ test('partial failure: avatar fails while name saves — reports both, dialog st
   mock.onPost('/api/team/5/avatar').reply(500, { error: 'storage offline' });
   mock.onPut('/api/team/5').reply(200, { id: 5, name: 'Bandits' });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(
     <SnackbarProvider>
       <ProfileSettingsModal open onClose={onClose} />
@@ -168,7 +158,7 @@ test('partial failure: avatar fails while name saves — reports both, dialog st
 
   await selectLeague(user);
   await user.type(screen.getByLabelText('New Team Name'), 'Bandits');
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, new File(['bytes'], 'logo.png', { type: 'image/png' }));
 
   await user.click(await screen.findByRole('button', { name: 'Save' }));
@@ -189,7 +179,7 @@ test('partial failure: avatar fails while name saves — reports both, dialog st
 test('a rapid double-click fires only one save request', async () => {
   mock.onGet('/api/league').reply(200, [league]);
   mock.onPut('/api/team/5').reply(200, { id: 5, name: 'Bandits' });
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={jest.fn()} />);
 
   await selectLeague(user);
@@ -213,12 +203,12 @@ test('staging a file, removing, then picking another file uploads the last file'
   mock.onPost('/api/team/5/avatar').reply(200, { id: 5, avatar_url: 'https://x/second.png', avatar_static_url: null });
   mock.onDelete('/api/team/5/avatar').reply(200, { id: 5, avatar_url: null, avatar_static_url: null });
   const onClose = jest.fn();
-  const user = setupUser();
+  const user = userEvent.setup();
   render(<ProfileSettingsModal open onClose={onClose} />);
 
   await selectLeague(user);
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, new File(['a'], 'first.png', { type: 'image/png' }));
   // Remove the just-staged file...
   await user.click(await screen.findByRole('button', { name: /Remove Alice's Team avatar/i }));
@@ -233,4 +223,45 @@ test('staging a file, removing, then picking another file uploads the last file'
   await waitFor(() => expect(mock.history.post).toHaveLength(1));
   expect(mock.history.delete).toHaveLength(0);
   expect(onClose).toHaveBeenCalled();
+});
+
+// #275: the server refuses account deletion while the caller still OWNS a
+// league (`leagues.owner_id` - the creator alone). A co-commissioner is not
+// blocked. Two hand-maintained strings in this file said "commission"
+// instead, which reads as commissioner and over-states the rule; the copy
+// now says what the rule does. This test pins both of them, because the
+// client message pre-empts the server's own.
+test('the deletion refusal names the leagues the user created, not commissioned', async () => {
+  mock.onGet('/api/league').reply(200, [league]);
+  mock.onDelete('/api/user').reply(409, {
+    code: 'ACCOUNT_OWNS_LEAGUES',
+    message: 'Delete the leagues you created before deleting your account',
+    details: { leagues: [{ id: 1, name: 'Sunday League', team_count: 8 }] },
+  });
+  const user = userEvent.setup();
+  render(
+    <SnackbarProvider>
+      <ProfileSettingsModal open onClose={jest.fn()} />
+    </SnackbarProvider>
+  );
+
+  await user.click(await screen.findByRole('button', { name: 'Delete account' }));
+
+  // The warning shown BEFORE the attempt describes the same creator-only rule.
+  const warning = await screen.findByText(/You must delete leagues you created first/);
+  expect(warning).toBeInTheDocument();
+  expect(warning.textContent).not.toMatch(/leagues you commission/i);
+  // ...and the sentence enumerating what deletion removes has to stay true
+  // now that deletion also revokes the account's co-commissioner grants.
+  // That item is the only one on the list that takes something away from
+  // OTHER people's leagues.
+  expect(warning.textContent).toMatch(/co-commissioner roles/);
+
+  await user.type(screen.getByLabelText(/Type alice to confirm/), 'alice');
+  await user.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+  await waitFor(() => expect(mock.history.delete).toHaveLength(1));
+  const toast = await screen.findByText(/Sunday League/);
+  expect(toast.textContent).toMatch(/leagues you created/);
+  expect(toast.textContent).not.toMatch(/commission/i);
 });

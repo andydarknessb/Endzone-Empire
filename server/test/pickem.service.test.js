@@ -123,7 +123,7 @@ test('applyRecapFinals resolves a game the live table never marked final', () =>
  * Locks and winners                                                   *
  * ------------------------------------------------------------------ */
 
-test('a game locks INCLUSIVELY at kickoff, matching lineup.service lockedNflTeams', () => {
+test('a game locks INCLUSIVELY at kickoff, matching lineup.service lockedPlayerIds', () => {
   const game = { gameKey: 'BUF|MIA', kickoffAt: KICKOFF };
   const at = (ms) => new Date(Date.parse(KICKOFF) + ms);
   assert.equal(pickem.isGameLocked(game, at(-60_000)), false, 'a minute before kickoff');
@@ -398,6 +398,50 @@ test('computePickemStandings ranks by points, then correct picks, then username'
   );
 });
 
+test('computePickemStandings gives co-champions competition ranks', () => {
+  const games = [
+    finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10, 1),
+    finalGame('DEN|KC', 'KC', 'DEN', 28, 7, 1),
+  ];
+  const standings = pickem.computePickemStandings({
+    members: [
+      { userId: 1, username: 'zoe' },
+      { userId: 2, username: 'abe' },
+      { userId: 3, username: 'mia' },
+    ],
+    games,
+    picks: [
+      { userId: 1, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+      { userId: 1, week: 1, gameKey: 'DEN|KC', pickedTeam: 'KC' },
+      { userId: 2, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+      { userId: 2, week: 1, gameKey: 'DEN|KC', pickedTeam: 'KC' },
+      { userId: 3, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' },
+      { userId: 3, week: 1, gameKey: 'DEN|KC', pickedTeam: 'DEN' },
+    ],
+    mode: 'straight',
+  });
+
+  assert.deepEqual(
+    standings.map((row) => [row.rank, row.username, row.points, row.correct]),
+    [[1, 'abe', 2, 2], [1, 'zoe', 2, 2], [3, 'mia', 1, 1]]
+  );
+});
+
+test('computePickemStandings keeps all-zero standings sequential', () => {
+  const standings = pickem.computePickemStandings({
+    members: [
+      { userId: 1, username: 'zoe' },
+      { userId: 2, username: 'abe' },
+      { userId: 3, username: 'mia' },
+    ],
+  });
+
+  assert.deepEqual(
+    standings.map((row) => [row.rank, row.username, row.points, row.correct]),
+    [[1, 'abe', 0, 0], [2, 'mia', 0, 0], [3, 'zoe', 0, 0]]
+  );
+});
+
 test('computePickemStandings carries per-week points for the standings UI', () => {
   const standings = pickem.computePickemStandings({
     members: [{ userId: 2, username: 'abe' }, { userId: 9, username: 'zoe' }],
@@ -498,10 +542,10 @@ test('getWeekView hides unlocked picks and reveals locked ones', async (t) => {
     if (text.includes('FROM "pickem_picks"')) {
       return {
         rows: [
-          { user_id: 9, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: 2, username: 'me' },
-          { user_id: 9, team_pair: 'DEN|KC', picked_team: 'KC', confidence: 1, username: 'me' },
-          { user_id: 5, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: 1, username: 'rival' },
-          { user_id: 5, team_pair: 'DEN|KC', picked_team: 'DEN', confidence: 2, username: 'rival' },
+          { user_id: 9, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: 2, username: 'me', teamId: 90, teamName: 'My Team' },
+          { user_id: 9, team_pair: 'DEN|KC', picked_team: 'KC', confidence: 1, username: 'me', teamId: 90, teamName: 'My Team' },
+          { user_id: 5, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: 1, username: 'rival', teamId: 50, teamName: 'Rival Team' },
+          { user_id: 5, team_pair: 'DEN|KC', picked_team: 'DEN', confidence: 2, username: 'rival', teamId: 50, teamName: 'Rival Team' },
         ],
       };
     }
@@ -517,8 +561,12 @@ test('getWeekView hides unlocked picks and reveals locked ones', async (t) => {
   ]);
   assert.equal(view.myPicks.length, 2, 'my own picks are always mine to see');
   assert.deepEqual(Object.keys(view.othersPicks), ['DAL|WAS']);
+  // Team identity rides beside the author's account fields (#112, parent #108).
   assert.deepEqual(view.othersPicks['DAL|WAS'], [
-    { userId: 5, username: 'rival', gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: 1 },
+    {
+      userId: 5, username: 'rival', teamId: 50, teamName: 'Rival Team',
+      gameKey: 'DAL|WAS', pickedTeam: 'WAS', confidence: 1,
+    },
   ]);
 });
 
@@ -565,8 +613,20 @@ test('putSettings refuses a mode change once the season has picks', async (t) =>
       return true;
     }
   );
+  // #274: count, not boolean. ROLLBACK is the complementary check; the upsert
+  // count is the load-bearing one, since work followed by a ROLLBACK also
+  // leaves no COMMIT and looks identical from outside.
   assert.ok(calls.some((call) => call.text === 'ROLLBACK'));
-  assert.ok(!calls.some((call) => /INSERT INTO "pickem_settings"/.test(call.text)));
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "pickem_settings"/.test(call.text)).length,
+    0,
+    'the locked mode was not rewritten'
+  );
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "transactions"/.test(call.text)).length,
+    0,
+    'and no activity row claimed it had been'
+  );
 });
 
 test('putSettings toggles enabled without touching the mode, and logs it', async (t) => {
@@ -586,6 +646,11 @@ test('putSettings toggles enabled without touching the mode, and logs it', async
   assert.ok(calls.some((call) => call.text === 'COMMIT'));
 });
 
+// #274, documented exemption (no write assertion needed): the MODES.includes
+// check at pickem.service.js:538 throws PICKEM_BAD_MODE, above the
+// `await pool.connect()` on :541. No client is checked out, no BEGIN is
+// issued, no statement is dispatched. There is no mutable work behind this
+// refusal for a guard to sink below.
 test('putSettings rejects an unknown mode outright', async () => {
   await assert.rejects(() => pickem.putSettings({ leagueId: 3, mode: 'parlay' }), (error) => {
     assert.equal(error.statusCode, 400);
@@ -624,7 +689,14 @@ test('upsertPicks re-checks the lock INSIDE the transaction', async (t) => {
       return true;
     }
   );
-  assert.ok(!calls.some((call) => /INSERT INTO "pickem_picks"/.test(call.text)));
+  // #274: count, not boolean. This is the case the ticket exists for - the
+  // lock is re-read inside the transaction, so the guard sits one statement
+  // above the upsert and a move down is invisible from the response.
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "pickem_picks"/.test(call.text)).length,
+    0,
+    'no pick was saved for a game that had started'
+  );
   assert.ok(calls.some((call) => call.text === 'ROLLBACK'));
 });
 
@@ -661,14 +733,36 @@ test('upsertPicks bulk-upserts the whole batch in one statement', async (t) => {
 });
 
 test('upsertPicks refuses to write when the league has Pick\'em turned off', async (t) => {
-  mockClient(t, [...TXN, [/FROM "pickem_settings"/, () => ({ rows: [] })]]);
+  // #274. Two changes make the absence below load-bearing rather than
+  // decorative. First, the fixture now answers everything the save would need
+  // past this guard, INSERT included, so the write could genuinely land.
+  // Second, the call carries a REAL pick: with the previous `picks: []` the
+  // batch was empty, so even a guard moved below the upsert would have written
+  // nothing and a zero count would have proved nothing.
+  const calls = mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [] })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['DAL', 'WAS', '2026-09-13T17:00:00.000Z']]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
+  ]);
   await assert.rejects(
-    () => pickem.upsertPicks({ leagueId: 3, userId: 9, season: 2026, week: 1, picks: [] }),
+    () => pickem.upsertPicks({
+      leagueId: 3, userId: 9, season: 2026, week: 1,
+      picks: [{ gameKey: 'DAL|WAS', pickedTeam: 'WAS' }],
+      now: new Date('2026-09-10T01:00:00.000Z'),
+    }),
     (error) => {
       assert.equal(error.statusCode, 403);
       assert.equal(error.code, 'PICKEM_DISABLED');
       return true;
     }
+  );
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "pickem_picks"/.test(call.text)).length,
+    0,
+    'a disabled league stored no picks'
   );
 });
 

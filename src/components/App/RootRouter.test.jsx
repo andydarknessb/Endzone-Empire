@@ -1,12 +1,12 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 
+import RootRouter from './RootRouter';
+
 // Stub both trees so this test exercises only RootRouter's decision, not the
 // full authed app or the lazy public bundle.
 jest.mock('./App', () => () => <div>AUTHED APP</div>);
 jest.mock('../public/PublicApp', () => () => <div>PUBLIC APP</div>);
-
-import RootRouter from './RootRouter';
 
 /**
  * §5 dual-router hard-refresh guarantee: loading a deep public URL directly

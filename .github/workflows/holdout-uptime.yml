@@ -69,9 +69,10 @@ jobs:
     steps:
       - name: Probe holdout and worker health
         env:
+          FORCE_FAIL: ${{ inputs.force_fail }}
           SENTRY_CRON_PING_URL: ${{ secrets.SENTRY_CRON_PING_URL }}
         run: |
-          if [ "${{ inputs.force_fail }}" = "true" ]; then
+          if [ "$FORCE_FAIL" = "true" ]; then
             echo "::error::forced failure to prove the alert channel - this is not an outage"
             exit 1
           fi

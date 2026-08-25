@@ -1,16 +1,16 @@
 import React from 'react';
-import { screen, waitFor, within, act } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { clearPickemSettingsCache, setPickemSettings } from '../../hooks/usePickemSettings';
 import LeagueRules from './LeagueRules';
+import apiClient from '../../api/apiClient';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
-import apiClient from '../../api/apiClient';
 
 const SCORING_DEFAULTS = {
   passing: { yards: 0.04, touchdowns: 4, interceptions: -2 },
@@ -117,7 +117,7 @@ describe('LeagueRules', () => {
 
     await screen.findByRole('region', { name: 'Passing' });
     const passing = screen.getByRole('table', { name: 'Passing scoring' });
-    expect(within(passing).getByText('Touchdown').closest('tr')).toHaveTextContent('6');
+    expect(within(passing).getByRole('row', { name: /Touchdown/ })).toHaveTextContent('6');
     expect(screen.getByText('Customized')).toBeInTheDocument();
   });
 
@@ -126,15 +126,15 @@ describe('LeagueRules', () => {
     renderPage();
     await screen.findByRole('region', { name: 'Passing' });
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
+    await userEvent.click(screen.getByRole('tab', { name: 'Roster' }));
     expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
     expect(screen.getByText('FLEX')).toBeInTheDocument();
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' })); });
+    await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' }));
     expect(screen.getByText('FAAB (Bidding)')).toBeInTheDocument();
     expect(screen.getByText('Week 11')).toBeInTheDocument();
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Season' })); });
+    await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Season' }));
     expect(screen.getByText('14 weeks')).toBeInTheDocument();
     expect(screen.getByText('Disabled')).toBeInTheDocument();
   });
@@ -155,17 +155,48 @@ describe('LeagueRules', () => {
     expect(screen.getByRole('tab', { name: 'Scoring' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('names the commissioner and co-commissioners for every member', async () => {
+  it('names the commissioner and co-commissioners by Team for every member', async () => {
     mockRequests({
       leagueRow: league({
         owner_username: 'alice',
-        co_commissioners: [{ user_id: 9, username: 'bob' }],
+        ownerTeamId: 1,
+        ownerTeamName: 'Ridge Runners',
+        co_commissioners: [{ user_id: 9, username: 'bob', teamId: 2, teamName: 'Harbor Hawks' }],
       }),
     });
     renderPage();
 
-    expect(await screen.findByText('alice · commissioner')).toBeInTheDocument();
-    expect(screen.getByText('bob · co-commissioner')).toBeInTheDocument();
+    // This page is read by every member, so the officials it names are named
+    // by Team; their usernames used to be the label (#113 criterion 4).
+    expect(await screen.findByText('Ridge Runners · commissioner')).toBeInTheDocument();
+    expect(screen.getByText('Harbor Hawks · co-commissioner')).toBeInTheDocument();
+    expect(screen.queryByText(/alice/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bob/)).not.toBeInTheDocument();
+  });
+
+  it('names a co-commissioner who has left the league as a former manager', async () => {
+    // The grant outlives the team: #112 joins LEFT so revoking it stays
+    // possible, and the entry reads back with null Team identity.
+    mockRequests({
+      leagueRow: league({
+        owner_username: 'alice',
+        ownerTeamId: 1,
+        ownerTeamName: 'Ridge Runners',
+        co_commissioners: [{ user_id: 9, username: 'bob', teamId: null, teamName: null }],
+      }),
+    });
+    renderPage();
+
+    expect(await screen.findByText('Former manager · co-commissioner')).toBeInTheDocument();
+  });
+
+  it('names a commissioner who has left their own league as a former manager', async () => {
+    // A league always has a creator, so dropping the chip when they have no
+    // Team would leave a league whose rules nobody appears able to change.
+    mockRequests({ leagueRow: league({ ownerTeamId: null, ownerTeamName: null, co_commissioners: [] }) });
+    renderPage();
+
+    expect(await screen.findByText('Former manager · commissioner')).toBeInTheDocument();
   });
 
   it('offers a retry when the league request fails', async () => {
@@ -182,8 +213,8 @@ describe('LeagueRules', () => {
 
     expect(await screen.findByText(/Unable to load scoring rules: offline/)).toBeInTheDocument();
 
-    await act(async () => { await userEvent.click(screen.getByRole('tab', { name: 'Roster' })); });
-    await waitFor(() => expect(screen.getByText('7 roster spots + up to 1 IR')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('tab', { name: 'Roster' }));
+    expect(await screen.findByText('7 roster spots + up to 1 IR')).toBeInTheDocument();
   });
 });
 

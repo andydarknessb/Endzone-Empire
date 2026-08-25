@@ -16,15 +16,18 @@ jest.mock('../../api/apiClient', () => ({
 
 const leagueResponse = (overrides = {}) => ({
   data: {
+    // The viewer holds Team 1, which is also the league creator's: the
+    // route guard asks ownerTeamId === viewerTeamId (#113, contract #112).
+    viewerTeamId: 1,
     league: {
-      id: 1, name: 'Sunday Ballers', owner_id: 1, draft_status: 'pending', draft_type: 'snake', draft_rotation: 'snake', min_teams: 2,
+      id: 1, name: 'Sunday Ballers', ownerTeamId: 1, draft_status: 'pending', draft_type: 'snake', draft_rotation: 'snake', min_teams: 2,
       roster_limit: 4, roster_slots: [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }],
       bench_slots: 1, ir_slots: 0, position_caps: {}, pick_time_seconds: 60, autodraft_delay_seconds: 10,
       ...overrides,
     },
     teams: [
-      { id: 1, name: "Alice's Team", owner: 'alice', draft_position: 1, faab_remaining: 100, locked: false, draft_ready: true, roster_count: 0, total_points: '0' },
-      { id: 2, name: "Bob's Team", owner: 'bob', draft_position: 2, faab_remaining: 100, locked: false, draft_ready: false, roster_count: 0, total_points: '0' },
+      { id: 1, teamId: 1, name: "Alice's Team", teamName: "Alice's Team", owner: 'alice', draft_position: 1, faab_remaining: 100, locked: false, draft_ready: true, roster_count: 0, total_points: '0' },
+      { id: 2, teamId: 2, name: "Bob's Team", teamName: "Bob's Team", owner: 'bob', draft_position: 2, faab_remaining: 100, locked: false, draft_ready: false, roster_count: 0, total_points: '0' },
     ],
   },
 });
@@ -366,7 +369,11 @@ test('saving keeper settings preserves and continues guarding unsaved assignment
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Save keeper settings?' })).not.toBeInTheDocument());
   expect(keeperLoads).toBe(1);
   expect(screen.getByLabelText('Round')).toHaveTextContent('2');
-  await act(async () => {});
+  // The settings save clears its own dirty flag and leaves the assignment one
+  // standing, and the panel leaves its saving state once the follow-up refetch
+  // has settled. Waiting for that (the idiom the reload-once test above uses)
+  // keeps the dialog below reading off a settled panel.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save keeper settings' })).toBeEnabled());
 
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   expect(screen.getByRole('dialog', { name: /You have unsaved changes/ })).toBeInTheDocument();

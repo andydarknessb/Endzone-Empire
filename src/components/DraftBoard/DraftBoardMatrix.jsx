@@ -40,11 +40,6 @@ const stickyRoundCellSx = {
   color: 'text.secondary',
 };
 
-const stripedRowsSx = {
-  '& tbody tr': { backgroundColor: 'var(--surface)' },
-  '& tbody tr:nth-of-type(even)': { backgroundColor: 'var(--row-stripe)' },
-};
-
 /** Remounts (via the returned key) whenever `value` changes after the first render, so a CSS animation can replay. */
 function useFlashKey(value) {
   const prevRef = useRef(value);
@@ -61,9 +56,14 @@ function useFlashKey(value) {
 /**
  * Classic snake-draft matrix: one column per team (draft-position order), one
  * row per round. Cells are keyed off `round-teamId` and derived straight from
- * the picks array (which already carries the server-assigned team_id) — no
- * client-side re-derivation of snake order is needed to place a landed pick,
- * only to know the round a pick_number falls in (ceil(pick_number / teamCount)).
+ * the picks array (which carries the Pick's own `teamId` under the Team
+ * identity contract, #113) — no client-side re-derivation of snake order is
+ * needed to place a landed pick, only to know the round a pick_number falls in
+ * (ceil(pick_number / teamCount)).
+ *
+ * `teams` and `onTheClock` are read as `teamId` / `teamName` for the same
+ * reason: a cell key matches a Pick's Team against a column's Team, so both
+ * sides have to be spelled the same way.
  */
 function DraftBoardMatrix({
   teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false,
@@ -86,7 +86,7 @@ function DraftBoardMatrix({
     if (teamCount === 0) return map;
     picks.forEach((pick) => {
       const round = Math.ceil(pick.pick_number / teamCount);
-      map.set(`${round}-${pick.team_id}`, pick);
+      map.set(`${round}-${pick.teamId}`, pick);
     });
     return map;
   }, [picks, teamCount]);
@@ -105,11 +105,11 @@ function DraftBoardMatrix({
   const newestPickSignature = newestPick ? `${newestPick.pick_number}:${newestPick.player_id}` : null;
   const flashKey = useFlashKey(newestPickSignature);
   const flashCellKey =
-    newestPick && teamCount > 0 ? `${Math.ceil(newestPick.pick_number / teamCount)}-${newestPick.team_id}` : null;
+    newestPick && teamCount > 0 ? `${Math.ceil(newestPick.pick_number / teamCount)}-${newestPick.teamId}` : null;
 
   const nextPickNumber = picks.length + 1;
   const onClockCellKey =
-    onTheClock && teamCount > 0 ? `${Math.ceil(nextPickNumber / teamCount)}-${onTheClock.id}` : null;
+    onTheClock && teamCount > 0 ? `${Math.ceil(nextPickNumber / teamCount)}-${onTheClock.teamId}` : null;
 
   if (teamCount === 0) {
     return (
@@ -132,17 +132,17 @@ function DraftBoardMatrix({
         Draft Board
       </Typography>
       <TableContainer sx={{ overflowX: 'auto' }}>
-        <Table size="small" sx={stripedRowsSx}>
+        <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
               <TableCell component="th" scope="col" sx={stickyRoundHeadSx}>
                 Rd
               </TableCell>
               {orderedTeams.map((team) => {
-                const isOnClockTeam = !!(onTheClock && onTheClock.id === team.id);
+                const isOnClockTeam = !!(onTheClock && onTheClock.teamId === team.teamId);
                 return (
                   <TableCell
-                    key={team.id}
+                    key={team.teamId}
                     component="th"
                     scope="col"
                     sx={{
@@ -152,7 +152,7 @@ function DraftBoardMatrix({
                       minWidth: TEAM_COL_MIN_WIDTH,
                     }}
                   >
-                    {team.name}
+                    {team.teamName}
                     {isOnClockTeam && <Box component="span" sx={{ ml: 0.5 }}>⏱</Box>}
                   </TableCell>
                 );
@@ -166,7 +166,7 @@ function DraftBoardMatrix({
                   {round}
                 </TableCell>
                 {orderedTeams.map((team) => {
-                  const cellKey = `${round}-${team.id}`;
+                  const cellKey = `${round}-${team.teamId}`;
                   const pick = pickByCell.get(cellKey);
                   const isOnClockCell = cellKey === onClockCellKey;
                   const isFlashing = flashKey > 0 && cellKey === flashCellKey;
@@ -183,10 +183,10 @@ function DraftBoardMatrix({
                     );
 
                     return (
-                      <TableCell key={team.id} sx={{ minWidth: TEAM_COL_MIN_WIDTH, p: 0.5 }}>
+                      <TableCell key={team.teamId} sx={{ minWidth: TEAM_COL_MIN_WIDTH, p: 0.5 }}>
                         {readOnly ? (
                           <Box
-                            aria-label={`Round ${round} pick ${pick.pick_number}, ${team.name}: ${pick.name}`}
+                            aria-label={`Round ${round} pick ${pick.pick_number}, ${team.teamName}: ${pick.name}`}
                             sx={{
                               width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
                               gap: 0.5, textAlign: 'left', borderRadius: 1, p: 0.75,
@@ -201,7 +201,7 @@ function DraftBoardMatrix({
                             component="button"
                             type="button"
                             onClick={() => onOpenQuickView(pick.player_id)}
-                            aria-label={`Round ${round} pick ${pick.pick_number}, ${team.name}: ${pick.name}`}
+                            aria-label={`Round ${round} pick ${pick.pick_number}, ${team.teamName}: ${pick.name}`}
                             sx={{
                               width: '100%', display: 'flex', flexDirection: 'column',
                               alignItems: 'flex-start',
@@ -228,10 +228,10 @@ function DraftBoardMatrix({
 
                   return (
                     <TableCell
-                      key={team.id}
+                      key={team.teamId}
                       sx={{ minWidth: TEAM_COL_MIN_WIDTH }}
                       aria-label={
-                        isOnClockCell ? `Round ${round}, ${team.name}: on the clock` : undefined
+                        isOnClockCell ? `Round ${round}, ${team.teamName}: on the clock` : undefined
                       }
                     >
                       <Box

@@ -140,13 +140,20 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   const report = fail(notify);
 
   const grantedIds = new Set((league.co_commissioners || []).map((c) => c.user_id));
-  const teamByOwner = new Map(teams.filter((t) => t.owner_id != null).map((t) => [t.owner_id, t]));
-  // Carry each co-commissioner's team name through so the list identifies
-  // people the same way the picker below it does.
-  const coCommissioners = (league.co_commissioners || []).map((c) => ({
-    ...c,
-    teamName: teamByOwner.get(c.user_id)?.name || null,
-  }));
+  // Each grant already names its own Team: listCoCommissioners LEFT JOINs it
+  // and ships `teamId` / `teamName` (#112), which is what LeagueOfficials
+  // renders. This used to rebuild that join client-side by matching
+  // `c.user_id` against `teams[].owner_id`, re-deriving from account fields an
+  // answer the payload carried (#188) - and overwriting the real `teamName`
+  // with null whenever the rebuild missed.
+  const coCommissioners = league.co_commissioners || [];
+  // Sanctioned direct owner_id comparison: granting a co-commissioner is one
+  // of the three owner-shaped actions leagueRole.service's header enumerates,
+  // and the creator is already the commissioner, so they are never a
+  // candidate. This stays account-id-shaped because the endpoint behind it is:
+  // POST /api/league/:id/co-commissioners takes a `userId`, so the option's
+  // value has to be one. Moving this pair onto Team identity is a client and
+  // server change together, not a client-side rewrite.
   const eligible = teams.filter(
     (team) => team.owner_id != null && team.owner_id !== league.owner_id && !grantedIds.has(team.owner_id)
   );
@@ -255,7 +262,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   );
 }
 
-function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefresh, notify }) {
+function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, onRefresh, notify }) {
   const [sizeMin, setSizeMin] = useState(league.min_teams ?? '');
   const [sizeMax, setSizeMax] = useState(league.max_teams ?? '');
   const [removeTarget, setRemoveTarget] = useState(null);
@@ -330,7 +337,29 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefres
     }
   };
 
-  const removableTeams = teams.filter((team) => team.owner !== user.username);
+  // "Which of these is me" is always a Team ID comparison against the
+  // viewer-relative field (CONTEXT.md, Team identity), never a username or an
+  // owner-user-ID: both leave league-shared payloads under #115, and a
+  // username can change out from under a stale comparison anyway (#185).
+  //
+  // Read `teamId`, the contract name, and not the raw `teams.id` that league
+  // detail still selects beside it (#188): every other "which of these is me"
+  // comparison in src/ reads `teamId`, and this one's failure direction is the
+  // bad one - drop the legacy column and `undefined !== viewerTeamId` is true
+  // for every row, which puts a Remove button on the viewer's own team.
+  //
+  // Both of the server's removal rules, not just the first. removeTeam refuses
+  // a commissioner removing their OWN team, and refuses anyone removing the
+  // CREATOR's (leagueRole.service's invariant; two 409s with separate
+  // messages). Mirroring only the first offered a co-commissioner a button
+  // that could never succeed. For the creator the two coincide, so a
+  // co-commissioner is the viewer that tells them apart. `ownerTeamId` is null
+  // for a creator who has left their own league, and there is then no team of
+  // theirs to protect, so the null must not match every row.
+  const removableTeams = teams.filter(
+    (team) => team.teamId !== viewerTeamId
+      && !(league.ownerTeamId != null && team.teamId === league.ownerTeamId)
+  );
   // A pick'em-only league has no adds, drops, waivers or trades to lock, no
   // draft to freeze team limits behind, and its rollover lives on its own
   // Season tab. Phase comes from the league row alone: the same row every
@@ -396,31 +425,43 @@ function GeneralSettingsPanel({ leagueId, league, teams, user, isOwner, onRefres
         </Box>
       )}
 
-      {removableTeams.length > 0 && (
-        <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
-          <Typography variant="overline" color="error.main">Destructive actions</Typography>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
-          <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
-            {removableTeams.map((team) => (
-              <ListItem
-                key={team.id}
-                secondaryAction={
-                  <IconButton
-                    edge="end"
-                    aria-label={`Remove ${team.name}`}
-                    color="error"
-                    onClick={() => setRemoveTarget(team)}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                }
-              >
-                <ListItemText primary={team.name} secondary={team.owner} />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-      )}
+      {/* Rendered whenever the viewer may remove teams at all, not only when
+          the list has something in it (#188). Two rules keep a team off this
+          list, and hiding the whole section when they empty it - a two-team
+          league of the viewer's and the creator's does exactly that - took the
+          overline, the subheading and the list out of the DOM together, so
+          someone who used this section last week found no trace of it and no
+          reason. The caption below states the rule the list cannot show. */}
+      <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
+        <Typography variant="overline" color="error.main">Destructive actions</Typography>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
+        {/* The server's own refusal, restated rather than reworded: removeTeam
+            raises exactly this on a 409, and that 409 was the only place the
+            rule was ever stated to a user. Keeping the wording identical means
+            the person who hits it by another route reads the same sentence. */}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Your own team and the league creator&apos;s team can&apos;t be removed.
+        </Typography>
+        <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+          {removableTeams.map((team) => (
+            <ListItem
+              key={team.teamId}
+              secondaryAction={
+                <IconButton
+                  edge="end"
+                  aria-label={`Remove ${team.name}`}
+                  color="error"
+                  onClick={() => setRemoveTarget(team)}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              }
+            >
+              <ListItemText primary={team.name} secondary={team.owner} />
+            </ListItem>
+          ))}
+        </List>
+      </Paper>
 
       <Dialog open={!!removeTarget} onClose={() => setRemoveTarget(null)}>
         <DialogTitle>Remove {removeTarget?.name}?</DialogTitle>
@@ -1546,7 +1587,11 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
 const FANTASY_TABS = ['general', 'roster', 'scoring', 'playoffs', 'waivers', 'overrides'];
 const PICKEM_TABS = ['general', 'season'];
 
-function CommissionerTools({ leagueId, league, teams, user, isOwner = true, onRefresh }) {
+// `isOwner` defaults to FALSE, not true (#188). It gates the two powers the
+// creator cannot delegate - deleting the league, and managing this league's
+// co-commissioners - so an unanswered role question has to mean "no". The old
+// default handed both to any caller that forgot the prop.
+function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = false, onRefresh }) {
   const notify = useSnackbar();
   const [selectedTab, setTab] = useState('general');
   // A pick'em-only league has no roster, scoring, schedule, waiver or matchup
@@ -1587,7 +1632,7 @@ function CommissionerTools({ leagueId, league, teams, user, isOwner = true, onRe
       <Box sx={{ p: 2 }}>
         {tab === 'general' && (
           <GeneralSettingsPanel
-            leagueId={leagueId} league={league} teams={teams} user={user} isOwner={isOwner}
+            leagueId={leagueId} league={league} teams={teams} viewerTeamId={viewerTeamId} isOwner={isOwner}
             onRefresh={onRefresh} notify={notify}
           />
         )}

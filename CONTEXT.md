@@ -60,7 +60,10 @@ league holds none)
 
 **Commissioner**:
 A manager authorized to administer a league, either its creator or someone the
-creator has granted the role. A few powers stay with the creator alone.
+creator has granted the role, a co-commissioner. Two powers stay with the
+creator alone: deleting the league, and granting or revoking the role. One
+protection stands alongside them: the creator's team cannot be removed by
+anyone. Separately, no commissioner of either kind may remove their own team.
 _Avoid_: admin, owner, moderator
 
 **League phase**:
@@ -71,12 +74,25 @@ may join, whether settings may still change, whether the season is live. The
 draft's own turn-by-turn state is draft status, not phase. A pick'em-only
 league has no draft and needs its own derivation: it is in-season from the
 moment it is created, then complete, and never pre-draft or drafting.
+Season operations are a phase rule too: they are unavailable to a league that
+is pre-draft or drafting, because there are no rosters yet to schedule or
+score. They become available the moment the draft completes, which is also
+when the schedule is generated, on the same transaction that completes the
+draft.
 _Avoid_: league status, stage, state
+
+**Season operations**:
+The work a league's season needs once its draft is done: generating the
+schedule, scoring each week, and finalizing a week to move the league on.
+Grouped under one name because league phase governs all three with a single
+rule, and because a pick'em-only league has no draft to wait for and so is
+never held back by it.
+_Avoid_: season engine (engine is the projection engine), season progression
 
 **Draft status**:
 Where a draft sits in its own lifecycle: pending (not yet started), active
 (picks are being made), complete. Owned and driven by the draft itself, and
-read directly by the draft room and the draft engine. It is one input to
+read directly by the draft room and the draft workflow. It is one input to
 league phase, never a substitute for it: "may this pick be made" is a draft
 question, "may a team join" is a phase question. A pick'em-only league has no
 draft, so its draft status carries no meaning and is never read.
@@ -230,16 +246,21 @@ slot)
 Which team holds which slot in a draft: the sequence the first round follows,
 from which the draft rotation derives every later round. Settled before the
 draft starts and unchanged once it has. A manager's upcoming picks are
-positions in this order, not a separate thing.
+positions in this order, not a separate thing, and neither is the live
+near-term view of it: a panel showing which picks come next is this order
+windowed at the current pick, derived and never stored. "Upcoming" is copy
+over this concept, not a concept of its own.
 _Avoid_: draft rotation (that is how turns come around, snake or linear), pick
 order, slot order
 
 **Readiness**:
 Which teams have declared themselves ready for a pending draft, counted
-against the league's size. A fact of the pending lobby only; it has no meaning
-once the draft starts. A team that has not declared is Not ready, and once
-most teams are ready that group, not the ready one, is the exception worth
-naming.
+against the Teams in the league, not against its configured size: a Team that
+has not joined has not declined to be ready, and an empty slot cannot appear
+in either list. That the league is not yet full is a separate fact. A fact of
+the pending lobby only; it has no meaning once the draft starts. A team that
+has not declared is Not ready, and once most teams are ready that group, not
+the ready one, is the exception worth naming.
 _Avoid_: holdout (Holdout ledger is an Evaluation term), ready status, lobby
 status
 
@@ -326,6 +347,29 @@ _Avoid_: lineup
 The subset of a roster a team starts in one week, one player per starting slot.
 _Avoid_: roster, starting roster
 
+**Lineup entry**:
+One player's slot on one team's lineup card for one week. A lineup entry
+follows the roster: when a team loses a player, his entries for future weeks
+are removed, and his current-week entry is removed unless his game has already
+kicked off, in which case it stays as the record of the week as played. A week
+whose matchup has settled keeps its entries whatever the schedule says about
+kickoff: a settled week is scored from those entries alone, so removing one
+changes a score the league has already been told. A surviving entry therefore
+means the player was on that roster at kickoff. Only undoing a drop ever puts
+an entry back where it was, and the only slot it puts back is IR: the undo
+replays the stash the drop interrupted, and only while that stash is still
+valid. Anything else, an undo of a stash that stopped qualifying included,
+benches the player like any other acquisition.
+_Avoid_: lineup row, stale row
+
+**Tenure**:
+One team's continuous holding of one player, from the move that brought him
+onto the roster to the move that took him off. A player who leaves and returns
+has two tenures. Whether a team held a player at a kickoff is a question about
+his tenures, never about his lineup entries.
+_Avoid_: membership (a manager's standing in a league), stint, ownership
+period
+
 **Slot**:
 A named place on the lineup card with its own eligibility rule (QB, RB, WR, TE,
 FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
@@ -374,11 +418,14 @@ but not IR-eligible), stashable
 **Attested stash**:
 An IR stash the commissioner has vouched for because the injury feed is
 wrong about its occupant, recorded on the lineup entry by the force-set
-path. A stash is **valid** when its occupant is IR-eligible or the entry is
-attested; a valid stash grants capacity, is never flagged or nagged, and
-carries forward across weeks. The attestation ends the moment the manager
-makes any slot move on that player - from that week forward, never
-retroactively - after which the normal eligibility gate governs.
+path and, when an undoable drop interrupts it, copied onto the dropped
+player's waiver hold for the life of that hold so the undo can put it back.
+A waiver-claim drop is not undoable and copies nothing. A stash is
+**valid** when its occupant is IR-eligible or the entry is attested; a valid
+stash grants capacity, is never flagged or nagged, and carries forward across
+weeks. The attestation ends the moment the manager makes any slot move on
+that player - from that week forward, never retroactively - after which the
+normal eligibility gate governs.
 _Avoid_: forced stash, override flag
 
 **Lineup lock**:
@@ -442,6 +489,22 @@ must be scored several ways at once, as in holdout capture and the backtest. A
 profile is never a particular league's rules.
 _Avoid_: preset
 
+**Score of record**:
+The score a week is settled with: written once when the commissioner advances
+the week, never recomputed from a later roster, and returned unchanged by every
+later re-score of that week.
+_Avoid_: final score (a matchup's NFL-style total), official score
+
+**Settle pass**:
+The scoring run that produces the score of record. It counts the week's lineup
+entries as played and excludes a player unless one of the team's tenures covered
+his game's kickoff: began at or before it and had not ended by it. A tenure
+that began after kickoff and one that ended before it are both excluded; a
+player with no game that week is never excluded. The same predicate governs a
+re-score of a final week. Distinct from live scoring (the current roster, every
+few minutes).
+_Avoid_: final scoring, finalize (the step that follows it)
+
 **Advance week**:
 The commissioner action that closes out the current week: finalizes scores,
 settles standings, awards trophies and opens the next week.
@@ -463,6 +526,12 @@ pick'em league. Independent of rosters and matchups; each pick locks at its
 own game's kickoff.
 
 ### The projection engine
+
+Engine, unqualified, always means this one, here and throughout Evaluation. The
+machinery that moves a league through its own lifecycle is named for what it
+does instead: draft workflow, pick'em season workflow, live scoring, rollover,
+season operations. Only the last has an entry of its own, because it is the
+only one that groups things a reader would not otherwise group.
 
 **Endzone Forecast**:
 The name the product gives its projection engine: what managers see on the

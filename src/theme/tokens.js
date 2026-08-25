@@ -32,7 +32,12 @@ export const colorTokens = {
     success: '#1b7d4f',
     danger: '#c62828',
     warning: '#8a5a00',
-    'focus-ring': 'rgba(30, 91, 184, 0.55)',
+    // Opaque (not alpha) so the ratio against each surface it can sit on is
+    // fixed: one measurement covers every surface, where an alpha would need
+    // one per backdrop it composites over (tokens.contrast.test.js can measure
+    // those since #203, but the ring wants a single answer). This is `accent`
+    // with the alpha dropped. See #155.
+    'focus-ring': '#1e5bb8',
     overlay: 'rgba(15, 20, 25, 0.5)',
     // Fantasy position palette (data encoding). Light theme: saturated, dark
     // enough to carry white (`text-inverse`) chip/avatar labels at AA.
@@ -63,18 +68,34 @@ export const colorTokens = {
     'text-inverse': '#0f1419',
     'border-subtle': '#2a3441',
     'border-strong': '#3a4756',
-    // Lightened from #4f8cff, which cleared AA on `bg-page`/`surface` but came
-    // in at 4.4:1 against `surface-raised` — the app bar, where the active nav
-    // link lives. See tokens.contrast.test.js.
-    accent: '#5c93ff',
-    'accent-hover': '#7fb0ff',
-    'accent-soft': 'rgba(92, 147, 255, 0.16)',
+    // Lightened twice from an original #4f8cff, both times for the same
+    // surface. First to #5c93ff, which cleared AA on `bg-page`/`surface` but
+    // came in at 4.4:1 against `surface-raised` (the app bar). That value held
+    // for the *base* app-bar pairing, but #203 taught the contrast guard to
+    // composite alpha over a named backdrop and exposed a pairing nobody could
+    // measure before: the Nav link hover, `accent` on `accent-soft` (accent at
+    // alpha 0.16) over that same `surface-raised`, which measured 3.75:1 — the
+    // tint moves the effective background lighter without moving the text, so
+    // the underlying base pairing had never captured it. Lightened a second
+    // time to #7eaaff so the hover composite clears AA too (#237); see
+    // tokens.contrast.test.js for the asserted pairing and every other ratio
+    // this move touches. That second lightening left `accent-hover` almost
+    // indistinguishable from `accent` (1.05:1, down from ~1.35:1): nothing
+    // asserted the resting/hover delta, so the regression shipped unnoticed.
+    // Lightened `accent-hover` to #a9c6ff to restore a ~1.34:1 delta while
+    // keeping `on-accent` on it near 10.88:1 and its own ratio against
+    // `surface-raised` near 8.23:1 (#267); see tokens.contrast.test.js.
+    accent: '#7eaaff',
+    'accent-hover': '#a9c6ff',
+    'accent-soft': 'rgba(126, 170, 255, 0.16)',
     'on-accent': '#0b1220',
     secondary: '#7ee2a8',
     success: '#7ee2a8',
     danger: '#ff6b6b',
     warning: '#f0b34e',
-    'focus-ring': 'rgba(92, 147, 255, 0.6)',
+    // Opaque (not alpha); see the light-theme note above and #155. Kept equal
+    // to `accent` through both lightenings (#237).
+    'focus-ring': '#7eaaff',
     overlay: 'rgba(0, 0, 0, 0.6)',
     // Fantasy position palette (data encoding). Dark theme: lighter, brighter
     // fills that carry the dark `text-inverse` label at AA.
@@ -130,9 +151,11 @@ export const scaleTokens = {
   // while keeping the gradient literal in one place.
   'gradient-brand': 'linear-gradient(90deg, var(--accent), var(--secondary))',
   // Fixed light text + dark scrim for content that always sits on a photo
-  // background (UserPage), independent of the active theme.
+  // background (UserPage), independent of the active theme. `scrim` is
+  // asserted at the AA_TEXT (4.5:1) body-text threshold, not the large-text
+  // one `overlay` still holds to; see tokens.contrast.test.js (#238).
   'on-overlay': '#f4f6f8',
-  scrim: 'rgba(0, 0, 0, 0.55)',
+  scrim: 'rgba(0, 0, 0, 0.56)',
 };
 
 export const BORDER_RADIUS = 10; // matches --radius-md; consumed by MUI shape

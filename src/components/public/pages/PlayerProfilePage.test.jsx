@@ -132,7 +132,7 @@ test('shows a points-based Pos rank card with its definition', async () => {
   renderPage();
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
-  expect(screen.getByText('Pos rank').closest('.MuiCardContent-root')).toHaveTextContent('#7');
+  expect(screen.getByTestId('pos-rank-stat-card')).toHaveTextContent('#7');
   const rankDefinition = screen.getByLabelText('Pos rank definition');
   fireEvent.mouseOver(rankDefinition);
   expect(await screen.findByText(
@@ -151,7 +151,7 @@ test('honors a shared ?season= URL for a season the player lacks with a not-avai
   renderPage('/players/42?season=2024');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
-  await waitFor(() => expect(screen.getByText(/No 2024 data for Alpha Back/)).toBeInTheDocument());
+  await screen.findByText(/No 2024 data for Alpha Back/);
   // Not a mismatched-season view: no game table, and the unavailable season
   // is never offered as a toggle button.
   expect(screen.queryByRole('table', { name: 'Game log' })).not.toBeInTheDocument();
@@ -223,9 +223,9 @@ test('hides the scoring-format toggle for a team defense, whose formats are iden
   expect(screen.getAllByText('187').length).toBeGreaterThan(0);
   expect(screen.getByText('2 Sk, 6 PA, 231 YdA')).toBeInTheDocument();
   // A DEF unit has no ADP; the card shows a dash rather than a bogus number.
-  expect(screen.getByText('ADP').closest('.MuiCardContent-root')).toHaveTextContent('-');
+  expect(screen.getByTestId('adp-stat-card')).toHaveTextContent('-');
   // But it does have a points-based position rank.
-  expect(screen.getByText('Pos rank').closest('.MuiCardContent-root')).toHaveTextContent('#3');
+  expect(screen.getByTestId('pos-rank-stat-card')).toHaveTextContent('#3');
 });
 
 test('hides the scoring-format toggle for an individual defender too', async () => {
@@ -247,7 +247,7 @@ test('hides the scoring-format toggle for an individual defender too', async () 
   expect(screen.queryByRole('button', { name: 'Full PPR' })).not.toBeInTheDocument();
   expect(screen.getByText('6 Solo, 3 Ast, 1 Sk')).toBeInTheDocument();
   // Without a season rollup the rank degrades to the same dash as ADP.
-  expect(screen.getByText('Pos rank').closest('.MuiCardContent-root')).toHaveTextContent('-');
+  expect(screen.getByTestId('pos-rank-stat-card')).toHaveTextContent('-');
 });
 
 test('keeps the scoring-format toggle for a pass-catching position', async () => {
@@ -262,7 +262,7 @@ test('switching to the pending upcoming season renders a not-started state, not 
 
   fireEvent.click(screen.getByRole('button', { name: /2026/ }));
 
-  await waitFor(() => expect(screen.getByText(/season hasn.t started yet/i)).toBeInTheDocument());
+  await screen.findByText(/season hasn.t started yet/i);
   // No stat cards / game table in the pending state.
   expect(screen.queryByText(/Weekly breakdown is partial/)).not.toBeInTheDocument();
   expect(screen.queryByRole('table', { name: 'Game log' })).not.toBeInTheDocument();

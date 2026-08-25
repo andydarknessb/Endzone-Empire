@@ -93,7 +93,7 @@ test('a red-tinted error tile shows the last error message and time when errorsS
   renderScreen();
 
   await screen.findByRole('heading', { name: 'Admin Dashboard' });
-  expect(screen.getByText('Errors Since Boot').closest('.MuiPaper-root')).toHaveTextContent('4');
+  expect(screen.getByTestId('errors-since-boot-tile')).toHaveTextContent('4');
   expect(screen.getByText(/ECONNREFUSED/)).toBeInTheDocument();
   expect(screen.getByText(/Sentry: not configured/)).toBeInTheDocument();
 });

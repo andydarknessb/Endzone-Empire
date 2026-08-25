@@ -60,8 +60,8 @@ test('shows each player\'s bye week, with an em dash when the schedule is unknow
 
   await screen.findByText('Alpha Runner');
   expect(screen.getByText('Bye')).toBeInTheDocument();
-  expect(within(screen.getByText('Alpha Runner').closest('tr')).getByText('10')).toBeInTheDocument();
-  expect(within(screen.getByText('Bravo Receiver').closest('tr')).getByText('-')).toBeInTheDocument();
+  expect(within(screen.getByRole('row', { name: /Alpha Runner/ })).getByText('10')).toBeInTheDocument();
+  expect(within(screen.getByRole('row', { name: /Bravo Receiver/ })).getByText('-')).toBeInTheDocument();
 });
 
 test('position selection filters API-shaped mixed rows before tier computation', async () => {

@@ -3,6 +3,7 @@ const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
+const { normalizeNflTeam } = require('./nflTeam');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -116,12 +117,49 @@ function entriesForLineupValidation(entries, league) {
 }
 
 /**
+ * Is this (team, week) closed to new lineup rows? True only when the team's
+ * OWN matchup for that week is final (#106).
+ *
+ * Absence of a matchup row is deliberately not finality: a team on a bye, or
+ * any week before the schedule exists, has nothing to be final and must keep
+ * materializing exactly as before. Another matchup being final says nothing
+ * about a team that did not play in it, so the team is matched on either side
+ * of its own game rather than on the week as a whole.
+ */
+async function isFinalWeekForTeam(client, { leagueId, teamId, season, week }) {
+  const result = await client.query(
+    `SELECT 1 FROM "matchups"
+     WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true
+       AND ("home_team_id" = $4 OR "away_team_id" = $4)
+     LIMIT 1`,
+    [leagueId, season, week, teamId]
+  );
+  return result.rows.length > 0;
+}
+
+/**
  * Ensure every player currently on the team's roster has a lineup_entries row
  * for (season, week). First touch of a week copies slots forward from the
  * team's most recent earlier week; players without history default to BENCH.
  * Must run inside the caller's transaction (client).
+ *
+ * A FINAL week is frozen (#106): its rows are the record of the week as
+ * played, never a working lineup, so nothing materializes into one. The guard
+ * lives here rather than at each caller because a final week must be closed
+ * on EVERY path that reaches this function, and because the next caller added
+ * must inherit that for free rather than having to remember it. Without it, a
+ * player acquired in the routine window between the last whistle and the
+ * commissioner's advance gets a row in the finished week and is then paid for
+ * it by the next re-score: a stat correction or a manual score call silently
+ * rewrites a score that was already settled.
+ *
+ * This does not change how a live week scores, and it does not cost the
+ * acquired player his bench spot: the new current week has no row for him
+ * either, so its first touch materializes him onto the bench (#97 / PR #102).
  */
 async function materializeLineup(client, { leagueId, teamId, season, week }) {
+  if (await isFinalWeekForTeam(client, { leagueId, teamId, season, week })) return;
+
   const rosterResult = await client.query(
     `SELECT "team_players"."player_id", "players"."position"
      FROM "team_players" JOIN "players" ON "players"."id" = "team_players"."player_id"
@@ -165,10 +203,14 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
 /**
  * An acquired player never arrives in the IR slot (#94, user story 13): a
  * player gained by draft pick, waiver, trade, commissioner add or free agency
- * cannot bypass the placement gate. Lineup rows outlive a drop, so without
- * this a re-add would sit straight back in his old stash (his surviving
- * current-week row) or have it revived by `materializeLineup`'s copy-forward
- * on a later week's first touch.
+ * cannot bypass the placement gate.
+ *
+ * A lineup entry follows the roster now (#197), so an ordinary departure no
+ * longer leaves a stash behind for a re-add to sit straight back into. Two
+ * routes to an IR row still reach this function, and both need closing: a
+ * POST-KICKOFF departure keeps its current-week row deliberately, and
+ * `materializeLineup`'s copy-forward can carry an IR slot into a later week
+ * from an earlier one he was stashed in.
  *
  * Two steps, in this order. First the current week is materialized, so it is
  * a complete week (never a lone row the next copy-forward would read as its
@@ -180,8 +222,9 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
  * history and stay as they were.
  *
  * `undoDrop` calls this only when the stash it would restore is no longer
- * valid (`undoRestoresStash`); otherwise an undo restores the stash it
- * interrupted, which is what `rosterCapacity`'s `restoredPlayerIds` credits.
+ * valid (`undoRestoresStash`); otherwise an undo replays the stash its drop
+ * interrupted, from the record on the waiver hold, which is also what
+ * `rosterCapacity`'s `restoredPlayerIds` credits.
  * Must run inside the caller's transaction, after the roster write.
  */
 async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
@@ -195,26 +238,368 @@ async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
 }
 
 /**
- * The set of NFL team names whose game for (season, week) has kicked off —
- * players on those teams are locked. Empty schedule means nothing is locked.
+ * A lineup entry follows the roster (#197). When a team loses a player - by
+ * drop, waiver claim, commissioner drop, trade, undone draft pick or the
+ * keeper-pruning season rollover - his entries for that team go with him:
+ *
+ *   - every FUTURE week, always: he is not on the roster, so the row is noise
+ *     that no reader should ever see;
+ *   - the CURRENT week, unless BOTH his NFL game for it has already kicked
+ *     off (by the same predicate the lineup lock uses, `lockedPlayerIds`, so
+ *     no game row that week means not locked, and a DEF unit is answered the
+ *     same way as anyone else, #227) AND a tenure of this team
+ *     covered that kickoff (#228);
+ *   - PAST weeks, never: they are the record of the week as played (#106).
+ *
+ * A surviving current-week row therefore means "he was on this roster at
+ * kickoff", which is what every reader of a played week assumes. Deleting it
+ * unconditionally would be the same disappearance #190 exists to prevent: a
+ * starter dropped on Sunday night would lose his row and with it his points.
+ *
+ * The tenure half is what makes that sentence true rather than nearly true.
+ * Kickoff alone spares the row of a player acquired AFTER his game was
+ * played and dropped again, leaving behind evidence of a week he did not
+ * play here; the #197 invariant then quietly means "his team's schedule had
+ * started", which is not the same claim and not the one readers rely on.
+ *
+ * A week the team's own matchup has already settled is likewise left alone,
+ * for the reason #106 gives - its rows are the record, not a working lineup,
+ * and a DELETE is a write into it like any other. That only ever bites when
+ * the kickoff question cannot answer (no game row for him that week), which
+ * is a true bye or an unsynced schedule; the second is the one that would
+ * cost real points.
+ *
+ * Runs inside the caller's transaction, after the roster row is gone.
+ *
+ * Six paths call this, and if you are adding a seventh, note that five of
+ * them are one call beside one DELETE of a single roster row. The sixth,
+ * `commissioner.service`'s keeper-pruning rollover, prunes the whole league
+ * in one bulk statement, so it derives the pruned (team, player) pairs from
+ * a roster read taken beforehand and loops. A bulk removal modelled on the
+ * other five cleans nothing and fails no test.
  */
-async function lockedNflTeams(client, { season, week, now = new Date() }) {
+async function removeLineupEntries(client, { league, teamId, playerId, now = new Date() }) {
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  const playerResult = await client.query(
+    `SELECT "nfl_team" FROM "players" WHERE "id" = $1`,
+    [playerId]
+  );
+  const nflTeam = playerResult.rows[0]?.nfl_team;
+  const locked = await lockedPlayerIds(client, {
+    season, week, now, players: [{ id: playerId, nflTeam }],
+  });
+  // Spared only if his game had kicked off AND a tenure of this team covered
+  // that kickoff. "Kicked off" alone is what #197 shipped, and it is not
+  // enough: a player acquired AFTER his game had already been played is
+  // locked by the schedule while having been held for none of it, so his row
+  // would survive as evidence of a week he did not play here (#190). The
+  // tenure just closed by this drop is still visible - the trigger closed it
+  // at `now()`, after kickoff - so it answers for the tenure that is ending.
+  const kickedOff = locked.has(playerId);
+  // Only a kicked-off game can spare the row, so the tenure is only worth
+  // asking about once that is true. A departure before kickoff keeps exactly
+  // the reads it has always made. `sparedByKickoff` therefore already implies
+  // `kickedOff`, and re-testing it below would be dead.
+  const sparedByKickoff = kickedOff && !(await playersNotHeldAtKickoff(client, {
+    teamId, season, week, players: [{ id: playerId, nflTeam }],
+  })).has(playerId);
+  // Finality still wins over both (#106): a settled week's rows are the record,
+  // and a DELETE into one is a write like any other, whatever the tenure says.
+  const removeCurrentWeek = !sparedByKickoff
+    && !(await isFinalWeekForTeam(client, { leagueId, teamId, season, week }));
+  // One statement either way: the current week is spared by the bound
+  // parameter, not by a second query, so there is a single predicate to read
+  // and a single one to get wrong.
+  const result = await client.query(
+    `DELETE FROM "lineup_entries"
+     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3
+       AND ("week" > $4 OR ("week" = $4 AND $5::boolean))`,
+    [teamId, playerId, season, week, removeCurrentWeek]
+  );
+  return { removedCurrentWeek: removeCurrentWeek, removed: result.rowCount };
+}
+
+/**
+ * The slot and attestation a player holds on this team in the league's
+ * current week right now, or null when he has no row there. A drop reads it
+ * before `removeLineupEntries` takes the row away, so the waiver hold can
+ * record what the drop interrupted and an undo can replay it (#197).
+ */
+async function currentWeekEntry(client, { league, teamId, playerId }) {
+  const result = await client.query(
+    `SELECT "slot", "ir_attested" FROM "lineup_entries"
+     WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" = $4`,
+    [teamId, playerId, league.current_season, league.current_week]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * A `currentWeekEntry` result as the waiver hold's interrupted-stash fields
+ * (#197). One mapping, shared by the two drops that are undoable, so "he had
+ * no current-week entry" is spelled the same way at both.
+ */
+function interruptedStashFields(entry) {
+  return {
+    interruptedSlot: entry ? entry.slot : null,
+    interruptedIrAttested: Boolean(entry && entry.ir_attested),
+  };
+}
+
+/**
+ * Undoing a drop puts the player back in the slot the drop interrupted,
+ * recorded on his waiver hold at drop time (#197). The row itself is gone -
+ * the drop deleted it - so the undo recreates it rather than finding it.
+ *
+ * Materialize first, for the same reason `benchAcquiredPlayer` does: the week
+ * must be complete before it can be the next copy-forward's source. Then the
+ * recorded slot and attestation are written over whatever materialization
+ * left him in.
+ *
+ * This is the one write that a FINAL week does not refuse (#106), and it is
+ * deliberate. `rosterCapacity` has already credited the restored stash by
+ * the time we get here, so declining to write the row would put the player
+ * back on a roster that is only legal because of a stash that does not
+ * exist - reachable whenever a matchup is finalized between the drop and the
+ * undo. Writing it cannot change a settled score either: the recorded slot
+ * is always IR (`interruptedStash` restores nothing else) and an IR row
+ * never scores, in any format. The undo is the exact inverse of a removal
+ * that happened in this same week, not a new acquisition, which is what
+ * #106's freeze is there to keep out.
+ *
+ * Only `undoDrop` calls this, and only when `undoRestoresStash` says the
+ * recorded stash is still valid; every other acquisition benches the player.
+ */
+async function restoreInterruptedStash(client, { league, teamId, playerId, slot, irAttested }) {
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  await materializeLineup(client, { leagueId, teamId, season, week });
+  await client.query(
+    `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT ("team_id", "season", "week", "player_id")
+     DO UPDATE SET "slot" = EXCLUDED."slot", "ir_attested" = EXCLUDED."ir_attested", "updated_at" = now()`,
+    [leagueId, teamId, playerId, season, week, slot, Boolean(irAttested)]
+  );
+}
+
+/**
+ * THE KICKOFF QUESTION, AND WHY IT IS ANSWERED PER PLAYER (#227).
+ *
+ * Four rules in this codebase turn on "has this player's NFL game for the
+ * week already started?" - `annotateLineupEntries` (what the manager is shown
+ * as locked), `setLineup` (whether a move is refused), `removeLineupEntries`
+ * (whether a departing player's current-week row is spared, #197), and the
+ * score-of-record exclusion behind `playersNotHeldAtKickoff` (#190/#228).
+ * They must agree about every player, always: a manager told a slot is locked
+ * and a settle pass that thinks the game never started are the same bug seen
+ * from two ends.
+ *
+ * They used to disagree, because the question was answered by comparing
+ * `players.nfl_team` to `nfl_games.nfl_team` raw, and those two columns do
+ * not share a vocabulary. `nfl_games` holds Tank01 abbreviations; a DEF
+ * unit's `players.nfl_team` is a full team name; and even among codes Tank01
+ * writes `WSH` where the app says `WAS`. So a DEF unit was in NO week's
+ * locked set, on any of the four - never locked, never spared on a drop,
+ * never excluded by the settle pass. See `services/nflTeam.js`.
+ *
+ * THE SHAPE IS THE FIX, not just the normalisation inside it. The predicate
+ * takes the PLAYERS and answers about PLAYERS: a Set of player ids, a Map
+ * keyed by player id. It hands no caller a set of team names, so the raw
+ * comparison that caused this cannot be written here again by accident - the
+ * object you would need in order to write it does not exist any more. That is
+ * why `lockedNflTeams` is gone rather than fixed in place: it returned team
+ * keys and trusted four call sites to spell their side the same way, and the
+ * whole of #227 is that one of them could not.
+ *
+ * Both sides go through `normalizeNflTeam`, and neither spelling is
+ * privileged: a `WSH` game row locks a `WAS` player and a `WAS` game row
+ * locks a `WSH` player.
+ *
+ * ABSENCE STAYS ABSENCE. A player whose team has no `nfl_games` row that week
+ * - a bye, or a schedule nobody synced - is simply not in the answer, on
+ * every consumer. That is structural rather than a rule: no game row means no
+ * entry to return, so nothing downstream can read it as a kickoff.
+ */
+
+/**
+ * A player's schedule key, and the one thing that must not fail quietly.
+ *
+ * The team half is ordinary: normalise it, or `null` when he has none. The id
+ * half is a GUARD, because every answer below is keyed by player id and the
+ * four callers build their `{ id, nflTeam }` list from three different row
+ * shapes - `players.id` in `getLineup`, `lineup_entries.player_id` in
+ * `setLineup`, a bare `playerId` on the drop path. A caller that reaches for
+ * the wrong field gets `undefined` ids, every lookup misses, and the answer
+ * comes back EMPTY: nothing locked, nobody excluded. That is silent, and it is
+ * bit-for-bit the failure #227 exists to end - so it is made loud here rather
+ * than left to be noticed in a settled week.
+ */
+function scheduleKeyFor(player) {
+  if (player.id === null || player.id === undefined) {
+    throw new Error('lineup.service: a player in the kickoff question has no id');
+  }
+  return normalizeNflTeam(player.nflTeam);
+}
+
+/**
+ * The normalised NFL teams whose game for (season, week) has kicked off.
+ * Private on purpose: this is the schedule side of the comparison, and
+ * handing it out is how the module got #227 in the first place.
+ */
+async function kickedOffTeams(client, { season, week, now }) {
   const result = await client.query(
     `SELECT "nfl_team" FROM "nfl_games"
      WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= $3`,
     [season, week, now]
   );
-  return new Set(result.rows.map((r) => r.nfl_team));
+  const teams = new Set();
+  for (const row of result.rows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    if (team !== null) teams.add(team);
+  }
+  return teams;
 }
 
-/** Pure: add schedule-derived lock and bye metadata to lineup entries. */
+/**
+ * Of these players, the ones whose OWN NFL game for (season, week) has
+ * already kicked off - a Set of PLAYER IDS. An empty schedule locks nobody.
+ *
+ * `players` is `[{ id, nflTeam }]`, the same shape `playersNotHeldAtKickoff`
+ * takes, so the two halves of a kickoff question are asked the same way.
+ */
+async function lockedPlayerIds(client, { season, week, now = new Date(), players }) {
+  const kickedOff = await kickedOffTeams(client, { season, week, now });
+  const locked = new Set();
+  for (const player of players || []) {
+    const team = scheduleKeyFor(player);
+    if (team !== null && kickedOff.has(team)) locked.add(player.id);
+  }
+  return locked;
+}
+
+/**
+ * The week's kickoffs, keyed by NORMALISED NFL team. Private for the same
+ * reason as `kickedOffTeams`; `playerKickoffs` below is the way out.
+ *
+ * A team is expected at most once per week, so the MIN guard is a tie-break
+ * that should never fire: it can only matter if the schedule holds two rows
+ * for one team under two spellings, and the moment that team first took the
+ * field is the honest answer to every question asked of this map.
+ */
+async function weekKickoffs(client, { season, week, kickoffCache = null }) {
+  const key = `${season}:${week}`;
+  if (kickoffCache && kickoffCache.has(key)) return kickoffCache.get(key);
+  const result = await client.query(
+    `SELECT "nfl_team", "kickoff_at" FROM "nfl_games"
+     WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+  const byTeam = new Map();
+  for (const row of result.rows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    if (team === null) continue;
+    const held = byTeam.get(team);
+    if (held === undefined || new Date(row.kickoff_at) < new Date(held)) {
+      byTeam.set(team, row.kickoff_at);
+    }
+  }
+  if (kickoffCache) kickoffCache.set(key, byTeam);
+  return byTeam;
+}
+
+/**
+ * Each of these players' own kickoff for (season, week), keyed by PLAYER ID.
+ * A player with no game that week is ABSENT from the map rather than present
+ * with a null, so a caller cannot mistake "no game" for a kickoff instant.
+ *
+ * The only read of `nfl_games` on the scoring path: the scoring service asks
+ * this module rather than joining the schedule itself, so there is one place
+ * that knows how a week's games are found and one place for #227 to change.
+ */
+async function playerKickoffs(client, { season, week, players, kickoffCache = null }) {
+  const kickoffs = await weekKickoffs(client, { season, week, kickoffCache });
+  const byPlayer = new Map();
+  for (const player of players || []) {
+    const team = scheduleKeyFor(player);
+    if (team === null) continue;
+    const kickoff = kickoffs.get(team);
+    if (kickoff !== undefined) byPlayer.set(player.id, kickoff);
+  }
+  return byPlayer;
+}
+
+/**
+ * Of these players, the ones this team held NO tenure over at their own
+ * game's kickoff (#228). The one reusable read behind both consumers of the
+ * fact: the score-of-record exclusion and the `removeLineupEntries` spare.
+ *
+ * "Held at kickoff K" is `acquired_at <= K AND (released_at IS NULL OR
+ * released_at > K)`. A tenure that began exactly at kickoff counts; one that
+ * ended exactly at kickoff does not.
+ *
+ * TWO ABSENCES, BOTH DELIBERATE ANSWERS RATHER THAN GAPS.
+ *
+ * A player with NO GAME ROW that week is never returned - he is not in the
+ * question at all, because a bye or an unsynced schedule is not evidence that
+ * anyone failed to hold him. That is structural here rather than a rule: he
+ * never enters the `unnest`, so no predicate can exclude him.
+ *
+ * A player with NO TENURE covering kickoff IS returned, and note what that
+ * now means. Under the old roster-reading rules a missing row meant "he is
+ * gone", which is why cutting a post-kickoff pickup made the rule stop firing
+ * and handed his points back. A missing TENURE means something else entirely:
+ * not "he is gone" but "no tenure of this team covered that kickoff". Cutting
+ * him does not erase the tenure, it closes it, so the answer does not move.
+ *
+ * The team's tenures are asked about as they stand NOW, which is safe for the
+ * same reason: tenures are append-and-close, never rewritten.
+ *
+ * `kickoffCache` is an OPTIONAL caller-owned Map memoising the week's schedule
+ * across several calls that share one (season, week) - `scoreMatchups` asks
+ * once per team per matchup, so a 12-team league re-read the same rows twelve
+ * times per scoring pass and ~170 times per season-long correction sweep. The
+ * caller owns its lifetime deliberately: the schedule is only stable within
+ * one pass, so a module-level cache would be a staleness bug the moment a
+ * sync-schedule run landed between passes. Omit it and nothing is memoised,
+ * which is the right default for every other caller. It never changes an
+ * answer, only how many times the same answer is fetched.
+ */
+async function playersNotHeldAtKickoff(client, { teamId, season, week, players, kickoffCache = null }) {
+  const kickoffs = await playerKickoffs(client, { season, week, players, kickoffCache });
+  const scheduled = players
+    .map((player) => ({ id: player.id, kickoff: kickoffs.get(player.id) }))
+    .filter((player) => player.kickoff !== undefined);
+  if (scheduled.length === 0) return new Set();
+  const result = await client.query(
+    `SELECT "kickoffs"."player_id"
+       FROM unnest($2::int[], $3::timestamptz[]) AS "kickoffs"("player_id", "kickoff_at")
+      WHERE NOT EXISTS (
+              SELECT 1 FROM "roster_tenures"
+               WHERE "roster_tenures"."team_id" = $1
+                 AND "roster_tenures"."player_id" = "kickoffs"."player_id"
+                 AND "roster_tenures"."acquired_at" <= "kickoffs"."kickoff_at"
+                 AND ("roster_tenures"."released_at" IS NULL
+                      OR "roster_tenures"."released_at" > "kickoffs"."kickoff_at"))`,
+    [teamId, scheduled.map((p) => p.id), scheduled.map((p) => p.kickoff)]
+  );
+  return new Set(result.rows.map((row) => row.player_id));
+}
+
+/**
+ * Pure: add schedule-derived lock and bye metadata to lineup entries.
+ *
+ * `locked` is a Set of PLAYER IDS from `lockedPlayerIds`, not of team names
+ * (#227). `byeByTeam` is still keyed by the caller's own team string, because
+ * `computeByeWeeks` returns the caller's vocabulary back; that is the one map
+ * here a raw `nfl_team` is the right key for.
+ */
 function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
   return entries.map((row) => {
     const byeWeek = byeByTeam.get(row.nfl_team) ?? null;
     return {
       ...row,
       bye_week: byeWeek,
-      locked: locked.has(row.nfl_team),
+      locked: locked.has(row.id),
       onBye: byeWeek === selectedWeek,
       valid_stash: row.slot === IR && isValidStash(row),
     };
@@ -287,7 +672,11 @@ async function getLineup({ leagueId, userId, week }) {
         : Math.round((seasonProjection / 17) * 10) / 10;
     }
 
-    const locked = await lockedNflTeams(client, { season, week: targetWeek });
+    const locked = await lockedPlayerIds(client, {
+      season,
+      week: targetWeek,
+      players: entriesResult.rows.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
+    });
     const byeByTeam = await computeByeWeeks(entriesResult.rows.map((row) => row.nfl_team), season);
     await client.query('COMMIT');
 
@@ -359,7 +748,11 @@ async function setLineup({ leagueId, userId, week, moves }) {
     );
     const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
 
-    const locked = await lockedNflTeams(client, { season, week: targetWeek });
+    const locked = await lockedPlayerIds(client, {
+      season,
+      week: targetWeek,
+      players: entriesResult.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+    });
     const changed = [];
     let resolvesLockedZeroBenchStash = false;
     for (const move of moves) {
@@ -375,9 +768,9 @@ async function setLineup({ leagueId, userId, week, moves }) {
         && move.slot === BENCH
         && !isValidStash(entry);
       resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
-        && locked.has(entry.nfl_team)
+        && locked.has(entry.player_id)
         && league.bench_slots === 0;
-      if (!resolvesStaleIrStash && locked.has(entry.nfl_team)) {
+      if (!resolvesStaleIrStash && locked.has(entry.player_id)) {
         throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
       }
       entry.slot = move.slot;
@@ -485,7 +878,12 @@ module.exports = {
   entriesForLineupValidation,
   materializeLineup,
   benchAcquiredPlayer,
-  lockedNflTeams,
+  removeLineupEntries,
+  currentWeekEntry,
+  interruptedStashFields,
+  restoreInterruptedStash,
+  lockedPlayerIds,
+  playersNotHeldAtKickoff,
   annotateLineupEntries,
   getLineup,
   setLineup,
