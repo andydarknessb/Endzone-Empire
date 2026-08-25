@@ -33,6 +33,30 @@
  * database, a restored backup - which would get two different answers to the
  * same question.
  *
+ * ONE CASE RUNS THE OTHER WAY, AND THE HEADING ABOVE DOES NOT COVER IT.
+ * "Under-deletion, therefore self-correcting" is true of the divergence just
+ * described; it is not true of the deploy straddle, which is the runtime
+ * OVER-deleting. The tenure backfill opens one tenure per CURRENT roster row
+ * (20260823000003), so a tenure that had already CLOSED when it ran is
+ * unrecorded and is not reconstructed (ADR 0006). In the first week after
+ * deploy that leaves one reachable sequence: a player is held through his
+ * kickoff, dropped before the migration runs, then re-added and dropped again
+ * after it. His only recorded tenure is the new one, which begins after the
+ * kickoff, so the current-week spare does not fire and the runtime REMOVES
+ * the row his game had earned him - a row that is the record of a week he did
+ * play here (#106).
+ *
+ * Unlike the under-deletion above, this does not self-correct: nothing later
+ * puts the row back. It is bounded instead by time. It needs a drop that
+ * predates the migration, so it cannot outlive the first week that starts
+ * after deploy - past that point every kickoff in question is later than the
+ * migration and every tenure covering one is recorded, which is the same
+ * boundary the migration's own header draws when it says history starts here.
+ * That window is long closed, and production exposure was nil for the reason
+ * recorded at #205: zero rows. Stated so the asymmetry reads as known rather
+ * than as an oversight. Not worth code, and any code would have to invent the
+ * closed tenures ADR 0006 declines to invent.
+ *
  * So what these tests assert together is narrower than it was: the two agree
  * for every player whose tenure history is known, which is every player the
  * runtime will ever be called for from now on, because the trigger records
@@ -350,7 +374,7 @@ if (!ENABLED) {
     }
   }
 
-  test('removeLineupEntries applies the same rule at runtime, row for row', async () => {
+  test('removeLineupEntries reaches the migration\'s rows for players whose tenure is known', async () => {
     const { removeLineupEntries } = require('../services/lineup.service');
     const league = { id: leagueIds[0], current_season: SEASON, current_week: CURRENT_WEEK };
 
