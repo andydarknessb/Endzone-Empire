@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { createSocketHarness } = require('./helpers/socketHarness');
+const { getIo, setIo } = require('../modules/io');
 const { TEAM_IDENTITY_FIELDS } = require('../services/teamIdentity');
 const {
   presencePayload,
@@ -9,6 +10,9 @@ const {
   joinAck,
   getDraftState,
 } = require('../modules/draftSocket');
+const draftService = require('../services/draft.service');
+const { autoPick } = require('../services/autopick.service');
+const { installAutopickPool, AUTOPICK_TEAM } = require('./helpers/autopickFixtures');
 const lineupService = require('../services/lineup.service');
 
 /**
@@ -72,16 +76,21 @@ const lineupService = require('../services/lineup.service');
  *     flipped todo describes the true shape. (chat REST history is the same
  *     verbatim case in the REST module.)
  *
- *   - `draft:picked` has NO builder: it is assembled inline at two emit sites
- *     with DIFFERENT `by` shapes — the pick handler's `by: { userId, username }`
- *     (pinned here, captured off the real room emitter through the socket
- *     harness) and autopick.service's `by: { userId, username, auto }` (not
- *     captured here; #344 must remove account identity from BOTH). The pinned
- *     shape assumes #344 DROPS `by` (the picker is already named at the root by
- *     Team via `teamId` / `teamName`, so `by` is redundant account identity).
- *     If #344 instead keeps a Team-only `by`, add `by` back to
- *     PICKED_ROOT_CLEAN and pin `picked.by` to TEAM_IDENTITY_FIELDS. Extracting
- *     a `draft:picked` builder is #344's call, not this ticket's.
+ *   - `draft:picked` has NO builder: it is assembled inline at TWO emit sites
+ *     with DIFFERENT `by` shapes, and BOTH are pinned here so #344 cannot flip
+ *     one and leave the other broadcasting an account id to the room:
+ *       * the pick handler's `by: { userId, username }` (captured off the real
+ *         room emitter through the socket harness); and
+ *       * autopick.service's `by: { userId, username: 'AUTO', auto: true }`
+ *         (captured off a fake `io` singleton, since autopick emits through
+ *         getIo()). `username` there is a literal, but `by.userId` is
+ *         `onTheClock.owner_id`, a real account id.
+ *     Both pins assume #344 DROPS `by` (the picker is already named at the root
+ *     by Team via `teamId` / `teamName`, so `by` is redundant account identity),
+ *     so both share PICKED_ROOT_CLEAN. If #344 instead keeps a Team-only `by`,
+ *     add `by` back to PICKED_ROOT_CLEAN and pin each `picked.by` to
+ *     TEAM_IDENTITY_FIELDS, in lockstep across both sites. Extracting a
+ *     `draft:picked` builder is #344's call, not this ticket's.
  */
 
 const [TEAM_ID, TEAM_NAME] = TEAM_IDENTITY_FIELDS; // 'teamId', 'teamName'
@@ -250,6 +259,50 @@ test('draft:picked STILL carries a by:{userId,username} account object today, an
 
 test('draft:picked names the picker by Team at the root, with no by account object', { todo: '#344 removes draft:picked by:{userId,username} (the picker is already named at the root by Team via teamId/teamName). If #344 keeps a Team-only by instead, add by to PICKED_ROOT_CLEAN and pin picked.by to TEAM_IDENTITY_FIELDS.' }, async (t) => {
   assertExactKeys(await capturePicked(t), PICKED_ROOT_CLEAN);
+});
+
+// The SECOND draft:picked emit site (autopick.service.js), pinned so #344
+// cannot strip `by` from the pick handler, flip that todo green, and leave
+// autopick still broadcasting `by.userId` to the whole room. autopick emits
+// through the getIo() singleton and reaches draftPlayer by namespace, so both
+// are captured with a fake io and a mocked draftPlayer (its outcome shape is
+// the pick handler's, already pinned above; here it is the same 8-key outcome).
+async function captureAutopickPicked(t) {
+  installAutopickPool(t, {
+    candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],
+  });
+  t.mock.method(draftService, 'draftPlayer', async () => ({
+    leagueId: LEAGUE_ID,
+    teamId: AUTOPICK_TEAM.id,
+    teamName: 'The Autodrafters',
+    player: { id: 500, name: 'Pick Me', position: 'RB' },
+    pickNumber: 1,
+    nextTeamId: null,
+    draftComplete: false,
+    pickDeadlineAt: null,
+  }));
+  const emitted = [];
+  const priorIo = getIo();
+  setIo({ to: () => ({ emit: (event, payload) => emitted.push({ event, payload }) }) });
+  t.after(() => setIo(priorIo));
+  await autoPick({ leagueId: LEAGUE_ID });
+  const picked = emitted.find((e) => e.event === 'draft:picked');
+  assert.ok(picked, 'autoPick emitted a draft:picked');
+  return picked.payload;
+}
+
+test('draft:picked (autopick emit site) STILL carries a by.userId account id today, and no viewer-relative field', async (t) => {
+  const picked = await captureAutopickPicked(t);
+  assert.equal('by' in picked, true, 'the autopick emit still carries a by object today');
+  assertStillPresent(picked.by, ['userId']);
+  // by.userId is onTheClock.owner_id, a real account id broadcast to the room.
+  // (by.username is the literal 'AUTO' and by.auto a flag; the userId is the leak.)
+  assert.equal(picked.by.userId, AUTOPICK_TEAM.owner_id);
+  assertForbidden(picked, VIEWER_RELATIVE);
+});
+
+test('draft:picked (autopick emit site) names the picker by Team at the root, with no by account object', { todo: '#344 removes the by object from the autopick draft:picked (autopick.service.js) too, a SECOND emit site (by.userId is onTheClock.owner_id, a real account id). Keep it in lockstep with the pick-handler by decision.' }, async (t) => {
+  assertExactKeys(await captureAutopickPicked(t), PICKED_ROOT_CLEAN);
 });
 
 // ================================================================ draft:state
