@@ -13,8 +13,10 @@ const { removeTeam } = require('../services/commissioner.service');
 //
 // These assert state: which teams survive, which league_commissioners rows
 // survive, and who was notified. A refusal that still deleted the row would
-// pass an assertion about the thrown error alone, so each refusal also asserts
-// that NO delete was issued at all.
+// pass an assertion about the thrown error alone, so each refusal also counts
+// the protected write at the pg seam and asserts it ran zero times, with the
+// success path counting the same matcher as 1 for a baseline
+// (docs/agents/refusal-tests.md).
 
 const CREATOR = 1; // the league's owner_id
 const CO_COMMISSIONER = 2; // a league_commissioners row, not the owner
@@ -42,7 +44,6 @@ function removeTeamWorld(t, leagueOverrides = {}) {
     grants: [CO_COMMISSIONER],
     notified: [],
     transactions: [],
-    deletes: 0, // any DELETE against teams or league_commissioners
   };
   const fake = createFakePool([
     // requireCommissioner's SELECT carries commissionerPredicate, whose EXISTS
@@ -59,12 +60,10 @@ function removeTeamWorld(t, leagueOverrides = {}) {
       rows: state.teams.filter((team) => team.id === params[0] && team.league_id === params[1]),
     })],
     [remove('teams'), (text, params) => {
-      state.deletes += 1;
       state.teams = state.teams.filter((team) => team.id !== params[0]);
       return { rows: [] };
     }],
     [remove('league_commissioners'), (text, params) => {
-      state.deletes += 1;
       state.grants = state.grants.filter((userId) => userId !== params[1]);
       return { rows: [] };
     }],
@@ -189,7 +188,8 @@ test('a fantasy league still pre-draft removes normally (the phase gate allows i
   assert.deepEqual(result, { leagueId: 5, removedTeamId: 30 });
   assert.deepEqual(teamIds(state), [10, 20]);
   assert.deepEqual(state.notified, [MEMBER]);
-  assert.ok(state.deletes >= 1, 'the team was actually deleted');
+  // Baseline: the same matcher the refusals assert is zero counts one here.
+  assert.equal(fake.matching(remove('teams')).length, 1, 'the team was deleted');
   fake.assertClean();
 });
 
@@ -209,7 +209,13 @@ test('a fantasy league with the draft active refuses removal and deletes nothing
   assert.deepEqual(state.grants, [CO_COMMISSIONER]);
   assert.deepEqual(state.notified, []);
   assert.deepEqual(state.transactions, []);
-  assert.equal(state.deletes, 0, 'no DELETE was issued on a phase refusal');
+  // The refusal protects a hard DELETE and its CASCADE; count the write at the
+  // closest seam, not just the response, which a misplaced guard leaves
+  // byte-identical (docs/agents/refusal-tests.md).
+  assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
+  assert.equal(fake.matching(remove('league_commissioners')).length, 0, 'no grant was revoked');
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'nothing was committed');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction rolled back');
   fake.assertClean();
 });
 
@@ -229,7 +235,8 @@ for (const season_status of ['regular', 'playoffs', 'complete']) {
     assert.deepEqual(teamIds(state), [10, 20, 30]);
     assert.deepEqual(state.grants, [CO_COMMISSIONER]);
     assert.deepEqual(state.notified, []);
-    assert.equal(state.deletes, 0, 'no DELETE was issued on a phase refusal');
+    assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
+    assert.equal(fake.matching(remove('league_commissioners')).length, 0, 'no grant was revoked');
     fake.assertClean();
   });
 }
@@ -246,7 +253,7 @@ test("a pick'em-only league has no draft, so removal is unchanged whatever its s
   assert.deepEqual(result, { leagueId: 5, removedTeamId: 30 });
   assert.deepEqual(teamIds(state), [10, 20]);
   assert.deepEqual(state.notified, [MEMBER]);
-  assert.ok(state.deletes >= 1, 'the team was actually deleted');
+  assert.equal(fake.matching(remove('teams')).length, 1, 'the team was deleted');
   fake.assertClean();
 });
 
@@ -267,6 +274,6 @@ test('the phase gate is checked before the per-team rules: a self-removal past p
 
   assert.deepEqual(teamIds(state), [10, 20, 30]);
   assert.deepEqual(state.grants, [CO_COMMISSIONER]);
-  assert.equal(state.deletes, 0);
+  assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
   fake.assertClean();
 });
