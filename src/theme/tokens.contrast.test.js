@@ -49,11 +49,39 @@ const BRIGHTEST_BACKDROP = '#ffffff';
 // only needed when fg or bg carries alpha.
 const pairing = (fg, bg, min, label, backdrop) => ({ fg, bg, min, label, backdrop });
 
+// The landing hero (LandingPage.css) paints a translucent accent gradient over
+// `bg-page`: opaque at the top of the hero, transparent at the bottom. That
+// gradient is not a token (and #354 keeps it that way), so it cannot be looked
+// up from `colorTokens` the way every other `bg` in PAIRINGS is. Instead each
+// mode's `tokens` map below gets one extra literal entry, `landing-hero-tint`,
+// sourced from this test-local map — the existing `tokens[bg]` lookup then
+// resolves it exactly like any other token key, with no change to how real
+// tokens resolve.
+//
+// The value is the gradient's opaque end (0%), the worst case for text over
+// it; the transparent end can only be a smaller tint and therefore a higher
+// ratio. Source: LandingPage.css `.landing-page .landing-hero` (light, line 5)
+// and `html[data-theme='dark'] .landing-page .landing-hero` (dark, line 9).
+// Since #350 the hero carries a normal-size `text.secondary` (`text-muted`)
+// paragraph, so AA_TEXT applies. Measured: 4.98:1 light, 6.28:1 dark — light
+// has under 0.5 of headroom.
+const HERO_TINT_BY_THEME = {
+  light: 'rgba(30, 91, 184, 0.08)',
+  dark: 'rgba(79, 140, 255, 0.14)',
+};
+
 const PAIRINGS = [
   pairing('text-primary', 'bg-page', AA_TEXT, 'body text on the page'),
   pairing('text-primary', 'surface', AA_TEXT, 'body text on cards'),
   pairing('text-muted', 'surface', AA_TEXT, 'muted text on cards'),
   pairing('text-muted', 'bg-page', AA_TEXT, 'muted text on the page'),
+  pairing(
+    'text-muted',
+    'landing-hero-tint',
+    AA_TEXT,
+    'muted text on the landing hero tint (opaque end, worst case)',
+    'bg-page'
+  ),
   pairing('accent', 'bg-page', AA_TEXT, 'links on the page'),
   pairing('accent', 'surface', AA_TEXT, 'links on cards'),
   // The app bar and other raised surfaces: the active nav link sits here, and
@@ -102,6 +130,51 @@ const PAIRINGS = [
   // asserted above.)
   pairing('text-primary', 'accent-soft', AA_TEXT, 'cell text on an accent-tinted row', 'surface'),
   pairing('text-muted', 'accent-soft', AA_TEXT, 'muted cell text on an accent-tinted row', 'surface'),
+  // #354 sweep: every other `accent-soft` consumer checked below sits on
+  // `surface` (already covered by the two rows above) or has no text on it.
+  // Two do not:
+  //
+  // GameCenter's LiveActionTicker (GameCenter.jsx) paints `accent-soft`
+  // directly as its own Paper's background, and that Paper sits straight on
+  // the page — its backdrop is `bg-page`, not `surface`. The ticker text is
+  // MUI body2 at 14px even when bold, under the 14pt/18.66px bold threshold
+  // for "large text", so AA_TEXT applies.
+  pairing(
+    'text-primary',
+    'accent-soft',
+    AA_TEXT,
+    'live scoring ticker text on the accent-tinted banner',
+    'bg-page'
+  ),
+  // DraftBoardMatrix's `pickLandedFlash` keyframe (DraftBoardMatrix.jsx) briefly
+  // paints `accent-soft` over a table cell whose own background is transparent,
+  // so the flash composites over whatever the row currently is: `surface` (odd
+  // rows, already covered above), `row-stripe` (even rows), or `row-hover`
+  // (hovered). `row-hover` is the worst case of the three in both themes
+  // (measured: 12.18:1 light, 8.20:1 dark, vs. row-stripe's 13.27:1 / 9.44:1),
+  // so it is the one asserted; row-stripe only has more headroom.
+  pairing(
+    'text-primary',
+    'accent-soft',
+    AA_TEXT,
+    'draft pick name during the landed-pick flash on a hovered row',
+    'row-hover'
+  ),
+  // The remaining #354 sweep candidates need no PAIRINGS row:
+  //   - LeagueHistory's champion banner (LeagueHistory.jsx) and SimPickFeed's
+  //     active-team row (SimPickFeed.jsx) both paint `accent-soft` inside a
+  //     MUI Paper/Accordion, whose background is `background.paper` ==
+  //     `surface` (AppThemeProvider.jsx). Same backdrop as the two rows at the
+  //     top of this block, so nothing new to measure.
+  //   - UserPage's banner (UserPage.css `.user-page:before`/`.container`,
+  //     `--scrim` over the background photo) is exactly the `on-overlay` /
+  //     `scrim` row below, already measured comfortably clear (#238) — and the
+  //     file is unused today (see the #238 comment above BRIGHTEST_BACKDROP).
+  //   - TecmoCutscene's `.tecmo-vignette` (TecmoCutscene.css) is a decorative,
+  //     aria-hidden radial gradient over the day-sky background; no text is
+  //     ever painted on it (the caption text sits on the opaque black
+  //     `.tecmo-boomband` instead), and its colors are fixed literals by
+  //     design (theme-independent cutscene), not tokens.
   pairing('on-overlay', 'scrim', AA_TEXT, 'light text on a photo scrim', BRIGHTEST_BACKDROP),
   pairing('on-overlay', 'overlay', AA_LARGE, 'light text on a modal overlay', BRIGHTEST_BACKDROP),
   // The Nav link hover on the app bar (Nav.jsx): `accent` text on `accent-soft`
@@ -132,6 +205,10 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
     'on-overlay': scaleTokens['on-overlay'],
     scrim: scaleTokens.scrim,
     ...colorTokens[mode],
+    // Not a real token (see the comment above HERO_TINT_BY_THEME) — added here,
+    // per mode, so the `tokens[bg]` lookup every PAIRINGS row already uses
+    // resolves it exactly like any other key.
+    'landing-hero-tint': HERO_TINT_BY_THEME[mode],
   };
 
   test.each(PAIRINGS)(
