@@ -197,10 +197,8 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
           // a manager's own controls off and back on a blip.
           //
           // That unrecognised-code branch is also what made #265's rename of
-          // these codes affordable. The exact match means a server one deploy
-          // behind, still emitting the lowercase spelling, is read as "some
-          // refusal I cannot interpret": the room shows a stale Team for that
-          // window rather than clearing an identity it has no news about.
+          // these codes affordable; ADR 0007 carries the reasoning and the
+          // convention, and useDraftSocket.test.js pins both halves.
           if (resp.code === 'NOT_A_MEMBER') {
             setViewerTeamId(null);
             setIsCommissioner(false);

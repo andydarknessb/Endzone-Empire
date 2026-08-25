@@ -445,6 +445,11 @@ test('a refusal carrying the pre-#265 lowercase not_a_member leaves both values 
   // no fresh news about for that window, instead of clearing an identity on a
   // code it cannot read. Stale beats wrongly cleared, and that trade is the
   // whole reason renaming a shipped wire contract was affordable.
+  //
+  // This one has an expiry the test above does not: once both sides are past
+  // the rename, no server emits this string, and it becomes an ordinary
+  // unrecognised code. Delete it then, and keep the ROOM_CLOSED test, which
+  // is the branch itself rather than one window's instance of it.
   const { result } = renderHook(() => useDraftSocket(1));
 
   act(() => fakeSocket.trigger('connect'));

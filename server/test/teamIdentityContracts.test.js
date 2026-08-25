@@ -1,5 +1,7 @@
 const { after, test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const express = require('express');
 const request = require('supertest');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
@@ -328,6 +330,37 @@ test('a REFUSED league:join or draft:join carries a code, and no viewer-relative
     // and a refusal is precisely when a viewer-relative field is a lie.
     assert.deepEqual(Object.keys(refusal).sort(), ['code', 'error']);
     assert.equal(typeof refusal.error, 'string');
+  }
+});
+
+test('every join refusal code the handlers emit is one of the three, spelled SCREAMING_SNAKE', () => {
+  // #265, and the reason this is a source read rather than a list of literals
+  // in a test file. The test above passes its codes INTO joinError and then
+  // asserts the key set, so it is green against any spelling - it pins the
+  // shape and says so. Nothing at this layer looked at the values, which left
+  // "the codes are upper snake" resting entirely on the end-to-end suite.
+  //
+  // So ask the emitter. Every `code` the join handlers hand joinError is read
+  // straight out of the module source, and the EXACT set is asserted, the way
+  // unauthenticatedRouteInventory reads the real Express stacks rather than
+  // route names. A fourth code, a renamed one, or a lowercase one added by an
+  // author who pattern-matched on the wrong example fails here and names
+  // itself, instead of being caught only if it happens to reach a socket test.
+  //
+  // The set cannot pass vacuously: a regex that matched nothing would leave an
+  // empty array, and an empty array is not the three.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'draftSocket.js'), 'utf8');
+  const emitted = [...source.matchAll(/joinError\(\{\s*code: '([^']+)'/g)].map(([, code]) => code);
+
+  assert.deepEqual(
+    [...new Set(emitted)].sort(),
+    ['INVALID_REQUEST', 'JOIN_FAILED', 'NOT_A_MEMBER'],
+    'the join handlers emit exactly the three codes #230 defined, uppercase (#265)'
+  );
+  for (const code of emitted) {
+    // The convention itself (ADR 0007), not just these three values: every
+    // error code this app emits is upper snake, HTTP body and socket ack alike.
+    assert.match(code, /^[A-Z][A-Z0-9_]*$/, `${code} is not SCREAMING_SNAKE`);
   }
 });
 
