@@ -29,6 +29,15 @@ jobs:
       # unintended change (even a key-order change) silently drops captured
       # weeks. Deliberate changes update the pin in the same commit.
       - run: node scripts/ci/check-model-constants.js
+      # @testing-library/dom must resolve to exactly one installed copy. A
+      # second copy re-splits user-event's act()-aware config, so every
+      # user-event interaction in the client suite dispatches outside act()
+      # silently, with no test failing (#219). This guard (#224) fails fast and
+      # names the cause here instead of letting it surface downstream as an
+      # unrelated user-event test days later (#313). Runs after npm ci (it needs
+      # the installed tree) and before the client suite below. `check:dom-dedupe`
+      # runs the guard's own unit test and then the guard.
+      - run: npm run check:dom-dedupe
       - run: npm test -- --runInBand
         env:
           CI: "true"
