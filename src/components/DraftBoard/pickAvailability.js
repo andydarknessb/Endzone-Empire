@@ -20,7 +20,7 @@
  *    expiry, not this whole-draft mode).
  *  - offline-type: the commissioner enters every pick outside this table;
  *    draft.service.js rejects any other attempt with a 409.
- *  - auction-type: no live auction engine exists yet (never reaches active).
+ *  - auction-type: no draft workflow exists yet (never reaches active).
  *
  * `draftType` defaults to 'snake' when missing/null, matching the database
  * column (`leagues.draft_type` is NOT NULL DEFAULT 'snake') - a league row

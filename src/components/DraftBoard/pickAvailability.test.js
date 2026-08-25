@@ -26,7 +26,7 @@ describe('pickActionExists', () => {
     expect(pickActionExists({ draftStatus: 'active', draftType: 'offline' })).toBe(false);
   });
 
-  test('does not exist for an auction-type draft - no live scoring (modules/liveGameEngine.js) yet', () => {
+  test('does not exist for an auction-type draft - no draft workflow exists yet', () => {
     expect(pickActionExists({ draftStatus: 'active', draftType: 'auction' })).toBe(false);
   });
 });

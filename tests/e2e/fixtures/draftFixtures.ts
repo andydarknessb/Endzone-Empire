@@ -106,8 +106,7 @@ type LeagueOverrides = Partial<{
   // snake: teams pick in turn on a clock. autopick: every pick is made by
   // autopick at once, no manual control ever exists. offline: the
   // commissioner records picks made elsewhere - see CONTEXT.md's Draft type
-  // entry. auction has no live scoring (modules/liveGameEngine.js) yet and
-  // is out of scope here.
+  // entry. auction has no draft workflow yet and is out of scope here.
   draft_type: 'snake' | 'autopick' | 'offline';
   draft_paused: boolean;
   pick_time_seconds: number;
