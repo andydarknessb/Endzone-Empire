@@ -47,6 +47,15 @@ pick'em. It is the only identity such a surface may ever carry; a manager's
 account identifier (email, username) stays confined to their own private
 account chrome and is never exposed to another manager. A duplicate Team name
 is still valid identity and never a reason to fall back to the account.
+Commissioner-only chrome is such a surface too (#179): a commissioner is
+another manager, so the co-commissioner roster, the promote and remove-a-team
+pickers, Team locks and the join-request queue lead with the Team name and act
+on the Team ID, never on a username. A join request has no Team yet, so it is
+identified by the Team name it proposes. A non-member reading an invite
+preview is further outside still and sees the commissioner's Team name, not
+their username (#181). "Which of these is me" is always answered by comparing
+Team IDs against the response's viewer-relative field, never by comparing
+usernames or user IDs, which #115 removes from every league-shared payload.
 Role disclosure is not an exception to this (#324). That a manager holds
 commissioner power over you is real, it is not a secret, and every member may
 see it; it is disclosed as a property of their Team, and the account behind
