@@ -11,8 +11,9 @@
  *  4. counts the attempt.
  *
  * Usage lives in Postgres because both Render services spend quota (the web
- * process for news/admin syncs, the worker for the live engine and scheduler)
- * — an in-memory counter in either would see roughly half the truth.
+ * process for news/admin syncs, the worker for live scoring
+ * (`modules/liveGameEngine.js`) and scheduler) — an in-memory counter in
+ * either would see roughly half the truth.
  *
  * Priorities, cheapest to shed first:
  *   low        news (a stale headline is fine — see news.service)
