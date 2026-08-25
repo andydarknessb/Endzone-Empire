@@ -89,7 +89,7 @@ function reportsListFake(t, { isCommissioner }) {
 }
 
 test('GET /reports/:leagueId as commissioner: served row carries only the allowlisted keys', async (t) => {
-  reportsListFake(t, { isCommissioner: true });
+  const fake = reportsListFake(t, { isCommissioner: true });
 
   const res = await request(app)
     .get(`/api/safety/reports/${LEAGUE_ID}`)
@@ -102,6 +102,19 @@ test('GET /reports/:leagueId as commissioner: served row carries only the allowl
   assert.equal('reporter_id' in row, false, 'reporter identity is gone (#378)');
   assert.equal('resolved_by' in row, false, 'resolver identity is gone (#378)');
   assert.equal('reporter_username' in row, false, 'reporter username is gone (#378)');
+
+  // Guard the SQL projection itself, not just the JS-side pick: the fake
+  // pool returns the same seeded row regardless of the query text, so
+  // without this the test would stay green even if `content_reports.*`
+  // and the `users` JOIN came back.
+  const [reportQuery] = fake.matching(/FROM "content_reports"/);
+  assert.ok(reportQuery, 'the report-list query ran');
+  assert.doesNotMatch(reportQuery.text, /content_reports"\.\*|SELECT \*/, 'no `.*` projection (#378)');
+  assert.doesNotMatch(reportQuery.text, /JOIN "users"/, 'no users JOIN (#378)');
+  assert.match(
+    reportQuery.text,
+    /^SELECT "id", "league_id", "message_id", "reason", "status", "resolved_at", "created_at", "updated_at" FROM "content_reports"/
+  );
 });
 
 test('GET /reports/:leagueId as platform admin: same allowlist, no distinction for admins', async (t) => {
