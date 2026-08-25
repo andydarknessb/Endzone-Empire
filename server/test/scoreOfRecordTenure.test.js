@@ -56,6 +56,7 @@ const POINTS = new Map([
 ]);
 
 const OPPONENT_PLAYER = 9; // team B's only starter, 10.0, never in question
+const OPPONENT_POINTS = 10;
 
 /**
  * @param tenures  [{ teamId, playerId, acquiredAt, releasedAt }]
@@ -66,7 +67,25 @@ function createWorld({ tenures = [], starters = [], teams = {} } = {}) {
   const state = {
     // Mutable: the idempotence case closes one of these mid-test, the way a
     // drop's trigger would.
-    tenures: tenures.map((t) => ({ ...t })),
+    tenures: [
+      /*
+       * THE OPPONENT'S TENURE, SEEDED RATHER THAN ASSUMED (#261). This suite
+       * passes no `heldSince`, so a (team, player) with no tenure row is held
+       * at no kickoff at all - and team B's starter had none. The away side
+       * therefore scored 0 in every case here while the comment on
+       * OPPONENT_PLAYER called him "never in question", which is the shape the
+       * tenure-fakes header warns about: an unasked question answered with an
+       * empty set. A zero from an empty population and a zero from correct
+       * exclusion are the same zero, so the away side demonstrated nothing and
+       * would have stayed silent had the exclusion begun firing on everyone.
+       *
+       * He is acquired before the week's first kickoff and never released, so
+       * he counts under any correct reading of the predicate, and the away
+       * score is asserted at its real value in the case table below.
+       */
+      tenure(TEAM_B, OPPONENT_PLAYER, BEFORE_THU),
+      ...tenures.map((t) => ({ ...t })),
+    ],
     teamPlayers: [
       ...starters.map((id) => ({ team_id: TEAM_A, player_id: id })),
       { team_id: TEAM_B, player_id: OPPONENT_PLAYER },
@@ -262,6 +281,11 @@ for (const kase of CASES) {
     const { fake, state } = createWorld(kase);
     await scoreTeamA(fake, t);
     assert.equal(state.matchups[0].home_score, kase.expected);
+    assert.equal(
+      state.matchups[0].away_score,
+      OPPONENT_POINTS,
+      'the opponent is held all week, so only team A varies across the table'
+    );
     fake.assertClean();
   });
 }
