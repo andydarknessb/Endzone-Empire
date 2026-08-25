@@ -1710,6 +1710,12 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
     );
+    // The week's schedule is one answer shared by every team in this pass, so
+    // it is fetched once and memoised here rather than once per team per
+    // matchup (#261). Scoped to this call deliberately: the schedule is only
+    // stable within one pass, so a longer-lived cache would be correct until
+    // the first time a sync-schedule run landed mid-pass.
+    const kickoffCache = new Map();
     /**
      * The rows that count when a week is scored AS PLAYED. A lineup row
      * counts only if a tenure of this team covered its player's kickoff
@@ -1743,6 +1749,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
         season,
         week,
         players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+        kickoffCache,
       });
       return rows.filter((row) => !notHeld.has(row.player_id));
     };

@@ -33,6 +33,19 @@
  * database, a restored backup - which would get two different answers to the
  * same question.
  *
+ * ONE CASE RUNS THE OTHER WAY, so "under-deletion, therefore self-correcting"
+ * covers the divergence above but not the deploy straddle. The backfill opens
+ * one tenure per CURRENT roster row (20260823000003), so a tenure already
+ * CLOSED when it ran is unrecorded and is not reconstructed (ADR 0006): a
+ * player held through his kickoff, dropped before the migration, then re-added
+ * and dropped again after it, is judged on his new tenure alone, which begins
+ * after the kickoff - so the spare does not fire and the runtime OVER-deletes
+ * the row recording a week he did play (#106). Nothing puts that row back, but
+ * it needs a drop predating the migration, so it cannot outlive the first week
+ * starting after deploy - the boundary that migration's header calls history
+ * starting here. Window long closed, production exposure nil at zero rows
+ * (#205). Noted so the asymmetry reads as known, not as an oversight.
+ *
  * So what these tests assert together is narrower than it was: the two agree
  * for every player whose tenure history is known, which is every player the
  * runtime will ever be called for from now on, because the trigger records
@@ -350,7 +363,7 @@ if (!ENABLED) {
     }
   }
 
-  test('removeLineupEntries applies the same rule at runtime, row for row', async () => {
+  test('removeLineupEntries reaches the migration\'s rows for players whose tenure is known', async () => {
     const { removeLineupEntries } = require('../services/lineup.service');
     const league = { id: leagueIds[0], current_season: SEASON, current_week: CURRENT_WEEK };
 

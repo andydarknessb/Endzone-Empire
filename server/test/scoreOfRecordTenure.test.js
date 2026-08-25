@@ -56,23 +56,50 @@ const POINTS = new Map([
 ]);
 
 const OPPONENT_PLAYER = 9; // team B's only starter, 10.0, never in question
+const OPPONENT_POINTS = 10;
 
 /**
  * @param tenures  [{ teamId, playerId, acquiredAt, releasedAt }]
  * @param starters player ids on team A's week-8 card, all in a starting slot
  * @param teams    player id -> nfl_team (defaults to the Sunday team)
+ * @param slots    player id -> lineup slot, defaulting to a starting RB. Only
+ *                 the best-ball case needs it: a BENCH row is a candidate
+ *                 there, where the standard population never sees one.
+ * @param bestBall the league's `best_ball`. The two populations select through
+ *                 different SQL and apply the SAME exclusion through separate
+ *                 code, so a case here does not cover the other branch.
  */
-function createWorld({ tenures = [], starters = [], teams = {} } = {}) {
+function createWorld({
+  tenures = [], starters = [], teams = {}, slots = {}, bestBall = false,
+} = {}) {
   const state = {
     // Mutable: the idempotence case closes one of these mid-test, the way a
     // drop's trigger would.
-    tenures: tenures.map((t) => ({ ...t })),
+    tenures: [
+      /*
+       * THE OPPONENT'S TENURE, SEEDED RATHER THAN ASSUMED (#261). This suite
+       * passes no `heldSince`, so a (team, player) with no tenure row is held
+       * at no kickoff at all - and team B's starter had none. The away side
+       * therefore scored 0 in every case here while the comment on
+       * OPPONENT_PLAYER called him "never in question", which is the shape the
+       * tenure-fakes header warns about: an unasked question answered with an
+       * empty set. A zero from an empty population and a zero from correct
+       * exclusion are the same zero, so the away side demonstrated nothing and
+       * would have stayed silent had the exclusion begun firing on everyone.
+       *
+       * He is acquired before the week's first kickoff and never released, so
+       * he counts under any correct reading of the predicate, and the away
+       * score is asserted at its real value in the case table below.
+       */
+      tenure(TEAM_B, OPPONENT_PLAYER, BEFORE_THU),
+      ...tenures.map((t) => ({ ...t })),
+    ],
     teamPlayers: [
       ...starters.map((id) => ({ team_id: TEAM_A, player_id: id })),
       { team_id: TEAM_B, player_id: OPPONENT_PLAYER },
     ],
     lineupEntries: [
-      ...starters.map((id) => ({ team_id: TEAM_A, player_id: id, week: WEEK, slot: 'RB' })),
+      ...starters.map((id) => ({ team_id: TEAM_A, player_id: id, week: WEEK, slot: slots[id] || 'RB' })),
       { team_id: TEAM_B, player_id: OPPONENT_PLAYER, week: WEEK, slot: 'RB' },
     ],
     matchups: [{
@@ -103,7 +130,7 @@ function createWorld({ tenures = [], starters = [], teams = {} } = {}) {
         id: LEAGUE_ID,
         current_season: SEASON,
         current_week: WEEK,
-        best_ball: false,
+        best_ball: bestBall,
         roster_slots: [{ key: 'RB', label: 'RB', count: 8, eligiblePositions: ['RB'] }],
         bench_slots: 5,
         ir_slots: 1,
@@ -145,16 +172,43 @@ function createWorld({ tenures = [], starters = [], teams = {} } = {}) {
      * way rather than on "no handler matched", which would only have told us
      * the SQL changed.
      */
-    [/FROM "lineup_entries"/, (text, [teamId, , week]) => ({
-      rows: state.lineupEntries
-        .filter((e) => e.team_id === teamId && e.week === week)
-        .map((e) => ({
-          player_id: e.player_id,
-          slot: e.slot,
-          nfl_team: nflTeamOf(e.player_id),
-          stats: { rushingYards: POINTS.get(e.player_id) || 0 },
-        })),
-    })],
+    [/FROM "lineup_entries"/, (text, [teamId, , week]) => {
+      /*
+       * THE SLOT FILTER IS READ OUT OF THE STATEMENT, for the same reason the
+       * tenure handler reads its comparison operators out of one. The two
+       * populations disagree about the bench: the standard path excludes it in
+       * SQL (`slot NOT IN ('BENCH', 'IR')`), and best ball selects every row
+       * and drops only IR in JS, because there every active player is a
+       * candidate.
+       *
+       * A handler that ignored the clause would answer both populations with
+       * the bench included, and a bench case would then score the same on
+       * either branch - so a best-ball fixture could not tell "bench rows are
+       * candidates" from "the fake never filtered". It could only be caught by
+       * the SQL-text guard below, which reports WHICH STATEMENT WAS EMITTED
+       * rather than what the code decided, and is the weaker evidence of the
+       * two (see the tenure-fakes header). Lifting the clause instead keeps
+       * the failure behavioural: run the best-ball case on the standard branch
+       * and the SCORE moves.
+       */
+      const excludesBench = /"slot" NOT IN \('BENCH', 'IR'\)/.test(text);
+      return {
+        rows: state.lineupEntries
+          .filter((e) => e.team_id === teamId && e.week === week)
+          .filter((e) => !excludesBench || (e.slot !== 'BENCH' && e.slot !== 'IR'))
+          .map((e) => ({
+            player_id: e.player_id,
+            slot: e.slot,
+            // Best ball also selects `players`.`position`, to fill slots
+            // optimally. Everyone here is an RB, so the optimal lineup is
+            // "every candidate that survives the exclusion" and the score
+            // reads as a sum of who counted, exactly as on the standard path.
+            position: 'RB',
+            nfl_team: nflTeamOf(e.player_id),
+            stats: { rushingYards: POINTS.get(e.player_id) || 0 },
+          })),
+      };
+    }],
     [/^UPDATE "matchups" SET "home_score"/, (text, [home, away, id]) => {
       const m = state.matchups.find((x) => x.id === id);
       m.home_score = home;
@@ -262,6 +316,11 @@ for (const kase of CASES) {
     const { fake, state } = createWorld(kase);
     await scoreTeamA(fake, t);
     assert.equal(state.matchups[0].home_score, kase.expected);
+    assert.equal(
+      state.matchups[0].away_score,
+      OPPONENT_POINTS,
+      'the opponent is held all week, so only team A varies across the table'
+    );
     fake.assertClean();
   });
 }
@@ -361,5 +420,115 @@ test('the settled score survives the excluded pickup being CUT (idempotence, #19
 
   assert.equal(state.matchups[0].home_score, settled, 're-scoring after the cut returns the same score');
   assert.deepEqual(outcome.changes, [], 'and reports no change, so nothing is announced to the league');
+  fake.assertClean();
+});
+
+test('#261 the week schedule is read ONCE per scoring pass, not once per team', async (t) => {
+  // `scoreMatchups` asked the schedule once per team per matchup, so a
+  // 12-team league re-read identical rows twelve times per pass and ~170
+  // times per season-long correction sweep. The memo is scoped to the pass
+  // because the schedule is only stable within one: a longer-lived cache
+  // would go stale the moment a sync-schedule run landed between passes.
+  //
+  // The count is the point, but it is asserted NEXT TO the scores on
+  // purpose. A cache that returned one team's answer to another team's
+  // question would also read once, and would be a scoring bug rather than an
+  // optimisation - so the two teams here must still get DIFFERENT answers:
+  // team A's post-kickoff pickup is excluded, team B's starter is not.
+  const { fake, state } = createWorld({
+    tenures: [held(1, BEFORE_THU), held(2, AFTER_SUN)],
+    starters: [1, 2],
+  });
+  fake.install(t);
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(
+    fake.matching(/FROM "nfl_games"/).length,
+    1,
+    'one schedule read for the whole pass, where there was one per team'
+  );
+  assert.equal(state.matchups[0].home_score, 20, 'the pickup is still excluded');
+  assert.equal(state.matchups[0].away_score, OPPONENT_POINTS, 'and the opponent still counts');
+  fake.assertClean();
+});
+
+/* ------------------------------------------------------------------ *
+ * Best ball: the other population, the same exclusion                 *
+ * ------------------------------------------------------------------ */
+
+/**
+ * WHY THIS CASE IS HERE AND NOT IN THE SETTLE SUITE, which is not what #261
+ * assumed. The ticket says the best-ball final path has no exclusion case at
+ * all because every tenure test runs `best_ball: false`. That premise is
+ * wrong: `settleScoreOfRecord.test.js` holds thirteen best-ball worlds, and
+ * gutting the best-ball filter to `r.rows` fails eight tests there - every
+ * one of them a best-ball world, so that branch is not merely covered, it is
+ * the only thing that mutation can break.
+ *
+ * What that same mutation does NOT break is a single test in THIS file: all
+ * twelve stay green with the best-ball filter deleted outright. This suite
+ * had no best-ball world at all, and that is the real gap.
+ *
+ * It is a different gap from the settle suite's, because this suite scores a
+ * COLD FINAL WEEK. Its matchup is `final: true` from the start and is scored
+ * by calling `scoreMatchups` with no `settle`, in a process that never ran an
+ * advance. The settle suite's best-ball finals all reach finality through
+ * `advanceWeek` in the same process, so they pin the exclusion at the end of
+ * a sequence. Here FINALITY ALONE selects the as-played population, which is
+ * the path `correction.service` takes on every sweep over an old week.
+ */
+test('#261 best ball: a post-kickoff pickup is excluded from a COLD final week', async (t) => {
+  // Three candidates, and ONE expected score that only one reading produces:
+  //
+  //   player 1  RB starter, held before kickoff   20.0  counts
+  //   player 3  BENCH,      held before kickoff   40.0  counts (best ball has
+  //                                                     no bench: every
+  //                                                     non-IR row is a
+  //                                                     candidate)
+  //   player 2  BENCH,      acquired after kickoff 30.0 EXCLUDED
+  //
+  // 60.0 pins all three claims at once, which is what stops this being
+  // another zero that any number of causes could produce:
+  //   90.0 would mean the exclusion never ran and the pickup counted;
+  //   20.0 would mean bench rows are not candidates, so the pickup's absence
+  //        proved nothing about tenure;
+  //   60.0 is reachable only if bench rows ARE candidates AND the post-kickoff
+  //        one was dropped by the tenure predicate.
+  //
+  // Both wrong readings are REACHABLE, which is what makes listing them worth
+  // anything. Verified by running each: deleting the best-ball held-rows
+  // filter scores 90.0, and flipping this world to `bestBall: false` scores
+  // 20.0. That second one only became a real check when the population
+  // handler above started lifting the bench clause out of the statement -
+  // before that it answered both branches with the bench included, 20.0 was
+  // unreachable, and this list was describing an intent rather than a fixture.
+  const { fake, state } = createWorld({
+    bestBall: true,
+    starters: [1, 2, 3],
+    slots: { 2: 'BENCH', 3: 'BENCH' },
+    tenures: [held(1, BEFORE_THU), held(3, BEFORE_THU), held(2, AFTER_SUN)],
+  });
+  fake.install(t);
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(
+    state.matchups[0].home_score,
+    60,
+    'the held starter and the held bench candidate count; the post-kickoff pickup does not'
+  );
+  assert.equal(state.matchups[0].away_score, OPPONENT_POINTS, 'and the opponent is untouched');
+
+  // The branch guard. Without it this test would keep passing if `best_ball`
+  // stopped being read at all, and would then be a second standard-path case
+  // wearing a best-ball name - the failure this whole ticket is about.
+  const populationReads = fake.matching(/FROM "lineup_entries"/);
+  assert.ok(populationReads.length > 0, 'the population was read');
+  for (const call of populationReads) {
+    assert.match(
+      call.text,
+      /"players"\."position"/,
+      'the BEST-BALL population ran: only it selects position, to fill slots optimally'
+    );
+  }
   fake.assertClean();
 });

@@ -486,7 +486,9 @@ async function lockedPlayerIds(client, { season, week, now = new Date(), players
  * for one team under two spellings, and the moment that team first took the
  * field is the honest answer to every question asked of this map.
  */
-async function weekKickoffs(client, { season, week }) {
+async function weekKickoffs(client, { season, week, kickoffCache = null }) {
+  const key = `${season}:${week}`;
+  if (kickoffCache && kickoffCache.has(key)) return kickoffCache.get(key);
   const result = await client.query(
     `SELECT "nfl_team", "kickoff_at" FROM "nfl_games"
      WHERE "season" = $1 AND "week" = $2`,
@@ -501,6 +503,7 @@ async function weekKickoffs(client, { season, week }) {
       byTeam.set(team, row.kickoff_at);
     }
   }
+  if (kickoffCache) kickoffCache.set(key, byTeam);
   return byTeam;
 }
 
@@ -513,8 +516,8 @@ async function weekKickoffs(client, { season, week }) {
  * this module rather than joining the schedule itself, so there is one place
  * that knows how a week's games are found and one place for #227 to change.
  */
-async function playerKickoffs(client, { season, week, players }) {
-  const kickoffs = await weekKickoffs(client, { season, week });
+async function playerKickoffs(client, { season, week, players, kickoffCache = null }) {
+  const kickoffs = await weekKickoffs(client, { season, week, kickoffCache });
   const byPlayer = new Map();
   for (const player of players || []) {
     const team = scheduleKeyFor(player);
@@ -550,9 +553,19 @@ async function playerKickoffs(client, { season, week, players }) {
  *
  * The team's tenures are asked about as they stand NOW, which is safe for the
  * same reason: tenures are append-and-close, never rewritten.
+ *
+ * `kickoffCache` is an OPTIONAL caller-owned Map memoising the week's schedule
+ * across several calls that share one (season, week) - `scoreMatchups` asks
+ * once per team per matchup, so a 12-team league re-read the same rows twelve
+ * times per scoring pass and ~170 times per season-long correction sweep. The
+ * caller owns its lifetime deliberately: the schedule is only stable within
+ * one pass, so a module-level cache would be a staleness bug the moment a
+ * sync-schedule run landed between passes. Omit it and nothing is memoised,
+ * which is the right default for every other caller. It never changes an
+ * answer, only how many times the same answer is fetched.
  */
-async function playersNotHeldAtKickoff(client, { teamId, season, week, players }) {
-  const kickoffs = await playerKickoffs(client, { season, week, players });
+async function playersNotHeldAtKickoff(client, { teamId, season, week, players, kickoffCache = null }) {
+  const kickoffs = await playerKickoffs(client, { season, week, players, kickoffCache });
   const scheduled = players
     .map((player) => ({ id: player.id, kickoff: kickoffs.get(player.id) }))
     .filter((player) => player.kickoff !== undefined);
