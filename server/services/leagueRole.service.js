@@ -139,7 +139,10 @@ async function listCoCommissioners(db, leagueId) {
 }
 
 /**
- * The co-commissioner roster as one viewer may read it (#324).
+ * The co-commissioner roster as one viewer may read it (#324). Every path that
+ * puts this roster on the wire goes through here - league detail, and the
+ * grant and revoke responses below - so there is one answer to "what does a
+ * co-commissioner entry look like" rather than one per route.
  *
  * CONTEXT.md's Team identity entry admits no exception for role disclosure:
  * that a manager holds commissioner power over you is a property of their
@@ -239,7 +242,14 @@ async function grantCoCommissioner({ leagueId, userId, targetUserId }) {
       type: 'league',
       message: `You were made a co-commissioner of ${league.name}`,
     });
-    const coCommissioners = await listCoCommissioners(client, leagueId);
+    // Serialized, not raw: this is a PAYLOAD, and the roster leaves the server
+    // in one shape wherever it leaves from. `isCommissioner: true` because
+    // requireOwner already gated this and the owner is one; that is what makes
+    // the same call correct here and viewer-dependent on league detail.
+    const coCommissioners = serializeCoCommissioners(
+      await listCoCommissioners(client, leagueId),
+      { isCommissioner: true }
+    );
     await client.query('COMMIT');
     return { leagueId, userId: targetUserId, coCommissioners };
   } catch (error) {
@@ -279,7 +289,12 @@ async function revokeCoCommissioner({ leagueId, userId, targetUserId }) {
       type: 'league',
       message: `You are no longer a co-commissioner of ${league.name}`,
     });
-    const coCommissioners = await listCoCommissioners(client, leagueId);
+    // Serialized for the same reason as the grant above, and owner-gated the
+    // same way.
+    const coCommissioners = serializeCoCommissioners(
+      await listCoCommissioners(client, leagueId),
+      { isCommissioner: true }
+    );
     await client.query('COMMIT');
     return { leagueId, userId: targetUserId, coCommissioners };
   } catch (error) {

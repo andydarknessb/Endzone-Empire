@@ -154,6 +154,15 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   // therefore has no name of its own and reads as a former manager - the one
   // place it is still listed, because this card is the only place it can be
   // revoked and it leaves the member-visible roster entirely.
+  //
+  // Known limit of that, deliberately left: TWO team-less grants at once read
+  // identically, so a commissioner can see there are two but not which is
+  // which. Nothing left in the payload distinguishes them except the account
+  // id, and whether commissioner-only chrome may show one is #179, which #324
+  // put out of scope. An ordinal would make the controls distinct without
+  // making them meaningful, so it is not worth the copy. The state is brief by
+  // construction (it lasts until the removed team's grant is revoked) and the
+  // click still revokes the row it belongs to, not a matched-by-name one.
   const coCommissioners = league.co_commissioners || [];
   // Sanctioned direct owner_id comparison: granting a co-commissioner is one
   // of the three owner-shaped actions leagueRole.service's header enumerates,

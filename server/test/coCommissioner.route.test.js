@@ -37,7 +37,12 @@ function withMockClient(t, overrides = []) {
     [/^DELETE FROM "league_commissioners"/, () => ({ rows: [{ user_id: 42 }] })],
     // The revoked member's Team, looked up through the roles module's requireMember.
     [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({ rows: [{ id: 11, owner_id: 42 }] })],
-    [/FROM "league_commissioners" JOIN "users"/, () => ({ rows: [{ user_id: 42, username: 'alice' }] })],
+    // The projection keeps the username (the SELECT is shared with the
+    // notification fan-out's read); what leaves the server is the serialized
+    // roster, which is what the assertions below check.
+    [/FROM "league_commissioners" JOIN "users"/, () => ({
+      rows: [{ user_id: 42, username: 'alice', teamId: 11, teamName: "Alice's Team" }],
+    })],
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
   ];
@@ -73,7 +78,13 @@ test('the owner can promote a league member to co-commissioner', async (t) => {
   const response = await post(OWNER_ID, { userId: 42 });
 
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body.coCommissioners, [{ user_id: 42, username: 'alice' }]);
+  // #324: the roster leaves the server in ONE shape wherever it leaves from.
+  // This endpoint is owner-gated, so it is the commissioner's shape - the
+  // account id grant and revoke are built on, beside Team identity, and no
+  // username on any path.
+  assert.deepEqual(response.body.coCommissioners, [
+    { user_id: 42, teamId: 11, teamName: "Alice's Team" },
+  ]);
   assert.ok(calls.some((sql) => /^INSERT INTO "league_commissioners"/.test(sql)));
   assert.ok(calls.some((sql) => /^INSERT INTO "transactions"/.test(sql)));
   assert.ok(calls.some((sql) => /^INSERT INTO "notifications"/.test(sql)));

@@ -22,6 +22,12 @@ import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
  * CommissionerTools; a grant with no Team has no Team identity to name it by,
  * so on this page it names no official.
  *
+ * The filter below is load-bearing rather than a belt-and-braces copy of the
+ * server's: a member never receives a team-less grant at all, but a
+ * COMMISSIONER does (they are the one who can revoke it), and they read this
+ * page too. Without the filter this page would say different things to
+ * different members, which is the one thing a shared surface must not do.
+ *
  * The creator's chip stays unconditional for a reason that does not transfer
  * to the grants: there is exactly one creator, they always hold the role, and
  * dropping their chip would leave a league whose rules nobody appears able to

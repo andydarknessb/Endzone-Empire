@@ -364,8 +364,12 @@ router.get('/:id', async (req, res) => {
     // can rule on your trade isn't sensitive, and it saves a second request.
     // What changed in #324 is how that fact is told. CONTEXT.md's Team
     // identity rule admits no exception for role disclosure, so power is a
-    // property of the TEAM - `teams[].is_co_commissioner`, on the identity
-    // every member already holds - and never an account handed over with it.
+    // property of the TEAM and never an account handed over with it. The two
+    // kinds of commissioner are told apart on the same terms: the creator is
+    // `league.ownerTeamId` / `ownerTeamName`, already here, and a GRANT is
+    // `teams[].is_co_commissioner` below. The flag is deliberately the grant
+    // alone - the creator's team is not flagged, because the creator is named
+    // on the league itself and conflating them would lose which is which.
     // The account ids grant and revoke need ride commissioner-conditionally,
     // stripped by the same `is_commissioner` check as `invite_code` two lines
     // below, which is the precedent this follows rather than a new mechanism.
@@ -376,9 +380,11 @@ router.get('/:id', async (req, res) => {
     });
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
-    // The flag is derived from the roster's Team identity, so a team is
-    // flagged exactly when a grant names it - including for a viewer whose
-    // member-visible roster is empty because every grant has lost its team.
+    // Derived from the ROWS rather than from what this viewer was served, so
+    // the flag says the same thing to a member as to a commissioner: a team is
+    // flagged exactly when a grant names it. `id` is the column the sibling
+    // viewerTeamIdOf matches on just below, and the same query selects it as
+    // `teamId`, so the two answers cannot disagree.
     const grantedTeamIds = coCommissionerTeamIds(coCommissionerRows);
     const teams = teamsResult.rows.map((team) => ({
       ...team,
