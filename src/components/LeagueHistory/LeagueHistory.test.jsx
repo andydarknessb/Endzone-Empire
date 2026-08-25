@@ -196,10 +196,11 @@ test("a pick'em season's standings render points and correct picks instead of a 
         {
           season: 2026,
           champion: { teamId: 1, name: 'Sunday Ballers' },
-          // The shape rolloverSeason archives for a pick'em-only league.
+          // The shape rolloverSeason archives for a pick'em-only league:
+          // Team identity + scoring totals only, no account identity (#342).
           standings: [
-            { userId: 11, username: 'alice', teamName: 'Sunday Ballers', teamId: 1, name: 'Sunday Ballers', rank: 1, points: 171, correct: 120, pushes: 2, weekly: {} },
-            { userId: 12, username: 'bob', teamName: "Bob's Team", teamId: 2, name: "Bob's Team", rank: 2, points: 160, correct: 115, pushes: 2, weekly: {} },
+            { teamId: 1, name: 'Sunday Ballers', rank: 1, points: 171, correct: 120, incorrect: 5, pushes: 2, pending: 0, made: 125, weekly: {} },
+            { teamId: 2, name: "Bob's Team", rank: 2, points: 160, correct: 115, incorrect: 8, pushes: 2, pending: 0, made: 123, weekly: {} },
           ],
           trophies: [
             { id: 1, type: 'pickem_champion', label: "2026 Pick'em Champion", team_name: 'Sunday Ballers' },
@@ -225,6 +226,41 @@ test("a pick'em season's standings render points and correct picks instead of a 
   const banner = within(panel).getByTestId('champion-banner-2026');
   expect(banner).toHaveTextContent('171 points');
   expect(banner).not.toHaveTextContent('record');
+});
+
+test("a stripped pick'em standings renders by Team name, and a gone-Team row as Former manager", async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [{
+        season: 2026,
+        outcome: 'champions',
+        champions: [{ teamId: 1, teamName: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' }],
+        champion: { teamId: 1, name: 'Sunday Ballers' },
+        // Post-#342 archive: Team identity + scoring totals only. A manager
+        // whose Team is gone at rollover archives with teamId/name null and
+        // must render as the shared "Former manager" label, never blank.
+        standings: [
+          { teamId: 1, name: 'Sunday Ballers', rank: 1, points: 171, correct: 120, incorrect: 5, pushes: 2, pending: 0, made: 125, weekly: {} },
+          { teamId: null, name: null, rank: 2, points: 160, correct: 115, incorrect: 8, pushes: 2, pending: 0, made: 123, weekly: {} },
+        ],
+        trophies: [],
+        draftGrades: null,
+      }],
+    },
+  });
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
+  expect(within(table).getByText('Sunday Ballers')).toBeInTheDocument();
+  // The gone-Team row shows the shared label, not a blank or a stale account id.
+  expect(within(table).getByText('Former manager')).toBeInTheDocument();
+  expect(within(table).getByText('171')).toBeInTheDocument();
+  expect(within(table).getByText('160')).toBeInTheDocument();
+  // Nothing blank, null, or undefined leaks into the rendered standings.
+  expect(table).not.toHaveTextContent('undefined');
+  expect(table).not.toHaveTextContent('null');
 });
 
 test("a Pick'em history panel displays every archived co-champion instead of the singular compatibility field", async () => {
