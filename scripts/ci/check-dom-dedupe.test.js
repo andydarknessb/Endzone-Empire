@@ -45,6 +45,40 @@ test('parseInstalledCopies: the version is the token after the id, even if npm a
   ]);
 });
 
+test('parseInstalledCopies: the four-field INVALID shape from a symlinked worktree parses to path + version', () => {
+  // A worktree that symlinks node_modules to the main checkout makes npm
+  // resolve the symlink but evaluate it against the worktree's package.json,
+  // so `--long` emits four colon-delimited fields:
+  //   <path>:<name>@<version>:<resolved-real-path>:<status-marker>
+  // The resolved real path lives under a DIFFERENT checkout, and the marker is
+  // INVALID/extraneous. We keep the first-field path and the version; the
+  // resolved path and marker are display context surfaced via npm's stderr on
+  // failure, not parsed here. (This is the shape audited on ic-324's worktree.)
+  const line =
+    'C:\\repo\\.claude\\worktrees\\wt\\node_modules\\@testing-library\\dom' +
+    ':@testing-library/dom@10.4.1' +
+    ':C:\\repo\\node_modules\\@testing-library\\dom' +
+    ':INVALID';
+  assert.deepEqual(parseInstalledCopies(line + '\n'), [
+    {
+      path: 'C:\\repo\\.claude\\worktrees\\wt\\node_modules\\@testing-library\\dom',
+      version: '10.4.1',
+    },
+  ]);
+});
+
+test('parseInstalledCopies: anchors to the FIRST id boundary (indexOf), robust to a later id-shaped field', () => {
+  // Guards the indexOf choice: npm today puts a resolved path and a status
+  // marker in the trailing fields, but were a later field ever to carry an
+  // id-shaped token, we must still split at the real path->id boundary (the
+  // first marker), not the last. The path never contains `:<name>@`, so the
+  // first occurrence is always the true boundary.
+  const line = TOP + ':@testing-library/dom@99.0.0';
+  assert.deepEqual(parseInstalledCopies(line + '\n'), [
+    { path: '/repo/node_modules/@testing-library/dom', version: '10.4.1' },
+  ]);
+});
+
 test('parseInstalledCopies: a line with no id suffix keeps the whole line as the path and a null version', () => {
   const plain = '/repo/node_modules/@testing-library/dom';
   assert.deepEqual(parseInstalledCopies(plain + '\n'), [

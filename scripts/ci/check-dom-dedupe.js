@@ -42,17 +42,38 @@
  * `--parseable` collapses to one line per physical install, which is the
  * count this guard is defined on.
  *
- * Determinism (#313): the count and the message must not depend on which
- * directory the guard was invoked from. `npm ls` resolves against the
- * node_modules of its working directory, so running it from a git worktree
- * that has never had `npm ci` (no node_modules) reports zero while running it
- * from an installed checkout reports the real count — the same repo, a
- * different answer, because it is a different question. We pin the working
- * directory to the checkout that owns THIS script (two levels up from
- * scripts/ci/) and name that search root in every message, so two runs from
- * different directories on the same tree print identical sentences, and a
- * zero result says where it looked instead of reading as "the dependency was
- * dropped."
+ * Determinism (#313): `npm ls` resolves against the node_modules of its
+ * working directory, so before this change the SAME checkout printed a
+ * different sentence depending on which subdirectory you invoked the guard
+ * from. We pin the working directory to the checkout that owns THIS script
+ * (two levels up from scripts/ci/), which makes the count and the message
+ * independent of the working directory WITHIN one checkout: run it from the
+ * repo root or from scripts/ci/ or from anywhere below, and you get the same
+ * answer about the same tree.
+ *
+ * What this deliberately does NOT do is force one canonical root across
+ * checkouts. Every git worktree carries its own copy of this script, so the
+ * anchor resolves to whatever checkout the running script lives in. A worktree
+ * with no node_modules legitimately reports zero; the main checkout with a
+ * split install legitimately reports two. Those are two different trees, so
+ * two different sentences is correct, not a contradiction — forcing them to a
+ * single root would make the guard lie about a real difference between the
+ * installs. The fix for #313's "same tree, two sentences" complaint is not to
+ * collapse the roots but to NAME the search root in every message, so a reader
+ * can tell "found 0 under the worktree" apart from "found 2 under the main
+ * checkout" instead of reading a bare "found 0" against a bare "found 2" and
+ * concluding the dependency was dropped.
+ *
+ * Symlinked worktrees (common here — many worktrees symlink node_modules to
+ * the main checkout): npm resolves the symlink but evaluates the resolved copy
+ * against the WORKTREE's package.json, so a copy can be counted correctly, be
+ * flagged INVALID/extraneous by npm, and physically live under a different
+ * checkout than the search root this message names. The count and the pass/
+ * fail verdict stay right; the named root is the tree we asked about, not
+ * necessarily the directory the bytes sit in. We do not resolve symlinks
+ * (that would change the frozen pass/fail rule, #313); instead the failure
+ * path surfaces npm's own stderr, which carries the INVALID/extraneous
+ * markers that explain the discrepancy.
  *
  * Run: `npm run check:dom-dedupe`
  *
@@ -69,9 +90,12 @@ const PACKAGE_NAME = '@testing-library/dom';
 
 // Anchor the guard to the checkout that owns this script rather than
 // process.cwd(). scripts/ci/check-dom-dedupe.js sits two directories below
-// the repo root. Resolving from __dirname (not the current working
-// directory) is what makes the count and the message identical no matter
-// where the guard was invoked from — see the Determinism note above (#313).
+// the repo root. Resolving from __dirname (not the current working directory)
+// makes the count and the message independent of the working directory WITHIN
+// one checkout. It does NOT unify separate checkouts: each worktree has its
+// own copy of this script, so the anchor follows the running script's tree,
+// and that tree is judged on its own state — see the Determinism note above
+// (#313).
 function resolveSearchRoot() {
   return path.resolve(__dirname, '..', '..');
 }
@@ -82,12 +106,16 @@ function resolveSearchRoot() {
 // warning) are dropped. Windows line endings are normalized so this behaves
 // the same whether npm's stdout used `\n` or `\r\n`.
 //
-// Each --long line is `<physical-path>:<name>@<version>` (npm may append
-// further colon-delimited fields; the version is the first token after the
-// id). The physical path can itself contain `@testing-library/dom` as a
-// directory, but never the id separator `:<name>@`, since path separators are
-// `/` or `\` and the only colon in a path is a Windows drive letter — so the
-// last occurrence of `:<name>@` is unambiguously the field boundary.
+// Each --long line is `<physical-path>:<name>@<version>` (npm appends further
+// colon-delimited fields on some entries — a resolved path and a status marker
+// like INVALID/extraneous for a symlinked or mislinked copy; the version is
+// the first token after the id). The physical path can itself contain
+// `@testing-library/dom` as a directory, but never the id separator `:<name>@`,
+// since path separators are `/` or `\` and the only colon in a path is a
+// Windows drive letter. So the FIRST occurrence of `:<name>@` is the
+// path->id boundary. We use indexOf (not lastIndexOf) so that even if a later
+// field ever carried an id-shaped token, we still anchor to the real boundary
+// rather than the last look-alike.
 //
 // Copies are deduplicated by path, case-insensitively on platforms whose
 // default filesystem is case-insensitive (Windows, macOS) — two
@@ -103,7 +131,7 @@ function parseInstalledCopies(stdout, caseInsensitive = process.platform !== 'li
     .map((line) => line.trim())
     .filter(Boolean)
     .forEach((line) => {
-      const at = line.lastIndexOf(marker);
+      const at = line.indexOf(marker);
       let installPath;
       let version;
       if (at === -1) {
