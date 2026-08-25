@@ -173,7 +173,11 @@ function ProfileSettingsModal({ open, onClose }) {
     } catch (error) {
       const owned = error.response?.data?.details?.leagues;
       const message = owned?.length
-        ? `Delete commissioned leagues first: ${owned.map((league) => league.name).join(', ')}`
+        // `owned` is what the server sends and what the server means: leagues
+        // this account CREATED (leagues.owner_id). The sentence says so now
+        // (#275). It is a second, hand-maintained wording of privacy.service's
+        // own refusal message, and it pre-empts it - keep the two in step.
+        ? `Delete leagues you created first: ${owned.map((league) => league.name).join(', ')}`
         : error.response?.data?.message || 'Account deletion failed';
       notify(message, { severity: 'error' });
     } finally {
@@ -260,9 +264,9 @@ function ProfileSettingsModal({ open, onClose }) {
       <DialogTitle>Delete account permanently?</DialogTitle>
       <DialogContent>
         <Typography sx={{ mb: 2 }}>
-          This removes active credentials, chat messages, notifications, push subscriptions, and
-          avatars, then anonymizes retained league history. You must delete leagues you commission
-          first. This action cannot be undone.
+          This removes active credentials, chat messages, notifications, push subscriptions,
+          avatars, and any co-commissioner roles you hold, then anonymizes retained league
+          history. You must delete leagues you created first. This action cannot be undone.
         </Typography>
         <TextField
           autoFocus

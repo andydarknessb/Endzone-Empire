@@ -226,11 +226,18 @@ const ALLOWLIST = [
     file: 'server/services/privacy.service.js',
     code: 'SQL WHERE "leagues"."owner_id" = $1',
     rule:
-      'UNRESOLVED, recorded not fixed (#188, ruled by pl-endzone, tracked in #275). Account deletion is refused while the caller still owns a league. '
-      + 'The CODE enforces the creator-alone rule; the message a user reads says "Delete your commissioned leagues before deleting your account", and '
-      + '"commissioned" reads as commissioner, which includes co-commissioners. The two readings are both defensible: either the copy over-states a '
-      + 'creator-only rule, or the rule is under-scoped and a league losing its only co-commissioner has much the same problem as one losing its creator. '
-      + 'Choosing is a product decision about a string a user reads, so neither half was touched here.',
+      'RESOLVED, creator-alone by ruling (#188 recorded it, #275 settled it). Account deletion is refused while the caller still owns a league they '
+      + 'created, and this comparison is that rule: leagues.owner_id, the creator alone. A co-commissioner is not blocked. #188 found the copy disagreeing with '
+      + 'it - "Delete your commissioned leagues before deleting your account", where "commissioned" reads as commissioner and takes in co-commissioners '
+      + '- and left both halves alone, because widening the rule and rewording the copy are both defensible and the choice is a product decision about '
+      + 'a string a user reads. The maintainer chose: the RULE stays creator-only, the COPY changed to say created. This comparison is therefore '
+      + 'unchanged and correct as it stands. BEWARE the wording: FIVE hand-maintained sentences state this one rule, with nothing enforcing their '
+      + 'agreement. Three now say "created" - the throw beside this query, and two in src/components/Nav/ProfileSettingsModal.jsx (the refusal toast, '
+      + 'which pre-empts the throw, and the dialog warning read before the attempt). Two were left saying otherwise BY RULING, both in '
+      + 'src/components/public/pages/LegalPage.jsx: the Terms of Service Termination clause ("resolving leagues you commission") and the privacy '
+      + 'policy\'s Your choices and rights sentence ("Commissioners must first delete leagues they own", which has the rule right and the actor wrong). '
+      + 'Published policy text is not an IC\'s to reword and the verbs differ, so it is filed for Cory rather than fixed. The privacy policy sentence '
+      + 'also enumerates what deletion removes and is now stale, since deletion revokes co-commissioner grants too - a knowing trade, not an oversight.',
   },
   {
     file: 'src/components/Nav/ProfileSettingsModal.jsx',

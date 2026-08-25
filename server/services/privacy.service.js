@@ -113,16 +113,19 @@ async function deleteUserAccount({ userId, confirmation }) {
     // the creator can leave one orphaned, and only their account is blocked
     // here. A co-commissioner deletes their account freely.
     //
-    // #188 flagged a disagreement between this rule and the message it raises
-    // below: the code says creator, the copy says "your commissioned
+    // #188 flagged a disagreement between this rule and the message it raised
+    // below: the code said creator, the copy said "your commissioned
     // leagues", and "commissioned" reads as commissioner, which includes
-    // co-commissioners. Both readings are defensible - either the copy
-    // over-states a creator-only rule, or the rule is under-scoped and a
-    // league losing its only co-commissioner has much the same problem as one
-    // losing its creator. Choosing is a product decision about a string a
-    // user reads, so NEITHER half was changed. Recorded here, in
-    // scripts/check-identity-comparisons.js's allowlist, and on #275. Do not
-    // "tidy" one side of it without deciding the other.
+    // co-commissioners. Both readings were defensible, so #188 changed
+    // neither half and #275 asked for a decision. RULED: the RULE stays
+    // creator-only and the COPY changed to match it. A co-commissioner is not
+    // blocked here and never was.
+    //
+    // The same sentence is written a second time, in different words, in
+    // src/components/Nav/ProfileSettingsModal.jsx's delete handler, which
+    // renders the returned `details.leagues` itself. Two hand-maintained
+    // messages for one rule, with nothing holding them in agreement: change
+    // one and you have to change the other.
     const owned = await client.query(
       `SELECT "leagues"."id", "leagues"."name", count("teams"."id")::int AS "team_count"
        FROM "leagues"
@@ -136,7 +139,7 @@ async function deleteUserAccount({ userId, confirmation }) {
       throw new PrivacyError(
         409,
         'ACCOUNT_OWNS_LEAGUES',
-        'Delete your commissioned leagues before deleting your account',
+        'Delete the leagues you created before deleting your account',
         { leagues: owned.rows }
       );
     }
@@ -159,6 +162,15 @@ async function deleteUserAccount({ userId, confirmation }) {
     await client.query('DELETE FROM "push_subscriptions" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "auth_tokens" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "refresh_tokens" WHERE "user_id" = $1', [userId]);
+
+    // The eight above are the account's own content. This one is not: a
+    // co-commissioner grant is a relationship the LEAGUE also has an interest
+    // in. Revoking the authorization the account currently holds is not the
+    // same act as erasing league history, so the Team, the completed seasons
+    // and the draft record all stay (#275). It has to be written down here
+    // because the delete below is a SOFT one: the `users` row survives, so no
+    // foreign key ever cascades and the grant would outlive the account.
+    await client.query('DELETE FROM "league_commissioners" WHERE "user_id" = $1', [userId]);
 
     const anonymousId = crypto.randomUUID();
     const password = await encryptLib.encryptPassword(crypto.randomBytes(48).toString('base64url'));

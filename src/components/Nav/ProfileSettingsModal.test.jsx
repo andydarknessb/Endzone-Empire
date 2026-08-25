@@ -224,3 +224,44 @@ test('staging a file, removing, then picking another file uploads the last file'
   expect(mock.history.delete).toHaveLength(0);
   expect(onClose).toHaveBeenCalled();
 });
+
+// #275: the server refuses account deletion while the caller still OWNS a
+// league (`leagues.owner_id` - the creator alone). A co-commissioner is not
+// blocked. Two hand-maintained strings in this file said "commission"
+// instead, which reads as commissioner and over-states the rule; the copy
+// now says what the rule does. This test pins both of them, because the
+// client message pre-empts the server's own.
+test('the deletion refusal names the leagues the user created, not commissioned', async () => {
+  mock.onGet('/api/league').reply(200, [league]);
+  mock.onDelete('/api/user').reply(409, {
+    code: 'ACCOUNT_OWNS_LEAGUES',
+    message: 'Delete the leagues you created before deleting your account',
+    details: { leagues: [{ id: 1, name: 'Sunday League', team_count: 8 }] },
+  });
+  const user = userEvent.setup();
+  render(
+    <SnackbarProvider>
+      <ProfileSettingsModal open onClose={jest.fn()} />
+    </SnackbarProvider>
+  );
+
+  await user.click(await screen.findByRole('button', { name: 'Delete account' }));
+
+  // The warning shown BEFORE the attempt describes the same creator-only rule.
+  const warning = await screen.findByText(/You must delete leagues you created first/);
+  expect(warning).toBeInTheDocument();
+  expect(warning.textContent).not.toMatch(/leagues you commission/i);
+  // ...and the sentence enumerating what deletion removes has to stay true
+  // now that deletion also revokes the account's co-commissioner grants.
+  // That item is the only one on the list that takes something away from
+  // OTHER people's leagues.
+  expect(warning.textContent).toMatch(/co-commissioner roles/);
+
+  await user.type(screen.getByLabelText(/Type alice to confirm/), 'alice');
+  await user.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+  await waitFor(() => expect(mock.history.delete).toHaveLength(1));
+  const toast = await screen.findByText(/Sunday League/);
+  expect(toast.textContent).toMatch(/leagues you created/);
+  expect(toast.textContent).not.toMatch(/commission/i);
+});
