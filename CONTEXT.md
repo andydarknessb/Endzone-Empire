@@ -74,17 +74,25 @@ may join, whether settings may still change, whether the season is live. The
 draft's own turn-by-turn state is draft status, not phase. A pick'em-only
 league has no draft and needs its own derivation: it is in-season from the
 moment it is created, then complete, and never pre-draft or drafting.
-Schedule generation, week finalization and the scoring that precedes it are a
-phase rule too: they are unavailable to a league that is pre-draft or drafting,
-because there are no rosters yet to schedule or score. They become
-available the moment the draft completes, which is also when the schedule is
-generated, on the same transaction that completes the draft.
+Season operations are a phase rule too: they are unavailable to a league that
+is pre-draft or drafting, because there are no rosters yet to schedule or
+score. They become available the moment the draft completes, which is also
+when the schedule is generated, on the same transaction that completes the
+draft.
 _Avoid_: league status, stage, state
+
+**Season operations**:
+The work a league's season needs once its draft is done: generating the
+schedule, scoring each week, and finalizing a week to move the league on.
+Grouped under one name because league phase governs all three with a single
+rule, and because a pick'em-only league has no draft to wait for and so is
+never held back by it.
+_Avoid_: season engine (engine is the projection engine), season progression
 
 **Draft status**:
 Where a draft sits in its own lifecycle: pending (not yet started), active
 (picks are being made), complete. Owned and driven by the draft itself, and
-read directly by the draft room and the draft engine. It is one input to
+read directly by the draft room and the draft workflow. It is one input to
 league phase, never a substitute for it: "may this pick be made" is a draft
 question, "may a team join" is a phase question. A pick'em-only league has no
 draft, so its draft status carries no meaning and is never read.
@@ -518,6 +526,11 @@ pick'em league. Independent of rosters and matchups; each pick locks at its
 own game's kickoff.
 
 ### The projection engine
+
+Engine, unqualified, always means this one, here and throughout Evaluation. The
+machinery that moves a league through its own lifecycle is named for what it
+does instead: draft workflow, pick'em season workflow, live scoring, rollover,
+season operations.
 
 **Endzone Forecast**:
 The name the product gives its projection engine: what managers see on the
