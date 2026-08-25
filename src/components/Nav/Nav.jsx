@@ -249,10 +249,11 @@ function Nav() {
 
       {/* Mobile navigation drawer */}
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        {/* role="presentation": this Box is layout only, so data-testid is
-            the seam a test uses to tell the drawer's copy of a link from the
-            top bar's. */}
-        <Box sx={{ width: 260 }} role="presentation" data-testid="mobile-nav-drawer">
+        {/* role="presentation": this Box is layout only. Its "Navigation
+            menu" nav landmark below (#322) is distinctly named from the top
+            bar's, so tests reach it by that role+name now instead of a
+            testid seam. */}
+        <Box sx={{ width: 260 }} role="presentation">
           <Typography variant="h6" component="div" sx={{ p: 2, color: 'var(--accent)', fontWeight: 700 }}>
             Endzone Empire
           </Typography>
@@ -264,7 +265,14 @@ function Nav() {
           )}
           {loggedIn ? (
             <>
-              <Box component="nav" aria-label="Primary navigation">
+              {/* Named "Navigation menu" (not "Primary navigation") so the
+                  drawer's landmark agrees with the opener button above,
+                  labelled "open navigation menu" - the button a user
+                  activates and the landmark they land in speak the same
+                  words. Distinct from the top bar's "Primary navigation"
+                  landmark so a landmark listing shows two entries, not one
+                  name twice (#322). */}
+              <Box component="nav" aria-label="Navigation menu">
                 <List>
                   {links.map((l) => (
                     <ListItemButton
