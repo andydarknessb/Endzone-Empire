@@ -47,7 +47,9 @@ import {
   buildInitialRules,
 } from '../../lib/leagueRulesFormat';
 import { capForType, isPickemOnly, leagueTypeOf, MIN_TEAMS } from '../../lib/leagueType';
-import { deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE, removability } from '../../lib/leaguePhase';
+import {
+  deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE, removability, removeRefusalMessage,
+} from '../../lib/leaguePhase';
 import { teamNameLabel } from '../../lib/teamIdentity';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
@@ -423,7 +425,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
   // always. When false, the list of removable teams is replaced by the reason,
   // so the UI never offers a removal the server would refuse for phase reasons.
   // A stale client that still shows the buttons still gets the server's 409.
-  const { removable: teamsRemovable } = removability(league);
+  const { removable: teamsRemovable, reason: removeReason } = removability(league);
   // Team limits are draft-frozen keys, so they are offered exactly while the
   // phase module's freeze rule says they are open (pre-draft, or always for a
   // pick'em-only league): the same rule the server's frozenSettingKeys states.
@@ -528,15 +530,18 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
              any team now would rewrite the draft, rosters and schedule (the
              Removable rule, #195). Only a fantasy league reaches this branch, a
              pick'em-only league being removable in every phase, so the reason is
-             always the draft having started. */
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block' }}
-            data-testid="remove-team-locked"
-          >
-            Teams can&apos;t be removed once the draft has started. Removing one would rewrite the draft, rosters and schedule.
-          </Typography>
+             always the draft having started. The first line is the server's own
+             refusal, rendered from the shared message so the person who hits the
+             409 by another route reads the same sentence; the added context is
+             visibly extra, in its own node. */
+          <Box data-testid="remove-team-refused">
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {removeRefusalMessage(removeReason)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Removing one would rewrite the draft, rosters and schedule.
+            </Typography>
+          </Box>
         )}
       </Paper>
 

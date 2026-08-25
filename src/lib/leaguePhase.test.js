@@ -7,6 +7,8 @@ import {
   LEAGUE_PHASE,
   removability,
   REMOVE_REFUSAL_REASON,
+  REMOVE_REFUSAL_MESSAGES,
+  removeRefusalMessage,
   rosterActionForPhase,
 } from './leaguePhase';
 import fixture from './leaguePhase.fixture.json';
@@ -110,6 +112,19 @@ describe('parity with server/services/leaguePhase.js', () => {
 
   test('the draft-frozen setting keys are the same list', () => {
     expect(frozenSettingKeys({ draft_status: 'active' })).toEqual([...server.DRAFT_FROZEN_SETTING_KEYS]);
+  });
+
+  // The refusal WORDING is what a user actually reads, so it is pinned across
+  // sides too, not just the reason codes: the commissioner-tools control renders
+  // the same literal the server raises on the 409, and this keeps the two from
+  // drifting the way a second hand-written copy would.
+  test('the removal refusal messages are the same literals, and removeRefusalMessage agrees', () => {
+    expect(REMOVE_REFUSAL_MESSAGES).toEqual(server.REMOVE_REFUSAL_MESSAGES);
+    for (const reason of Object.values(REMOVE_REFUSAL_REASON)) {
+      expect(removeRefusalMessage(reason)).toBe(server.removeRefusalMessage(reason));
+    }
+    // The unknown-reason fallback matches too, so neither side quietly invents copy.
+    expect(removeRefusalMessage('nonesuch')).toBe(server.removeRefusalMessage('nonesuch'));
   });
 
   test.each(fixture.cases.map((c) => [c.name, c.league]))('phase, joinability, removability and frozen keys agree: %s', (_name, league) => {

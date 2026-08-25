@@ -65,6 +65,16 @@ export const REMOVE_REFUSAL_REASON = Object.freeze({
 });
 
 /**
+ * The manager-readable message for each removal refusal, byte-identical to the
+ * server's REMOVE_REFUSAL_MESSAGES (leaguePhase.test.js pins the two equal).
+ * The commissioner-tools removal control renders this so the sentence a stale
+ * client shows is the same one removeTeam raises on the 409.
+ */
+export const REMOVE_REFUSAL_MESSAGES = Object.freeze({
+  [REMOVE_REFUSAL_REASON.DRAFT_STARTED]: "teams can't be removed once the draft has started",
+});
+
+/**
  * Will this league let a team be removed right now? The mirror of `joinability`
  * and the read side of CONTEXT.md's Removable term: a league with a fantasy
  * side is removable only while pre-draft (once the draft has started, removing
@@ -82,6 +92,11 @@ export function removability(league) {
   return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT
     ? { removable: true }
     : { removable: false, reason: REMOVE_REFUSAL_REASON.DRAFT_STARTED };
+}
+
+/** Message for a removal-refusal answer; mirrors the server's removeRefusalMessage. */
+export function removeRefusalMessage(reason) {
+  return REMOVE_REFUSAL_MESSAGES[reason] || "teams can't be removed right now";
 }
 
 /**
