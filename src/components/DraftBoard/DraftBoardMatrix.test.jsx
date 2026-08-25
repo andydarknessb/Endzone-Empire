@@ -5,8 +5,8 @@ import DraftBoardMatrix from './DraftBoardMatrix';
 test('marks a pre-filled keeper pick on the draft matrix', () => {
   render(
     <DraftBoardMatrix
-      teams={[{ id: 1, name: 'Team A', draft_position: 1 }]}
-      picks={[{ pick_number: 1, player_id: 10, team_id: 1, name: 'Josh Allen', position: 'QB', is_keeper: true }]}
+      teams={[{ teamId: 1, teamName: 'Team A', draft_position: 1 }]}
+      picks={[{ pick_number: 1, player_id: 10, teamId: 1, teamName: 'Team A', name: 'Josh Allen', position: 'QB', is_keeper: true }]}
       onTheClock={null}
       draftRounds={2}
       onOpenQuickView={jest.fn()}
@@ -20,8 +20,8 @@ test('marks a pre-filled keeper pick on the draft matrix', () => {
 test('renders picks without interactive player controls in read-only mode', () => {
   render(
     <DraftBoardMatrix
-      teams={[{ id: 1, name: 'Team A', draft_position: 1 }]}
-      picks={[{ pick_number: 1, player_id: 10, team_id: 1, name: 'Josh Allen', position: 'QB' }]}
+      teams={[{ teamId: 1, teamName: 'Team A', draft_position: 1 }]}
+      picks={[{ pick_number: 1, player_id: 10, teamId: 1, teamName: 'Team A', name: 'Josh Allen', position: 'QB' }]}
       onTheClock={null}
       draftRounds={1}
       readOnly
@@ -42,7 +42,7 @@ test('exposes itself as a named "Draft Board" H2 region, with and without a set 
 
   render(
     <DraftBoardMatrix
-      teams={[{ id: 1, name: 'Team A', draft_position: 1 }]}
+      teams={[{ teamId: 1, teamName: 'Team A', draft_position: 1 }]}
       picks={[]}
       onTheClock={null}
       draftRounds={1}

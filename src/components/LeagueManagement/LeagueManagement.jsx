@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useSelector } from 'react-redux';
 import {
   Typography, TextField, Button, Paper, Stack, Alert,
   Switch, FormControlLabel, Select, MenuItem, InputLabel, FormControl,
@@ -33,7 +32,6 @@ const JOIN_CLOSED_COPY = {
 };
 
 function LeagueManagement() {
-  const user = useSelector((store) => store.user);
   const notify = useSnackbar();
   const [leagues, setLeagues] = useState([]);
   const [activeTab, setActiveTab] = useState('create');
@@ -245,7 +243,6 @@ function LeagueManagement() {
             <LeagueCard
               key={league.id}
               league={league}
-              isOwner={user.id === league.owner_id}
               onDelete={deleteLeague}
             />
           ))}
@@ -400,12 +397,48 @@ function LeagueManagement() {
               helperText="Your Team's identity in this league. Other managers never see your account email or username."
               value={joinTeamName} onChange={(e) => setJoinTeamName(e.target.value)} />
             {preview && preview.code === trimmedInviteCode && (
-              <Paper variant="outlined" sx={{ p: 1.5 }} data-testid="invite-preview">
+              <Paper
+                variant="outlined"
+                sx={{ p: 1.5 }}
+                data-testid="invite-preview"
+                role="status"
+                aria-live="polite"
+              >
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{preview.name}</Typography>
                 <LeagueTypeChips league={preview} sx={{ my: 1 }} />
+                {/*
+                  #209: occupancy and commissioner attribution used to share
+                  one text node ("3/12 teams · run by X"), so a screen reader
+                  announced two unrelated facts as a single joined claim.
+                  Split into two block elements so the boundary between them
+                  is what gets announced - structural only, per the
+                  maintainer's binding ruling on #209: the words are exactly
+                  what they were, nothing here is reworded.
+
+                  The commissioner is named by their TEAM, never by their
+                  account (#181). Whoever is reading this pasted an invite
+                  code, so they are by definition not a member of the league,
+                  and CONTEXT.md's Team identity rule keeps a manager's account
+                  identifier out of another manager's view. The payload still
+                  carries `ownerUsername` until #115 removes it; nothing here
+                  reads it, and a missing Team name drops the second element
+                  entirely rather than falling back to it or leaving an empty
+                  block behind for a screen reader to still land on.
+
+                  The card itself is the live region (role=status, matching
+                  #215's convention for the Draft room's readiness
+                  announcement): it mounts once, with both lines already in
+                  place, when the debounced preview arrives, so its
+                  appearance is what gets announced instead of nothing.
+                */}
                 <Typography variant="body2" color="text.secondary">
-                  {preview.teamCount}/{preview.maxTeams} teams · run by {preview.ownerUsername}
+                  {preview.teamCount}/{preview.maxTeams} teams
                 </Typography>
+                {preview.ownerTeamName && (
+                  <Typography variant="body2" color="text.secondary">
+                    run by {preview.ownerTeamName}
+                  </Typography>
+                )}
                 {preview.alreadyMember && (
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                     You are already a member of this league.

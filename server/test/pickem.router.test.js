@@ -101,6 +101,22 @@ function mockClient(t, overrides = []) {
   ]);
 }
 
+/**
+ * #274: the seam for "the refusal wrote nothing".
+ *
+ * mockPool/mockClient both return the shared call log, and the refusal tests
+ * below used to discard it. The log is the only thing that can tell a guard
+ * above the write from one below it: every Pick'em write happens inside a
+ * transaction, so a misplaced guard rolls back and answers identically.
+ *
+ * mockClient registers LIVE handlers for both inserts (see above), so a zero
+ * here is an observation. The happy-path tests in this file assert the same
+ * two patterns are PRESENT, which is the baseline that makes the zero legible.
+ */
+const writeCount = (calls, re) => calls.filter((call) => re.test(call.text)).length;
+const PICKS_INSERT = /^INSERT INTO "pickem_picks"/;
+const SETTINGS_INSERT = /^INSERT INTO "pickem_settings"/;
+
 /* ------------------------------------------------------------------ *
  * Gates                                                               *
  * ------------------------------------------------------------------ */
@@ -117,7 +133,21 @@ test('every Pick\'em route requires a signed-in caller', async () => {
 });
 
 test('a non-member gets 403 from every Pick\'em route', async (t) => {
-  mockPool(t, [[/FROM "teams" WHERE "league_id"/, () => ({ rows: [] })]]);
+  const calls = mockPool(t, [[/FROM "teams" WHERE "league_id"/, () => ({ rows: [] })]]);
+  // #274: two things are needed before the INSERT count below means anything,
+  // and both were missing.
+  //
+  // A client-side world, because upsertPicks runs entirely on a checked-out
+  // client while mockPool registers handlers side 'pool' only: without it the
+  // service's first client statement hits fakePool's unexpected-query throw
+  // and the count is pinned at 0 in every build.
+  //
+  // And a slate that has NOT kicked off, because the shared default is week
+  // one with BUF|MIA already started. With that slate a membership check
+  // moved below the upsert still never inserts - it is refused by the kickoff
+  // lock first - so the count stays 0 and proves nothing. Dated a week out,
+  // the save genuinely lands and the count is what catches it.
+  mockClient(t, [[/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['BUF', 'MIA', NEXT_WEEK]]) })]]);
 
   const settings = await request(app)
     .get('/api/pickem/league/3/settings').set('Authorization', authed());
@@ -137,6 +167,11 @@ test('a non-member gets 403 from every Pick\'em route', async (t) => {
   const standings = await request(app)
     .get('/api/pickem/league/3/standings').set('Authorization', authed());
   assert.equal(standings.status, 403);
+
+  // #274. The three GET legs above refuse a read; the PUT leg refuses a write,
+  // and only this count distinguishes a non-member who was turned away from
+  // one whose picks were saved and then rolled back.
+  assert.equal(writeCount(calls, PICKS_INSERT), 0, 'the non-member saved no picks');
 });
 
 test('a non-integer league id or an out-of-range week is a 400', async () => {
@@ -176,13 +211,15 @@ test('GET settings on a league that never enabled Pick\'em reports it off', asyn
 });
 
 test('a plain member cannot change the settings', async (t) => {
-  mockPool(t); // default: SELECT 1 FROM "leagues" returns no row
+  const calls = mockPool(t); // default: SELECT 1 FROM "leagues" returns no row
+  mockClient(t); // #274: putSettings writes on a client; see the non-member test above
   const res = await request(app)
     .put('/api/pickem/league/3/settings')
     .set('Authorization', authed())
     .send({ enabled: true });
   assert.equal(res.status, 403);
   assert.match(res.body.error, /only the commissioner/);
+  assert.equal(writeCount(calls, SETTINGS_INSERT), 0, 'the member changed nothing');
 });
 
 test('a co-commissioner can enable Pick\'em', async (t) => {
@@ -204,7 +241,7 @@ test('a co-commissioner can enable Pick\'em', async (t) => {
 
 test('changing the mode after picks exist is a 409 PICKEM_MODE_LOCKED', async (t) => {
   mockPool(t, [[/SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })]]);
-  mockClient(t, [[/SELECT 1 FROM "pickem_picks"/, () => ({ rows: [{ '?column?': 1 }] })]]);
+  const calls = mockClient(t, [[/SELECT 1 FROM "pickem_picks"/, () => ({ rows: [{ '?column?': 1 }] })]]);
 
   const res = await request(app)
     .put('/api/pickem/league/3/settings')
@@ -213,6 +250,10 @@ test('changing the mode after picks exist is a 409 PICKEM_MODE_LOCKED', async (t
 
   assert.equal(res.status, 409);
   assert.equal(res.body.code, 'PICKEM_MODE_LOCKED');
+  // #274. The service-level sibling of this case (pickem.service.test.js)
+  // already asserted the absence; the router test did not. The upsert handler
+  // is live, so a lock moved below it would rewrite the mode and still 409.
+  assert.equal(writeCount(calls, SETTINGS_INSERT), 0, 'the locked mode was not rewritten');
 });
 
 /* ------------------------------------------------------------------ *
@@ -279,7 +320,7 @@ test("an unlocked game never leaks another manager's pick", async (t) => {
 
 test('saving picks for a kicked-off game is a 409 naming the offending games', async (t) => {
   mockPool(t);
-  mockClient(t);
+  const calls = mockClient(t);
 
   const res = await request(app)
     .put('/api/pickem/league/3/week/1/picks')
@@ -289,6 +330,10 @@ test('saving picks for a kicked-off game is a 409 naming the offending games', a
   assert.equal(res.status, 409);
   assert.equal(res.body.code, 'PICKEM_LOCKED');
   assert.deepEqual(res.body.gameKeys, ['BUF|MIA']);
+  // #274, and this is the textbook shape: the lock is re-checked INSIDE the
+  // transaction, so a check moved below the upsert saves a pick on a game that
+  // has already kicked off and answers the identical 409.
+  assert.equal(writeCount(calls, PICKS_INSERT), 0, 'no pick was saved for a started game');
 });
 
 test('a happy-path save writes the batch and echoes it back', async (t) => {
@@ -315,7 +360,7 @@ test('a happy-path save writes the batch and echoes it back', async (t) => {
 test('a duplicate confidence in confidence mode is a 400 PICKEM_BAD_CONFIDENCE', async (t) => {
   const future = NEXT_WEEK;
   mockPool(t);
-  mockClient(t, [
+  const calls = mockClient(t, [
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'confidence' }] })],
     [/FROM "nfl_games"/, () => ({
       rows: nflGameRows(1, [['BUF', 'MIA', future], ['DAL', 'WAS', future]]),
@@ -335,8 +380,17 @@ test('a duplicate confidence in confidence mode is a 400 PICKEM_BAD_CONFIDENCE',
   assert.equal(res.status, 400);
   assert.equal(res.body.code, 'PICKEM_BAD_CONFIDENCE');
   assert.deepEqual(res.body.gameKeys, ['DAL|WAS']);
+  // #274: a rejected batch must not be half-written. The upsert is one bulk
+  // statement, so a validation moved below it would store BOTH duplicate
+  // confidences before the 400.
+  assert.equal(writeCount(calls, PICKS_INSERT), 0, 'the rejected batch was not saved');
 });
 
+// #274, documented exemption (no write assertion needed): the router returns
+// this 400 from `if (!Array.isArray(picks))` at pickem.router.js:118, which
+// sits before the try block and therefore before requireMember, loadLeague and
+// upsertPicks. No client is checked out and no statement is dispatched, so
+// there is no mutable work behind this refusal for a guard to sink below.
 test('picks must be an array', async () => {
   const res = await request(app)
     .put('/api/pickem/league/3/week/1/picks')
@@ -381,6 +435,52 @@ test('standings default to the league\'s current season and score every member',
   // The season-wide read still normalizes both schedule tables in SQL.
   const scheduleSql = calls.find((call) => /FROM "nfl_games"/.test(call.text)).text;
   assert.match(scheduleSql, /fn_normalize_nfl_team\("nfl_team"\)/);
+});
+
+test('standings return competition ranks for Pick\'em-only and side-game leagues', async (t) => {
+  let pickemOnly = true;
+  mockPool(t, [
+    [/SELECT "id", "name", "current_season"/, () => ({
+      rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 1, pickem_only: pickemOnly }],
+    })],
+    [/FROM "teams" JOIN "users"/, () => ({
+      rows: [
+        { user_id: MEMBER, username: 'zoe', team_name: 'Mine', avatar_url: null, avatar_static_url: null },
+        { user_id: 5, username: 'abe', team_name: 'Theirs', avatar_url: null, avatar_static_url: null },
+        { user_id: 7, username: 'mia', team_name: 'Third', avatar_url: null, avatar_static_url: null },
+      ],
+    })],
+    [/SELECT "user_id", "week", "team_pair"/, () => ({
+      rows: [
+        { user_id: MEMBER, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+        { user_id: MEMBER, week: 1, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+        { user_id: 5, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+        { user_id: 5, week: 1, team_pair: 'DAL|WAS', picked_team: 'WAS', confidence: null },
+        { user_id: 7, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+        { user_id: 7, week: 1, team_pair: 'DAL|WAS', picked_team: 'DAL', confidence: null },
+      ],
+    })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [
+        { week: 1, home_team: 'BUF', away_team: 'MIA', game_status: 'final',
+          current_score_home: 31, current_score_away: 10 },
+        { week: 1, home_team: 'DAL', away_team: 'WAS', game_status: 'final',
+          current_score_home: 10, current_score_away: 20 },
+      ],
+    })],
+  ]);
+
+  for (pickemOnly of [true, false]) {
+    const res = await request(app)
+      .get('/api/pickem/league/3/standings').set('Authorization', authed());
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      res.body.standings.map((row) => [row.rank, row.teamName, row.points, row.correct]),
+      [[1, 'Theirs', 2, 2], [1, 'Mine', 2, 2], [3, 'Third', 1, 1]],
+      pickemOnly ? "Pick'em-only" : 'side game'
+    );
+  }
 });
 
 test('an explicit non-numeric season is rejected', async () => {

@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const scoring = require('./scoring.service');
-const { logTransaction, notify, notifyLeague } = require('./activity.service');
+const { logTransaction, notifyLeague } = require('./activity.service');
+const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 
 /**
@@ -175,9 +176,14 @@ async function correctLeagueWeek({ leagueId, season, week }) {
         [leagueId]
       );
       if (ownerResult.rows[0]) {
-        await notify(client, {
-          userId: ownerResult.rows[0].owner_id,
+        // Every commissioner, not the creator alone (#188). The alert asks its
+        // reader to rebuild the bracket with their commissioner tools, and a
+        // co-commissioner holds exactly those tools, so resolving the role as
+        // `leagues.owner_id` told the wrong (narrower) set of people. Nobody
+        // is in the loop to notice: this runs from the correction scheduler.
+        await notifyCommissioners(client, {
           leagueId,
+          ownerId: ownerResult.rows[0].owner_id,
           type: 'stat_correction',
           message:
             `A stat correction flipped the result of ${playoffFlips.length} settled playoff ` +

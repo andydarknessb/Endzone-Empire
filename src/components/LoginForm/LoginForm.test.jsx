@@ -58,9 +58,11 @@ test('submitting with empty fields dispatches LOGIN_INPUT_ERROR instead', () => 
   // be blocked by the browser's own constraint validation before our handler
   // ever runs. Firing the form's submit event directly exercises the
   // component's own empty-fields branch instead of the browser's gate.
-  const { container, store } = renderWithProviders(<LoginForm />);
+  const { store } = renderWithProviders(<LoginForm />);
 
-  fireEvent.submit(container.querySelector('form'));
+  // Fired on the submit control itself: a submit event bubbles, so the form's
+  // own onSubmit still runs, without needing to reach for the <form> node.
+  fireEvent.submit(screen.getByRole('button', { name: 'Log In' }));
 
   expect(store.getActions()).toContainEqual({ type: 'LOGIN_INPUT_ERROR' });
 });

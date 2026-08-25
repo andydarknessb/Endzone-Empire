@@ -13,7 +13,7 @@ function renderAuction(onSave = jest.fn()) {
       onDirtyChange={jest.fn()}
     />
   );
-  return onSave;
+  return { onSave };
 }
 
 test('reconciles newly joined teams into a saved custom nomination order', () => {
@@ -64,7 +64,7 @@ test.each([
   ['Nomination seconds', '9', 'Nomination seconds must be between 10 and 300.'],
   ['Bid seconds', '61', 'Bid seconds must be between 5 and 60.'],
 ])('blocks invalid %s input', (label, value, message) => {
-  const onSave = renderAuction();
+  const { onSave } = renderAuction();
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 
   expect(screen.getByText(message)).toBeInTheDocument();
@@ -77,7 +77,7 @@ test.each([
   [{ budget: '1', nominationSeconds: '10', bidSeconds: '5' }, { budget: 1, nominationSeconds: 10, bidSeconds: 5 }],
   [{ budget: '10000', nominationSeconds: '300', bidSeconds: '60' }, { budget: 10000, nominationSeconds: 300, bidSeconds: 60 }],
 ])('accepts inclusive auction boundaries', (input, expected) => {
-  const onSave = renderAuction();
+  const { onSave } = renderAuction();
   fireEvent.change(screen.getByLabelText('Budget'), { target: { value: input.budget } });
   fireEvent.change(screen.getByLabelText('Nomination seconds'), { target: { value: input.nominationSeconds } });
   fireEvent.change(screen.getByLabelText('Bid seconds'), { target: { value: input.bidSeconds } });

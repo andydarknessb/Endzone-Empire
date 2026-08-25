@@ -36,13 +36,14 @@ function makeApp() {
 }
 const app = makeApp();
 
-// A pick'em-only league run by alice with 3 of 12 members, mid-season; the caller is not one of them.
-// draft_status, season_status and pickem_only are what the lookup reads (under their own
-// column names) to answer joinability; none of the three is shipped.
+// A pick'em-only league run by alice's Team with 3 of 12 members, mid-season; the caller is
+// not one of them. draft_status, season_status and pickem_only are what the lookup reads
+// (under their own column names) to answer joinability; none of the three is shipped.
 const PICKEM_ROW = {
   id: 7, name: 'Office Pick\'em', maxTeams: 12, teamCount: 3, scoringPreset: null, bestBall: false,
   pickemOnly: true, pickemEnabled: true, joinApproval: false, draftDate: null, createdAt: '2026-08-01T00:00:00.000Z',
-  alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice', draft_status: 'pending',
+  alreadyMember: false, myRequestStatus: null, isPublic: false, ownerUsername: 'alice',
+  ownerTeamName: 'Alice\'s Aces', draft_status: 'pending',
   season_status: 'regular', pickem_only: true,
 };
 const { draft_status: _draftStatus, season_status: _seasonStatus, pickem_only: _pickemOnly, ...PICKEM_PREVIEW } = PICKEM_ROW;

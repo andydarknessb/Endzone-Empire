@@ -58,7 +58,7 @@ test('"Mark all read" marks all read and clears the badge', async () => {
   // MUI's Badge keeps the last non-zero content in the DOM for its exit transition,
   // so assert on the "invisible" class rather than the text disappearing.
   await waitFor(() =>
-    expect(document.querySelector('.MuiBadge-badge')).toHaveClass('MuiBadge-invisible')
+    expect(screen.getByTestId('notification-unread-badge')).toHaveClass('MuiBadge-invisible')
   );
 });
 

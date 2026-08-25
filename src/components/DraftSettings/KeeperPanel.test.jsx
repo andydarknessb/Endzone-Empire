@@ -24,7 +24,7 @@ function renderPanel(onSaveLeague = jest.fn()) {
       onAssignmentsDirtyChange={jest.fn()}
     />
   );
-  return onSaveLeague;
+  return { onSaveLeague };
 }
 
 function renderAssignments({ keeperCount, keepers }) {
@@ -46,7 +46,7 @@ function renderAssignments({ keeperCount, keepers }) {
       onAssignmentsDirtyChange={jest.fn()}
     />
   );
-  return onSaveKeepers;
+  return { onSaveKeepers };
 }
 
 test.each([
@@ -54,7 +54,7 @@ test.each([
   ['1.5', 'Keepers per team must be a whole number between 0 and 4.'],
   ['5', 'Keepers per team must be between 0 and 4.'],
 ])('blocks invalid keeper count %s', (value, message) => {
-  const onSaveLeague = renderPanel();
+  const { onSaveLeague } = renderPanel();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value } });
 
   expect(screen.getByText(message)).toBeInTheDocument();
@@ -63,7 +63,7 @@ test.each([
   expect(onSaveLeague).not.toHaveBeenCalled();
 });
 
-test('blocks a custom keeper lock in the past and allows a future one (#67, mirrors the server rule)', () => {
+test('blocks a custom keeper lock in the past and allows a future one (#67, mirrors the server rule)', async () => {
   const onSaveLeague = jest.fn();
   renderPanel(onSaveLeague);
   fireEvent.click(screen.getByLabelText('Custom'));
@@ -79,7 +79,10 @@ test('blocks a custom keeper lock in the past and allows a future one (#67, mirr
   const local = new Date(future.getTime() - future.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   fireEvent.change(lockField, { target: { value: local } });
   expect(screen.queryByText('Keeper lock must be in the future')).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
+  // saveSettings awaits onSaveLeague before its own setConfirmSettingsSave(false)
+  // lands, so the click needs userEvent's own await (fireEvent's act wrap is
+  // synchronous and returns before that trailing update completes).
+  await userEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
   expect(onSaveLeague).toHaveBeenCalledWith({
     keepersEnabled: true,
     keeperCount: 1,
@@ -87,10 +90,12 @@ test('blocks a custom keeper lock in the past and allows a future one (#67, mirr
   }, 'Keeper settings saved');
 });
 
-test.each(['0', '4'])('accepts keeper count boundary %s', (value) => {
-  const onSaveLeague = renderPanel();
+test.each(['0', '4'])('accepts keeper count boundary %s', async (value) => {
+  const { onSaveLeague } = renderPanel();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
+  // See the comment above: userEvent's own await catches saveSettings's
+  // trailing setConfirmSettingsSave(false) update.
+  await userEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
 
   // keeperLockAt is omitted: the lock was not touched (tri-state leave-as-is).
   expect(onSaveLeague).toHaveBeenCalledWith({
@@ -99,7 +104,7 @@ test.each(['0', '4'])('accepts keeper count boundary %s', (value) => {
   }, 'Keeper settings saved');
 });
 
-test('a stored lock that has since passed does not block a count-only edit: the unchanged lock is omitted (#67)', () => {
+test('a stored lock that has since passed does not block a count-only edit: the unchanged lock is omitted (#67)', async () => {
   const onSaveLeague = jest.fn();
   render(
     <KeeperPanel
@@ -117,7 +122,9 @@ test('a stored lock that has since passed does not block a count-only edit: the 
   );
   expect(screen.queryByText('Keeper lock must be in the future')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Keepers per team'), { target: { value: '2' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
+  // See the comment above: userEvent's own await catches saveSettings's
+  // trailing setConfirmSettingsSave(false) update.
+  await userEvent.click(screen.getByRole('button', { name: 'Save keeper settings' }));
   expect(onSaveLeague).toHaveBeenCalledWith({
     keepersEnabled: true,
     keeperCount: 2,
@@ -125,7 +132,7 @@ test('a stored lock that has since passed does not block a count-only edit: the 
 });
 
 test('shows a row error and blocks duplicate player assignments', () => {
-  const onSaveKeepers = renderAssignments({
+  const { onSaveKeepers } = renderAssignments({
     keeperCount: 2,
     keepers: [
       { team_id: 1, player_id: 101, name: 'Player One', position: 'QB', draft_round: 1 },
@@ -140,7 +147,7 @@ test('shows a row error and blocks duplicate player assignments', () => {
 });
 
 test('shows a row error and blocks duplicate team and round slots', () => {
-  const onSaveKeepers = renderAssignments({
+  const { onSaveKeepers } = renderAssignments({
     keeperCount: 2,
     keepers: [
       { team_id: 1, player_id: 101, name: 'Player One', position: 'QB', draft_round: 1 },
@@ -155,7 +162,7 @@ test('shows a row error and blocks duplicate team and round slots', () => {
 });
 
 test('shows a row error when one team exceeds its keeper allowance', () => {
-  const onSaveKeepers = renderAssignments({
+  const { onSaveKeepers } = renderAssignments({
     keeperCount: 1,
     keepers: [
       { team_id: 1, player_id: 101, name: 'Player One', position: 'QB', draft_round: 1 },

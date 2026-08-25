@@ -10,6 +10,19 @@ const players = [
   { id: 2, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', adp: 3.4, position_rank: 2, projected_points: 400.2, bye_week: 7 },
 ];
 
+// The mobile layout renders each player as a `listitem` inside the
+// "Available players" list, so the card is reachable by role. A listitem takes
+// no name from its contents, so the one holding a given player is picked out
+// by querying inside each item rather than by traversing the DOM.
+function playerCard(name) {
+  const list = screen.getByRole('list', { name: 'Available players' });
+  const card = within(list)
+    .getAllByRole('listitem')
+    .find((item) => within(item).queryByText(name));
+  if (!card) throw new Error(`No player card found for ${name}`);
+  return card;
+}
+
 const baseProps = {
   searchInput: '',
   onSearchInputChange: jest.fn(),
@@ -57,7 +70,7 @@ test('mobile renders player cards (not a table) with the same approved columns',
   render(<PlayerPoolTable {...baseProps} isMobile />);
 
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
-  const card = screen.getByText('Bijan Robinson').closest('.MuiPaper-root');
+  const card = playerCard('Bijan Robinson');
   // Every stat is labeled, including NFL Team - a card has no column header
   // to supply that context implicitly the way the desktop table row does.
   expect(within(card).getByText('NFL Team: ATL')).toBeInTheDocument();
@@ -71,7 +84,7 @@ test('mobile: a null 17-game pace shows the same explanation as the desktop tabl
   const noProj = [{ ...players[0], projected_points: null }];
   render(<PlayerPoolTable {...baseProps} isMobile displayPlayers={noProj} />);
 
-  const card = screen.getByText('Bijan Robinson').closest('.MuiPaper-root');
+  const card = playerCard('Bijan Robinson');
   // Consistent with every other missing stat on the card (Bye/ADP/Pos rank
   // all render '-'), not a special-cased word.
   expect(within(card).getByText('17-game pace: -')).toBeInTheDocument();
@@ -86,7 +99,7 @@ test('mobile cards expose the same state-gated Draft/Queue actions as the table'
   const user = userEvent.setup();
   render(<PlayerPoolTable {...baseProps} isMobile />);
 
-  const card = screen.getByText('Josh Allen').closest('.MuiPaper-root');
+  const card = playerCard('Josh Allen');
   await user.click(within(card).getByRole('button', { name: 'Draft', exact: true }));
   expect(baseProps.onDraft).toHaveBeenCalledWith(2);
 
@@ -97,7 +110,7 @@ test('mobile cards expose the same state-gated Draft/Queue actions as the table'
 test('a drafted player is shown without Draft/Queue actions on a mobile card, same as the table', () => {
   render(<PlayerPoolTable {...baseProps} isMobile draftedIds={new Set([1])} />);
 
-  const card = screen.getByText('Bijan Robinson').closest('.MuiPaper-root');
+  const card = playerCard('Bijan Robinson');
   expect(within(card).getByText('Drafted')).toBeInTheDocument();
   expect(within(card).queryByRole('button', { name: 'Draft', exact: true })).not.toBeInTheDocument();
   expect(within(card).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
@@ -113,7 +126,7 @@ test('mobile: no manual Draft control renders anywhere when the draft has no man
 test('mobile: off-turn Draft stays focusable but aria-disabled, matching the table', () => {
   render(<PlayerPoolTable {...baseProps} isMobile isMyTurn={false} />);
 
-  const card = screen.getByText('Bijan Robinson').closest('.MuiPaper-root');
+  const card = playerCard('Bijan Robinson');
   const draftButton = within(card).getByRole('button', { name: 'Draft', exact: true });
   expect(draftButton).toHaveAttribute('aria-disabled', 'true');
   expect(draftButton).not.toHaveAttribute('disabled');

@@ -37,12 +37,30 @@ async function notifyCommissioners(db, { leagueId, ownerId, type, message, data 
  *   action should authorize through `isLeagueCommissioner` or
  *   `commissionerPredicate`, so adding a co-commissioner grants powers
  *   everywhere at once instead of one endpoint at a time.
- * - "Owner" is the creator alone. Two things stay owner-only and must keep
- *   checking `owner_id` directly: deleting the league, and granting/revoking
- *   co-commissioners.
+ * - "Owner" is the creator alone. Three things stay owner-shaped and must
+ *   keep comparing `owner_id` directly: deleting the league, granting or
+ *   revoking co-commissioners, and protecting the creator's Team from
+ *   removal.
+ *
+ * A grant ends in three ways, and only the first is a deliberate revocation:
+ * the owner revoking it here; the manager's Team being removed, which gives
+ * up commissioner powers with it (commissioner.service's removeTeam); and
+ * the account being deleted, which revokes every grant it holds inside the
+ * deletion's own transaction (privacy.service, #275). Account deletion is a
+ * SOFT delete, so no foreign key cascades and that third path has to be
+ * written down rather than assumed.
  *
  * Invariant: a commissioner is always a member. Removing a Team already
- * revokes any co-commissioner grant, and the creator's Team cannot be removed.
+ * revokes any co-commissioner grant. A deleted account keeps its Team and so
+ * keeps its membership; it just stops being a commissioner. Two separate
+ * rules bound removal, and only the second of them is an `owner_id`
+ * comparison:
+ *
+ * - No commissioner of either kind may remove their own Team. That compares
+ *   the target against the CALLER, never against the owner; see
+ *   commissioner.service's removeTeam.
+ * - Whoever the caller is, the creator's Team cannot be removed.
+ *
  * The next role-shaped question belongs here, not in a new predicate.
  */
 
@@ -69,6 +87,19 @@ async function isLeagueCommissioner(db, leagueId, userId) {
   return !!result.rows[0];
 }
 
+/**
+ * Whether this user is the league's CREATOR, which is a narrower question than
+ * `isLeagueCommissioner` and answers only the owner-shaped actions in the
+ * header above.
+ *
+ * It has no call sites today (#188), and that is the thing worth knowing
+ * before reaching for it: every commissioner-gated action must authorize
+ * through `isLeagueCommissioner` or `commissionerPredicate`, and the three
+ * owner-shaped actions each already compare `owner_id` where they stand.
+ * Reaching for this is only right once you have decided the rule is genuinely
+ * about the creator rather than about the commissioner or the caller, which is
+ * precisely the decision #188 found people getting wrong.
+ */
 async function isLeagueOwner(db, leagueId, userId) {
   if (!leagueId || !userId) return false;
   const result = await db.query(
@@ -79,15 +110,24 @@ async function isLeagueOwner(db, leagueId, userId) {
 }
 
 /**
- * The co-commissioners of a league, oldest grant first. The roster is
- * league-shared (every member reads it on league detail), so each entry
- * carries Team identity beside its account fields (#112, parent #108). The
- * join is LEFT because a co-commissioner grant outlives the team briefly
- * when a commissioner removes the team before revoking the role.
+ * The co-commissioners of a league, oldest grant first, as ROWS and not as a
+ * payload. Each row carries the grant's account id, the account name and the
+ * grantee's Team identity (#112, parent #108); who may see which of those is
+ * `serializeCoCommissioners`' question, not this one. The join is LEFT because
+ * a co-commissioner grant outlives the team briefly when a commissioner
+ * removes the team before revoking the role.
+ *
+ * `user_id` stays in this projection and the split lives downstream for one
+ * reason worth stating where the SELECT is: `listCommissionerUserIds` reads it
+ * to fan commissioner notifications out (see the top of this file), and it is
+ * the only thing that answers "which accounts get told". Narrowing the SQL to
+ * what a member may read would stop those notifications and turn nothing red -
+ * a commissioner would simply never hear about a trade again (#324).
  */
 async function listCoCommissioners(db, leagueId) {
   const result = await db.query(
-    `SELECT "league_commissioners"."user_id", "users"."username",
+    `SELECT "league_commissioners"."user_id", "league_commissioners"."created_at",
+            "users"."username",
             ${teamIdentityColumns()}
        FROM "league_commissioners"
        JOIN "users" ON "users"."id" = "league_commissioners"."user_id"
@@ -97,6 +137,67 @@ async function listCoCommissioners(db, leagueId) {
     [leagueId]
   );
   return result.rows;
+}
+
+/**
+ * The co-commissioner roster as one viewer may read it (#324). Every path that
+ * puts this roster on the wire goes through here - league detail, and the
+ * grant and revoke responses below - so there is one answer to "what does a
+ * co-commissioner entry look like" rather than one per route.
+ *
+ * CONTEXT.md's Team identity entry admits no exception for role disclosure:
+ * that a manager holds commissioner power over you is a property of their
+ * TEAM, and a member learns it by Team identity alone. So the member-visible
+ * entry is Team identity and nothing else.
+ *
+ * A commissioner additionally gets `user_id`, because the endpoints behind the
+ * grant and revoke UI are account-shaped (POST /co-commissioners takes a
+ * `userId`, DELETE names one in the path) and a commissioner cannot revoke
+ * without it. That is the same viewer test `invite_code` is stripped by on the
+ * same response, decided on the same boolean an adjacent line below - though
+ * by argument rather than by `delete`, which is the safer of the two forms
+ * because it defaults NARROW: a caller that forgets to say who is asking gets
+ * the view that leaks nothing, where a forgotten `delete` leaks everything.
+ * The account NAME is not part of what grant and revoke need, so it rides for
+ * nobody; the roster is rendered by Team on every surface.
+ *
+ * `grantedAt` rides with the id, and is the one thing besides the Team that
+ * tells two grants apart. It has to exist because Team identity does NOT
+ * guarantee uniqueness: `teams.name` carries no unique constraint and
+ * CONTEXT.md blesses duplicates outright ("a duplicate Team name is still
+ * valid identity"), so a roster CAN hold two entries a commissioner cannot
+ * otherwise distinguish - and the ruling still requires that they see enough
+ * to revoke the right one. It is a fact about the grant rather than about the
+ * account, so it is no exception to the Team identity rule, and it is
+ * commissioner-conditional only because a member has no revoke to aim.
+ *
+ * The two views also differ on a grant whose Team is gone. It has no Team
+ * identity to show, so it cannot appear in a member-visible view at all - but
+ * a commissioner still has to be able to see it in order to revoke it, so it
+ * is filtered out of the member's view rather than dropped from both.
+ */
+function serializeCoCommissioners(rows, { isCommissioner = false } = {}) {
+  return (rows || [])
+    .filter((row) => isCommissioner || row.teamId != null)
+    .map((row) => ({
+      ...(isCommissioner ? { user_id: row.user_id, grantedAt: row.created_at ?? null } : {}),
+      teamId: row.teamId == null ? null : row.teamId,
+      teamName: row.teamName == null ? null : row.teamName,
+    }));
+}
+
+/**
+ * The Team IDs whose manager holds a co-commissioner grant, for flagging the
+ * teams a league-shared payload already carries (#324).
+ *
+ * Read off the roster rows' own Team identity rather than off `owner_id`, so
+ * the flag is derived the way every other league-shared fact is and does not
+ * quietly depend on an account field that #115 removes. A grant whose Team is
+ * gone contributes no id, which is the same reason it shows a member nothing:
+ * there is no Team to flag.
+ */
+function coCommissionerTeamIds(rows) {
+  return new Set((rows || []).map((row) => row.teamId).filter((teamId) => teamId != null));
 }
 
 /** Owner-only: load the league for a mutation, or throw 403/404. */
@@ -119,6 +220,10 @@ async function grantCoCommissioner({ leagueId, userId, targetUserId }) {
   try {
     await client.query('BEGIN');
     const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
+    // Sanctioned direct owner_id comparison, the second of the three in the
+    // header: granting the role. The creator already holds it, so they can
+    // never be a grantee, and the comparison genuinely is about the owner
+    // rather than about the caller.
     if (targetUserId === league.owner_id) {
       throw new MembershipError(400, 'the league owner is already the commissioner');
     }
@@ -151,7 +256,14 @@ async function grantCoCommissioner({ leagueId, userId, targetUserId }) {
       type: 'league',
       message: `You were made a co-commissioner of ${league.name}`,
     });
-    const coCommissioners = await listCoCommissioners(client, leagueId);
+    // Serialized, not raw: this is a PAYLOAD, and the roster leaves the server
+    // in one shape wherever it leaves from. `isCommissioner: true` because
+    // requireOwner already gated this and the owner is one; that is what makes
+    // the same call correct here and viewer-dependent on league detail.
+    const coCommissioners = serializeCoCommissioners(
+      await listCoCommissioners(client, leagueId),
+      { isCommissioner: true }
+    );
     await client.query('COMMIT');
     return { leagueId, userId: targetUserId, coCommissioners };
   } catch (error) {
@@ -191,7 +303,12 @@ async function revokeCoCommissioner({ leagueId, userId, targetUserId }) {
       type: 'league',
       message: `You are no longer a co-commissioner of ${league.name}`,
     });
-    const coCommissioners = await listCoCommissioners(client, leagueId);
+    // Serialized for the same reason as the grant above, and owner-gated the
+    // same way.
+    const coCommissioners = serializeCoCommissioners(
+      await listCoCommissioners(client, leagueId),
+      { isCommissioner: true }
+    );
     await client.query('COMMIT');
     return { leagueId, userId: targetUserId, coCommissioners };
   } catch (error) {
@@ -207,6 +324,8 @@ module.exports = {
   isLeagueCommissioner,
   isLeagueOwner,
   listCoCommissioners,
+  serializeCoCommissioners,
+  coCommissionerTeamIds,
   listCommissionerUserIds,
   notifyCommissioners,
   requireOwner,

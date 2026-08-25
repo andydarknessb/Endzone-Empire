@@ -25,6 +25,7 @@ import {
   ACTIVE_AUTOPICK_STATE,
   ACTIVE_OFFLINE_STATE,
   ACTIVE_PICKS,
+  COMPLETE_PICKS,
   FIXTURE_PLAYERS,
   FIXTURE_TEAMS,
   buildLeague,
@@ -51,8 +52,9 @@ test.describe('draft status fixtures', () => {
     await gotoDraft(page);
 
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
-    await expect(page.getByText('pending', { exact: true })).toBeVisible();
-    await expect(page.getByText('No picks yet')).toBeVisible();
+    // Product language, not the stored enum (issue #123 acceptance criterion 6).
+    await expect(page.getByText('Draft not started', { exact: true })).toBeVisible();
+    await expect(page.getByText('pending', { exact: true })).toHaveCount(0);
     // No draft has happened yet - every fixture player is still available.
     for (const player of FIXTURE_PLAYERS) {
       await expect(page.getByRole('button', { name: player.name })).toBeVisible();
@@ -64,7 +66,7 @@ test.describe('draft status fixtures', () => {
     await setupActiveDraft(page);
 
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
-    await expect(page.getByText('On the clock: Ridge Runners (harness-manager)')).toBeVisible();
+    await expect(page.getByText('On the clock: Ridge Runners')).toBeVisible();
     // Josh Allen was drafted in the fixture and hide-drafted defaults on, so
     // he's gone from the available-players pool - but not from pick history,
     // where his name is also a quick-view button, so this must be scoped to
@@ -80,7 +82,12 @@ test.describe('draft status fixtures', () => {
     await gotoDraft(page);
 
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
-    await expect(page.getByText('complete', { exact: true })).toBeVisible();
+    await expect(page.getByText('Draft complete', { exact: true })).toBeVisible();
+    await expect(page.getByText('complete', { exact: true })).toHaveCount(0);
+    // A completed draft opens on the Board rather than the workspace (issue
+    // #123 acceptance criterion 4), so the pool is one tab away.
+    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+    await page.getByRole('tab', { name: 'Draft' }).click();
     // Every fixture player was drafted; the pool is empty with the default
     // hide-drafted filter on.
     await expect(page.getByText('No available players')).toBeVisible();
@@ -208,9 +215,10 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
   test('filters the player pool by search text', async ({ page }) => {
     await setupActiveDraft(page);
 
-    // Not `getByLabel('Search')`: the Nav bar's global player search is
-    // labelled "Search players", which also contains the substring "Search".
-    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('kelce');
+    // The pool's own control is named apart from the Nav bar's global player
+    // search (issue #123 acceptance criterion 6), which is what this exact
+    // match used to be working around.
+    await page.getByRole('textbox', { name: 'Filter available', exact: true }).fill('kelce');
     await page.waitForTimeout(400); // usePlayerPool debounces the search box by 300ms
 
     await expect(page.getByRole('button', { name: 'Travis Kelce' })).toBeVisible();
@@ -357,7 +365,10 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     // Travis Kelce (KC, Bye 10); Patrick Mahomes (also KC, Bye 10) is still
     // available and should surface the overlap.
     const picks = [
-      { pick_number: 1, team_id: 1, player_id: 5, name: 'Travis Kelce', position: 'TE', nfl_team: 'KC' },
+      {
+        pick_number: 1, teamId: 1, teamName: 'Ridge Runners',
+        player_id: 5, name: 'Travis Kelce', position: 'TE', nfl_team: 'KC',
+      },
     ];
     const league = buildLeague({ draft_status: 'active' });
     await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks, onTheClock: FIXTURE_TEAMS[0] });
@@ -526,6 +537,9 @@ test.describe('pick-safe player actions across draft state (issue #120)', () => 
     await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks: [], onTheClock: null });
     await installDraftRestApi(page, { league, picks: [], players });
     await gotoDraft(page);
+    // A completed draft opens on the Board (issue #123 acceptance criterion
+    // 4); the player pool lives in the Draft tab's workspace beside it.
+    await page.getByRole('tab', { name: 'Draft' }).click();
     await expect(page.getByRole('button', { name: 'Leftover Waiver Guy' })).toBeVisible();
 
     await expect(page.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
@@ -702,12 +716,15 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
 
     await expect(page.getByRole('region', { name: 'Available Players' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'My Queue' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Pick History' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Upcoming' })).toBeVisible();
 
-    // The Board tab swaps in a different named region - the panel set is not
-    // a fixed count, and whichever one is showing is still correctly named.
+    // The Board tab swaps in different named regions - the panel set is not
+    // a fixed count, and whichever ones are showing are still correctly
+    // named. Pick history is one of them now (issue #123 criterion 5).
     await page.getByRole('tab', { name: 'Board' }).click();
     await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+    await page.getByRole('button', { name: 'Pick history' }).click();
+    await expect(page.getByRole('region', { name: 'Pick history' })).toBeVisible();
   });
 
   test('the league name is the single H1, panel titles are H2, with no skipped heading levels', async ({ page }) => {
@@ -719,7 +736,7 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
 
     await expect(page.getByRole('heading', { level: 2, name: 'Available Players' })).toBeVisible();
     await expect(page.getByRole('heading', { level: 2, name: 'My Queue' })).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'Pick History' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Upcoming' })).toBeVisible();
 
     const levels = await page.evaluate(() => (
       Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) => Number(h.tagName[1]))
@@ -869,7 +886,8 @@ function manyPlayers(count: number) {
 function manyPicks(count: number) {
   return Array.from({ length: count }, (_, i) => ({
     pick_number: i + 1,
-    team_id: FIXTURE_TEAMS[i % 2].id,
+    teamId: FIXTURE_TEAMS[i % 2].teamId,
+    teamName: FIXTURE_TEAMS[i % 2].teamName,
     player_id: 900 + i,
     name: `Drafted Guy ${i + 1}`,
     position: 'RB',
@@ -877,6 +895,20 @@ function manyPicks(count: number) {
   }));
 }
 
+/**
+ * A draft with enough content to make both desktop scroll regions overflow.
+ *
+ * WHAT PROVIDES THE OVERFLOW, because it changed and the failure mode is
+ * confusing otherwise. The players region overflows on `manyPlayers(40)`, and
+ * always has. The DRAFT RAIL used to overflow on the 20 rows of Pick history
+ * `manyPicks(20)` put in it - but Pick history moved to the Board (issue
+ * #123), and the rail's overflow now comes from My Roster, which renders
+ * because `buildLeague` carries a real roster shape (7 starters, 5 bench).
+ * So if "the Draft rail region scrolls independently" starts failing, look
+ * first at whether the rail still renders My Roster at all: a rail that is
+ * merely short is not a scrolling bug, and the picks below are no longer what
+ * makes it tall.
+ */
 async function setupOverflowingDraft(page: Page) {
   const league = buildLeague({ draft_status: 'active' });
   const players = manyPlayers(40);
@@ -910,7 +942,7 @@ test.describe('desktop dual-scroll shell (issue #122 acceptance criteria 1-2)', 
 
     const scrollRegion = page.getByTestId('players-scroll-region');
     const nameHeader = page.getByRole('columnheader', { name: 'Name' });
-    const searchBox = page.getByRole('textbox', { name: 'Search', exact: true });
+    const searchBox = page.getByRole('textbox', { name: 'Filter available', exact: true });
     await expect(nameHeader).toBeVisible();
     await expect(searchBox).toBeVisible();
 
@@ -990,7 +1022,7 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       const tabs = await page.getByRole('tab').allTextContents();
       expect(tabs).toEqual(['Players', 'Board', 'Draft']);
 
-      const onClockChip = page.getByText('On the clock: Ridge Runners (harness-manager)');
+      const onClockChip = page.getByText('On the clock: Ridge Runners');
       await expect(onClockChip).toBeVisible();
       await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
 
@@ -1146,4 +1178,181 @@ test.describe('browser evidence: every required width in both themes', () => {
       });
     }
   }
+});
+
+// --- Issue #123: the rail and the Board follow draft status ---
+//
+// The rail used to be one permanently stacked list, identical whether a draft
+// had not started, was live, or had finished months ago. These drive the real
+// browser DOM at the composition level: which panels a manager actually meets,
+// in what order, and what the Board holds now that Pick history lives in it.
+
+test.describe('state-dependent rail composition (issue #123)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  /** The rail's panels in the order a manager meets them, top to bottom. */
+  const railPanels = (page: Page) =>
+    page.getByRole('region', { name: 'Draft rail' }).getByRole('heading', { level: 2 }).allTextContents();
+
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  test('pending composes Readiness, Draft order, then My Queue', async ({ page }) => {
+    await installDraftSocketHarness(page, PENDING_STATE);
+    await installDraftRestApi(page, { league: PENDING_STATE.league, picks: [] });
+    await gotoDraft(page);
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+
+    expect(await railPanels(page)).toEqual(['Readiness', 'Draft order', 'My Queue']);
+    // The not-yet-ready group is Not ready. CONTEXT.md's Readiness entry
+    // reserves "holdout" for the Evaluation context, so it must not appear.
+    await expect(page.getByRole('region', { name: 'Readiness' }).getByText('Ridge Runners: Not ready')).toBeVisible();
+    expect((await page.locator('body').innerText()).toLowerCase()).not.toContain('holdout');
+  });
+
+  test('active composes My Queue, My Roster, Upcoming, under a persistent On the clock', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    expect(await railPanels(page)).toEqual(['My Queue', 'My Roster', 'Upcoming']);
+    // On the clock is the fourth member of the active composition and is
+    // deliberately not a rail panel: it is the banner ABOVE the rail's own
+    // scrolling region, which is what keeps it persistent (issue #122).
+    await expect(page.getByText('On the clock: Ridge Runners')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Draft rail' }))
+      .not.toContainText('On the clock: Ridge Runners');
+  });
+
+  test('Readiness disappears once the draft starts, and full Pick history leaves the rail', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    await expect(page.getByRole('region', { name: 'Readiness' })).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: 'I am ready for the draft' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Draft rail' }).getByText('Pick history')).toHaveCount(0);
+  });
+
+  test('Upcoming names the next Teams, with the full Draft order one disclosure away', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    const upcoming = page.getByRole('region', { name: 'Upcoming' });
+    // The exact strip, not merely a non-empty one. This is the only test that
+    // covers how upcomingTeamsFor's arguments are wired in DraftBoard, and a
+    // "first entry is visible" assertion still passed with `picks` omitted -
+    // which silently stops keeper picks being skipped. The fixture is an
+    // active snake draft, Ridge Runners on the clock at pick 1 of 2 teams.
+    await expect(upcoming.getByRole('listitem')).toHaveText([
+      '1.02 Harbor Hawks', '2.01 Harbor Hawks', '2.02 Ridge Runners',
+    ]);
+
+    // Compact by default; the complete list - and with it the per-team
+    // Auto-draft switches - is available without leaving the panel.
+    const disclosure = upcoming.getByRole('button', { name: 'Full Draft order' });
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await disclosure.click();
+    await expect(upcoming.getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeVisible();
+  });
+
+  test('complete centers My Roster and the Board, and drops the workspace panels', async ({ page }) => {
+    await installDraftSocketHarness(page, COMPLETE_STATE);
+    await installDraftRestApi(page, { league: COMPLETE_STATE.league, picks: COMPLETE_STATE.picks });
+    await gotoDraft(page);
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+
+    // Both at once, without changing tabs: the record is what the page is for.
+    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+    expect(await railPanels(page)).toEqual(['My Roster']);
+    await expect(page.getByRole('region', { name: 'My Queue' })).toHaveCount(0);
+  });
+});
+
+test.describe('the Board keeps its matrix and adds Pick history (issue #123)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  test('the matrix still places every committed Pick by round and Team', async ({ page }) => {
+    await installDraftSocketHarness(page, COMPLETE_STATE);
+    await installDraftRestApi(page, { league: COMPLETE_STATE.league, picks: COMPLETE_STATE.picks });
+    await gotoDraft(page);
+
+    const board = page.getByRole('region', { name: 'Draft Board' });
+    await expect(board.getByRole('columnheader', { name: /Ridge Runners/ })).toBeVisible();
+    await expect(board.getByRole('columnheader', { name: /Harbor Hawks/ })).toBeVisible();
+    await expect(
+      board.getByRole('button', { name: 'Round 1 pick 1, Harbor Hawks: Bijan Robinson' })
+    ).toBeVisible();
+  });
+
+  test('Pick history is collapsible, chronological, and built from those same Picks', async ({ page }) => {
+    await installDraftSocketHarness(page, COMPLETE_STATE);
+    await installDraftRestApi(page, { league: COMPLETE_STATE.league, picks: COMPLETE_STATE.picks });
+    await gotoDraft(page);
+
+    const history = page.getByRole('region', { name: 'Pick history' });
+    await expect(history).toBeVisible();
+
+    // Oldest first, and exactly the committed Picks the matrix drew from -
+    // not a second source, so neither an extra nor a missing entry.
+    const numbers = await history.getByTestId('pick-history-entry').evaluateAll(
+      (entries) => entries.map((entry) => Number(entry.getAttribute('data-pick-number')))
+    );
+    expect(numbers).toEqual(COMPLETE_PICKS.map((pick) => pick.pick_number));
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+
+    // Collapsible: it folds away and the matrix is still there.
+    await page.getByRole('button', { name: 'Pick history' }).click();
+    await expect(page.getByRole('button', { name: 'Pick history' })).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+  });
+
+  test('a live draft keeps Pick history folded away behind the matrix', async ({ page }) => {
+    await setupActiveDraft(page);
+    await page.getByRole('tab', { name: 'Board' }).click();
+
+    const trigger = page.getByRole('button', { name: 'Pick history' });
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await trigger.click();
+    await expect(page.getByText('by Harbor Hawks')).toBeVisible();
+  });
+});
+
+test.describe('product language in the status readout and pool filter (issue #123)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  test.beforeEach(async ({ page }) => {
+    await setTheme(page, 'light');
+  });
+
+  test('a pending draft says Draft not started, never the stored enum', async ({ page }) => {
+    await installDraftSocketHarness(page, PENDING_STATE);
+    await installDraftRestApi(page, { league: PENDING_STATE.league, picks: [] });
+    await gotoDraft(page);
+
+    const status = page.getByRole('group', { name: 'Draft status' });
+    await expect(status.getByText('Draft not started')).toBeVisible();
+    expect(await page.locator('body').innerText()).not.toMatch(/\bpending\b/);
+  });
+
+  test('mute is a control, separated from the status readout', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    // A per-manager sound setting used to sit in the same flex row as "Draft
+    // Paused", reading as one more fact about the draft's state.
+    const mute = page.getByRole('button', { name: /mute pick sound/i });
+    await expect(mute).toBeVisible();
+    expect(await mute.evaluate((el) => !!el.closest('[aria-label="Draft controls"]'))).toBe(true);
+    expect(await mute.evaluate((el) => !!el.closest('[aria-label="Draft status"]'))).toBe(false);
+  });
+
+  test('the pool filter is Filter available, distinct from the global player search', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    // Two differently named controls now, where both used to answer to
+    // "Search" and only their position on the page told them apart. The Nav
+    // bar's is a MUI Autocomplete, so it is a combobox rather than a textbox.
+    await expect(page.getByRole('textbox', { name: 'Filter available', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Search players' })).toBeVisible();
+  });
 });

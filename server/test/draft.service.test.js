@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { teamIndexForPick, draftPlayer, undoDrop } = require('../services/draft.service');
 const seasonService = require('../services/season.service');
 const lineupService = require('../services/lineup.service');
-const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 
 test('teamIndexForPick: 4 teams, round 1 (picks 0-3)', () => {
   assert.equal(teamIndexForPick(0, 4), 0);
@@ -176,6 +176,19 @@ test('draftPlayer: rejects a manual (non-auto) pick in an active autopick-type d
       { id: 11, owner_id: 7, draft_position: 1, autodraft: true, locked: false },
       { id: 12, owner_id: 8, draft_position: 2, autodraft: true, locked: false },
     ] })],
+    // #274: the reads and writes a manual pick would need past this guard, so
+    // the counts below observe an absence rather than inherit fakePool's
+    // "unexpected query" throw.
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [select('draft_picks'), () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [select('waiver_players'), () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
 
   await assert.rejects(
@@ -186,6 +199,15 @@ test('draftPlayer: rejects a manual (non-auto) pick in an active autopick-type d
       return true;
     }
   );
+  // #274. This fixture used to register no write handlers, so a guard moved
+  // below the writes died on fakePool's "unexpected query" rather than on an
+  // assertion. That protection was incidental to the fixture being
+  // incomplete, it reported the wrong thing, and it would have evaporated the
+  // moment someone added a handler for convenience. The writes are answered
+  // above now, so these counts are the assertion.
+  assert.equal(fake.matching(insert('draft_picks')).length, 0, 'no pick was recorded');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'no player was rostered');
+  assert.equal(fake.matching(update('leagues')).length, 0, 'the clock did not advance');
   fake.assertClean();
 });
 
@@ -303,6 +325,13 @@ test('draftPlayer free agency: a full team with no stash is rejected at the draf
     draftPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
     { statusCode: 409, message: 'roster capacity of 2 reached' }
   );
+  // #274, and this one has no accidental protection at all: freeAgencyPool
+  // registers live insert('team_players') and insert('transactions')
+  // handlers, so moving the capacity guard below the roster write rosters
+  // the player, throws, rolls back, and answers the same 409 with the same
+  // message. Without these counts nothing in this test could tell.
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not rostered');
+  assert.equal(fake.matching(insert('transactions')).length, 0, 'no transaction was logged');
   fake.assertClean();
 });
 
@@ -316,8 +345,10 @@ test('draftPlayer free agency: an eligible IR stash grants the extra spot', asyn
   assert.equal(result.player.id, 500);
   assert.equal(fake.matching(/^INSERT INTO "team_players"/).length, 1);
   // A free-agent add earns no restored credit and lands on the bench (user
-  // story 13), even when the player's old stash rows on this team survive.
-  assert.deepEqual(stashQueries[0][3], []);
+  // story 13): it passes no restored ids, so the capacity query carries no
+  // fourth parameter and no interrupted-stash record is read at all.
+  assert.equal(stashQueries[0].length, 3);
+  assert.equal(fake.matching(/FROM "waiver_players"/).length, 1, 'only the on-waivers check');
   assert.deepEqual(benched, [{ league: freeAgencyLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
@@ -338,6 +369,11 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
     undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
     { statusCode: 409, message: 'roster capacity of 2 reached' }
   );
+  // #274. undoDrop restores by clearing the waiver row and re-rostering, so
+  // a guard below that work would consume the undo and still refuse. As
+  // above, this fixture's silence about the writes is not an assertion.
+  assert.equal(fake.matching(remove('waiver_players')).length, 0, 'the waiver row survived');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not re-rostered');
   fake.assertClean();
 });
 
@@ -345,18 +381,25 @@ const undoLeague = {
   id: 1, roster_limit: 3, ir_slots: 1, position_caps: {}, current_season: 2026, current_week: 4,
 };
 
-/** An undo world: `stashed` answers the capacity count, `restorable` the valid-stash probe. */
-function undoWorld({ rostered = 2, stashed, restorable, onStashQuery }) {
+/**
+ * An undo world. `stashed` answers the capacity count for the players still
+ * on the roster; `interrupted` is the record the drop left on the waiver
+ * hold, which is what an undo replays now that the stale lineup row it used
+ * to read is deleted by the drop (#197).
+ */
+function undoWorld({ rostered = 2, stashed, interrupted = null, onStashQuery }) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [undoLeague] })],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
+    [/^SELECT "waiver_players"\."interrupted_slot"/, () => ({
+      rows: interrupted ? [interrupted] : [],
+    })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, (text, params) => {
       if (onStashQuery) onStashQuery(params);
       return { rows: [{ n: stashed }] };
     }],
-    [/^SELECT 1 FROM "lineup_entries"/, () => ({ rows: restorable ? [{ 1: 1 }] : [] })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Stash Returner', position: 'RB' }] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
@@ -364,34 +407,168 @@ function undoWorld({ rostered = 2, stashed, restorable, onStashQuery }) {
   ]);
 }
 
-test('undoDrop: the dropped player\'s own surviving stash still grants its spot on the way back in', async (t) => {
-  // Draft roster size 2, ir_slots 1, roster legally 3 with player 500 stashed;
-  // he was dropped (roster now 2) and his IR entry survives. The undo
-  // restores that exact state, so it must pass at capacity 3 - and, the
-  // stash still being valid, it is restored rather than benched.
+/** Mock the stash restore and record each call, like recordBenching. */
+function recordRestoring(t) {
+  const restored = [];
+  t.mock.method(lineupService, 'restoreInterruptedStash', async (client, args) => {
+    restored.push(args);
+  });
+  return restored;
+}
+
+test('undoDrop: the stash his drop interrupted still grants its spot on the way back in', async (t) => {
+  // Draft roster size 2, ir_slots 1, roster legally 3 with player 500
+  // stashed; he was dropped (roster now 2, and his IR row went with the drop)
+  // and the hold recorded the stash. The undo restores that exact state, so
+  // it must pass at capacity 3 - and, the stash still being valid, he is put
+  // back in it rather than benched.
   let stashParams;
-  const fake = undoWorld({ stashed: 1, restorable: true, onStashQuery: (params) => { stashParams = params; } }).install(t);
+  const fake = undoWorld({
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+    onStashQuery: (params) => { stashParams = params; },
+  }).install(t);
   const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
 
   const result = await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
 
   assert.equal(result.player.id, 500);
-  assert.deepEqual(stashParams[3], [500]);
+  // The count itself no longer carries a restored-player list; the credit is
+  // the separate record read.
+  assert.equal(stashParams.length, 3);
   assert.deepEqual(benched, []);
+  assert.deepEqual(restored, [{
+    league: undoLeague, teamId: 11, playerId: 500, slot: 'IR', irAttested: false,
+  }]);
   fake.assertClean();
 });
 
-test('undoDrop: a stash that stopped being valid while he was off the roster is benched, not restored', async (t) => {
-  // Player 500 recovered after the drop: his IR row still exists but grants
-  // nothing (stashed 0) and is not a valid stash to return to. With 2 rostered
-  // at draft roster size 2 the undo is out of capacity; with room (1 rostered)
-  // it lands him on the bench rather than restoring an ungated stash.
-  const fake = undoWorld({ rostered: 1, stashed: 0, restorable: false }).install(t);
+test('undoDrop: the interrupted-stash record is read twice, deliberately', async (t) => {
+  const fake = undoWorld({
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'O' },
+  }).install(t);
+  recordBenching(t, fake);
+  recordRestoring(t);
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // Once inside rosterCapacity (through restoredPlayerIds) and once in
+  // undoDrop for the restore decision. Kept on purpose (#222): passing the
+  // record INTO rosterCapacity gives up its re-derivation property, and
+  // handing it BACK widens a return value four other call sites read as a
+  // bare number. The reasoning, and the one axis on which the two reads can
+  // genuinely disagree, is at the second read in draft.service.js.
+  //
+  // If you are here to remove one of them, that is the trade to argue with.
+  assert.equal(fake.matching(/^SELECT "waiver_players"\."interrupted_slot"/).length, 2);
+  fake.assertClean();
+});
+
+test('undoDrop: an attested stash comes back attested', async (t) => {
+  const fake = undoWorld({
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: true, injury_status: 'Q' },
+  }).install(t);
   const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // The commissioner's override (#100) rides the undo: a drop is not the
+  // manager slot move that ends an attestation.
+  assert.deepEqual(benched, []);
+  assert.deepEqual(restored[0].irAttested, true);
+  fake.assertClean();
+});
+
+test('undoDrop: a designation that cleared while he was on waivers benches him', async (t) => {
+  // Player 500 recovered after the drop: the hold still records the IR slot,
+  // but he is only questionable now and nothing attested it. With 2 rostered
+  // at draft roster size 2 the undo would be out of capacity; with room
+  // (1 rostered) it lands him on the bench rather than restoring an ungated
+  // stash past the placement gate.
+  const fake = undoWorld({
+    rostered: 1,
+    stashed: 0,
+    interrupted: { interrupted_slot: 'IR', interrupted_ir_attested: false, injury_status: 'Q' },
+  }).install(t);
+  const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
 
   const result = await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
 
   assert.equal(result.player.id, 500);
+  assert.deepEqual(restored, []);
   assert.deepEqual(benched, [{ league: undoLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
+  fake.assertClean();
+});
+
+test('undoDrop: a player who had no current-week row when he was dropped benches', async (t) => {
+  const fake = undoWorld({ rostered: 1, stashed: 0, interrupted: null }).install(t);
+  const benched = recordBenching(t, fake);
+  const restored = recordRestoring(t);
+
+  await undoDrop({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // Nothing was recorded, so there is nothing to replay. This is also the
+  // shape of every pre-#197 hold: an old row with null columns benches, it
+  // does not throw.
+  assert.deepEqual(restored, []);
+  assert.deepEqual(benched, [{ league: undoLeague, teamId: 11, playerId: 500, afterRosterWrite: true }]);
+  fake.assertClean();
+});
+
+// #194: the final live pick completes the draft and generates the season
+// schedule on ONE transaction, and season operations now refuse a league that
+// is still pre-draft or drafting. This path survives the gate only because the
+// UPDATE setting draft_status = 'complete' runs before generateRegularSeason is
+// called on that same client. The other completion tests above mock season
+// operations out, so nothing there would notice a reordering; this one runs the
+// real generateRegularSeason against a fake that honours the transaction's own
+// write.
+test('draftPlayer: the completing pick schedules the season for real, gate and all (#194)', async (t) => {
+  const row = { ...completionLeague, current_season: 2026, regular_season_weeks: 1 };
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [{ ...row }] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+      { id: 12, owner_id: 8, draft_position: 2, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 4 }] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [select('matchups'), () => ({ rows: [] })],
+    [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), (text, params) => {
+      // A real client reads back its own uncommitted write; the gate depends on it.
+      if (/^UPDATE "leagues" SET "current_pick"/.test(text)) row.draft_status = params[1];
+      return { rows: [{ pick_deadline_at: null }] };
+    }],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
+  recordBenching(t, fake);
+  // generateRegularSeason is deliberately NOT mocked here.
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, true);
+  // The schedule exists: 2 teams over 1 regular-season week is one matchup.
+  assert.equal(fake.matching(insert('matchups')).length, 1);
+
+  const completedAt = fake.calls.findIndex(
+    (c) => /^UPDATE "leagues" SET "current_pick"/.test(c.text) && c.params[1] === 'complete'
+  );
+  const scheduledAt = fake.calls.findIndex((c) => /"matchups"/.test(c.text));
+  assert.ok(completedAt !== -1 && scheduledAt !== -1);
+  assert.ok(
+    completedAt < scheduledAt,
+    'draft_status must be set to complete before generateRegularSeason is called'
+  );
   fake.assertClean();
 });

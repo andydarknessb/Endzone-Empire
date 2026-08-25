@@ -29,6 +29,8 @@ test('normalizeInjuryStatus: IR wins over Out when both words appear', () => {
 test('syncInjuries commits designation updates and IR flags before delivering gated push', async (t) => {
   const notifications = [];
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [select('players'), () => ({
       rows: [
         { id: 21, external_id: 'tank-21', injury_status: 'O' },
@@ -102,6 +104,8 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
   const syncScanned = new Promise((resolve) => { signalSyncScanned = resolve; });
 
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 5,
       current_season: 2026,

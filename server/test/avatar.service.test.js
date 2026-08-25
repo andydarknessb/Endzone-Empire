@@ -4,6 +4,7 @@ const sharp = require('sharp');
 const pool = require('../modules/pool');
 const supabaseAdminModule = require('../modules/supabaseAdmin');
 const avatarService = require('../services/avatar.service');
+const { createFakePool, select, update } = require('./helpers/fakePool');
 
 async function tinyPng(size = 40) {
   return sharp({ create: { width: size, height: size, channels: 3, background: { r: 200, g: 20, b: 20 } } })
@@ -90,13 +91,36 @@ test('processUpload passes an animated GIF through untouched and derives a stati
   assert.equal(staticMeta.format, 'png');
 });
 
+// #274. This guard is the sharpest instance of the shape in the repo, so the
+// fixture is deliberately permissive: it answers the UPDATE successfully, so
+// the absence below is an observation and not an accident of an incomplete
+// handler table.
+//
+// uploadTeamAvatar throws the SAME AvatarError(403, 'team not found or not
+// yours') twice: once before the upload (avatar.service.js:132) and once after
+// the UPDATE returns no rows (:150). Delete the first and the response is
+// byte-identical while the image has already been PUT into the Supabase
+// Storage bucket. That upload is not inside any transaction, so unlike the
+// #192 case there is not even a ROLLBACK to undo it. The status assertion
+// alone cannot tell those two worlds apart; the upload counter can.
 test('uploadTeamAvatar rejects a team the caller does not own', async (t) => {
-  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+  const fake = createFakePool([
+    [select('teams'), () => ({ rows: [] })],
+    [update('teams'), () => ({ rows: [] })],
+  ]).install(t);
   const buffer = await tinyPng();
   await assert.rejects(
     () => avatarService.uploadTeamAvatar({ teamId: 1, ownerId: 99, buffer }),
     (err) => err.statusCode === 403
   );
+  assert.equal(supabaseAdminModule.supabaseAdmin.uploaded.length, 0, 'nothing reached the bucket');
+  assert.equal(fake.matching(update('teams')).length, 0, 'the row was not updated');
+  // No `removed.length` assertion, deliberately. The ownership SELECT answers
+  // no rows here - that is what makes the caller a non-owner - so
+  // deleteAvatarObjects is called with undefined, destructures to two
+  // undefined urls and early-returns before touching storage
+  // (avatar.service.js:113-116). It reads 0 with the guard in place and with
+  // it moved, so it would be decoration next to the two counts that do bite.
 });
 
 test('uploadTeamAvatar stores the processed image and updates both columns', async (t) => {
@@ -158,11 +182,21 @@ test('uploadTeamAvatar best-effort deletes the previous avatar objects after a s
 });
 
 test('removeTeamAvatar rejects a team the caller does not own', async (t) => {
-  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+  const fake = createFakePool([
+    [select('teams'), () => ({ rows: [] })],
+    [update('teams'), () => ({ rows: [] })],
+  ]).install(t);
   await assert.rejects(
     () => avatarService.removeTeamAvatar({ teamId: 1, ownerId: 99 }),
     (err) => err.statusCode === 403
   );
+  // #274. removeTeamAvatar has no second 403 behind it, so a guard moved below
+  // the work would null the columns and delete the objects for real. The
+  // storage delete is permanent and outside any transaction.
+  assert.equal(fake.matching(update('teams')).length, 0, 'the columns were not cleared');
+  // As above: no `removed.length` assertion, because the ownership SELECT
+  // answers no rows and deleteAvatarObjects early-returns on the undefined it
+  // is then handed, in both the correct and the mutated build.
 });
 
 test('removeTeamAvatar clears both columns and deletes storage objects', async (t) => {

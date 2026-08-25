@@ -21,6 +21,8 @@ const {
   commissionerPredicate,
   isLeagueCommissioner,
   listCoCommissioners,
+  serializeCoCommissioners,
+  coCommissionerTeamIds,
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
@@ -280,6 +282,14 @@ router.get('/preview', previewRateLimiter, async (req, res) => {
 // GET /api/league — leagues the caller belongs to
 router.get('/', async (req, res) => {
   try {
+    // `is_owner` and `is_commissioner` are the viewer's role on each league,
+    // answered here so no card has to rebuild it from `leagues.owner_id` and
+    // the signed-in account id (#188). `is_owner` is the creator-alone half,
+    // covering the powers leagueRole.service's header keeps owner-shaped
+    // (deleting the league, granting or revoking co-commissioners);
+    // `is_commissioner` is the half a co-commissioner holds too. Both are
+    // per-viewer, evaluated against $1, and this response is the list's only
+    // per-viewer channel, so they belong on the row.
     const result = await pool.query(
       `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
               "teams"."avatar_url" AS "my_team_avatar_url",
@@ -287,6 +297,7 @@ router.get('/', async (req, res) => {
               "teams"."waiver_priority" AS "my_team_waiver_priority",
               "teams"."faab_remaining" AS "my_team_faab_remaining",
               (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count",
+              ("leagues"."owner_id" = $1) AS "is_owner",
               ${commissionerPredicate(1)} AS "is_commissioner"
        FROM "leagues"
        JOIN "teams" ON "teams"."league_id" = "leagues"."id"
@@ -347,19 +358,43 @@ router.get('/:id', async (req, res) => {
       [leagueId]
     );
     // is_commissioner is the viewer's effective role (owner or co-commissioner)
-    // — every client-side commissioner gate reads it. The roster of
-    // co-commissioners is visible to all members: knowing who can rule on your
-    // trade isn't sensitive, and it saves a second request.
+    // — every client-side commissioner gate reads it.
+    //
+    // Who holds commissioner power stays visible to every member: knowing who
+    // can rule on your trade isn't sensitive, and it saves a second request.
+    // What changed in #324 is how that fact is told. CONTEXT.md's Team
+    // identity rule admits no exception for role disclosure, so power is a
+    // property of the TEAM and never an account handed over with it. The two
+    // kinds of commissioner are told apart on the same terms: the creator is
+    // `league.ownerTeamId` / `ownerTeamName`, already here, and a GRANT is
+    // `teams[].is_co_commissioner` below. The flag is deliberately the grant
+    // alone - the creator's team is not flagged, because the creator is named
+    // on the league itself and conflating them would lose which is which.
+    // The account ids grant and revoke need ride commissioner-conditionally,
+    // stripped by the same `is_commissioner` check as `invite_code` two lines
+    // below, which is the precedent this follows rather than a new mechanism.
     league.is_commissioner = await isLeagueCommissioner(pool, leagueId, req.user.id);
-    league.co_commissioners = await listCoCommissioners(pool, leagueId);
+    const coCommissionerRows = await listCoCommissioners(pool, leagueId);
+    league.co_commissioners = serializeCoCommissioners(coCommissionerRows, {
+      isCommissioner: league.is_commissioner,
+    });
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
+    // Derived from the ROWS rather than from what this viewer was served, so
+    // the flag says the same thing to a member as to a commissioner: a team is
+    // flagged exactly when a grant names it. Team identity on both sides of
+    // the match, so there is nothing to explain about which column is which.
+    const grantedTeamIds = coCommissionerTeamIds(coCommissionerRows);
+    const teams = teamsResult.rows.map((team) => ({
+      ...team,
+      is_co_commissioner: grantedTeamIds.has(team.teamId),
+    }));
     // viewerTeamId is how a consumer answers "which of these is me" without
     // holding another manager's account ID (#112): teamId === viewerTeamId.
     res.json({
       viewerTeamId: viewerTeamIdOf(teamsResult.rows, req.user.id),
       league,
-      teams: teamsResult.rows,
+      teams,
     });
   } catch (error) {
     console.error('Error fetching league details', error);
@@ -419,7 +454,13 @@ router.post('/:id/start-draft', async (req, res) => {
   }
 });
 
-// DELETE /api/league/:id — owner deletes the league
+// DELETE /api/league/:id — owner deletes the league.
+//
+// Sanctioned direct owner_id comparison, the first of the three
+// leagueRole.service's header enumerates: this power does not delegate, so a
+// co-commissioner is refused here exactly as a member is. The WHERE clause IS
+// the gate rather than a filter in front of one - no row deleted means the
+// caller was not the creator - which is why the 403 is decided on rowCount.
 router.delete('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -911,10 +952,13 @@ router.get('/:id/history', async (req, res) => {
     }
     const historyResult = await pool.query(
       `SELECT "league_history"."season", "league_history"."standings",
+              "league_history"."pickem_result",
+              "leagues"."pickem_only",
               "league_history"."champion_team_id", "teams"."name" AS "champion_name",
               "teams"."avatar_url" AS "champion_avatar_url",
               "teams"."avatar_static_url" AS "champion_avatar_static_url"
        FROM "league_history"
+       JOIN "leagues" ON "leagues"."id" = "league_history"."league_id"
        LEFT JOIN "teams" ON "teams"."id" = "league_history"."champion_team_id"
        WHERE "league_history"."league_id" = $1
        ORDER BY "league_history"."season" DESC`,
@@ -923,6 +967,13 @@ router.get('/:id/history', async (req, res) => {
     const trophies = require('../services/trophy.service');
     const seasons = [];
     for (const row of historyResult.rows) {
+      const pickemResult = row.pickem_result && typeof row.pickem_result === 'string'
+        ? JSON.parse(row.pickem_result)
+        : row.pickem_result;
+      const champions = pickemResult && Array.isArray(pickemResult.champions)
+        ? pickemResult.champions
+        : null;
+      const firstPickemChampion = champions && champions[0];
       let seasonTrophies = [];
       let trophiesErrored = false;
       try {
@@ -950,14 +1001,27 @@ router.get('/:id/history', async (req, res) => {
 
       seasons.push({
         season: row.season,
-        champion: row.champion_team_id
-          ? {
-              teamId: row.champion_team_id,
-              name: row.champion_name,
-              avatarUrl: row.champion_avatar_url,
-              avatarStaticUrl: row.champion_avatar_static_url,
-            }
-          : null,
+        outcome: pickemResult ? pickemResult.outcome : null,
+        champions,
+        // Deprecated compatibility projection. Declaration order has no
+        // championship significance; new consumers use `champions`.
+        champion: pickemResult
+          ? (firstPickemChampion
+              ? {
+                  teamId: firstPickemChampion.teamId,
+                  name: firstPickemChampion.teamName,
+                  avatarUrl: firstPickemChampion.avatarUrl,
+                  avatarStaticUrl: firstPickemChampion.avatarStaticUrl,
+                }
+              : null)
+          : (!row.pickem_only && row.champion_team_id
+              ? {
+                  teamId: row.champion_team_id,
+                  name: row.champion_name,
+                  avatarUrl: row.champion_avatar_url,
+                  avatarStaticUrl: row.champion_avatar_static_url,
+                }
+              : null),
         standings: row.standings,
         trophies: seasonTrophies,
         trophiesErrored,

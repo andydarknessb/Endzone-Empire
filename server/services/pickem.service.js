@@ -35,7 +35,7 @@ const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
  * ## Lock semantics
  *
  * A game locks INCLUSIVELY at kickoff (`kickoff_at <= now()`), matching
- * `lockedNflTeams` in lineup.service.js. Locking is what reveals other
+ * `lockedPlayerIds` in lineup.service.js. Locking is what reveals other
  * managers' picks, so the two must agree: an unlocked pick is never returned
  * to anyone but its owner.
  *
@@ -186,7 +186,7 @@ function winnerOf(game) {
   return { winner: home > away ? game.homeTeam : game.awayTeam, isTie: false, final: true };
 }
 
-/** Pure: inclusive at kickoff, exactly like lineup.service `lockedNflTeams`. */
+/** Pure: inclusive at kickoff, exactly like lineup.service `lockedPlayerIds`. */
 function isGameLocked(game, now = new Date()) {
   if (!game || !game.kickoffAt) return false;
   const at = now instanceof Date ? now : new Date(now);
@@ -391,6 +391,10 @@ function scorePickemWeek({ games = [], picks = [], mode = 'straight' }) {
  * Order: total points desc, then correct picks desc, then username, so the
  * result is deterministic even before a single game is final.
  */
+function comparePickemStandingScore(a, b) {
+  return b.points - a.points || b.correct - a.correct;
+}
+
 function computePickemStandings({ members = [], games = [], picks = [], mode = 'straight' }) {
   const gamesByWeek = new Map();
   for (const game of games || []) {
@@ -437,11 +441,20 @@ function computePickemStandings({ members = [], games = [], picks = [], mode = '
   });
   rows.sort(
     (a, b) =>
-      b.points - a.points ||
-      b.correct - a.correct ||
+      comparePickemStandingScore(a, b) ||
       String(a.username || '').localeCompare(String(b.username || ''))
   );
-  return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+  if (rows[0]?.points === 0 && rows[0]?.correct === 0) {
+    return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+  }
+  let rank = 0;
+  return rows.map((row, index) => {
+    const previous = rows[index - 1];
+    if (!previous || comparePickemStandingScore(previous, row) !== 0) {
+      rank = index + 1;
+    }
+    return { ...row, rank };
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -729,7 +742,7 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
  * final standings inside its completion transaction), and `games` lets a
  * caller that already holds the season slate skip re-deriving it.
  */
-async function getStandings({ leagueId, season, db = pool, games = null }) {
+async function loadStandings({ leagueId, season, db, games, includeFormerPickers }) {
   const settings = await getSettings(leagueId, db);
   const members = await db.query(
     `SELECT "teams"."owner_id" AS "user_id", "users"."username",
@@ -748,8 +761,7 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
   );
   const slate = games || (await getSeasonSlate({ season, db }));
 
-  const standings = computePickemStandings({
-    members: members.rows.map((row) => ({
+  const participants = members.rows.map((row) => ({
       userId: row.user_id,
       username: row.username,
       // A standings row named its Team but never its Team ID, so a consumer
@@ -758,7 +770,25 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
       teamName: row.team_name,
       avatarUrl: row.avatar_url,
       avatarStaticUrl: row.avatar_static_url,
-    })),
+    }));
+  if (includeFormerPickers) {
+    const currentManagerIds = new Set(participants.map((member) => String(member.userId)));
+    for (const pick of stored.rows) {
+      if (currentManagerIds.has(String(pick.user_id))) continue;
+      currentManagerIds.add(String(pick.user_id));
+      participants.push({
+        userId: pick.user_id,
+        username: '',
+        teamId: null,
+        teamName: null,
+        avatarUrl: null,
+        avatarStaticUrl: null,
+      });
+    }
+  }
+
+  const standings = computePickemStandings({
+    members: participants,
     games: slate,
     picks: stored.rows.map((row) => ({
       userId: row.user_id,
@@ -770,6 +800,18 @@ async function getStandings({ leagueId, season, db = pool, games = null }) {
     mode: settings.mode,
   });
   return { season, mode: settings.mode, standings };
+}
+
+async function getStandings({ leagueId, season, db = pool, games = null }) {
+  return loadStandings({ leagueId, season, db, games, includeFormerPickers: false });
+}
+
+/**
+ * Retain every season picker long enough to determine whether a removed Team
+ * would have won. Null Team identity is rejected only in the champion set.
+ */
+async function getCompletionStandings({ leagueId, season, db = pool, games = null }) {
+  return loadStandings({ leagueId, season, db, games, includeFormerPickers: true });
 }
 
 module.exports = {
@@ -796,4 +838,5 @@ module.exports = {
   getWeekView,
   upsertPicks,
   getStandings,
+  getCompletionStandings,
 };

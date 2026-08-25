@@ -47,6 +47,18 @@ describe('articles content module', () => {
     expect(getArticle('does-not-exist')).toBeNull();
   });
 
+  it('registers the Week 2 recap with the requested byline and a lazy body', async () => {
+    const article = getArticle('preseason-week-2-recap');
+    expect(article).toEqual(
+      expect.objectContaining({
+        title: 'NFL Preseason Week 2 Recap: Draft Stock, Rookie Breakouts, and Injury Fallout',
+        author: 'Andy Darkness',
+        date: '2026-08-24',
+      })
+    );
+    expect(typeof await article.loadBody()).toBe('function');
+  });
+
   it('featuredArticles caps the count', () => {
     expect(featuredArticles(3)).toHaveLength(3);
     expect(featuredArticles(2)).toHaveLength(2);

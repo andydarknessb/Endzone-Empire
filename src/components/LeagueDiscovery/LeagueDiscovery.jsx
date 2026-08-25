@@ -259,7 +259,14 @@ function LeagueDiscovery() {
             const slotsOpen = Math.max(0, league.maxTeams - league.teamCount);
             return (
               <Grid xs={12} sm={6} md={4} key={league.id}>
-                <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                {/* data-testid is a test-only seam: the card is a layout
+                    container with no role of its own, and nothing in the app
+                    reads this attribute. */}
+                <Card
+                  variant="outlined"
+                  data-testid="league-discovery-card"
+                  sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                >
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{league.name}</Typography>
                     {/* The type chips are shared with the invite-code preview

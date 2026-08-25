@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 /**
  * League chat with unread tracking. The panel stays mounted (and its socket
@@ -11,19 +12,31 @@ import { createDraftSocket, onReconnect } from '../../api/socket';
  *  - open (or opening) -> the server-side read marker moves to now and the
  *    count resets, so the badge survives reloads without ever double-counting
  * The parent renders the badge from onUnreadChange.
+ *
+ * Chat is a league-shared surface, so an author is a Team and never an
+ * account (#114, parent #108). Two consequences shape this component:
+ *
+ *  - Messages are attributed by `teamName`. A manager who has left the league
+ *    keeps their history and reads back with null Team identity, which
+ *    `teamNameLabel` names rather than printing blank.
+ *  - "Is this mine" is `message.teamId === viewerTeamId`. The viewer's own
+ *    Team ID cannot ride on `chat:message`, which is one payload broadcast to
+ *    the whole league room, and chat history is a bare array with no root to
+ *    carry it, so it comes from the `league:join` acknowledgement this panel
+ *    already makes. That ack is the only per-viewer channel chat has, which
+ *    is why the panel owns the field rather than taking it as a prop.
  */
-function ChatPanel({ leagueId, open = true, currentUserId = null, onUnreadChange = null }) {
+function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
   const [unread, setUnread] = useState(0);
   const socketRef = useRef(null);
-  // Refs mirror props the socket handler needs: the handler is bound once per
-  // league, and reading stale `open`/`currentUserId` from its closure would
-  // count messages wrong after the drawer toggles or the user finishes loading.
+  // Refs mirror state the socket handler needs: the handler is bound once per
+  // league, and reading a stale `open` or viewer Team ID from its closure
+  // would count messages wrong after the drawer toggles or the join ack lands.
   const openRef = useRef(open);
-  const currentUserIdRef = useRef(currentUserId);
-  currentUserIdRef.current = currentUserId;
+  const viewerTeamIdRef = useRef(null);
 
   const fetchHistory = () => {
     apiClient
@@ -75,7 +88,16 @@ function ChatPanel({ leagueId, open = true, currentUserId = null, onUnreadChange
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
 
-    newSocket.emit('league:join', { leagueId: Number(leagueId) });
+    // The ack is the panel's only per-viewer channel, so it is where the
+    // viewer's own Team ID arrives. Re-answered on every join, including the
+    // reconnect one, so a rejoin cannot leave a stale answer behind.
+    const joinLeagueRoom = () => {
+      newSocket.emit('league:join', { leagueId: Number(leagueId) }, (ack) => {
+        viewerTeamIdRef.current = ack && ack.viewerTeamId != null ? ack.viewerTeamId : null;
+      });
+    };
+
+    joinLeagueRoom();
 
     newSocket.on('chat:message', (data) => {
       setMessages((prev) => [...prev, data]);
@@ -83,7 +105,18 @@ function ChatPanel({ leagueId, open = true, currentUserId = null, onUnreadChange
         // Reading live: keep the server-side marker current so a later
         // reload doesn't resurrect these as unread.
         markRead();
-      } else if (data.userId !== currentUserIdRef.current) {
+      } else if (viewerTeamIdRef.current == null || data.teamId !== viewerTeamIdRef.current) {
+        // The viewer's own broadcast echo is recognised by Team, because the
+        // broadcast carries no viewer-relative field to recognise it by.
+        //
+        // The null guard is the same one isLeagueCreator's docstring explains,
+        // reached here through the unread badge (#188). A departed author's
+        // message reads back with `teamId: null` - chat's join is LEFT so they
+        // keep their history - and this ref is null until the `league:join`
+        // ack lands. Without the guard those two nulls match, and such a
+        // message is misread as the viewer's own echo and never counted. A
+        // viewer with no Team of their own owns no message here, so while the
+        // answer is unknown nothing can be theirs.
         setUnread((count) => count + 1);
       }
     });
@@ -92,7 +125,7 @@ function ChatPanel({ leagueId, open = true, currentUserId = null, onUnreadChange
     // history via REST so any messages sent while we were offline appear.
     // The unread count re-syncs from the server for the same reason.
     const offReconnect = onReconnect(newSocket, () => {
-      newSocket.emit('league:join', { leagueId: Number(leagueId) });
+      joinLeagueRoom();
       fetchHistory();
       fetchUnread();
     });
@@ -143,7 +176,7 @@ function ChatPanel({ leagueId, open = true, currentUserId = null, onUnreadChange
           messages.map((m) => (
             <Box key={m.id} sx={{ mb: 1 }}>
               <Typography variant="body2">
-                <strong>{m.username}</strong> {m.message}
+                <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
               </Typography>
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 {new Date(m.created_at).toLocaleTimeString()}

@@ -258,6 +258,7 @@ function sampleArtifact() {
 
 test('the committed artifact is plain-ASCII canonical JSON with no environment leak', () => {
   const serialized = runBacktestMde.serializeArtifact(sampleArtifact());
+  // eslint-disable-next-line no-control-regex -- the control characters ARE the assertion: this is the full plain-ASCII range, and it has to start at \x00 to be it.
   assert.equal(/^[\x00-\x7F]*$/.test(serialized), true, 'plain ASCII only');
   // Sorted keys at every level, LF-terminated, no trailing blank line.
   assert.equal(serialized.endsWith('\n'), true);

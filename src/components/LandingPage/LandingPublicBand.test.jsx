@@ -1,9 +1,9 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-
-jest.mock('../../api/publicApiClient', () => ({ __esModule: true, default: { get: jest.fn() } }));
 import publicApiClient from '../../api/publicApiClient';
 import LandingPublicBand from './LandingPublicBand';
+
+jest.mock('../../api/publicApiClient', () => ({ __esModule: true, default: { get: jest.fn() } }));
 
 function mockEndpoints({ rankings, recaps, fail = false }) {
   publicApiClient.get.mockImplementation((url) => {
@@ -31,7 +31,7 @@ describe('LandingPublicBand', () => {
     expect(screen.getByText('Strategy')).toBeInTheDocument(); // static, always present
 
     // Public links are plain <a href> (cross into the public BrowserRouter).
-    expect(screen.getByText('Star Back').closest('a')).toHaveAttribute('href', '/players/9');
+    expect(screen.getByRole('link', { name: /Star Back/ })).toHaveAttribute('href', '/players/9');
   });
 
   it('advertises the mock draft simulator as a free tool', async () => {

@@ -26,7 +26,7 @@ test('uploads a selected file and reports the updated team', async () => {
   const onUpdated = jest.fn();
   render(<TeamAvatarUploader teamId={5} teamName="Sunday Ballers" avatarUrl={null} onUpdated={onUpdated} />);
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, pngFile());
 
   await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(
@@ -42,7 +42,7 @@ test('rejects an unsupported file type client-side without calling the API', asy
   const onUpdated = jest.fn();
   render(<TeamAvatarUploader teamId={5} teamName="Sunday Ballers" avatarUrl={null} onUpdated={onUpdated} />);
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   const textFile = new File(['hello'], 'note.txt', { type: 'text/plain' });
   Object.defineProperty(input, 'files', { value: [textFile] });
   fireEvent.change(input);
@@ -57,7 +57,7 @@ test('rejects an oversized file client-side without calling the API', async () =
   const onUpdated = jest.fn();
   render(<TeamAvatarUploader teamId={5} teamName="Sunday Ballers" avatarUrl={null} onUpdated={onUpdated} />);
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   const big = new File([new Uint8Array(6 * 1024 * 1024)], 'huge.png', { type: 'image/png' });
   await user.upload(input, big);
 
@@ -71,7 +71,7 @@ test('shows the server error message when the upload fails', async () => {
   mock.onPost('/api/team/5/avatar').reply(400, { error: 'unsupported file type' });
   render(<TeamAvatarUploader teamId={5} teamName="Sunday Ballers" avatarUrl={null} />);
 
-  const input = document.querySelector('input[type="file"]');
+  const input = screen.getByTestId('team-avatar-file-input');
   await user.upload(input, pngFile());
 
   expect(await screen.findByText('unsupported file type')).toBeInTheDocument();

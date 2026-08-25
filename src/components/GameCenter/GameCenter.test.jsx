@@ -43,6 +43,7 @@ function mockApi({
   league = { id: 1, name: 'Sunday Ballers', owner_id: 1 },
   rosters = [],
   detail = null,
+  viewerTeamId = null,
 } = {}) {
   apiClient.get.mockImplementation((url) => {
     if (/\/matchups\/\d+$/.test(url)) {
@@ -50,7 +51,7 @@ function mockApi({
     }
     if (url.endsWith('/matchups')) return Promise.resolve({ data: matchups });
     if (url.endsWith('/rosters')) return Promise.resolve({ data: rosters });
-    return Promise.resolve({ data: { league } });
+    return Promise.resolve({ data: { league, viewerTeamId } });
   });
 }
 
@@ -120,7 +121,8 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
       matchup({ id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B' }),
     ],
     league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
-    rosters: [{ teamId: 10, teamName: 'My Team', ownerId: 1 }, { teamId: 20, teamName: 'Rival', ownerId: 2 }],
+    rosters: [{ teamId: 10, teamName: 'My Team' }, { teamId: 20, teamName: 'Rival' }],
+    viewerTeamId: 10,
   });
 
   renderScreen(1, { user: { id: 1 } });
@@ -136,11 +138,51 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
   expect(screen.getByRole('region', { name: 'Live scoring feed' })).toHaveTextContent('No scoring plays yet');
 });
 
+// #188: the hero card asks "which of these is me" through the per-viewer
+// viewerTeamId from league detail, never by matching an account id against an
+// `ownerId` on the league-shared rosters payload. The fixture below is the
+// post-#115 shape - rosters carry Team identity and no account field at all -
+// and a viewer whose team is in a matchup must still get their hero card.
+test('finds the viewer matchup with no account field on the rosters payload', async () => {
+  mockApi({
+    matchups: [
+      matchup({ id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival', home_score: 30, away_score: 20, final: true }),
+      matchup({ id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B' }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
+    rosters: [{ teamId: 10, teamName: 'My Team' }, { teamId: 20, teamName: 'Rival' }],
+    viewerTeamId: 10,
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+
+  expect(await screen.findByText('Your Matchup · Week 1')).toBeInTheDocument();
+  expect(screen.getByText('Other A (0)')).toBeInTheDocument();
+});
+
+// The mirror of the test above: a viewer holding no Team on this league gets
+// no hero card. Without the null guard the two nulls would match and every
+// such reader would be handed someone else's matchup.
+test('gives a viewer with no team on this league no hero card', async () => {
+  mockApi({
+    matchups: [matchup({ id: 1, week: 1, home_team_id: 10, away_team_id: 20 })],
+    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
+    rosters: [{ teamId: 10, teamName: 'Home Team' }, { teamId: 20, teamName: 'Away Team' }],
+    viewerTeamId: null,
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+
+  expect(await screen.findByText('Home Team (0)')).toBeInTheDocument();
+  expect(screen.queryByText(/Your Matchup/)).not.toBeInTheDocument();
+});
+
 test('shows not started instead of a 50/50 probability before kickoff', async () => {
   mockApi({
     matchups: [matchup()],
     league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
-    rosters: [{ teamId: 10, teamName: 'Home Team', ownerId: 1 }],
+    rosters: [{ teamId: 10, teamName: 'Home Team' }],
+    viewerTeamId: 10,
   });
   renderScreen(1, { user: { id: 1 } });
 
@@ -161,8 +203,8 @@ test('attributes a live scoring play to the scoring player\'s real fantasy team'
   mockApi({
     matchups: [matchup({ id: 5, week: 1, home_score: 0, away_score: 0 })],
     rosters: [
-      { teamId: 10, teamName: 'Home Team', ownerId: 1, players: [{ id: 99, name: 'Speedy Runner' }] },
-      { teamId: 20, teamName: 'Away Team', ownerId: 2, players: [] },
+      { teamId: 10, teamName: 'Home Team', players: [{ id: 99, name: 'Speedy Runner' }] },
+      { teamId: 20, teamName: 'Away Team', players: [] },
     ],
   });
 
@@ -190,7 +232,7 @@ test('attributes a live scoring play to the scoring player\'s real fantasy team'
 test('ignores a scoring play from a week other than the one on screen', async () => {
   mockApi({
     matchups: [matchup({ id: 5, week: 1, home_score: 0, away_score: 0 })],
-    rosters: [{ teamId: 10, teamName: 'Home Team', ownerId: 1, players: [{ id: 99, name: 'Speedy Runner' }] }],
+    rosters: [{ teamId: 10, teamName: 'Home Team', players: [{ id: 99, name: 'Speedy Runner' }] }],
   });
 
   renderScreen();
@@ -240,23 +282,24 @@ test('every card — hero and list — links directly to its box score, no inter
       matchup({ id: 6, home_team_name: 'Second Home' }),
     ],
     league: { id: 1, name: 'Sunday Ballers', owner_id: 99, current_week: 1 },
-    rosters: [{ teamId: 10, teamName: 'My Team', ownerId: 1 }, { teamId: 20, teamName: 'Rival', ownerId: 2 }],
+    rosters: [{ teamId: 10, teamName: 'My Team' }, { teamId: 20, teamName: 'Rival' }],
+    viewerTeamId: 10,
   });
 
   renderScreen(3, { user: { id: 1 } });
   await screen.findByText('Home Team (0)');
 
   // The hero card's CardActionArea is itself a plain link to the box score.
-  expect(screen.getByText('My Team').closest('a')).toHaveAttribute(
+  expect(screen.getByRole('link', { name: /My Team/ })).toHaveAttribute(
     'href',
     '/league/3/matchups/4'
   );
   // The list cards are plain links too — no dialog, no detail fetch.
-  expect(screen.getByText('Home Team (0)').closest('a')).toHaveAttribute(
+  expect(screen.getByRole('link', { name: /Home Team \(0\)/ })).toHaveAttribute(
     'href',
     '/league/3/matchups/5'
   );
-  expect(screen.getByText('Second Home (0)').closest('a')).toHaveAttribute(
+  expect(screen.getByRole('link', { name: /Second Home \(0\)/ })).toHaveAttribute(
     'href',
     '/league/3/matchups/6'
   );

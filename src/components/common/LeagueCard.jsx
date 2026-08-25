@@ -6,13 +6,24 @@ import {
   IconButton, Menu, MenuItem, Stack, Typography,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import { visuallyHidden } from '@mui/utils';
 import Countdown from '../Countdown/Countdown';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
 
-function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
+function LeagueCard({ league, onDelete, compact = false }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // The viewer's role arrives already decided, on the two per-viewer flags
+  // GET /api/league puts on every row (#188). It used to be an `isOwner` prop
+  // each caller worked out for itself from `user.id === league.owner_id`, and
+  // the two callers did not agree: LeagueManagement computed it and UserPage
+  // never passed it, so on /user a league's own creator was labelled
+  // "Co-Commissioner". A role question belongs to the payload, not the call
+  // site. `=== true` because an older cached row carries neither flag, and an
+  // absent one must read as "no", never as "maybe". Both flags are read the
+  // same way for the same reason.
+  const isOwner = league.is_owner === true;
   const phase = deriveLeaguePhase(league);
   const meta = LEAGUE_PHASE_META[phase] || { label: 'League', color: 'default' };
 
@@ -35,8 +46,24 @@ function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
         {league.scoring_preset && (
           <Chip size="small" variant="outlined" label={league.scoring_preset.replace('_', ' ').toUpperCase()} />
         )}
-        {(isOwner || league.is_commissioner) && (
-          <Chip size="small" color="primary" variant="outlined" label={isOwner ? 'Commissioner' : 'Co-Commissioner'} />
+        {(isOwner || league.is_commissioner === true) && (
+          // In compact mode the whole card is one link, so every chip's text is
+          // concatenated into its accessible name and this one would announce
+          // indistinguishably from "PPR" - one more league fact rather than a
+          // statement about the reader. The visually-hidden prefix makes the
+          // role read as a role out loud while the chip looks unchanged
+          // (the repo's own convention: see Countdown.jsx, PlayerPoolTable.jsx).
+          <Chip
+            size="small"
+            color="primary"
+            variant="outlined"
+            label={(
+              <>
+                <Box component="span" sx={visuallyHidden}>You are the </Box>
+                {isOwner ? 'Commissioner' : 'Co-Commissioner'}
+              </>
+            )}
+          />
         )}
         {phase === LEAGUE_PHASE.PRE_DRAFT && league.draft_date && (
           <Countdown variant="chip" date={league.draft_date} timeZone={league.draft_timezone} />
@@ -56,7 +83,7 @@ function LeagueCard({ league, isOwner = false, onDelete, compact = false }) {
           <Stack direction="row" alignItems="flex-start">
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>{content}</Box>
             {isOwner && onDelete && (
-              <IconButton aria-label="League actions" size="small" onClick={(event) => setAnchorEl(event.currentTarget)} sx={{ m: 1 }}>
+              <IconButton aria-label={`League actions for ${league.name}`} size="small" onClick={(event) => setAnchorEl(event.currentTarget)} sx={{ m: 1 }}>
                 <MoreVertIcon />
               </IconButton>
             )}

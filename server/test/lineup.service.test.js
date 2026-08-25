@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 const { dropPlayer } = require('../services/draft.service');
 const { createFakePool } = require('./helpers/fakePool');
+const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const {
   slotEligible,
   validateLineup,
@@ -11,6 +12,9 @@ const {
   getLineup,
   setLineup,
   benchAcquiredPlayer,
+  removeLineupEntries,
+  currentWeekEntry,
+  restoreInterruptedStash,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -23,7 +27,11 @@ test('annotateLineupEntries derives onBye only from the canonical bye week', () 
       { id: 3, name: 'Patrick Mahomes', nfl_team: 'KC' },
     ],
     {
-      locked: new Set(['BUF']),
+      // PLAYER IDS, not team names (#227): the kickoff question is answered
+      // per player now, so a DEF unit's full team name and Tank01's WSH can
+      // never miss the set the way they used to. `byeByTeam` stays keyed by
+      // the caller's own team string - computeByeWeeks hands that back.
+      locked: new Set([2]),
       byeByTeam: new Map([['MIN', 6], ['BUF', 7], ['KC', null]]),
       selectedWeek,
     }
@@ -65,6 +73,8 @@ test('getLineup batches completed-season projections and preserves weekly null s
   ];
   const seasonQueries = [];
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -129,6 +139,8 @@ function installSetLineupWorld(t, injuryDesignation, {
     ir_attested: irAttested,
   }, ...extraEntries];
   return createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -155,6 +167,27 @@ function installSetLineupWorld(t, injuryDesignation, {
   ]).install(t);
 }
 
+/**
+ * #274: every setLineup refusal must prove the slot never moved, not just that
+ * the caller was told no. All of setLineup's refusals throw INSIDE the
+ * transaction, so the ROLLBACK erases the evidence and the thrown error is
+ * identical whether the guard sat above the write or below it.
+ *
+ * The seam is the UPDATE, deliberately, and not the INSERT: materializeLineup
+ * copies rows forward BEFORE the guards run, so an INSERT count of zero would
+ * be asserting the wrong thing and would fail on the correct build. The
+ * UPDATE at lineup.service.js:807 (the slot save) and :819 (the later-week
+ * attestation sweep) are the writes a refusal must not reach.
+ *
+ * The world above answers that UPDATE with a live handler, so a zero here is
+ * an observation rather than a fixture that happened to omit it.
+ */
+const assertNoSlotWrite = (fake) => assert.equal(
+  fake.matching(/^UPDATE "lineup_entries"/).length,
+  0,
+  'the refused save moved no slot'
+);
+
 test('setLineup rejects placing a healthy player in IR and names the designation', async (t) => {
   const fake = installSetLineupWorld(t, null);
 
@@ -163,6 +196,7 @@ test('setLineup rejects placing a healthy player in IR and names the designation
     (error) => error.statusCode === 400 && /current injury designation: healthy/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -206,6 +240,7 @@ test('setLineup keeps starting slots automatic in best-ball leagues', async (t) 
     (error) => error.statusCode === 409 && /only between BENCH and IR/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -246,6 +281,7 @@ test('setLineup keeps a recovered best-ball stash locked after kickoff', async (
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -269,6 +305,7 @@ test('setLineup rejects a save that leaves a non-IR-eligible player stashed', as
       && /current injury designation: questionable/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -333,6 +370,7 @@ test('setLineup cannot launder zero-bench recovery into an ordinary bench slot',
     (error) => error.statusCode === 400 && /too many players at BENCH \(1\/0\)/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -344,6 +382,7 @@ test('setLineup keeps the lock for an IR-eligible player stashed in IR', async (
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -359,6 +398,7 @@ test('setLineup keeps the lock for an attested stash after kickoff', async (t) =
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -370,6 +410,7 @@ test('setLineup keeps the lineup lock for a player outside IR', async (t) => {
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -380,6 +421,7 @@ test('setLineup keeps the lock when a recovered stash targets a starting slot', 
     setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -404,6 +446,8 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
   ];
   const currentSlots = new Map();
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -443,6 +487,7 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
       && /current injury designation: questionable/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -467,14 +512,25 @@ test('a full roster resolves by dropping a bench player before activating the st
   ];
   const rosteredPlayerIds = new Set(entries.map(({ player_id }) => player_id));
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, locked: false }] })],
     [/^DELETE FROM "team_players"/, (text, params) => {
       const deleted = rosteredPlayerIds.delete(params[1]);
       return { rows: deleted ? [{ id: 99 }] : [], rowCount: deleted ? 1 : 0 };
     }],
-    [/^SELECT "waiver_period_hours" FROM "leagues"/, () => ({
-      rows: [{ waiver_period_hours: 24 }],
+    [/^SELECT "id", "waiver_period_hours"/, () => ({
+      rows: [{ id: 5, waiver_period_hours: 24, current_season: 2026, current_week: 8 }],
     })],
+    // The dropped player's lineup rows follow his roster row out (#197): he
+    // is a KC bench player and only MIN has kicked off, so the current week
+    // goes too. Nothing here depends on which rows went - the drop is a
+    // fixture for the stash activation that follows it.
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: [{ slot: 'BENCH', ir_attested: false }],
+    })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: 'KC' }] })],
+    [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
     [/^INSERT INTO "waiver_players"/, () => ({ rows: [] })],
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
@@ -719,6 +775,8 @@ test('weekly materialization carries the attestation forward with the slot', asy
   ];
   const materialized = new Map();
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -777,6 +835,7 @@ test('setLineup cannot relaunder an attestation by moving the player out and bac
       && /current injury designation: questionable/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -809,6 +868,8 @@ test('a manager move also clears the attestation from already-materialized later
 function acquisitionWorld({ roster, currentSlots, previousSlots }) {
   const slots = new Map(currentSlots);
   const fake = createFakePool([
+    // #106: every world here is a LIVE week, so nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: roster })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
       rows: [...slots.keys()].map((player_id) => ({ player_id })),
@@ -899,5 +960,357 @@ test('benchAcquiredPlayer leaves a surviving starter row as played', async () =>
   client.release();
 
   assert.deepEqual([...slots], [[21, 'RB']]);
+  fake.assertClean();
+});
+
+// --- a lineup entry follows the roster (#197) --------------------------------
+// Six paths remove a player from a team and none of them used to touch
+// lineup_entries, so a lineup row outlived the roster relationship it
+// describes. `removeLineupEntries` is the one operation all six now call.
+//
+// The rule it implements: future weeks always go, the current week goes only
+// if the player's NFL game for that week has NOT kicked off, and past weeks
+// are never touched. A row that survives therefore means "he was on this
+// roster at kickoff", which is what every reader of the week as played
+// assumes.
+
+const REMOVAL_KICKED_OFF_AT = new Date('2026-11-01T17:00:00Z');
+const REMOVAL_NOT_YET_AT = new Date('2026-11-08T17:00:00Z');
+const REMOVAL_HELD_SINCE = new Date('2026-09-01T00:00:00Z');
+
+/**
+ * A removal world. `nflTeam` is the departing player's team, `kickedOff` the
+ * NFL teams whose game for the week has started, `final` whether the team's
+ * own matchup for the week is already final (#106).
+ *
+ * `tenures` is the departing player's history with this team (#228). It
+ * defaults to one open tenure held since well before kickoff, because these
+ * tests are about WHICH WEEKS a departure takes; the tenure cases have their
+ * own tests below.
+ */
+function removalWorld({ nflTeam = 'MIN', kickedOff = [], final = false, tenures = [] } = {}) {
+  const schedule = Object.fromEntries(kickedOff.map((team) => [team, REMOVAL_KICKED_OFF_AT]));
+  if (!schedule[nflTeam]) schedule[nflTeam] = REMOVAL_NOT_YET_AT;
+  return createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: final ? [{ 1: 1 }] : [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: nflTeam }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
+      rows: kickedOff.map((nfl_team) => ({ nfl_team })),
+    })],
+    ...tenureHandlers({ schedule, tenures, heldSince: REMOVAL_HELD_SINCE }),
+    [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 1 })],
+  ]);
+}
+
+const removalLeague = { id: 5, current_season: 2026, current_week: 9 };
+
+const removeFor = (client, overrides = {}) => removeLineupEntries(client, {
+  league: removalLeague,
+  teamId: 10,
+  playerId: 21,
+  ...overrides,
+});
+
+test('removeLineupEntries: a pre-kickoff departure takes the current week and every future week', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['KC'] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
+  // Scoped to THIS team's rows for THIS player in the current season, and
+  // bounded below by the current week: past weeks are the record of the week
+  // as played and are never touched (#106).
+  assert.deepEqual(remove.params, [10, 21, 2026, 9, true]);
+  assert.match(remove.text, /"team_id" = \$1 AND "player_id" = \$2 AND "season" = \$3/);
+  assert.match(remove.text, /\("week" > \$4 OR \("week" = \$4 AND \$5::boolean\)\)/);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a post-kickoff departure keeps the current week and still takes the future', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['MIN', 'KC'] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  // Same statement either way; the current week is spared by the bound
+  // parameter, not by a different query. A starter dropped after his game
+  // played keeps his row and therefore his points.
+  const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
+  assert.deepEqual(remove.params, [10, 21, 2026, 9, false]);
+  fake.assertClean();
+});
+
+// --- the spare predicate reads the tenure (#228) -----------------------------
+//
+// #197 made a surviving current-week row mean "he was on this roster at
+// kickoff". Kickoff alone cannot carry that claim: a player acquired AFTER his
+// game was played is locked by the schedule while having been held for none of
+// it. These are the #190 case table asked of the OTHER consumer of the same
+// predicate, so the two cannot drift apart.
+
+test('removeLineupEntries: a post-kickoff ACQUISITION does not get to keep the row', async () => {
+  // Held only from after his game. Locked, but never held at kickoff, so the
+  // row is not evidence of a week he played here and goes with him.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    tenures: [tenure(10, 21, new Date('2026-11-02T00:00:00Z'))],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  const [remove] = fake.matching(/^DELETE FROM "lineup_entries"/);
+  // Still ONE statement, spared or not, by the bound parameter (#197).
+  assert.deepEqual(remove.params, [10, 21, 2026, 9, true]);
+  assert.match(remove.text, /\("week" > \$4 OR \("week" = \$4 AND \$5::boolean\)\)/);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: held at kickoff, dropped after the game and re-added, keeps the row', async () => {
+  // Two tenures; the first covers kickoff. The #229 case at this consumer.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    tenures: [
+      tenure(10, 21, new Date('2026-09-01T00:00:00Z'), new Date('2026-11-01T20:00:00Z')),
+      tenure(10, 21, new Date('2026-11-02T00:00:00Z')),
+    ],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: the tenure boundary is inclusive at kickoff', async () => {
+  // Acquired exactly AT kickoff counts as held, so the row stays. Pins `<=`
+  // on this consumer as well as on the scoring one: one predicate, and if it
+  // is mutated both suites must move together.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    tenures: [tenure(10, 21, REMOVAL_KICKED_OFF_AT)],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a final week keeps its rows even for a post-kickoff acquisition (#106 still wins)', async () => {
+  // The tenure says the row could go; #106 says a settled week is never
+  // written into. Finality wins, and that conjunct must survive #228.
+  const fake = removalWorld({
+    nflTeam: 'MIN',
+    kickedOff: ['MIN'],
+    final: true,
+    tenures: [tenure(10, 21, new Date('2026-11-02T00:00:00Z'))],
+  });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a departure before kickoff never asks about tenure at all', async () => {
+  // Only a kicked-off game can spare the row, so the tenure question is not
+  // worth asking before then - and a pre-kickoff drop keeps exactly the reads
+  // it has always made.
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['KC'] });
+  const client = await fake.connect();
+
+  await removeFor(client);
+  client.release();
+
+  assert.equal(fake.matching(/FROM "roster_tenures"/).length, 0);
+  assert.equal(fake.matching(/^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/).length, 0);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: the kickoff question is asked of the schedule, not of the caller', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: [] });
+  const client = await fake.connect();
+
+  const now = new Date('2026-11-01T17:00:00Z');
+  await removeFor(client, { now });
+  client.release();
+
+  // Pinned to the statement text, not merely to the shape the fake returns:
+  // this is the SAME predicate the lineup lock uses (lockedPlayerIds), so a
+  // mutation of it has to fail here rather than pass because a fake answered
+  // from its parameters. `kickoff_at <= now` and nothing looser.
+  const [locked] = fake.matching(/FROM "nfl_games"/);
+  assert.match(locked.text, /SELECT "nfl_team" FROM "nfl_games"/);
+  assert.match(locked.text, /"season" = \$1 AND "week" = \$2 AND "kickoff_at" <= \$3/);
+  assert.deepEqual(locked.params, [2026, 9, now]);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a player with no game that week is not kicked off (bye and no-schedule control)', async () => {
+  // The schedule has other teams playing and nothing for MIN: a bye, or a
+  // week whose schedule has not been synced. Absence of a game row is
+  // absence of a kickoff, exactly as the lineup lock reads it.
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: ['KC', 'BUF'] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  assert.equal(fake.matching(/^DELETE FROM "lineup_entries"/)[0].params[4], true);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: an empty schedule locks nothing at all', async () => {
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: [] });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a final week keeps its rows even for a player with no game (#106)', async () => {
+  // The one case the kickoff question alone would get wrong: the team's
+  // matchup is already final and the departing player had no game row that
+  // week. #106 froze a final week as the record of the week as played, and a
+  // DELETE is a write into it like any other. An incomplete schedule is the
+  // real exposure here, not a true bye: a bye scores nothing either way.
+  const fake = removalWorld({ nflTeam: 'MIN', kickedOff: [], final: true });
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, false);
+  assert.deepEqual(fake.matching(/^DELETE FROM "lineup_entries"/)[0].params, [10, 21, 2026, 9, false]);
+  fake.assertClean();
+});
+
+test('removeLineupEntries: a player with no players row is simply not locked', async () => {
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
+    [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 0 })],
+  ]);
+  const client = await fake.connect();
+
+  const result = await removeFor(client);
+  client.release();
+
+  assert.equal(result.removedCurrentWeek, true);
+  fake.assertClean();
+});
+
+// --- what the drop interrupted, recorded at drop time ------------------------
+
+test('currentWeekEntry reads the slot and attestation the player holds right now', async () => {
+  const fake = createFakePool([
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
+      rows: [{ slot: 'IR', ir_attested: true }],
+    })],
+  ]);
+  const client = await fake.connect();
+
+  const entry = await currentWeekEntry(client, { league: removalLeague, teamId: 10, playerId: 21 });
+  client.release();
+
+  assert.deepEqual(entry, { slot: 'IR', ir_attested: true });
+  assert.deepEqual(fake.calls[0].params, [10, 21, 2026, 9]);
+  fake.assertClean();
+});
+
+test('currentWeekEntry answers null when he has no current-week row', async () => {
+  const fake = createFakePool([
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
+  ]);
+  const client = await fake.connect();
+
+  const entry = await currentWeekEntry(client, { league: removalLeague, teamId: 10, playerId: 21 });
+  client.release();
+
+  assert.equal(entry, null);
+  fake.assertClean();
+});
+
+// --- undoing a drop replays what it interrupted ------------------------------
+
+test('restoreInterruptedStash materializes the week, then puts him back in the recorded slot', async () => {
+  const inserts = [];
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 21, position: 'RB' }] })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^SELECT "player_id", "slot"/, () => ({ rows: [] })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      inserts.push({ text, params });
+      return { rows: [] };
+    }],
+  ]);
+  const client = await fake.connect();
+
+  await restoreInterruptedStash(client, {
+    league: removalLeague, teamId: 10, playerId: 21, slot: 'IR', irAttested: true,
+  });
+  client.release();
+
+  // Materialization first (a complete week, never a lone row the next
+  // copy-forward would read as its source), then the recorded slot written
+  // over whatever it left him in.
+  assert.equal(inserts.length, 2);
+  assert.deepEqual(inserts[0].params, [5, 10, 21, 2026, 9, 'BENCH', false]);
+  assert.deepEqual(inserts[1].params, [5, 10, 21, 2026, 9, 'IR', true]);
+  assert.match(
+    inserts[1].text,
+    /ON CONFLICT \("team_id", "season", "week", "player_id"\) DO UPDATE SET "slot" = EXCLUDED\."slot", "ir_attested" = EXCLUDED\."ir_attested"/
+  );
+  fake.assertClean();
+});
+
+test('restoreInterruptedStash still writes the row when the week has gone final', async () => {
+  // The one write a final week does not refuse (#106). Capacity has already
+  // been credited for this stash by the time the restore runs, so declining
+  // to write it would leave the player on a roster that is only legal
+  // because of a stash that does not exist - reachable when a matchup is
+  // finalized between the drop and the undo. It cannot change a settled
+  // score: the restored slot is always IR, and IR never scores.
+  const inserts = [];
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [{ 1: 1 }] })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      inserts.push(params);
+      return { rows: [] };
+    }],
+  ]);
+  const client = await fake.connect();
+
+  await restoreInterruptedStash(client, {
+    league: removalLeague, teamId: 10, playerId: 21, slot: 'IR', irAttested: true,
+  });
+  client.release();
+
+  // materializeLineup still refuses the frozen week, so the only write is
+  // the restore itself.
+  assert.deepEqual(inserts, [[5, 10, 21, 2026, 9, 'IR', true]]);
   fake.assertClean();
 });

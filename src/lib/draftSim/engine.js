@@ -244,9 +244,16 @@ export function picksRemainingFor(state, teamId) {
 }
 
 /**
- * Adapt sim state to the props DraftBoardMatrix already speaks (the server's
- * snake_case pick shape). Picks come back newest-first, matching the live draft
- * room, so the matrix's landing flash fires on the right cell.
+ * Adapt sim state to the props DraftBoardMatrix already speaks. Team identity
+ * is `teamId` / `teamName`, the same contract the live draft room's snapshot
+ * uses (#113, contract #112), so one matrix can render both; the rest of a
+ * pick keeps the server's snake_case shape. Picks come back newest-first,
+ * matching the live draft room, so the matrix's landing flash fires on the
+ * right cell.
+ *
+ * Nothing here is a real manager: the simulator's teams are invented, so this
+ * carries Team identity because the matrix speaks it, not because there is an
+ * account behind it.
  */
 export function toBoardShape(state) {
   const byId = new Map(state.players.map((p) => [p.playerId, p]));
@@ -255,7 +262,7 @@ export function toBoardShape(state) {
       const player = byId.get(pick.playerId) || {};
       return {
         pick_number: pick.pickNumber,
-        team_id: pick.teamId,
+        teamId: pick.teamId,
         player_id: pick.playerId,
         name: player.name || 'Unknown player',
         position: player.position || null,
@@ -266,9 +273,9 @@ export function toBoardShape(state) {
 
   const onClock = teamOnClock(state);
   return {
-    teams: state.teams.map((team) => ({ id: team.id, name: team.name, draft_position: team.slot })),
+    teams: state.teams.map((team) => ({ teamId: team.id, teamName: team.name, draft_position: team.slot })),
     picks,
-    onTheClock: onClock ? { id: onClock.id, name: onClock.name } : null,
+    onTheClock: onClock ? { teamId: onClock.id, teamName: onClock.name } : null,
     draftRounds: state.rounds,
   };
 }

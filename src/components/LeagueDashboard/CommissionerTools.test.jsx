@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
 import { MemoryRouter } from 'react-router-dom';
-import userEventLibrary from '@testing-library/user-event';
+import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
@@ -14,12 +14,22 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
-const userEvent = Object.fromEntries(
-  ['click', 'clear', 'type'].map((method) => [
-    method,
-    (...args) => act(async () => { await userEventLibrary[method](...args); }),
-  ])
-);
+// userEvent calls below are awaited directly, never re-wrapped in act(): see
+// docs/adr/0007-user-event-is-never-wrapped-in-act.md. Work that outlives a
+// click (a save PUT, the refresh behind it) is awaited at the call site.
+
+// Settles background work that isn't tied to a mocked promise the test can
+// await directly: MUI's Tabs indicator, which repositions via a
+// MutationObserver that fires asynchronously after a mount/rerender, and the
+// join-requests panel's own mount-effect GET. A single tick is what these
+// need in practice, but this loops (matching NavigationGuard.test.jsx's own
+// flush helper) so the wait isn't pinned to a fragile exact-hop-count guess.
+const flush = async (times = 6) => {
+  for (let i = 0; i < times; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+};
 
 const league = (overrides = {}) => ({
   id: 1,
@@ -49,12 +59,14 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
+// Both `id` and `teamId`, because GET /api/league/:id selects both: the raw
+// column and the contract alias teamIdentityColumns() puts beside it. A
+// fixture carrying only `id` would let a comparison against the legacy column
+// pass while the contract one silently matched nothing.
 const teams = [
-  { id: 1, name: "Alice's Team", owner: 'alice', faab_remaining: 100, locked: false },
-  { id: 2, name: "Bob's Team", owner: 'bob', faab_remaining: 60, locked: false },
+  { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', faab_remaining: 60, locked: false },
 ];
-
-const user = { id: 1, username: 'alice' };
 
 const mockGetByUrl = (overrides = {}) => {
   apiClient.get.mockImplementation((url) => {
@@ -74,7 +86,7 @@ const renderTools = (props = {}) =>
         leagueId={1}
         league={league()}
         teams={teams}
-        user={user}
+        viewerTeamId={1}
         onRefresh={jest.fn()}
         {...props}
       />
@@ -86,8 +98,13 @@ beforeEach(() => {
   mockGetByUrl();
 });
 
-test('renders all six tabs, defaulting to General Settings', () => {
+test('renders all six tabs, defaulting to General Settings', async () => {
   renderTools();
+  // MUI's Tabs indicator repositions via a MutationObserver that fires
+  // asynchronously after mount (see the hash-only-navigation test below for
+  // the full explanation). Let it settle before this, the first test in the
+  // file, ends.
+  await flush();
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Scoring Settings' })).toBeInTheDocument();
@@ -97,14 +114,138 @@ test('renders all six tabs, defaulting to General Settings', () => {
   expect(screen.getByRole('checkbox', { name: 'Lock Transactions' })).toBeInTheDocument();
 });
 
-test('calls out immediate general-setting effects and destructive team removal', () => {
+test('calls out immediate general-setting effects and destructive team removal', async () => {
   renderTools({ league: league({ is_public: true, join_approval: true }) });
+  // is_public + join_approval mounts the join-requests panel, which fires its
+  // own GET on mount (unrelated to what this test asserts). Let that settle
+  // inside act before asserting, or its setJoinRequests(...) update lands
+  // after the test has already finished reading the screen.
+  await flush();
 
   expect(screen.getByText(/Applies immediately\. Freezes adds/)).toBeInTheDocument();
   expect(screen.getByText('Destructive actions')).toBeInTheDocument();
   expect(screen.getByText('Remove a team')).toBeInTheDocument();
   expect(screen.getByText('Approve and deny decisions apply immediately.')).toBeInTheDocument();
 });
+
+// The removable-teams guard answers "which of these is me" by Team ID, not by
+// the owner username string (#185). Both cases below assert list membership
+// (which control is offered, not just that the section renders) and would
+// fail against a username comparison: the first because a stale/renamed
+// owner string no longer matches the signed-in username, the second because
+// #115 drops the owner field from league-shared team rows entirely, which
+// makes `undefined !== username` true for every team.
+test("excludes the viewer's own team by Team ID even once its owner string is stale (a username change)", () => {
+  const staleOwnerTeams = teams.map((t) => (t.id === 1 ? { ...t, owner: 'alice_old_handle' } : t));
+  renderTools({ viewerTeamId: 1, teams: staleOwnerTeams });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
+});
+
+test("excludes the viewer's own team by Team ID once the owner username field is gone from the payload (#115 shape)", () => {
+  const teamsWithoutOwner = teams.map(({ owner, ...rest }) => rest);
+  renderTools({ viewerTeamId: 1, teams: teamsWithoutOwner });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
+});
+
+// #188. Team identity on a league-shared payload is `teamId`, and every other
+// "which of these is me" comparison in src/ reads it. This filter read the raw
+// `teams.id` that GET /api/league/:id still selects beside it, and the failure
+// direction is the bad one: drop the legacy column and `undefined !==
+// viewerTeamId` is true for every row, so the viewer's own team becomes
+// removable. The fixture below carries Team identity and no legacy id.
+test("excludes the viewer's own team by teamId, the contract field, not the legacy id", () => {
+  const contractTeams = [
+    { teamId: 1, name: "Alice's Team", faab_remaining: 100, locked: false },
+    { teamId: 2, name: "Bob's Team", faab_remaining: 60, locked: false },
+  ];
+  renderTools({ viewerTeamId: 1, teams: contractTeams });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
+});
+
+// #188. Two rules bound removal and the server enforces both: no commissioner
+// may remove their OWN team, and whoever the caller is, the creator's team
+// cannot be removed (leagueRole.service's invariant; commissioner.service's
+// removeTeam raises 409 for each). The client mirrored only the first, so a
+// co-commissioner was offered a Remove button that could only ever fail. The
+// viewer here is a co-commissioner, which is what makes the two rules
+// distinguishable: for the creator, their own team is already excluded by the
+// first rule.
+test("offers a co-commissioner no Remove button for the creator's team", () => {
+  const withTeamIds = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', owner_id: 1 },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', owner_id: 2 },
+    { id: 3, teamId: 3, name: "Carol's Team", owner: 'carol', owner_id: 3 },
+  ];
+  // Bob is a co-commissioner; Alice created the league.
+  renderTools({
+    viewerTeamId: 2,
+    teams: withTeamIds,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: "Remove Bob's Team" })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Remove Carol's Team" })).toBeInTheDocument();
+});
+
+// #188 follow-up. Filtering the creator's team out of the removal list is
+// right, but the 409 it used to produce ("the league creator's team can't be
+// removed") was the ONLY place that rule was ever stated to a user. Hiding the
+// button without saying why leaves a co-commissioner looking for a team that
+// is simply absent - and because the whole Paper was gated on the list being
+// non-empty, in a two-team league the overline, the subheading and the list
+// vanished from the DOM together, so there was no trace of the section at all.
+test('states the creator-team rule instead of silently omitting the team', () => {
+  const twoTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
+  ];
+  // Bob is a co-commissioner; Alice created the league. Nothing is removable:
+  // Bob's own team by the first rule, Alice's by the second.
+  renderTools({
+    viewerTeamId: 2,
+    teams: twoTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.getByText('Remove a team')).toBeInTheDocument();
+  expect(screen.getByText(/the league creator's team can't be removed/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+});
+
+// The rule is stated whenever the section is, not only when the list empties:
+// a co-commissioner who CAN remove someone still needs to know why one name is
+// missing from the list in front of them.
+test('states the rule alongside a non-empty removal list too', () => {
+  const threeTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
+    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
+    { id: 3, teamId: 3, name: "Carol's Team", owner: 'carol' },
+  ];
+  renderTools({
+    viewerTeamId: 2,
+    teams: threeTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
+
+  expect(screen.getByRole('button', { name: "Remove Carol's Team" })).toBeInTheDocument();
+  expect(screen.getByText(/the league creator's team can't be removed/i)).toBeInTheDocument();
+});
+
+// The list row's React key moved to `teamId` with the filter above it, or
+// the file contradicts itself (#188). There is no test for it: a React key
+// is not observable from the DOM, and the one probe that exists - React's
+// own "unique key prop" warning - is emitted at most once per component per
+// run, so a test asserting on it passes or fails depending on which other
+// test rendered this panel first. A green that depends on file order would
+// certify nothing, which is the failure this whole sweep is about. The
+// change is verified by reading it.
 
 // --- Roster Settings ---
 
@@ -671,8 +812,8 @@ test('Lock Specific Team toggles a single team without touching the league-wide 
 // --- Co-commissioners (owner-only) ---
 
 const withOwnerIds = [
-  { id: 1, name: "Alice's Team", owner: 'alice', owner_id: 1, faab_remaining: 100, locked: false },
-  { id: 2, name: "Bob's Team", owner: 'bob', owner_id: 2, faab_remaining: 60, locked: false },
+  { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', owner_id: 1, faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', owner_id: 2, faab_remaining: 60, locked: false },
 ];
 
 test('the co-commissioner section is owner-only', () => {
@@ -682,6 +823,117 @@ test('the co-commissioner section is owner-only', () => {
 
   renderTools({ isOwner: true, teams: withOwnerIds });
   expect(screen.getByText('Co-commissioners')).toBeInTheDocument();
+});
+
+// #188: a role prop defaults to the answer that grants nothing. `isOwner`
+// defaulted to true, so a caller that forgot to pass it was handed the two
+// powers the creator cannot delegate. There is one caller today and it passes
+// the prop, so this was latent rather than live - but a role question whose
+// unanswered state is "yes" is the kind of thing this sweep exists to find.
+test('owner-only controls stay hidden when no role is passed at all', () => {
+  renderTools({ teams: withOwnerIds });
+  expect(screen.queryByText('Co-commissioners')).not.toBeInTheDocument();
+});
+
+// #188: listCoCommissioners LEFT JOINs each grant to its Team and ships
+// `teamId` / `teamName` (#112), and LeagueRules' LeagueOfficials renders that
+// same array the contract way. This card instead rebuilt the join client-side
+// by matching `c.user_id` against `teams[].owner_id` - re-deriving, from
+// account fields, an answer the payload already carried. The fixture below is
+// the shape that separates the two: the grant names its own Team and the team
+// rows carry no owner account id to re-join on.
+test("names each grant's Team from the payload rather than re-joining on account ids", () => {
+  const contractTeams = [
+    { id: 1, teamId: 1, name: "Alice's Team" },
+    { id: 2, teamId: 2, name: "Bob's Team" },
+  ];
+  renderTools({
+    isOwner: true,
+    teams: contractTeams,
+    league: league({
+      co_commissioners: [{ user_id: 2, username: 'bob', teamId: 2, teamName: 'Deputy FC' }],
+    }),
+  });
+
+  // Scoped to the grant's own row: "Deputy FC" is the Team name the grant
+  // carries, and it appears nowhere else on the page, so finding it proves the
+  // card read the payload rather than rebuilding a null.
+  const grantRow = screen
+    .getAllByRole('listitem')
+    .find((item) => within(item).queryByRole('button', { name: 'Remove Deputy FC (grant 1) as co-commissioner' }));
+  expect(grantRow).toBeDefined();
+  expect(within(grantRow).getByText('Deputy FC')).toBeInTheDocument();
+  // #324: the roster is displayed by Team here too. This fixture still carries
+  // a username the payload no longer ships, so a card that renders one would
+  // show it - and none does.
+  expect(screen.queryByText('bob')).not.toBeInTheDocument();
+});
+
+// #324: a grant that outlived its Team has no Team identity to name it by, so
+// it leaves the member-visible roster on the rules page entirely. It cannot
+// leave HERE: this card is the only place the revoke lives, and the account id
+// the commissioner-conditional payload carries is what the revoke is built on.
+test('a grant with no Team is still listed and still revocable', async () => {
+  apiClient.delete.mockResolvedValue({ data: { coCommissioners: [] } });
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({ co_commissioners: [{ user_id: 2, teamId: null, teamName: null }] }),
+  });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Former manager (grant 1) as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/league/1/co-commissioners/2')
+  );
+});
+
+// #324, the case that outlives every other: teams.name has no unique
+// constraint and CONTEXT.md blesses duplicates, so two grants can share a Team
+// name FOREVER. The username used to tell them apart for free. If both revoke
+// controls end up with one name, getByRole throws on the ambiguity and the
+// commissioner has the same problem the test does.
+//
+// The two grants share a DATE as well as a name, which is the fixture doing
+// the work: with different dates the accessible names differ on the date alone
+// and the ordinal revokeLabel adds could be deleted with this test still
+// green. Same name and same day is the only case that tests the thing the
+// ordinal is there for, and it is reachable - two promotions in one sitting.
+test('two co-commissioners with identically named Teams get distinguishable revoke controls', async () => {
+  apiClient.delete.mockResolvedValue({ data: { coCommissioners: [] } });
+  const SAME_DAY = '2026-08-12T10:00:00.000Z';
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({
+      co_commissioners: [
+        { user_id: 2, grantedAt: SAME_DAY, teamId: 2, teamName: 'The Ringers' },
+        { user_id: 3, grantedAt: SAME_DAY, teamId: 3, teamName: 'The Ringers' },
+      ],
+    }),
+  });
+
+  const controls = screen.getAllByRole('button', { name: /as co-commissioner$/ });
+  expect(controls).toHaveLength(2);
+  const names = controls.map((b) => b.getAttribute('aria-label'));
+  expect(new Set(names).size).toBe(2);
+  // Both still LEAD with the Team, so the accessible name contains the visible
+  // label; what follows it is what makes the pair distinct.
+  for (const name of names) expect(name).toMatch(/^Remove The Ringers \(/);
+
+  // And the grant date is on the row itself, so the disambiguation is visible
+  // and not only announced - here both rows show the same date, which is
+  // exactly why the accessible name cannot rest on it.
+  expect(screen.getAllByText(/^Co-commissioner since /)).toHaveLength(2);
+
+  // The second control revokes the SECOND grant, not the first with a matching
+  // name - the failure a name-matched control would produce.
+  await userEvent.click(controls[1]);
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/league/1/co-commissioners/3')
+  );
 });
 
 test('the owner promotes a member by user id and refreshes', async () => {
@@ -715,10 +967,10 @@ test('an existing co-commissioner is listed and can be revoked after confirming'
     isOwner: true,
     teams: withOwnerIds,
     onRefresh,
-    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
-  await userEvent.click(screen.getByRole('button', { name: 'Remove bob as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team (grant 1) as co-commissioner" }));
   await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
   await waitFor(() =>
@@ -731,10 +983,10 @@ test('cancelling the revoke dialog leaves the co-commissioner in place', async (
   renderTools({
     isOwner: true,
     teams: withOwnerIds,
-    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
-  await userEvent.click(screen.getByRole('button', { name: 'Remove bob as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team (grant 1) as co-commissioner" }));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
   expect(apiClient.delete).not.toHaveBeenCalled();
@@ -744,7 +996,7 @@ test('an already-promoted member drops out of the candidate list', () => {
   renderTools({
     isOwner: true,
     teams: withOwnerIds,
-    league: league({ co_commissioners: [{ user_id: 2, username: 'bob' }] }),
+    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
   expect(screen.getByRole('combobox', { name: 'Add a co-commissioner' })).toHaveAttribute('aria-disabled', 'true');
@@ -813,17 +1065,25 @@ const StableShell = ({ children }) => (
 test("a fantasy tab left selected does not survive a switch to a pick'em-only league (hash-only navigation keeps the component mounted)", async () => {
   const { rerender } = render(
     <StableShell>
-      <CommissionerTools leagueId={1} league={league()} teams={teams} user={user} onRefresh={jest.fn()} />
+      <CommissionerTools leagueId={1} league={league()} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
+  // MUI's Tabs indicator repositions via a MutationObserver that fires
+  // asynchronously after mount, outside render()'s own synchronous act()
+  // flush. Let it settle before interacting so its update lands inside act.
+  await flush();
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
   expect(screen.getByRole('button', { name: 'Save Scoring Settings' })).toBeInTheDocument();
 
   rerender(
     <StableShell>
-      <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} user={user} onRefresh={jest.fn()} />
+      <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
+  // The rerender swaps in a whole new tab set, so Tabs repositions its
+  // indicator again - same MutationObserver settling as after the initial
+  // render above.
+  await flush();
 
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.queryByRole('button', { name: 'Save Scoring Settings' })).not.toBeInTheDocument();
@@ -841,7 +1101,14 @@ test("a pick'em-only league edits only its max teams (min gates nothing without 
   await userEvent.type(max, '12');
   await userEvent.click(screen.getByRole('button', { name: 'Save Limits' }));
 
-  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 }));
+  // handleSaveLimits awaits apiClient.put before its own notify()/onRefresh()
+  // calls, so asserting on the call alone resolves before that trailing
+  // consequence lands. Await the visible toast instead, matching the other
+  // save-settings tests in this file - by the time it appears, the put call
+  // has already happened with its final args, so no separate waitFor is
+  // needed for that.
+  expect(await screen.findByText('Team limits updated')).toBeInTheDocument();
+  expect(apiClient.put).toHaveBeenCalledWith('/api/league/1', { maxTeams: 12 });
 });
 
 // --- Settings freeze keys on League phase (#57) ---

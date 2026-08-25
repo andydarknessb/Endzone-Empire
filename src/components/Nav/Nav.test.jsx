@@ -31,6 +31,9 @@ test('shows separate "Log In" and "Register" links when no user is logged in', (
 
 test('shows the full authenticated nav when a user is logged in', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  // See the comment on the notification-bell tests below: let
+  // NotificationBell's own mount fetch settle.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/user');
   expect(screen.getByRole('link', { name: 'League' })).toHaveAttribute('href', '/league');
@@ -43,9 +46,14 @@ test('shows the full authenticated nav when a user is logged in', async () => {
 test('opens the authenticated mobile navigation drawer and closes it after navigation', async () => {
   const user = userEvent.setup();
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  // Let NotificationBell's own mount fetch settle before interacting with
+  // the drawer, whose own transition/navigation timing is unrelated and
+  // otherwise races it past the end of the test.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
   await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
-  const drawerHome = screen.getAllByRole('link', { name: 'Home' }).find((link) => link.closest('.MuiDrawer-root'));
+  const drawer = screen.getByTestId('mobile-nav-drawer');
+  const drawerHome = within(drawer).getByRole('link', { name: 'Home' });
   expect(drawerHome).toHaveAttribute('href', '/user');
 
   await user.click(drawerHome);
@@ -72,14 +80,20 @@ test('the brand link always points at the home route', () => {
   expect(screen.getByRole('link', { name: 'Endzone Empire' })).toHaveAttribute('href', '/home');
 });
 
-test('exposes the primary links as a named navigation landmark, not a bare div', () => {
+test('exposes the primary links as a named navigation landmark, not a bare div', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  // A logged-in Nav mounts NotificationBell, which fetches on mount
+  // regardless of what this test asserts. Let it settle before the test
+  // ends, or its update lands after Jest has moved on.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
   const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
   expect(within(nav).getByRole('link', { name: 'League' })).toBeInTheDocument();
 });
 
-test('shows the notification bell when a user is logged in', () => {
+test('shows the notification bell when a user is logged in', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  // See the comment above: let NotificationBell's own mount fetch settle.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
   expect(screen.getByRole('button', { name: /notifications/i })).toBeInTheDocument();
 });
 

@@ -7,8 +7,8 @@ jest.mock('../../hooks/useLiveGameRealtime');
 
 test('renders a loading skeleton', () => {
   useLiveGameRealtime.mockReturnValue({ state: null, loading: true, error: null });
-  const { container } = render(<LiveGameStatus gameId="x" />);
-  expect(container.querySelector('.MuiSkeleton-root')).toBeInTheDocument();
+  render(<LiveGameStatus gameId="x" />);
+  expect(screen.getByTestId('live-game-skeleton')).toBeInTheDocument();
 });
 
 test('renders an error alert', () => {

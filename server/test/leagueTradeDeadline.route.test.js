@@ -101,6 +101,12 @@ test('an update without tradeDeadlineWeek leaves the deadline alone (provided fl
   assert.equal(update.params[VALUE_PARAM - 1], null);
 });
 
+// #274: this test already carries the right assertion (no UPDATE "leagues"),
+// and it is worth recording that the refusal is ALSO structurally out of reach
+// of the write: parseSettingsPatch rejects at league.router.js:390, before
+// updateLeagueSettings is called at all, so no client is checked out and no
+// statement is dispatched. The existing assertion is belt and braces rather
+// than the only thing standing between the caller and a write.
 test('an out-of-range week is refused by the existing validator and never reaches the UPDATE', async (t) => {
   const calls = mockPool(t);
   const res = await request(app).put('/api/league/1').set('Authorization', authed()).send({ tradeDeadlineWeek: 0 });

@@ -23,10 +23,10 @@ jest.mock('@supabase/supabase-js', () => ({
 
 const pool = require('../../server/modules/pool');
 const teamRouter = require('../../server/routes/team.router');
-const { lockedNflTeams } = require('../../server/services/lineup.service');
+const { lockedPlayerIds } = require('../../server/services/lineup.service');
 
 function createDatabaseFixture() {
-  const { league, players, timeline } = fixture;
+  const { league, players } = fixture;
   const state = {
     rostered: new Set([players.playerA.id, players.playerB.id]),
     slots: new Map([
@@ -69,6 +69,14 @@ function createDatabaseFixture() {
       if (sql.includes('SELECT "id", "locked" FROM "teams"')) {
         return { rows: [{ id: league.teamId, locked: false }] };
       }
+      if (sql.includes('SELECT 1 FROM "matchups"') && sql.includes('"final" = true')) {
+        // #106: materializeLineup refuses to write into a final week. This
+        // fixture is a live week mid-kickoff, so it is never frozen. The
+        // "final" clause is matched too, so this cannot swallow the other
+        // `SELECT 1 FROM "matchups"` probes (the schedule-exists checks in
+        // scoring.service and season.service).
+        return { rows: [] };
+      }
       if (sql.includes('SELECT "team_players"."player_id"') && sql.includes('FROM "team_players"')) {
         return { rows: playerRows.filter((row) => state.rostered.has(row.player_id)) };
       }
@@ -105,8 +113,34 @@ function createDatabaseFixture() {
         if (!state.rostered.delete(playerId)) return { rowCount: 0, rows: [] };
         return { rowCount: 1, rows: [{ id: playerId }] };
       }
-      if (sql.includes('SELECT "waiver_period_hours" FROM "leagues"')) {
-        return { rows: [{ waiver_period_hours: 24 }] };
+      if (sql.includes('SELECT "id", "waiver_period_hours"')) {
+        return {
+          rows: [{
+            id: league.id,
+            waiver_period_hours: 24,
+            current_season: league.season,
+            current_week: league.week,
+          }],
+        };
+      }
+      // #197: the drop takes the departing player's unlocked lineup rows
+      // with his roster row, and records what it interrupted on the hold.
+      if (sql.includes('SELECT "slot", "ir_attested" FROM "lineup_entries"')) {
+        const slot = state.slots.get(values[1]);
+        return { rows: slot ? [{ slot, ir_attested: false }] : [] };
+      }
+      if (sql.includes('SELECT "nfl_team" FROM "players"')) {
+        const row = playerRows.find((player) => player.player_id === values[0]);
+        return { rows: row ? [{ nfl_team: row.nfl_team }] : [] };
+      }
+      if (sql.includes('DELETE FROM "lineup_entries"')) {
+        // Player B is dropped a minute after Player A kicks off but before
+        // his own game, so his current-week row goes with him ($5 true).
+        const [, playerId, , , removeCurrentWeek] = values;
+        if (removeCurrentWeek && state.slots.delete(playerId)) {
+          return { rowCount: 1, rows: [] };
+        }
+        return { rowCount: 0, rows: [] };
       }
       if (sql.includes('INSERT INTO "waiver_players"')) {
         state.waiverPlayers.add(values[1]);
@@ -205,12 +239,17 @@ describe('individual-player lineup lock timeline', () => {
     );
 
     jest.setSystemTime(new Date(fixture.timeline.benchTransactionAttempt));
-    const lockedTeams = await lockedNflTeams(client, {
+    // The predicate answers about PLAYERS, not about team names (#227), so
+    // this reads the same way for a DEF unit whose nfl_team is a full team
+    // name as it does for these two abbreviation-coded skill players.
+    const locked = await lockedPlayerIds(client, {
       season: fixture.league.season,
       week: fixture.league.week,
+      players: [fixture.players.playerA, fixture.players.playerB]
+        .map((player) => ({ id: player.id, nflTeam: player.nflTeam })),
     });
-    expect(lockedTeams).toEqual(new Set([fixture.players.playerA.nflTeam]));
-    expect(lockedTeams.has(fixture.players.playerB.nflTeam)).toBe(false);
+    expect(locked).toEqual(new Set([fixture.players.playerA.id]));
+    expect(locked.has(fixture.players.playerB.id)).toBe(false);
 
     const dropResponse = await request(createApp()).delete(fixture.requests.dropPlayerB.path);
 

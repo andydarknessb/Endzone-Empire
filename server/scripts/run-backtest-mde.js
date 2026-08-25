@@ -226,6 +226,7 @@ const NODE_VERSION_SHAPE = /\bv\d+\.\d+\.\d+\b/;
 const ABSOLUTE_PATH_SHAPE = /(^|[^A-Za-z0-9_./\\-])(\/[A-Za-z0-9_.-]+\/[^\s"]*|[A-Za-z]:\\[^\s"]*)/;
 
 function assertEnvironmentFree(serialized, { label = 'mde-artifact' } = {}) {
+  // eslint-disable-next-line no-control-regex -- the control characters ARE the assertion: this is the full plain-ASCII range, and it has to start at \x00 to be it.
   if (!/^[\x00-\x7F]*$/.test(serialized)) {
     throw new Error(`${label}: contains non-ASCII bytes; the artifact must be plain-ASCII canonical JSON`);
   }

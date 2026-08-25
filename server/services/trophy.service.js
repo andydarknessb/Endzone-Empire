@@ -263,32 +263,33 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
  * a tie on (points, correct) makes co-champions, and the trophies unique key
  * includes team_id for exactly this, so there is no singular-champion DELETE
  * here (contrast rolloverSeason's fantasy champion). Idempotent through
- * award()'s ON CONFLICT DO NOTHING. A winner with no teams row in the league
- * is skipped rather than thrown on: a missing trophy must never abort season
- * completion. Owner notifications are the caller's, post-commit
+ * award()'s ON CONFLICT DO NOTHING. Champion snapshots already carry the
+ * historical Team id resolved by the transaction-consistent standings read.
+ * Missing Team identity is therefore an invalid declaration rather than a
+ * trophy mapping to skip. Owner notifications are the caller's, post-commit
  * (notifyAwardedOwners).
  *
  * @param {object} input
  * @param {object} input.client    transaction client
  * @param {number} input.leagueId
  * @param {number} input.season
- * @param {Array}  input.champions pickemChampions rows: `[{ userId, points, correct }]`
+ * @param {Array}  input.champions declared snapshots: `[{ teamId, points, correct }]`
  * @param {string} input.mode      the league's pick'em scoring mode
+ * @param {number} [input.declaredChampionCount] complete historical winner count when
+ *   only currently existing Teams are being projected
  * @returns {Array} `[{ type, teamId, label }]` newly awarded
  */
-async function awardPickemChampions({ client, leagueId, season, champions, mode }) {
+async function awardPickemChampions({
+  client, leagueId, season, champions, mode, declaredChampionCount,
+}) {
   const winners = champions || [];
   if (winners.length === 0) return [];
-  const teams = await client.query(
-    `SELECT "id", "owner_id" FROM "teams" WHERE "league_id" = $1`,
-    [leagueId]
-  );
-  const teamByOwner = new Map(teams.rows.map((team) => [team.owner_id, team.id]));
-  const label = `${season} Pick'em ${winners.length > 1 ? 'Co-Champion' : 'Champion'}`;
+  const championCount = declaredChampionCount ?? winners.length;
+  const label = `${season} Pick'em ${championCount > 1 ? 'Co-Champion' : 'Champion'}`;
   const awarded = [];
   for (const winner of winners) {
-    const teamId = teamByOwner.get(winner.userId);
-    if (!teamId) continue;
+    const teamId = winner.teamId;
+    if (!teamId) throw new Error("Pick'em champion is missing historical Team identity");
     const newlyAwarded = await award(client, {
       leagueId, teamId, season, week: 0,
       type: 'pickem_champion', label,
@@ -300,18 +301,32 @@ async function awardPickemChampions({ client, leagueId, season, champions, mode 
 }
 
 /**
- * The team ids season completion crowned as pick'em champion(s), in award
- * order. Empty when nothing was crowned (no picks resolved, or the winner
- * had no teams row). Pool or client.
+ * Rebuild the recipient-facing Pick'em champion trophies from an audited
+ * result. Historical Team snapshots remain authoritative; a Team that no
+ * longer exists simply has no live trophy projection.
  */
-async function getPickemChampionTeamIds({ db = pool, leagueId, season }) {
-  const result = await db.query(
-    `SELECT "team_id" FROM "trophies"
-     WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0 AND "type" = 'pickem_champion'
-     ORDER BY "id"`,
+async function reconcilePickemChampionTrophies({ client, leagueId, season, champions, mode }) {
+  await client.query(
+    `DELETE FROM "trophies"
+      WHERE "league_id" = $1 AND "season" = $2 AND "week" = 0
+        AND "type" = 'pickem_champion'`,
     [leagueId, season]
   );
-  return result.rows.map((row) => row.team_id);
+  const snapshots = champions || [];
+  if (snapshots.length === 0) return [];
+  const teams = await client.query(
+    `SELECT "id" FROM "teams" WHERE "league_id" = $1 AND "id" = ANY($2::int[])`,
+    [leagueId, snapshots.map((champion) => champion.teamId)]
+  );
+  const currentTeamIds = new Set(teams.rows.map((row) => Number(row.id)));
+  return awardPickemChampions({
+    client,
+    leagueId,
+    season,
+    champions: snapshots.filter((champion) => currentTeamIds.has(Number(champion.teamId))),
+    mode,
+    declaredChampionCount: snapshots.length,
+  });
 }
 
 /** All trophies a team has earned, newest first. */
@@ -347,8 +362,8 @@ module.exports = {
   comebackTeam,
   awardWeeklyTrophies,
   awardPickemChampions,
+  reconcilePickemChampionTrophies,
   notifyAwardedOwners,
-  getPickemChampionTeamIds,
   getTeamTrophies,
   getLeagueTrophies,
 };

@@ -67,10 +67,6 @@ function realtimeWebSocketUrl(leagueId) {
   return `${endpoint}?apikey=${encodeURIComponent(supabaseAnonKey)}&vsn=1.0.0`;
 }
 
-function nextReference() {
-  return String(__VU) + '-' + String(Date.now()) + '-' + String(Math.random()).slice(2);
-}
-
 function randomPlayerId() {
   return Math.floor(Math.random() * playerIdMax) + 1;
 }
@@ -88,7 +84,7 @@ export function setup() {
   return { startedAt: new Date().toISOString() };
 }
 
-export default function () {
+export default function snakeDraftVU() {
   const leagueId = leagueForVu();
   const topic = `realtime:league:${leagueId}`;
   const isLeagueSender = ((__VU - 1) % USERS_PER_LEAGUE) === 0;

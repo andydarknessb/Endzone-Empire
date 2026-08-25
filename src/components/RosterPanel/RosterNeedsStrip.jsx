@@ -9,10 +9,16 @@ import { assignRosterSlots } from '../../lib/rosterAssignment';
  * lands, and whether there are enough picks left to finish a legal starting
  * lineup.
  *
- * NOT role="status". DraftRail already renders one status region (the managers-
- * ready line) and DraftBoard.test.jsx queries it with a singular getByRole,
- * which throws on a second match. A bare aria-live region is still announced by
- * screen readers but stays invisible to role queries.
+ * NOT role="status". The Draft room already renders one - ReadinessAnnouncer,
+ * hoisted out of the rail by issue #164 so it survives a mobile tab switch -
+ * and DraftBoard.test.jsx queries it with a singular getByRole, which throws
+ * on a second match. A bare aria-live region is still announced by screen
+ * readers but stays invisible to role queries.
+ *
+ * (This used to name DraftRail's own managers-ready line as the region being
+ * protected. #164 stripped role/aria-live from that line, so the rail now
+ * renders no status region at all; the constraint is unchanged, but the
+ * element it is about moved.)
  *
  * Provider-free (MUI only): the Draft Simulator mounts it with no providers.
  * Narrow-width chip collapsing is a `maxChips` prop rather than a media query,
@@ -97,6 +103,9 @@ function RosterNeedsStrip({
           flexWrap="wrap" useFlexGap sx={{ mt: 1 }}
         >
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>Need</Typography>
+          {/* data-testid is a test-only seam: a non-clickable Chip carries no
+              role, so which needs are listed, and in what order, is otherwise
+              only reachable through the chip's styling class. */}
           {visibleChips.map((slot) => (
             <Chip
               key={`${slot.slotKey}-${slot.slotLabel}`}
@@ -104,6 +113,7 @@ function RosterNeedsStrip({
               variant="outlined"
               color={severity ? 'warning' : 'default'}
               label={slot.count > 1 ? `${slot.slotLabel} ×${slot.count}` : slot.slotLabel}
+              data-testid="roster-need-chip"
             />
           ))}
           {hiddenChips > 0 && (

@@ -92,38 +92,75 @@ function PodiumCard({ place }) {
 const isPickemStandings = (standings) =>
   standings.length > 0 && standings.every((row) => row.wins === undefined && row.points !== undefined);
 
-function SeasonPanel({ season, defaultExpanded }) {
+function seasonPresentation(season) {
   const standings = Array.isArray(season.standings) ? season.standings : [];
-  const trophies = Array.isArray(season.trophies) ? season.trophies : [];
-  const draftGrades = Array.isArray(season.draftGrades) ? season.draftGrades : null;
-  const pickem = isPickemStandings(standings);
-  const championStanding = season.champion
-    ? standings.find((team) => team.teamId === season.champion.teamId)
-    : null;
+  const hasArchivedPickemResult = Array.isArray(season.champions);
+  const champions = hasArchivedPickemResult
+    ? season.champions.map((champion) => ({
+      ...champion,
+      standing: champion,
+    }))
+    : season.champion
+      ? [{
+        ...season.champion,
+        teamName: season.champion.name,
+        standing: standings.find((team) => team.teamId === season.champion.teamId),
+      }]
+      : [];
+
+  return {
+    standings,
+    trophies: Array.isArray(season.trophies) ? season.trophies : [],
+    draftGrades: Array.isArray(season.draftGrades) ? season.draftGrades : null,
+    champions,
+    pickem: hasArchivedPickemResult || isPickemStandings(standings),
+    coChampions: champions.length > 1,
+    explicitNoChampion: hasArchivedPickemResult && season.outcome === 'no_champion',
+  };
+}
+
+function SeasonPanel({ season, defaultExpanded }) {
+  const {
+    standings,
+    trophies,
+    draftGrades,
+    champions,
+    pickem,
+    coChampions,
+    explicitNoChampion,
+  } = seasonPresentation(season);
 
   return (
     <Accordion defaultExpanded={defaultExpanded} data-testid={`season-panel-${season.season}`}>
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Typography variant="h6">Season {season.season}</Typography>
-          {season.champion ? (
-            <Chip
-              color="warning"
-              label={`🏆 Champion: ${season.champion.name}`}
+          {champions.length > 0 ? (
+            <Box
               data-testid={`champion-${season.season}`}
-            />
+              sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}
+            >
+              {champions.map((champion) => (
+                <Chip
+                  key={champion.teamId}
+                  color="warning"
+                  label={`${coChampions ? 'Co-Champion' : 'Champion'}: ${champion.teamName}`}
+                />
+              ))}
+            </Box>
           ) : (
-            <Chip label="No champion recorded" variant="outlined" />
+            <Chip label={explicitNoChampion ? 'No champion' : 'No champion recorded'} variant="outlined" />
           )}
         </Box>
       </AccordionSummary>
       <AccordionDetails>
-        {season.champion && (
+        {champions.length > 0 && (
           <Box
             data-testid={`champion-banner-${season.season}`}
             sx={{
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: 'column',
+              alignItems: 'stretch',
               gap: 2,
               mb: 3,
               p: 2,
@@ -133,30 +170,40 @@ function SeasonPanel({ season, defaultExpanded }) {
               borderRadius: 1,
             }}
           >
-            <Box component="span" aria-hidden="true" sx={{ fontSize: '2rem', lineHeight: 1 }}>
-              🏆
-            </Box>
-            <TeamAvatar
-              name={season.champion.name}
-              avatarUrl={season.champion.avatarUrl}
-              avatarStaticUrl={season.champion.avatarStaticUrl}
-              size={48}
-            />
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Season Champion
-              </Typography>
-              <Typography variant="h5" component="p">
-                {season.champion.name}
-              </Typography>
-              {championStanding && (
-                <Typography variant="body2" color="text.secondary">
-                  {pickem
-                    ? `${championStanding.points} points · ${championStanding.correct} correct`
-                    : `${championStanding.wins}-${championStanding.losses} record`}
-                </Typography>
-              )}
-            </Box>
+            <Typography variant="body2" color="text.secondary">
+              {coChampions ? 'Season Co-Champions' : 'Season Champion'}
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              {champions.map((champion) => {
+                const name = champion.teamName;
+                const { standing } = champion;
+                return (
+                  <Box key={champion.teamId} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box component="span" aria-hidden="true" sx={{ fontSize: '2rem', lineHeight: 1 }}>
+                      🏆
+                    </Box>
+                    <TeamAvatar
+                      name={name}
+                      avatarUrl={champion.avatarUrl}
+                      avatarStaticUrl={champion.avatarStaticUrl}
+                      size={48}
+                    />
+                    <Box>
+                      <Typography variant="h5" component="p">
+                        {name}
+                      </Typography>
+                      {standing && (
+                        <Typography variant="body2" color="text.secondary">
+                          {pickem
+                            ? `${standing.points} points · ${standing.correct} correct`
+                            : `${standing.wins}-${standing.losses} record`}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Stack>
           </Box>
         )}
 
@@ -315,16 +362,19 @@ function LeagueHistory() {
 
   useEffect(() => subscribeToTeamProfileUpdates((update) => {
     if (Number(update.leagueId) !== Number(leagueId)) return;
-    setSeasons((prev) => prev.map((season) => ({
-      ...season,
-      champion: applyTeamProfileUpdate(season.champion, update),
-      standings: Array.isArray(season.standings)
-        ? season.standings.map((team) => applyTeamProfileUpdate(team, update))
-        : season.standings,
-      draftGrades: Array.isArray(season.draftGrades)
-        ? season.draftGrades.map((team) => applyTeamProfileUpdate(team, update))
-        : season.draftGrades,
-    })));
+    setSeasons((prev) => prev.map((season) => {
+      if (Array.isArray(season.champions)) return season;
+      return {
+        ...season,
+        champion: applyTeamProfileUpdate(season.champion, update),
+        standings: Array.isArray(season.standings)
+          ? season.standings.map((team) => applyTeamProfileUpdate(team, update))
+          : season.standings,
+        draftGrades: Array.isArray(season.draftGrades)
+          ? season.draftGrades.map((team) => applyTeamProfileUpdate(team, update))
+          : season.draftGrades,
+      };
+    }));
   }), [leagueId]);
 
   const fetchHistory = async () => {

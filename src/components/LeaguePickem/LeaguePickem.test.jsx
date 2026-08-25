@@ -6,12 +6,12 @@ import { clearLeagueCache } from '../../hooks/useLeague';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 import { clearPickemSettingsCache } from '../../hooks/usePickemSettings';
 import LeaguePickem from './LeaguePickem';
+import apiClient from '../../api/apiClient';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
-import apiClient from '../../api/apiClient';
 
 const LEAGUE_ID = 7;
 const hoursFromNow = (hours) => new Date(Date.now() + hours * 3600 * 1000).toISOString();
@@ -68,11 +68,27 @@ const weekView = (overrides = {}) => ({
   mode: 'straight',
   games: [openGame(), lockedGame()],
   myPicks: [],
+  // Revealed picks carry Team identity beside the account fields the expand
+  // step left in place (#112); the board must read only the Team half, so the
+  // fixture keeps a username the assertions then refuse to find on screen.
   othersPicks: {
     'DAL|WAS': [
-      { userId: 5, username: 'rival', gameKey: 'DAL|WAS', pickedTeam: 'DAL', confidence: null },
+      {
+        userId: 5,
+        username: 'rival',
+        teamId: 55,
+        teamName: 'Rivals',
+        gameKey: 'DAL|WAS',
+        pickedTeam: 'DAL',
+        confidence: null,
+      },
     ],
   },
+  // The week response carries the viewer's Team ID at its root because a REST
+  // response is a per-viewer channel. The board has nothing to do with it:
+  // the server already splits `myPicks` from `othersPicks`, so it is here to
+  // mirror the wire, not because anything reads it.
+  viewerTeamId: 9,
   ...overrides,
 });
 
@@ -161,10 +177,40 @@ test('a locked game is not editable and reveals the rest of the league\'s picks'
   await screen.findByRole('button', { name: 'BUF' });
   expect(screen.getByRole('button', { name: 'DAL' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'WAS' })).toBeDisabled();
-  expect(screen.getByText(/rival: DAL/)).toBeInTheDocument();
+  // Revealed by Team, never by the account that made the pick.
+  expect(screen.getByText(/Rivals: DAL/)).toBeInTheDocument();
+  expect(screen.queryByText(/rival: DAL/)).not.toBeInTheDocument();
   expect(screen.getByText('WAS won')).toBeInTheDocument();
   // The unlocked game leaks nothing.
-  expect(screen.queryByText(/rival: MIA/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Rivals: MIA/)).not.toBeInTheDocument();
+});
+
+test('a revealed pick from a manager who has left the league names no account', async () => {
+  // The pick outlives the membership (the server joins teams LEFT), so its
+  // Team identity reads back null and there is no username to fall back to.
+  mockRequests({
+    view: weekView({
+      othersPicks: {
+        'DAL|WAS': [
+          {
+            userId: 5,
+            username: 'ghost',
+            teamId: null,
+            teamName: null,
+            gameKey: 'DAL|WAS',
+            pickedTeam: 'DAL',
+            confidence: null,
+          },
+        ],
+      },
+    }),
+  });
+  renderPage();
+
+  await screen.findByRole('button', { name: 'BUF' });
+  expect(screen.getByText('Former manager: DAL')).toBeInTheDocument();
+  expect(screen.queryByText(/ghost/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/null/)).not.toBeInTheDocument();
 });
 
 test('picking a team and saving posts only the unlocked games', async () => {

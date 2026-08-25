@@ -94,13 +94,17 @@ function simulateOnce({ teams, playedMatchups, remainingMatchups, models, playof
     .map((s) => s.teamId);
 
   // Play the bracket with re-seeding until one team stands
-  let entrants = qualifiers.map((teamId, i) => ({ teamId, seed: i + 1 }));
+  // A team's seed is fixed at qualification and carried forward unchanged by
+  // every round, so resolve it from one map built once rather than by scanning
+  // the current field. That is the idiom simulateBracketFrom already uses, and
+  // it is what stops `no-loop-func` firing here (#246): the closures below used
+  // to search `entrants`, which the loop reassigns, so they were correct only
+  // because nothing defers a lookup past the end of its iteration.
+  const seedOf = new Map(qualifiers.map((teamId, i) => [teamId, i + 1]));
+  let entrants = qualifiers.map((teamId) => ({ teamId, seed: seedOf.get(teamId) }));
   while (entrants.length > 1) {
     const { games, byes } = pairBySeed(entrants);
-    const advancing = byes.map((teamId) => ({
-      teamId,
-      seed: entrants.find((e) => e.teamId === teamId).seed,
-    }));
+    const advancing = byes.map((teamId) => ({ teamId, seed: seedOf.get(teamId) }));
     for (const game of games) {
       const home = model(game.home);
       const away = model(game.away);
@@ -108,7 +112,7 @@ function simulateOnce({ teams, playedMatchups, remainingMatchups, models, playof
         normalSample(rng, home.mean, home.sigma) >= normalSample(rng, away.mean, away.sigma)
           ? game.home
           : game.away;
-      advancing.push({ teamId: winner, seed: entrants.find((e) => e.teamId === winner).seed });
+      advancing.push({ teamId: winner, seed: seedOf.get(winner) });
     }
     entrants = advancing;
   }

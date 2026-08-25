@@ -59,6 +59,54 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     })],
     [/FROM "trade_items"/, () => ({ rows: [] })],
     [/FROM "teams" WHERE "id" IN/, () => ({ rows: [{ id: 51 }, { id: 52 }] })],
+    // #274, and this entry is the point of the change rather than a detail.
+    //
+    // Before it, every write on every refusal path in this file landed on the
+    // `unexpected query` throw below, and each refusal test passed because of
+    // that throw. That is not an assertion. It PASSES TODAY while reporting a
+    // fixture-completeness error rather than the safety property, and it would
+    // EVAPORATE SILENTLY the first time someone registered one of these
+    // statements for an unrelated convenience - with no test turning red at
+    // the moment the protection disappeared.
+    //
+    // Answering every write permissively, last, removes that crutch for the
+    // WRITE verbs, so assertNoWrites() below is a real assertion rather than a
+    // decoration.
+    //
+    // Scoped honestly, because overclaiming here would be the same sin: this
+    // entry does not register the READS that sit between a gate and its first
+    // write, and several services have some. Fully load-bearing today are
+    // PUT /queue and the dropPlayer locked-team case, where nothing
+    // unregistered sits in between. At submitClaim, undoDrop, setLineup and
+    // waiverSuggestions a moved gate still dies on an unregistered SELECT
+    // first, so those FOUR keep partial incidental protection and their counts
+    // are a floor rather than the whole proof. setLineup's is
+    // `SELECT 1 FROM "matchups" ... "final" = true`, which materializeLineup
+    // reaches through isFinalWeekForTeam and which only the MEMBER half of
+    // that test registers as an override. Registering these reads is the
+    // follow-up; it is per-service fixture work, not one line.
+    //
+    // On the migration rule in helpers/fakePool.js: adding this line is
+    // touching a hand-rolled fake, so the rule fires and this is a deliberate
+    // deviation from it rather than an oversight.
+    //
+    // The reason is NOT that the helper would throw on this suite's
+    // BEGIN/COMMIT sequences. It would not, and that claim stood here for a
+    // while before it was checked: the helper throws on a transactional
+    // statement only when it arrives via pool.query (fakePool.js:49), while an
+    // unmatched BEGIN or COMMIT on a checked-out client auto-answers (:57-58),
+    // and every service this file drives takes the client path - zero
+    // pool-level BEGINs across lineup, trade, draft and waiver.
+    //
+    // The actual reason is narrower. THE MIGRATION RULE EXISTS TO GET A CALL
+    // LOG, and this fake already has one; what migrating would buy on top is
+    // double-release detection and an opt-in assertClean(), neither of which
+    // this ticket needs. Set against that, it means rewriting override
+    // chaining, the `member` closure and the shared pool/client dispatch in a
+    // PR whose entire claim is that no fixture behaviour changed. The one fake
+    // in this series that WAS migrated (commissionerAvatar.route.test.js) had
+    // no call log at all, so migrating was the only way to count anything.
+    [/^(INSERT INTO|UPDATE|DELETE FROM) /, () => ({ rows: [], rowCount: 1 })],
   ];
   const handlers = [...overrides, ...defaults];
   const dispatch = async (sql, params) => {
@@ -96,6 +144,38 @@ const rejectsAsNonMember = (promise) => assert.rejects(promise, (error) => {
   return true;
 });
 
+/**
+ * #274: a membership refusal must prove the row site never wrote.
+ *
+ * Seven of the eight sites refuse INSIDE an open transaction, several of them
+ * only after a league read and a lock check, so "nothing has happened yet" is
+ * not a defence: a requireMember moved below the write would write, roll back,
+ * and rethrow the identical 403.
+ *
+ * waiverSuggestions is the exception and is worth knowing about rather than
+ * glossing: its requireMember runs on the POOL (decision.service.js:867),
+ * before pool.connect() and BEGIN. Its write still needs proving - the
+ * materializeLineup INSERT lives in a transaction it opens later - but the
+ * gate itself is not inside one, so do not reason about it from the rule
+ * above.
+ *
+ * The count is over every write verb rather than one table because these are
+ * eight different services with eight different write sets, and the property
+ * being asserted is the same for all of them: a refused caller changes
+ * nothing.
+ *
+ * deepEqual against [] rather than a count of 0 on purpose: it is strictly
+ * more informative than a count, since the failure NAMES the statements that
+ * ran instead of only saying how many. Same reasoning as the account-deletion
+ * suite's verb sweep.
+ */
+const writes = (calls) => calls.filter((c) => /^(INSERT INTO|UPDATE|DELETE FROM) /.test(c.text));
+const assertNoWrites = (calls, label) => assert.deepEqual(
+  writes(calls).map((c) => c.text),
+  [],
+  `${label}: a refused caller wrote nothing`
+);
+
 // --- draft router -----------------------------------------------------------
 
 test('draft router: GET /queue refuses a non-member with the standard 403', async (t) => {
@@ -127,8 +207,9 @@ test('draft router: PUT /queue refuses a non-member and rolls back', async (t) =
   const res = await request(routes)
     .put('/api/draft/queue').set('Authorization', authed()).send({ leagueId: 3, playerIds: [1, 2] });
   expectRefusal(res, 'PUT /queue');
-  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'transaction rolled back');
+  assert.ok(calls.some((c) => c.text === 'ROLLBACK'), 'transaction rolled back'); // complementary only
   assert.ok(!calls.some((c) => /draft_queue/.test(c.text)), 'no draft_queue statement ran');
+  assertNoWrites(calls, 'PUT /queue');
 });
 
 test('draft router: PUT /queue locks the member Team row while rewriting the queue', async (t) => {
@@ -144,12 +225,26 @@ test('draft router: PUT /queue locks the member Team row while rewriting the que
   assert.match(teamLookups(calls)[0].text, /FOR UPDATE$/);
 });
 
+// #274, documented exemption (no write count applies here, and asserting one
+// would be WRONG): this refusal is produced BY the mutation rather than by a
+// guard above it. The route issues exactly one UPDATE whose WHERE clause IS
+// the membership test, and the 403 is triggered by that statement matching no
+// row. The UPDATE always runs, so there is no work a guard could sink below.
+//
+// What the test needed instead: the override answers { rows: [] } for ANY
+// params, so the 403 was manufactured by the fixture, not by the statement's
+// scoping. Dropping either conjunct from the production SQL could not fail
+// this test. Pin the predicate instead of the count.
 test('draft router: POST /league/:id/ready refuses a non-member without the roster-shaped wording', async (t) => {
-  fakeDb(t, { overrides: [[/UPDATE "teams" SET "draft_ready"/, () => ({ rows: [] })]] });
+  const calls = fakeDb(t, { overrides: [[/UPDATE "teams" SET "draft_ready"/, () => ({ rows: [] })]] });
   const res = await request(routes)
     .post('/api/draft/league/3/ready').set('Authorization', authed()).send({ ready: true });
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(res.body.error, `${REFUSAL}, or the draft is not pending`);
+  const ready = writes(calls).filter((c) => /^UPDATE "teams" SET "draft_ready"/.test(c.text));
+  assert.equal(ready.length, 1, 'the single scoped UPDATE is the refusal mechanism');
+  assert.match(ready[0].text, /"owner_id" = \$3/, 'scoped to the caller, which is the membership test');
+  assert.match(ready[0].text, /"draft_status" = 'pending'/, 'and to a pending draft');
 });
 
 // --- trades router ----------------------------------------------------------
@@ -168,49 +263,66 @@ test('trades router: GET / and POST /analyze refuse a non-member with the standa
 
 test('draft service: dropPlayer refuses a non-member, and locks a member Team row before reading locked', async (t) => {
   const draft = require('../services/draft.service');
-  fakeDb(t);
+  const nonMember = fakeDb(t);
   await rejectsAsNonMember(draft.dropPlayer({ leagueId: 3, userId: CALLER, playerId: 1 }));
+  assertNoWrites(nonMember, 'dropPlayer non-member');
 
   const calls = fakeDb(t, { member: { ...TEAM, locked: true } });
   await assert.rejects(draft.dropPlayer({ leagueId: 3, userId: CALLER, playerId: 1 }), {
     statusCode: 409, message: 'your team is locked by the commissioner',
   });
   assert.match(teamLookups(calls)[0].text, /FOR UPDATE$/);
+  // The locked-team guard sits directly above the DELETE FROM "team_players".
+  assertNoWrites(calls, 'dropPlayer locked team');
 });
 
 test('draft service: undoDrop refuses a non-member with the standard 403', async (t) => {
   const draft = require('../services/draft.service');
-  fakeDb(t);
+  const calls = fakeDb(t);
   await rejectsAsNonMember(draft.undoDrop({ leagueId: 3, userId: CALLER, playerId: 1 }));
+  assertNoWrites(calls, 'undoDrop');
 });
 
 // --- trade service ----------------------------------------------------------
 
 test('trade service: proposeTrade and vetoTrade refuse a non-member with the standard 403', async (t) => {
   const trades = require('../services/trade.service');
-  fakeDb(t);
+  const calls = fakeDb(t);
   await rejectsAsNonMember(trades.proposeTrade({ leagueId: 3, userId: CALLER, receivingTeamId: 52, playerIds: [1] }));
   await rejectsAsNonMember(trades.vetoTrade({ tradeId: 77, userId: CALLER }));
+  // Neither gate is in a "nothing has happened yet" position: requireMember
+  // runs several statements into an open transaction, after the league read
+  // and the deadline and lock checks.
+  assertNoWrites(calls, 'proposeTrade / vetoTrade');
 });
 
 // --- waiver, lineup, decision services ---------------------------------------
 
 test('waiver service: submitClaim refuses a non-member with the standard 403', async (t) => {
   const waivers = require('../services/waiver.service');
-  fakeDb(t);
+  const calls = fakeDb(t);
   await rejectsAsNonMember(waivers.submitClaim({ leagueId: 3, userId: CALLER, playerId: 1 }));
+  assertNoWrites(calls, 'submitClaim');
 });
 
 test('lineup service: getLineup refuses a non-member; setLineup locks the member Team row', async (t) => {
   const lineup = require('../services/lineup.service');
-  fakeDb(t);
+  const nonMember = fakeDb(t);
   await rejectsAsNonMember(lineup.getLineup({ leagueId: 3, userId: CALLER }));
   await rejectsAsNonMember(lineup.setLineup({ leagueId: 3, userId: CALLER, moves: [{ playerId: 1, slot: 'QB' }] }));
+  // getLineup's leg is read-only; setLineup's is not, and materializeLineup
+  // writes lineup_entries before any slot is applied.
+  assertNoWrites(nonMember, 'setLineup non-member');
 
   const calls = fakeDb(t, {
     member: TEAM,
     // Stop right after the gate: the first roster read answers with an error we can recognise.
-    overrides: [[/FROM "team_players"/, () => { throw new Error('stop after gate'); }]],
+    // #106 put a finality probe ahead of that read, so answer it "not frozen"
+    // (this is a live week) and the team_players read is reached as before.
+    overrides: [
+      [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+      [/FROM "team_players"/, () => { throw new Error('stop after gate'); }],
+    ],
   });
   await assert.rejects(
     lineup.setLineup({ leagueId: 3, userId: CALLER, moves: [{ playerId: 1, slot: 'QB' }] }),
@@ -221,8 +333,12 @@ test('lineup service: getLineup refuses a non-member; setLineup locks the member
 
 test('decision service: waiverSuggestions refuses a non-member with the standard 403', async (t) => {
   const decisions = require('../services/decision.service');
-  fakeDb(t);
+  const calls = fakeDb(t);
   await rejectsAsNonMember(decisions.waiverSuggestions({ leagueId: 3, userId: CALLER }));
+  // Easy to mistake for read-only: waiverSuggestions reads like a query but
+  // calls materializeLineup inside its own BEGIN/COMMIT, so it really does
+  // INSERT lineup_entries rows.
+  assertNoWrites(calls, 'waiverSuggestions');
 });
 
 // --- waivers router ---------------------------------------------------------

@@ -126,9 +126,14 @@ function contrast(controlValue, candidateValue, target) {
   return Math.abs(controlValue - target) - Math.abs(candidateValue - target);
 }
 
+function resolveOutputPath(outDirArg) {
+  const { dir } = shared.resolveOutFile(outDirArg);
+  return path.format({ dir, base: OUTPUT_BASENAME });
+}
+
 async function main(argv) {
   const args = parseArgs(argv);
-  const out = args.out ? path.join(shared.resolveOutFile(args.out).dir, OUTPUT_BASENAME) : null;
+  const out = args.out ? resolveOutputPath(args.out) : null;
   const inputs = {
     snapshot: shared.resolveInputPath(args.snapshot, '--snapshot'),
     sources: shared.resolveInputPath(args.sources, '--sources'),
@@ -331,5 +336,5 @@ if (require.main === module) {
 
 module.exports = {
   BOOTSTRAP_DRAWS, BOOTSTRAP_SEED, COMPONENT_ALPHA, WIS_MARGIN, BANDS,
-  parseArgs, rowsFrom, contrast, main,
+  parseArgs, rowsFrom, contrast, resolveOutputPath, main,
 };

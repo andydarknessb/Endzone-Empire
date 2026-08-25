@@ -23,13 +23,13 @@ function SortableRow({ item, index, total, disabled, onMove }) {
       )}
     >
       <IconButton aria-label={`Drag ${item.label}`} size="small" disabled={disabled} {...attributes} {...listeners}><DragIndicatorIcon /></IconButton>
-      <ListItemText primary={`${index + 1}. ${item.label}`} secondary={item.secondary} />
+      <ListItemText primary={`${index + 1}. ${item.label}`} />
     </ListItem>
   );
 }
 
 SortableRow.propTypes = {
-  item: PropTypes.shape({ id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]).isRequired, label: PropTypes.string.isRequired, secondary: PropTypes.string }),
+  item: PropTypes.shape({ id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]).isRequired, label: PropTypes.string.isRequired }),
   index: PropTypes.number.isRequired, total: PropTypes.number.isRequired, disabled: PropTypes.bool, onMove: PropTypes.func.isRequired,
 };
 
