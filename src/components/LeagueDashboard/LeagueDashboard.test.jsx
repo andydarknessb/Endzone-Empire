@@ -844,8 +844,10 @@ test('loads and shows pending join requests for a public, approval-required leag
   renderDashboard();
   await screen.findByText('Sunday Ballers');
 
-  expect(await screen.findByText(/bob/)).toBeInTheDocument();
-  expect(screen.getByText(/Bob's Team/)).toBeInTheDocument();
+  // #179: the queue identifies the request by its proposed Team name only -
+  // a request has no Team yet, so the requester's username never renders.
+  expect(await screen.findByText(/Bob's Team/)).toBeInTheDocument();
+  expect(screen.queryByText('bob')).not.toBeInTheDocument();
   const section = screen.getByTestId('join-requests-section');
   expect(within(section).getByText('1')).toBeInTheDocument();
 });
@@ -877,7 +879,7 @@ test('approving a join request POSTs decide with approve:true and removes the ro
   apiClient.post.mockResolvedValue({ data: { status: 'approved' } });
   renderDashboard();
   await screen.findByText('Sunday Ballers');
-  await screen.findByText(/bob/);
+  await screen.findByText(/Bob's Team/);
 
   await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
 
@@ -886,7 +888,7 @@ test('approving a join request POSTs decide with approve:true and removes the ro
       approve: true,
     })
   );
-  await waitFor(() => expect(screen.queryByText(/bob/)).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText(/Bob's Team/)).not.toBeInTheDocument());
 });
 
 test('denying a join request POSTs decide with approve:false and removes the row', async () => {
@@ -903,7 +905,7 @@ test('denying a join request POSTs decide with approve:false and removes the row
   apiClient.post.mockResolvedValue({ data: { status: 'denied' } });
   renderDashboard();
   await screen.findByText('Sunday Ballers');
-  await screen.findByText(/bob/);
+  await screen.findByText(/Bob's Team/);
 
   await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
 
@@ -912,7 +914,7 @@ test('denying a join request POSTs decide with approve:false and removes the row
       approve: false,
     })
   );
-  await waitFor(() => expect(screen.queryByText(/bob/)).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText(/Bob's Team/)).not.toBeInTheDocument());
 });
 
 test('does not show the join-request queue for a private league', async () => {
