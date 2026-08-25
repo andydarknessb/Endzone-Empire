@@ -1736,6 +1736,11 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
      * to the module that owns the schedule and the lineup lock, so #227 has
      * one place to fix rather than one per consumer.
      */
+    // The week's schedule is the same for every team in this pass, so it is
+    // fetched once and shared. Scoped to this call: the schedule is only
+    // stable within one pass, and a longer-lived cache would go stale the
+    // moment a sync-schedule run landed between passes (#261).
+    const kickoffCache = new Map();
     const heldRows = async (rows, teamId, asPlayed) => {
       if (!asPlayed || rows.length === 0) return rows;
       const notHeld = await playersNotHeldAtKickoff(client, {
@@ -1743,6 +1748,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
         season,
         week,
         players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+        kickoffCache,
       });
       return rows.filter((row) => !notHeld.has(row.player_id));
     };

@@ -402,6 +402,35 @@ test('the settled score survives the excluded pickup being CUT (idempotence, #19
   fake.assertClean();
 });
 
+test('#261 the week schedule is read ONCE per scoring pass, not once per team', async (t) => {
+  // `scoreMatchups` asked the schedule once per team per matchup, so a
+  // 12-team league re-read identical rows twelve times per pass and ~170
+  // times per season-long correction sweep. The memo is scoped to the pass
+  // because the schedule is only stable within one: a longer-lived cache
+  // would go stale the moment a sync-schedule run landed between passes.
+  //
+  // The count is the point, but it is asserted NEXT TO the scores on
+  // purpose. A cache that returned one team's answer to another team's
+  // question would also read once, and would be a scoring bug rather than an
+  // optimisation - so the two teams here must still get DIFFERENT answers:
+  // team A's post-kickoff pickup is excluded, team B's starter is not.
+  const { fake, state } = createWorld({
+    tenures: [held(1, BEFORE_THU), held(2, AFTER_SUN)],
+    starters: [1, 2],
+  });
+  fake.install(t);
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(
+    fake.matching(/FROM "nfl_games"/).length,
+    1,
+    'one schedule read for the whole pass, where there was one per team'
+  );
+  assert.equal(state.matchups[0].home_score, 20, 'the pickup is still excluded');
+  assert.equal(state.matchups[0].away_score, OPPONENT_POINTS, 'and the opponent still counts');
+  fake.assertClean();
+});
+
 /* ------------------------------------------------------------------ *
  * Best ball: the other population, the same exclusion                 *
  * ------------------------------------------------------------------ */
