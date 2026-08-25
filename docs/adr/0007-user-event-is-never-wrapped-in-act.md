@@ -43,7 +43,9 @@ what keeps the same reasoning from re-deriving the same wrapper.
   awaiting the consequence is the defect; the wrapper only hid it behind a
   different message.
 - `act()` stays correct for what it is for: driving a non-user-event trigger
-  (a socket callback, `clearLeagueCache`) and flushing timers that no query can
-  observe, as `CommissionerTools.test.jsx`'s `flush` helper does.
+  (a socket callback, `clearLeagueCache`). A settle that only exists because a
+  query can't observe the thing directly is itself the defect #305 closed: it
+  is a guessed hop count standing in for an awaited observable, not a
+  legitimate use of `act()`.
 - The full client suite reports zero warnings of either family, so a new one is
   legible the day it appears.
