@@ -245,7 +245,7 @@ export function setup() {
   return { startedAt: new Date().toISOString(), targetTriggers: LEAGUE_COUNT * TARGET_USERS_PER_LEAGUE };
 }
 
-export default function () {
+export default function notificationBurstVU() {
   if (exec.scenario.name === 'in_league_chat_burst') runChatBurst();
   else runNotificationBurst();
 }

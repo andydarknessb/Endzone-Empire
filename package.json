@@ -146,6 +146,16 @@
         "rules": {
           "strict": "off"
         }
+      },
+      {
+        "files": [
+          "scripts/k6-*.js"
+        ],
+        "globals": {
+          "__ENV": "readonly",
+          "__ITER": "readonly",
+          "__VU": "readonly"
+        }
       }
     ]
   },
