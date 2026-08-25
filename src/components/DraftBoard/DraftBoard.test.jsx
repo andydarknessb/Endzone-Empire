@@ -1367,8 +1367,8 @@ test('shows each pool player\'s bye week, with an em dash when the schedule is u
 
   await screen.findByText('Patrick Mahomes');
   expect(screen.getByText('Bye')).toBeInTheDocument();
-  expect(within(screen.getByText('Patrick Mahomes').closest('tr')).getByText('10')).toBeInTheDocument();
-  const rookieCells = within(screen.getByText('Rookie Backer').closest('tr')).getAllByText('-');
+  expect(within(screen.getByRole('row', { name: /Patrick Mahomes/ })).getByText('10')).toBeInTheDocument();
+  const rookieCells = within(screen.getByRole('row', { name: /Rookie Backer/ })).getAllByText('-');
   expect(rookieCells.length).toBeGreaterThan(0);
 });
 
@@ -1509,7 +1509,7 @@ test('an already-drafted pool row hides both Draft and Queue entirely, keeping o
   );
 
   const table = screen.getByRole('table');
-  const row = within(table).getByRole('button', { name: 'Patrick Mahomes' }).closest('tr');
+  const row = within(table).getByRole('row', { name: /Patrick Mahomes/ });
   expect(within(row).getByText('Drafted')).toBeInTheDocument();
   expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
   expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
@@ -1659,7 +1659,7 @@ test('shows a neutral Bye overlap hint for a candidate sharing a Bye with a rost
   expect(overlapHint).toBeInTheDocument();
   // No overlap for the other row (different Bye week).
   expect(
-    within(screen.getByText('No Overlap Guy').closest('tr')).queryByLabelText(/Bye overlap/)
+    within(screen.getByRole('row', { name: /No Overlap Guy/ })).queryByLabelText(/Bye overlap/)
   ).not.toBeInTheDocument();
   // Neutral: no "conflict"/"risk"/"warning" language anywhere near the hint.
   expect(overlapHint.getAttribute('aria-label')).not.toMatch(/conflict|risk|warning/i);
@@ -1674,7 +1674,7 @@ test('missing 17-game pace shows a neutral placeholder with a keyboard-accessibl
   renderBoard(1);
 
   await screen.findByText('Rookie No Pace');
-  const row = within(screen.getByText('Rookie No Pace').closest('tr'));
+  const row = within(screen.getByRole('row', { name: /Rookie No Pace/ }));
   // Several cells can render a plain "-" (Bye/ADP/Pos rank); only the pace
   // cell's placeholder is keyboard-focusable with an explanatory tooltip.
   const placeholder = row.getAllByText('-').find((el) => el.getAttribute('tabIndex') === '0');

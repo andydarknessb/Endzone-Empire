@@ -117,7 +117,7 @@ describe('LeagueRules', () => {
 
     await screen.findByRole('region', { name: 'Passing' });
     const passing = screen.getByRole('table', { name: 'Passing scoring' });
-    expect(within(passing).getByText('Touchdown').closest('tr')).toHaveTextContent('6');
+    expect(within(passing).getByRole('row', { name: /Touchdown/ })).toHaveTextContent('6');
     expect(screen.getByText('Customized')).toBeInTheDocument();
   });
 

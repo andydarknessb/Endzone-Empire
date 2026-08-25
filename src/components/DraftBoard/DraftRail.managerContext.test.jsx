@@ -308,7 +308,7 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
 
     expect(within(readinessRegion()).queryAllByRole('button')).toEqual([]);
-    expect(document.activeElement).not.toBe(document.body);
+    expect(document.body).not.toHaveFocus();
     expect(screen.getByRole('heading', { name: 'Readiness' })).toHaveFocus();
   });
 
@@ -326,7 +326,7 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
     rerender(<DraftRail {...baseProps} draftStatus="active" viewerPicks={{ all: [], next: [] }} />);
 
     expect(screen.queryByRole('dialog', { name: 'All my picks' })).not.toBeInTheDocument();
-    expect(document.activeElement).not.toBe(document.body);
+    expect(document.body).not.toHaveFocus();
     expect(screen.getByRole('heading', { name: 'Upcoming' })).toHaveFocus();
   });
 
@@ -392,9 +392,10 @@ describe('help sits with the control it explains', () => {
     expect(switches).toHaveLength(2);
 
     for (const control of switches) {
-      const describedBy = control.getAttribute('aria-describedby');
-      expect(describedBy).toBeTruthy();
-      expect(document.getElementById(describedBy)).toHaveTextContent(/Turn on Autodraft/);
+      // What a screen reader reads after the switch's own name. Asserting the
+      // accessible description covers both halves of the old check: that
+      // aria-describedby points somewhere, and that the somewhere says this.
+      expect(control).toHaveAccessibleDescription(/Turn on Autodraft/);
     }
   });
 

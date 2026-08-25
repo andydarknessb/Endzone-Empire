@@ -130,8 +130,9 @@ describe('accessibility and regression guards', () => {
 
   test('never renders a bare number as its own element', () => {
     renderStrip({ remainingPicks: 3, nextPickLabel: '4.04' });
-    const bare = [...document.querySelectorAll('*')]
-      .filter((el) => el.children.length === 0 && /^\d+(\.\d+)?$/.test(el.textContent.trim()));
-    expect(bare).toEqual([]);
+    // Anything a reader would see as nothing but a number. getByText matches
+    // on an element's whole text, so this covers the leaf elements the old
+    // querySelectorAll('*') sweep walked, and any wrapper around one.
+    expect(screen.queryAllByText(/^\d+(\.\d+)?$/)).toEqual([]);
   });
 });

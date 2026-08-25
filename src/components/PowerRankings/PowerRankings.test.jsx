@@ -291,7 +291,13 @@ test('updates a mounted ranking immediately when Profile Settings publishes a te
   }));
 
   expect(within(aliceRow).getByText('Bandits')).toBeInTheDocument();
-  expect(aliceRow.querySelector('img')).toHaveAttribute('src', 'https://cdn.example/bandits.png');
+  // TeamAvatar is aria-hidden by design (the team name sits right beside it),
+  // so the image is queried with hidden: true rather than pretending it is in
+  // the accessibility tree.
+  expect(within(aliceRow).getByRole('img', { hidden: true })).toHaveAttribute(
+    'src',
+    'https://cdn.example/bandits.png'
+  );
   expect(apiClient.get).toHaveBeenCalledTimes(initialRequestCount);
 });
 

@@ -110,5 +110,8 @@ test('without mainContentId, nothing carries that id (every other FantasyOnly ca
   renderGuarded({ id: 7, name: 'Office Pool', pickem_only: true });
 
   await screen.findByText("This is a pick'em league. Drafts, rosters, and matchups are not part of it.");
-  expect(document.getElementById('draft-main-content')).toBeNull();
+  // The id never travels alone: `mainContentProps` is all-or-nothing, so the
+  // id and `component="main"` are attached together or not at all. Absence of
+  // the main landmark is the reader-visible half of the same fact.
+  expect(screen.queryByRole('main')).toBeNull();
 });
