@@ -111,12 +111,30 @@ test("rolloverSeason archives every declared Pick'em co-champion without consult
 
   const history = statementsMatching(calls, /INSERT INTO "league_history"/)[0];
   assert.deepEqual(history.params.slice(0, 4), [5, 2026, 10, 100]);
-  // The standings snapshot is the pick'em table as it stands at rollover,
-  // with team identity attached so a history reader can key and name rows.
+  // The standings snapshot is the pick'em table as it stands at rollover, built
+  // from Team identity plus the scoring totals only. It never freezes an
+  // account identifier: the archive is served to every member, so a manager's
+  // userId/username must not ride into it (#342, #115). The read side keys and
+  // names rows by teamId/name; the LEFT-join "Former manager" rendering applies
+  // when a Team is later removed.
   const standings = JSON.parse(history.params[4]);
+  const ARCHIVED_STANDINGS_KEYS = [
+    'teamId', 'name',
+    'points', 'correct', 'incorrect', 'pushes', 'pending', 'made', 'weekly', 'rank',
+  ].sort();
+  for (const row of standings) {
+    assert.deepEqual(
+      Object.keys(row).sort(),
+      ARCHIVED_STANDINGS_KEYS,
+      'archived row is Team identity + scoring totals, nothing more'
+    );
+    for (const forbidden of ['userId', 'username', 'user_id', 'email', 'owner_id', 'teamName', 'avatarUrl', 'avatarStaticUrl']) {
+      assert.equal(forbidden in row, false, `archived standings row must not carry ${forbidden}`);
+    }
+  }
   assert.deepEqual(
-    standings.map((row) => [row.userId, row.points, row.correct, row.rank, row.teamId, row.name]),
-    [[101, 1, 1, 1, 11, 'Bob Squad'], [100, 0, 0, 2, 10, 'Sunday Ballers']]
+    standings.map((row) => [row.points, row.correct, row.rank, row.teamId, row.name]),
+    [[1, 1, 1, 11, 'Bob Squad'], [0, 0, 2, 10, 'Sunday Ballers']]
   );
   assert.equal(history.params[5], '[]', 'rosters snapshot is empty for a pick\'em-only league');
   assert.equal(JSON.parse(history.params[6])[0].type, 'pickem_champion');
