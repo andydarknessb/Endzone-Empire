@@ -41,19 +41,17 @@
  *
  * Run: `npm run check:adr-uniqueness`
  *
- * NOT YET WIRED INTO CI. This script exists, is documented, and is
- * runnable by hand or from a workflow step, but nothing invokes it
- * automatically today. `.github/workflows/**` is a carve-out for this PR:
- * ic-313 is editing ci.yml right now, unpushed, to wire a different guard
- * (see #313, which is establishing the wiring pattern this script should
- * follow once it lands), and touching the same file here would both park
- * this PR behind a human merge and step on work neither side can see. A
- * guard nothing runs is the exact defect #247 tracks across this repo
- * (three of these existed before this one); wiring this script into the
- * test-build job is left to whoever lands #313's pattern, or to the
- * maintainer directly. See scripts/ci/check-dom-dedupe.js and
- * scripts/eslintRuleScoping.test.js for the same disclosure on the two
- * other unwired guards already in this tree.
+ * WIRED INTO CI: the test-build job in .github/workflows/ci.yml runs
+ * `npm run check:adr-uniqueness` on every push and pull request, right
+ * after `npm run lint:colors`, following the check-model-constants.js
+ * house pattern in the same job. A guard nothing runs is the exact defect
+ * #247 tracks across this repo (see scripts/ci/check-dom-dedupe.js and
+ * scripts/eslintRuleScoping.test.js for two guards that still are not
+ * wired, and their own headers for why) -- this one does not join that
+ * list. `.github/workflows/**` is a carve-out, so the workflow edit itself
+ * still waits on a maintainer merge even though it is written; the guard
+ * and test files do not depend on that merge landing to be correct or
+ * reviewed.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -143,9 +141,12 @@ function buildViolationMessage(result) {
     );
     lines.push(
       '\nADR numbers must be gapless: every integer from 0001 up to the ' +
-        'highest number in use must belong to exactly one file. If an ADR ' +
-        'was retired, it should have been marked Superseded IN PLACE, not ' +
-        'deleted -- restore it (or the number) rather than renumbering ' +
+        'highest number in use must belong to exactly one file. This is a ' +
+        'deliberate choice, not a side effect -- a decision log must not ' +
+        'silently lose entries, so a retired ADR is marked Superseded IN ' +
+        'PLACE and its number stays allocated forever, never reused, never ' +
+        'deleted. If an ADR was deleted instead of superseded, restore it ' +
+        '(or reserve its number with a stub) rather than renumbering ' +
         'everything after it down. If this number was simply never ' +
         'assigned, add the missing ADR or claim the number.\n'
     );
