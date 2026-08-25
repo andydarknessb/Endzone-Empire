@@ -167,6 +167,27 @@ function installSetLineupWorld(t, injuryDesignation, {
   ]).install(t);
 }
 
+/**
+ * #274: every setLineup refusal must prove the slot never moved, not just that
+ * the caller was told no. All of setLineup's refusals throw INSIDE the
+ * transaction, so the ROLLBACK erases the evidence and the thrown error is
+ * identical whether the guard sat above the write or below it.
+ *
+ * The seam is the UPDATE, deliberately, and not the INSERT: materializeLineup
+ * copies rows forward BEFORE the guards run, so an INSERT count of zero would
+ * be asserting the wrong thing and would fail on the correct build. The
+ * UPDATE at lineup.service.js:807 (the slot save) and :819 (the later-week
+ * attestation sweep) are the writes a refusal must not reach.
+ *
+ * The world above answers that UPDATE with a live handler, so a zero here is
+ * an observation rather than a fixture that happened to omit it.
+ */
+const assertNoSlotWrite = (fake) => assert.equal(
+  fake.matching(/^UPDATE "lineup_entries"/).length,
+  0,
+  'the refused save moved no slot'
+);
+
 test('setLineup rejects placing a healthy player in IR and names the designation', async (t) => {
   const fake = installSetLineupWorld(t, null);
 
@@ -175,6 +196,7 @@ test('setLineup rejects placing a healthy player in IR and names the designation
     (error) => error.statusCode === 400 && /current injury designation: healthy/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -218,6 +240,7 @@ test('setLineup keeps starting slots automatic in best-ball leagues', async (t) 
     (error) => error.statusCode === 409 && /only between BENCH and IR/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -258,6 +281,7 @@ test('setLineup keeps a recovered best-ball stash locked after kickoff', async (
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -281,6 +305,7 @@ test('setLineup rejects a save that leaves a non-IR-eligible player stashed', as
       && /current injury designation: questionable/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -345,6 +370,7 @@ test('setLineup cannot launder zero-bench recovery into an ordinary bench slot',
     (error) => error.statusCode === 400 && /too many players at BENCH \(1\/0\)/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -356,6 +382,7 @@ test('setLineup keeps the lock for an IR-eligible player stashed in IR', async (
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -371,6 +398,7 @@ test('setLineup keeps the lock for an attested stash after kickoff', async (t) =
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -382,6 +410,7 @@ test('setLineup keeps the lineup lock for a player outside IR', async (t) => {
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -392,6 +421,7 @@ test('setLineup keeps the lock when a recovered stash targets a starting slot', 
     setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -457,6 +487,7 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
       && /current injury designation: questionable/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -804,6 +835,7 @@ test('setLineup cannot relaunder an attestation by moving the player out and bac
       && /current injury designation: questionable/.test(error.message)
   );
 
+  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
