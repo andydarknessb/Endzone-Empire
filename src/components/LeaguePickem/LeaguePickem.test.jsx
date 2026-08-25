@@ -306,7 +306,7 @@ test('the standings tab lives in the URL', async () => {
   await screen.findByRole('button', { name: 'BUF' });
   await user.click(screen.getByRole('tab', { name: 'Standings' }));
 
-  const table = await screen.findByRole('table');
+  const table = await screen.findByRole('table', { name: 'Standings' });
   expect(within(table).getByText('Mine')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith(
     expect.stringContaining(`/api/pickem/league/${LEAGUE_ID}/standings`)
@@ -417,14 +417,14 @@ test('the Standings tab requests the standings once, for the league season, neve
 
   await screen.findByRole('button', { name: 'BUF' });
   await user.click(screen.getByRole('tab', { name: 'Standings' }));
-  await screen.findByRole('table');
+  await screen.findByRole('table', { name: 'Standings' });
 
   expect(standingsCalls()).toEqual([`/api/pickem/league/${LEAGUE_ID}/standings?season=2026`]);
   // Back to Picks and to Standings again: still served from the shared cache.
   await user.click(screen.getByRole('tab', { name: 'Picks' }));
   await screen.findByRole('button', { name: 'BUF' });
   await user.click(screen.getByRole('tab', { name: 'Standings' }));
-  await screen.findByRole('table');
+  await screen.findByRole('table', { name: 'Standings' });
   expect(standingsCalls()).toHaveLength(1);
 });
 
@@ -441,7 +441,7 @@ test('saving picks invalidates the cached standings so the Standings tab reflect
 
   await screen.findByRole('button', { name: 'BUF' });
   await user.click(screen.getByRole('tab', { name: 'Standings' }));
-  await screen.findByRole('table');
+  await screen.findByRole('table', { name: 'Standings' });
   expect(standingsCalls()).toHaveLength(1);
 
   await user.click(screen.getByRole('tab', { name: 'Picks' }));
@@ -450,7 +450,7 @@ test('saving picks invalidates the cached standings so the Standings tab reflect
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
 
   await user.click(screen.getByRole('tab', { name: 'Standings' }));
-  await screen.findByRole('table');
+  await screen.findByRole('table', { name: 'Standings' });
   await waitFor(() => expect(standingsCalls()).toHaveLength(2));
 });
 
@@ -478,7 +478,7 @@ test("a scoring-mode change invalidates the cached standings (the caption names 
 
   await screen.findByRole('button', { name: 'BUF' });
   await user.click(screen.getByRole('tab', { name: 'Standings' }));
-  await screen.findByRole('table');
+  await screen.findByRole('table', { name: 'Standings' });
   expect(standingsCalls()).toHaveLength(1);
 
   await user.click(screen.getByRole('button', { name: /Commissioner settings/i }));

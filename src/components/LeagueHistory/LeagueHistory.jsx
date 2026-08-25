@@ -443,7 +443,7 @@ function LeagueHistory() {
               label="Preview"
               data-testid="hall-of-fame-preview-chip"
             />
-            <Typography variant="body2" color="text.secondary">
+            <Typography id="history-preview-heading" variant="body2" color="text.secondary">
               Multi-season Hall of Fame: full year-by-year and all-time data coming soon
             </Typography>
           </Stack>
@@ -474,11 +474,12 @@ function LeagueHistory() {
           </Stack>
 
           <TableContainer component={Paper} sx={{ mb: 4 }} data-testid="history-mock-standings">
-            {/* No real heading sits over this placeholder preview yet (the
-                multi-season Hall of Fame it belongs to isn't built); reuse the
-                visible "All-Time Records" tab label rather than invent a new
-                user-heard string. */}
-            <Table size="small" aria-label="All-Time Records">
+            {/* This placeholder preview renders the same under every year tab
+                (yearTab is not read to gate it), so "All-Time Records" would
+                misname it two of three times. Point at the "Multi-season Hall
+                of Fame" caption above instead, the one piece of visible text
+                that actually describes it regardless of which tab is active. */}
+            <Table size="small" aria-labelledby="history-preview-heading">
               <TableHead>
                 <TableRow>
                   <TableCell>Rank</TableCell>

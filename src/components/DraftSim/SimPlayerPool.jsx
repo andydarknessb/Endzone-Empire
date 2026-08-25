@@ -120,7 +120,12 @@ function SimPlayerPool({ players, includeIdp = false, onDraft, myTurn }) {
         </Stack>
       ) : (
         <TableContainer sx={{ maxHeight: 520, overflowX: 'auto' }}>
-          <Table size="small" stickyHeader aria-label="Available players">
+          {/* No visible heading sits directly over this table (it fills the
+              whole "Players" tab in DraftSimulator.jsx); reuse that tab's own
+              label rather than borrow "Available Players", which names a
+              different surface's table (PlayerPoolTable, the real draft
+              room) and is reserved by CONTEXT.md's Draft pool entry. */}
+          <Table size="small" stickyHeader aria-label="Players">
             <TableHead>
               <TableRow>
                 <TableCell>Player</TableCell>
