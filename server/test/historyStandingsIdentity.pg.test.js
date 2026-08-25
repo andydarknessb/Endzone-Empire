@@ -7,12 +7,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const ENABLED = process.env.HISTORY_STANDINGS_PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.HISTORY_STANDINGS_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((key) => process.env[key]);
 
 if (!ENABLED) {
-  test('history standings identity PG tests (skipped: HISTORY_STANDINGS_PG_TESTS not set)', { skip: true }, () => {});
+  test('history standings identity PG tests (skipped: set PG_TESTS=1 or HISTORY_STANDINGS_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('history standings identity PG tests refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only see a disposable PG* database`);

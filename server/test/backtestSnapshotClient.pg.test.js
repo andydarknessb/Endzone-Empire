@@ -26,17 +26,20 @@
  * variable must be ABSENT - connections are built from PG* variables only, so a
  * stray local run can never touch the shared production database. Locally they
  * report as a visible SKIP, never as silent green.
+ *
+ * Seeds and deletes its own far-future season in the single migration-smoke
+ * database, so scripts/run-pg-tests.js runs it before the holdout tests.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const ENABLED = process.env.BACKTEST_PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.BACKTEST_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((k) => process.env[k]);
 
 if (!ENABLED) {
-  test('backtest snapshot-client PG contracts (skipped: BACKTEST_PG_TESTS not set — CI migration-smoke runs these)', { skip: true }, () => {});
+  test('backtest snapshot-client PG contracts (skipped: set PG_TESTS=1 or BACKTEST_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('backtest PG contracts refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} — these tests must only ever see a disposable PG* database`);

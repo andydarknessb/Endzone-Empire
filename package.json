@@ -69,6 +69,7 @@
     "test:server": "node scripts/run-server-tests.js",
     "test:server:sweep": "node scripts/run-server-tests.js --sweep",
     "test:server:all": "node scripts/run-server-tests.js --all",
+    "test:pg": "node scripts/run-pg-tests.js",
     "test:check-color-literals": "node --test scripts/check-color-literals.test.js",
     "test:holdout-pg": "node --test server/test/holdout.pg.test.js",
     "test:draft-rounds-pg": "node --test server/test/draftRoundsBackfill.pg.test.js",
