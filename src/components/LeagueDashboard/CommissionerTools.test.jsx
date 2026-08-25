@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
 import { MemoryRouter } from 'react-router-dom';
@@ -17,19 +17,6 @@ jest.mock('../../api/apiClient', () => ({
 // userEvent calls below are awaited directly, never re-wrapped in act(): see
 // docs/adr/0007-user-event-is-never-wrapped-in-act.md. Work that outlives a
 // click (a save PUT, the refresh behind it) is awaited at the call site.
-
-// Settles background work that isn't tied to a mocked promise the test can
-// await directly: MUI's Tabs indicator, which repositions via a
-// MutationObserver that fires asynchronously after a mount/rerender, and the
-// join-requests panel's own mount-effect GET. A single tick is what these
-// need in practice, but this loops (matching NavigationGuard.test.jsx's own
-// flush helper) so the wait isn't pinned to a fragile exact-hop-count guess.
-const flush = async (times = 6) => {
-  for (let i = 0; i < times; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-  }
-};
 
 const league = (overrides = {}) => ({
   id: 1,
@@ -110,11 +97,10 @@ beforeEach(() => {
 
 test('renders all six tabs, defaulting to General Settings', async () => {
   renderTools();
-  // MUI's Tabs indicator repositions via a MutationObserver that fires
-  // asynchronously after mount (see the hash-only-navigation test below for
-  // the full explanation). Let it settle before this, the first test in the
-  // file, ends.
-  await flush();
+  // MUI's Tabs indicator repositions via a MutationObserver after mount (see
+  // the hash-only-navigation test below), but nothing here reads the
+  // indicator's position - every assertion below is synchronous with the
+  // initial render, so there is nothing for this test to await.
   expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Scoring Settings' })).toBeInTheDocument();
@@ -127,10 +113,11 @@ test('renders all six tabs, defaulting to General Settings', async () => {
 test('calls out immediate general-setting effects and destructive team removal', async () => {
   renderTools({ league: league({ is_public: true, join_approval: true }) });
   // is_public + join_approval mounts the join-requests panel, which fires its
-  // own GET on mount (unrelated to what this test asserts). Let that settle
-  // inside act before asserting, or its setJoinRequests(...) update lands
-  // after the test has already finished reading the screen.
-  await flush();
+  // own GET on mount. Its setJoinRequests(...) update is unrelated to what
+  // this test asserts, so the observable this awaits is the request itself
+  // landing (matching settleRefresh's pattern in LeagueDashboard.test.jsx),
+  // not a guessed hop count - or the update lands after the test returns.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/join-requests'));
 
   expect(screen.getByText(/Applies immediately\. Freezes adds/)).toBeInTheDocument();
   expect(screen.getByText('Destructive actions')).toBeInTheDocument();
@@ -148,7 +135,6 @@ test('the join-request queue identifies each request by proposed Team name only,
     },
   });
   renderTools({ league: league({ is_public: true, join_approval: true }) });
-  await flush();
 
   expect(await screen.findByText(/Wendy's Wideouts/)).toBeInTheDocument();
   expect(screen.queryByText(/wideout_wendy/)).not.toBeInTheDocument();
@@ -166,7 +152,6 @@ test('a join request with a blank Team name renders "Former manager", not an orp
     },
   });
   renderTools({ league: league({ is_public: true, join_approval: true }) });
-  await flush();
 
   expect(await screen.findByText(/Former manager/)).toBeInTheDocument();
   expect(screen.queryByText(/wideout_wendy/)).not.toBeInTheDocument();
@@ -1201,8 +1186,9 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
   );
   // MUI's Tabs indicator repositions via a MutationObserver that fires
   // asynchronously after mount, outside render()'s own synchronous act()
-  // flush. Let it settle before interacting so its update lands inside act.
-  await flush();
+  // flush, but that reposition only moves the underline - the tab itself is
+  // already in the DOM to click, and userEvent awaits its own act-wrapped
+  // work (docs/adr/0007), so there is nothing to settle before interacting.
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
   expect(screen.getByRole('button', { name: 'Save Scoring Settings' })).toBeInTheDocument();
 
@@ -1211,12 +1197,13 @@ test("a fantasy tab left selected does not survive a switch to a pick'em-only le
       <CommissionerTools leagueId={2} league={pickemLeague({ id: 2 })} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
     </StableShell>
   );
-  // The rerender swaps in a whole new tab set, so Tabs repositions its
-  // indicator again - same MutationObserver settling as after the initial
-  // render above.
-  await flush();
-
-  expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true');
+  // The rerender swaps in a whole new tab set, so this fallback to General
+  // Settings is this test's own claim to await - awaiting it (rather than a
+  // guessed settle-hop count) is also what gives MUI's Tabs component, whose
+  // own indicator-repositioning MutationObserver fires from this rerender
+  // too, the turn it needs to land its update inside act (verified: without
+  // this await, MUI's ForwardRef(Tabs) throws "not wrapped in act(...)").
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'General Settings' })).toHaveAttribute('aria-selected', 'true'));
   expect(screen.queryByRole('button', { name: 'Save Scoring Settings' })).not.toBeInTheDocument();
   expect(screen.getByText('Remove a team')).toBeInTheDocument(); // the General panel body is showing
   expect(screen.queryByRole('tab', { name: 'Scoring Settings' })).not.toBeInTheDocument();

@@ -20,21 +20,17 @@ jest.mock('../../api/apiClient', () => ({
 // so they exercise the async gap between issuing a restoration and its POP
 // landing, which is exactly what the guard has to bridge.
 
-// Real-timer flush — used only by the DraftSettings integration test below.
-const flush = async (times = 6) => {
-  for (let i = 0; i < times; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-  }
-};
-
 // Fake-timer pump: advances exactly ONE jsdom history-traversal hop per
 // iteration. jsdom delivers each history.go() as two chained setTimeout(0)
 // tasks, and jest.runOnlyPendingTimers fires only timers pending at call time
 // — a hop queued during the run waits for the next pump. That one-hop-per-pump
 // control is what makes the guard's transient restorationPending window
 // observable deterministically (runAllTimers would drain the whole chain and
-// close the window before it could be asserted).
+// close the window before it could be asserted). Unlike the real-timer
+// `flush(times = 6)` #305 deleted from this file, every call site below
+// passes a hop count that is a known, commented quantity (see each call), not
+// a guess at how long an unspecified settle takes — #305 rules fake-timer
+// refactors out of scope for exactly this reason.
 const pump = async (times = 1) => {
   for (let i = 0; i < times; i += 1) {
     // eslint-disable-next-line no-await-in-loop
@@ -243,12 +239,10 @@ test('pending keeper assignment edits participate in the browser-back guard', as
   await userEvent.click(await screen.findByRole('button', { name: 'Remove keeper' }));
 
   await pressBack();
-  await flush(6);
   expect(await screen.findByRole('dialog', { name: /You have unsaved changes/ })).toBeInTheDocument();
 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Discard changes' })).toBeEnabled());
   await act(async () => { screen.getByRole('button', { name: 'Discard changes' }).click(); });
-  await flush(6);
   expect(await screen.findByText('Home page')).toBeInTheDocument();
   expect(screen.queryByText('Sunday Ballers')).not.toBeInTheDocument();
   clearLeagueCache();
