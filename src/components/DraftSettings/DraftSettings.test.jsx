@@ -222,7 +222,7 @@ test('shows saved auction inputs for salary-cap auction drafts', async () => {
   await screen.findByText('Sunday Ballers');
   await userEvent.click(screen.getByRole('tab', { name: 'Auction' }));
   expect(await screen.findByRole('spinbutton', { name: 'Budget' })).toBeInTheDocument();
-  expect(screen.getByText(/stored now for the future salary-cap draft engine/i)).toBeInTheDocument();
+  expect(screen.getByText(/stored now for the future salary-cap draft workflow/i)).toBeInTheDocument();
 });
 
 test('shows readiness values returned by the league-detail API', async () => {
