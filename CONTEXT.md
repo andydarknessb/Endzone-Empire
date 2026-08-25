@@ -47,6 +47,12 @@ pick'em. It is the only identity such a surface may ever carry; a manager's
 account identifier (email, username) stays confined to their own private
 account chrome and is never exposed to another manager. A duplicate Team name
 is still valid identity and never a reason to fall back to the account.
+Role disclosure is not an exception to this (#324). That a manager holds
+commissioner power over you is real, it is not a secret, and every member may
+see it; it is disclosed as a property of their Team, and the account behind
+that Team is not handed over with the fact. A grant that no longer names a
+Team has no identity to disclose and so discloses nothing, which is a
+consequence of the rule and not a carve-out from it.
 _Avoid_: display name, account identity (the thing this replaces), username
 
 **Membership**:

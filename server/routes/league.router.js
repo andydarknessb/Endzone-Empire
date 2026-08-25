@@ -21,6 +21,8 @@ const {
   commissionerPredicate,
   isLeagueCommissioner,
   listCoCommissioners,
+  serializeCoCommissioners,
+  coCommissionerTeamIds,
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
@@ -356,19 +358,43 @@ router.get('/:id', async (req, res) => {
       [leagueId]
     );
     // is_commissioner is the viewer's effective role (owner or co-commissioner)
-    // — every client-side commissioner gate reads it. The roster of
-    // co-commissioners is visible to all members: knowing who can rule on your
-    // trade isn't sensitive, and it saves a second request.
+    // — every client-side commissioner gate reads it.
+    //
+    // Who holds commissioner power stays visible to every member: knowing who
+    // can rule on your trade isn't sensitive, and it saves a second request.
+    // What changed in #324 is how that fact is told. CONTEXT.md's Team
+    // identity rule admits no exception for role disclosure, so power is a
+    // property of the TEAM and never an account handed over with it. The two
+    // kinds of commissioner are told apart on the same terms: the creator is
+    // `league.ownerTeamId` / `ownerTeamName`, already here, and a GRANT is
+    // `teams[].is_co_commissioner` below. The flag is deliberately the grant
+    // alone - the creator's team is not flagged, because the creator is named
+    // on the league itself and conflating them would lose which is which.
+    // The account ids grant and revoke need ride commissioner-conditionally,
+    // stripped by the same `is_commissioner` check as `invite_code` two lines
+    // below, which is the precedent this follows rather than a new mechanism.
     league.is_commissioner = await isLeagueCommissioner(pool, leagueId, req.user.id);
-    league.co_commissioners = await listCoCommissioners(pool, leagueId);
+    const coCommissionerRows = await listCoCommissioners(pool, leagueId);
+    league.co_commissioners = serializeCoCommissioners(coCommissionerRows, {
+      isCommissioner: league.is_commissioner,
+    });
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
+    // Derived from the ROWS rather than from what this viewer was served, so
+    // the flag says the same thing to a member as to a commissioner: a team is
+    // flagged exactly when a grant names it. Team identity on both sides of
+    // the match, so there is nothing to explain about which column is which.
+    const grantedTeamIds = coCommissionerTeamIds(coCommissionerRows);
+    const teams = teamsResult.rows.map((team) => ({
+      ...team,
+      is_co_commissioner: grantedTeamIds.has(team.teamId),
+    }));
     // viewerTeamId is how a consumer answers "which of these is me" without
     // holding another manager's account ID (#112): teamId === viewerTeamId.
     res.json({
       viewerTeamId: viewerTeamIdOf(teamsResult.rows, req.user.id),
       league,
-      teams: teamsResult.rows,
+      teams,
     });
   } catch (error) {
     console.error('Error fetching league details', error);
