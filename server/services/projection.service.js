@@ -198,6 +198,16 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
  * nflTeam -> { QB: avg, RB: avg, ... }. Powers opponent-difficulty context in
  * start/sit. Teams/positions with no data are simply absent — callers treat
  * missing as neutral.
+ *
+ * The team join normalises through `fn_normalize_nfl_team` on BOTH sides
+ * (#287). This one is an INNER join, so the raw comparison it replaces did
+ * not produce a wrong value, it DROPPED the row: every DEF unit (stored by
+ * full team name) and every WSH-coded week left the aggregate entirely, with
+ * no null anywhere to notice, and the average over the survivors read
+ * perfectly plausible. The `opponent` key is deliberately NOT folded: the
+ * caller (`decision.service.startSitAdvice`) looks this map up with an
+ * opponent read straight out of `nfl_games`, so both sides of that lookup
+ * already speak the schedule's own vocabulary.
  */
 async function getPositionDefense({ season, uptoWeek }) {
   const result = await pool.query(
@@ -208,7 +218,8 @@ async function getPositionDefense({ season, uptoWeek }) {
      JOIN "players" ON "players"."id" = "player_stats"."player_id"
      JOIN "nfl_games" ON "nfl_games"."season" = "player_stats"."season"
        AND "nfl_games"."week" = "player_stats"."week"
-       AND "nfl_games"."nfl_team" = "players"."nfl_team"
+       AND fn_normalize_nfl_team("nfl_games"."nfl_team")
+           = fn_normalize_nfl_team("players"."nfl_team")
      WHERE "player_stats"."season" = $1 AND "player_stats"."week" < $2
      GROUP BY "nfl_games"."opponent", "players"."position"`,
     [season, uptoWeek]
