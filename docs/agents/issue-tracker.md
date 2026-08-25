@@ -13,6 +13,22 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+## Closing issues from pull requests
+
+Pull requests here merge into `integration`; promotion to `main` (the default branch) is a separate, human step. GitHub only honours closing keywords natively on merges into the default branch, so on its own `Closes #N` in a PR body does nothing in this repository (#330).
+
+The `close-merged-issues` workflow (`.github/workflows/close-merged-issues.yml`, logic in `scripts/ci/close-merged-issues.js`) fills that gap: when a PR **merges into `integration`**, the closing keywords in its **body** close the referenced issues, each with a comment naming the PR and merge SHA. So write the keyword exactly as you would for the default branch and nothing else is needed:
+
+- Keywords: `close`/`closes`/`closed`, `fix`/`fixes`/`fixed`, `resolve`/`resolves`/`resolved`, any case, optional colon.
+- Reference forms: `#N`, `owner/repo#N`, or the full issue URL. Only this repository's issues are closed; other repositories are logged and left alone.
+- One reference per keyword, as on GitHub: `Closes #1, #2` closes only #1. Write `Closes #1, closes #2`.
+- `Refs #N`, `Part of #N`, and bare `#N` never close anything. Use them when the PR does not finish the issue.
+- Keywords inside code fences or inline code are ignored, so a PR can quote the convention without triggering it.
+- Read from the PR body only, not commit messages or comments. Closed-unmerged PRs, merges into any branch other than `integration`, and already-closed issues are no-ops.
+- A reference to a number that does not exist, or that is a pull request, is left alone and **turns the run red**: a typo'd `Closes #9999` must not pass as a green merge with the real issue still open.
+
+Check the workflow run on the merged PR if an issue you expected to close is still open; every non-closure that is not a legitimate no-op reds the run and names the issue. The parser's tests also run in `test-build` on every PR, so a change that breaks the parser cannot merge.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

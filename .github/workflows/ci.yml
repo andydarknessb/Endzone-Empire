@@ -32,6 +32,10 @@ jobs:
       # (scripts/ci/check-adr-uniqueness.js), which fails on a duplicate
       # numeric prefix or a gap in the sequence.
       - run: npm run check:adr-uniqueness
+      # close-merged-issues.yml closes the issues a merged PR names (#330).
+      # Its parser tests run here so a broken parser cannot merge; the
+      # post-merge job re-runs them as a tripwire before it writes anything.
+      - run: npm run test:close-merged-issues
       # The holdout-confirm-2026 study captures against these constants; an
       # unintended change (even a key-order change) silently drops captured
       # weeks. Deliberate changes update the pin in the same commit.
