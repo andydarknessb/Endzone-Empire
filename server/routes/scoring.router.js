@@ -17,7 +17,7 @@ const {
 } = require('../services/leagueRole.service');
 const { isMember, requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague } = require('../services/leagueType');
-const { seasonEngineAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
+const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -441,7 +441,7 @@ router.post('/league/:id/advance-week', async (req, res) => {
     // refuses too, but it runs SECOND here (see the note below on why scoring
     // comes first), so a gate only there would answer 409 with a full week of
     // scores already written.
-    if (!seasonEngineAvailable(leagueResult.rows[0])) {
+    if (!seasonOperationsAvailable(leagueResult.rows[0])) {
       return res.status(409).json({ error: SEASON_BEFORE_DRAFT_MESSAGE });
     }
     const { current_season, current_week } = leagueResult.rows[0];

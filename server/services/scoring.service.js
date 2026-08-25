@@ -9,7 +9,7 @@ const {
 const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR } = require('./nflTeam');
 const { getIo } = require('../modules/io');
 const { fantasySideWhereSql } = require('./leagueType');
-const { seasonEngineAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
+const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -1584,7 +1584,7 @@ async function generateMatchups({ leagueId, season, week }) {
       `SELECT "pickem_only", "draft_status", "season_status" FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
-    if (!seasonEngineAvailable(leagueResult.rows[0])) {
+    if (!seasonOperationsAvailable(leagueResult.rows[0])) {
       // Thrown, not rolled back here: this function's own catch rolls back
       // and rethrows, and rolling back twice is an error in its own right.
       const err = new Error(SEASON_BEFORE_DRAFT_MESSAGE);

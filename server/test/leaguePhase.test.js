@@ -10,7 +10,7 @@ const {
   fantasySeasonLiveWhereSql,
   frozenSettingKeys,
   settingsUnfrozenWhereSql,
-  seasonEngineAvailable,
+  seasonOperationsAvailable,
   SEASON_BEFORE_DRAFT_MESSAGE,
   DRAFT_FROZEN_SETTING_KEYS,
 } = require('../services/leaguePhase');
@@ -173,49 +173,49 @@ test('frozenSettingKeys: fails closed for a missing league (everything frozen)',
 });
 
 /* ------------------------------------------------------------------ *
- * Season engine availability (#194)                                   *
+ * Season operations availability (#194)                               *
  * ------------------------------------------------------------------ */
 
-test('seasonEngineAvailable: refused while a fantasy league is pre-draft or drafting', () => {
-  assert.equal(seasonEngineAvailable({ pickem_only: false, draft_status: 'pending', season_status: 'regular' }), false);
-  assert.equal(seasonEngineAvailable({ pickem_only: false, draft_status: 'active', season_status: 'regular' }), false);
+test('seasonOperationsAvailable: refused while a fantasy league is pre-draft or drafting', () => {
+  assert.equal(seasonOperationsAvailable({ pickem_only: false, draft_status: 'pending', season_status: 'regular' }), false);
+  assert.equal(seasonOperationsAvailable({ pickem_only: false, draft_status: 'active', season_status: 'regular' }), false);
 });
 
-test('seasonEngineAvailable: allowed once the draft is complete, in every later phase', () => {
+test('seasonOperationsAvailable: allowed once the draft is complete, in every later phase', () => {
   for (const season_status of ['regular', 'playoffs', 'complete']) {
     assert.equal(
-      seasonEngineAvailable({ pickem_only: false, draft_status: 'complete', season_status }),
+      seasonOperationsAvailable({ pickem_only: false, draft_status: 'complete', season_status }),
       true,
       season_status
     );
   }
 });
 
-test("seasonEngineAvailable: a pick'em-only league has no draft to wait for", () => {
+test("seasonOperationsAvailable: a pick'em-only league has no draft to wait for", () => {
   // It is in-season from creation whatever draft_status says, so the gate
   // must never be what stops it. (In the routers the pick'em refusal fires
   // upstream of this anyway, in requireFantasyLeague.)
   for (const draft_status of ['pending', 'active', 'complete']) {
     assert.equal(
-      seasonEngineAvailable({ pickem_only: true, draft_status, season_status: 'regular' }),
+      seasonOperationsAvailable({ pickem_only: true, draft_status, season_status: 'regular' }),
       true,
       draft_status
     );
   }
-  assert.equal(seasonEngineAvailable({ pickem_only: true, draft_status: 'pending', season_status: 'complete' }), true);
+  assert.equal(seasonOperationsAvailable({ pickem_only: true, draft_status: 'pending', season_status: 'complete' }), true);
 });
 
-test('seasonEngineAvailable: fails closed for a missing league row', () => {
-  assert.equal(seasonEngineAvailable(null), false);
-  assert.equal(seasonEngineAvailable(undefined), false);
+test('seasonOperationsAvailable: fails closed for a missing league row', () => {
+  assert.equal(seasonOperationsAvailable(null), false);
+  assert.equal(seasonOperationsAvailable(undefined), false);
 });
 
-test('seasonEngineAvailable: it is deriveLeaguePhase that decides, for every fixture case', () => {
+test('seasonOperationsAvailable: it is deriveLeaguePhase that decides, for every fixture case', () => {
   // One source for the rule: the helper must agree with the shared fixture's
   // phase on every case, so it cannot drift from the derivation it wraps.
   for (const c of fixture.cases) {
     const expected = c.phase !== null && c.phase !== 'pre-draft' && c.phase !== 'drafting';
-    assert.equal(seasonEngineAvailable(c.league), expected, c.name);
+    assert.equal(seasonOperationsAvailable(c.league), expected, c.name);
   }
 });
 
