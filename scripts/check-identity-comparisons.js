@@ -226,11 +226,13 @@ const ALLOWLIST = [
     file: 'server/services/privacy.service.js',
     code: 'SQL WHERE "leagues"."owner_id" = $1',
     rule:
-      'UNRESOLVED, recorded not fixed (#188, ruled by pl-endzone, tracked in #275). Account deletion is refused while the caller still owns a league. '
-      + 'The CODE enforces the creator-alone rule; the message a user reads says "Delete your commissioned leagues before deleting your account", and '
-      + '"commissioned" reads as commissioner, which includes co-commissioners. The two readings are both defensible: either the copy over-states a '
-      + 'creator-only rule, or the rule is under-scoped and a league losing its only co-commissioner has much the same problem as one losing its creator. '
-      + 'Choosing is a product decision about a string a user reads, so neither half was touched here.',
+      'RESOLVED, creator-alone by ruling (#188 recorded it, #275 settled it). Account deletion is refused while the caller still CREATED a league, '
+      + 'and this comparison is that rule: leagues.owner_id, the creator alone. A co-commissioner is not blocked. #188 found the copy disagreeing with '
+      + 'it - "Delete your commissioned leagues before deleting your account", where "commissioned" reads as commissioner and takes in co-commissioners '
+      + '- and left both halves alone, because widening the rule and rewording the copy are both defensible and the choice is a product decision about '
+      + 'a string a user reads. The maintainer chose: the RULE stays creator-only, the COPY changed to say created. This comparison is therefore '
+      + 'unchanged and correct as it stands. The wording it must agree with now lives in three places - the throw beside this query, and two sentences '
+      + 'in src/components/Nav/ProfileSettingsModal.jsx - with nothing enforcing the agreement.',
   },
   {
     file: 'src/components/Nav/ProfileSettingsModal.jsx',
