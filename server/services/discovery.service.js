@@ -257,7 +257,10 @@ async function discoverLeagues({ userId, search, scoring, openSlots, sort, type 
  * non-member. Account identity never qualifies: per CONTEXT.md's Team identity
  * rule, a manager's account identifier stays in their own account chrome, and
  * a non-member reading an invite preview sees the commissioner's Team name
- * (`ownerTeamName`) and not their username (#184 records the rule).
+ * (`ownerTeamName`) and not their username. CONTEXT.md's Team identity entry
+ * is where that rule is recorded and the only thing to cite for it; #324 is
+ * the ruling that settled its one contested edge, that role disclosure is no
+ * exception either.
  *
  * Same guarantee, and the same reason for it, as the public presenter board's
  * allowlist in draft.router.js (#173 / #199).
