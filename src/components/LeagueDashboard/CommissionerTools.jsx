@@ -47,7 +47,9 @@ import {
   buildInitialRules,
 } from '../../lib/leagueRulesFormat';
 import { capForType, isPickemOnly, leagueTypeOf, MIN_TEAMS } from '../../lib/leagueType';
-import { deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import {
+  deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE, removability, removeRefusalMessage,
+} from '../../lib/leaguePhase';
 import { teamNameLabel } from '../../lib/teamIdentity';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
@@ -418,6 +420,12 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
   // panel here edits, refetched after each action.
   const pickemOnly = isPickemOnly(league);
   const seasonComplete = deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE;
+  // The Removable rule (CONTEXT.md), the same one the server enforces: a
+  // fantasy league is removable only while pre-draft, a pick'em-only league
+  // always. When false, the list of removable teams is replaced by the reason,
+  // so the UI never offers a removal the server would refuse for phase reasons.
+  // A stale client that still shows the buttons still gets the server's 409.
+  const { removable: teamsRemovable, reason: removeReason } = removability(league);
   // Team limits are draft-frozen keys, so they are offered exactly while the
   // phase module's freeze rule says they are open (pre-draft, or always for a
   // pick'em-only league): the same rule the server's frozenSettingKeys states.
@@ -487,32 +495,54 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
       <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
         <Typography variant="overline" color="error.main">Destructive actions</Typography>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
-        {/* The server's own refusal, restated rather than reworded: removeTeam
-            raises exactly this on a 409, and that 409 was the only place the
-            rule was ever stated to a user. Keeping the wording identical means
-            the person who hits it by another route reads the same sentence. */}
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Your own team and the league creator&apos;s team can&apos;t be removed.
-        </Typography>
-        <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
-          {removableTeams.map((team) => (
-            <ListItem
-              key={team.teamId}
-              secondaryAction={
-                <IconButton
-                  edge="end"
-                  aria-label={`Remove ${team.name}`}
-                  color="error"
-                  onClick={() => setRemoveTarget(team)}
+        {teamsRemovable ? (
+          <>
+            {/* The server's own refusal, restated rather than reworded:
+                removeTeam raises exactly this on a 409, and that 409 was the
+                only place the rule was ever stated to a user. Keeping the
+                wording identical means the person who hits it by another route
+                reads the same sentence. */}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Your own team and the league creator&apos;s team can&apos;t be removed.
+            </Typography>
+            <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+              {removableTeams.map((team) => (
+                <ListItem
+                  key={team.teamId}
+                  secondaryAction={
+                    <IconButton
+                      edge="end"
+                      aria-label={`Remove ${team.name}`}
+                      color="error"
+                      onClick={() => setRemoveTarget(team)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  }
                 >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              }
-            >
-              <ListItemText primary={team.name} />
-            </ListItem>
-          ))}
-        </List>
+                  <ListItemText primary={team.name} />
+                </ListItem>
+              ))}
+            </List>
+          </>
+        ) : (
+          /* Past pre-draft the whole list is gone, not just disabled: removing
+             any team now would rewrite the draft, rosters and schedule (the
+             Removable rule, #195). Only a fantasy league reaches this branch, a
+             pick'em-only league being removable in every phase, so the reason is
+             always the draft having started. The first line is the server's own
+             refusal, rendered from the shared message so the person who hits the
+             409 by another route reads the same sentence; the added context is
+             visibly extra, in its own node. */
+          <Box data-testid="remove-team-refused">
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {removeRefusalMessage(removeReason)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Removing one would rewrite the draft, rosters and schedule.
+            </Typography>
+          </Box>
+        )}
       </Paper>
 
       <Dialog open={!!removeTarget} onClose={() => setRemoveTarget(null)}>

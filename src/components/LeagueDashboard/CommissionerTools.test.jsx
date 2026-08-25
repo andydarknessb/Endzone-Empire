@@ -263,6 +263,41 @@ test('states the creator-team rule instead of silently omitting the team', () =>
   expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
 });
 
+// #195. A fantasy league is Removable only while pre-draft. Once the draft has
+// started, the removal list is replaced by the reason and no Remove button is
+// offered, the same rule the server enforces (removeTeam raises 409). The
+// heading stays so someone who used the section last week still finds it, with
+// the reason it can no longer act - so it is asserted as a heading, the role
+// that keeps the section findable, not merely as text that any element matches.
+test('replaces the removal list with the reason once the draft has started', () => {
+  renderTools({ league: league({ draft_status: 'active' }) });
+
+  expect(screen.getByRole('heading', { name: 'Remove a team' })).toBeInTheDocument();
+  // The rendered sentence is the server's own refusal, byte for byte (the
+  // shared REMOVE_REFUSAL_MESSAGES literal), not a second copy free to drift.
+  expect(screen.getByTestId('remove-team-refused'))
+    .toHaveTextContent("teams can't be removed once the draft has started");
+  expect(screen.queryByRole('button', { name: "Remove Bob's Team" })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: "Remove Alice's Team" })).not.toBeInTheDocument();
+});
+
+test('a fantasy league with a completed season also refuses removal', () => {
+  renderTools({ league: league({ draft_status: 'complete', season_status: 'complete' }) });
+
+  expect(screen.getByTestId('remove-team-refused')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: "Remove Bob's Team" })).not.toBeInTheDocument();
+});
+
+// The gate is fantasy-specific: a pick'em-only league has no draft and stays
+// removable in every phase (its picks and chat reference users and survive the
+// removal), so an active draft_status must not refuse it.
+test("a pick'em-only league stays removable whatever its draft status", () => {
+  renderTools({ league: league({ pickem_only: true, draft_status: 'active', season_status: 'regular' }) });
+
+  expect(screen.getByRole('button', { name: "Remove Bob's Team" })).toBeInTheDocument();
+  expect(screen.queryByTestId('remove-team-refused')).not.toBeInTheDocument();
+});
+
 // The rule is stated whenever the section is, not only when the list empties:
 // a co-commissioner who CAN remove someone still needs to know why one name is
 // missing from the list in front of them.

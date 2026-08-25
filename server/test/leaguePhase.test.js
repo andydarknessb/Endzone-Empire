@@ -4,8 +4,12 @@ const {
   LEAGUE_PHASE,
   JOIN_REFUSAL_REASON,
   JOIN_REFUSAL_MESSAGES,
+  REMOVE_REFUSAL_REASON,
+  REMOVE_REFUSAL_MESSAGES,
   deriveLeaguePhase,
   joinability,
+  removability,
+  removeRefusalMessage,
   joinableWhereSql,
   fantasySeasonLiveWhereSql,
   frozenSettingKeys,
@@ -45,6 +49,16 @@ for (const c of fixture.cases) {
       assert.equal(answer.reason, c.reason);
     }
   });
+
+  test(`fixture: ${c.name} -> removable ${c.removable}${c.removeReason ? ` (${c.removeReason})` : ''}`, () => {
+    const answer = removability(c.league);
+    assert.equal(answer.removable, c.removable);
+    if (c.removable) {
+      assert.deepEqual(answer, { removable: true }, 'a removable answer carries no reason');
+    } else {
+      assert.equal(answer.reason, c.removeReason);
+    }
+  });
 }
 
 test('phase values and reason strings are the cross-side contract', () => {
@@ -70,6 +84,20 @@ test('phase values and reason strings are the cross-side contract', () => {
   }
   assert.match(JOIN_REFUSAL_MESSAGES['draft-started'], /draft/i);
   assert.match(JOIN_REFUSAL_MESSAGES['season-complete'], /season/i);
+});
+
+test('the removal reason strings are the cross-side contract, each with a message', () => {
+  assert.deepEqual(REMOVE_REFUSAL_REASON, { DRAFT_STARTED: 'draft-started' });
+  assert.ok(Object.isFrozen(REMOVE_REFUSAL_REASON));
+  const fixtureReasons = new Set(fixture.cases.map((c) => c.removeReason).filter(Boolean));
+  for (const reason of fixtureReasons) {
+    assert.ok(Object.values(REMOVE_REFUSAL_REASON).includes(reason), `unknown fixture removeReason ${reason}`);
+    assert.equal(typeof REMOVE_REFUSAL_MESSAGES[reason], 'string');
+  }
+  // Says why in plain words, with no em-dash (house style).
+  assert.match(REMOVE_REFUSAL_MESSAGES['draft-started'], /draft/i);
+  assert.doesNotMatch(REMOVE_REFUSAL_MESSAGES['draft-started'], /—/);
+  assert.equal(removeRefusalMessage('draft-started'), REMOVE_REFUSAL_MESSAGES['draft-started']);
 });
 
 /* ------------------------------------------------------------------ *

@@ -81,6 +81,43 @@ function joinRefusalMessage(reason) {
   return JOIN_REFUSAL_MESSAGES[reason] || 'league is not accepting new teams';
 }
 
+/** Why a league refuses a team removal. Cross-side contract, mirrored in the fixture. */
+const REMOVE_REFUSAL_REASON = Object.freeze({
+  DRAFT_STARTED: 'draft-started',
+});
+
+/** The commissioner-readable message for each removal refusal (409 bodies). */
+const REMOVE_REFUSAL_MESSAGES = Object.freeze({
+  [REMOVE_REFUSAL_REASON.DRAFT_STARTED]: "teams can't be removed once the draft has started",
+});
+
+/**
+ * Pure: will this league let a team be removed right now? The mirror of
+ * `joinability` and the read side of CONTEXT.md's **Removable** term: a league
+ * with a fantasy side is removable only while pre-draft, because once the
+ * draft has started its picks, rosters, schedule and lineups are a record that
+ * removing a team would rewrite. A pick'em-only league has no draft, its picks
+ * and chat reference users and survive removal, so its teams stay removable in
+ * every phase, complete included (keeping today's behaviour, #195).
+ *
+ * `{ removable: true }` or `{ removable: false, reason }`. Per-team gates (a
+ * commissioner never removes their own team, nor the league creator's) are
+ * layered on top by the caller with their own messages. A missing row fails
+ * closed with no reason.
+ */
+function removability(league) {
+  if (!league) return { removable: false, reason: null };
+  if (isPickemOnly(league)) return { removable: true };
+  return deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT
+    ? { removable: true }
+    : { removable: false, reason: REMOVE_REFUSAL_REASON.DRAFT_STARTED };
+}
+
+/** Message for a removal-refusal answer. */
+function removeRefusalMessage(reason) {
+  return REMOVE_REFUSAL_MESSAGES[reason] || "teams can't be removed right now";
+}
+
 /* ------------------------------------------------------------------ *
  * SQL fragments. Code literals only: the alias is a table alias chosen *
  * by the caller, never request input, and it is validated as an       *
@@ -181,10 +218,14 @@ module.exports = {
   LEAGUE_PHASE,
   JOIN_REFUSAL_REASON,
   JOIN_REFUSAL_MESSAGES,
+  REMOVE_REFUSAL_REASON,
+  REMOVE_REFUSAL_MESSAGES,
   DRAFT_FROZEN_SETTING_KEYS,
   deriveLeaguePhase,
   joinability,
   joinRefusalMessage,
+  removability,
+  removeRefusalMessage,
   joinableWhereSql,
   fantasySeasonLiveWhereSql,
   seasonOperationsAvailable,

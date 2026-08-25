@@ -141,8 +141,14 @@ function teamIdentityColumns(alias = 'teams', prefix = null) {
  * once here so no call site can forget it.
  *
  * LEFT, always: an author who has since left the league keeps their row in
- * chat history, Pick history and the co-commissioner roster, and reads back
- * with null Team identity rather than dropping out of the result.
+ * chat history, pick'em picks and the co-commissioner roster (all reference
+ * users, not teams), and reads back with null Team identity rather than
+ * dropping out of the result. On Pick history the LEFT join is defensive
+ * rather than
+ * load-bearing: `draft_picks.team_id` CASCADEs, and a fantasy league is
+ * Removable only while pre-draft (CONTEXT.md, #195), so a team is only ever
+ * removed before any pick exists and this join never sees a removed team from
+ * a started draft.
  */
 function teamIdentityJoin(leagueIdColumn, ownerIdColumn, alias = 'teams') {
   return `LEFT JOIN "teams" AS "${alias}"
