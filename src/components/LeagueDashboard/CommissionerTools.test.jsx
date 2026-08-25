@@ -152,6 +152,24 @@ test('the join-request queue identifies each request by proposed Team name only,
   expect(screen.queryByText(/wideout_wendy/)).not.toBeInTheDocument();
 });
 
+// #179 follow-up. Unlike `teams.name` (a real CHECK constraint), a join
+// request's `team_name` carries no NOT NULL and no blank check - only the
+// write path validates it today - so this is the one site the null-name
+// label genuinely guards rather than papering over a data bug. A blank
+// reads as "Former manager", never as an orphan " · <date>" with no name.
+test('a join request with a blank Team name renders "Former manager", not an orphan bullet', async () => {
+  mockGetByUrl({
+    'join-requests': {
+      data: [{ id: 5, username: 'wideout_wendy', team_name: '', created_at: '2026-08-20T12:00:00.000Z' }],
+    },
+  });
+  renderTools({ league: league({ is_public: true, join_approval: true }) });
+  await flush();
+
+  expect(await screen.findByText(/Former manager/)).toBeInTheDocument();
+  expect(screen.queryByText(/wideout_wendy/)).not.toBeInTheDocument();
+});
+
 // The removable-teams guard answers "which of these is me" by Team ID, not by
 // the owner username string (#185). Both cases below assert list membership
 // (which control is offered, not just that the section renders) and would

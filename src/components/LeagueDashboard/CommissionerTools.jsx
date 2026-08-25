@@ -554,8 +554,20 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
             <Stack spacing={1}>
               {joinRequests.map((request) => (
                 <Box key={request.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  {/* Through teamNameLabel, not read raw: unlike `teams.name`
+                      (a real CHECK constraint, teams_name_not_blank_check),
+                      `join_requests.team_name` carries no NOT NULL and no
+                      blank check — the require_team_names migration swept
+                      existing blank-name pending rows to 'cancelled' rather
+                      than constraining the column. The write path
+                      (discovery.service.js's joinPublicLeague, the only
+                      writer) validates a name before every insert/upsert
+                      today, but nothing at the schema layer keeps that true
+                      tomorrow, so this is exactly the case teamIdentity.js's
+                      docstring reserves the label for: identity that can
+                      genuinely be absent, not a data bug being papered over. */}
                   <Typography sx={{ flexGrow: 1 }}>
-                    {request.team_name} · {new Date(request.created_at).toLocaleString()}
+                    {teamNameLabel(request.team_name)} · {new Date(request.created_at).toLocaleString()}
                   </Typography>
                   <Button size="small" variant="contained" color="success" onClick={() => handleDecideJoinRequest(request.id, true)}>
                     Approve
