@@ -196,7 +196,21 @@ for (const route of ['advance-week', 'schedule', 'matchups']) {
     // handler and therefore before the phase gate. Asserted so it stays true:
     // deriveLeaguePhase reports a pickem-only league in-season, so the phase
     // gate would wave it through if this middleware ever stopped firing.
+    //
+    // #274: the seam here is the COLLABORATOR, and only the collaborator.
+    // scoring.router.js issues no INSERT, UPDATE or DELETE of its own - every
+    // write on all three routes happens inside scoring.scoreMatchups,
+    // scoring.generateMatchups, season.generateRegularSeason or
+    // season.finalizeWeekAndAdvance. Since all four are stubbed below, no code
+    // path downstream of them can dispatch SQL at all, which means a
+    // fake.matching(insert('matchups')) count here would be pinned at 0 in the
+    // correct build AND in a mutated one. That is the unfalsifiable assertion
+    // this ticket exists to remove, so it is deliberately not written.
     const fake = routerPool(league({ pickem_only: true, draft_status: 'pending' })).install(t);
+    const scored = spy(t, scoring, 'scoreMatchups');
+    const finalized = spy(t, season, 'finalizeWeekAndAdvance');
+    const scheduled = spy(t, season, 'generateRegularSeason');
+    const generated = spy(t, scoring, 'generateMatchups');
 
     const res = await request(app)
       .post(`/api/scoring/league/1/${route}`)
@@ -206,6 +220,12 @@ for (const route of ['advance-week', 'schedule', 'matchups']) {
     assert.equal(res.status, 409);
     assert.equal(res.body.code, PICKEM_ONLY_CODE);
     assert.notEqual(res.body.error, SEASON_BEFORE_DRAFT_MESSAGE);
+    // All four write-performing collaborators, counted. Between them they
+    // cover every mutation the three routes can reach.
+    assert.equal(scored.length, 0, 'no scores were written');
+    assert.equal(finalized.length, 0, 'the week was never finalized');
+    assert.equal(scheduled.length, 0, 'no season was scheduled');
+    assert.equal(generated.length, 0, 'no week was generated');
     fake.assertClean();
   });
 }

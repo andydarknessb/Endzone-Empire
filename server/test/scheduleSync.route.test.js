@@ -55,10 +55,20 @@ test('sync-schedule defaults to the Tank01 source', async (t) => {
   assert.equal(tank01.mock.callCount(), 1);
 });
 
-test('sync-schedule rejects an unknown source with 400', async () => {
+test('sync-schedule rejects an unknown source with 400', async (t) => {
+  // #274. The protected work here is an outbound call, not SQL, so the closest
+  // seam is the collaborator's call count - the same seam the nflverse test
+  // above already uses. This test previously installed no mocks at all, which
+  // means a guard moved below the work would have called the real Tank01
+  // client and spent live metered quota to make the test pass.
+  const tank01 = t.mock.method(scoring, 'syncSchedule', async () => ({ season: 2026 }));
+  const nflverse = t.mock.method(nflverseSync, 'syncScheduleFromNflverse', async () => ({ season: 2026 }));
+
   const res = await request(app)
     .post('/api/scoring/sync-schedule')
     .set('Authorization', authed())
     .send({ season: 2026, source: 'espn' });
   assert.equal(res.status, 400);
+  assert.equal(tank01.mock.callCount(), 0, 'no Tank01 quota was spent');
+  assert.equal(nflverse.mock.callCount(), 0, 'and no nflverse backfill ran');
 });

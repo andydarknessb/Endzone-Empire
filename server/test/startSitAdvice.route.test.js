@@ -174,17 +174,28 @@ test('advice scopes the projection request to the roster and passes the league',
 });
 
 test('best-ball leagues still refuse advice with a 409', async (t) => {
-  mockAdviceDependencies(t, {
+  const projectionCalls = mockAdviceDependencies(t, {
     entries: [lineupEntry(1, 'RB', 'RB')],
     projections: [[1, projectionFor(1, 6)]],
     league: { id: 3, best_ball: true, scoring_rules: null },
   });
+  // #274. This endpoint is a GET, which makes it look read-only, and it is
+  // not: getLineup calls materializeLineup and INSERTs a lineup_entries row
+  // for every un-materialized roster row, and getWeeklyProjections caches into
+  // projection_runs and player_week_projections. Both are mocked here, so a
+  // guard moved below them calls the mocks and answers the identical 409.
+  const lineupReads = t.mock.method(lineupService, 'getLineup', async () => ({
+    leagueId: 3, teamId: 10, season: 2026, week: 6, currentWeek: 6,
+    rosterSlots: [], benchSlots: 5, irSlots: 1, entries: [],
+  }));
 
   const response = await request(app)
     .get('/api/team/lineup/advice?leagueId=3')
     .set('Authorization', `Bearer ${token()}`);
   assert.equal(response.status, 409);
   assert.match(response.body.error, /best-ball/);
+  assert.equal(lineupReads.mock.callCount(), 0, 'no lineup was materialized');
+  assert.equal(projectionCalls.length, 0, 'and no projection run was cached');
 });
 
 test('a starter on a bye is reported unavailable and replaced', async (t) => {

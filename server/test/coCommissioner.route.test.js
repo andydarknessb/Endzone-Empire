@@ -94,6 +94,18 @@ test('the owner can revoke a co-commissioner', async (t) => {
   assert.ok(calls.params[logged].includes(11), `logged params carry team id 11: ${JSON.stringify(calls.params[logged])}`);
 });
 
+/**
+ * #274: the refusal tests below used to discard the call log this mock already
+ * returns. Every write in the grant/revoke flow is answered by a live default
+ * handler above, so a guard moved below any of them writes for real, rolls
+ * back, and answers with the identical status and message.
+ */
+const countMatching = (calls, re) => calls.filter((sql) => re.test(sql)).length;
+const GRANT = /^INSERT INTO "league_commissioners"/;
+const REVOKE = /^DELETE FROM "league_commissioners"/;
+const LOG = /^INSERT INTO "transactions"/;
+const NOTIFY = /^INSERT INTO "notifications"/;
+
 test('a co-commissioner cannot promote anyone — that stays with the owner', async (t) => {
   const calls = withMockClient(t);
 
@@ -101,8 +113,11 @@ test('a co-commissioner cannot promote anyone — that stays with the owner', as
 
   assert.equal(response.status, 403);
   assert.match(response.body.error, /only the league owner/);
-  assert.ok(!calls.some((sql) => /^INSERT INTO "league_commissioners"/.test(sql)));
-  assert.ok(calls.includes('ROLLBACK'));
+  // #274: counts, and the log/notify pair as well as the grant itself.
+  assert.equal(countMatching(calls, GRANT), 0, 'no role was granted');
+  assert.equal(countMatching(calls, LOG), 0, 'no activity row claimed one was');
+  assert.equal(countMatching(calls, NOTIFY), 0, 'nobody was told they had been promoted');
+  assert.ok(calls.includes('ROLLBACK')); // complementary only
 });
 
 test('a co-commissioner cannot revoke another co-commissioner', async (t) => {
@@ -111,43 +126,64 @@ test('a co-commissioner cannot revoke another co-commissioner', async (t) => {
   const response = await del(99, 42);
 
   assert.equal(response.status, 403);
-  assert.ok(!calls.some((sql) => /^DELETE FROM "league_commissioners"/.test(sql)));
+  assert.equal(countMatching(calls, REVOKE), 0, 'no role was revoked');
+  assert.equal(countMatching(calls, LOG), 0, 'no activity row claimed one was');
+  assert.equal(countMatching(calls, NOTIFY), 0);
 });
 
 test('promoting a non-member is rejected', async (t) => {
-  withMockClient(t, [[/FROM "teams" JOIN "users"/, () => ({ rows: [] })]]);
+  const calls = withMockClient(t, [[/FROM "teams" JOIN "users"/, () => ({ rows: [] })]]);
 
   const response = await post(OWNER_ID, { userId: 4242 });
 
   assert.equal(response.status, 400);
   assert.match(response.body.error, /not a member of this league/);
+  // #274. The default INSERT handler answers successfully, so a membership
+  // check moved below the grant would make a non-member a co-commissioner,
+  // roll back, and return this same 400.
+  assert.equal(countMatching(calls, GRANT), 0, 'the non-member was not granted the role');
 });
 
 test('promoting the owner is rejected — they already hold the role', async (t) => {
-  withMockClient(t);
+  const calls = withMockClient(t);
 
   const response = await post(OWNER_ID, { userId: OWNER_ID });
 
   assert.equal(response.status, 400);
   assert.match(response.body.error, /already the commissioner/);
+  assert.equal(countMatching(calls, GRANT), 0, 'no duplicate grant row was written');
 });
 
 test('promoting an existing co-commissioner conflicts', async (t) => {
-  withMockClient(t, [[/^INSERT INTO "league_commissioners"/, () => ({ rows: [] })]]);
+  const calls = withMockClient(t, [[/^INSERT INTO "league_commissioners"/, () => ({ rows: [] })]]);
 
   const response = await post(OWNER_ID, { userId: 42 });
 
   assert.equal(response.status, 409);
   assert.match(response.body.error, /already a co-commissioner/);
+  // #274, and the seam is deliberately NOT the grant: this 409 is raised BY
+  // the insert's own empty RETURNING (ON CONFLICT DO NOTHING), so the grant
+  // statement is supposed to run and a zero count here would be wrong. What
+  // the refusal still protects is the log and the notification - a guard below
+  // those writes a spurious activity row and tells someone they were promoted
+  // when they were not.
+  assert.equal(countMatching(calls, LOG), 0, 'no activity row for a grant that did not happen');
+  assert.equal(countMatching(calls, NOTIFY), 0, 'and no false "you were promoted" notification');
+  assert.equal(calls.filter((sql) => sql === 'COMMIT').length, 0); // complementary only
 });
 
 test('revoking someone who is not a co-commissioner 404s', async (t) => {
-  withMockClient(t, [[/^DELETE FROM "league_commissioners"/, () => ({ rows: [] })]]);
+  const calls = withMockClient(t, [[/^DELETE FROM "league_commissioners"/, () => ({ rows: [] })]]);
 
   const response = await del(OWNER_ID, 42);
 
   assert.equal(response.status, 404);
   assert.match(response.body.error, /not a co-commissioner/);
+  // Same shape as the row above: the DELETE legitimately runs and finds
+  // nothing, so the protected work is the log and the notification.
+  assert.equal(countMatching(calls, LOG), 0, 'no activity row for a revoke that did not happen');
+  assert.equal(countMatching(calls, NOTIFY), 0);
+  assert.equal(calls.filter((sql) => sql === 'COMMIT').length, 0); // complementary only
 });
 
 test('a non-integer userId is rejected before any database work', async (t) => {

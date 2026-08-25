@@ -118,6 +118,11 @@ test('#227 setLineup refuses to move a DEF unit whose game has kicked off', asyn
     setLineup({ leagueId: LEAGUE_ID, userId: USER_ID, week: WEEK, moves: [{ playerId: DEF_UNIT.player_id, slot: 'BENCH' }] }),
     (error) => error.statusCode === 409 && error.code === 'LINEUP_LOCKED'
   );
+  // #274. lineupWorld answers UPDATE "lineup_entries" with a live handler, so
+  // a LINEUP_LOCKED throw moved below the slot-write loop would apply the move
+  // the lock exists to prevent, roll back, and return the same 409 with the
+  // same code. The count is what separates "was told no" from "did not move".
+  assert.equal(fake.matching(/^UPDATE "lineup_entries"/).length, 0, 'the locked slot was never written');
   fake.assertClean();
 });
 
@@ -147,6 +152,9 @@ test('#227 a WSH-coded game row locks a WAS-coded player, and vice versa', async
     (error) => error.code === 'LINEUP_LOCKED',
     'the schedule spells it WSH; the player is spelled WAS'
   );
+  // #274, per half: each spelling must prove its own non-write, because a
+  // lock that fires for one spelling and not the other is exactly the bug.
+  assert.equal(wshGame.matching(/^UPDATE "lineup_entries"/).length, 0, 'WAS player, WSH game: not written');
   wshGame.assertClean();
   t.mock.restoreAll();
 
@@ -160,6 +168,7 @@ test('#227 a WSH-coded game row locks a WAS-coded player, and vice versa', async
     (error) => error.code === 'LINEUP_LOCKED',
     'and the other way round, because neither spelling is privileged'
   );
+  assert.equal(wasGame.matching(/^UPDATE "lineup_entries"/).length, 0, 'WSH player, WAS game: not written');
   wasGame.assertClean();
 });
 

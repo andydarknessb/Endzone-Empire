@@ -159,11 +159,23 @@ for (const draft_status of ['pending', 'active']) {
 test('finalizeWeekAndAdvance: a complete season is still refused with its own message', async (t) => {
   // Phase COMPLETE passes the new gate; what a finished season refuses is
   // season operations' own rule and must be unchanged.
-  const fake = seasonPool(league({ season_status: 'complete' })).install(t);
+  //
+  // #274: the matchups row is load-bearing, not scenery. The shared fixture
+  // answers select('matchups') with no rows, and with none the guard-below
+  // variant would trip the EARLIER "no matchups exist for week N" refusal and
+  // fail on the message regex instead of on the write count. That would be an
+  // accident of the fixture standing in for an assertion. With a row present
+  // the only thing standing between this call and the two UPDATEs is the
+  // season_status guard, so the counts below are what catch it moving.
+  const fake = seasonPool(league({ season_status: 'complete' }), [
+    [select('matchups'), () => ({ rows: [{ id: 1, week: 1, final: false }] })],
+  ]).install(t);
 
   await assert.rejects(
     () => finalizeWeekAndAdvance({ leagueId: 1 }),
     (error) => error.statusCode === 409 && /season is complete/.test(error.message)
   );
+  assert.equal(fake.matching(update('matchups')).length, 0, 'no matchup marked final');
+  assert.equal(fake.matching(update('leagues')).length, 0, 'current_week / season_status unchanged');
   fake.assertClean();
 });
