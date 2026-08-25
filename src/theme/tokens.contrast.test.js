@@ -54,7 +54,7 @@ const pairing = (fg, bg, min, label, backdrop) => ({ fg, bg, min, label, backdro
 // gradient is not a token (and #354 keeps it that way), so it cannot be looked
 // up from `colorTokens` the way every other `bg` in PAIRINGS is. Instead each
 // mode's `tokens` map below gets one extra literal entry, `landing-hero-tint`,
-// sourced from this test-local map — the existing `tokens[bg]` lookup then
+// sourced from this test-local map - the existing `tokens[bg]` lookup then
 // resolves it exactly like any other token key, with no change to how real
 // tokens resolve.
 //
@@ -63,7 +63,7 @@ const pairing = (fg, bg, min, label, backdrop) => ({ fg, bg, min, label, backdro
 // ratio. Source: LandingPage.css `.landing-page .landing-hero` (light, line 5)
 // and `html[data-theme='dark'] .landing-page .landing-hero` (dark, line 9).
 // Since #350 the hero carries a normal-size `text.secondary` (`text-muted`)
-// paragraph, so AA_TEXT applies. Measured: 4.98:1 light, 6.28:1 dark — light
+// paragraph, so AA_TEXT applies. Measured: 4.98:1 light, 6.28:1 dark - light
 // has under 0.5 of headroom.
 const HERO_TINT_BY_THEME = {
   light: 'rgba(30, 91, 184, 0.08)',
@@ -132,11 +132,11 @@ const PAIRINGS = [
   pairing('text-muted', 'accent-soft', AA_TEXT, 'muted cell text on an accent-tinted row', 'surface'),
   // #354 sweep: every other `accent-soft` consumer checked below sits on
   // `surface` (already covered by the two rows above) or has no text on it.
-  // Two do not:
+  // Four do not:
   //
   // GameCenter's LiveActionTicker (GameCenter.jsx) paints `accent-soft`
   // directly as its own Paper's background, and that Paper sits straight on
-  // the page — its backdrop is `bg-page`, not `surface`. The ticker text is
+  // the page - its backdrop is `bg-page`, not `surface`. The ticker text is
   // MUI body2 at 14px even when bold, under the 14pt/18.66px bold threshold
   // for "large text", so AA_TEXT applies.
   pairing(
@@ -144,6 +144,21 @@ const PAIRINGS = [
     'accent-soft',
     AA_TEXT,
     'live scoring ticker text on the accent-tinted banner',
+    'bg-page'
+  ),
+  // The public strategy index's featured ArticleCard (ArticleCard.jsx,
+  // rendered by StrategyIndexPage.jsx inside PublicLayout, whose root is
+  // `background.default` == `bg-page`) and DraftSim's selected-format Card
+  // (SimConfigForm.jsx, rendered inside DraftSimScreen's plain Container on
+  // `bg-page`) both paint `accent-soft` as the card's own background with no
+  // intervening surface, and both carry a `text.secondary` (`text-muted`)
+  // body/caption line. Same fg/bg/backdrop triple in both, so one row covers
+  // it; thin margin like the hero tint above (4.84:1 light, 5.73:1 dark).
+  pairing(
+    'text-muted',
+    'accent-soft',
+    AA_TEXT,
+    'muted text on an accent-tinted card on the page (ArticleCard, SimConfigForm)',
     'bg-page'
   ),
   // DraftBoardMatrix's `pickLandedFlash` keyframe (DraftBoardMatrix.jsx) briefly
@@ -160,21 +175,44 @@ const PAIRINGS = [
     'draft pick name during the landed-pick flash on a hovered row',
     'row-hover'
   ),
+  // MatchupExtras' `scoreFlash` keyframe (MatchupDetail.jsx wraps
+  // SlotComparisonList in a Paper, so its backdrop is `surface`) is the same
+  // flash-over-a-row pattern, but its foreground is `accent`, not
+  // `text-primary`: PlayerNameLink colors the player name `primary.main`
+  // (`accent`). That fg/bg/backdrop triple is new too.
+  pairing(
+    'accent',
+    'accent-soft',
+    AA_TEXT,
+    'player name during the score-change flash',
+    'surface'
+  ),
   // The remaining #354 sweep candidates need no PAIRINGS row:
   //   - LeagueHistory's champion banner (LeagueHistory.jsx) and SimPickFeed's
   //     active-team row (SimPickFeed.jsx) both paint `accent-soft` inside a
   //     MUI Paper/Accordion, whose background is `background.paper` ==
   //     `surface` (AppThemeProvider.jsx). Same backdrop as the two rows at the
   //     top of this block, so nothing new to measure.
+  //   - LandingPage.css's own `accent-soft` consumer, the `landing-cta-pulse`
+  //     keyframe, animates a `box-shadow` ring around a button; no text sits
+  //     on it.
   //   - UserPage's banner (UserPage.css `.user-page:before`/`.container`,
   //     `--scrim` over the background photo) is exactly the `on-overlay` /
-  //     `scrim` row below, already measured comfortably clear (#238) — and the
+  //     `scrim` row below, already measured comfortably clear (#238) - and the
   //     file is unused today (see the #238 comment above BRIGHTEST_BACKDROP).
-  //   - TecmoCutscene's `.tecmo-vignette` (TecmoCutscene.css) is a decorative,
-  //     aria-hidden radial gradient over the day-sky background; no text is
-  //     ever painted on it (the caption text sits on the opaque black
-  //     `.tecmo-boomband` instead), and its colors are fixed literals by
-  //     design (theme-independent cutscene), not tokens.
+  //   - TecmoCutscene's `.tecmo-scanlines` and `.tecmo-vignette`
+  //     (TecmoCutscene.css) are later DOM siblings of the boom frame inside
+  //     `.tecmo-scene` (TecmoCutscene.jsx), both `position: absolute; inset: 0`
+  //     with no z-index, so during beat 2 they do paint on top of the boom
+  //     caption text, not just the day-sky background behind it. Still no
+  //     PAIRINGS row: `contrastRatio()` composites a background under a
+  //     foreground, and has no way to represent a translucent layer drawn
+  //     *over* already-rendered text (a uniform darkening of both fg and bg,
+  //     which is a different, currently-unsupported compositing shape - adding
+  //     it would be the "second compositing path" #354 rules out). Both
+  //     overlays are aria-hidden, decorative CRT effects, and every color in
+  //     this file is a fixed literal by design (theme-independent cutscene),
+  //     never a token.
   pairing('on-overlay', 'scrim', AA_TEXT, 'light text on a photo scrim', BRIGHTEST_BACKDROP),
   pairing('on-overlay', 'overlay', AA_LARGE, 'light text on a modal overlay', BRIGHTEST_BACKDROP),
   // The Nav link hover on the app bar (Nav.jsx): `accent` text on `accent-soft`
@@ -205,7 +243,7 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
     'on-overlay': scaleTokens['on-overlay'],
     scrim: scaleTokens.scrim,
     ...colorTokens[mode],
-    // Not a real token (see the comment above HERO_TINT_BY_THEME) — added here,
+    // Not a real token (see the comment above HERO_TINT_BY_THEME) - added here,
     // per mode, so the `tokens[bg]` lookup every PAIRINGS row already uses
     // resolves it exactly like any other key.
     'landing-hero-tint': HERO_TINT_BY_THEME[mode],
