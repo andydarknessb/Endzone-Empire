@@ -19,19 +19,22 @@ const AA_LARGE = 3.0;
 //     White is the worst case for the light text that sits on them; over any
 //     darker backdrop the ratio only improves.
 //
-// READ THIS BEFORE PUTTING `on-overlay` ON SCREEN. Both veil rows carry the
-// large-text threshold, and that is an ASSUMPTION, not a measurement: at
-// 4.38 (scrim) and 3.21 (overlay, light) they are under 4.5, so they hold 3:1
-// only while `on-overlay` is heading and label text rather than body copy.
-// Nothing enforces that today because nothing renders these tokens at all -
-// `--scrim`, `--on-overlay` and `--overlay` have exactly one textual reference
-// between them, UserPage.css, and that file is imported by no component
-// (UserPage.jsx loads no stylesheet). It is dead, and the premise is one
-// import line away from being false: revive it and `.container` sets
-// `color: var(--on-overlay)` on a general content container, so ordinary body
-// text inherits it and 4.38 becomes a live AA failure this suite reports as
-// green. The first real consumer of these tokens has to honour the large-text
-// assumption or raise these two rows to AA_TEXT. Tracked in #238.
+// READ THIS BEFORE PUTTING `on-overlay` ON SCREEN. `scrim` is asserted at the
+// AA_TEXT (4.5:1) body-text threshold, so `on-overlay` on `scrim` is a
+// measurement, not an assumption (#238). `overlay` still carries the
+// large-text threshold, and that ONE is an assumption, not a measurement: at
+// 3.21 (light) it is under 4.5, so it holds 3:1 only while `on-overlay` is
+// heading and label text rather than body copy over `overlay`. Nothing
+// enforces that today because nothing renders `on-overlay` on `overlay` at
+// all - `--overlay` has no textual reference in the app. The closest thing,
+// UserPage.css, pairs `on-overlay` with `scrim`, not `overlay`, and that file
+// is dead besides (imported by no component - UserPage.jsx loads no
+// stylesheet). Reviving it would not turn this suite's premise into a live
+// failure: `.user-page:before` and `.container` both paint `--scrim`, so
+// `on-overlay` text there sits on a doubly-composited scrim, around 12:1,
+// comfortably clear of AA_TEXT. The `overlay` row is the one still resting on
+// the large-text assumption; its first real consumer has to honour that
+// assumption or raise this row to AA_TEXT too. Decision recorded in #238.
 const BRIGHTEST_BACKDROP = '#ffffff';
 
 // fg / bg are token keys; backdrop is a token key or a literal color, and is
@@ -91,7 +94,7 @@ const PAIRINGS = [
   // asserted above.)
   pairing('text-primary', 'accent-soft', AA_TEXT, 'cell text on an accent-tinted row', 'surface'),
   pairing('text-muted', 'accent-soft', AA_TEXT, 'muted cell text on an accent-tinted row', 'surface'),
-  pairing('on-overlay', 'scrim', AA_LARGE, 'light text on a photo scrim', BRIGHTEST_BACKDROP),
+  pairing('on-overlay', 'scrim', AA_TEXT, 'light text on a photo scrim', BRIGHTEST_BACKDROP),
   pairing('on-overlay', 'overlay', AA_LARGE, 'light text on a modal overlay', BRIGHTEST_BACKDROP),
   // The Nav link hover on the app bar (Nav.jsx): `accent` text on `accent-soft`
   // over `surface-raised`. #203's compositing was what made this measurable at

@@ -146,9 +146,11 @@ export const scaleTokens = {
   // while keeping the gradient literal in one place.
   'gradient-brand': 'linear-gradient(90deg, var(--accent), var(--secondary))',
   // Fixed light text + dark scrim for content that always sits on a photo
-  // background (UserPage), independent of the active theme.
+  // background (UserPage), independent of the active theme. `scrim` is
+  // asserted at the AA_TEXT (4.5:1) body-text threshold, not the large-text
+  // one `overlay` still holds to; see tokens.contrast.test.js (#238).
   'on-overlay': '#f4f6f8',
-  scrim: 'rgba(0, 0, 0, 0.55)',
+  scrim: 'rgba(0, 0, 0, 0.56)',
 };
 
 export const BORDER_RADIUS = 10; // matches --radius-md; consumed by MUI shape
