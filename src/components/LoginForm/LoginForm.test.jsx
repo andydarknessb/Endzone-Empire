@@ -13,6 +13,15 @@ test('renders the login form fields and submit button', () => {
   expect(screen.getByRole('button', { name: 'Log In' })).toBeInTheDocument();
 });
 
+test('the submit button is the house MUI Button, not the legacy .btn class', () => {
+  renderWithProviders(<LoginForm />);
+
+  const submitButton = screen.getByRole('button', { name: 'Log In' });
+  expect(submitButton).toHaveAttribute('type', 'submit');
+  expect(submitButton.className).toMatch(/MuiButton-root/);
+  expect(submitButton.className).not.toMatch(/\bbtn\b/);
+});
+
 test('does not show an error alert when there is no loginMessage', () => {
   renderWithProviders(<LoginForm />, { state: { errors: { loginMessage: '' } } });
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
