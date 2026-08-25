@@ -161,33 +161,38 @@ describe('LeagueRules', () => {
         owner_username: 'alice',
         ownerTeamId: 1,
         ownerTeamName: 'Ridge Runners',
-        co_commissioners: [{ user_id: 9, username: 'bob', teamId: 2, teamName: 'Harbor Hawks' }],
+        co_commissioners: [{ teamId: 2, teamName: 'Harbor Hawks' }],
       }),
     });
     renderPage();
 
     // This page is read by every member, so the officials it names are named
-    // by Team; their usernames used to be the label (#113 criterion 4).
+    // by Team; their usernames used to be the label (#113 criterion 4), and
+    // since #324 a member's payload carries no account to fall back to.
     expect(await screen.findByText('Ridge Runners · commissioner')).toBeInTheDocument();
     expect(screen.getByText('Harbor Hawks · co-commissioner')).toBeInTheDocument();
     expect(screen.queryByText(/alice/)).not.toBeInTheDocument();
     expect(screen.queryByText(/bob/)).not.toBeInTheDocument();
   });
 
-  it('names a co-commissioner who has left the league as a former manager', async () => {
+  it('lists no official for a grant that no longer names a Team', async () => {
     // The grant outlives the team: #112 joins LEFT so revoking it stays
-    // possible, and the entry reads back with null Team identity.
+    // possible, and the entry reads back with null Team identity. #324 ruled
+    // that an official is named by Team here or not at all, so this one is not
+    // named at all; the commissioner who can revoke it sees it in Commissioner
+    // tools, which is the only place the revoke lives.
     mockRequests({
       leagueRow: league({
         owner_username: 'alice',
         ownerTeamId: 1,
         ownerTeamName: 'Ridge Runners',
-        co_commissioners: [{ user_id: 9, username: 'bob', teamId: null, teamName: null }],
+        co_commissioners: [{ user_id: 9, teamId: null, teamName: null }],
       }),
     });
     renderPage();
 
-    expect(await screen.findByText('Former manager · co-commissioner')).toBeInTheDocument();
+    expect(await screen.findByText('Ridge Runners · commissioner')).toBeInTheDocument();
+    expect(screen.queryByText('Former manager · co-commissioner')).not.toBeInTheDocument();
   });
 
   it('names a commissioner who has left their own league as a former manager', async () => {

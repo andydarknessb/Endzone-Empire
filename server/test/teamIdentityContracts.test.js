@@ -144,9 +144,24 @@ test('league detail: the league creator and the co-commissioners carry Team iden
   assert.equal(res.body.league.ownerTeamName, VIEWER.teamName);
   assert.equal(res.body.league.owner_id, VIEWER.userId, 'the legacy creator account field survives');
   assert.equal(res.body.league.owner_username, 'u42');
+  // This viewer is a commissioner (the fake answers the EXISTS predicate), so
+  // the roster carries the account id that revoke is shaped around beside the
+  // Team identity. The account NAME survives nowhere: #324 ruled that role
+  // disclosure is no exception to the Team identity rule, so the roster is
+  // rendered by Team on every surface and there is no username to render.
   assert.deepEqual(res.body.league.co_commissioners, [
-    { user_id: OTHER.userId, username: 'u43', teamId: OTHER.teamId, teamName: OTHER.teamName },
+    // grantedAt rides with the id: Team identity does not identify a GRANT on
+    // its own, since duplicate Team names are valid identity. Null here
+    // because this fixture predates the column, and null rather than absent so
+    // a consumer can read it unconditionally.
+    { user_id: OTHER.userId, grantedAt: null, teamId: OTHER.teamId, teamName: OTHER.teamName },
   ]);
+  // The same fact, told to every member off the Team identity they hold: the
+  // grant names OTHER's team, so that team and no other is flagged.
+  assert.deepEqual(
+    res.body.teams.map((team) => [team.teamId, team.is_co_commissioner]),
+    [[VIEWER.teamId, false], [OTHER.teamId, true]]
+  );
   const [leagueQuery] = fake.matching(/AS "owner_username"/);
   assert.match(leagueQuery.text, /AS "ownerTeamId"/);
   const [coCommissionerQuery] = fake.matching(/^SELECT "league_commissioners"\."user_id"/);
