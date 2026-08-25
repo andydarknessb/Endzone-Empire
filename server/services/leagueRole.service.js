@@ -126,7 +126,8 @@ async function isLeagueOwner(db, leagueId, userId) {
  */
 async function listCoCommissioners(db, leagueId) {
   const result = await db.query(
-    `SELECT "league_commissioners"."user_id", "users"."username",
+    `SELECT "league_commissioners"."user_id", "league_commissioners"."created_at",
+            "users"."username",
             ${teamIdentityColumns()}
        FROM "league_commissioners"
        JOIN "users" ON "users"."id" = "league_commissioners"."user_id"
@@ -152,10 +153,23 @@ async function listCoCommissioners(db, leagueId) {
  * A commissioner additionally gets `user_id`, because the endpoints behind the
  * grant and revoke UI are account-shaped (POST /co-commissioners takes a
  * `userId`, DELETE names one in the path) and a commissioner cannot revoke
- * without it. That is exactly the shape `invite_code` already has on the same
- * response, and it rides the same `is_commissioner` check in the same place.
+ * without it. That is the same viewer test `invite_code` is stripped by on the
+ * same response, decided on the same boolean an adjacent line below - though
+ * by argument rather than by `delete`, which is the safer of the two forms
+ * because it defaults NARROW: a caller that forgets to say who is asking gets
+ * the view that leaks nothing, where a forgotten `delete` leaks everything.
  * The account NAME is not part of what grant and revoke need, so it rides for
  * nobody; the roster is rendered by Team on every surface.
+ *
+ * `grantedAt` rides with the id, and is the one thing besides the Team that
+ * tells two grants apart. It has to exist because Team identity does NOT
+ * guarantee uniqueness: `teams.name` carries no unique constraint and
+ * CONTEXT.md blesses duplicates outright ("a duplicate Team name is still
+ * valid identity"), so a roster CAN hold two entries a commissioner cannot
+ * otherwise distinguish - and the ruling still requires that they see enough
+ * to revoke the right one. It is a fact about the grant rather than about the
+ * account, so it is no exception to the Team identity rule, and it is
+ * commissioner-conditional only because a member has no revoke to aim.
  *
  * The two views also differ on a grant whose Team is gone. It has no Team
  * identity to show, so it cannot appear in a member-visible view at all - but
@@ -166,7 +180,7 @@ function serializeCoCommissioners(rows, { isCommissioner = false } = {}) {
   return (rows || [])
     .filter((row) => isCommissioner || row.teamId != null)
     .map((row) => ({
-      ...(isCommissioner ? { user_id: row.user_id } : {}),
+      ...(isCommissioner ? { user_id: row.user_id, grantedAt: row.created_at ?? null } : {}),
       teamId: row.teamId == null ? null : row.teamId,
       teamName: row.teamName == null ? null : row.teamName,
     }));

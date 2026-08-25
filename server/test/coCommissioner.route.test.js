@@ -18,6 +18,7 @@ app.use(express.json());
 app.use('/api/league', leagueRouter);
 
 const OWNER_ID = 7;
+const GRANTED_AT = '2026-08-12T10:00:00.000Z';
 
 /**
  * Mock client with a regex -> handler SQL dispatch table. `overrides` are
@@ -41,7 +42,7 @@ function withMockClient(t, overrides = []) {
     // notification fan-out's read); what leaves the server is the serialized
     // roster, which is what the assertions below check.
     [/FROM "league_commissioners" JOIN "users"/, () => ({
-      rows: [{ user_id: 42, username: 'alice', teamId: 11, teamName: "Alice's Team" }],
+      rows: [{ user_id: 42, username: 'alice', created_at: GRANTED_AT, teamId: 11, teamName: "Alice's Team" }],
     })],
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
@@ -83,7 +84,7 @@ test('the owner can promote a league member to co-commissioner', async (t) => {
   // account id grant and revoke are built on, beside Team identity, and no
   // username on any path.
   assert.deepEqual(response.body.coCommissioners, [
-    { user_id: 42, teamId: 11, teamName: "Alice's Team" },
+    { user_id: 42, grantedAt: GRANTED_AT, teamId: 11, teamName: "Alice's Team" },
   ]);
   assert.ok(calls.some((sql) => /^INSERT INTO "league_commissioners"/.test(sql)));
   assert.ok(calls.some((sql) => /^INSERT INTO "transactions"/.test(sql)));
@@ -97,6 +98,12 @@ test('the owner can revoke a co-commissioner', async (t) => {
   const response = await del(OWNER_ID, 42);
 
   assert.equal(response.status, 200);
+  // #324: the same one shape as the grant above. Asserted on BOTH bodies and
+  // not just the grant's, because "every path serializes" is the claim, and a
+  // claim tested on one of two paths is tested on neither.
+  assert.deepEqual(response.body.coCommissioners, [
+    { user_id: 42, grantedAt: GRANTED_AT, teamId: 11, teamName: "Alice's Team" },
+  ]);
   assert.ok(calls.some((sql) => /^DELETE FROM "league_commissioners"/.test(sql)));
   assert.ok(calls.includes('COMMIT'));
   // The activity log names the revoked member's Team, resolved by the roles module.

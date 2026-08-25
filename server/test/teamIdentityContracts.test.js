@@ -150,7 +150,11 @@ test('league detail: the league creator and the co-commissioners carry Team iden
   // disclosure is no exception to the Team identity rule, so the roster is
   // rendered by Team on every surface and there is no username to render.
   assert.deepEqual(res.body.league.co_commissioners, [
-    { user_id: OTHER.userId, teamId: OTHER.teamId, teamName: OTHER.teamName },
+    // grantedAt rides with the id: Team identity does not identify a GRANT on
+    // its own, since duplicate Team names are valid identity. Null here
+    // because this fixture predates the column, and null rather than absent so
+    // a consumer can read it unconditionally.
+    { user_id: OTHER.userId, grantedAt: null, teamId: OTHER.teamId, teamName: OTHER.teamName },
   ]);
   // The same fact, told to every member off the Team identity they hold: the
   // grant names OTHER's team, so that team and no other is flagged.

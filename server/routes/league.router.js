@@ -382,9 +382,10 @@ router.get('/:id', async (req, res) => {
     if (!league.is_commissioner) delete league.invite_code;
     // Derived from the ROWS rather than from what this viewer was served, so
     // the flag says the same thing to a member as to a commissioner: a team is
-    // flagged exactly when a grant names it. `id` is the column the sibling
-    // viewerTeamIdOf matches on just below, and the same query selects it as
-    // `teamId`, so the two answers cannot disagree.
+    // flagged exactly when a grant names it. `id` is what the roster's teamId
+    // aliases in the very same query (teamIdentityColumns spells the alias, so
+    // they cannot drift), which is why matching on it here is matching on Team
+    // identity and not on a legacy column that happens to be nearby.
     const grantedTeamIds = coCommissionerTeamIds(coCommissionerRows);
     const teams = teamsResult.rows.map((team) => ({
       ...team,

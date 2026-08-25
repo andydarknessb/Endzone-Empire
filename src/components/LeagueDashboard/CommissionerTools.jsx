@@ -132,6 +132,38 @@ function PlayerSearchField({ label, helperText, disabled, onSelect }) {
   );
 }
 
+/** When a grant was made, for the roster's secondary line. Null when absent. */
+function grantedLabel(grantedAt) {
+  if (!grantedAt) return null;
+  const date = new Date(grantedAt);
+  return Number.isNaN(date.getTime()) ? null : `Co-commissioner since ${date.toLocaleDateString()}`;
+}
+
+/**
+ * The accessible (and tooltip) name of one grant's revoke control.
+ *
+ * Team identity leads, and then two things widen it, because Team identity
+ * alone does NOT identify a grant. `teams.name` has no unique constraint and
+ * CONTEXT.md blesses duplicates outright, so two co-commissioners can share a
+ * Team name permanently, and a grant that outlived its team has no name at
+ * all; both leave a commissioner with two identical destructive buttons.
+ *
+ * The grant date is the meaningful half and is visible on the row beside this.
+ * The ordinal is the guaranteed half: two grants made the same day would still
+ * collide once the date is rendered to day precision, and a control that
+ * destroys something must be identifiable in every case rather than in most.
+ * `Remove ... tier ${i + 1}` further down this file already settles that an
+ * ordinal is how this file disambiguates a list of destructive controls.
+ *
+ * Naming the grant by its ACCOUNT would be the obvious fix and is the one
+ * thing forbidden here (#324); whether commissioner-only chrome may is #179.
+ */
+function revokeLabel(grant, index) {
+  const since = grantedLabel(grant.grantedAt);
+  const detail = since ? `${since.toLowerCase()}, ` : '';
+  return `Remove ${teamNameLabel(grant.teamName)} (${detail}grant ${index + 1}) as co-commissioner`;
+}
+
 // Promote/demote co-commissioners. Owner-only: a co-commissioner can run the
 // league but can't recruit more or unseat the ones the owner picked.
 function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
@@ -155,14 +187,14 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   // place it is still listed, because this card is the only place it can be
   // revoked and it leaves the member-visible roster entirely.
   //
-  // Known limit of that, deliberately left: TWO team-less grants at once read
-  // identically, so a commissioner can see there are two but not which is
-  // which. Nothing left in the payload distinguishes them except the account
-  // id, and whether commissioner-only chrome may show one is #179, which #324
-  // put out of scope. An ordinal would make the controls distinct without
-  // making them meaningful, so it is not worth the copy. The state is brief by
-  // construction (it lasts until the removed team's grant is revoked) and the
-  // click still revokes the row it belongs to, not a matched-by-name one.
+  // Losing the username cost this card its guarantee that two rows read
+  // differently, in TWO states and not one. A team-less grant has no name at
+  // all, which is brief. Two co-commissioners whose Teams share a NAME is the
+  // one that matters: `teams.name` has no unique constraint and CONTEXT.md
+  // blesses duplicates ("a duplicate Team name is still valid identity"), so
+  // that state is permanent and the league did nothing wrong to reach it.
+  // revokeLabel above is what answers both; see its comment for why it carries
+  // a date and an ordinal rather than the account that used to do the job.
   const coCommissioners = league.co_commissioners || [];
   // Sanctioned direct owner_id comparison: granting a co-commissioner is one
   // of the three owner-shaped actions leagueRole.service's header enumerates,
@@ -210,14 +242,14 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
       </Typography>
       {coCommissioners.length > 0 ? (
         <List dense sx={{ bgcolor: 'background.default', borderRadius: 1, mb: 1 }}>
-          {coCommissioners.map((c) => (
+          {coCommissioners.map((c, index) => (
             <ListItem
               key={c.user_id}
               secondaryAction={
-                <Tooltip title={`Remove ${teamNameLabel(c.teamName)} as co-commissioner`}>
+                <Tooltip title={revokeLabel(c, index)}>
                   <IconButton
                     edge="end"
-                    aria-label={`Remove ${teamNameLabel(c.teamName)} as co-commissioner`}
+                    aria-label={revokeLabel(c, index)}
                     onClick={() => setRevokeTarget(c)}
                   >
                     {/* Not a delete: they keep their team, they just lose the
@@ -228,7 +260,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
                 </Tooltip>
               }
             >
-              <ListItemText primary={teamNameLabel(c.teamName)} />
+              <ListItemText primary={teamNameLabel(c.teamName)} secondary={grantedLabel(c.grantedAt)} />
             </ListItem>
           ))}
         </List>
@@ -264,7 +296,18 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
       )}
 
       <Dialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)}>
-        <DialogTitle>Remove {teamNameLabel(revokeTarget?.teamName)} as co-commissioner?</DialogTitle>
+        {/* Guarded on the TARGET, not just on its Team name. MUI keeps the
+            dialog's children mounted through the exit transition and
+            handleRevoke clears the target before awaiting, so an unguarded
+            teamNameLabel(revokeTarget?.teamName) renders "Former manager" as
+            the dialog fades - turning "nobody is selected" into a plausible
+            identity, which is the one misuse src/lib/teamIdentity.js's
+            docstring calls out by name. */}
+        <DialogTitle>
+          {revokeTarget
+            ? `Remove ${teamNameLabel(revokeTarget.teamName)} as co-commissioner?`
+            : 'Remove as co-commissioner?'}
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>
             They keep their team and stay in the league, but lose all commissioner powers.

@@ -860,7 +860,7 @@ test("names each grant's Team from the payload rather than re-joining on account
   // card read the payload rather than rebuilding a null.
   const grantRow = screen
     .getAllByRole('listitem')
-    .find((item) => within(item).queryByRole('button', { name: 'Remove Deputy FC as co-commissioner' }));
+    .find((item) => within(item).queryByRole('button', { name: 'Remove Deputy FC (grant 1) as co-commissioner' }));
   expect(grantRow).toBeDefined();
   expect(within(grantRow).getByText('Deputy FC')).toBeInTheDocument();
   // #324: the roster is displayed by Team here too. This fixture still carries
@@ -881,11 +881,50 @@ test('a grant with no Team is still listed and still revocable', async () => {
     league: league({ co_commissioners: [{ user_id: 2, teamId: null, teamName: null }] }),
   });
 
-  await userEvent.click(screen.getByRole('button', { name: 'Remove Former manager as co-commissioner' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Remove Former manager (grant 1) as co-commissioner' }));
   await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
   await waitFor(() =>
     expect(apiClient.delete).toHaveBeenCalledWith('/api/league/1/co-commissioners/2')
+  );
+});
+
+// #324, the case that outlives every other: teams.name has no unique
+// constraint and CONTEXT.md blesses duplicates, so two grants can share a Team
+// name FOREVER. The username used to tell them apart for free. If both revoke
+// controls end up with one name, getByRole throws on the ambiguity and the
+// commissioner has the same problem the test does.
+test('two co-commissioners with identically named Teams get distinguishable revoke controls', async () => {
+  apiClient.delete.mockResolvedValue({ data: { coCommissioners: [] } });
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({
+      co_commissioners: [
+        { user_id: 2, grantedAt: '2026-08-12T10:00:00.000Z', teamId: 2, teamName: 'The Ringers' },
+        { user_id: 3, grantedAt: '2026-08-19T10:00:00.000Z', teamId: 3, teamName: 'The Ringers' },
+      ],
+    }),
+  });
+
+  const controls = screen.getAllByRole('button', { name: /as co-commissioner$/ });
+  expect(controls).toHaveLength(2);
+  const names = controls.map((b) => b.getAttribute('aria-label'));
+  expect(new Set(names).size).toBe(2);
+  // Both still LEAD with the Team, so the accessible name contains the visible
+  // label; what follows it is what makes the pair distinct.
+  for (const name of names) expect(name).toMatch(/^Remove The Ringers \(/);
+
+  // And the grant date is on the row itself, so the disambiguation is visible
+  // and not only announced.
+  expect(screen.getAllByText(/^Co-commissioner since /)).toHaveLength(2);
+
+  // The second control revokes the SECOND grant, not the first with a matching
+  // name - the failure a name-matched control would produce.
+  await userEvent.click(controls[1]);
+  await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/league/1/co-commissioners/3')
   );
 });
 
@@ -923,7 +962,7 @@ test('an existing co-commissioner is listed and can be revoked after confirming'
     league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
-  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team as co-commissioner" }));
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team (grant 1) as co-commissioner" }));
   await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
   await waitFor(() =>
@@ -939,7 +978,7 @@ test('cancelling the revoke dialog leaves the co-commissioner in place', async (
     league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
-  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team as co-commissioner" }));
+  await userEvent.click(screen.getByRole('button', { name: "Remove Bob's Team (grant 1) as co-commissioner" }));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
   expect(apiClient.delete).not.toHaveBeenCalled();

@@ -22,8 +22,13 @@ app.use('/api/league', leagueRouter);
 // second is why listCoCommissioners joins LEFT - a grant briefly outlives the
 // team when a commissioner removes the team before revoking the role - and it
 // has no Team identity to show a member.
-const GRANT_WITH_TEAM = { user_id: 42, username: 'alice', teamId: 11, teamName: "Alice's Team" };
-const GRANT_WITHOUT_TEAM = { user_id: 43, username: 'ghost', teamId: null, teamName: null };
+const GRANTED_AT = '2026-08-12T10:00:00.000Z';
+const GRANT_WITH_TEAM = {
+  user_id: 42, username: 'alice', created_at: GRANTED_AT, teamId: 11, teamName: "Alice's Team",
+};
+const GRANT_WITHOUT_TEAM = {
+  user_id: 43, username: 'ghost', created_at: GRANTED_AT, teamId: null, teamName: null,
+};
 
 function mockLeagueDetail(t, { isCommissioner = true, coCommissioners = [] } = {}) {
   const seen = {};
@@ -112,15 +117,18 @@ test('GET league detail gives a commissioner the invite code and the ids grant a
   assert.equal(response.status, 200);
   assert.equal(response.body.league.is_commissioner, true);
   assert.equal(response.body.league.invite_code, 'invite');
-  // The account id rides commissioner-conditionally, by the same mechanism and
-  // in the same place as invite_code: DELETE /co-commissioners/:userId is
-  // account-shaped, so a commissioner cannot revoke without it. The username
-  // is not part of what grant and revoke need and does not ride at all.
+  // The account id rides commissioner-conditionally, decided on the same
+  // boolean as invite_code an adjacent line below: DELETE
+  // /co-commissioners/:userId is account-shaped, so a commissioner cannot
+  // revoke without it. The username is not part of what grant and revoke need
+  // and does not ride at all. grantedAt rides with the id because Team
+  // identity does not identify a grant on its own (duplicate Team names are
+  // valid), and a commissioner has to know which one they are revoking.
   assert.deepEqual(response.body.league.co_commissioners, [
-    { user_id: 42, teamId: 11, teamName: "Alice's Team" },
+    { user_id: 42, grantedAt: GRANTED_AT, teamId: 11, teamName: "Alice's Team" },
     // A grant whose Team is gone still reaches the commissioner who has to
     // revoke it, even though there is no Team identity left to name it by.
-    { user_id: 43, teamId: null, teamName: null },
+    { user_id: 43, grantedAt: GRANTED_AT, teamId: null, teamName: null },
   ]);
   // The promote list is account-shaped for the same reason.
   assert.match(seen.teamsQuery, /"teams"\."owner_id"/);
