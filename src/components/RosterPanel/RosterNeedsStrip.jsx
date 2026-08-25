@@ -117,7 +117,7 @@ function RosterNeedsStrip({
             />
           ))}
           {hiddenChips > 0 && (
-            <Chip size="small" variant="outlined" label={`+${hiddenChips} more`} data-testid="roster-need-chip" />
+            <Chip size="small" variant="outlined" label={`+${hiddenChips} more`} />
           )}
         </Stack>
       )}

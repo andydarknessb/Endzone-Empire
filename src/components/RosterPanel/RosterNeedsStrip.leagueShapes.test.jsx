@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import RosterNeedsStrip from './RosterNeedsStrip';
 
 /**
@@ -34,7 +34,9 @@ const pick = (pickNumber, position) => ({
  * The Need chips, in the order the strip renders them. A non-clickable MUI
  * Chip carries no role, so the strip gives each one a stable test id.
  */
-const needLabels = () => screen.getAllByTestId('roster-need-chip').map((chip) => chip.textContent);
+const needLabels = () => within(screen.getByLabelText('Roster needs'))
+  .getAllByTestId('roster-need-chip')
+  .map((chip) => chip.textContent);
 
 const renderShape = (props) => render(
   <RosterNeedsStrip picks={[]} benchCount={0} irCount={0} irDraftable={false} maxChips={99} {...props} />
