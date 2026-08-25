@@ -369,7 +369,11 @@ test('saving keeper settings preserves and continues guarding unsaved assignment
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Save keeper settings?' })).not.toBeInTheDocument());
   expect(keeperLoads).toBe(1);
   expect(screen.getByLabelText('Round')).toHaveTextContent('2');
-  await act(async () => {});
+  // The settings save clears its own dirty flag and leaves the assignment one
+  // standing, and the panel leaves its saving state once the follow-up refetch
+  // has settled. Waiting for that (the idiom the reload-once test above uses)
+  // keeps the dialog below reading off a settled panel.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save keeper settings' })).toBeEnabled());
 
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   expect(screen.getByRole('dialog', { name: /You have unsaved changes/ })).toBeInTheDocument();

@@ -79,7 +79,10 @@ describe('DraftSimulator', () => {
     try {
       render(<DraftSimulator />);
       fireEvent.click(screen.getByRole('button', { name: 'Start mock draft' }));
-      await act(async () => {});
+      // findByText is the wait itself: it settles the pool fetch inside its own
+      // act-wrapped loop and names what we are waiting for. Its fake-timer
+      // polling only inches the clock forward here, and the CPU timer asserted
+      // below is not scheduled until the user picks.
       await screen.findByText('On the clock');
 
       draftFirstAvailable();

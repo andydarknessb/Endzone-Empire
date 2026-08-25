@@ -129,26 +129,35 @@ describe('the panel and the history agree, every round (acceptance criterion 7)'
     await startDraft();
     const simToMyPick = screen.getByRole('button', { name: 'Sim to my pick' });
 
+    // The draft is played in segments that each end on a checkpoint, so the
+    // agreement check below sits at the top level of the loop rather than
+    // behind an if: it runs at each checkpoint, after that round's user pick
+    // and before simming on to the next round. The last checkpoint is the
+    // final round, so the segments together cover the whole draft.
     const checkpoints = [4, 9, 15];
-    for (let round = 1; round <= 15; round++) {
-      showTab('Players');
-      const button = firstDraftButton();
-      expect(button.disabled).toBe(false);
-      fireEvent.click(button);
-
-      if (checkpoints.includes(round)) {
-        showTab('My team');
-        const panel = panelPlacements();
-        const history = historyPlacements();
-        // Every pick the user has made is tagged, and both views name the same
-        // slot for it. A later pick can re-home an earlier one out of FLEX, so
-        // this has to hold at every checkpoint, not just at the end.
-        expect(history.size).toBe(round);
-        expect(panel.size).toBe(round);
-        expect(history).toEqual(panel);
+    const finalRound = checkpoints[checkpoints.length - 1];
+    let round = 0;
+    for (const checkpoint of checkpoints) {
+      while (round < checkpoint) {
+        round += 1;
+        showTab('Players');
+        const button = firstDraftButton();
+        expect(button.disabled).toBe(false);
+        fireEvent.click(button);
+        if (round < checkpoint) fireEvent.click(simToMyPick);
       }
 
-      if (round < 15) fireEvent.click(simToMyPick);
+      showTab('My team');
+      const panel = panelPlacements();
+      const history = historyPlacements();
+      // Every pick the user has made is tagged, and both views name the same
+      // slot for it. A later pick can re-home an earlier one out of FLEX, so
+      // this has to hold at every checkpoint, not just at the end.
+      expect(history.size).toBe(round);
+      expect(panel.size).toBe(round);
+      expect(history).toEqual(panel);
+
+      if (round < finalRound) fireEvent.click(simToMyPick);
     }
   });
 
