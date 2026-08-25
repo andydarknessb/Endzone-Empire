@@ -392,9 +392,11 @@ describe('help sits with the control it explains', () => {
     expect(switches).toHaveLength(2);
 
     for (const control of switches) {
-      // What a screen reader reads after the switch's own name. Asserting the
-      // accessible description covers both halves of the old check: that
-      // aria-describedby points somewhere, and that the somewhere says this.
+      // toHaveAccessibleDescription is satisfied by a title attribute too, so
+      // it alone would not hold the mechanism the old check asserted. Keep
+      // both: the description reaches the reader, and it arrives via
+      // aria-describedby rather than a tooltip.
+      expect(control).toHaveAttribute('aria-describedby');
       expect(control).toHaveAccessibleDescription(/Turn on Autodraft/);
     }
   });
