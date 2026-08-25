@@ -202,11 +202,18 @@ one people skip, because it feels like testing something you already
 believe: **the mutant against the OLD assertions**. Without it you have a
 new test that passes and no evidence the old one was insufficient.
 
-Delete the guard, do not just disable the refusal. Removing the throw
-outright makes the call succeed, which any test catches and which
-therefore proves nothing about your new assertion. The mutation this rule
-is about keeps the refusal and moves it: same status, same body, work
-already done.
+**Move the guard, do not delete it.** Deleting the throw makes the call
+succeed, so the refusal disappears and any test in the file catches it.
+That red tells you nothing about your new assertion, because nothing
+about it was exercised. The mutation this rule is about keeps the refusal
+exactly as it was and changes only where it sits: same status, same body,
+work already done.
+
+Deleting a guard is only a valid mutation when a SECOND guard still
+refuses, so the response survives. That is the case in the avatar family
+above, where an identical 403 is thrown both before the upload and after
+the UPDATE: there, removing the first one leaves the refusal intact and
+is exactly the right mutation. If in doubt, move it.
 
 And check that your assertion is actually in the file. #274's own audit
 edited one test with a scripted string replace that silently matched
