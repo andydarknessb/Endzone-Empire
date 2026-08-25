@@ -493,14 +493,17 @@ router.delete('/:id', async (req, res) => {
 
 // POST /api/league/:id/co-commissioners — owner grants commissioner powers to
 // a member. Owner-only: a co-commissioner can run the league but can't recruit
-// more co-commissioners or unseat the ones the owner picked.
+// more co-commissioners or unseat the ones the owner picked. The target is
+// named by Team (`teamId`), never by another manager's account id: the client
+// no longer holds one now that teams[] is Team identity only, so the server
+// resolves the account behind the team privately (#343, #115).
 router.post('/:id/co-commissioners', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const targetUserId = intParam(req.body && req.body.userId);
-  if (!targetUserId) return res.status(400).json({ error: 'userId must be a positive integer' });
+  const targetTeamId = intParam(req.body && req.body.teamId);
+  if (!targetTeamId) return res.status(400).json({ error: 'teamId must be a positive integer' });
   try {
-    res.json(await grantCoCommissioner({ leagueId, userId: req.user.id, targetUserId }));
+    res.json(await grantCoCommissioner({ leagueId, userId: req.user.id, targetTeamId }));
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error granting co-commissioner', error);

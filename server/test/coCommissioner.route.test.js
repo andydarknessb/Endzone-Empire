@@ -33,7 +33,9 @@ function withMockClient(t, overrides = []) {
     [/^COMMIT$/, () => ({ rows: [] })],
     [/^ROLLBACK$/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, owner_id: OWNER_ID, name: 'Sunday Ballers' }] })],
-    [/FROM "teams" JOIN "users"/, () => ({ rows: [{ id: 11, username: 'alice' }] })],
+    // Grant resolves the target Team to the account behind it (#343): the
+    // client sends teamId, the server reads the team's owner_id here.
+    [/FROM "teams" JOIN "users"/, () => ({ rows: [{ owner_id: 42, username: 'alice' }] })],
     [/^INSERT INTO "league_commissioners"/, () => ({ rows: [{ user_id: 42 }] })],
     [/^DELETE FROM "league_commissioners"/, () => ({ rows: [{ user_id: 42 }] })],
     // The revoked member's Team, looked up through the roles module's requireMember.
@@ -76,7 +78,8 @@ const del = (userId, targetId) => request(app)
 test('the owner can promote a league member to co-commissioner', async (t) => {
   const calls = withMockClient(t);
 
-  const response = await post(OWNER_ID, { userId: 42 });
+  // The client names the target by Team; the server resolves team 11 -> user 42.
+  const response = await post(OWNER_ID, { teamId: 11 });
 
   assert.equal(response.status, 200);
   // #324: the roster leaves the server in ONE shape wherever it leaves from.
@@ -127,7 +130,7 @@ const NOTIFY = /^INSERT INTO "notifications"/;
 test('a co-commissioner cannot promote anyone — that stays with the owner', async (t) => {
   const calls = withMockClient(t);
 
-  const response = await post(99, { userId: 42 });
+  const response = await post(99, { teamId: 11 });
 
   assert.equal(response.status, 403);
   assert.match(response.body.error, /only the league owner/);
@@ -152,7 +155,7 @@ test('a co-commissioner cannot revoke another co-commissioner', async (t) => {
 test('promoting a non-member is rejected', async (t) => {
   const calls = withMockClient(t, [[/FROM "teams" JOIN "users"/, () => ({ rows: [] })]]);
 
-  const response = await post(OWNER_ID, { userId: 4242 });
+  const response = await post(OWNER_ID, { teamId: 4242 });
 
   assert.equal(response.status, 400);
   assert.match(response.body.error, /not a member of this league/);
@@ -163,9 +166,12 @@ test('promoting a non-member is rejected', async (t) => {
 });
 
 test('promoting the owner is rejected — they already hold the role', async (t) => {
-  const calls = withMockClient(t);
+  // The chosen team resolves to the creator's own account, so grant refuses it.
+  const calls = withMockClient(t, [
+    [/FROM "teams" JOIN "users"/, () => ({ rows: [{ owner_id: OWNER_ID, username: `u${OWNER_ID}` }] })],
+  ]);
 
-  const response = await post(OWNER_ID, { userId: OWNER_ID });
+  const response = await post(OWNER_ID, { teamId: 11 });
 
   assert.equal(response.status, 400);
   assert.match(response.body.error, /already the commissioner/);
@@ -175,7 +181,7 @@ test('promoting the owner is rejected — they already hold the role', async (t)
 test('promoting an existing co-commissioner conflicts', async (t) => {
   const calls = withMockClient(t, [[/^INSERT INTO "league_commissioners"/, () => ({ rows: [] })]]);
 
-  const response = await post(OWNER_ID, { userId: 42 });
+  const response = await post(OWNER_ID, { teamId: 11 });
 
   assert.equal(response.status, 409);
   assert.match(response.body.error, /already a co-commissioner/);
@@ -204,10 +210,10 @@ test('revoking someone who is not a co-commissioner 404s', async (t) => {
   assert.equal(calls.filter((sql) => sql === 'COMMIT').length, 0); // complementary only
 });
 
-test('a non-integer userId is rejected before any database work', async (t) => {
+test('a non-integer teamId is rejected before any database work', async (t) => {
   const calls = withMockClient(t);
 
-  const response = await post(OWNER_ID, { userId: 'alice' });
+  const response = await post(OWNER_ID, { teamId: 'alice' });
 
   assert.equal(response.status, 400);
   assert.equal(calls.length, 0);

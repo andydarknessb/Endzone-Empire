@@ -214,12 +214,30 @@ async function requireOwner(client, { leagueId, userId, forUpdate = false }) {
   return league;
 }
 
-/** Owner grants commissioner powers to another member of the league. */
-async function grantCoCommissioner({ leagueId, userId, targetUserId }) {
+/**
+ * Owner grants commissioner powers to another member of the league, named by
+ * Team. The client identifies the grantee by `targetTeamId` (teams[] is Team
+ * identity only now, #343); the account behind that team is resolved HERE, so
+ * no shared payload ever carried it. Authorization stays account-shaped and
+ * private: requireOwner and the creator check below both compare account ids.
+ */
+async function grantCoCommissioner({ leagueId, userId, targetTeamId }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
+    // Resolve the Team to the account behind it, privately. The username rides
+    // into the activity-log detail (the same projection the notification
+    // fan-out reads), never onto a shared payload.
+    const member = await client.query(
+      `SELECT "teams"."owner_id", "users"."username"
+         FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
+        WHERE "teams"."league_id" = $1 AND "teams"."id" = $2`,
+      [leagueId, targetTeamId]
+    );
+    if (!member.rows[0]) throw new MembershipError(400, 'that team is not a member of this league');
+    const { owner_id: targetUserId, username } = member.rows[0];
+    const teamId = targetTeamId;
     // Sanctioned direct owner_id comparison, the second of the three in the
     // header: granting the role. The creator already holds it, so they can
     // never be a grantee, and the comparison genuinely is about the owner
@@ -227,14 +245,6 @@ async function grantCoCommissioner({ leagueId, userId, targetUserId }) {
     if (targetUserId === league.owner_id) {
       throw new MembershipError(400, 'the league owner is already the commissioner');
     }
-    const member = await client.query(
-      `SELECT "teams"."id", "users"."username"
-         FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
-        WHERE "teams"."league_id" = $1 AND "teams"."owner_id" = $2`,
-      [leagueId, targetUserId]
-    );
-    if (!member.rows[0]) throw new MembershipError(400, 'that user is not a member of this league');
-    const { id: teamId, username } = member.rows[0];
 
     const inserted = await client.query(
       `INSERT INTO "league_commissioners" ("league_id", "user_id", "granted_by")

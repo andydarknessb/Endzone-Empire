@@ -1001,23 +1001,35 @@ test('two co-commissioners with identically named Teams get distinguishable revo
   );
 });
 
-test('the owner promotes a member by user id and refreshes', async () => {
+test('the owner promotes a member by team id and refreshes', async () => {
   apiClient.post.mockResolvedValue({ data: { coCommissioners: [] } });
   const onRefresh = jest.fn();
-  renderTools({ isOwner: true, teams: withOwnerIds, onRefresh });
+  // Alice (teamId 1) created the league, so she is named by ownerTeamId and is
+  // never a candidate; the grant target is Bob's team, sent by teamId (#343).
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+    onRefresh,
+  });
 
   await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
   await userEvent.click(await screen.findByRole('option', { name: "Bob's Team" }));
   await userEvent.click(screen.getByRole('button', { name: 'Promote' }));
 
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/co-commissioners', { userId: 2 })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/co-commissioners', { teamId: 2 })
   );
   expect(onRefresh).toHaveBeenCalled();
 });
 
-test('the owner is never offered as a co-commissioner candidate', async () => {
-  renderTools({ isOwner: true, teams: withOwnerIds });
+test('the creator is never offered as a co-commissioner candidate', async () => {
+  // The creator is excluded by Team (ownerTeamId), not by account id (#343).
+  renderTools({
+    isOwner: true,
+    teams: withOwnerIds,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
 
   await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
 
@@ -1069,10 +1081,16 @@ test('cancelling the revoke dialog leaves the co-commissioner in place', async (
 });
 
 test('an already-promoted member drops out of the candidate list', () => {
+  // Alice (teamId 1) is the creator and Bob (teamId 2) is already a
+  // co-commissioner, so no team is left to promote and the picker disables.
   renderTools({
     isOwner: true,
     teams: withOwnerIds,
-    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
+    league: league({
+      ownerTeamId: 1,
+      ownerTeamName: "Alice's Team",
+      co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }],
+    }),
   });
 
   expect(screen.getByRole('combobox', { name: 'Add a co-commissioner' })).toHaveAttribute('aria-disabled', 'true');
