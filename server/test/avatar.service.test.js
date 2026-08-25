@@ -114,8 +114,13 @@ test('uploadTeamAvatar rejects a team the caller does not own', async (t) => {
     (err) => err.statusCode === 403
   );
   assert.equal(supabaseAdminModule.supabaseAdmin.uploaded.length, 0, 'nothing reached the bucket');
-  assert.equal(supabaseAdminModule.supabaseAdmin.removed.length, 0, 'no prior object was deleted');
   assert.equal(fake.matching(update('teams')).length, 0, 'the row was not updated');
+  // No `removed.length` assertion, deliberately. The ownership SELECT answers
+  // no rows here - that is what makes the caller a non-owner - so
+  // deleteAvatarObjects is called with undefined, destructures to two
+  // undefined urls and early-returns before touching storage
+  // (avatar.service.js:113-116). It reads 0 with the guard in place and with
+  // it moved, so it would be decoration next to the two counts that do bite.
 });
 
 test('uploadTeamAvatar stores the processed image and updates both columns', async (t) => {
@@ -189,8 +194,9 @@ test('removeTeamAvatar rejects a team the caller does not own', async (t) => {
   // the work would null the columns and delete the objects for real. The
   // storage delete is permanent and outside any transaction.
   assert.equal(fake.matching(update('teams')).length, 0, 'the columns were not cleared');
-  await new Promise((resolve) => setImmediate(resolve)); // deleteAvatarObjects is fire-and-forget
-  assert.equal(supabaseAdminModule.supabaseAdmin.removed.length, 0, 'no object was deleted');
+  // As above: no `removed.length` assertion, because the ownership SELECT
+  // answers no rows and deleteAvatarObjects early-returns on the undefined it
+  // is then handed, in both the correct and the mutated build.
 });
 
 test('removeTeamAvatar clears both columns and deletes storage objects', async (t) => {

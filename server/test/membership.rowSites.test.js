@@ -77,22 +77,35 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     // entry does not register the READS that sit between a gate and its first
     // write, and several services have some. Fully load-bearing today are
     // PUT /queue and the dropPlayer locked-team case, where nothing
-    // unregistered sits in between. At submitClaim, undoDrop and
+    // unregistered sits in between. At submitClaim, undoDrop, setLineup and
     // waiverSuggestions a moved gate still dies on an unregistered SELECT
-    // first, so those keep partial incidental protection and their counts are
-    // a floor rather than the whole proof. Registering those reads is the
+    // first, so those FOUR keep partial incidental protection and their counts
+    // are a floor rather than the whole proof. setLineup's is
+    // `SELECT 1 FROM "matchups" ... "final" = true`, which materializeLineup
+    // reaches through isFinalWeekForTeam and which only the MEMBER half of
+    // that test registers as an override. Registering these reads is the
     // follow-up; it is per-service fixture work, not one line.
     //
     // On the migration rule in helpers/fakePool.js: adding this line is
     // touching a hand-rolled fake, so the rule fires and this is a deliberate
-    // deviation from it rather than an oversight. Migrating would not be a
-    // like-for-like swap - this fake dispatches pool.query and a checked-out
-    // client through ONE function with no transaction state, while the helper
-    // enforces transactions and would start throwing on the BEGIN/COMMIT
-    // sequences all fourteen tests here rely on. That is a behaviour change to
-    // a suite this ticket is only meant to add assertions to. The one fake in
-    // this series that DID get migrated (commissionerAvatar.route.test.js) had
-    // no call log at all, so there was nothing to count without migrating.
+    // deviation from it rather than an oversight.
+    //
+    // The reason is NOT that the helper would throw on this suite's
+    // BEGIN/COMMIT sequences. It would not, and that claim stood here for a
+    // while before it was checked: the helper throws on a transactional
+    // statement only when it arrives via pool.query (fakePool.js:49), while an
+    // unmatched BEGIN or COMMIT on a checked-out client auto-answers (:57-58),
+    // and every service this file drives takes the client path - zero
+    // pool-level BEGINs across lineup, trade, draft and waiver.
+    //
+    // The actual reason is narrower. THE MIGRATION RULE EXISTS TO GET A CALL
+    // LOG, and this fake already has one; what migrating would buy on top is
+    // double-release detection and an opt-in assertClean(), neither of which
+    // this ticket needs. Set against that, it means rewriting override
+    // chaining, the `member` closure and the shared pool/client dispatch in a
+    // PR whose entire claim is that no fixture behaviour changed. The one fake
+    // in this series that WAS migrated (commissionerAvatar.route.test.js) had
+    // no call log at all, so migrating was the only way to count anything.
     [/^(INSERT INTO|UPDATE|DELETE FROM) /, () => ({ rows: [], rowCount: 1 })],
   ];
   const handlers = [...overrides, ...defaults];

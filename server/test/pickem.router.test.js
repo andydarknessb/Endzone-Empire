@@ -134,6 +134,20 @@ test('every Pick\'em route requires a signed-in caller', async () => {
 
 test('a non-member gets 403 from every Pick\'em route', async (t) => {
   const calls = mockPool(t, [[/FROM "teams" WHERE "league_id"/, () => ({ rows: [] })]]);
+  // #274: two things are needed before the INSERT count below means anything,
+  // and both were missing.
+  //
+  // A client-side world, because upsertPicks runs entirely on a checked-out
+  // client while mockPool registers handlers side 'pool' only: without it the
+  // service's first client statement hits fakePool's unexpected-query throw
+  // and the count is pinned at 0 in every build.
+  //
+  // And a slate that has NOT kicked off, because the shared default is week
+  // one with BUF|MIA already started. With that slate a membership check
+  // moved below the upsert still never inserts - it is refused by the kickoff
+  // lock first - so the count stays 0 and proves nothing. Dated a week out,
+  // the save genuinely lands and the count is what catches it.
+  mockClient(t, [[/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['BUF', 'MIA', NEXT_WEEK]]) })]]);
 
   const settings = await request(app)
     .get('/api/pickem/league/3/settings').set('Authorization', authed());
@@ -198,6 +212,7 @@ test('GET settings on a league that never enabled Pick\'em reports it off', asyn
 
 test('a plain member cannot change the settings', async (t) => {
   const calls = mockPool(t); // default: SELECT 1 FROM "leagues" returns no row
+  mockClient(t); // #274: putSettings writes on a client; see the non-member test above
   const res = await request(app)
     .put('/api/pickem/league/3/settings')
     .set('Authorization', authed())

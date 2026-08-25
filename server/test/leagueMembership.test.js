@@ -129,6 +129,14 @@ const refusal = (statusCode, message, reason) => (error) => {
   return true;
 };
 
+// #274, documented exemption covering every assertAdmissible refusal below
+// (no write count applies): assertAdmissible issues only SELECTs -
+// `SELECT 1 FROM "teams"` and a COUNT - and contains no write path at all
+// (leagueMembership.service.js:92-105). Its refusals come from joinability(),
+// a pure predicate evaluated before the first query. The INSERT INTO "teams"
+// this gate ultimately protects lives one level up in joinLeague, and the
+// joinLeague tests further down DO count it. What these tests pin instead is
+// refusal ORDERING between two reads, which is their actual subject.
 test('assertAdmissible: a fantasy league whose draft has started refuses 409 draft-started before any membership read', async () => {
   const { fake, client } = await world({ league: FANTASY_DRAFTING });
   await assert.rejects(
@@ -230,6 +238,12 @@ test('joinLeague: the admission rules apply on the way in (member, full, not joi
   for (const w of [member, full, drafting]) assert.equal(w.fake.matching(insert('teams')).length, 0);
 });
 
+// #274, documented exemption (a zero write count here would be WRONG): this
+// refusal is produced BY the mutation rather than by a guard above it. The
+// INSERT INTO "teams" is wrapped in try/catch and a 23505 is translated into
+// the 409 (leagueMembership.service.js:129-138), so the insert is supposed to
+// run and must be attempted for the case to exist at all. It is also the last
+// statement in the function, so there is no work a guard could be moved below.
 test('joinLeague: a 23505 from the insert (a racing join) surfaces as the already-a-member 409', async () => {
   const { client } = await world({
     league: FANTASY_PRE_DRAFT,

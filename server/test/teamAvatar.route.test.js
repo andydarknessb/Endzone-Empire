@@ -116,6 +116,14 @@ test('POST /api/team/:id/avatar rejects a non-image file with 400', async (t) =>
   assert.equal(fake.matching(update('teams')).length, 0, 'no avatar url was recorded');
 });
 
+// #274, documented exemption (no write or upload count needed): the cap is
+// multer's `limits: { fileSize }` (team.router.js:17-20), enforced during
+// multipart parsing. The refusal happens inside the avatarUpload wrapper
+// callback, which returns 400 on LIMIT_FILE_SIZE WITHOUT calling next(), so
+// the route handler that would call uploadTeamAvatar is never entered and
+// nothing but an in-memory buffer has been touched. There is no guard here to
+// sink below any work; moving the cap at all means moving it to a different
+// layer, which is a different test.
 test('POST /api/team/:id/avatar rejects a file over the size cap with 400', async (t) => {
   supabaseAdminModule.supabaseAdmin = mockStorage();
   t.mock.method(pool, 'query', async () => ({ rows: [{ avatar_url: null, avatar_static_url: null }] }));
@@ -191,6 +199,9 @@ test('DELETE /api/team/:id/avatar rejects a non-owner with 403', async (t) => {
 
   assert.equal(response.status, 403);
   assert.equal(fake.matching(update('teams')).length, 0, 'the columns were not cleared');
-  await new Promise((resolve) => setImmediate(resolve)); // deleteAvatarObjects is fire-and-forget
-  assert.equal(storage.removed.length, 0, 'no object was deleted from the bucket');
+  // No `removed.length` assertion: the ownership SELECT answers no rows, so
+  // deleteAvatarObjects early-returns on the undefined row in both the correct
+  // and the mutated build (avatar.service.js:113-116). The UPDATE count is the
+  // one that bites. `storage` is still installed per-test so this suite does
+  // not inherit whatever the previous test left on the shared module.
 });

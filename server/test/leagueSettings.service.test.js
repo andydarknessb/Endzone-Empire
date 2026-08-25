@@ -81,12 +81,20 @@ function fakeDb({
 /**
  * #274: a settings refusal must prove it changed nothing.
  *
- * The fake above ANSWERS both writes - DELETE FROM "keepers" and
- * UPDATE "leagues" - so a guard moved below them runs for real, gets rolled
- * back, and throws a byte-identical LeagueSettingsError. Several tests here
- * leaned on `db.firstWord().at(-1) === 'ROLLBACK'`, which is the no-COMMIT
- * trap wearing a different hat: ['BEGIN','SELECT','DELETE','UPDATE','ROLLBACK']
- * also ends in ROLLBACK.
+ * UPDATE "leagues" is the live half. The fake ANSWERS it, so a guard moved
+ * below it runs for real, gets rolled back, and throws a byte-identical
+ * LeagueSettingsError. Several tests here leaned on
+ * `db.firstWord().at(-1) === 'ROLLBACK'`, which is the no-COMMIT trap wearing
+ * a different hat: ['BEGIN','SELECT','DELETE','UPDATE','ROLLBACK'] also ends
+ * in ROLLBACK.
+ *
+ * DELETE FROM "keepers" is swept alongside it and is NOT load-bearing on a
+ * refusal path, which is worth stating rather than leaving to be assumed:
+ * keeperSettingsPlan returns clearAssignments: false on every branch where it
+ * also sets error (draftValidation.service.js:177-181), and the DELETE is
+ * gated on clearAssignments, so no refusal here can reach it however the guard
+ * is placed. It is in the pattern to catch a future refactor that decouples
+ * the two, not to catch a moved guard.
  *
  * Not applicable to the guard-in-WHERE refusals (the race losers), where the
  * UPDATE is SUPPOSED to run and the freeze predicate spliced into it is the

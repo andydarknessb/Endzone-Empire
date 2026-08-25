@@ -267,8 +267,14 @@ test("draft: POST order (a write under /league/:id) 409s for a pick'em-only leag
   // #274, matching the start-draft sibling below: the route opens its own
   // transaction before writing draft positions, so a transaction that never
   // began is proof no write inside it could have run.
+  //
+  // An UPDATE "teams" count would add nothing and is deliberately absent.
+  // Measured with the gate removed: BEGIN 1, UPDATE "teams" 0 - because the
+  // handler's next statement is a FOR UPDATE league select that no pattern in
+  // mockPool answers, so the run dies there and never reaches the write loop.
+  // The write count is therefore 0 in both builds. BEGIN is 0 against 1, so
+  // BEGIN is the assertion.
   assert.equal(calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction was opened');
-  assert.equal(calls.filter((c) => /^UPDATE "teams"/.test(c.text)).length, 0, 'no draft position moved');
 });
 
 test("draft: GET keepers under /league/:id still answers for a pick'em-only league (writesOnly)", async (t) => {
@@ -498,16 +504,26 @@ test("commissioner: the six fantasy mutations 409 for a pick'em-only league", as
     const res = await request(routes)[method](path).set('Authorization', authed()).send(body);
     expectPickemOnly409(res, `${method.toUpperCase()} ${path}`);
   }
-  // #274. Six distinct write paths refused in one loop - lineup_entries,
-  // matchup scores, transactions_locked, team lock, FAAB and force-transaction
-  // - and the loop asserted only six response bodies. One sweep covers all of
-  // them, and names what ran if any of them does.
-  assert.deepEqual(
-    calls.filter((c) => /^(INSERT INTO|UPDATE|DELETE FROM) /.test(c.text)).map((c) => c.text),
-    [],
-    'not one of the six mutations reached a write'
+  // #274. The seam for these six is the TRANSACTION, not the write.
+  //
+  // A write-verb sweep here would be worthless and it is worth saying why,
+  // because it looks like the obvious assertion. mockPool answers the
+  // commissioner probe with is_commissioner: false, and the sibling test
+  // immediately below establishes what that costs: with the pick'em gate
+  // ABSENT, all six routes still refuse, 403 "only the commissioner can do
+  // this". So no write is reachable on any of the six whether this gate
+  // fires, moves or vanishes, and a sweep would read [] in every build.
+  //
+  // The BEGIN count is not pinned. Measured both ways: 0 here, and 6 in that
+  // sibling when the gate is absent, because each of the six opens its
+  // transaction before the commissioner probe refuses it. That difference is
+  // exactly the property under test - the gate answers before the service
+  // starts work - so it is the assertion, and the only one.
+  assert.equal(
+    calls.filter((c) => c.text === 'BEGIN').length,
+    0,
+    'not one of the six opened a transaction'
   );
-  assert.equal(calls.filter((c) => c.text === 'BEGIN').length, 0, 'and none opened a transaction');
 });
 
 test('commissioner: the same six pass through for a fantasy league (reach the service)', async (t) => {
