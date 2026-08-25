@@ -5,6 +5,10 @@ import {
   joinability,
   JOIN_REFUSAL_REASON,
   LEAGUE_PHASE,
+  removability,
+  REMOVE_REFUSAL_REASON,
+  REMOVE_REFUSAL_MESSAGES,
+  removeRefusalMessage,
   rosterActionForPhase,
 } from './leaguePhase';
 import fixture from './leaguePhase.fixture.json';
@@ -24,12 +28,21 @@ test.each(fixture.cases.map((c) => [c.name, c]))('fixture: %s', (_name, c) => {
   // A joinable answer carries no reason key at all; a refusal carries the
   // fixture's reason (null only for a missing row).
   expect(joinability(c.league)).toEqual(c.joinable ? { joinable: true } : { joinable: false, reason: c.reason });
+  // Removable is the mirror: a removable answer carries no reason, a refusal
+  // carries the fixture's removeReason.
+  expect(removability(c.league)).toEqual(c.removable ? { removable: true } : { removable: false, reason: c.removeReason });
 });
 
 test('the reason strings are the cross-side contract the fixture carries', () => {
   expect(JOIN_REFUSAL_REASON).toEqual({ DRAFT_STARTED: 'draft-started', SEASON_COMPLETE: 'season-complete' });
   const reasons = new Set(fixture.cases.map((c) => c.reason).filter(Boolean));
   expect([...reasons].sort()).toEqual(Object.values(JOIN_REFUSAL_REASON).sort());
+});
+
+test('the removal reason strings are the cross-side contract the fixture carries', () => {
+  expect(REMOVE_REFUSAL_REASON).toEqual({ DRAFT_STARTED: 'draft-started' });
+  const reasons = new Set(fixture.cases.map((c) => c.removeReason).filter(Boolean));
+  expect([...reasons].sort()).toEqual(Object.values(REMOVE_REFUSAL_REASON).sort());
 });
 
 test.each([
@@ -101,9 +114,23 @@ describe('parity with server/services/leaguePhase.js', () => {
     expect(frozenSettingKeys({ draft_status: 'active' })).toEqual([...server.DRAFT_FROZEN_SETTING_KEYS]);
   });
 
-  test.each(fixture.cases.map((c) => [c.name, c.league]))('phase, joinability and frozen keys agree: %s', (_name, league) => {
+  // The refusal WORDING is what a user actually reads, so it is pinned across
+  // sides too, not just the reason codes: the commissioner-tools control renders
+  // the same literal the server raises on the 409, and this keeps the two from
+  // drifting the way a second hand-written copy would.
+  test('the removal refusal messages are the same literals, and removeRefusalMessage agrees', () => {
+    expect(REMOVE_REFUSAL_MESSAGES).toEqual(server.REMOVE_REFUSAL_MESSAGES);
+    for (const reason of Object.values(REMOVE_REFUSAL_REASON)) {
+      expect(removeRefusalMessage(reason)).toBe(server.removeRefusalMessage(reason));
+    }
+    // The unknown-reason fallback matches too, so neither side quietly invents copy.
+    expect(removeRefusalMessage('nonesuch')).toBe(server.removeRefusalMessage('nonesuch'));
+  });
+
+  test.each(fixture.cases.map((c) => [c.name, c.league]))('phase, joinability, removability and frozen keys agree: %s', (_name, league) => {
     expect(deriveLeaguePhase(league)).toBe(server.deriveLeaguePhase(league));
     expect(joinability(league)).toEqual(server.joinability(league));
+    expect(removability(league)).toEqual(server.removability(league));
     expect(frozenSettingKeys(league)).toEqual(server.frozenSettingKeys(league));
   });
 });

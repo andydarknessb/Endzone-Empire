@@ -280,9 +280,10 @@ function pickemSeasonWorld(t, { league, teams, picks, live, games }) {
     [/FROM "private"\."game_recaps"/, () => ({ rows: [] })],
     [/SELECT 1 FROM "pickem_picks"/, () => ({ rows: picks.length > 0 ? [{ '?column?': 1 }] : [] })],
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
-    [/FROM "teams" JOIN "users"/, () => ({
+    // pick'em standings members query (#343: owner_id AS user_id, no users JOIN)
+    [/"owner_id" AS "user_id"/, () => ({
       rows: teams.filter((team) => team.owner_id != null).map((team) => ({
-        user_id: team.owner_id, username: team.username, team_id: team.id, team_name: team.name,
+        user_id: team.owner_id, team_id: team.id, team_name: team.name,
         avatar_url: null, avatar_static_url: null,
       })),
     })],
@@ -433,21 +434,24 @@ test('co-champions are declared completely and each gets a Co-Champion trophy', 
   });
   const completed = await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') });
 
-  assert.deepEqual(completed[0].champions.map((c) => c.teamId), [10, 11]);
-  assert.deepEqual(world.result.champions.map((champion) => champion.teamId), [10, 11]);
+  // Co-champions tie on points and correct picks, so they order by Team name
+  // now (#343): 'Bob Squad' (team 11) sorts before 'Sunday Ballers' (team 10),
+  // where the old username tiebreak put alice's team 10 first.
+  assert.deepEqual(completed[0].champions.map((c) => c.teamId), [11, 10]);
+  assert.deepEqual(world.result.champions.map((champion) => champion.teamId), [11, 10]);
   assert.deepEqual(world.trophies, [
     {
-      leagueId: 1, teamId: 10, season: 2026, week: 0, type: 'pickem_champion',
+      leagueId: 1, teamId: 11, season: 2026, week: 0, type: 'pickem_champion',
       label: "2026 Pick'em Co-Champion", data: { points: 2, correct: 2, mode: 'straight' },
     },
     {
-      leagueId: 1, teamId: 11, season: 2026, week: 0, type: 'pickem_champion',
+      leagueId: 1, teamId: 10, season: 2026, week: 0, type: 'pickem_champion',
       label: "2026 Pick'em Co-Champion", data: { points: 2, correct: 2, mode: 'straight' },
     },
   ]);
   assert.equal(world.league.season_status, 'complete');
   const leagueWide = world.notifications.filter((n) => n.type === 'season');
-  assert.equal(leagueWide[0].message, "The pick'em season is over. Sunday Ballers and Bob Squad share the title with 2 points.");
+  assert.equal(leagueWide[0].message, "The pick'em season is over. Bob Squad and Sunday Ballers share the title with 2 points.");
 });
 
 test('a champion missing required historical identity aborts completion', async (t) => {

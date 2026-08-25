@@ -271,7 +271,10 @@ const Body = () => (
       behind it is an opinion wearing a number&apos;s clothes. One more thing the table cannot say for itself: a 12-team draft is 15
       rounds, so a market round of 16 or higher means nobody is actually drafting him.
     </P>
-    <Table>
+    {/* "the-cheat-sheet" is H2's own auto-slug of the "The cheat sheet"
+        heading text above (headingId() in Prose.jsx), so it must track that
+        heading exactly - same pattern preseason-week-2-recap.jsx uses. */}
+    <Table aria-labelledby="the-cheat-sheet">
       <THead>
         <TR>
           <TH>Player</TH><TH>Pos</TH><TH>Team</TH><TH>Market</TH><TH>Take him</TH><TH>Why</TH>

@@ -28,6 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
 import EmojiEvents from '@mui/icons-material/EmojiEvents';
 import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
+import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
@@ -207,11 +208,11 @@ function SeasonPanel({ season, defaultExpanded }) {
           </Box>
         )}
 
-        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+        <Typography id={`season-${season.season}-standings-heading`} variant="subtitle1" sx={{ mb: 1 }}>
           Final Standings
         </Typography>
         <TableContainer component={Paper} sx={{ mb: 3 }}>
-          <Table size="small">
+          <Table size="small" aria-labelledby={`season-${season.season}-standings-heading`}>
             <TableHead>
               <TableRow>
                 <TableCell>Rank</TableCell>
@@ -231,11 +232,11 @@ function SeasonPanel({ season, defaultExpanded }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {standings.map((team) => {
+              {standings.map((team, index) => {
                 const medal = MEDAL_EMOJI[team.rank];
                 return (
                   <TableRow
-                    key={team.teamId}
+                    key={teamRowKey(team.teamId, index)}
                     sx={team.rank === 1 ? { '& .MuiTableCell-root': { fontWeight: 'bold' } } : undefined}
                   >
                     <TableCell>
@@ -246,7 +247,17 @@ function SeasonPanel({ season, defaultExpanded }) {
                       )}
                       {team.rank}
                     </TableCell>
-                    <TableCell>{team.name}</TableCell>
+                    {/*
+                      This map renders BOTH league types. For a pick'em archive,
+                      a null name is expected (the manager's Team was removed at
+                      or before rollover) and "Former manager" is the right
+                      label. A fantasy archive row's name comes from the live
+                      team rows at rollover and should NEVER be null, so a
+                      "Former manager" appearing in a fantasy history table is a
+                      data bug to investigate, not a departed manager. One shared
+                      map is correct here; do not branch the render.
+                    */}
+                    <TableCell>{teamNameLabel(team.name)}</TableCell>
                     {pickem ? (
                       <>
                         <TableCell align="right">{team.points}</TableCell>
@@ -297,11 +308,11 @@ function SeasonPanel({ season, defaultExpanded }) {
           draftGrades &&
           draftGrades.length > 0 && (
             <>
-              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+              <Typography id={`season-${season.season}-draft-grades-heading`} variant="subtitle1" sx={{ mb: 1 }}>
                 Draft Grades
               </Typography>
               <TableContainer component={Paper}>
-                <Table size="small">
+                <Table size="small" aria-labelledby={`season-${season.season}-draft-grades-heading`}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Rank</TableCell>
@@ -443,7 +454,7 @@ function LeagueHistory() {
               label="Preview"
               data-testid="hall-of-fame-preview-chip"
             />
-            <Typography variant="body2" color="text.secondary">
+            <Typography id="history-preview-heading" variant="body2" color="text.secondary">
               Multi-season Hall of Fame: full year-by-year and all-time data coming soon
             </Typography>
           </Stack>
@@ -474,7 +485,12 @@ function LeagueHistory() {
           </Stack>
 
           <TableContainer component={Paper} sx={{ mb: 4 }} data-testid="history-mock-standings">
-            <Table size="small">
+            {/* This placeholder preview renders the same under every year tab
+                (yearTab is not read to gate it), so "All-Time Records" would
+                misname it two of three times. Point at the "Multi-season Hall
+                of Fame" caption above instead, the one piece of visible text
+                that actually describes it regardless of which tab is active. */}
+            <Table size="small" aria-labelledby="history-preview-heading">
               <TableHead>
                 <TableRow>
                   <TableCell>Rank</TableCell>

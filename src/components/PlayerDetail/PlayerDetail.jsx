@@ -141,7 +141,7 @@ function PlayerDetail() {
         </Box>
       )}
 
-      <Typography variant="h6" sx={{ mb: 2 }}>
+      <Typography id="player-detail-current-season-heading" variant="h6" sx={{ mb: 2 }}>
         {currentSeason ? `${currentSeason.season} Season (In Progress)` : 'Current Season'}
       </Typography>
       {!currentSeason || currentSeason.weekly.length === 0 ? (
@@ -158,7 +158,7 @@ function PlayerDetail() {
             )}
           </Box>
           <TableContainer>
-            <Table size="small">
+            <Table size="small" aria-labelledby="player-detail-current-season-heading">
               <TableHead>
                 <TableRow sx={{ bgcolor: 'primary.main' }}>
                   <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Week</TableCell>
@@ -182,11 +182,11 @@ function PlayerDetail() {
         </Paper>
       )}
 
-      <Typography variant="h6" sx={{ mb: 2 }}>
+      <Typography id="player-detail-previous-seasons-heading" variant="h6" sx={{ mb: 2 }}>
         Previous Seasons
       </Typography>
       <TableContainer component={Paper}>
-        <Table size="small">
+        <Table size="small" aria-labelledby="player-detail-previous-seasons-heading">
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
               <TableCell sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>Season</TableCell>

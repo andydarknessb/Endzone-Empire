@@ -6,6 +6,11 @@ NFL statistics. Two things sit alongside the game itself and carry their own
 vocabulary: the projection engine that advises managers, and the evaluation
 apparatus that decides whether that engine is allowed to change.
 
+## UI conventions
+
+MUI `<Button>` is the house button component; plain `.btn` classes are legacy
+(#309).
+
 ## Language
 
 ### League and membership
@@ -47,6 +52,15 @@ pick'em. It is the only identity such a surface may ever carry; a manager's
 account identifier (email, username) stays confined to their own private
 account chrome and is never exposed to another manager. A duplicate Team name
 is still valid identity and never a reason to fall back to the account.
+Commissioner-only chrome is such a surface too (#179): a commissioner is
+another manager, so the co-commissioner roster, the promote and remove-a-team
+pickers, Team locks and the join-request queue lead with the Team name and act
+on the Team ID, never on a username. A join request has no Team yet, so it is
+identified by the Team name it proposes. A non-member reading an invite
+preview is further outside still and sees the commissioner's Team name, not
+their username (#181). "Which of these is me" is always answered by comparing
+Team IDs against the response's viewer-relative field, never by comparing
+usernames or user IDs, which #115 removes from every league-shared payload.
 Role disclosure is not an exception to this (#324). That a manager holds
 commissioner power over you is real, it is not a secret, and every member may
 see it; it is disclosed as a property of their Team, and the account behind
@@ -123,6 +137,19 @@ from league phase, never stored, and it comes with a reason when it is false
 Whether one particular manager may join (already a member, league full,
 approval required, not public) is a separate question layered on top.
 _Avoid_: open (ambiguous with a public league or open slots), recruiting
+
+**Removable**:
+A league that will let a team be removed right now. A league with a fantasy
+side is removable only while pre-draft, the mirror of joinable: once the draft
+has started, its picks, rosters, schedule and lineups are a record that
+removing a team would rewrite, so the answer is no and nothing is deleted. A
+pick'em-only league has no draft and its teams stay removable. Derived from
+league phase, never stored, and it comes with a reason when it is false (the
+draft has started) so the disabled control can show it. Whether this
+particular team may be removed (a commissioner never removes their own) is a
+separate question layered on top.
+_Avoid_: deletable, locked, kickable, "can be dropped" (dropping is a roster
+move)
 
 **Admission**:
 Whether one particular manager may join a joinable league right now: they

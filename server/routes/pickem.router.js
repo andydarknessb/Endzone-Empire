@@ -144,8 +144,18 @@ router.get('/league/:leagueId/standings', async (req, res) => {
     const viewerTeam = await requireMember(pool, { leagueId, userId: req.user.id });
     const league = await pickem.loadLeague(pool, leagueId);
     const season = requestedSeason || league.current_season;
-    const standings = await pickem.getStandings({ leagueId, season });
-    res.json({ ...standings, viewerTeamId: viewerTeam.id });
+    const { standings, ...meta } = await pickem.getStandings({ leagueId, season });
+    // getStandings carries `userId` on each row as the scoring join key, read
+    // by internal callers (e.g. season completion). It is account identity, so
+    // a member-facing standings row names the manager by Team identity only:
+    // strip userId here, at serialization (#343, #115). The viewer knows their
+    // own row from `viewerTeamId`.
+    const sharedStandings = standings.map((row) => {
+      const shared = { ...row };
+      delete shared.userId;
+      return shared;
+    });
+    res.json({ ...meta, standings: sharedStandings, viewerTeamId: viewerTeam.id });
   } catch (error) {
     fail(res, error, "failed to load Pick'em standings");
   }

@@ -9,23 +9,6 @@
   box-shadow: var(--shadow-2);
 }
 
-.btn {
-  display: inline-block;
-  padding: 10px 20px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background-color: var(--accent);
-  color: var(--on-accent);
-  font-size: 1.1rem;
-  cursor: pointer;
-  transition: background-color var(--transition-base) ease;
-}
-
-.btn:hover {
-  background-color: var(--accent-hover);
-  text-decoration: none;
-}
-
 .alert {
   box-sizing: border-box;
   padding: 15px 10px;

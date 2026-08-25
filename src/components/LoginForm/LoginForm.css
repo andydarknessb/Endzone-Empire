@@ -37,17 +37,3 @@
   .alert {
     color: var(--danger);
   }
-
-  .btn {
-    background-color: var(--accent);
-    color: var(--on-accent);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 10px 20px;
-    cursor: pointer;
-    transition: background-color var(--transition-base) ease;
-  }
-
-  .btn:hover {
-    background-color: var(--accent-hover);
-  }

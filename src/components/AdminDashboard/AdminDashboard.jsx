@@ -234,14 +234,14 @@ function AdminDashboard() {
       </Grid>
 
       <Paper sx={{ p: 2, mb: 3 }} data-testid="leagues-panel">
-        <Typography variant="h6" sx={{ mb: 2 }}>
+        <Typography id="admin-leagues-table-heading" variant="h6" sx={{ mb: 2 }}>
           Leagues
         </Typography>
         {leagues.length === 0 ? (
           <Typography sx={{ color: 'text.secondary' }}>No leagues yet</Typography>
         ) : (
           <TableContainer>
-            <Table size="small">
+            <Table size="small" aria-labelledby="admin-leagues-table-heading">
               <TableHead>
                 <TableRow>
                   <TableCell>League Type</TableCell>
@@ -338,14 +338,14 @@ function AdminDashboard() {
       </Paper>
 
       <Paper sx={{ p: 2, mb: 3 }} data-testid="recent-signups-panel">
-        <Typography variant="h6" sx={{ mb: 2 }}>
+        <Typography id="admin-recent-signups-table-heading" variant="h6" sx={{ mb: 2 }}>
           Recent Signups
         </Typography>
         {recentSignups.length === 0 ? (
           <Typography sx={{ color: 'text.secondary' }}>No recent signups</Typography>
         ) : (
           <TableContainer>
-            <Table size="small">
+            <Table size="small" aria-labelledby="admin-recent-signups-table-heading">
               <TableHead>
                 <TableRow>
                   <TableCell>Username</TableCell>

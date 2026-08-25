@@ -317,14 +317,19 @@ router.get('/:id', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   try {
-    // The creator's Team identity rides beside their account identity (#112,
-    // parent #108): the league is a shared surface, so a consumer must be
-    // able to name the creator by Team. LEFT JOIN because a creator who has
-    // been removed from their own league leaves no team behind.
+    // The league is a shared surface, so a consumer names the creator by Team
+    // identity alone (#112, parent #108, contracted by #115). The account
+    // username the EXPAND step served beside it (`owner_username`) is gone, and
+    // with it the users JOIN that supplied it. `leagues.owner_id` stays on
+    // `leagues.*`: it is a league-level column (which account created the
+    // league), not another member's account identity fanned out per row the
+    // way `teams[].owner_id` was, and #334's survey scoped its removal out of
+    // #343 - only `owner_username` leaves this object here. LEFT JOIN for Team
+    // identity because a creator removed from their own league leaves no team.
     const leagueResult = await pool.query(
-      `SELECT "leagues".*, "users"."username" AS "owner_username",
+      `SELECT "leagues".*,
               ${teamIdentityColumns('owner_team', 'owner')}
-         FROM "leagues" JOIN "users" ON "users"."id" = "leagues"."owner_id"
+         FROM "leagues"
          ${teamIdentityJoin('"leagues"."id"', '"leagues"."owner_id"', 'owner_team')}
         WHERE "leagues"."id" = $1`,
       [leagueId]
@@ -340,20 +345,21 @@ router.get('/:id', async (req, res) => {
       `SELECT "teams"."id", "teams"."name", "teams"."draft_position",
               "teams"."faab_remaining", "teams"."locked", "teams"."draft_ready",
               "teams"."avatar_url", "teams"."avatar_static_url",
+              -- owner_id rides here only so viewerTeamIdOf() can pick out the
+              -- caller's own team off the raw rows below; it is account identity
+              -- and is stripped from the serialized teams[] entry (#343, #115).
               "teams"."owner_id",
               ${teamIdentityColumns()},
-              "users"."username" AS "owner",
               COUNT("team_players"."id")::int AS "roster_count",
               COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
                                 WHEN "matchups"."away_team_id" = "teams"."id" THEN "matchups"."away_score"
                                 ELSE 0 END), 0) AS "total_points"
        FROM "teams"
-       JOIN "users" ON "users"."id" = "teams"."owner_id"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
        LEFT JOIN "matchups" ON "matchups"."league_id" = "teams"."league_id"
          AND ("matchups"."home_team_id" = "teams"."id" OR "matchups"."away_team_id" = "teams"."id")
        WHERE "teams"."league_id" = $1
-       GROUP BY "teams"."id", "users"."username"
+       GROUP BY "teams"."id"
        ORDER BY "total_points" DESC, "teams"."draft_position"`,
       [leagueId]
     );
@@ -385,10 +391,18 @@ router.get('/:id', async (req, res) => {
     // flagged exactly when a grant names it. Team identity on both sides of
     // the match, so there is nothing to explain about which column is which.
     const grantedTeamIds = coCommissionerTeamIds(coCommissionerRows);
-    const teams = teamsResult.rows.map((team) => ({
-      ...team,
-      is_co_commissioner: grantedTeamIds.has(team.teamId),
-    }));
+    const teams = teamsResult.rows.map((team) => {
+      // A teams[] entry names its manager by Team identity only. `owner_id`
+      // rode on the raw row so viewerTeamIdOf() could resolve the caller's team
+      // (below); strip it from the serialization so no member reads another
+      // manager's account id (#343, #115). `owner` (the username) is no longer
+      // selected; the delete is defensive against a raw row that still carries
+      // one.
+      const entry = { ...team, is_co_commissioner: grantedTeamIds.has(team.teamId) };
+      delete entry.owner_id;
+      delete entry.owner;
+      return entry;
+    });
     // viewerTeamId is how a consumer answers "which of these is me" without
     // holding another manager's account ID (#112): teamId === viewerTeamId.
     res.json({
@@ -481,14 +495,17 @@ router.delete('/:id', async (req, res) => {
 
 // POST /api/league/:id/co-commissioners — owner grants commissioner powers to
 // a member. Owner-only: a co-commissioner can run the league but can't recruit
-// more co-commissioners or unseat the ones the owner picked.
+// more co-commissioners or unseat the ones the owner picked. The target is
+// named by Team (`teamId`), never by another manager's account id: the client
+// no longer holds one now that teams[] is Team identity only, so the server
+// resolves the account behind the team privately (#343, #115).
 router.post('/:id/co-commissioners', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const targetUserId = intParam(req.body && req.body.userId);
-  if (!targetUserId) return res.status(400).json({ error: 'userId must be a positive integer' });
+  const targetTeamId = intParam(req.body && req.body.teamId);
+  if (!targetTeamId) return res.status(400).json({ error: 'teamId must be a positive integer' });
   try {
-    res.json(await grantCoCommissioner({ leagueId, userId: req.user.id, targetUserId }));
+    res.json(await grantCoCommissioner({ leagueId, userId: req.user.id, targetTeamId }));
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error granting co-commissioner', error);
@@ -536,7 +553,7 @@ router.get('/:id/rosters', async (req, res) => {
     });
 
     const result = await pool.query(
-      `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name", "teams"."owner_id",
+      `SELECT "teams"."id" AS "team_id", "teams"."name" AS "team_name",
               "teams"."avatar_url", "teams"."avatar_static_url",
               "players"."id", "players"."name", "players"."position", "players"."nfl_team"
        FROM "teams"
@@ -550,9 +567,12 @@ router.get('/:id/rosters', async (req, res) => {
     for (const row of result.rows) {
       if (!teams.has(row.team_id)) {
         teams.set(row.team_id, {
+          // A roster entry names its team by Team identity only; the manager's
+          // account id (`ownerId`) is gone (#343, #115). Nothing in this
+          // endpoint needs it - there is no viewer-relative field here - so it
+          // leaves the SELECT as well as the serialization.
           teamId: row.team_id,
           teamName: row.team_name,
-          ownerId: row.owner_id,
           avatarUrl: row.avatar_url,
           avatarStaticUrl: row.avatar_static_url,
           players: [],
@@ -648,13 +668,16 @@ router.get('/:id/matchups', async (req, res) => {
 });
 
 // GET /api/league/:id/chat — last 50 chat messages, oldest first
-// Chat authors are identified by Team beside their account (#112, parent
-// #108). The join is LEFT so a message from a manager who has since left the
+// Chat authors are identified by Team identity ALONE (#112, parent #108,
+// contracted by #343): the author's account id and username no longer ride on
+// the history, and the users JOIN that supplied the username is gone. The Team
+// identity join is LEFT so a message from a manager who has since left the
 // league still reads back rather than dropping out of the history; its Team
-// identity is simply null. This response is a bare array with no root to
-// carry `viewerTeamId`, so a viewer takes theirs from the `league:join`
-// acknowledgement the chat panel already makes, and compares `message.teamId`
-// against it.
+// identity is simply null. `chat_messages.user_id` is still read INSIDE the
+// query (the block filter below) but is not projected onto the wire. This
+// response is a bare array with no root to carry `viewerTeamId`, so a viewer
+// takes theirs from the `league:join` acknowledgement the chat panel already
+// makes, and compares `message.teamId` against it.
 router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -665,9 +688,8 @@ router.get('/:id/chat', async (req, res) => {
     const result = await pool.query(
       `SELECT * FROM (
          SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-                "chat_messages"."user_id", "users"."username",
                 ${teamIdentityColumns()}
-         FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
+         FROM "chat_messages"
          ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
          WHERE "chat_messages"."league_id" = $1
            AND NOT EXISTS (
@@ -862,8 +884,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // teams in this matchup. Read-only, best-effort — never fails the request.
     let viewerWhatIf = null;
     let viewerTeamId = null;
+    // The two owner ids rode on the raw matchup row only so the viewer's own
+    // team could be resolved here; they are account identity and must not ride
+    // on the shared matchup object, so strip them from the serialization once
+    // viewerTeamId is known - never from the SELECT (#343, #115).
     if (matchup.home_owner_id === req.user.id) viewerTeamId = matchup.home_team_id;
     else if (matchup.away_owner_id === req.user.id) viewerTeamId = matchup.away_team_id;
+    delete matchup.home_owner_id;
+    delete matchup.away_owner_id;
     if (viewerTeamId) {
       try {
         const { liveWhatIf } = require('../services/decision.service');

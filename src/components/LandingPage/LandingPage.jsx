@@ -80,7 +80,7 @@ const FEATURES = [
 function LandingPage() {
   return (
     <Box className="landing-page">
-      <Box className="landing-hero" sx={{ py: { xs: 8, md: 12 } }}>
+      <Box className="landing-hero" data-testid="landing-hero" sx={{ py: { xs: 8, md: 12 } }}>
         <Container maxWidth="md">
           <Stack spacing={3} alignItems="center" textAlign="center">
             <Typography
@@ -110,6 +110,10 @@ function LandingPage() {
             <Typography variant="h5" component="p" sx={{ color: 'text.secondary', maxWidth: 640, fontWeight: 400 }}>
               The app that turns armchair quarterbacks into legendary league managers, all season
               long. Draft, manage, and battle your way to a championship.
+            </Typography>
+            <Typography variant="body1" component="p" sx={{ color: 'text.secondary', maxWidth: 640 }}>
+              Prefer just picking winners? Run an NFL pick&apos;em league instead · no draft, no
+              rosters.
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ pt: 2 }}>
               <Button

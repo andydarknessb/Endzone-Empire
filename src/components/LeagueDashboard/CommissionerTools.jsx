@@ -47,7 +47,9 @@ import {
   buildInitialRules,
 } from '../../lib/leagueRulesFormat';
 import { capForType, isPickemOnly, leagueTypeOf, MIN_TEAMS } from '../../lib/leagueType';
-import { deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import {
+  deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE, removability, removeRefusalMessage,
+} from '../../lib/leaguePhase';
 import { teamNameLabel } from '../../lib/teamIdentity';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
@@ -172,45 +174,36 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   const [busy, setBusy] = useState(false);
   const report = fail(notify);
 
-  const grantedIds = new Set((league.co_commissioners || []).map((c) => c.user_id));
-  // Each grant already names its own Team: listCoCommissioners LEFT JOINs it
-  // and ships `teamId` / `teamName` (#112), which is what LeagueOfficials
-  // renders. This used to rebuild that join client-side by matching
-  // `c.user_id` against `teams[].owner_id`, re-deriving from account fields an
-  // answer the payload carried (#188) - and overwriting the real `teamName`
-  // with null whenever the rebuild missed.
+  // Team IDs whose manager already holds a grant, so they are not offered
+  // again. Each grant already names its own Team: listCoCommissioners LEFT
+  // JOINs it and ships `teamId` / `teamName` (#112, commissioner-conditional
+  // since #324), which is what both LeagueOfficials and this card render.
   //
-  // Since #324 the roster is DISPLAYED by Team here as well: the grant's
-  // `user_id` reaches this card only because it is commissioner-conditional
-  // payload, and only the revoke call is built from it. A team-less grant
-  // therefore has no name of its own and reads as a former manager - the one
-  // place it is still listed, because this card is the only place it can be
-  // revoked and it leaves the member-visible roster entirely.
-  //
-  // Losing the username cost this card its guarantee that two rows read
-  // differently, in TWO states and not one. A team-less grant has no name at
-  // all, which is brief. Two co-commissioners whose Teams share a NAME is the
-  // one that matters: `teams.name` has no unique constraint and CONTEXT.md
-  // blesses duplicates ("a duplicate Team name is still valid identity"), so
-  // that state is permanent and the league did nothing wrong to reach it.
-  // revokeLabel above is what answers both; see its comment for why it carries
-  // a date and an ordinal rather than the account that used to do the job.
+  // The grant's `user_id` still reaches this card as commissioner-conditional
+  // payload, and only the revoke call is built from it - a team-less grant has
+  // no teamId, so it can only be revoked by account id, and this card is the
+  // one place it is still listed (it leaves the member-visible roster). The
+  // grant/promote path is Team identity end to end: two co-commissioners whose
+  // Teams share a NAME are told apart by revokeLabel's date and ordinal, since
+  // `teams.name` carries no unique constraint (CONTEXT.md blesses duplicates).
+  const grantedTeamIds = new Set(
+    (league.co_commissioners || []).map((c) => c.teamId).filter((teamId) => teamId != null)
+  );
   const coCommissioners = league.co_commissioners || [];
-  // Sanctioned direct owner_id comparison: granting a co-commissioner is one
-  // of the three owner-shaped actions leagueRole.service's header enumerates,
-  // and the creator is already the commissioner, so they are never a
-  // candidate. This stays account-id-shaped because the endpoint behind it is:
-  // POST /api/league/:id/co-commissioners takes a `userId`, so the option's
-  // value has to be one. Moving this pair onto Team identity is a client and
-  // server change together, not a client-side rewrite.
+  // Grant a co-commissioner by Team: the creator already holds the role, so
+  // their team is never a candidate, and the server resolves the account behind
+  // the chosen team (#343). Compared by teamId against the creator's
+  // `ownerTeamId`, not by account id, because teams[] is Team identity only
+  // now. `ownerTeamId` is null only when the creator has left their own league,
+  // and there is then no creator team to exclude.
   const eligible = teams.filter(
-    (team) => team.owner_id != null && team.owner_id !== league.owner_id && !grantedIds.has(team.owner_id)
+    (team) => team.teamId !== league.ownerTeamId && !grantedTeamIds.has(team.teamId)
   );
 
   const handlePromote = async () => {
     setBusy(true);
     try {
-      await apiClient.post(`/api/league/${leagueId}/co-commissioners`, { userId: Number(promoteId) });
+      await apiClient.post(`/api/league/${leagueId}/co-commissioners`, { teamId: Number(promoteId) });
       notify('Co-commissioner added');
       setPromoteId('');
       onRefresh();
@@ -279,8 +272,8 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
             onChange={(e) => setPromoteId(e.target.value)}
           >
             {eligible.map((team) => (
-              <MenuItem key={team.owner_id} value={team.owner_id}>
-                {team.owner} · {team.name}
+              <MenuItem key={team.teamId} value={team.teamId}>
+                {team.name}
               </MenuItem>
             ))}
           </Select>
@@ -399,11 +392,12 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
 
   // "Which of these is me" is always a Team ID comparison against the
   // viewer-relative field (CONTEXT.md, Team identity), never a username or an
-  // owner-user-ID: both leave league-shared payloads under #115, and a
-  // username can change out from under a stale comparison anyway (#185).
+  // owner-user-ID: neither rides on the league-shared teams[] payload any more
+  // (#115 child B / #343), and a username could change out from under a stale
+  // comparison anyway (#185).
   //
   // Read `teamId`, the contract name, and not the raw `teams.id` that league
-  // detail still selects beside it (#188): every other "which of these is me"
+  // detail still carries beside it (#188): every other "which of these is me"
   // comparison in src/ reads `teamId`, and this one's failure direction is the
   // bad one - drop the legacy column and `undefined !== viewerTeamId` is true
   // for every row, which puts a Remove button on the viewer's own team.
@@ -426,6 +420,12 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
   // panel here edits, refetched after each action.
   const pickemOnly = isPickemOnly(league);
   const seasonComplete = deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE;
+  // The Removable rule (CONTEXT.md), the same one the server enforces: a
+  // fantasy league is removable only while pre-draft, a pick'em-only league
+  // always. When false, the list of removable teams is replaced by the reason,
+  // so the UI never offers a removal the server would refuse for phase reasons.
+  // A stale client that still shows the buttons still gets the server's 409.
+  const { removable: teamsRemovable, reason: removeReason } = removability(league);
   // Team limits are draft-frozen keys, so they are offered exactly while the
   // phase module's freeze rule says they are open (pre-draft, or always for a
   // pick'em-only league): the same rule the server's frozenSettingKeys states.
@@ -495,32 +495,54 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
       <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
         <Typography variant="overline" color="error.main">Destructive actions</Typography>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
-        {/* The server's own refusal, restated rather than reworded: removeTeam
-            raises exactly this on a 409, and that 409 was the only place the
-            rule was ever stated to a user. Keeping the wording identical means
-            the person who hits it by another route reads the same sentence. */}
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Your own team and the league creator&apos;s team can&apos;t be removed.
-        </Typography>
-        <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
-          {removableTeams.map((team) => (
-            <ListItem
-              key={team.teamId}
-              secondaryAction={
-                <IconButton
-                  edge="end"
-                  aria-label={`Remove ${team.name}`}
-                  color="error"
-                  onClick={() => setRemoveTarget(team)}
+        {teamsRemovable ? (
+          <>
+            {/* The server's own refusal, restated rather than reworded:
+                removeTeam raises exactly this on a 409, and that 409 was the
+                only place the rule was ever stated to a user. Keeping the
+                wording identical means the person who hits it by another route
+                reads the same sentence. */}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Your own team and the league creator&apos;s team can&apos;t be removed.
+            </Typography>
+            <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+              {removableTeams.map((team) => (
+                <ListItem
+                  key={team.teamId}
+                  secondaryAction={
+                    <IconButton
+                      edge="end"
+                      aria-label={`Remove ${team.name}`}
+                      color="error"
+                      onClick={() => setRemoveTarget(team)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  }
                 >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              }
-            >
-              <ListItemText primary={team.name} secondary={team.owner} />
-            </ListItem>
-          ))}
-        </List>
+                  <ListItemText primary={team.name} />
+                </ListItem>
+              ))}
+            </List>
+          </>
+        ) : (
+          /* Past pre-draft the whole list is gone, not just disabled: removing
+             any team now would rewrite the draft, rosters and schedule (the
+             Removable rule, #195). Only a fantasy league reaches this branch, a
+             pick'em-only league being removable in every phase, so the reason is
+             always the draft having started. The first line is the server's own
+             refusal, rendered from the shared message so the person who hits the
+             409 by another route reads the same sentence; the added context is
+             visibly extra, in its own node. */
+          <Box data-testid="remove-team-refused">
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {removeRefusalMessage(removeReason)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Removing one would rewrite the draft, rosters and schedule.
+            </Typography>
+          </Box>
+        )}
       </Paper>
 
       <Dialog open={!!removeTarget} onClose={() => setRemoveTarget(null)}>
@@ -554,8 +576,20 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
             <Stack spacing={1}>
               {joinRequests.map((request) => (
                 <Box key={request.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  {/* Through teamNameLabel, not read raw: unlike `teams.name`
+                      (a real CHECK constraint, teams_name_not_blank_check),
+                      `join_requests.team_name` carries no NOT NULL and no
+                      blank check — the require_team_names migration swept
+                      existing blank-name pending rows to 'cancelled' rather
+                      than constraining the column. The write path
+                      (discovery.service.js's joinPublicLeague, the only
+                      writer) validates a name before every insert/upsert
+                      today, but nothing at the schema layer keeps that true
+                      tomorrow, so this is exactly the case teamIdentity.js's
+                      docstring reserves the label for: identity that can
+                      genuinely be absent, not a data bug being papered over. */}
                   <Typography sx={{ flexGrow: 1 }}>
-                    {request.username} · {request.team_name} · {new Date(request.created_at).toLocaleString()}
+                    {teamNameLabel(request.team_name)} · {new Date(request.created_at).toLocaleString()}
                   </Typography>
                   <Button size="small" variant="contained" color="success" onClick={() => handleDecideJoinRequest(request.id, true)}>
                     Approve
@@ -1516,7 +1550,7 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
               />
             }
           >
-            <ListItemText primary={team.name} secondary={team.owner} />
+            <ListItemText primary={team.name} />
           </ListItem>
         ))}
       </List>

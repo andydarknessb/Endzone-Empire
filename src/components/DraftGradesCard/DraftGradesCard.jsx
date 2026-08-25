@@ -56,11 +56,11 @@ function DraftGradesCard({ leagueId }) {
 
   return (
     <Paper sx={{ p: 2, mb: 3 }} data-testid="draft-grades-card">
-      <Typography variant="h6" sx={{ mb: 2 }}>
+      <Typography id="draft-grades-table-heading" variant="h6" sx={{ mb: 2 }}>
         Draft Grades
       </Typography>
       <TableContainer>
-        <Table size="small">
+        <Table size="small" aria-labelledby="draft-grades-table-heading">
           <TableHead>
             <TableRow>
               <TableCell>Rank</TableCell>

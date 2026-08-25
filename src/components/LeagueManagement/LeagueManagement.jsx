@@ -419,11 +419,11 @@ function LeagueManagement() {
                   account (#181). Whoever is reading this pasted an invite
                   code, so they are by definition not a member of the league,
                   and CONTEXT.md's Team identity rule keeps a manager's account
-                  identifier out of another manager's view. The payload still
-                  carries `ownerUsername` until #115 removes it; nothing here
-                  reads it, and a missing Team name drops the second element
-                  entirely rather than falling back to it or leaving an empty
-                  block behind for a screen reader to still land on.
+                  identifier out of another manager's view. The preview
+                  payload never carries an account name at all (#115 / #379);
+                  a missing Team name drops the second element entirely rather
+                  than falling back to one or leaving an empty block behind
+                  for a screen reader to still land on.
 
                   The card itself is the live region (role=status, matching
                   #215's convention for the Draft room's readiness

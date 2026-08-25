@@ -15,6 +15,7 @@ const { isIrEligible, rosterCapacity } = require('./irPolicy.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
+const { removability, removeRefusalMessage } = require('./leaguePhase');
 const { getStandings: getPickemStandings, getSeasonSlate } = require('./pickem.service');
 const { OUTCOME: PICKEM_RESULT_OUTCOME, resultOf: pickemSeasonResultOf } = require('./pickemSeasonResult.service');
 
@@ -48,11 +49,19 @@ async function requireCommissioner(client, { leagueId, userId, forUpdate = false
 }
 
 /**
- * Remove a team from the league. Before the draft this is clean; later it
- * also cascades the team's roster, lineups, and matchups (history rewrites
- * are on the commissioner). Two separate rules refuse a removal, and they
- * answer separate questions, so they carry separate messages:
+ * Remove a team from the league. Refused unless the league is **Removable**
+ * (CONTEXT.md): a league with a fantasy side is removable only while pre-draft,
+ * because a hard DELETE cascades the team's draft picks, rosters, lineups and
+ * matchups, and once the draft has started those are the record of the league
+ * and removing a team would silently rewrite it (#195). A pick'em-only league
+ * has no draft and stays removable in every phase, its picks and chat referencing
+ * users and surviving the removal. On refusal nothing is deleted and no one is
+ * notified. Three separate rules refuse a removal; each answers a separate
+ * question, so each carries its own message:
  *
+ * - The league is past pre-draft (fantasy only). That reads the phase off the
+ *   league row `requireCommissioner` already loaded, and refuses before any
+ *   team is even looked up. The message is `removeRefusalMessage`.
  * - No commissioner of either kind may remove their own team. That compares
  *   the target against the CALLER (`userId`), never against the league
  *   owner: a co-commissioner is a commissioner, and removing their team
@@ -61,9 +70,11 @@ async function requireCommissioner(client, { leagueId, userId, forUpdate = false
  *   included. That compares against `leagues.owner_id`, and it is one of the
  *   three direct owner_id comparisons leagueRole.service sanctions.
  *
- * Both apply to the creator removing their own team, and the first answers:
- * the caller is being told about themselves, which is the more useful of the
- * two things true about that request.
+ * The phase rule is checked first: it is a property of the league, not of any
+ * team, so a request that also fails a per-team rule gets the phase 409, which
+ * is acceptable (a request that fails more than one rule gets one 409, either
+ * reason). Between the two per-team rules the self rule answers first, because
+ * the caller is being told about themselves.
  *
  * Every other removal proceeds, including revoking the removed manager's
  * co-commissioner grant.
@@ -73,6 +84,10 @@ async function removeTeam({ leagueId, userId, teamId }) {
   try {
     await client.query('BEGIN');
     const league = await requireCommissioner(client, { leagueId, userId, forUpdate: true });
+    const { removable, reason } = removability(league);
+    if (!removable) {
+      throw new CommissionerError(409, removeRefusalMessage(reason));
+    }
     const teamResult = await client.query(
       `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
       [teamId, leagueId]
@@ -357,9 +372,26 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
         leagueId, season: league.current_season, db: client, games: seasonGames,
       });
       const teamByOwner = new Map(teamsResult.rows.map((team) => [team.owner_id, team]));
+      // Build each archived row explicitly from Team identity plus the scoring
+      // totals. Do NOT spread the pick'em standings row: it carries the manager
+      // account join key (userId) and Team display fields (teamName/avatars)
+      // that would freeze account identity into a member-visible snapshot
+      // (#342, #115). A member whose Team is gone at rollover archives with
+      // teamId/name null, which the client renders as "Former manager".
       standings = final.standings.map((row) => {
         const team = teamByOwner.get(row.userId);
-        return { ...row, teamId: team ? team.id : null, name: team ? team.name : row.teamName };
+        return {
+          teamId: team ? team.id : null,
+          name: team ? team.name : null,
+          points: row.points,
+          correct: row.correct,
+          incorrect: row.incorrect,
+          pushes: row.pushes,
+          pending: row.pending,
+          made: row.made,
+          weekly: row.weekly,
+          rank: row.rank,
+        };
       });
       rosters = [];
       const firstChampion = pickemResult.outcome === PICKEM_RESULT_OUTCOME.CHAMPIONS

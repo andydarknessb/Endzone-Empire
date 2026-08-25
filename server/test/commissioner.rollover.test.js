@@ -48,10 +48,10 @@ test("rolloverSeason archives every declared Pick'em co-champion without consult
     })],
     // pick'em standings inputs (pickem.service.getStandings on this client)
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
-    [/FROM "teams" JOIN "users"/, () => ({
+    [/"owner_id" AS "user_id"/, () => ({
       rows: [
-        { user_id: 100, username: 'alice', team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null },
-        { user_id: 101, username: 'bob', team_name: 'Bob Squad', avatar_url: null, avatar_static_url: null },
+        { user_id: 100, team_id: 100, team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null },
+        { user_id: 101, team_id: 101, team_name: 'Bob Squad', avatar_url: null, avatar_static_url: null },
       ],
     })],
     [/FROM "pickem_picks" WHERE "league_id" = \$1 AND "season" = \$2$/, () => ({
@@ -111,12 +111,37 @@ test("rolloverSeason archives every declared Pick'em co-champion without consult
 
   const history = statementsMatching(calls, /INSERT INTO "league_history"/)[0];
   assert.deepEqual(history.params.slice(0, 4), [5, 2026, 10, 100]);
-  // The standings snapshot is the pick'em table as it stands at rollover,
-  // with team identity attached so a history reader can key and name rows.
+  // The standings snapshot is the pick'em table as it stands at rollover, built
+  // from Team identity plus the scoring totals only. It never freezes an
+  // account identifier: the archive is served to every member, so a manager's
+  // userId/username must not ride into it (#342, #115). The read side keys and
+  // names rows by teamId/name; the LEFT-join "Former manager" rendering applies
+  // when a Team is later removed.
   const standings = JSON.parse(history.params[4]);
+  const ARCHIVED_STANDINGS_KEYS = [
+    'teamId', 'name',
+    'points', 'correct', 'incorrect', 'pushes', 'pending', 'made', 'weekly', 'rank',
+  ].sort();
+  for (const row of standings) {
+    assert.deepEqual(
+      Object.keys(row).sort(),
+      ARCHIVED_STANDINGS_KEYS,
+      'archived row is Team identity + scoring totals, nothing more'
+    );
+    // This list is hard-coded on purpose and is NOT the migration's
+    // FORBIDDEN_ACCOUNT_KEYS: it is a distinct contract for what the rollover
+    // WRITE path must never freeze, so it adds the Team display fields
+    // (teamName, avatarUrl, avatarStaticUrl) that rode the old member-row spread
+    // alongside the five account keys. It exists to fail if the write path
+    // regresses; importing a shared constant would make it a tautology. Do not
+    // merge it with the migration's list.
+    for (const forbidden of ['userId', 'username', 'user_id', 'email', 'owner_id', 'teamName', 'avatarUrl', 'avatarStaticUrl']) {
+      assert.equal(forbidden in row, false, `archived standings row must not carry ${forbidden}`);
+    }
+  }
   assert.deepEqual(
-    standings.map((row) => [row.userId, row.points, row.correct, row.rank, row.teamId, row.name]),
-    [[101, 1, 1, 1, 11, 'Bob Squad'], [100, 0, 0, 2, 10, 'Sunday Ballers']]
+    standings.map((row) => [row.points, row.correct, row.rank, row.teamId, row.name]),
+    [[1, 1, 1, 11, 'Bob Squad'], [0, 0, 2, 10, 'Sunday Ballers']]
   );
   assert.equal(history.params[5], '[]', 'rosters snapshot is empty for a pick\'em-only league');
   assert.equal(JSON.parse(history.params[6])[0].type, 'pickem_champion');
@@ -197,8 +222,8 @@ test("rolloverSeason archives an explicit Pick'em no-champion result", async (t)
       rows: [{ id: 10, name: 'Sunday Ballers', owner_id: 100 }],
     })],
     [/FROM "pickem_settings"/, () => ({ rows: [{ enabled: true, mode: 'straight' }] })],
-    [/FROM "teams" JOIN "users"/, () => ({
-      rows: [{ user_id: 100, username: 'alice', team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null }],
+    [/"owner_id" AS "user_id"/, () => ({
+      rows: [{ user_id: 100, team_id: 100, team_name: 'Sunday Ballers', avatar_url: null, avatar_static_url: null }],
     })],
     [/FROM "pickem_picks" WHERE "league_id" = \$1 AND "season" = \$2$/, () => ({ rows: [] })],
     [/FROM "nfl_games"/, () => ({ rows: [] })],

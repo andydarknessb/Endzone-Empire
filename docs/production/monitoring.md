@@ -9,7 +9,7 @@
 | Database p95 query | >250 ms | >1 s |
 | Process memory | >75% for 15 minutes | >85% for 10 minutes |
 | Event-loop lag | >50 ms for 10 minutes | >100 ms for 5 minutes |
-| Worker heartbeat | Older than expected interval | Older than 15 minutes or `last_error` set |
+| Worker heartbeat | Older than expected interval | Older than 15 minutes or a non-null `worker.lastError` category on `/api/health/worker` (the raw detail lives in the `worker_heartbeats.last_error` column, not on the anonymous payload) |
 | Provider failures | >1% or quota below 30% | >5%, repeated 429, or quota below 20% |
 | Email delivery | Any sustained rejection | >1% failures for 5 minutes |
 | Crash/restart | Any unexpected restart | Crash loop |

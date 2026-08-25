@@ -335,7 +335,11 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
           </IconButton>
         </Box>
       </Box>
-      <DialogContent dividers aria-busy={loading || undefined}>
+      {/* data-testid is a test-only seam (#326): DialogContent is the element
+          that actually carries aria-busy, but it's a roleless MUI div with no
+          accessible name a semantic query could target. aria-busy stays put;
+          the testid just lets a test assert on this exact element. */}
+      <DialogContent dividers aria-busy={loading || undefined} data-testid="quickview-content">
         {draftedBy && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             {`Drafted by ${draftedBy}`}

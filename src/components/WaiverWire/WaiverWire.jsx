@@ -256,7 +256,7 @@ function WaiverWire() {
           </Box>
 
           <Paper sx={{ p: 2, mb: 3 }} data-testid="on-waivers-panel">
-            <Typography variant="h6" sx={{ mb: 2 }}>
+            <Typography id="on-waivers-table-heading" variant="h6" sx={{ mb: 2 }}>
               On Waivers
             </Typography>
             {data.onWaivers.length === 0 ? (
@@ -277,7 +277,7 @@ function WaiverWire() {
               </Box>
             ) : (
               <TableContainer>
-                <Table size="small">
+                <Table size="small" aria-labelledby="on-waivers-table-heading">
                   <TableHead>
                     <TableRow>
                       <TableCell>Name</TableCell>

@@ -1,0 +1,16 @@
+# Normalize line endings for all text files to LF in the repository on commit,
+# regardless of each client's core.autocrlf setting. See issue #161.
+* text=auto
+
+# Binary types present in the tree: never normalize or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+*.zip binary

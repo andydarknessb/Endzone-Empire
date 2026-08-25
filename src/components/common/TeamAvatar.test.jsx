@@ -35,6 +35,8 @@ test('renders the animated avatar by default when both URLs are present', () => 
       avatarStaticUrl="https://example.com/static.png"
     />
   );
+  // hidden: true because TeamAvatar deliberately omits `alt` - see the
+  // comment on Avatar in TeamAvatar.jsx (#327).
   const img = screen.getByRole('img', { hidden: true });
   expect(img).toHaveAttribute('src', 'https://example.com/animated.gif');
 });
@@ -48,6 +50,7 @@ test('renders the static frame instead when prefers-reduced-motion is on and a s
       avatarStaticUrl="https://example.com/static.png"
     />
   );
+  // hidden: true - see the comment on Avatar in TeamAvatar.jsx (#327).
   const img = screen.getByRole('img', { hidden: true });
   expect(img).toHaveAttribute('src', 'https://example.com/static.png');
 });
@@ -55,6 +58,7 @@ test('renders the static frame instead when prefers-reduced-motion is on and a s
 test('falls back to the animated URL under prefers-reduced-motion when no static variant exists (static uploads)', () => {
   matchMediaMatches = true;
   render(<TeamAvatar name="Sunday Ballers" avatarUrl="https://example.com/logo.png" avatarStaticUrl={null} />);
+  // hidden: true - see the comment on Avatar in TeamAvatar.jsx (#327).
   const img = screen.getByRole('img', { hidden: true });
   expect(img).toHaveAttribute('src', 'https://example.com/logo.png');
 });

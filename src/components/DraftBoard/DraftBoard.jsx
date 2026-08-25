@@ -358,6 +358,11 @@ function DraftBoard() {
 
   const loading = pool.loading || queueLoading;
 
+  // #322 same-pass check: this component renders two Container
+  // component="main" elements (here, and again below the loading branch),
+  // but they are exclusive branches of the same `if (loading) return ...`
+  // conditional - never both mounted at once - so they are not the
+  // duplicate-landmark defect #322 fixed on Nav's two `nav` landmarks.
   if (loading) {
     return (
       <Container

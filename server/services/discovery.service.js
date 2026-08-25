@@ -281,11 +281,6 @@ const PREVIEW_FIELDS = [
   'myRequestStatus',
   'openSlots',
   'isPublic',
-  // The commissioner's ACCOUNT name. Still shipped only because #181 is the
-  // expand half of an expand/contract pair; no client reads it (#181 moved the
-  // one reader to ownerTeamName, with no fallback), and #115 deletes this
-  // entry and its key in the pinning test. Nothing new may read it.
-  'ownerUsername',
   // The commissioner's TEAM name in this league: what a non-member is shown.
   'ownerTeamName',
   // Joinability's answer. Its three inputs (draft_status, season_status,
@@ -357,7 +352,6 @@ async function previewLeagueByInviteCode({ code, userId }) {
        "leagues"."draft_status" AS "draft_status",
        "leagues"."season_status" AS "season_status",
        "leagues"."pickem_only" AS "pickem_only",
-       (SELECT "users"."username" FROM "users" WHERE "users"."id" = "leagues"."owner_id") AS "ownerUsername",
        (SELECT "owner_team"."name" FROM "teams" "owner_team"
          WHERE "owner_team"."league_id" = "leagues"."id"
            AND "owner_team"."owner_id" = "leagues"."owner_id") AS "ownerTeamName"`,
@@ -459,7 +453,19 @@ async function joinPublicLeague({ leagueId, userId, username, teamName }) {
   }
 }
 
-/** Commissioner queue: pending join requests for a league the caller owns. */
+/**
+ * The join-request queue's payload contract (#115 / #379): every pending
+ * request is served as exactly these three fields, never the requester's
+ * account name. Pinned the same way as PREVIEW_FIELDS above -- built fresh
+ * via `allowlisted()` rather than returned as `result.rows` straight from
+ * the query, so a row wider than this contract (a future column the SQL
+ * grows, or a join added back for an unrelated reason) still cannot reach
+ * the client. A request is actioned by its id and shown by its proposed
+ * Team name, per CONTEXT.md's Team identity rule.
+ */
+const JOIN_REQUEST_FIELDS = ['id', 'team_name', 'created_at'];
+
+/** Commissioner queue: pending join requests for a league the caller is a commissioner of. */
 async function listJoinRequests({ leagueId, ownerId }) {
   const commish = await pool.query(
     `SELECT 1 FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)}`,
@@ -468,15 +474,13 @@ async function listJoinRequests({ leagueId, ownerId }) {
   if (!commish.rows[0]) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
 
   const result = await pool.query(
-    `SELECT "join_requests"."id", "join_requests"."team_name", "join_requests"."created_at",
-            "users"."username"
+    `SELECT "join_requests"."id", "join_requests"."team_name", "join_requests"."created_at"
      FROM "join_requests"
-     JOIN "users" ON "users"."id" = "join_requests"."user_id"
      WHERE "join_requests"."league_id" = $1 AND "join_requests"."status" = 'pending'
      ORDER BY "join_requests"."created_at" ASC`,
     [leagueId]
   );
-  return result.rows;
+  return result.rows.map((row) => allowlisted(row, JOIN_REQUEST_FIELDS));
 }
 
 /** Commissioner approves or denies a pending join request, transactionally. */

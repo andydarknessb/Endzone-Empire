@@ -147,8 +147,9 @@ function deriveSlateFromRows(gameRows, lgsRows) {
 
 /**
  * Pure: second winner tier. `private.game_recaps` keeps final scores long
- * after the live engine has stopped tracking a week, so a game the live table
- * never marked final can still be graded. Games already final are untouched.
+ * after live scoring (modules/liveGameEngine.js) has stopped tracking a
+ * week, so a game the live table never marked final can still be graded.
+ * Games already final are untouched.
  */
 function applyRecapFinals(games, recapRows) {
   if (!recapRows || recapRows.length === 0) return games || [];
@@ -388,8 +389,13 @@ function scorePickemWeek({ games = [], picks = [], mode = 'straight' }) {
  * `computeStandings` — member display fields (team name, avatar) ride along on
  * `members` rather than being fetched in here.
  *
- * Order: total points desc, then correct picks desc, then username, so the
- * result is deterministic even before a single game is final.
+ * Order: total points desc, then correct picks desc, then Team name, so the
+ * result is deterministic even before a single game is final. The final
+ * tiebreak was the author's account username until #343 removed it from the
+ * standings; a shared surface orders by Team identity, so it is Team name now.
+ * A duplicate Team name is valid identity (CONTEXT.md), so a tie between two
+ * identical Team names can still order arbitrarily - the same tolerance the old
+ * username tiebreak had for two managers who shared a display name.
  */
 function comparePickemStandingScore(a, b) {
   return b.points - a.points || b.correct - a.correct;
@@ -442,7 +448,7 @@ function computePickemStandings({ members = [], games = [], picks = [], mode = '
   rows.sort(
     (a, b) =>
       comparePickemStandingScore(a, b) ||
-      String(a.username || '').localeCompare(String(b.username || ''))
+      String(a.teamName || '').localeCompare(String(b.teamName || ''))
   );
   if (rows[0]?.points === 0 && rows[0]?.correct === 0) {
     return rows.map((row, index) => ({ ...row, rank: index + 1 }));
@@ -624,16 +630,19 @@ async function getSeasonSlate({ season, db = pool }) {
 async function getWeekView({ leagueId, userId, season, week, mode, now = new Date() }) {
   const slate = await getWeekSlate({ season, week });
   const stored = await pool.query(
+    // pickem_picks.user_id stays only to tell the viewer's own picks apart from
+    // everyone else's below (row.user_id === userId); it is not projected onto
+    // any othersPicks entry. The author's username is gone with the users JOIN,
+    // and the reveal orders by Team name now (#343).
     `SELECT "pickem_picks"."user_id", "pickem_picks"."team_pair",
             "pickem_picks"."picked_team", "pickem_picks"."confidence",
-            "users"."username", ${teamIdentityColumns()}
+            ${teamIdentityColumns()}
        FROM "pickem_picks"
-       JOIN "users" ON "users"."id" = "pickem_picks"."user_id"
        ${teamIdentityJoin('"pickem_picks"."league_id"', '"pickem_picks"."user_id"')}
       WHERE "pickem_picks"."league_id" = $1
         AND "pickem_picks"."season" = $2
         AND "pickem_picks"."week" = $3
-      ORDER BY "users"."username"`,
+      ORDER BY "teams"."name"`,
     [leagueId, season, week]
   );
 
@@ -657,10 +666,10 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
     }
     if (!lockedKeys.has(row.team_pair)) continue;
     if (!othersPicks[row.team_pair]) othersPicks[row.team_pair] = [];
-    // Team identity beside the author's account fields (#112, parent #108).
+    // Team identity only: another manager's pick names them by Team, never by
+    // the author account (#343, #115). The viewer already knows their own team
+    // from `viewerTeamId` on the week response root.
     othersPicks[row.team_pair].push({
-      userId: row.user_id,
-      username: row.username,
       teamId: row.teamId ?? null,
       teamName: row.teamName ?? null,
       ...pick,
@@ -745,13 +754,18 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
 async function loadStandings({ leagueId, season, db, games, includeFormerPickers }) {
   const settings = await getSettings(leagueId, db);
   const members = await db.query(
-    `SELECT "teams"."owner_id" AS "user_id", "users"."username",
+    // "teams"."owner_id" AS "user_id" is the JOIN KEY only: it matches a
+    // member to their pick rows (pickem_picks.user_id) and to per-week scoring
+    // totals, and the completion path reads it to match a former picker. It is
+    // account identity, so it stays SERVER-SIDE - the member-facing /standings
+    // route strips it before serializing (#343). The account username is gone;
+    // the standings tiebreak orders by Team name now.
+    `SELECT "teams"."owner_id" AS "user_id",
             "teams"."id" AS "team_id", "teams"."name" AS "team_name",
             "teams"."avatar_url", "teams"."avatar_static_url"
        FROM "teams"
-       JOIN "users" ON "users"."id" = "teams"."owner_id"
       WHERE "teams"."league_id" = $1
-      ORDER BY "users"."username"`,
+      ORDER BY "teams"."name"`,
     [leagueId]
   );
   const stored = await db.query(
@@ -762,10 +776,9 @@ async function loadStandings({ leagueId, season, db, games, includeFormerPickers
   const slate = games || (await getSeasonSlate({ season, db }));
 
   const participants = members.rows.map((row) => ({
+      // userId is the internal join key (to picks and per-week totals) and is
+      // stripped from the member-facing standings at the route (#343).
       userId: row.user_id,
-      username: row.username,
-      // A standings row named its Team but never its Team ID, so a consumer
-      // could only match a participant by account (#112, parent #108).
       teamId: row.team_id ?? null,
       teamName: row.team_name,
       avatarUrl: row.avatar_url,
@@ -778,7 +791,6 @@ async function loadStandings({ leagueId, season, db, games, includeFormerPickers
       currentManagerIds.add(String(pick.user_id));
       participants.push({
         userId: pick.user_id,
-        username: '',
         teamId: null,
         teamName: null,
         avatarUrl: null,

@@ -16,7 +16,11 @@ import InboxIcon from '@mui/icons-material/Inbox';
 
 export function LoadingRows({ rows = 6, height = 44 }) {
   return (
-    <Stack spacing={1} aria-busy="true" aria-live="polite">
+    // data-testid is a test-only seam (#326): this Stack is decorative and
+    // carries no role or accessible name, so it has nothing a semantic query
+    // can find it by. aria-busy/aria-live stay as the a11y contract; the
+    // testid exists only so a test can assert the busy container rendered.
+    <Stack spacing={1} aria-busy="true" aria-live="polite" data-testid="loading-rows">
       {Array.from({ length: rows }).map((_, i) => (
         <Skeleton key={i} variant="rounded" height={height} />
       ))}

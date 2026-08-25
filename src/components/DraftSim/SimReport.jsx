@@ -160,9 +160,9 @@ function SimReport({ report, config, onRestart, showCta = false }) {
       </Paper>
 
       <Paper sx={{ p: { xs: 2, md: 3 } }}>
-        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>Your picks</Typography>
+        <Typography id="sim-report-picks-table-heading" variant="h6" component="h2" sx={{ mb: 2 }}>Your picks</Typography>
         <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small">
+          <Table size="small" aria-labelledby="sim-report-picks-table-heading">
             <TableHead>
               <TableRow>
                 <TableCell>Pick</TableCell>

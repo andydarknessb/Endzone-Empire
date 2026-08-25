@@ -58,7 +58,7 @@ test.describe('authentication lifecycle', () => {
     await page.locator('#email').fill(profile.email);
     await page.locator('#password').fill('InitialPass123!');
     await page.locator('#age-confirmed').check();
-    await page.locator('input[type="submit"][value="Register"]').click();
+    await page.getByRole('button', { name: 'Register' }).click();
     await expect(page).toHaveURL(/#\/user$/);
     expect(registerBody).toEqual({
       username: profile.username,

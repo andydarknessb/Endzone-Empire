@@ -1508,7 +1508,7 @@ test('an already-drafted pool row hides both Draft and Queue entirely, keeping o
     )
   );
 
-  const table = screen.getByRole('table');
+  const table = screen.getByRole('table', { name: 'Available Players' });
   const row = within(table).getByRole('row', { name: /Patrick Mahomes/ });
   // The old .closest('tr') started from the name button, so it asserted the
   // name is a button in passing. Keep that explicit rather than lose it.
@@ -1583,7 +1583,7 @@ test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-g
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
 
-  const table = screen.getByRole('table');
+  const table = screen.getByRole('table', { name: 'Available Players' });
   // Render index, Draft value, and Tier are all absent from this table.
   expect(within(table).queryByText(/^#$/)).not.toBeInTheDocument();
   expect(within(table).queryByText('Draft value')).not.toBeInTheDocument();

@@ -107,7 +107,8 @@ test('exposes an accessible loading status and marks the content busy', () => {
 
   expect(screen.getByRole('dialog')).toHaveAccessibleName('Player details');
   expect(screen.getByRole('status')).toHaveTextContent('Loading player details');
-  expect(screen.getByTestId('quickview-skeleton').closest('[aria-busy="true"]')).toBeInTheDocument();
+  expect(screen.getByTestId('quickview-skeleton')).toBeInTheDocument();
+  expect(screen.getByTestId('quickview-content')).toHaveAttribute('aria-busy', 'true');
 });
 
 test('labels the statistics period control and each statistics table', async () => {

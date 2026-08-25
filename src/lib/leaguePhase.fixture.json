@@ -1,116 +1,148 @@
 {
-  "_comment": "Contract fixture for League phase and Joinable, shared by src/lib/leaguePhase.test.js (client) and server/test/leaguePhase.test.js (server). Each case is a leagues row (raw draft_status / season_status / pickem_only) with the phase and joinability both derivations must produce. A case with no `league` key exercises a missing (undefined) input. Reason strings ('draft-started', 'season-complete') are a cross-side contract.",
+  "_comment": "Contract fixture for League phase, Joinable and Removable, shared by src/lib/leaguePhase.test.js (client) and server/test/leaguePhase.test.js (server). Each case is a leagues row (raw draft_status / season_status / pickem_only) with the phase, joinability and removability all three derivations must produce on both sides. A case with no `league` key exercises a missing (undefined) input. Joinable reason strings ('draft-started', 'season-complete') are a cross-side contract, as is the removal reason ('draft-started'); `removeReason` is null whenever `removable` is true. A pick'em-only league stays removable in every phase, complete included (#195 keeps today's behaviour there).",
   "cases": [
     {
       "name": "fantasy league, draft pending",
       "league": { "draft_status": "pending" },
       "phase": "pre-draft",
       "joinable": true,
-      "reason": null
+      "reason": null,
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "fantasy league, draft pending, season regular (explicit pickem_only=false)",
       "league": { "pickem_only": false, "draft_status": "pending", "season_status": "regular" },
       "phase": "pre-draft",
       "joinable": true,
-      "reason": null
+      "reason": null,
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "fantasy league, draft active",
       "league": { "draft_status": "active" },
       "phase": "drafting",
       "joinable": false,
-      "reason": "draft-started"
+      "reason": "draft-started",
+      "removable": false,
+      "removeReason": "draft-started"
     },
     {
       "name": "fantasy league, draft complete, season regular",
       "league": { "draft_status": "complete", "season_status": "regular" },
       "phase": "in-season",
       "joinable": false,
-      "reason": "draft-started"
+      "reason": "draft-started",
+      "removable": false,
+      "removeReason": "draft-started"
     },
     {
       "name": "fantasy league, draft complete, season playoffs",
       "league": { "draft_status": "complete", "season_status": "playoffs" },
       "phase": "playoffs",
       "joinable": false,
-      "reason": "draft-started"
+      "reason": "draft-started",
+      "removable": false,
+      "removeReason": "draft-started"
     },
     {
       "name": "fantasy league, draft complete, season complete",
       "league": { "draft_status": "complete", "season_status": "complete" },
       "phase": "complete",
       "joinable": false,
-      "reason": "draft-started"
+      "reason": "draft-started",
+      "removable": false,
+      "removeReason": "draft-started"
     },
     {
       "name": "pick'em-only league, draft pending, season regular",
       "league": { "pickem_only": true, "draft_status": "pending", "season_status": "regular" },
       "phase": "in-season",
       "joinable": true,
-      "reason": null
+      "reason": null,
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "pick'em-only league, draft pending, no season status",
       "league": { "pickem_only": true, "draft_status": "pending" },
       "phase": "in-season",
       "joinable": true,
-      "reason": null
+      "reason": null,
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "pick'em-only league ignores draft status: draft active, season playoffs",
       "league": { "pickem_only": true, "draft_status": "active", "season_status": "playoffs" },
       "phase": "in-season",
       "joinable": true,
-      "reason": null
+      "reason": null,
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "pick'em-only league ignores draft status: draft complete, season playoffs",
       "league": { "pickem_only": true, "draft_status": "complete", "season_status": "playoffs" },
       "phase": "in-season",
       "joinable": true,
-      "reason": null
+      "reason": null,
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "pick'em-only league, draft pending, season complete",
       "league": { "pickem_only": true, "draft_status": "pending", "season_status": "complete" },
       "phase": "complete",
       "joinable": false,
-      "reason": "season-complete"
+      "reason": "season-complete",
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "pick'em-only league ignores draft status: draft active, season complete",
       "league": { "pickem_only": true, "draft_status": "active", "season_status": "complete" },
       "phase": "complete",
       "joinable": false,
-      "reason": "season-complete"
+      "reason": "season-complete",
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "pick'em-only league ignores draft status: draft complete, season complete",
       "league": { "pickem_only": true, "draft_status": "complete", "season_status": "complete" },
       "phase": "complete",
       "joinable": false,
-      "reason": "season-complete"
+      "reason": "season-complete",
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "pick'em-only league rolled into a new season (draft pending, season regular again) is in-season and joinable again",
       "league": { "pickem_only": true, "draft_status": "pending", "season_status": "regular", "current_season": 2027, "current_week": 1 },
       "phase": "in-season",
       "joinable": true,
-      "reason": null
+      "reason": null,
+      "removable": true,
+      "removeReason": null
     },
     {
       "name": "null input",
       "league": null,
       "phase": null,
       "joinable": false,
-      "reason": null
+      "reason": null,
+      "removable": false,
+      "removeReason": null
     },
     {
       "name": "missing input (no league key: the derivation is handed undefined)",
       "phase": null,
       "joinable": false,
-      "reason": null
+      "reason": null,
+      "removable": false,
+      "removeReason": null
     }
   ]
 }

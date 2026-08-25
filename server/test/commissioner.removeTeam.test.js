@@ -3,15 +3,20 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert, remove } = require('./helpers/fakePool');
 const { removeTeam } = require('../services/commissioner.service');
 
-// --- commissioner team removal, at the authorization seam (#187) ------------
-// Two rules, two messages: no commissioner of either kind may remove their own
-// team (compared against the caller), and the league creator's team can never
-// be removed by anyone (compared against the league's owner_id). Every other
-// removal proceeds, including revoking the removed manager's grant.
+// --- commissioner team removal, at the authorization and phase seams --------
+// Three rules, three messages: the league must be Removable at all (a fantasy
+// league is removable only while pre-draft, #195), no commissioner of either
+// kind may remove their own team (compared against the caller, #187), and the
+// league creator's team can never be removed by anyone (compared against the
+// league's owner_id). Every other removal proceeds, including revoking the
+// removed manager's grant.
 //
 // These assert state: which teams survive, which league_commissioners rows
 // survive, and who was notified. A refusal that still deleted the row would
-// pass an assertion about the thrown error alone.
+// pass an assertion about the thrown error alone, so each refusal also counts
+// the protected write at the pg seam and asserts it ran zero times, with the
+// success path counting the same matcher as 1 for a baseline
+// (docs/agents/refusal-tests.md).
 
 const CREATOR = 1; // the league's owner_id
 const CO_COMMISSIONER = 2; // a league_commissioners row, not the owner
@@ -19,10 +24,17 @@ const MEMBER = 3; // a plain member
 
 const SELF_MESSAGE = "you can't remove your own team";
 const CREATOR_MESSAGE = "the league creator's team can't be removed";
+const DRAFT_STARTED_MESSAGE = "teams can't be removed once the draft has started";
 
-function removeTeamWorld(t) {
+// The league columns default to a pre-draft fantasy league (removal succeeds
+// as it always did); a case that needs another phase passes an override.
+function removeTeamWorld(t, leagueOverrides = {}) {
   const state = {
-    league: { id: 5, name: 'Test League', owner_id: CREATOR },
+    league: {
+      id: 5, name: 'Test League', owner_id: CREATOR,
+      pickem_only: false, draft_status: 'pending', season_status: 'regular',
+      ...leagueOverrides,
+    },
     teams: [
       { id: 10, league_id: 5, owner_id: CREATOR, name: 'Founder FC' },
       { id: 20, league_id: 5, owner_id: CO_COMMISSIONER, name: 'Deputy Dawgs' },
@@ -159,5 +171,109 @@ test('a plain member cannot remove any team', async (t) => {
   );
 
   assert.deepEqual(teamIds(state), [10, 20, 30]);
+  fake.assertClean();
+});
+
+// --- the Removable phase gate (#195) ----------------------------------------
+// A fantasy league is removable only while pre-draft. Once the draft has
+// started, removal is refused (409) and nothing is deleted: not the team, not
+// its grant, and no notification. A pick'em-only league has no draft and stays
+// removable in every phase.
+
+test('a fantasy league still pre-draft removes normally (the phase gate allows it)', async (t) => {
+  const { fake, state } = removeTeamWorld(t, { draft_status: 'pending' });
+
+  const result = await removeTeam({ leagueId: 5, userId: CREATOR, teamId: 30 });
+
+  assert.deepEqual(result, { leagueId: 5, removedTeamId: 30 });
+  assert.deepEqual(teamIds(state), [10, 20]);
+  assert.deepEqual(state.notified, [MEMBER]);
+  // Baseline: the same matcher the refusals assert is zero counts one here.
+  assert.equal(fake.matching(remove('teams')).length, 1, 'the team was deleted');
+  fake.assertClean();
+});
+
+test('a fantasy league with the draft active refuses removal and deletes nothing', async (t) => {
+  const { fake, state } = removeTeamWorld(t, { draft_status: 'active' });
+
+  await assert.rejects(
+    () => removeTeam({ leagueId: 5, userId: CREATOR, teamId: 30 }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.message, DRAFT_STARTED_MESSAGE);
+      return true;
+    }
+  );
+
+  assert.deepEqual(teamIds(state), [10, 20, 30]);
+  assert.deepEqual(state.grants, [CO_COMMISSIONER]);
+  assert.deepEqual(state.notified, []);
+  assert.deepEqual(state.transactions, []);
+  // The refusal protects a hard DELETE and its CASCADE; count the write at the
+  // closest seam, not just the response, which a misplaced guard leaves
+  // byte-identical (docs/agents/refusal-tests.md).
+  assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
+  assert.equal(fake.matching(remove('league_commissioners')).length, 0, 'no grant was revoked');
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'nothing was committed');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction rolled back');
+  fake.assertClean();
+});
+
+for (const season_status of ['regular', 'playoffs', 'complete']) {
+  test(`a fantasy league with the draft complete (season ${season_status}) refuses removal and deletes nothing`, async (t) => {
+    const { fake, state } = removeTeamWorld(t, { draft_status: 'complete', season_status });
+
+    await assert.rejects(
+      () => removeTeam({ leagueId: 5, userId: CREATOR, teamId: 30 }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.message, DRAFT_STARTED_MESSAGE);
+        return true;
+      }
+    );
+
+    assert.deepEqual(teamIds(state), [10, 20, 30]);
+    assert.deepEqual(state.grants, [CO_COMMISSIONER]);
+    assert.deepEqual(state.notified, []);
+    assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
+    assert.equal(fake.matching(remove('league_commissioners')).length, 0, 'no grant was revoked');
+    fake.assertClean();
+  });
+}
+
+test("a pick'em-only league has no draft, so removal is unchanged whatever its status", async (t) => {
+  // draft_status 'active' would block a fantasy league; a pick'em-only league
+  // ignores it and stays removable.
+  const { fake, state } = removeTeamWorld(t, {
+    pickem_only: true, draft_status: 'active', season_status: 'regular',
+  });
+
+  const result = await removeTeam({ leagueId: 5, userId: CREATOR, teamId: 30 });
+
+  assert.deepEqual(result, { leagueId: 5, removedTeamId: 30 });
+  assert.deepEqual(teamIds(state), [10, 20]);
+  assert.deepEqual(state.notified, [MEMBER]);
+  assert.equal(fake.matching(remove('teams')).length, 1, 'the team was deleted');
+  fake.assertClean();
+});
+
+test('the phase gate is checked before the per-team rules: a self-removal past pre-draft still gets one 409', async (t) => {
+  // A co-commissioner removing their OWN team in an active-draft league fails
+  // both the phase rule and the self rule; the ruling accepts either message,
+  // and the phase rule (a property of the league) answers first.
+  const { fake, state } = removeTeamWorld(t, { draft_status: 'active' });
+
+  await assert.rejects(
+    () => removeTeam({ leagueId: 5, userId: CO_COMMISSIONER, teamId: 20 }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.message, DRAFT_STARTED_MESSAGE);
+      return true;
+    }
+  );
+
+  assert.deepEqual(teamIds(state), [10, 20, 30]);
+  assert.deepEqual(state.grants, [CO_COMMISSIONER]);
+  assert.equal(fake.matching(remove('teams')).length, 0, 'no team was deleted');
   fake.assertClean();
 });

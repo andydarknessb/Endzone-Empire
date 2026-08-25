@@ -302,7 +302,13 @@ test.describe('schedule-aware player pool (issue #119)', () => {
   test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace/Actions', async ({ page }) => {
     await setupActiveDraft(page);
 
-    const headers = (await page.getByRole('columnheader').allTextContents()).map((h) => h.trim());
+    // allTextContents() reads raw DOM text, which also picks up the
+    // visually-hidden "sorted ascending"/"sorted descending" span #212 added
+    // inside the active sort header for assistive technology (issue #365).
+    // That span is announcement, not the column's label, so strip its text
+    // off the end before comparing to the visible header names.
+    const headers = (await page.getByRole('columnheader').allTextContents())
+      .map((h) => h.replace(/sorted (ascending|descending)$/, '').trim());
     expect(headers).toEqual([
       'Name', 'Position', 'NFL Team', 'Bye', 'ADP', 'Pos rank', '17-game pace', 'Actions',
     ]);
@@ -1205,9 +1211,12 @@ test.describe('state-dependent rail composition (issue #123)', () => {
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 
     expect(await railPanels(page)).toEqual(['Readiness', 'Draft order', 'My Queue']);
-    // The not-yet-ready group is Not ready. CONTEXT.md's Readiness entry
-    // reserves "holdout" for the Evaluation context, so it must not appear.
-    await expect(page.getByRole('region', { name: 'Readiness' }).getByText('Ridge Runners: Not ready')).toBeVisible();
+    // Readiness composes a count sentence, not a per-Team list (issue #124).
+    // At 0 of 2 ready, readinessSummary's exception list is empty - nobody
+    // has declared yet, so nothing is worth naming (CONTEXT.md: Readiness)
+    // and the panel shows only the count. "holdout" is reserved for the
+    // Evaluation context, so it must not appear.
+    await expect(page.getByRole('region', { name: 'Readiness' }).getByText('0 of 2 managers ready')).toBeVisible();
     expect((await page.locator('body').innerText()).toLowerCase()).not.toContain('holdout');
   });
 

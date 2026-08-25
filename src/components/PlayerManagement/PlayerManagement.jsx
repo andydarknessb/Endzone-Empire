@@ -291,7 +291,9 @@ function PlayerManagement() {
       </div>
 
       <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, width: '100%', maxWidth: 1100, overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 900 }}>
+        {/* No local heading sits over this table; reuse the "Players" nav
+            label this page is reached from. */}
+        <Table sx={{ minWidth: 900 }} aria-label="Players">
           <TableHead>
             <TableRow>
               <TableCell sx={headCellSx}>
@@ -406,9 +408,9 @@ function PlayerManagement() {
         </Typography>
       </Box>
 
-      <Typography variant="h6" sx={{ mt: 3 }}>My Roster</Typography>
+      <Typography id="player-management-roster-heading" variant="h6" sx={{ mt: 3 }}>My Roster</Typography>
       <TableContainer component={Paper} sx={{ borderRadius: 2, m: 1, maxWidth: 900 }}>
-        <Table sx={{ minWidth: 650 }}>
+        <Table sx={{ minWidth: 650 }} aria-labelledby="player-management-roster-heading">
           <TableHead>
             <TableRow>
               <TableCell sx={headCellSx}>Name</TableCell>

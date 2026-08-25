@@ -25,10 +25,30 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint:colors
+      # #307: two branches can each take the next free docs/adr/ number off
+      # the same base at the same time; the file paths differ, so git never
+      # conflicts and both PRs go green. This runs the guard's own test file
+      # (scripts/ci/check-adr-uniqueness.test.js) plus the guard itself
+      # (scripts/ci/check-adr-uniqueness.js), which fails on a duplicate
+      # numeric prefix or a gap in the sequence.
+      - run: npm run check:adr-uniqueness
+      # close-merged-issues.yml closes the issues a merged PR names (#330).
+      # Its parser tests run here so a broken parser cannot merge; the
+      # post-merge job re-runs them as a tripwire before it writes anything.
+      - run: npm run test:close-merged-issues
       # The holdout-confirm-2026 study captures against these constants; an
       # unintended change (even a key-order change) silently drops captured
       # weeks. Deliberate changes update the pin in the same commit.
       - run: node scripts/ci/check-model-constants.js
+      # @testing-library/dom must resolve to exactly one installed copy. A
+      # second copy re-splits user-event's act()-aware config, so every
+      # user-event interaction in the client suite dispatches outside act()
+      # silently, with no test failing (#219). This guard (#224) fails fast and
+      # names the cause here instead of letting it surface downstream as an
+      # unrelated user-event test days later (#313). Runs after npm ci (it needs
+      # the installed tree) and before the client suite below. `check:dom-dedupe`
+      # runs the guard's own unit test and then the guard.
+      - run: npm run check:dom-dedupe
       - run: npm test -- --runInBand
         env:
           CI: "true"
@@ -71,11 +91,15 @@ jobs:
 
   browser-security:
     runs-on: ubuntu-latest
-    # Healthy runs finish in 2-5 minutes (npm ci ~25s, browser install 20-200s,
-    # test:security ~5s, auth-offline ~30s). Twice the install step has sat in
-    # apt-get for hours when the runner's Azure apt mirror stalled (runs
-    # 32166695949 and 32278921366), holding a runner until GitHub's 6-hour
-    # default. Fail fast instead; a rerun gets a fresh runner.
+    # Healthy runs finish in 3-8 minutes (npm ci ~25s, browser install
+    # 20-200s, test:security ~5s, then the full tests/e2e directory:
+    # auth-offline ~30s, draft-identity ~50s, draft-board ~2.5 min, all at
+    # one worker - the 8-minute end is that install's slow case plus the
+    # e2e suite, still comfortably under the 15-minute timeout below).
+    # Twice the install step has sat in apt-get for hours when the runner's
+    # Azure apt mirror stalled (runs 32166695949 and 32278921366), holding a
+    # runner until GitHub's 6-hour default. Fail fast instead; a rerun gets
+    # a fresh runner.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,7 +118,11 @@ jobs:
         env:
           CI: "true"
           SECURITY_NETWORK_MODE: mock
-      - run: npm run test:e2e:auth-offline
+      # No file argument: every spec under tests/e2e runs, not just the ones
+      # named here by hand, so a spec added later is covered automatically
+      # (issue #365) instead of being orphaned the way draft-board and
+      # draft-identity were.
+      - run: npm run test:e2e
         env:
           CI: "true"
 
@@ -168,6 +196,12 @@ jobs:
       - run: npm run test:pickem-history-pg
         env:
           PICKEM_HISTORY_PG_TESTS: "1"
+      # league_history.standings account-identity strip + CHECK (#342, PR #370):
+      # the empty history table in the plain migrate/rollback/migrate smoke
+      # cannot exercise the per-element strip or the constraint rejection.
+      - run: npm run test:history-standings-pg
+        env:
+          HISTORY_STANDINGS_PG_TESTS: "1"
       # A lineup entry follows the roster (#197): the stale-row cleanup
       # migration's WHERE clause, and the runtime operation that maintains
       # the same rule from now on, checked against real rows. The mocked

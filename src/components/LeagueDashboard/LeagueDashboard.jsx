@@ -465,11 +465,11 @@ function LeagueDashboard() {
         </>
       ) : (
         <>
-      <Typography variant="h6" sx={{ mb: 2 }}>
+      <Typography id="standings-table-heading" variant="h6" sx={{ mb: 2 }}>
         Standings
       </Typography>
       <TableContainer component={Paper} sx={{ mb: 3, maxWidth: '100%', overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 680 }}>
+        <Table sx={{ minWidth: 680 }} aria-labelledby="standings-table-heading">
           <TableHead>
             <TableRow
               sx={{

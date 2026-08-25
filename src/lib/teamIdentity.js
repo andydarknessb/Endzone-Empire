@@ -24,12 +24,15 @@
  *
  * Pick history is NOT one of those cases, though an earlier version of this
  * comment said it was. `draft_picks.team_id` is notNullable and CASCADEs on
- * team deletion, and removing a team is a hard DELETE, so a removed manager's
- * picks are deleted with them and a Pick can never reach a client with a null
- * Team. The reason is recorded here rather than just the fact, so that nobody
- * notices the LEFT join on picks, assumes this comment drifted, and restores
- * the line. See #195, which owns the underlying defect: deleting those picks
- * silently rewrites a completed draft's record.
+ * team deletion, so a Pick can never reach a client with a null Team, and the
+ * LEFT join on picks is defensive rather than load-bearing. Two rules keep it
+ * so: a team removal is a hard DELETE, and a fantasy league is Removable only
+ * while pre-draft (CONTEXT.md, #195), so a team is only ever removed before any
+ * pick exists. The CASCADE therefore deletes zero picks and never rewrites a
+ * started draft's record, and the pick join never sees a removed team from a
+ * started draft. The reason is recorded here rather than just the fact, so that
+ * nobody notices the LEFT join on picks, assumes this comment drifted, and
+ * routes a genuinely-present Team through the former-manager label.
  *
  * "Every surface that can receive one" is the whole of the rule and not a
  * softening of it. A label is for identity that is genuinely absent; a
@@ -39,7 +42,23 @@
  *
  * This module belongs to no one surface. Anything added here should read as
  * something a league, Draft, chat or pick'em consumer could all call.
+ *
+ * `TEAM_IDENTITY_FIELDS` is the client half of the contract's enforcement
+ * (#200): the same two wire keys the server exports, frozen, and the single
+ * source of the strings `teamId` / `teamName` on this side - they appear here
+ * once and nowhere else in this module. teamIdentityFields.test.js pins this
+ * array equal to the server's, so the two mirrors cannot drift; the consumers
+ * that moved onto Team identity (#115 children: #343 for the REST payloads,
+ * #344 for the Draft / chat sockets) read the wire keys from it rather than
+ * restating them.
  */
+
+/**
+ * The canonical Team identity wire keys, frozen. Mirrors
+ * `server/services/teamIdentity.js`' export of the same name; the two are
+ * pinned equal by a contract test.
+ */
+export const TEAM_IDENTITY_FIELDS = Object.freeze(['teamId', 'teamName']);
 
 /** What any league-shared surface calls someone whose Team is gone. */
 export const FORMER_MANAGER_LABEL = 'Former manager';

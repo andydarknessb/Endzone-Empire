@@ -34,8 +34,8 @@ function mockLeagueDetail(t, { isCommissioner = true, coCommissioners = [] } = {
   const seen = {};
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
-    if (text.includes('owner_username')) {
-      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', owner_username: 'alice' }] };
+    if (text.includes('ownerTeamId')) {
+      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team" }] };
     }
     if (text.includes('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('SELECT 1 FROM "leagues"')) {
@@ -54,12 +54,11 @@ function mockLeagueDetail(t, { isCommissioner = true, coCommissioners = [] } = {
           id: 11,
           teamId: 11,
           name: "Alice's Team",
-          owner_id: 42,
+          owner_id: 42, // on the raw row for viewerTeamId; stripped from serialization (#343)
           draft_position: 1,
           faab_remaining: 100,
           locked: false,
           draft_ready: true,
-          owner: 'alice',
           roster_count: 0,
           total_points: '0',
         }],
@@ -74,8 +73,8 @@ test('GET league detail selects and serializes team readiness', async (t) => {
   let teamsQuery = null;
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
-    if (text.includes('owner_username')) {
-      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', owner_username: 'alice' }] };
+    if (text.includes('ownerTeamId')) {
+      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team" }] };
     }
     if (text.includes('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
@@ -90,7 +89,6 @@ test('GET league detail selects and serializes team readiness', async (t) => {
           faab_remaining: 100,
           locked: false,
           draft_ready: true,
-          owner: 'alice',
           roster_count: 0,
           total_points: '0',
         }],
@@ -136,9 +134,12 @@ test('GET league detail gives a commissioner the invite code and the ids grant a
     // revoke it, even though there is no Team identity left to name it by.
     { user_id: 43, grantedAt: GRANTED_AT, teamId: null, teamName: null },
   ]);
-  // The promote list is account-shaped for the same reason.
+  // owner_id still rides in the SELECT so viewerTeamId can resolve off the raw
+  // rows, but it is stripped from the serialized entry (#343): even a
+  // commissioner reads teams[] by Team identity, and identifies a promote
+  // target by teamId (the server resolves the account behind it).
   assert.match(seen.teamsQuery, /"teams"\."owner_id"/);
-  assert.equal(response.body.teams[0].owner_id, 42);
+  assert.equal('owner_id' in response.body.teams[0], false);
 });
 
 test('GET league detail names commissioner power by Team, never by account, for a plain member', async (t) => {

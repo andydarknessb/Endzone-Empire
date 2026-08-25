@@ -45,7 +45,7 @@ export default function AuctionPanel({ league, teams, frozen, onSave, saving, on
   const insufficientTeams = teams.length < 2;
   return (
     <Stack spacing={2}>
-      <Typography variant="body2" color="text.secondary">These settings are stored now for the future salary-cap draft engine.</Typography>
+      <Typography variant="body2" color="text.secondary">These settings are stored now for the future salary-cap draft workflow.</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}><TextField label="Budget" type="number" value={budget} disabled={frozen} inputProps={{ min: 1, max: 10000 }} error={Boolean(budgetError)} helperText={budgetError} onChange={(event) => setBudget(event.target.value)} /><TextField label="Nomination seconds" type="number" value={nominationSeconds} disabled={frozen} inputProps={{ min: 10, max: 300 }} error={Boolean(nominationSecondsError)} helperText={nominationSecondsError} onChange={(event) => setNominationSeconds(event.target.value)} /><TextField label="Bid seconds" type="number" value={bidSeconds} disabled={frozen} inputProps={{ min: 5, max: 60 }} error={Boolean(bidSecondsError)} helperText={bidSecondsError} onChange={(event) => setBidSeconds(event.target.value)} /></Stack>
       <RadioGroup value={nominationOrder} onChange={(event) => setNominationOrder(event.target.value)}><FormControlLabel value="random" disabled={frozen} control={<Radio />} label="Random nomination order" /><FormControlLabel value="custom" disabled={frozen || insufficientTeams} control={<Radio />} label="Custom nomination order" /></RadioGroup>
       {insufficientTeams && <Alert severity="info">Add at least 2 teams to set a custom nomination order.</Alert>}

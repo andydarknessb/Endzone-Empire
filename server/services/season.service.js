@@ -238,9 +238,8 @@ async function generateRegularSeason({ leagueId }, existingClient = null) {
 /** Standings for a league straight from the database. */
 async function getStandings({ leagueId }) {
   const teamsResult = await pool.query(
-    `SELECT "teams"."id", "teams"."name", "teams"."avatar_url", "teams"."avatar_static_url",
-            "users"."username" AS "owner"
-     FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
+    `SELECT "teams"."id", "teams"."name", "teams"."avatar_url", "teams"."avatar_static_url"
+     FROM "teams"
      WHERE "league_id" = $1`,
     [leagueId]
   );
@@ -256,9 +255,12 @@ async function getStandings({ leagueId }) {
   const standings = computeStandings(teamsResult.rows, matchupsResult.rows);
   // Kept out of computeStandings itself (a pure function also used to build
   // the frozen league_history snapshot on rollover) so avatars never get
-  // baked into that historical record — overlaid here instead, same as owner.
+  // baked into that historical record — overlaid here instead. Avatars only:
+  // Team identity (CONTEXT.md) forbids a manager's account username on a
+  // standings row (#373), and the Team name already on the row from
+  // computeStandings is the display identity.
   const teamMeta = new Map(
-    teamsResult.rows.map((t) => [t.id, { owner: t.owner, avatarUrl: t.avatar_url, avatarStaticUrl: t.avatar_static_url }])
+    teamsResult.rows.map((t) => [t.id, { avatarUrl: t.avatar_url, avatarStaticUrl: t.avatar_static_url }])
   );
   return standings.map((s) => ({ ...s, ...teamMeta.get(s.teamId) }));
 }

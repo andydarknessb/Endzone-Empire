@@ -363,7 +363,7 @@ test("previewLeagueByInviteCode: selects draft/season status and pickem_only und
     return {
       rows: [{
         id: 7, name: 'Office Pick\'em', maxTeams: 12, teamCount: 3, pickemOnly: true, pickemEnabled: true,
-        isPublic: false, ownerUsername: 'alice',
+        isPublic: false,
         draft_status: 'pending', season_status: 'regular', pickem_only: true,
       }],
     };
