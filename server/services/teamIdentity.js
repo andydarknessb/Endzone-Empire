@@ -4,21 +4,24 @@
  * CONTEXT.md's Team identity entry is the rule this module implements: the
  * Team name (and avatar) is the only identity a surface shared with other
  * managers may carry, and a manager's account identifier stays confined to
- * their own private account chrome. Today's league detail, Draft, chat and
- * pick'em payloads still identify participants and authors by `owner_id` /
- * `user_id` / `username`, so they cannot honour that rule yet.
+ * their own private account chrome. The authenticated REST payloads (league
+ * detail, chat, pick'em, rosters, matchup detail) now honour that rule; the
+ * Draft / chat Socket.IO broadcasts still carry the account fields beside Team
+ * identity and are contracted by #344.
  *
- * This is the EXPAND step of an expand/migrate/contract migration:
+ * This is the machinery of an expand/migrate/contract migration:
  *
- *   #112 (here)  every league-shared contract gains Team ID and Team name
- *                BESIDE its existing account fields, and gains an explicit
- *                viewer-relative field. Nothing is removed, so no consumer
- *                is forced to move.
- *   #113 / #114  league, Draft, chat and pick'em consumers move onto those
+ *   #112 (here)  every league-shared contract gained Team ID and Team name
+ *                BESIDE its existing account fields, and an explicit
+ *                viewer-relative field. Nothing was removed, so no consumer
+ *                was forced to move.
+ *   #113 / #114  league, Draft, chat and pick'em consumers moved onto those
  *                fields.
- *   #115         the account fields are removed from league-shared payloads.
+ *   #115         the account fields are removed from league-shared payloads,
+ *                split by surface: #343 contracted the REST payloads (done),
+ *                #344 contracts the Draft / chat Socket.IO payloads.
  *
- * Two naming rules keep the expanded contract learnable in one go:
+ * Two naming rules keep the contract learnable in one go:
  *
  * 0. What moves here is the identifying half of Team identity: the Team ID
  *    and the Team name. CONTEXT.md's Team identity entry also covers the
@@ -101,7 +104,10 @@ function teamIdentityOf(teamRow) {
 
 /**
  * Add Team identity beside whatever an entry already carries. Beside, never
- * instead of: the legacy account fields survive this phase untouched.
+ * instead of: the account fields survive untouched. Its only remaining callers
+ * are the Draft join-acknowledgement and presence payloads (Socket.IO), which
+ * are still in the EXPAND state until #344 contracts them; the REST payloads
+ * strip their account fields directly in the routes/serializers (#343).
  */
 function withTeamIdentity(entry, teamRow) {
   return { ...entry, ...teamIdentityOf(teamRow) };

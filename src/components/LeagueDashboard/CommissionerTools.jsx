@@ -390,11 +390,12 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
 
   // "Which of these is me" is always a Team ID comparison against the
   // viewer-relative field (CONTEXT.md, Team identity), never a username or an
-  // owner-user-ID: both leave league-shared payloads under #115, and a
-  // username can change out from under a stale comparison anyway (#185).
+  // owner-user-ID: neither rides on the league-shared teams[] payload any more
+  // (#115 child B / #343), and a username could change out from under a stale
+  // comparison anyway (#185).
   //
   // Read `teamId`, the contract name, and not the raw `teams.id` that league
-  // detail still selects beside it (#188): every other "which of these is me"
+  // detail still carries beside it (#188): every other "which of these is me"
   // comparison in src/ reads `teamId`, and this one's failure direction is the
   // bad one - drop the legacy column and `undefined !== viewerTeamId` is true
   // for every row, which puts a Remove button on the viewer's own team.
