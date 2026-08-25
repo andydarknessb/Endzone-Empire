@@ -4,7 +4,7 @@ const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');
 const commissionerRouter = require('../routes/commissioner.router');
-const { createFakePool, select } = require('./helpers/fakePool');
+const { createFakePool, insert, select, update } = require('./helpers/fakePool');
 
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'commissioner-rollover-route-test-secret';
@@ -28,6 +28,10 @@ test("POST rollover exposes the Pick'em missing-result integrity response withou
       current_season: 2026,
     }] })],
     [select('pickem_season_results'), () => ({ rows: [] })],
+    // #274: answer the rollover's two writes so the counts below observe an
+    // absence instead of inheriting fakePool's unexpected-query throw.
+    [insert('league_history'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
   const token = signToken({ id: 100, username: 'commissioner' });
 

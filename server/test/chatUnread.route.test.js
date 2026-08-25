@@ -87,19 +87,40 @@ test('POST chat/read upserts the caller\'s marker to now', async (t) => {
 });
 
 test('POST chat/read is members-only', async (t) => {
+  // #274: the previous mock threw on any statement it did not recognise, so
+  // the members-only property was enforced by the fixture's incompleteness
+  // rather than by an assertion. It answers the upsert now, and the count is
+  // what refuses a non-member's write.
+  const calls = [];
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
+    calls.push(text.replace(/\s+/g, ' ').trim());
     if (text.includes('FROM "teams" WHERE "league_id"')) return { rows: [] };
-    throw new Error(`unexpected query: ${text}`);
+    return { rows: [] };
   });
 
   const res = await request(app)
     .post('/api/league/12/chat/read')
     .set('Authorization', authed());
   assert.equal(res.status, 403);
+  assert.equal(
+    calls.filter((text) => /^INSERT INTO "chat_reads"/.test(text)).length,
+    0,
+    'the non-member did not mark the league read'
+  );
 });
 
-test('chat unread/read reject a non-integer league id', async () => {
+test('chat unread/read reject a non-integer league id', async (t) => {
+  // #274: this test installed no pool mock at all, so a guard moved below the
+  // work would have reached the real pool. The GET leg refuses a read; the
+  // POST leg refuses the chat_reads upsert, and this is the strongest form
+  // available because neither leg should touch the database at all.
+  const calls = [];
+  t.mock.method(pool, 'query', async (sql) => {
+    calls.push(String(sql).replace(/\s+/g, ' ').trim());
+    return { rows: [] };
+  });
+
   const unread = await request(app)
     .get('/api/league/abc/chat/unread')
     .set('Authorization', authed());
@@ -109,4 +130,5 @@ test('chat unread/read reject a non-integer league id', async () => {
     .post('/api/league/abc/chat/read')
     .set('Authorization', authed());
   assert.equal(read.status, 400);
+  assert.deepEqual(calls, [], 'neither leg issued a statement');
 });

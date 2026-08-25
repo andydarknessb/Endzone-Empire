@@ -5,7 +5,7 @@ const request = require('supertest');
 const encryptLib = require('../modules/encryption');
 const account = require('../services/account.service');
 const tokens = require('../services/token.service');
-const { createFakePool } = require('./helpers/fakePool');
+const { createFakePool, insert, update } = require('./helpers/fakePool');
 const { withheld, NEXT_QUARTER } = require('./helpers/payloadShape');
 
 /**
@@ -113,18 +113,27 @@ test('POST /register publishes exactly a token and the account allowlist', async
 });
 
 test('POST /register refusals publish exactly an error', async (t) => {
-  stubTokens(t);
+  const issued = t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true }));
   t.mock.method(encryptLib, 'encryptPassword', async () => HASH);
 
   // A missing field, a short password, and a name already taken.
   const taken = createFakePool([
     [/^SELECT 1 FROM "users"/, () => ({ rows: [{ '?column?': 1 }] })],
+    // #274: answer the account write, so the count below observes an absence.
+    [/^INSERT INTO "users"/, () => ({ rows: [wideUserRow()] })],
   ]).install(t);
   for (const body of [{}, { ...registerBody, password: 'short' }, registerBody]) {
     const res = await request(app).post('/api/auth/register').send(body);
     assert.ok(res.status >= 400, JSON.stringify(res.body));
     assert.deepEqual(Object.keys(res.body), ['error']);
   }
+  // #274. `res.status >= 400` is a deliberately loose assertion about the
+  // shape of the body, which means it cannot distinguish the intended 409
+  // from a 500 thrown after the row was written. These two counts are what
+  // make the loose status safe: no account row, and no session minted for one.
+  assert.equal(taken.matching(insert('users')).length, 0, 'no account was created');
+  assert.equal(issued.mock.callCount(), 0, 'and no refresh token was issued');
   taken.assertClean();
 });
 
@@ -185,7 +194,11 @@ test('the login key set is the allowlist, not the row: a narrower row still answ
 });
 
 test('POST /login refusals publish exactly an error, and never say which half was wrong', async (t) => {
-  stubTokens(t);
+  // #274: capture the handle stubTokens throws away. A refusal that mints a
+  // session is the failure this endpoint exists to prevent, and issuing a
+  // refresh token is what minting one looks like at the closest seam.
+  const issued = t.mock.method(tokens, 'issueRefreshToken', async () => 'raw-refresh-token');
+  t.mock.method(tokens, 'revokeRefreshToken', async () => ({ ok: true }));
 
   const missing = loginPool(null).install(t);
   const unknown = await request(app).post('/api/auth/login').send({ username: 'nobody', password: 'x' });
@@ -205,6 +218,12 @@ test('POST /login refusals publish exactly an error, and never say which half wa
   const blank = await request(app).post('/api/auth/login').send({});
   assert.equal(blank.status, 400);
   assert.deepEqual(Object.keys(blank.body), ['error']);
+  // All three refusals, one count: an unknown user, a wrong password and a
+  // blank body must none of them mint a session. A comparePassword check moved
+  // below issueRefreshToken would answer the same 401 having already issued
+  // one, and the refresh cookie would go out with it.
+  assert.equal(issued.mock.callCount(), 0, 'no refused login minted a session');
+  assert.equal(badPassword.headers['set-cookie'], undefined, 'and none set a refresh cookie');
 });
 
 // ---------------------------------------------------------------------------
@@ -242,6 +261,18 @@ test('POST /refresh refusals publish exactly an error', async (t) => {
   const res = await request(app).post('/api/auth/refresh');
   assert.equal(res.status, 401);
   assert.deepEqual(Object.keys(res.body), ['error']);
+  // #274, and the seam here is the COOKIE, not SQL. The DB mutation on this
+  // path (rotateRefreshToken's UPDATE) runs BEFORE the guard by design, so a
+  // statement count would be asserting the wrong thing. What the refusal
+  // protects is setRefreshCookie: a guard moved below it hands a deleted
+  // account a live refresh cookie, and the body assertion above cannot see it
+  // because the token never travels in the body.
+  const cookies = res.headers['set-cookie'] || [];
+  assert.equal(
+    cookies.filter((c) => /endzone_refresh=.+/.test(c) && !/endzone_refresh=;/.test(c)).length,
+    0,
+    'no live refresh cookie was handed out'
+  );
   fake.assertClean();
 });
 
@@ -275,9 +306,23 @@ test('POST /forgot-password publishes exactly ok and a message, the same one eit
 test('POST /reset-password publishes exactly an acknowledgement, and its refusal exactly an error', async (t) => {
   // The refusal runs FIRST, against the real service: a missing token is
   // rejected before any database call, so mocking would only hide it.
+  //
+  // #274: "before any database call" was the claim and nothing checked it.
+  // The three writes behind this route (the password itself, the auth token
+  // burn and the refresh-token revocation) all live in one transaction in
+  // account.service; a guard moved below them resets a password on a request
+  // that carried no token at all. A recording fake makes the claim testable
+  // instead of asserted in a comment.
+  const refusalPool = createFakePool([
+    [/^SELECT .* FROM "auth_tokens"/, () => ({ rows: [] })],
+    [update('users'), () => ({ rows: [], rowCount: 1 })],
+    [update('auth_tokens'), () => ({ rows: [], rowCount: 1 })],
+    [update('refresh_tokens'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
   const refused = await request(app).post('/api/auth/reset-password').send({});
   assert.equal(refused.status, 400, JSON.stringify(refused.body));
   assert.deepEqual(Object.keys(refused.body), ['error']);
+  assert.deepEqual(refusalPool.calls, [], 'the refusal issued no statement at all');
 
   t.mock.method(account, 'resetPassword', async () => ({ ok: true }));
   const done = await request(app).post('/api/auth/reset-password').send({ token: 't', password: 'correct horse' });
@@ -286,9 +331,17 @@ test('POST /reset-password publishes exactly an acknowledgement, and its refusal
 });
 
 test('POST /verify-email publishes exactly an acknowledgement, and its refusal exactly an error', async (t) => {
+  // #274, same shape as reset-password above: the refusal guards
+  // UPDATE "users" SET "email_verified" = true and the auth-token burn.
+  const refusalPool = createFakePool([
+    [/^SELECT .* FROM "auth_tokens"/, () => ({ rows: [] })],
+    [update('users'), () => ({ rows: [], rowCount: 1 })],
+    [update('auth_tokens'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
   const refused = await request(app).post('/api/auth/verify-email').send({});
   assert.equal(refused.status, 400, JSON.stringify(refused.body));
   assert.deepEqual(Object.keys(refused.body), ['error']);
+  assert.deepEqual(refusalPool.calls, [], 'no address was marked verified');
 
   t.mock.method(account, 'verifyEmail', async () => ({ ok: true }));
   const done = await request(app).post('/api/auth/verify-email').send({ token: 't' });
