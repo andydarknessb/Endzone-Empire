@@ -858,7 +858,10 @@ test("names each grant's Team from the payload rather than re-joining on account
   // Scoped to the grant's own row: "Deputy FC" is the Team name the grant
   // carries, and it appears nowhere else on the page, so finding it proves the
   // card read the payload rather than rebuilding a null.
-  const grantRow = screen.getByRole('button', { name: 'Remove bob as co-commissioner' }).closest('li');
+  const grantRow = screen
+    .getAllByRole('listitem')
+    .find((item) => within(item).queryByRole('button', { name: 'Remove bob as co-commissioner' }));
+  expect(grantRow).toBeDefined();
   expect(within(grantRow).getByText('Deputy FC')).toBeInTheDocument();
 });
 

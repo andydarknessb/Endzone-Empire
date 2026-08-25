@@ -290,16 +290,16 @@ test('every card — hero and list — links directly to its box score, no inter
   await screen.findByText('Home Team (0)');
 
   // The hero card's CardActionArea is itself a plain link to the box score.
-  expect(screen.getByText('My Team').closest('a')).toHaveAttribute(
+  expect(screen.getByRole('link', { name: /My Team/ })).toHaveAttribute(
     'href',
     '/league/3/matchups/4'
   );
   // The list cards are plain links too — no dialog, no detail fetch.
-  expect(screen.getByText('Home Team (0)').closest('a')).toHaveAttribute(
+  expect(screen.getByRole('link', { name: /Home Team \(0\)/ })).toHaveAttribute(
     'href',
     '/league/3/matchups/5'
   );
-  expect(screen.getByText('Second Home (0)').closest('a')).toHaveAttribute(
+  expect(screen.getByRole('link', { name: /Second Home \(0\)/ })).toHaveAttribute(
     'href',
     '/league/3/matchups/6'
   );

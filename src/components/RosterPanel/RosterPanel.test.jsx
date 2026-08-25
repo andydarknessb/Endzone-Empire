@@ -188,9 +188,11 @@ describe('regression guards for the suites this component lands in', () => {
 
   test('renders no bare number that could collide with another panel’s text', () => {
     renderPanel({ picks: [pick(1, 'QB')], rounds: 25 });
-    const bare = [...document.querySelectorAll('*')]
-      .filter((el) => el.children.length === 0 && /^\d+(\.\d+)?$/.test(el.textContent.trim()))
-      .map((el) => el.textContent.trim());
+    // Anything a reader would see as nothing but a number. getByText matches
+    // an element's own text nodes, so it picks out exactly the leaves the old
+    // querySelectorAll('*') sweep kept, plus mixed nodes whose own text is a
+    // bare number - never a wrapper that only contains one.
+    const bare = screen.queryAllByText(/^\d+(\.\d+)?$/).map((el) => el.textContent.trim());
     // The only bare numbers this panel emits are R.PP pick labels, which are
     // always zero-padded to two decimal places. That is what keeps them clear
     // of DraftBoard.test.jsx's getByText('21.5') / ('3.2') projection queries

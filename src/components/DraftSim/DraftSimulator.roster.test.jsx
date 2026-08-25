@@ -29,7 +29,7 @@ async function startDraft() {
   return utils;
 }
 
-const firstDraftButton = () => document.querySelector('button[aria-label^="Draft "]');
+const firstDraftButton = () => screen.getAllByRole('button', { name: /^Draft / })[0];
 const showTab = (name) => fireEvent.click(screen.getByRole('tab', { name }));
 
 const rowLabels = (sectionLabel) =>

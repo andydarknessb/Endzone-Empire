@@ -18,7 +18,7 @@ test('renders the same league identity and phase in compact and management varia
   expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.getByText('Team: Gridiron Guild')).toBeInTheDocument();
   expect(screen.getByText('Pre-draft')).toBeInTheDocument();
-  expect(screen.getByText('Sunday Ballers').closest('a')).toHaveAttribute('href', '/league/7');
+  expect(screen.getByRole('link', { name: /Sunday Ballers/ })).toHaveAttribute('href', '/league/7');
 
   unmount();
   renderWithProviders(<LeagueCard league={{ ...league, draft_status: 'complete', season_status: 'playoffs' }} />);
