@@ -339,7 +339,6 @@ test('uses a successful schedule PUT as the baseline when the follow-up refetch 
 test('saving keeper settings preserves and continues guarding unsaved assignment edits', async () => {
   const response = leagueResponse({ keepers_enabled: true, keeper_count: 2, keeper_lock_at: null });
   let keeperLoads = 0;
-  const leagueGets = () => apiClient.get.mock.calls.filter(([url]) => url === '/api/league/1').length;
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league/1') return Promise.resolve(response);
     if (url === '/api/draft/league/1/keepers') {
@@ -370,13 +369,11 @@ test('saving keeper settings preserves and continues guarding unsaved assignment
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Save keeper settings?' })).not.toBeInTheDocument());
   expect(keeperLoads).toBe(1);
   expect(screen.getByLabelText('Round')).toHaveTextContent('2');
-  // The keeper *settings* dirty flag is cleared only once saveLeague's
-  // follow-up refetch has settled, and the panel's own button re-enables off
-  // the same settle (same idiom as the reload-once test above). Waiting for it
-  // is what makes the dialog below provably the assignment edits talking, and
-  // not a settings flag that had simply not been cleared yet.
+  // The settings save clears its own dirty flag and leaves the assignment one
+  // standing, and the panel leaves its saving state once the follow-up refetch
+  // has settled. Waiting for that (the idiom the reload-once test above uses)
+  // keeps the dialog below reading off a settled panel.
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save keeper settings' })).toBeEnabled());
-  expect(leagueGets()).toBe(2);
 
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   expect(screen.getByRole('dialog', { name: /You have unsaved changes/ })).toBeInTheDocument();

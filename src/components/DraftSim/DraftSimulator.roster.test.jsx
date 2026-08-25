@@ -129,11 +129,13 @@ describe('the panel and the history agree, every round (acceptance criterion 7)'
     await startDraft();
     const simToMyPick = screen.getByRole('button', { name: 'Sim to my pick' });
 
-    // The draft runs in segments that each end on a checkpoint, so the
-    // agreement check runs unconditionally at 4, 9 and 15: the same three
-    // rounds as before, each still checked after that round's user pick and
-    // before simming on to the next one.
+    // The draft is played in segments that each end on a checkpoint, so the
+    // agreement check below sits at the top level of the loop rather than
+    // behind an if: it runs at each checkpoint, after that round's user pick
+    // and before simming on to the next round. The last checkpoint is the
+    // final round, so the segments together cover the whole draft.
     const checkpoints = [4, 9, 15];
+    const finalRound = checkpoints[checkpoints.length - 1];
     let round = 0;
     for (const checkpoint of checkpoints) {
       while (round < checkpoint) {
@@ -155,7 +157,7 @@ describe('the panel and the history agree, every round (acceptance criterion 7)'
       expect(panel.size).toBe(round);
       expect(history).toEqual(panel);
 
-      if (round < 15) fireEvent.click(simToMyPick);
+      if (round < finalRound) fireEvent.click(simToMyPick);
     }
   });
 
