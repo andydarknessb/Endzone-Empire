@@ -207,11 +207,11 @@ function SeasonPanel({ season, defaultExpanded }) {
           </Box>
         )}
 
-        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+        <Typography id={`season-${season.season}-standings-heading`} variant="subtitle1" sx={{ mb: 1 }}>
           Final Standings
         </Typography>
         <TableContainer component={Paper} sx={{ mb: 3 }}>
-          <Table size="small">
+          <Table size="small" aria-labelledby={`season-${season.season}-standings-heading`}>
             <TableHead>
               <TableRow>
                 <TableCell>Rank</TableCell>
@@ -297,11 +297,11 @@ function SeasonPanel({ season, defaultExpanded }) {
           draftGrades &&
           draftGrades.length > 0 && (
             <>
-              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+              <Typography id={`season-${season.season}-draft-grades-heading`} variant="subtitle1" sx={{ mb: 1 }}>
                 Draft Grades
               </Typography>
               <TableContainer component={Paper}>
-                <Table size="small">
+                <Table size="small" aria-labelledby={`season-${season.season}-draft-grades-heading`}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Rank</TableCell>
@@ -443,7 +443,7 @@ function LeagueHistory() {
               label="Preview"
               data-testid="hall-of-fame-preview-chip"
             />
-            <Typography variant="body2" color="text.secondary">
+            <Typography id="history-preview-heading" variant="body2" color="text.secondary">
               Multi-season Hall of Fame: full year-by-year and all-time data coming soon
             </Typography>
           </Stack>
@@ -474,7 +474,12 @@ function LeagueHistory() {
           </Stack>
 
           <TableContainer component={Paper} sx={{ mb: 4 }} data-testid="history-mock-standings">
-            <Table size="small">
+            {/* This placeholder preview renders the same under every year tab
+                (yearTab is not read to gate it), so "All-Time Records" would
+                misname it two of three times. Point at the "Multi-season Hall
+                of Fame" caption above instead, the one piece of visible text
+                that actually describes it regardless of which tab is active. */}
+            <Table size="small" aria-labelledby="history-preview-heading">
               <TableHead>
                 <TableRow>
                   <TableCell>Rank</TableCell>

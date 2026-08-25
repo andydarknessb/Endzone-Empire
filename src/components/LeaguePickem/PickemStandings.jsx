@@ -66,7 +66,9 @@ export default function PickemStandings({ leagueId, season, week }) {
         {'. A tied game credits nobody.'}
       </Typography>
       <TableContainer component={Paper} sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 560 }}>
+        {/* No local heading sits over this table (it fills the "Standings"
+            tab's whole panel); reuse that tab's own visible label. */}
+        <Table sx={{ minWidth: 560 }} aria-label="Standings">
           <TableHead>
             <TableRow
               sx={{

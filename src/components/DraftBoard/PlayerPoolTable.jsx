@@ -667,7 +667,7 @@ function PlayerPoolTable({
         data-testid="players-scroll-region"
         sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
       >
-        <Table stickyHeader>
+        <Table stickyHeader aria-labelledby={headingId}>
           <TableHead>
             <TableRow>
               {/* Column order is fixed markup here, same as the equally-fixed

@@ -31,7 +31,7 @@ test('renders the leaderboard in the order the server returned', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
 
-  const table = await screen.findByRole('table');
+  const table = await screen.findByRole('table', { name: 'Standings' });
   const rows = within(table).getAllByRole('row').slice(1); // drop the header
   expect(rows).toHaveLength(2);
   expect(within(rows[0]).getByText('Anvils')).toBeInTheDocument();
@@ -44,7 +44,7 @@ test('names each participant by Team and never by their account', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
 
-  const table = await screen.findByRole('table');
+  const table = await screen.findByRole('table', { name: 'Standings' });
   expect(within(table).getByText('Anvils')).toBeInTheDocument();
   expect(within(table).queryByText('abe')).not.toBeInTheDocument();
   expect(within(table).queryByText('zoe')).not.toBeInTheDocument();
@@ -71,7 +71,7 @@ test('a standings row runs its Team name through the same former-manager label a
   });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
 
-  const table = await screen.findByRole('table');
+  const table = await screen.findByRole('table', { name: 'Standings' });
   expect(within(table).getByText('Former manager')).toBeInTheDocument();
   expect(within(table).queryByText('abe')).not.toBeInTheDocument();
 });
@@ -80,7 +80,7 @@ test("marks the viewer's own row and leaves the others unmarked", async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
 
-  await screen.findByRole('table');
+  await screen.findByRole('table', { name: 'Standings' });
   // STANDINGS.viewerTeamId is 92, which is the second row's teamId.
   expect(screen.getByTestId('pickem-standings-row-92')).toHaveAttribute('data-viewer-team', 'true');
   expect(screen.getByTestId('pickem-standings-row-21')).not.toHaveAttribute('data-viewer-team');
@@ -90,7 +90,7 @@ test('marks no row when viewerTeamId is null', async () => {
   apiClient.get.mockResolvedValue({ data: { ...STANDINGS, viewerTeamId: null } });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
 
-  await screen.findByRole('table');
+  await screen.findByRole('table', { name: 'Standings' });
   expect(screen.getByTestId('pickem-standings-row-21')).not.toHaveAttribute('data-viewer-team');
   expect(screen.getByTestId('pickem-standings-row-92')).not.toHaveAttribute('data-viewer-team');
 });
@@ -113,7 +113,7 @@ test('shows a per-week points column when the page passes the selected week', as
   apiClient.get.mockResolvedValue({ data: withWeekly });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} week={3} />);
 
-  const table = await screen.findByRole('table');
+  const table = await screen.findByRole('table', { name: 'Standings' });
   expect(within(table).getByText('Wk 3')).toBeInTheDocument();
   const rows = within(table).getAllByRole('row').slice(1);
   expect(within(rows[0]).getByText('5')).toBeInTheDocument();
@@ -124,7 +124,7 @@ test('omits the weekly column without a week (rows may predate the field)', asyn
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   renderWithProviders(<PickemStandings leagueId={7} season={2026} />);
 
-  const table = await screen.findByRole('table');
+  const table = await screen.findByRole('table', { name: 'Standings' });
   expect(within(table).queryByText(/^Wk /)).not.toBeInTheDocument();
 });
 
@@ -138,5 +138,5 @@ test('a failed load offers a retry', async () => {
   apiClient.get.mockResolvedValue({ data: STANDINGS });
   await user.click(screen.getByRole('button', { name: /Retry standings/i }));
 
-  expect(await screen.findByRole('table')).toBeInTheDocument();
+  expect(await screen.findByRole('table', { name: 'Standings' })).toBeInTheDocument();
 });

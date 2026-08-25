@@ -132,7 +132,7 @@ function DraftBoardMatrix({
         Draft Board
       </Typography>
       <TableContainer sx={{ overflowX: 'auto' }}>
-        <Table size="small">
+        <Table size="small" aria-labelledby={headingId}>
           <TableHead>
             <TableRow sx={{ bgcolor: 'primary.main' }}>
               <TableCell component="th" scope="col" sx={stickyRoundHeadSx}>

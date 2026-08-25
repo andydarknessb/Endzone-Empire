@@ -76,7 +76,11 @@ const Body = () => (
 
     {/* ---- SCOREBOARD ---- */}
     <H2>The Scoreboard</H2>
-    <Table>
+    {/* "the-scoreboard" is H2's own auto-slug of this heading's text
+        (headingId() in Prose.jsx) rather than an explicit id prop, so it
+        must track the heading text above exactly - same pattern already
+        used in preseason-week-2-recap.jsx. */}
+    <Table aria-labelledby="the-scoreboard">
       <THead>
         <TR><TH>Away</TH><TH>Score</TH><TH>Home</TH><TH>Score</TH></TR>
       </THead>

@@ -225,7 +225,7 @@ function PowerRankings() {
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <LeagueBreadcrumb />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-        <Typography variant="h4">Power Rankings</Typography>
+        <Typography id="power-rankings-table-heading" variant="h4">Power Rankings</Typography>
         {payload && (
           <Typography variant="subtitle1" sx={{ color: 'text.secondary' }}>
             Season {payload.season} · Week {payload.week}
@@ -337,7 +337,7 @@ function PowerRankings() {
             </Box>
           ) : (
             <TableContainer component={Paper}>
-              <Table>
+              <Table aria-labelledby="power-rankings-table-heading">
                 <TableHead>
                   <TableRow>
                     <TableCell sortDirection={orderBy === 'rank' ? order : false}>
