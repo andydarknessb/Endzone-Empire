@@ -613,8 +613,20 @@ test('putSettings refuses a mode change once the season has picks', async (t) =>
       return true;
     }
   );
+  // #274: count, not boolean. ROLLBACK is the complementary check; the upsert
+  // count is the load-bearing one, since work followed by a ROLLBACK also
+  // leaves no COMMIT and looks identical from outside.
   assert.ok(calls.some((call) => call.text === 'ROLLBACK'));
-  assert.ok(!calls.some((call) => /INSERT INTO "pickem_settings"/.test(call.text)));
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "pickem_settings"/.test(call.text)).length,
+    0,
+    'the locked mode was not rewritten'
+  );
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "transactions"/.test(call.text)).length,
+    0,
+    'and no activity row claimed it had been'
+  );
 });
 
 test('putSettings toggles enabled without touching the mode, and logs it', async (t) => {
@@ -634,6 +646,11 @@ test('putSettings toggles enabled without touching the mode, and logs it', async
   assert.ok(calls.some((call) => call.text === 'COMMIT'));
 });
 
+// #274, documented exemption (no write assertion needed): the MODES.includes
+// check throws PICKEM_BAD_MODE at pickem.service.js:537, above the
+// `await pool.connect()` on :541. No client is checked out, no BEGIN is
+// issued, no statement is dispatched. There is no mutable work behind this
+// refusal for a guard to sink below.
 test('putSettings rejects an unknown mode outright', async () => {
   await assert.rejects(() => pickem.putSettings({ leagueId: 3, mode: 'parlay' }), (error) => {
     assert.equal(error.statusCode, 400);
@@ -672,7 +689,14 @@ test('upsertPicks re-checks the lock INSIDE the transaction', async (t) => {
       return true;
     }
   );
-  assert.ok(!calls.some((call) => /INSERT INTO "pickem_picks"/.test(call.text)));
+  // #274: count, not boolean. This is the case the ticket exists for - the
+  // lock is re-read inside the transaction, so the guard sits one statement
+  // above the upsert and a move down is invisible from the response.
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "pickem_picks"/.test(call.text)).length,
+    0,
+    'no pick was saved for a game that had started'
+  );
   assert.ok(calls.some((call) => call.text === 'ROLLBACK'));
 });
 
@@ -709,14 +733,36 @@ test('upsertPicks bulk-upserts the whole batch in one statement', async (t) => {
 });
 
 test('upsertPicks refuses to write when the league has Pick\'em turned off', async (t) => {
-  mockClient(t, [...TXN, [/FROM "pickem_settings"/, () => ({ rows: [] })]]);
+  // #274. Two changes make the absence below load-bearing rather than
+  // decorative. First, the fixture now answers everything the save would need
+  // past this guard, INSERT included, so the write could genuinely land.
+  // Second, the call carries a REAL pick: with the previous `picks: []` the
+  // batch was empty, so even a guard moved below the upsert would have written
+  // nothing and a zero count would have proved nothing.
+  const calls = mockClient(t, [
+    ...TXN,
+    [/FROM "pickem_settings"/, () => ({ rows: [] })],
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['DAL', 'WAS', '2026-09-13T17:00:00.000Z']]) })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/SELECT "team_pair", "confidence" FROM "pickem_picks"/, () => ({ rows: [] })],
+    [/INSERT INTO "pickem_picks"/, () => ({ rows: [] })],
+  ]);
   await assert.rejects(
-    () => pickem.upsertPicks({ leagueId: 3, userId: 9, season: 2026, week: 1, picks: [] }),
+    () => pickem.upsertPicks({
+      leagueId: 3, userId: 9, season: 2026, week: 1,
+      picks: [{ gameKey: 'DAL|WAS', pickedTeam: 'WAS' }],
+      now: new Date('2026-09-10T01:00:00.000Z'),
+    }),
     (error) => {
       assert.equal(error.statusCode, 403);
       assert.equal(error.code, 'PICKEM_DISABLED');
       return true;
     }
+  );
+  assert.equal(
+    calls.filter((call) => /^INSERT INTO "pickem_picks"/.test(call.text)).length,
+    0,
+    'a disabled league stored no picks'
   );
 });
 
