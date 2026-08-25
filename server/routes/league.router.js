@@ -879,8 +879,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // teams in this matchup. Read-only, best-effort — never fails the request.
     let viewerWhatIf = null;
     let viewerTeamId = null;
+    // The two owner ids rode on the raw matchup row only so the viewer's own
+    // team could be resolved here; they are account identity and must not ride
+    // on the shared matchup object, so strip them from the serialization once
+    // viewerTeamId is known - never from the SELECT (#343, #115).
     if (matchup.home_owner_id === req.user.id) viewerTeamId = matchup.home_team_id;
     else if (matchup.away_owner_id === req.user.id) viewerTeamId = matchup.away_team_id;
+    delete matchup.home_owner_id;
+    delete matchup.away_owner_id;
     if (viewerTeamId) {
       try {
         const { liveWhatIf } = require('../services/decision.service');

@@ -414,12 +414,8 @@ const MATCHUP_OBJECT_CLEAN = [
   'home_score', 'home_team_avatar_static_url', 'home_team_avatar_url', 'home_team_id', 'home_team_name',
   'id', 'league_id', 'season', 'status', 'week',
 ];
-const MATCHUP_OBJECT_FORBIDDEN = ['home_owner_id', 'away_owner_id'];
-
-test('matchup detail: the matchup object STILL carries home_owner_id / away_owner_id today', async (t) => {
-  assertStillPresent((await getMatchupDetail(t)).matchup, MATCHUP_OBJECT_FORBIDDEN);
-});
-
-test('matchup detail: the matchup object names both teams by Team, not by owner account', { todo: '#343 removes matchup home_owner_id / away_owner_id (from the serialization, not the SELECT: viewerTeamId reads them off the row)' }, async (t) => {
+// home_owner_id / away_owner_id stay in the SELECT (viewerTeamId reads them off
+// the raw row) and are stripped from the serialized matchup object (#343, #115).
+test('matchup detail: the matchup object names both teams by Team, not by owner account', async (t) => {
   assertExactKeys((await getMatchupDetail(t)).matchup, MATCHUP_OBJECT_CLEAN);
 });
