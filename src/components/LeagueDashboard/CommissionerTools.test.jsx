@@ -64,16 +64,18 @@ const league = (overrides = {}) => ({
 // fixture carrying only `id` would let a comparison against the legacy column
 // pass while the contract one silently matched nothing.
 const teams = [
-  { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', faab_remaining: 100, locked: false },
-  { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', faab_remaining: 60, locked: false },
+  { id: 1, teamId: 1, name: "Alice's Team", faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: "Bob's Team", faab_remaining: 60, locked: false },
 ];
 
-// #179: a name/owner pair distinct from `teams` above (the name shares no
-// substring with the owner username), shared by the migration tests below
-// that assert a Team name renders while the owner username never does.
+// Team names that share no substring with any account handle, so a test that
+// renders these can prove it printed the Team NAME and nothing account-shaped.
+// #179's account fields (owner / owner_id) are gone from teams[] under #343, so
+// the payload can no longer carry an account username to leak here at all; the
+// server tripwire (leagueSharedPayloadShape.test.js) is what pins that now.
 const usernameDistinctTeams = [
-  { id: 1, teamId: 1, name: 'Gridiron Gurus', owner: 'quarterback_kelly', owner_id: 1, faab_remaining: 100, locked: false },
-  { id: 2, teamId: 2, name: 'End Zone Elites', owner: 'runningback_ray', owner_id: 2, faab_remaining: 60, locked: false },
+  { id: 1, teamId: 1, name: 'Gridiron Gurus', faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: 'End Zone Elites', faab_remaining: 60, locked: false },
 ];
 
 const mockGetByUrl = (overrides = {}) => {
@@ -220,9 +222,9 @@ test("excludes the viewer's own team by teamId, the contract field, not the lega
 // first rule.
 test("offers a co-commissioner no Remove button for the creator's team", () => {
   const withTeamIds = [
-    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', owner_id: 1 },
-    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', owner_id: 2 },
-    { id: 3, teamId: 3, name: "Carol's Team", owner: 'carol', owner_id: 3 },
+    { id: 1, teamId: 1, name: "Alice's Team" },
+    { id: 2, teamId: 2, name: "Bob's Team" },
+    { id: 3, teamId: 3, name: "Carol's Team" },
   ];
   // Bob is a co-commissioner; Alice created the league.
   renderTools({
@@ -245,8 +247,8 @@ test("offers a co-commissioner no Remove button for the creator's team", () => {
 // vanished from the DOM together, so there was no trace of the section at all.
 test('states the creator-team rule instead of silently omitting the team', () => {
   const twoTeams = [
-    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
-    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
+    { id: 1, teamId: 1, name: "Alice's Team" },
+    { id: 2, teamId: 2, name: "Bob's Team" },
   ];
   // Bob is a co-commissioner; Alice created the league. Nothing is removable:
   // Bob's own team by the first rule, Alice's by the second.
@@ -266,9 +268,9 @@ test('states the creator-team rule instead of silently omitting the team', () =>
 // missing from the list in front of them.
 test('states the rule alongside a non-empty removal list too', () => {
   const threeTeams = [
-    { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice' },
-    { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob' },
-    { id: 3, teamId: 3, name: "Carol's Team", owner: 'carol' },
+    { id: 1, teamId: 1, name: "Alice's Team" },
+    { id: 2, teamId: 2, name: "Bob's Team" },
+    { id: 3, teamId: 3, name: "Carol's Team" },
   ];
   renderTools({
     viewerTeamId: 2,
@@ -281,15 +283,15 @@ test('states the rule alongside a non-empty removal list too', () => {
 });
 
 // #179: commissioner-only chrome is a Team identity surface like any other
-// (CONTEXT.md), so the remove-a-team list may name a team but never the
-// account username behind it.
-test('the remove-a-team list identifies each team by name only, never the owner username', () => {
+// (CONTEXT.md), so the remove-a-team list names each team by its Team name. The
+// account username it must never show can no longer even reach the client
+// (#343 stripped it from teams[]; the server tripwire pins that), so this now
+// asserts the positive: the Team name renders on this surface.
+test('the remove-a-team list identifies each team by its Team name', () => {
   renderTools({ viewerTeamId: 99, teams: usernameDistinctTeams });
 
   expect(screen.getByText('Gridiron Gurus')).toBeInTheDocument();
   expect(screen.getByText('End Zone Elites')).toBeInTheDocument();
-  expect(screen.queryByText('quarterback_kelly')).not.toBeInTheDocument();
-  expect(screen.queryByText('runningback_ray')).not.toBeInTheDocument();
 });
 
 // The list row's React key moved to `teamId` with the filter above it, or
@@ -863,30 +865,31 @@ test('Lock Specific Team toggles a single team without touching the league-wide 
   expect(onRefresh).toHaveBeenCalled();
 });
 
-// #179: same rule for the Team lock list.
-test('Lock Specific Team identifies each team by name only, never the owner username', async () => {
+// #179: same rule for the Team lock list - it names each team by its Team name.
+test('Lock Specific Team identifies each team by its Team name', async () => {
   renderTools({ teams: usernameDistinctTeams });
   await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
 
   expect(screen.getByText('Gridiron Gurus')).toBeInTheDocument();
   expect(screen.getByText('End Zone Elites')).toBeInTheDocument();
-  expect(screen.queryByText('quarterback_kelly')).not.toBeInTheDocument();
-  expect(screen.queryByText('runningback_ray')).not.toBeInTheDocument();
 });
 
 // --- Co-commissioners (owner-only) ---
 
-const withOwnerIds = [
-  { id: 1, teamId: 1, name: "Alice's Team", owner: 'alice', owner_id: 1, faab_remaining: 100, locked: false },
-  { id: 2, teamId: 2, name: "Bob's Team", owner: 'bob', owner_id: 2, faab_remaining: 60, locked: false },
+// teams[] as league detail now serves it: Team identity and team attributes,
+// no account fields (#343). Named for what it holds, not the owner ids it used
+// to carry.
+const coCommissionerTeams = [
+  { id: 1, teamId: 1, name: "Alice's Team", faab_remaining: 100, locked: false },
+  { id: 2, teamId: 2, name: "Bob's Team", faab_remaining: 60, locked: false },
 ];
 
 test('the co-commissioner section is owner-only', () => {
-  const { unmount } = renderTools({ isOwner: false, teams: withOwnerIds });
+  const { unmount } = renderTools({ isOwner: false, teams: coCommissionerTeams });
   expect(screen.queryByText('Co-commissioners')).not.toBeInTheDocument();
   unmount();
 
-  renderTools({ isOwner: true, teams: withOwnerIds });
+  renderTools({ isOwner: true, teams: coCommissionerTeams });
   expect(screen.getByText('Co-commissioners')).toBeInTheDocument();
 });
 
@@ -896,7 +899,7 @@ test('the co-commissioner section is owner-only', () => {
 // the prop, so this was latent rather than live - but a role question whose
 // unanswered state is "yes" is the kind of thing this sweep exists to find.
 test('owner-only controls stay hidden when no role is passed at all', () => {
-  renderTools({ teams: withOwnerIds });
+  renderTools({ teams: coCommissionerTeams });
   expect(screen.queryByText('Co-commissioners')).not.toBeInTheDocument();
 });
 
@@ -942,7 +945,7 @@ test('a grant with no Team is still listed and still revocable', async () => {
   apiClient.delete.mockResolvedValue({ data: { coCommissioners: [] } });
   renderTools({
     isOwner: true,
-    teams: withOwnerIds,
+    teams: coCommissionerTeams,
     league: league({ co_commissioners: [{ user_id: 2, teamId: null, teamName: null }] }),
   });
 
@@ -970,7 +973,7 @@ test('two co-commissioners with identically named Teams get distinguishable revo
   const SAME_DAY = '2026-08-12T10:00:00.000Z';
   renderTools({
     isOwner: true,
-    teams: withOwnerIds,
+    teams: coCommissionerTeams,
     league: league({
       co_commissioners: [
         { user_id: 2, grantedAt: SAME_DAY, teamId: 2, teamName: 'The Ringers' },
@@ -1001,23 +1004,35 @@ test('two co-commissioners with identically named Teams get distinguishable revo
   );
 });
 
-test('the owner promotes a member by user id and refreshes', async () => {
+test('the owner promotes a member by team id and refreshes', async () => {
   apiClient.post.mockResolvedValue({ data: { coCommissioners: [] } });
   const onRefresh = jest.fn();
-  renderTools({ isOwner: true, teams: withOwnerIds, onRefresh });
+  // Alice (teamId 1) created the league, so she is named by ownerTeamId and is
+  // never a candidate; the grant target is Bob's team, sent by teamId (#343).
+  renderTools({
+    isOwner: true,
+    teams: coCommissionerTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+    onRefresh,
+  });
 
   await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
   await userEvent.click(await screen.findByRole('option', { name: "Bob's Team" }));
   await userEvent.click(screen.getByRole('button', { name: 'Promote' }));
 
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/co-commissioners', { userId: 2 })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/co-commissioners', { teamId: 2 })
   );
   expect(onRefresh).toHaveBeenCalled();
 });
 
-test('the owner is never offered as a co-commissioner candidate', async () => {
-  renderTools({ isOwner: true, teams: withOwnerIds });
+test('the creator is never offered as a co-commissioner candidate', async () => {
+  // The creator is excluded by Team (ownerTeamId), not by account id (#343).
+  renderTools({
+    isOwner: true,
+    teams: coCommissionerTeams,
+    league: league({ ownerTeamId: 1, ownerTeamName: "Alice's Team" }),
+  });
 
   await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
 
@@ -1025,15 +1040,14 @@ test('the owner is never offered as a co-commissioner candidate', async () => {
   expect(screen.queryByRole('option', { name: "Alice's Team" })).not.toBeInTheDocument();
 });
 
-// #179: the promote picker showed "{username} · {team name}"; a shared
-// surface may never carry the username half.
-test('the promote picker lists Team names only, never the owner username', async () => {
+// #179: the promote picker once showed "{username} · {team name}"; it lists
+// Team names alone now, and the account username can no longer reach it (#343).
+test('the promote picker lists candidates by Team name', async () => {
   renderTools({ isOwner: true, teams: usernameDistinctTeams });
 
   await userEvent.click(screen.getByRole('combobox', { name: 'Add a co-commissioner' }));
 
   expect(await screen.findByRole('option', { name: 'End Zone Elites' })).toBeInTheDocument();
-  expect(screen.queryByText(/runningback_ray/)).not.toBeInTheDocument();
 });
 
 test('an existing co-commissioner is listed and can be revoked after confirming', async () => {
@@ -1041,7 +1055,7 @@ test('an existing co-commissioner is listed and can be revoked after confirming'
   const onRefresh = jest.fn();
   renderTools({
     isOwner: true,
-    teams: withOwnerIds,
+    teams: coCommissionerTeams,
     onRefresh,
     league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
@@ -1058,7 +1072,7 @@ test('an existing co-commissioner is listed and can be revoked after confirming'
 test('cancelling the revoke dialog leaves the co-commissioner in place', async () => {
   renderTools({
     isOwner: true,
-    teams: withOwnerIds,
+    teams: coCommissionerTeams,
     league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
   });
 
@@ -1069,10 +1083,16 @@ test('cancelling the revoke dialog leaves the co-commissioner in place', async (
 });
 
 test('an already-promoted member drops out of the candidate list', () => {
+  // Alice (teamId 1) is the creator and Bob (teamId 2) is already a
+  // co-commissioner, so no team is left to promote and the picker disables.
   renderTools({
     isOwner: true,
-    teams: withOwnerIds,
-    league: league({ co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }] }),
+    teams: coCommissionerTeams,
+    league: league({
+      ownerTeamId: 1,
+      ownerTeamName: "Alice's Team",
+      co_commissioners: [{ user_id: 2, teamId: 2, teamName: "Bob's Team" }],
+    }),
   });
 
   expect(screen.getByRole('combobox', { name: 'Add a co-commissioner' })).toHaveAttribute('aria-disabled', 'true');

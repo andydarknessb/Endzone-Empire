@@ -45,8 +45,9 @@
  * source of the strings `teamId` / `teamName` on this side - they appear here
  * once and nowhere else in this module. teamIdentityFields.test.js pins this
  * array equal to the server's, so the two mirrors cannot drift; the consumers
- * that move onto Team identity (#115 children) read the wire keys from it
- * rather than restating them.
+ * that moved onto Team identity (#115 children: #343 for the REST payloads,
+ * #344 for the Draft / chat sockets) read the wire keys from it rather than
+ * restating them.
  */
 
 /**

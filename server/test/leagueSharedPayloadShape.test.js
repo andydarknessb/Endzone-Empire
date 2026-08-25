@@ -11,50 +11,39 @@ const scoringService = require('../services/scoring.service');
 const decisionService = require('../services/decision.service');
 
 /**
- * The absence tripwire for the shared-identity contraction (#341, #115 child A).
+ * The absence contract for the shared-identity contraction (#341 pinned it,
+ * #343 made it live; #115 child A/B).
  *
  * CONTEXT.md's Team identity rule is that a surface shared with other managers
  * names a participant by Team (`teamId` / `teamName`) and never by their account
  * (`owner_id`, `owner`, `owner_username`, `user_id`, `username`, the roster's
  * `ownerId`, and the matchup row's `home_owner_id` / `away_owner_id`). The
- * EXPAND step (#112) put Team identity BESIDE those account fields and left them
- * in place. They are removed by the sibling tickets:
+ * EXPAND step (#112) put Team identity BESIDE those account fields; they are
+ * removed by the sibling tickets:
  *
- *   #343 (child B) — the REST payloads guarded here.
+ *   #343 (child B) — the REST payloads guarded here. DONE: every guard below is
+ *                    a LIVE exact-key-set assertion of the post-removal shape.
  *   #344 (child C) — the Draft / chat Socket.IO payloads (not this file).
  *
- * Before this file the authenticated league-shared payloads had NO exact-key-set
- * pin, so a removal could land with nothing proving the field was gone and
- * nothing catching it come back (the ordering constraint #334 was split around).
- *
- * Each payload here has a PAIR of guards, and the pair is the mechanism:
- *
- *   1. A `todo` guard that asserts the key set the payload will carry AFTER #343.
- *      It fails today (the account field is still there), so it is marked `todo`
- *      naming #343: `node --test` runs it, prints the red diff, and still exits
- *      0. #343 turns it into a live guard by deleting the `todo` marker.
- *
- *   2. A NORMAL (non-todo) guard that asserts the account field is STILL PRESENT
- *      today. This is the loud half. A `todo` guard alone can go inert silently:
- *      a failing todo and a passing todo both roll into "todo N, exit 0", so if
- *      #343 removed the field and FORGOT its marker, CI would stay green and a
- *      later re-addition would too. The present-today guard closes that: the
- *      moment #343 removes the field this guard goes RED (a real failure, not a
- *      todo), which drags the author into THIS file to flip the paired todo. A
- *      forgotten marker is no longer a process promise; it is a red build.
+ * How this file came to be live: #341 shipped each REST guard as a PAIR — a
+ * `todo` guard asserting the post-#343 key set (red, exit 0) and a NORMAL guard
+ * asserting the account field was STILL PRESENT (so a removal that forgot to
+ * flip the todo would go loudly red instead of silently inert). #343 removed
+ * each field, deleted its present-today guard, and turned its `todo` guard into
+ * the live exact-key-set assertion you see below. The pairs are spent; what
+ * remains is the standing contract.
  *
  * Two response ROOTS are pinned as well, and their comments carry the rule the
- * whole tripwire depends on: an account field may leave the SERIALIZATION but
- * never the PROJECTION, because `viewerTeamId` is computed server-side from the
- * raw `owner_id` on the rows. If #343 narrows the SQL instead of the serializer,
- * `viewerTeamId` goes null for every viewer AND these fixtures (which carry the
- * account field on the raw row) would still show it on the wire, so the tripwire
- * would miss the change. The root guards pin `viewerTeamId` present so #343
- * cannot drop it, which is what forces the removal into the serializer.
+ * removal depended on: an account field may leave the SERIALIZATION but never
+ * the PROJECTION, because `viewerTeamId` is computed server-side from the raw
+ * `owner_id` / `home_owner_id` on the rows. Narrowing the SQL instead of the
+ * serializer would null `viewerTeamId` for every viewer AND (since these
+ * fixtures carry the account field on the raw row) still show it on the wire.
+ * The root guards pin `viewerTeamId` present so that removal stays in the
+ * serializer, where teams[] and matchup detail do it.
  *
- * The one guard with no `todo` and no present-today pair is the co-commissioner
- * roster as a plain member sees it: #324 already made that view Team-identity
- * only, so it is clean today and this pins that win against the sibling removals.
+ * The co-commissioner roster a plain member sees carries no root/serialization
+ * split: #324 made that view Team-identity only, and this pins that win.
  *
  * Caveat this narrows itself on: the guards drive the real routes against
  * hand-built fixtures declared to mirror each SELECT, not the live database, so
@@ -83,22 +72,18 @@ const VIEWER = { userId: 42, teamId: 11, teamName: 'Gridiron Ghosts' };
 const OTHER = { userId: 43, teamId: 12, teamName: 'Sunday Scaries' };
 const authed = (userId) => `Bearer ${signToken({ id: userId, username: `u${userId}` })}`;
 
-/** The exact-key-set assertion (#343's post-removal contract for the object). */
+/** The exact-key-set assertion: the post-removal contract for the object (#343). */
 const assertExactKeys = (obj, cleanKeys) => assert.deepEqual(Object.keys(obj).sort(), [...cleanKeys].sort());
-
-/** The present-today assertion: the account field(s) #343 removes are here NOW. */
-function assertStillPresent(obj, fields) {
-  for (const field of fields) {
-    assert.equal(field in obj, true, `${field} is still on the wire today; #343 removing it must turn this guard red`);
-  }
-}
 
 // ============================================================ league detail
 // GET /api/league/:id  ->  { viewerTeamId, league, teams }
 
-// A `teams` row exactly as the league-detail query projects it today: the
-// team's own columns and Team identity, plus the two account fields #343
-// removes. The route spreads this row and adds `is_co_commissioner`.
+// A `teams` row exactly as the league-detail query projects it: the team's
+// own columns and Team identity. `owner_id` stays in the SELECT (and so on
+// this raw row) because viewerTeamIdOf() resolves the caller's team from it;
+// the route strips it from the serialized entry. The `owner` username alias is
+// no longer selected at all (#343, #115). The route spreads this row and adds
+// `is_co_commissioner`.
 const teamRow = ({ userId, teamId, teamName }) => ({
   id: teamId,
   name: teamName,
@@ -108,25 +93,23 @@ const teamRow = ({ userId, teamId, teamName }) => ({
   draft_ready: true,
   avatar_url: null,
   avatar_static_url: null,
-  owner_id: userId, // #343 removes
+  owner_id: userId, // stays in SELECT for viewerTeamId; stripped from serialization
   teamId,
   teamName,
-  owner: `u${userId}`, // #343 removes
   roster_count: 0,
   total_points: '0',
 });
 
 // A `leagues` row as the league-detail query projects it: a representative set
-// of the league's own columns, the creator's Team identity, and the one account
-// field #343 removes (`owner_username`). `owner_id` is the creator's own and
-// stays (#334's survey removes only `owner_username` from this object).
+// of the league's own columns and the creator's Team identity. The account
+// username alias (`owner_username`) is gone (#343). `owner_id` is the creator's
+// OWN account id and stays (#334's survey removed only `owner_username` here).
 const LEAGUE_ROW = {
   id: LEAGUE_ID,
   name: 'Sunday Ballers',
-  owner_id: VIEWER.userId,
+  owner_id: VIEWER.userId, // the creator's OWN account id, on `leagues.*`; stays
   current_season: 2026,
   invite_code: 'invite',
-  owner_username: 'u42', // #343 removes
   ownerTeamId: VIEWER.teamId,
   ownerTeamName: VIEWER.teamName,
 };
@@ -171,14 +154,9 @@ const TEAM_ENTRY_CLEAN = [
   'avatar_static_url', 'avatar_url', 'draft_position', 'draft_ready', 'faab_remaining',
   'id', 'is_co_commissioner', 'locked', 'name', 'roster_count', 'teamId', 'teamName', 'total_points',
 ];
-const TEAM_ENTRY_FORBIDDEN = ['owner_id', 'owner'];
-
-test('league detail: a teams[] entry STILL carries owner_id / owner today', async (t) => {
-  const body = await getLeagueDetail(t);
-  for (const team of body.teams) assertStillPresent(team, TEAM_ENTRY_FORBIDDEN);
-});
-
-test('league detail: a teams[] entry is Team identity and team attributes, no account fields', { todo: '#343 removes teams[].owner_id / owner (from the serialization, not the SELECT: viewerTeamId reads owner_id off the rows)' }, async (t) => {
+// owner_id stays in the SELECT (viewerTeamId reads it off the raw rows) and is
+// stripped from the serialization; owner is no longer selected (#343, #115).
+test('league detail: a teams[] entry is Team identity and team attributes, no account fields', async (t) => {
   const body = await getLeagueDetail(t);
   for (const team of body.teams) assertExactKeys(team, TEAM_ENTRY_CLEAN);
 });
@@ -188,14 +166,7 @@ const LEAGUE_OBJECT_CLEAN = [
   'co_commissioners', 'current_season', 'id', 'is_commissioner', 'name',
   'owner_id', 'ownerTeamId', 'ownerTeamName',
 ];
-const LEAGUE_OBJECT_FORBIDDEN = ['owner_username'];
-
-test('league detail: the league object STILL carries owner_username today', async (t) => {
-  const body = await getLeagueDetail(t, { isCommissioner: false });
-  assertStillPresent(body.league, LEAGUE_OBJECT_FORBIDDEN);
-});
-
-test('league detail: the league object names the creator by Team, not by account name', { todo: '#343 removes league.owner_username' }, async (t) => {
+test('league detail: the league object names the creator by Team, not by account name', async (t) => {
   const body = await getLeagueDetail(t, { isCommissioner: false });
   assertExactKeys(body.league, LEAGUE_OBJECT_CLEAN);
 });
@@ -223,13 +194,15 @@ test('league detail: the co-commissioner roster a member sees is Team identity o
 async function getChat(t) {
   createFakePool([
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    // The chat SELECT no longer projects the author's account id or username,
+    // and the route passes its rows through verbatim, so this fixture mirrors
+    // the narrowed SELECT (#343). `chat_messages.user_id` is still read inside
+    // the query for the block filter, but never reaches the wire.
     [/FROM "chat_messages"/, () => ({
       rows: [{
         id: 5,
         message: 'good luck everyone',
         created_at: '2026-09-01T00:00:00.000Z',
-        user_id: OTHER.userId, // #343 removes
-        username: `u${OTHER.userId}`, // #343 removes
         teamId: OTHER.teamId,
         teamName: OTHER.teamName,
       }],
@@ -241,13 +214,8 @@ async function getChat(t) {
 }
 
 const CHAT_ENTRY_CLEAN = ['created_at', 'id', 'message', 'teamId', 'teamName'];
-const CHAT_ENTRY_FORBIDDEN = ['user_id', 'username'];
 
-test('chat history: a message STILL carries user_id / username today', async (t) => {
-  for (const message of await getChat(t)) assertStillPresent(message, CHAT_ENTRY_FORBIDDEN);
-});
-
-test('chat history: a message is attributed by Team, not by the author account', { todo: '#343 removes chat user_id / username' }, async (t) => {
+test('chat history: a message is attributed by Team, not by the author account', async (t) => {
   for (const message of await getChat(t)) assertExactKeys(message, CHAT_ENTRY_CLEAN);
 });
 
@@ -293,13 +261,8 @@ async function getPickemWeek(t) {
 }
 
 const OTHERS_PICK_CLEAN = ['confidence', 'gameKey', 'pickedTeam', 'teamId', 'teamName'];
-const OTHERS_PICK_FORBIDDEN = ['userId', 'username'];
 
-test("pick'em week view: another manager's pick STILL carries userId / username today", async (t) => {
-  for (const entry of await getPickemWeek(t)) assertStillPresent(entry, OTHERS_PICK_FORBIDDEN);
-});
-
-test("pick'em week view: another manager's pick is Team identity only", { todo: '#343 removes othersPicks userId / username' }, async (t) => {
+test("pick'em week view: another manager's pick is Team identity only", async (t) => {
   for (const entry of await getPickemWeek(t)) assertExactKeys(entry, OTHERS_PICK_CLEAN);
 });
 
@@ -322,28 +285,20 @@ const STANDINGS_ROW_CLEAN = [
   'avatarStaticUrl', 'avatarUrl', 'correct', 'incorrect', 'made', 'pending',
   'points', 'pushes', 'rank', 'teamId', 'teamName', 'weekly',
 ];
-const STANDINGS_ROW_FORBIDDEN = ['userId', 'username'];
-
-test("pick'em standings: a row STILL carries userId / username today", async (t) => {
-  for (const row of await getPickemStandings(t)) assertStillPresent(row, STANDINGS_ROW_FORBIDDEN);
-});
-
-// NOTE for #343: the standings rows sort by `comparePickemStandingScore(a,b) ||
-// String(a.username||'').localeCompare(...)` (pickem.service.js), and the
-// docstring there promises "total points desc, then correct picks desc, then
-// username". The row is `{ ...member, ...total }`, so removing `username` from
-// the wire also removes it from that comparator, and tied groups then order
-// arbitrarily. That may well be the right call - the tiebreak arguably wants to
-// be Team name now - but it is a documented guarantee, so #343 must decide it
-// deliberately (re-point the tiebreak at teamName), not drop it by omission.
-test("pick'em standings: a row is Team identity and score, not the manager account", { todo: '#343 removes standings userId / username; re-point the username tiebreak at teamName' }, async (t) => {
+// The standings rows sort by `comparePickemStandingScore(a,b) ||
+// String(a.teamName||'').localeCompare(...)` (pickem.service.js): #343 removed
+// `username` from the standings, so the final tiebreak the docstring documents
+// is Team name now, not the author account. `userId` still rides internally as
+// the scoring join key and is stripped at the /standings route.
+test("pick'em standings: a row is Team identity and score, not the manager account", async (t) => {
   for (const row of await getPickemStandings(t)) assertExactKeys(row, STANDINGS_ROW_CLEAN);
 });
 
 // ================================================================= rosters
-// GET /api/league/:id/rosters  ->  [{ teamId, teamName, ownerId, avatarUrl, avatarStaticUrl, players }]
-// Built from an explicit literal; #343 removes the `ownerId` line (the roster's
-// camelCase spelling of another manager's `owner_id`).
+// GET /api/league/:id/rosters  ->  [{ teamId, teamName, avatarUrl, avatarStaticUrl, players }]
+// Built from an explicit literal; the `ownerId` line (the roster's camelCase
+// spelling of another manager's `owner_id`) is gone (#343), and `owner_id`
+// leaves the SELECT too - this endpoint has no viewer-relative field to feed.
 
 async function getRosters(t) {
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
@@ -364,13 +319,8 @@ async function getRosters(t) {
 }
 
 const ROSTER_ENTRY_CLEAN = ['avatarStaticUrl', 'avatarUrl', 'players', 'teamId', 'teamName'];
-const ROSTER_ENTRY_FORBIDDEN = ['ownerId'];
 
-test('rosters: a team entry STILL carries ownerId today', async (t) => {
-  for (const team of await getRosters(t)) assertStillPresent(team, ROSTER_ENTRY_FORBIDDEN);
-});
-
-test('rosters: a team entry is Team identity and its players, not the manager account', { todo: '#343 removes rosters ownerId' }, async (t) => {
+test('rosters: a team entry is Team identity and its players, not the manager account', async (t) => {
   for (const team of await getRosters(t)) assertExactKeys(team, ROSTER_ENTRY_CLEAN);
 });
 
@@ -432,12 +382,8 @@ const MATCHUP_OBJECT_CLEAN = [
   'home_score', 'home_team_avatar_static_url', 'home_team_avatar_url', 'home_team_id', 'home_team_name',
   'id', 'league_id', 'season', 'status', 'week',
 ];
-const MATCHUP_OBJECT_FORBIDDEN = ['home_owner_id', 'away_owner_id'];
-
-test('matchup detail: the matchup object STILL carries home_owner_id / away_owner_id today', async (t) => {
-  assertStillPresent((await getMatchupDetail(t)).matchup, MATCHUP_OBJECT_FORBIDDEN);
-});
-
-test('matchup detail: the matchup object names both teams by Team, not by owner account', { todo: '#343 removes matchup home_owner_id / away_owner_id (from the serialization, not the SELECT: viewerTeamId reads them off the row)' }, async (t) => {
+// home_owner_id / away_owner_id stay in the SELECT (viewerTeamId reads them off
+// the raw row) and are stripped from the serialized matchup object (#343, #115).
+test('matchup detail: the matchup object names both teams by Team, not by owner account', async (t) => {
   assertExactKeys((await getMatchupDetail(t)).matchup, MATCHUP_OBJECT_CLEAN);
 });
