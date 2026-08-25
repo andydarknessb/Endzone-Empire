@@ -58,14 +58,29 @@ function injuryDesignationName(injuryDesignation) {
 /** Digits and nothing else: no sign, no point, no exponent, no 0x, no space. */
 const PLAIN_DIGITS = /^[0-9]+$/;
 
-/** A caller's value as it should read back in an error message. */
-const describeValue = (value) => (
-  typeof value === 'string' ? `the string ${JSON.stringify(value)}` : `${String(value)} (${typeof value})`
-);
+/** Every `player_id` column is knex `t.integer`, so int4 is the real ceiling. */
+const MAX_PLAYER_ID = 2147483647;
 
 /**
- * One player id in canonical form: a positive safe integer, whether the
- * caller wrote it as a number or as a string of digits.
+ * A caller's value as it should read back in an error message.
+ *
+ * Objects are named rather than stringified. `String([21])` is `'21'`, so
+ * rendering a nested array through it would refuse it with a message reading
+ * as though the integer 21 were the problem, and `String(Object.create(null))`
+ * throws outright, burying the message that explains the refusal. A refusal
+ * whose whole job is to say what it saw has to survive being handed something
+ * odd.
+ */
+const describeValue = (value) => {
+  if (typeof value === 'string') return `the string ${JSON.stringify(value)}`;
+  if (value === null) return 'null';
+  if (typeof value === 'object') return Array.isArray(value) ? 'an array' : 'an object';
+  return `${String(value)} (${typeof value})`;
+};
+
+/**
+ * One player id in canonical form: an integer from 1 to int4's ceiling,
+ * whether the caller wrote it as a number or as a string of digits.
  *
  * Anything else is refused rather than dropped. Silently skipping a bad id
  * would answer a capacity question about a list the caller did not pass, and
@@ -76,18 +91,20 @@ const describeValue = (value) => (
  * one is a programmer error and `TypeError` is the honest shape for it, not
  * a status-carrying service error.
  *
- * Strings are held to plain digits on purpose. `Number` would also accept
- * `'0x15'`, `' 21 '` and `'1e3'` as 21, 21 and 1000, none of which Postgres
- * would accept as an `int`, and the point of this function is that the two
- * arms of one count stop disagreeing.
+ * Deliberately stricter than the `::int[]` cast rather than a match for it.
+ * Postgres would take `' 21 '` (its int parser skips surrounding space) and,
+ * since 16, `'0x15'`; it would reject `'1e3'`, and it would raise 22003 on
+ * anything past `MAX_PLAYER_ID`. Chasing that surface would mean tracking a
+ * server version, and every value in it is a shape no caller has. One narrow
+ * rule both arms can state is worth more here than parity with the cast.
  */
 function canonicalPlayerId(value, listName) {
   const id = typeof value === 'number' ? value
     : typeof value === 'string' && PLAIN_DIGITS.test(value) ? Number(value)
       : NaN;
-  if (!Number.isSafeInteger(id) || id <= 0) {
+  if (!Number.isInteger(id) || id < 1 || id > MAX_PLAYER_ID) {
     throw new TypeError(
-      `${listName} takes positive integer player ids; got ${describeValue(value)}`
+      `${listName} takes player ids from 1 to ${MAX_PLAYER_ID}; got ${describeValue(value)}`
     );
   }
   return id;
@@ -146,14 +163,13 @@ function canonicalPlayerIds(values, listName) {
  *
  * Both lists are canonicalised on entry (see `canonicalPlayerIds`), which is
  * what lets those two arms agree about what counts as the same player. Until
- * #277 they did not: the SQL arm coerced through `::int[]`, so `21` and
- * `'21'` were one player to it, while the overlap filter compared by
- * identity and saw two - and a restored id named twice was credited twice,
- * since a repeat that is not excluded passes the filter on every pass.
- * Neither was reachable (`undoDrop` passes one numeric id), but this
- * function's worth is that it re-derives the restored credit rather than
- * believing its caller, and those were the two places it still believed it:
- * about multiplicity, and about type.
+ * #277 they did not, in two ways: the overlap filter compared by identity
+ * where the SQL arm's cast coerced, and a restored id named twice was
+ * credited twice, since a repeat that is not excluded passes the filter on
+ * every pass. Neither was reachable (`undoDrop` passes one numeric id), but
+ * this function's worth is that it re-derives the restored credit rather
+ * than believing its caller, and those were the two places it still believed
+ * it: about multiplicity, and about type.
  *
  * `league` must carry `id`, `roster_limit` and `ir_slots`; season and week
  * come from the team's league row inside the query, like the enforcement scan.
@@ -163,8 +179,8 @@ async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], r
   // contract belongs to the parameter, not to the league: whether `ir_slots`
   // happens to short-circuit the count must not decide whether a caller
   // hears about an id this function cannot use.
-  const excluded = canonicalPlayerIds(excludePlayerIds, 'excludePlayerIds');
-  const restored = canonicalPlayerIds(restoredPlayerIds, 'restoredPlayerIds');
+  const excludedIds = canonicalPlayerIds(excludePlayerIds, 'excludePlayerIds');
+  const restoredIds = canonicalPlayerIds(restoredPlayerIds, 'restoredPlayerIds');
 
   const base = draftRosterSize(league);
   const irSlots = irSlotCount(league);
@@ -175,18 +191,18 @@ async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], r
         AND "lineup_entries"."team_id" = $1
         AND ("players"."injury_status" = ANY($2::text[]) OR "lineup_entries"."ir_attested")
         AND NOT ("lineup_entries"."player_id" = ANY($3::int[]))`,
-    [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excluded]
+    [teamId, [...IR_ELIGIBLE_DESIGNATIONS], excludedIds]
   );
   let stashed = stash.rows[0].n;
-  const excludedIds = new Set(excluded);
-  // `restored` is already de-duplicated, so this loop reads once per player
-  // rather than once per mention: a repeated id is one stash and one spot.
-  for (const playerId of restored) {
+  const excluded = new Set(excludedIds);
+  // `restoredIds` is already de-duplicated, so this loop reads once per
+  // player rather than once per mention: a repeat is one stash and one spot.
+  for (const playerId of restoredIds) {
     // Filtered before the read, not after: an excluded id earns nothing
     // whatever its record says, so asking is wasted work as well as wrong.
     // Both sides are canonical, so this comparison is the one the other
     // arm's `::int[]` cast already made.
-    if (excludedIds.has(playerId)) continue;
+    if (excluded.has(playerId)) continue;
     if (await undoRestoresStash(client, { leagueId: league.id, teamId, playerId })) stashed += 1;
   }
   return base + Math.min(irSlots, stashed);

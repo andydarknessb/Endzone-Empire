@@ -463,11 +463,20 @@ test('rosterCapacity: an unusable player id is refused before any query', async 
     0, -1, 1.5, -0, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 2,
     null, undefined, true, false, {}, [21],
     '', '   ', 'abc', '21px', '1.5', '-1', '0', '+21', ' 21', '0x15', '1e3',
+    // Past what the int4 `player_id` column can hold. Letting these through
+    // would hand Postgres a 22003 to raise, which is the cast deciding.
+    2147483648, '2147483648', 4294967296,
+    // Rendering this one for the error message must not throw an error of
+    // its own and bury the message that explains the refusal.
+    Object.create(null),
   ];
 
-  for (const value of unusable) {
+  for (const [index, value] of unusable.entries()) {
     for (const key of ['excludePlayerIds', 'restoredPlayerIds']) {
-      const label = `${key}: ${typeof value} ${String(value)}`;
+      // Not `String(value)`: one of the cases below is exactly the value
+      // that throws on being stringified, which would fail this test from
+      // inside its own label rather than on what it is asserting.
+      const label = `${key}: ${typeof value} ${index}`;
       const fake = createFakePool();
       const client = await fake.connect();
 
@@ -488,6 +497,49 @@ test('rosterCapacity: an unusable player id is refused before any query', async 
       fake.assertClean();
     }
   }
+});
+
+test('rosterCapacity: the largest id the column can hold is still a usable id', async () => {
+  let seen;
+  const fake = capacityPool({ stashed: 0, onQuery: (text, params) => { seen = { text, params }; } });
+  const client = await fake.connect();
+
+  await rosterCapacity(client, {
+    league: { id: 5, roster_limit: 16, ir_slots: 2 },
+    teamId: 31,
+    excludePlayerIds: [2147483647, '2147483647'],
+  });
+  client.release();
+
+  // The bound is int4's ceiling, not one below it, and both spellings of it
+  // are the same player.
+  assert.deepEqual(seen.params, [31, ['O', 'IR'], [2147483647]]);
+  fake.assertClean();
+});
+
+test('rosterCapacity: the refusal names the value it actually saw', async () => {
+  const fake = createFakePool();
+  const client = await fake.connect();
+
+  let message;
+  try {
+    await rosterCapacity(client, {
+      league: { id: 5, roster_limit: 16, ir_slots: 2 },
+      teamId: 31,
+      excludePlayerIds: [[21]],
+    });
+  } catch (error) { message = error.message; }
+  client.release();
+
+  // `String([21])` is '21', so rendering a caller's value through it would
+  // refuse a nested array with a message reading as though the integer 21
+  // were the problem. A refusal whose whole job is to say what it saw has to
+  // survive being handed something odd.
+  assert.match(message, /^excludePlayerIds /);
+  assert.match(message, /an array/);
+  assert.doesNotMatch(message, /got 21\b/);
+  assert.equal(fake.calls.length, 0);
+  fake.assertClean();
 });
 
 test('rosterCapacity: a zero-IR league refuses an unusable id just the same', async () => {
