@@ -39,8 +39,8 @@ const renderTable = (props) =>
 
 describe('RankingTable states', () => {
   it('renders a loading skeleton', () => {
-    const { container } = renderTable({ rows: [], loading: true });
-    expect(container.querySelector('[aria-busy="true"]')).toBeTruthy();
+    renderTable({ rows: [], loading: true });
+    expect(screen.getByTestId('loading-rows')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
