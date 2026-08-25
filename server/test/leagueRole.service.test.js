@@ -6,9 +6,15 @@ const {
   isLeagueCommissioner,
   isLeagueOwner,
   listCoCommissioners,
+  serializeCoCommissioners,
+  coCommissionerTeamIds,
   listCommissionerUserIds,
   notifyCommissioners,
 } = require('../services/leagueRole.service');
+
+/** The fixture's rows as the real LEFT join returns them, with Team identity. */
+const withTeams = (rows) =>
+  rows.map((row) => ({ ...row, teamId: 100 + row.user_id, teamName: `Team ${row.user_id}` }));
 
 /**
  * Stands in for Postgres over a tiny fixture: league 1 owned by user 7 with
@@ -65,6 +71,67 @@ test('listCoCommissioners returns user ids with usernames', async () => {
     { user_id: 42, username: 'u42' },
     { user_id: 43, username: 'u43' },
   ]);
+});
+
+// #324 narrowed what a MEMBER may read of this roster. The three tests below
+// pin the boundary that narrowing had to respect: it happens in the
+// serialization and never in the projection.
+test('listCoCommissioners keeps user_id in the projection — notification fan-out reads it', async () => {
+  const db = fakeDb({ coCommissioners: [42] });
+  await listCoCommissioners(db, 1);
+  const [query] = db.matching(/FROM "league_commissioners" JOIN "users"/);
+  // Narrowing this SELECT to what a member may see would break commissioner
+  // notifications and turn nothing red: listCommissionerUserIds would simply
+  // stop finding anyone to tell.
+  assert.match(query.text, /SELECT "league_commissioners"\."user_id"/);
+});
+
+test('narrowing the roster for a member does not narrow who gets notified', async () => {
+  const db = fakeDb({ ownerId: 7, coCommissioners: [42, 43] });
+  const rows = await listCoCommissioners(db, 1);
+  // What a plain member is served carries no account at all...
+  assert.deepEqual(serializeCoCommissioners(withTeams(rows), { isCommissioner: false }), [
+    { teamId: 142, teamName: 'Team 42' },
+    { teamId: 143, teamName: 'Team 43' },
+  ]);
+  // ...and the fan-out still reaches every one of those accounts.
+  assert.deepEqual(
+    (await listCommissionerUserIds(fakeDb({ ownerId: 7, coCommissioners: [42, 43] }), 1, 7)).sort(numeric),
+    [7, 42, 43]
+  );
+});
+
+test('serializeCoCommissioners: a commissioner gets the ids revoke needs, a member gets Teams', () => {
+  const rows = [
+    { user_id: 42, username: 'alice', teamId: 11, teamName: 'Harbor Hawks' },
+    // A grant that outlived its team: the LEFT join's reason for being.
+    { user_id: 43, username: 'ghost', teamId: null, teamName: null },
+  ];
+
+  assert.deepEqual(serializeCoCommissioners(rows, { isCommissioner: true }), [
+    { user_id: 42, teamId: 11, teamName: 'Harbor Hawks' },
+    // Kept, or the only person who can revoke it could not see it.
+    { user_id: 43, teamId: null, teamName: null },
+  ]);
+  // A member is told which Team holds power and nothing else; the team-less
+  // grant has no Team identity to tell them about, so it is not in the view.
+  assert.deepEqual(serializeCoCommissioners(rows, { isCommissioner: false }), [
+    { teamId: 11, teamName: 'Harbor Hawks' },
+  ]);
+  // The default is the narrow view: a caller that forgets to say gets the one
+  // that leaks nothing.
+  assert.deepEqual(serializeCoCommissioners(rows), [{ teamId: 11, teamName: 'Harbor Hawks' }]);
+  assert.deepEqual(serializeCoCommissioners(undefined, { isCommissioner: true }), []);
+});
+
+test('coCommissionerTeamIds names the granted Teams and skips the team-less grant', () => {
+  const ids = coCommissionerTeamIds([
+    { user_id: 42, teamId: 11, teamName: 'Harbor Hawks' },
+    { user_id: 43, teamId: null, teamName: null },
+  ]);
+  assert.deepEqual([...ids], [11]);
+  assert.deepEqual([...coCommissionerTeamIds([])], []);
+  assert.deepEqual([...coCommissionerTeamIds(undefined)], []);
 });
 
 // #116: a scheduled-start failure notifies every CURRENT commissioner, not

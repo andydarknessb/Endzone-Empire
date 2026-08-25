@@ -110,11 +110,19 @@ async function isLeagueOwner(db, leagueId, userId) {
 }
 
 /**
- * The co-commissioners of a league, oldest grant first. The roster is
- * league-shared (every member reads it on league detail), so each entry
- * carries Team identity beside its account fields (#112, parent #108). The
- * join is LEFT because a co-commissioner grant outlives the team briefly
- * when a commissioner removes the team before revoking the role.
+ * The co-commissioners of a league, oldest grant first, as ROWS and not as a
+ * payload. Each row carries the grant's account id, the account name and the
+ * grantee's Team identity (#112, parent #108); who may see which of those is
+ * `serializeCoCommissioners`' question, not this one. The join is LEFT because
+ * a co-commissioner grant outlives the team briefly when a commissioner
+ * removes the team before revoking the role.
+ *
+ * `user_id` stays in this projection and the split lives downstream for one
+ * reason worth stating where the SELECT is: `listCommissionerUserIds` reads it
+ * to fan commissioner notifications out (see the top of this file), and it is
+ * the only thing that answers "which accounts get told". Narrowing the SQL to
+ * what a member may read would stop those notifications and turn nothing red -
+ * a commissioner would simply never hear about a trade again (#324).
  */
 async function listCoCommissioners(db, leagueId) {
   const result = await db.query(
@@ -128,6 +136,51 @@ async function listCoCommissioners(db, leagueId) {
     [leagueId]
   );
   return result.rows;
+}
+
+/**
+ * The co-commissioner roster as one viewer may read it (#324).
+ *
+ * CONTEXT.md's Team identity entry admits no exception for role disclosure:
+ * that a manager holds commissioner power over you is a property of their
+ * TEAM, and a member learns it by Team identity alone. So the member-visible
+ * entry is Team identity and nothing else.
+ *
+ * A commissioner additionally gets `user_id`, because the endpoints behind the
+ * grant and revoke UI are account-shaped (POST /co-commissioners takes a
+ * `userId`, DELETE names one in the path) and a commissioner cannot revoke
+ * without it. That is exactly the shape `invite_code` already has on the same
+ * response, and it rides the same `is_commissioner` check in the same place.
+ * The account NAME is not part of what grant and revoke need, so it rides for
+ * nobody; the roster is rendered by Team on every surface.
+ *
+ * The two views also differ on a grant whose Team is gone. It has no Team
+ * identity to show, so it cannot appear in a member-visible view at all - but
+ * a commissioner still has to be able to see it in order to revoke it, so it
+ * is filtered out of the member's view rather than dropped from both.
+ */
+function serializeCoCommissioners(rows, { isCommissioner = false } = {}) {
+  return (rows || [])
+    .filter((row) => isCommissioner || row.teamId != null)
+    .map((row) => ({
+      ...(isCommissioner ? { user_id: row.user_id } : {}),
+      teamId: row.teamId == null ? null : row.teamId,
+      teamName: row.teamName == null ? null : row.teamName,
+    }));
+}
+
+/**
+ * The Team IDs whose manager holds a co-commissioner grant, for flagging the
+ * teams a league-shared payload already carries (#324).
+ *
+ * Read off the roster rows' own Team identity rather than off `owner_id`, so
+ * the flag is derived the way every other league-shared fact is and does not
+ * quietly depend on an account field that #115 removes. A grant whose Team is
+ * gone contributes no id, which is the same reason it shows a member nothing:
+ * there is no Team to flag.
+ */
+function coCommissionerTeamIds(rows) {
+  return new Set((rows || []).map((row) => row.teamId).filter((teamId) => teamId != null));
 }
 
 /** Owner-only: load the league for a mutation, or throw 403/404. */
@@ -242,6 +295,8 @@ module.exports = {
   isLeagueCommissioner,
   isLeagueOwner,
   listCoCommissioners,
+  serializeCoCommissioners,
+  coCommissionerTeamIds,
   listCommissionerUserIds,
   notifyCommissioners,
   requireOwner,

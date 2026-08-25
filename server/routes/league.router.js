@@ -21,6 +21,8 @@ const {
   commissionerPredicate,
   isLeagueCommissioner,
   listCoCommissioners,
+  serializeCoCommissioners,
+  coCommissionerTeamIds,
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
@@ -356,19 +358,38 @@ router.get('/:id', async (req, res) => {
       [leagueId]
     );
     // is_commissioner is the viewer's effective role (owner or co-commissioner)
-    // — every client-side commissioner gate reads it. The roster of
-    // co-commissioners is visible to all members: knowing who can rule on your
-    // trade isn't sensitive, and it saves a second request.
+    // — every client-side commissioner gate reads it.
+    //
+    // Who holds commissioner power stays visible to every member: knowing who
+    // can rule on your trade isn't sensitive, and it saves a second request.
+    // What changed in #324 is how that fact is told. CONTEXT.md's Team
+    // identity rule admits no exception for role disclosure, so power is a
+    // property of the TEAM - `teams[].is_co_commissioner`, on the identity
+    // every member already holds - and never an account handed over with it.
+    // The account ids grant and revoke need ride commissioner-conditionally,
+    // stripped by the same `is_commissioner` check as `invite_code` two lines
+    // below, which is the precedent this follows rather than a new mechanism.
     league.is_commissioner = await isLeagueCommissioner(pool, leagueId, req.user.id);
-    league.co_commissioners = await listCoCommissioners(pool, leagueId);
+    const coCommissionerRows = await listCoCommissioners(pool, leagueId);
+    league.co_commissioners = serializeCoCommissioners(coCommissionerRows, {
+      isCommissioner: league.is_commissioner,
+    });
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
+    // The flag is derived from the roster's Team identity, so a team is
+    // flagged exactly when a grant names it - including for a viewer whose
+    // member-visible roster is empty because every grant has lost its team.
+    const grantedTeamIds = coCommissionerTeamIds(coCommissionerRows);
+    const teams = teamsResult.rows.map((team) => ({
+      ...team,
+      is_co_commissioner: grantedTeamIds.has(team.id),
+    }));
     // viewerTeamId is how a consumer answers "which of these is me" without
     // holding another manager's account ID (#112): teamId === viewerTeamId.
     res.json({
       viewerTeamId: viewerTeamIdOf(teamsResult.rows, req.user.id),
       league,
-      teams: teamsResult.rows,
+      teams,
     });
   } catch (error) {
     console.error('Error fetching league details', error);
