@@ -77,14 +77,15 @@ test('POST reset: a final matchup in the current season refuses with 409 and iss
     res.body.error,
     'the draft cannot be reset because weeks of this season are already settled'
   );
-  assert.ok(
-    !fake.calls.some((c) => /^DELETE/.test(c.text)),
+  // #274: counts rather than booleans. The coverage is the same verb-level
+  // sweep, but the failure now reads "3 !== 0" instead of "false !== true",
+  // which says how far past the guard the reset actually got.
+  assert.equal(
+    fake.matching(/^DELETE/).length,
+    0,
     `no delete was issued, saw: ${fake.calls.map((c) => c.text).join(' | ')}`
   );
-  assert.ok(
-    !fake.calls.some((c) => /^UPDATE/.test(c.text)),
-    'no update was issued either'
-  );
+  assert.equal(fake.matching(/^UPDATE/).length, 0, 'no update was issued either');
   fake.assertClean();
 });
 

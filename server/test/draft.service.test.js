@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { teamIndexForPick, draftPlayer, undoDrop } = require('../services/draft.service');
 const seasonService = require('../services/season.service');
 const lineupService = require('../services/lineup.service');
-const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 
 test('teamIndexForPick: 4 teams, round 1 (picks 0-3)', () => {
   assert.equal(teamIndexForPick(0, 4), 0);
@@ -186,6 +186,14 @@ test('draftPlayer: rejects a manual (non-auto) pick in an active autopick-type d
       return true;
     }
   );
+  // #274. This fixture registers no write handlers, so a guard moved below
+  // the writes would today die on fakePool's "unexpected query" rather than
+  // on an assertion. That protection is incidental to the fixture being
+  // incomplete, it reports the wrong thing, and it evaporates the moment
+  // someone adds a handler for convenience. Assert the absence directly.
+  assert.equal(fake.matching(insert('draft_picks')).length, 0, 'no pick was recorded');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'no player was rostered');
+  assert.equal(fake.matching(update('leagues')).length, 0, 'the clock did not advance');
   fake.assertClean();
 });
 
@@ -303,6 +311,13 @@ test('draftPlayer free agency: a full team with no stash is rejected at the draf
     draftPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
     { statusCode: 409, message: 'roster capacity of 2 reached' }
   );
+  // #274, and this one has no accidental protection at all: freeAgencyPool
+  // registers live insert('team_players') and insert('transactions')
+  // handlers, so moving the capacity guard below the roster write rosters
+  // the player, throws, rolls back, and answers the same 409 with the same
+  // message. Without these counts nothing in this test could tell.
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not rostered');
+  assert.equal(fake.matching(insert('transactions')).length, 0, 'no transaction was logged');
   fake.assertClean();
 });
 
@@ -340,6 +355,11 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
     undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
     { statusCode: 409, message: 'roster capacity of 2 reached' }
   );
+  // #274. undoDrop restores by clearing the waiver row and re-rostering, so
+  // a guard below that work would consume the undo and still refuse. As
+  // above, this fixture's silence about the writes is not an assertion.
+  assert.equal(fake.matching(remove('waiver_players')).length, 0, 'the waiver row survived');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not re-rostered');
   fake.assertClean();
 });
 

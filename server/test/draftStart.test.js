@@ -131,6 +131,11 @@ test('startDraft rolls back without writes when keepers exceed the current per-t
   assert.equal(fake.matching(update('leagues')).length, 0);
   assert.equal(fake.matching(insert('draft_picks')).length, 0);
   assert.equal(fake.matching(insert('team_players')).length, 0);
+  // #274: the fourth write site. UPDATE "teams" SET "autodraft" is gated on
+  // plan.autodraftAll and unreachable in this snake fixture, so it costs
+  // nothing to cover, and covering it means the absence set matches the
+  // service's write set rather than a subset someone happened to list.
+  assert.equal(fake.matching(update('teams')).length, 0);
   fake.assertClean();
 });
 
