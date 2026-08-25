@@ -212,13 +212,15 @@ test('league detail: the co-commissioner roster a member sees is Team identity o
 async function getChat(t) {
   createFakePool([
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    // The chat SELECT no longer projects the author's account id or username,
+    // and the route passes its rows through verbatim, so this fixture mirrors
+    // the narrowed SELECT (#343). `chat_messages.user_id` is still read inside
+    // the query for the block filter, but never reaches the wire.
     [/FROM "chat_messages"/, () => ({
       rows: [{
         id: 5,
         message: 'good luck everyone',
         created_at: '2026-09-01T00:00:00.000Z',
-        user_id: OTHER.userId, // #343 removes
-        username: `u${OTHER.userId}`, // #343 removes
         teamId: OTHER.teamId,
         teamName: OTHER.teamName,
       }],
@@ -230,13 +232,8 @@ async function getChat(t) {
 }
 
 const CHAT_ENTRY_CLEAN = ['created_at', 'id', 'message', 'teamId', 'teamName'];
-const CHAT_ENTRY_FORBIDDEN = ['user_id', 'username'];
 
-test('chat history: a message STILL carries user_id / username today', async (t) => {
-  for (const message of await getChat(t)) assertStillPresent(message, CHAT_ENTRY_FORBIDDEN);
-});
-
-test('chat history: a message is attributed by Team, not by the author account', { todo: '#343 removes chat user_id / username' }, async (t) => {
+test('chat history: a message is attributed by Team, not by the author account', async (t) => {
   for (const message of await getChat(t)) assertExactKeys(message, CHAT_ENTRY_CLEAN);
 });
 

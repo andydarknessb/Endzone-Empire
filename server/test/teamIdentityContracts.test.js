@@ -405,16 +405,17 @@ test('a broadcast Draft payload never carries a viewer-relative field', () => {
 
 // ------------------------------------------------------------------------ chat
 
-test('chat history: every message is attributed by Team beside its account fields', async (t) => {
+test('chat history: every message is attributed by Team and no account fields', async (t) => {
   const fake = createFakePool([
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    // The route passes chat rows through verbatim and the SELECT no longer
+    // projects the author's account id or username (#343), so this fixture
+    // mirrors the narrowed SELECT.
     [/FROM "chat_messages"/, () => ({
       rows: [{
         id: 5,
         message: 'good luck everyone',
         created_at: '2026-09-01T00:00:00.000Z',
-        user_id: OTHER.userId,
-        username: `u${OTHER.userId}`,
         teamId: OTHER.teamId,
         teamName: OTHER.teamName,
       }],
@@ -429,10 +430,11 @@ test('chat history: every message is attributed by Team beside its account field
   const [message] = res.body;
   assert.equal(message.teamId, OTHER.teamId);
   assert.equal(message.teamName, OTHER.teamName);
-  assert.equal(message.user_id, OTHER.userId, 'the legacy author account fields survive');
-  assert.equal(message.username, `u${OTHER.userId}`);
+  assert.equal('user_id' in message, false, 'the author account id is gone (#343)');
+  assert.equal('username' in message, false, 'the author username is gone (#343)');
   const [chatQuery] = fake.matching(/FROM "chat_messages"/);
   assert.match(chatQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+  assert.doesNotMatch(chatQuery.text, /JOIN "users"/, 'the username JOIN is gone (#343)');
   // A LEFT JOIN, so a message from a manager who has since left the league
   // still reads back rather than vanishing from the history.
   assert.match(chatQuery.text, /LEFT JOIN "teams"/);

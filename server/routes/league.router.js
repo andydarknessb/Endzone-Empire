@@ -660,13 +660,16 @@ router.get('/:id/matchups', async (req, res) => {
 });
 
 // GET /api/league/:id/chat — last 50 chat messages, oldest first
-// Chat authors are identified by Team beside their account (#112, parent
-// #108). The join is LEFT so a message from a manager who has since left the
+// Chat authors are identified by Team identity ALONE (#112, parent #108,
+// contracted by #343): the author's account id and username no longer ride on
+// the history, and the users JOIN that supplied the username is gone. The Team
+// identity join is LEFT so a message from a manager who has since left the
 // league still reads back rather than dropping out of the history; its Team
-// identity is simply null. This response is a bare array with no root to
-// carry `viewerTeamId`, so a viewer takes theirs from the `league:join`
-// acknowledgement the chat panel already makes, and compares `message.teamId`
-// against it.
+// identity is simply null. `chat_messages.user_id` is still read INSIDE the
+// query (the block filter below) but is not projected onto the wire. This
+// response is a bare array with no root to carry `viewerTeamId`, so a viewer
+// takes theirs from the `league:join` acknowledgement the chat panel already
+// makes, and compares `message.teamId` against it.
 router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -677,9 +680,8 @@ router.get('/:id/chat', async (req, res) => {
     const result = await pool.query(
       `SELECT * FROM (
          SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-                "chat_messages"."user_id", "users"."username",
                 ${teamIdentityColumns()}
-         FROM "chat_messages" JOIN "users" ON "users"."id" = "chat_messages"."user_id"
+         FROM "chat_messages"
          ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
          WHERE "chat_messages"."league_id" = $1
            AND NOT EXISTS (
