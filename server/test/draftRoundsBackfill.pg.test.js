@@ -31,6 +31,12 @@ if (!ENABLED) {
     assert.fail(`unset ${urlLeak.join(', ')} — these tests must only ever see a disposable PG* database`);
   });
 } else {
+  // TEMPORARY red-proof for #371: a deliberate failure inside an ENABLED pg
+  // block, so migration-smoke (PG_TESTS=1) goes red while test:server stays
+  // green. Dropped before merge.
+  test('#371 red-proof: a broken pg test turns migration-smoke red', () => {
+    assert.equal(1, 2, 'deliberate temporary failure to prove migration-smoke catches it');
+  });
   const pg = require('pg');
   const connection = {
     host: process.env.PGHOST || '127.0.0.1',
