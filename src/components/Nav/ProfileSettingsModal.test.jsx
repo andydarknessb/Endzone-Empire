@@ -250,7 +250,12 @@ test('the deletion refusal names the leagues the user created, not commissioned'
   // The warning shown BEFORE the attempt describes the same creator-only rule.
   const warning = await screen.findByText(/You must delete leagues you created first/);
   expect(warning).toBeInTheDocument();
-  expect(warning.textContent).not.toMatch(/commission/i);
+  expect(warning.textContent).not.toMatch(/leagues you commission/i);
+  // ...and the sentence enumerating what deletion removes has to stay true
+  // now that deletion also revokes the account's co-commissioner grants.
+  // That item is the only one on the list that takes something away from
+  // OTHER people's leagues.
+  expect(warning.textContent).toMatch(/co-commissioner roles/);
 
   await user.type(screen.getByLabelText(/Type alice to confirm/), 'alice');
   await user.click(screen.getByRole('button', { name: 'Delete my account' }));

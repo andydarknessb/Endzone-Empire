@@ -163,22 +163,13 @@ async function deleteUserAccount({ userId, confirmation }) {
     await client.query('DELETE FROM "auth_tokens" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "refresh_tokens" WHERE "user_id" = $1', [userId]);
 
-    // The eight statements above are the account's own content. This one is
-    // not: a co-commissioner grant is a relationship the LEAGUE also has an
-    // interest in, and it is removed for a different reason. Deleting the
-    // account revokes the authorization it currently holds, which is not the
-    // same act as erasing league history - the Team, the completed seasons
-    // and the draft record all stay exactly as they are (#275).
-    //
-    // It has to be written down here because deletion is a soft delete: the
-    // `users` row survives as an anonymized row, so the foreign key never
-    // cascades and a grant held by an account nobody can log into would
-    // otherwise keep answering true to isLeagueCommissioner forever, and keep
-    // rendering an unidentifiable member on the league's commissioner roster.
-    //
-    // Inside this transaction by construction, on the same client as the rest:
-    // a revocation that committed on its own would leave a failed deletion
-    // having stripped a live commissioner of their powers.
+    // The eight above are the account's own content. This one is not: a
+    // co-commissioner grant is a relationship the LEAGUE also has an interest
+    // in. Revoking the authorization the account currently holds is not the
+    // same act as erasing league history, so the Team, the completed seasons
+    // and the draft record all stay (#275). It has to be written down here
+    // because the delete below is a SOFT one: the `users` row survives, so no
+    // foreign key ever cascades and the grant would outlive the account.
     await client.query('DELETE FROM "league_commissioners" WHERE "user_id" = $1', [userId]);
 
     const anonymousId = crypto.randomUUID();

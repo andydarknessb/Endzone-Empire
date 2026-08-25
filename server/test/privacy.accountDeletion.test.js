@@ -54,7 +54,16 @@ function grantWorld(grants) {
     }],
     // Inside the transaction: staged, and real only once COMMIT lands.
     [GRANT_DELETE, (text, params) => {
-      assert.match(text, /WHERE "user_id" = \$1/, 'the revocation keys on the user alone');
+      // Anchored at both ends on purpose. The fake removes rows by user id
+      // whatever the SQL says, so a WHERE clause that scoped the revocation
+      // to one league would otherwise still look like it removed every
+      // grant. "EVERY co-commissioner grant held by that user" is the
+      // criterion, and this is the only thing holding the statement to it.
+      assert.match(
+        text,
+        /^DELETE FROM "league_commissioners" WHERE "user_id" = \$1$/,
+        'every grant the account holds, keyed on the user alone and nothing else'
+      );
       state.staged = without(state.staged, params[0]);
       return { rows: [] };
     }, 'client'],
@@ -138,6 +147,18 @@ test('a co-commissioner who created no league can still delete their account', a
   const fake = createFakePool([...world.handlers, ...deletionHandlers({ owned: [] })]).install(t);
 
   await privacy.deleteUserAccount({ userId: USER, confirmation: 'me' });
+
+  // The guard really ran and really is creator-shaped: it is the
+  // leagues.owner_id comparison, asked about this user, and it found nothing.
+  const guardIndex = fake.calls.findIndex((call) => /FROM "leagues"/.test(call.text));
+  assert.ok(guardIndex >= 0, 'the creator-only guard ran');
+  assert.match(fake.calls[guardIndex].text, /WHERE "leagues"\."owner_id" = \$1/);
+  assert.deepEqual(fake.calls[guardIndex].params, [USER]);
+
+  // And it ran BEFORE the revocation. The other order would revoke a live
+  // commissioner's powers on the way to refusing their deletion.
+  const revokeIndex = fake.calls.findIndex((call) => GRANT_DELETE.test(call.text));
+  assert.ok(guardIndex < revokeIndex, 'the guard is consulted before anything is revoked');
 
   assert.deepEqual(world.grantsFor(USER), []);
   assert.ok(fake.calls.some((call) => call.text === 'COMMIT'));

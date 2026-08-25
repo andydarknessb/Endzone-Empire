@@ -42,9 +42,19 @@ async function notifyCommissioners(db, { leagueId, ownerId, type, message, data 
  *   revoking co-commissioners, and protecting the creator's Team from
  *   removal.
  *
+ * A grant ends in three ways, and only the first is a deliberate revocation:
+ * the owner revoking it here; the manager's Team being removed, which gives
+ * up commissioner powers with it (commissioner.service's removeTeam); and
+ * the account being deleted, which revokes every grant it holds inside the
+ * deletion's own transaction (privacy.service, #275). Account deletion is a
+ * SOFT delete, so no foreign key cascades and that third path has to be
+ * written down rather than assumed.
+ *
  * Invariant: a commissioner is always a member. Removing a Team already
- * revokes any co-commissioner grant. Two separate rules bound removal, and
- * only the second of them is an `owner_id` comparison:
+ * revokes any co-commissioner grant. A deleted account keeps its Team and so
+ * keeps its membership; it just stops being a commissioner. Two separate
+ * rules bound removal, and only the second of them is an `owner_id`
+ * comparison:
  *
  * - No commissioner of either kind may remove their own Team. That compares
  *   the target against the CALLER, never against the owner; see

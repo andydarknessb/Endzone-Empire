@@ -264,9 +264,9 @@ function ProfileSettingsModal({ open, onClose }) {
       <DialogTitle>Delete account permanently?</DialogTitle>
       <DialogContent>
         <Typography sx={{ mb: 2 }}>
-          This removes active credentials, chat messages, notifications, push subscriptions, and
-          avatars, then anonymizes retained league history. You must delete leagues you created
-          first. This action cannot be undone.
+          This removes active credentials, chat messages, notifications, push subscriptions,
+          avatars, and any co-commissioner roles you hold, then anonymizes retained league
+          history. You must delete leagues you created first. This action cannot be undone.
         </Typography>
         <TextField
           autoFocus
