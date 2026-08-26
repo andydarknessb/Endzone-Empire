@@ -530,7 +530,12 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
 
   // League-wide scan for the positions actually requested. `fn_normalize_nfl_team`
   // on both sides is what lets DEF units (stored with a full team name) join
-  // the schedule at all, and collapses the WSH/WAS alias split.
+  // the schedule at all, and collapses the WSH/WAS alias split. The `defense`
+  // key this scan produces is therefore a Team code (CONTEXT.md). Contrast
+  // `getPositionDefense` (projection.service.js), whose equivalent opponent
+  // key stays a Raw team code instead, because its caller
+  // (`decision.service.startSitAdvice`) looks it up with an opponent read
+  // straight out of `nfl_games`, unfolded.
   //
   // The ORDER BY is a CORRECTNESS requirement, not a nicety. Postgres gives no
   // row order without one, so an unordered `LIMIT` both picks an arbitrary
