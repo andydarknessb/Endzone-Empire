@@ -191,9 +191,17 @@ test('listCombinedDraftFeed projects hidden_at in the CHAT arm only, and blocks 
   assert.match(seenSql, /NULL::timestamptz AS hidden_at/);
   // The block filter is on the CHAT arm and NOT on the draft_activity arm - a
   // Pick by a blocked Team stays visible (AC7 / ADR 0012).
-  const activityArm = seenSql.slice(seenSql.indexOf('FROM "draft_activity"'));
+  // Everything from UNION ALL onward is the activity arm (its SELECT list, FROM
+  // and WHERE) - the chat arm and its block filter sit before it.
+  const activityArm = seenSql.slice(seenSql.indexOf('UNION ALL'));
   assert.doesNotMatch(activityArm, /"user_blocks"/, 'the activity arm never filters on blocks');
   assert.match(seenSql, /NOT EXISTS \(\s*SELECT 1 FROM "user_blocks"/);
+  // By CONSTRUCTION the tombstone path cannot reach a Pick: the activity arm
+  // never projects a hidden_at FROM chat_messages, only the aligned NULL
+  // placeholder. So moderation is unreachable for Draft activity in the SQL
+  // itself, not merely because activityEntryOf chooses to ignore the column.
+  assert.doesNotMatch(activityArm, /"chat_messages"\."hidden_at"/, 'the activity arm carries no chat hidden_at');
+  assert.match(activityArm, /NULL::timestamptz AS hidden_at/, 'the activity arm hidden_at is the aligned NULL');
 });
 
 test('listLeagueChatFeed pages older than a cursor with feed_seq < before', async () => {
