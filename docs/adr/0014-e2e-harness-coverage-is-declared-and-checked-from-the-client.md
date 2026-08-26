@@ -62,3 +62,18 @@ zero count rather than passing green for the wrong reason.
 - The inverse check (a harness entry whose route no longer exists on the
   server) needs the Express app loaded and lives elsewhere; deferred to its
   own issue.
+
+## Amendment (2026-08-26): the Draft E2E suites are CI gates
+
+The "Two halves" section above says the Draft E2E suites "are not CI gates
+(#478)". That was read from a stale checkout and is wrong: PR #369
+(2026-08-25, closing #365) made `browser-security` run every spec under
+`tests/e2e`, and both Draft suites have gated every push to `integration`
+since. #478 is closed on that finding.
+
+The decision to build both halves stands, on a different footing than the
+section states: the static guard fails in the `guards` job in seconds and
+names the path, before a multi-minute browser job starts; the runtime
+recorder fires inside that job and sees what the static guard cannot (shell
+calls, non-literal paths). Each still closes the other's hole; the recorder
+simply has a CI consumer already.
