@@ -47,7 +47,7 @@ _Avoid_: franchise, squad, roster (the roster is what a team holds, not the team
 
 **Team identity**:
 The Team name and avatar a manager is known by on every surface shared with
-other managers: standings, matchups, draft chat, Pick history, readiness and
+other managers: standings, matchups, League chat, Pick history, readiness and
 pick'em. It is the only identity such a surface may ever carry; a manager's
 account identifier (email, username) stays confined to their own private
 account chrome and is never exposed to another manager. A duplicate Team name
@@ -365,12 +365,12 @@ _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
 **Commissioner correction**:
-The administrative act by which a commissioner records a reason, then pauses an
-active Draft and reverses only its latest non-keeper Pick as one atomic act,
-leaving the Draft paused until a commissioner resumes. It is the separate
-administrative act the Pick definition refers to: it adds Draft activity and
-never erases the original Pick entry, it is not a manager undo, and it cannot
-cross a Keeper.
+The administrative act by which a commissioner records a reason, then
+pauses an active Draft and reverses only its latest non-keeper Pick as one
+atomic act, leaving the Draft paused until a commissioner resumes. It is the
+separate administrative act the Pick definition refers to: it adds Draft
+activity and never erases the original Pick entry, it is not a manager undo,
+and it cannot cross a Keeper.
 _Avoid_: manager undo, rewind, arbitrary rollback
 
 **Autopick**:
