@@ -29,6 +29,16 @@ import { newClientMsgId } from '../../lib/clientMessageId';
 // value, the way the client Team-identity fields mirror the server's.
 const CHAT_PAGE = 100;
 
+// Whether a feed entry is a HUMAN League-chat message, the only kind the unread
+// badge counts (#442; spec #429: "Count unread human messages only"). The live
+// broadcast tags a message `type: 'league_chat'` (leagueFeed.feedEntryOf), so
+// that is a human message; a legacy row with no type predates the tag and is
+// also human. Draft activity, the cutover boundary and moderation tombstones
+// carry their own types and are correspondence to no one, so they never count.
+function isHumanMessage(entry) {
+  return !entry || entry.type == null || entry.type === 'league_chat';
+}
+
 export default function useLeagueChat({ socket, leagueId, open = true, viewerTeamId = null }) {
   const [messages, setMessages] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -133,6 +143,10 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
       // - so an entry already held is never appended or counted again.
       if (data && messagesRef.current.some((m) => m.id === data.id)) return;
       setMessages((prev) => [...prev, data]);
+      // Only human League chat is correspondence: Draft activity, the cutover
+      // boundary and moderation tombstones appear in the feed but never move the
+      // read marker or the unread badge (#442).
+      if (!isHumanMessage(data)) return;
       if (openRef.current) {
         // Reading live: keep the server-side marker current so a later reload
         // doesn't resurrect these as unread.

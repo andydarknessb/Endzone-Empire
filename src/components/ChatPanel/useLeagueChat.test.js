@@ -261,6 +261,49 @@ test('counts a former manager\'s message as unread when the viewer\'s own Team i
   await waitFor(() => expect(result.current.unread).toBe(1));
 });
 
+test('only unseen human messages move the unread count; Draft activity never does (#442)', async () => {
+  // The unread badge counts unseen HUMAN chat only. Draft activity, cutover
+  // boundaries and moderation tombstones are not correspondence, so an entry
+  // that is not a league_chat message must be appended without touching unread
+  // (spec #429: "Count unread human messages only").
+  mockGets({ unread: 0 });
+  const { socket, result } = render({ open: false, viewerTeamId: 99 });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  // A committed Pick arriving over the shared room is Draft activity, not chat.
+  act(() =>
+    socket.trigger('chat:message', {
+      type: 'draft_activity',
+      id: 501,
+      seq: 12,
+      teamId: 22,
+      teamName: 'Bulldogs',
+      player: { name: 'Pat Mahomes' },
+      created_at: '2026-01-01T12:06:00Z',
+    })
+  );
+  // It still shows in the feed...
+  await waitFor(() => expect(result.current.messages.some((m) => m.id === 501)).toBe(true));
+  // ...but never as unread.
+  expect(result.current.unread).toBe(0);
+
+  // A genuine human message still increments, proving the guard is on kind.
+  act(() => socket.trigger('chat:message', broadcast({ id: 8, message: 'real chat' })));
+  await waitFor(() => expect(result.current.unread).toBe(1));
+});
+
+test('an explicitly typed league_chat message still counts as unread (#442)', async () => {
+  // The live broadcast carries type: 'league_chat' (leagueFeed.feedEntryOf);
+  // the human-kind guard must accept it, not only the legacy untyped shape.
+  mockGets({ unread: 0 });
+  const { socket, result } = render({ open: false, viewerTeamId: 99 });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  act(() => socket.trigger('chat:message', broadcast({ id: 9, type: 'league_chat', message: 'typed' })));
+
+  await waitFor(() => expect(result.current.unread).toBe(1));
+});
+
 test('opening resets unread and moves the server-side read marker', async () => {
   mockGets({ unread: 5 });
   const { socket, result, rerender } = render({ open: false });
