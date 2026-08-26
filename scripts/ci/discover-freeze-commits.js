@@ -59,6 +59,35 @@ const POST_B_ALLOWED_PATHS = new Set([
 ]);
 
 /**
+ * THE FREEZE LINEAGE'S IMMUTABLE FINAL BOUNDARY (Commit F).
+ *
+ * The output-only quiet window (only REPORT.md / report.json may change after
+ * Commit B) is a real assumption about a CONTIGUOUS A -> M -> B -> report
+ * lineage, but it has no natural end: once the sealed study is published and
+ * ordinary development resumes on the same branch, every later, unrelated
+ * commit would otherwise be judged against the window and rejected, turning
+ * this workflow permanently red (issue #468). The fix is an EXPLICIT end
+ * boundary: the last commit that belongs to the freeze lineage. The window is
+ * exactly `B..F`; commits after F are ordinary development and are never
+ * checked here.
+ *
+ * F is the revision-38 results commit `48c2512` ("publish revision 38
+ * candidate results"), which touched only REPORT.md and report.json - the
+ * sole, final output commit of that lineage (see docs/adr/0013). It is a fixed
+ * SHA, so `B..F` evaluates identically on every ref (pull request, integration,
+ * main), which is the whole point: the check no longer depends on where HEAD
+ * happens to be.
+ *
+ * If a genuinely new freeze lineage is ever cut, discovery will find that
+ * newer B, this now-stale F will not be its descendant, and the run FAILS
+ * LOUD (see the `isAncestorOf` guard in discover()) rather than silently
+ * checking the wrong window - the signal to update this constant or retire the
+ * workflow. Overridable as the script's second CLI argument for tests, which
+ * build their own fixture histories with their own SHAs.
+ */
+const DEFAULT_FREEZE_LINEAGE_FINAL_COMMIT = '48c2512137eb3dcc0478474021fe152468c1e470';
+
+/**
  * A's allowlist is really a DENYLIST: A is "everything non-output," the one
  * commit broad enough that a stray edit to the sealed preregistration, the
  * committed publication tree, or M/B's own output directory could otherwise
@@ -90,6 +119,22 @@ function gitOrNull(args) {
     return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return null;
+  }
+}
+
+/**
+ * True when `ancestor` is an ancestor of `descendant`, OR the same commit
+ * (`git merge-base --is-ancestor` treats a commit as its own ancestor). Exit 0
+ * means yes, exit 1 means no; any other failure (a bad revision) also lands
+ * here as `false`, which is the safe answer for the boundary guard - a
+ * boundary that cannot be shown to descend from B is rejected, never trusted.
+ */
+function isAncestorOf(ancestor, descendant) {
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -232,7 +277,7 @@ function postBViolations({ bSha, ref }) {
  * CALLER (the workflow step) decides how loudly to fail, and reasons show up
  * in CI logs either way. A genuinely unexpected git failure still throws.
  */
-function discover({ ref = 'HEAD' } = {}) {
+function discover({ ref = 'HEAD', finalBoundary = DEFAULT_FREEZE_LINEAGE_FINAL_COMMIT } = {}) {
   let mSha;
   try {
     mSha = findNewestMCommit(ref);
@@ -308,18 +353,49 @@ function discover({ ref = 'HEAD' } = {}) {
         commitB: bSha,
       };
     }
-    const outputViolations = postBViolations({ bSha, ref });
-    if (outputViolations.length > 0) {
+    // The output-only quiet window is bounded at the lineage's immutable final
+    // boundary (Commit F), NOT at the triggering ref: commits after F are
+    // ordinary development and must not be judged against the sealed window
+    // (issue #468, docs/adr/0013). F must resolve to a real commit and must be
+    // a descendant of the discovered B - otherwise the boundary is stale,
+    // misconfigured, or superseded by a newer freeze, all of which fail loud.
+    const finalSha = gitOrNull(['rev-parse', '--verify', `${finalBoundary}^{commit}`]);
+    if (!finalSha) {
       return {
         ok: false,
-        reason: `Commit(s) after B changed non-output path(s): ${outputViolations
-          .map((v) => `${v.sha}:${v.path}`).join(', ')}. Only ${[...POST_B_ALLOWED_PATHS].join(', ')} may change after B.`,
+        reason: `The freeze lineage final boundary (${finalBoundary}) does not resolve to a commit on this ref/repo. `
+          + 'The boundary that ends the output-only quiet window (Commit F) must be reachable; a shallow clone or a '
+          + 'stale/misconfigured DEFAULT_FREEZE_LINEAGE_FINAL_COMMIT would land here.',
         commitA: aSha,
         commitM: mSha,
         commitB: bSha,
       };
     }
-    bCheck.outputOnlyCommits = commitsBetween(bSha, ref).length;
+    if (!isAncestorOf(bSha, finalSha)) {
+      return {
+        ok: false,
+        reason: `The freeze lineage final boundary (${finalSha}) is not a descendant of discovered Commit B (${bSha}). `
+          + 'Either the boundary is stale or a newer freeze superseded this lineage; update '
+          + 'DEFAULT_FREEZE_LINEAGE_FINAL_COMMIT (or retire this workflow) rather than checking the wrong window.',
+        commitA: aSha,
+        commitM: mSha,
+        commitB: bSha,
+      };
+    }
+    const outputViolations = postBViolations({ bSha, ref: finalSha });
+    if (outputViolations.length > 0) {
+      return {
+        ok: false,
+        reason: `Commit(s) inside the freeze window B..F changed non-output path(s): ${outputViolations
+          .map((v) => `${v.sha}:${v.path}`).join(', ')}. Between Commit B and the final boundary (${finalSha}), `
+          + `only ${[...POST_B_ALLOWED_PATHS].join(', ')} may change.`,
+        commitA: aSha,
+        commitM: mSha,
+        commitB: bSha,
+      };
+    }
+    bCheck.finalBoundary = finalSha;
+    bCheck.outputOnlyCommits = commitsBetween(bSha, finalSha).length;
   }
 
   return {
@@ -329,6 +405,10 @@ function discover({ ref = 'HEAD' } = {}) {
 
 function main(argv) {
   const ref = argv[0] || 'HEAD';
+  // argv[1] overrides the immutable final boundary (Commit F). The workflow
+  // never passes it (so the sealed DEFAULT_FREEZE_LINEAGE_FINAL_COMMIT is
+  // used); tests pass their fixture repo's own final commit.
+  const finalBoundary = argv[1] || DEFAULT_FREEZE_LINEAGE_FINAL_COMMIT;
   // A genuinely unexpected failure (a git invocation error, a malformed
   // Commit-B manifest that fails to JSON.parse, anything discover() does not
   // itself model as an "expected" ok:false outcome) must still produce a
@@ -340,7 +420,7 @@ function main(argv) {
   // "nothing to reproduce yet" outcome, masking the real failure.
   let result;
   try {
-    result = discover({ ref });
+    result = discover({ ref, finalBoundary });
   } catch (err) {
     result = {
       ok: false,
@@ -367,8 +447,10 @@ module.exports = {
   MANIFEST_PATH,
   MDE_WITNESS_TRAILERS,
   POST_B_ALLOWED_PATHS,
+  DEFAULT_FREEZE_LINEAGE_FINAL_COMMIT,
   FORBIDDEN_IN_A,
   git,
+  isAncestorOf,
   listCommits,
   changedPathsOf,
   isExactly,
