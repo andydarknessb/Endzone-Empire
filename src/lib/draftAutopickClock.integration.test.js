@@ -371,12 +371,16 @@ describe('live snake-draft expiry and autopick integration', () => {
 
     const broadcast = hub.deliveries.find((delivery) => delivery.event === 'draft:picked');
     expect(broadcast).toBeDefined();
+    // The broadcast attributes the pick by Team at the root and marks it auto;
+    // the old account `by` object (its userId was the owner's account id) is
+    // gone from the wire (#344).
     expect(broadcast.payload).toMatchObject({
       teamId: TEAM_A.id,
       player: { id: 102, position: 'RB' },
       nextTeamId: TEAM_B.id,
-      by: { userId: TEAM_A.owner_id, username: 'AUTO', auto: true },
+      auto: true,
     });
+    expect(broadcast.payload).not.toHaveProperty('by');
     expect(broadcast.deliveredAt - startedAt).toBeLessThanOrEqual(100);
   });
 

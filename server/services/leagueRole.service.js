@@ -192,7 +192,7 @@ function serializeCoCommissioners(rows, { isCommissioner = false } = {}) {
  *
  * Read off the roster rows' own Team identity rather than off `owner_id`, so
  * the flag is derived the way every other league-shared fact is and does not
- * quietly depend on an account field that #115 removes. A grant whose Team is
+ * quietly depend on an account field that #115 removed. A grant whose Team is
  * gone contributes no id, which is the same reason it shows a member nothing:
  * there is no Team to flag.
  */

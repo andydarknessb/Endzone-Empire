@@ -389,7 +389,7 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
       player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' },
       nextTeamId: 2,
       draftComplete: false,
-      by: { userId: 5, username: 'alice' },
+      auto: false,
     })
   );
 
@@ -398,8 +398,9 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
   await openPickHistory();
   expect(screen.getByText('#1')).toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: 'Patrick Mahomes' }).length).toBeGreaterThan(0);
-  // The landed Pick is attributed to the Team that made it, and the
-  // username the broadcast carried in `by` reaches no rendered surface.
+  // The landed Pick is attributed to the Team that made it. No account
+  // identity rides on the broadcast any more (#344), so no username can reach
+  // a rendered surface: the pick names the Team and nothing else.
   expect(screen.getByText(/by Team A/)).toBeInTheDocument();
   expect(screen.queryByText(/alice/)).not.toBeInTheDocument();
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
@@ -431,7 +432,7 @@ test('a pick landing refetches the caller\'s own roster only when THAT pick is t
       player: { id: 20, name: 'Someone Elses Pick', position: 'WR', nfl_team: 'DAL' },
       nextTeamId: 1,
       draftComplete: false,
-      by: { username: 'bob' },
+      auto: false,
     })
   );
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
@@ -446,7 +447,7 @@ test('a pick landing refetches the caller\'s own roster only when THAT pick is t
       player: { id: 21, name: 'My New Guy', position: 'RB', nfl_team: 'KC' },
       nextTeamId: 2,
       draftComplete: false,
-      by: { username: 'alice' },
+      auto: false,
     })
   );
   await waitFor(() =>
@@ -474,7 +475,7 @@ test('a draft:picked event with draftComplete shows the completion banner and ma
       player: { id: 9, name: 'Last Player', position: 'K', nfl_team: 'X' },
       nextTeamId: null,
       draftComplete: true,
-      by: { username: 'alice' },
+      auto: false,
     })
   );
 
@@ -746,7 +747,7 @@ test('the countdown resets to pick_time_seconds on each draft:picked', async () 
       player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
       nextTeamId: 2,
       draftComplete: false,
-      by: { username: 'alice' },
+      auto: false,
     })
   );
   expect(screen.getByText('⏱ 90s')).toBeInTheDocument();
@@ -1068,10 +1069,11 @@ test('a co-commissioner who does not own the league gets the Draft room controls
 });
 
 test('the league owner gets the controls from the acknowledgement, not from owner_id', async () => {
-  // The regression guard for deleting the owner_id fallback. #115 removes
-  // account identity from league-shared payloads, so this snapshot is the
-  // one the room will be handed then: no owner_id at all. The controls have
-  // to survive that, and they can only survive it via the ack.
+  // The regression guard for deleting the owner_id fallback. #115 removed
+  // account identity from league-shared payloads (#344 took it off this
+  // snapshot's team rows), so the room is handed a snapshot it cannot derive
+  // commissioner from: this fixture strips owner_id entirely. The controls
+  // have to survive that, and they can only survive it via the ack.
   renderBoard(1, { user: { id: 7, username: 'commish' } });
   await screen.findByText('Patrick Mahomes');
   connectAsCommissioner(1);

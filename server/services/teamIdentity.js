@@ -4,10 +4,10 @@
  * CONTEXT.md's Team identity entry is the rule this module implements: the
  * Team name (and avatar) is the only identity a surface shared with other
  * managers may carry, and a manager's account identifier stays confined to
- * their own private account chrome. The authenticated REST payloads (league
- * detail, chat, pick'em, rosters, matchup detail) now honour that rule; the
- * Draft / chat Socket.IO broadcasts still carry the account fields beside Team
- * identity and are contracted by #344.
+ * their own private account chrome. Every league-shared surface now honours
+ * that rule: the authenticated REST payloads (league detail, chat, pick'em,
+ * rosters, matchup detail) and the Draft / chat Socket.IO broadcasts all carry
+ * Team identity with the account fields removed.
  *
  * This is the machinery of an expand/migrate/contract migration:
  *
@@ -17,9 +17,9 @@
  *                was forced to move.
  *   #113 / #114  league, Draft, chat and pick'em consumers moved onto those
  *                fields.
- *   #115         the account fields are removed from league-shared payloads,
- *                split by surface: #343 contracted the REST payloads (done),
- *                #344 contracts the Draft / chat Socket.IO payloads.
+ *   #115         the account fields were removed from league-shared payloads,
+ *                split by surface: #343 contracted the REST payloads and #344
+ *                contracted the Draft / chat Socket.IO payloads (both done).
  *
  * Two naming rules keep the contract learnable in one go:
  *
@@ -104,10 +104,16 @@ function teamIdentityOf(teamRow) {
 
 /**
  * Add Team identity beside whatever an entry already carries. Beside, never
- * instead of: the account fields survive untouched. Its only remaining callers
- * are the Draft join-acknowledgement and presence payloads (Socket.IO), which
- * are still in the EXPAND state until #344 contracts them; the REST payloads
- * strip their account fields directly in the routes/serializers (#343).
+ * instead of: the fields already on `entry` survive untouched.
+ *
+ * This was the EXPAND-step helper: it put Team identity beside account fields
+ * while both had to coexist. With #115 complete (#343 for REST, #344 for the
+ * Socket.IO payloads), no league-shared payload carries account identity any
+ * more, so nothing in production calls it today - the socket builders that were
+ * its last callers now use `teamIdentityOf` directly. It is kept as a generic
+ * merge utility (and covered by teamIdentity.test.js); do NOT reach for it to
+ * put an account field back beside Team identity on a shared payload, which is
+ * exactly what this migration removed.
  */
 function withTeamIdentity(entry, teamRow) {
   return { ...entry, ...teamIdentityOf(teamRow) };

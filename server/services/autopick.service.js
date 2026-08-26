@@ -84,10 +84,12 @@ async function autoPick({ leagueId }) {
       });
       const io = getIo();
       if (io) {
-        io.to(`league:${leagueId}`).emit('draft:picked', {
-          ...outcome,
-          by: { userId: onTheClock.owner_id, username: 'AUTO', auto: true },
-        });
+        // Attributed by Team at the root, so the old `by` object (whose
+        // `userId` was onTheClock.owner_id, a real account id broadcast to the
+        // room) is gone (#344, #115 child C). `auto` is true here: this is the
+        // autopick emit site. Kept in lockstep with the pick handler's emit,
+        // and both are pinned to one key set by socketPayloadShape.test.js.
+        io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: true });
         if (outcome.draftComplete) {
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
