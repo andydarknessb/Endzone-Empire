@@ -47,7 +47,7 @@ _Avoid_: franchise, squad, roster (the roster is what a team holds, not the team
 
 **Team identity**:
 The Team name and avatar a manager is known by on every surface shared with
-other managers: standings, matchups, draft chat, Pick history, readiness and
+other managers: standings, matchups, League chat, Pick history, readiness and
 pick'em. It is the only identity such a surface may ever carry; a manager's
 account identifier (email, username) stays confined to their own private
 account chrome and is never exposed to another manager. A duplicate Team name
@@ -68,6 +68,17 @@ that Team is not handed over with the fact. A grant that no longer names a
 Team has no identity to disclose and so discloses nothing, which is a
 consequence of the rule and not a carve-out from it.
 _Avoid_: display name, account identity (the thing this replaces), username
+
+**League chat**:
+The league-wide conversation among a league's members, carried wherever they
+gather, including the Draft room. It is one conversation, not a separate
+Draft-only channel: a message sent from the League Dashboard and one sent from
+the Draft room belong to the same League chat. Every message carries Team
+identity and no account identifier. League chat is for members only and is
+never exposed through a public presenter link, which receives Draft activity
+alone.
+_Avoid_: Draft chat (not a separate conversation), public chat, system message
+(that is Draft activity)
 
 **Membership**:
 A manager's standing in one league: they are a member exactly when they hold a
@@ -342,6 +353,25 @@ A team's committed claim of one player during a draft. Once accepted it
 advances the shared draft state and cannot be undone by the manager who made
 it; commissioner correction is a separate administrative act.
 _Avoid_: selection, reversible pick
+
+**Draft activity**:
+The chronological record of consequential shared Draft events: Draft start,
+each Pick, pause and resume, and commissioner correction. It is distinct from
+League chat and is never authored by a manager. It is append-only through
+correction: a correction adds a new entry and never rewrites or erases the
+original Pick entry. It is the only Draft-room feed a public presenter link
+receives, so it carries Team identity and no account identifier.
+_Avoid_: system message, chat message, Pick history (which is Pick-only and
+lives in the Draft board)
+
+**Commissioner correction**:
+The administrative act by which a commissioner records a reason, then
+pauses an active Draft and reverses only its latest non-keeper Pick as one
+atomic act, leaving the Draft paused until a commissioner resumes. It is the
+separate administrative act the Pick definition refers to: it adds Draft
+activity and never erases the original Pick entry, it is not a manager undo,
+and it cannot cross a Keeper.
+_Avoid_: manager undo, rewind, arbitrary rollback
 
 **Autopick**:
 The single act of the server making a team's pick when its clock expires: the
