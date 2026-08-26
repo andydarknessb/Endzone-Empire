@@ -159,7 +159,7 @@ test('applyGameBoxScore: upserts stats and reports the touchdown as a play', asy
   const maps = {
     idByExternal: new Map([['4433971', 7]]),
     metaById: new Map([[7, { name: 'Star Back', position: 'RB', nfl_team: 'KC' }]]),
-    defByAbbr: new Map(),
+    defByTeamCode: new Map(),
     prevById: new Map(),
     opponentByTeam: new Map([['KC', 'BUF']]),
   };
@@ -190,7 +190,7 @@ test('applyGameBoxScore: re-applying the SAME box score does not re-fire the pla
   const maps = {
     idByExternal: new Map([['4433971', 7]]),
     metaById: new Map([[7, { name: 'Star Back', position: 'RB', nfl_team: 'KC' }]]),
-    defByAbbr: new Map(),
+    defByTeamCode: new Map(),
     prevById: new Map(),
     opponentByTeam: new Map(),
   };
@@ -210,7 +210,7 @@ test('applyGameBoxScore: players outside our pool are ignored', async (t) => {
   const maps = {
     idByExternal: new Map(),
     metaById: new Map(),
-    defByAbbr: new Map(),
+    defByTeamCode: new Map(),
     prevById: new Map(),
     opponentByTeam: new Map(),
   };

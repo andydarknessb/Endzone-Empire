@@ -6,7 +6,7 @@ const {
   materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
   playersNotHeldAtKickoff,
 } = require('./lineup.service');
-const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR } = require('./nflTeam');
+const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR, normalizeNflTeam } = require('./nflTeam');
 const { getIo } = require('../modules/io');
 const { fantasySideWhereSql } = require('./leagueType');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
@@ -532,9 +532,10 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats) {
 }
 
 /**
- * A players.nfl_team value (full name or already-an-abbreviation) -> Tank01
- * abbreviation, used only to match a league's seeded/rostered DEF-unit player
- * against the live box score's teamAbv.
+ * A players.nfl_team value (full name or already-an-abbreviation) -> an
+ * abbreviation. It resolves a full name to its code and returns an input that is
+ * already abbreviated UNCHANGED, so it can only fold names, never reconcile two
+ * abbreviations that disagree.
  *
  * The 32-name table it reads (`NFL_TEAM_NAME_TO_ABBR`) now lives in
  * services/nflTeam.js, next to the alias table and under the guard that holds
@@ -543,12 +544,16 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats) {
  * remembered in three places.
  *
  * This function is NOT `normalizeNflTeam`, and the difference is the
- * short-circuit below: an already-abbreviated input is returned as-is, so
- * `WSH` stays `WSH` here where the shared helper would fold it to `WAS`. That
- * is correct for this caller - both sides of its comparison are Tank01's own
- * spelling - but it means this is a second resolver, and #227 deliberately did
- * not merge them: nothing here is kickoff-keyed, and changing how a live box
- * score matches a DEF unit is a behaviour change that ticket did not ask for.
+ * short-circuit below: an already-abbreviated input is returned as-is, so `WSH`
+ * stays `WSH` here where the shared helper would fold it to `WAS`. That is why
+ * it must NOT be used to match a DEF unit against a live box score: the DEF
+ * row's Team code is WAS and Tank01's teamAbv is WSH, and this resolver would
+ * leave them in different vocabularies (the #431 bug). The DEF join folds
+ * through normalizeNflTeam instead. What remains here is the callers whose two
+ * sides do already agree or need only a name folded: the syncTeamDefenses
+ * backfill (missingTeamDefenses, below), adp.service, projectionFeatures. #227
+ * deliberately did not merge this with normalizeNflTeam; nothing here is
+ * kickoff-keyed, and those callers were not asked to change.
  */
 function normalizeTeamAbbr(nflTeam) {
   const raw = String(nflTeam || '').trim();
@@ -744,15 +749,21 @@ async function loadWeekMaps({ season, week }) {
 
   // Team-defense (DEF slot) units have no external_id — Tank01's player list
   // never reports them as individual entries — so they're matched by team
-  // abbreviation against the box score's separate team-level DST aggregate
-  // instead of by id, below.
+  // against the box score's separate team-level DST aggregate instead of by id,
+  // below. The key is the Team code (folded through normalizeNflTeam), NOT the
+  // raw resolver: a DEF row's nfl_team is a full name (`Washington Commanders`)
+  // and the box score's teamAbv is Tank01's raw code (`WSH`), two different
+  // vocabularies that only meet once both fold to the canonical WAS. The lookup
+  // in applyGameBoxScore folds the box-score side the same way (#431). The local
+  // normalizeTeamAbbr short-circuits on an already-abbreviated input, so it would
+  // leave WSH as WSH and never reconcile it with WAS.
+  const defByTeamCode = new Map();
   const defPlayers = await pool.query(
     `SELECT "id", "name", "nfl_team" FROM "players" WHERE "position" = 'DEF'`
   );
-  const defByAbbr = new Map();
   for (const row of defPlayers.rows) {
-    const abbr = normalizeTeamAbbr(row.nfl_team);
-    if (abbr) defByAbbr.set(abbr, row);
+    const teamCode = normalizeNflTeam(row.nfl_team);
+    if (teamCode) defByTeamCode.set(teamCode, row);
   }
 
   // Prior stats for this week, so we can diff for new touchdowns.
@@ -771,7 +782,7 @@ async function loadWeekMaps({ season, week }) {
   );
   const opponentByTeam = new Map(schedule.rows.map((r) => [r.nfl_team, r.opponent]));
 
-  return { idByExternal, metaById, defByAbbr, prevById, opponentByTeam };
+  return { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam };
 }
 
 /**
@@ -794,7 +805,7 @@ async function loadWeekMaps({ season, week }) {
  * @param {object} args.maps  from loadWeekMaps({ season, week })
  */
 async function applyGameBoxScore({ box, season, week, maps }) {
-  const { idByExternal, metaById, defByAbbr, prevById, opponentByTeam } = maps;
+  const { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam } = maps;
   const playerStats = (box && box.playerStats) || {};
   const bonusByPlayer = extractPlayByPlayBonusStats(box && box.allPlayByPlay);
   let updated = 0;
@@ -858,8 +869,17 @@ async function applyGameBoxScore({ box, season, week, maps }) {
   const teamStats = (box && box.teamStats) || {};
   for (const side of ['home', 'away']) {
     const dstSide = dst[side];
-    const abbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
-    const defPlayer = abbr ? defByAbbr.get(abbr) : null;
+    // `rawAbbr` is Tank01's own spelling (Raw team code): WSH for Washington. It
+    // is what the DEF play carries out to the client and what the opponent map —
+    // keyed by nfl_games.nfl_team, also Tank01's raw spelling — is looked up
+    // with, so keep both those raw-on-raw pairings raw (#431). Its partner in
+    // that pairing is nfl_games; a schedule writer that started storing WAS would
+    // break the opponent lookup.
+    const rawAbbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
+    // `teamCode` folds that raw code to the canonical WAS, the vocabulary the DEF
+    // map is keyed in, so a WSH box score finds the `Washington Commanders` unit.
+    const teamCode = rawAbbr ? normalizeNflTeam(rawAbbr) : null;
+    const defPlayer = teamCode ? defByTeamCode.get(teamCode) : null;
     if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
     const opponentSide = side === 'home' ? 'away' : 'home';
     const prev = prevById.get(defPlayer.id);
@@ -880,8 +900,8 @@ async function applyGameBoxScore({ box, season, week, maps }) {
           playerId: defPlayer.id,
           name: defPlayer.name,
           position: 'DEF',
-          nflTeam: abbr,
-          opponent: opponentByTeam.get(abbr) || null,
+          nflTeam: rawAbbr,
+          opponent: opponentByTeam.get(rawAbbr) || null,
           type: ev.type,
           tdDelta: ev.tdDelta,
           pointsDelta,
