@@ -271,6 +271,30 @@ test('a pending draft has no onTheClock and still allowlists the league', async 
   fake.assertClean();
 });
 
+test('the presenter board never carries League chat, a hidden message or its tombstone (#441 AC5)', async (t) => {
+  // League chat, moderated or not, is never exposed through a presenter link
+  // (ADR 0012). The presenter route reads league/teams/picks only, so a hidden
+  // message and its "Message hidden by commissioner" tombstone cannot reach an
+  // anonymous viewer: the route never touches chat_messages at all, and the
+  // body is the fixed {league, teams, picks, onTheClock} allowlist.
+  const fake = presenterPool().install(t);
+
+  const res = await getBoard();
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  // The presenter route reads no chat, so no tombstone or moderation state can
+  // ride along.
+  assert.ok(
+    !fake.calls.some((call) => /"chat_messages"/.test(call.text)),
+    'the presenter route never queries chat_messages'
+  );
+  const body = JSON.stringify(res.body);
+  for (const forbidden of ['chat', 'message', 'hidden', 'Message hidden by commissioner', 'hidden_reason']) {
+    assert.ok(!body.includes(forbidden), `presenter body carries no ${forbidden}`);
+  }
+  fake.assertClean();
+});
+
 test('an unknown share token is a 404 that publishes nothing', async (t) => {
   const fake = createFakePool([
     [/FROM "leagues" WHERE "draft_share_token" = \$1/, () => ({ rows: [] })],
