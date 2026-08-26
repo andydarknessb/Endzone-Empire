@@ -34,11 +34,18 @@ function makeFakeSocket() {
   const socket = {
     viewerTeamId: null,
     isCommissioner: false,
+    // A socket is an EventEmitter: more than one consumer can listen for the
+    // same event on one session. Since #435 the draft board (advance the clock,
+    // land the pick) and the combined feed (append the Pick activity) both
+    // listen for 'draft:picked' on this one session, so this records a LIST per
+    // event rather than a single slot the second listener would overwrite -
+    // mirroring the manager (`io`) below, which #433 made a list for the same
+    // reason.
     on: jest.fn((event, cb) => {
-      handlers[event] = cb;
+      (handlers[event] = handlers[event] || []).push(cb);
     }),
     off: jest.fn((event, cb) => {
-      if (handlers[event] === cb) delete handlers[event];
+      if (handlers[event]) handlers[event] = handlers[event].filter((h) => h !== cb);
     }),
     io: {
       // The socket.io manager is an EventEmitter: more than one consumer can
@@ -60,7 +67,7 @@ function makeFakeSocket() {
     }),
     disconnect: jest.fn(),
     trigger(event, payload) {
-      if (handlers[event]) handlers[event](payload);
+      (handlers[event] || []).forEach((cb) => cb(payload));
     },
     triggerManager(event, payload) {
       (managerHandlers[event] || []).forEach((cb) => cb(payload));

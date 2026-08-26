@@ -125,8 +125,9 @@ test('a committed Pick reaches every client in the room as one typed activity en
 });
 
 test('an autopick reaches every client in the room, labeled isAutopick', async (t) => {
-  // Join both clients first, under a small identity fake.
-  const joinFake = createFakePool([
+  // Join both clients first, under a small identity fake (installAutopickPool
+  // re-mocks pool.query afterward, once the joins are done).
+  createFakePool([
     [/^SELECT "id", "name" FROM "teams"/, (text, [leagueId, userId]) => ({
       rows:
         userId === PICKER.userId ? [{ id: PICKER.teamId, name: PICKER.teamName }]
