@@ -35,8 +35,11 @@
  * than silently dropping it. Recovery after lifecycle rows exist is a forward
  * migration or the rollout flag, never this down().
  *
- * MIGRATIONS ARE A CARVE-OUT (ADR 0012): written here, applied and verified by
- * the maintainer against `knex_migrations`. An IC does not run it.
+ * MIGRATIONS ARE A CARVE-OUT (fleet policy, not ADR 0012): written here, applied
+ * and verified by the maintainer against `knex_migrations`. An IC does not run
+ * it. ADR 0012 decides the record separation and guarded rollback above; the
+ * carve-out rule is fleet policy that lives outside this repo (cf. #481, which
+ * tracks the same misattribution in the applied 20260826000004 header).
  */
 
 const ACTIVITY = 'draft_activity';
