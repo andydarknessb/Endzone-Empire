@@ -1,7 +1,26 @@
+# Dependabot reads this file from the repository's DEFAULT branch (main), so a
+# change here takes effect at the next release to main, not when it merges to
+# integration.
+#
+# target-branch: integration on every ecosystem. Without it Dependabot
+# followed the default branch and opened every dependency PR against main,
+# the release branch the fleet is forbidden to merge into, so nothing moved:
+# 14 PRs sat open from 2026-07-23, root hit its open-pull-requests-limit, and
+# at the limit Dependabot stops opening new PRs, security updates included.
+# integration is where everything else merges; dependency PRs go there too.
+#
+# ignore: semver-major on the dependencies whose major bumps were closed on
+# 2026-08-26 when that backlog was cleared. Each is a migration in its own
+# right (React 19, Express 5, React Router 7, MUI 9, Redux 5, ...) and none is
+# taken by merging a lockfile. Left unignored they would refill the cap on the
+# first run against integration and block the minor/patch and security PRs
+# this file exists to let through. Lift one by deleting its entry here and
+# opening the migration as an issue; the next run will re-open the PR.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    target-branch: integration
     schedule:
       interval: weekly
       day: monday
@@ -22,9 +41,31 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-router-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@mui/icons-material"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@mui/lab"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@testing-library/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: express
+        update-types: ["version-update:semver-major"]
+      - dependency-name: bcryptjs
+        update-types: ["version-update:semver-major"]
+      - dependency-name: dotenv
+        update-types: ["version-update:semver-major"]
+      - dependency-name: redux
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /server
+    target-branch: integration
     schedule:
       interval: weekly
       day: monday
@@ -39,9 +80,17 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      - dependency-name: express
+        update-types: ["version-update:semver-major"]
+      - dependency-name: bcryptjs
+        update-types: ["version-update:semver-major"]
+      - dependency-name: dotenv
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: integration
     schedule:
       interval: weekly
       day: monday
