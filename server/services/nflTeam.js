@@ -2,14 +2,19 @@
  * The NFL team vocabulary for JavaScript, mirroring the database's
  * `fn_normalize_nfl_team(text)` exactly (#227).
  *
- * NOT YET THE ONLY ONE, and saying so here is cheaper than discovering it.
- * `scoring.service`'s `normalizeTeamAbbr` still resolves a team its own way
- * for the live box-score path: it takes the full-name table from this module
- * but short-circuits on `/^[A-Z]{2,3}$/`, so it passes `WSH` through
- * un-aliased where this module folds it to `WAS`. That is harmless where it
- * is used - both sides of that comparison are Tank01's own spelling - and it
- * is not a kickoff-keyed rule, so #227 left it alone deliberately rather than
- * by oversight. Do not read this file as having already won.
+ * NOT THE ONLY RESOLVER, and saying so here is cheaper than discovering it.
+ * `scoring.service`'s `normalizeTeamAbbr` still resolves a team its own way for
+ * a handful of callers: it takes the full-name table from this module but
+ * short-circuits on `/^[A-Z]{2,3}$/`, so it passes `WSH` through un-aliased
+ * where this module folds it to `WAS`. That short-circuit is exactly why it must
+ * NOT decide a DEF-unit match against a live box score - a DEF row's Team code
+ * is `WAS` and Tank01's teamAbv is `WSH`, and leaving them un-folded was the
+ * #431 bug; the DEF join on both the live and nflverse paths now folds through
+ * `normalizeNflTeam` here. What still uses the local resolver are the callers
+ * whose two sides already agree or need only a name folded (the DEF backfill,
+ * adp.service, projectionFeatures). #227 left those alone deliberately - they
+ * are not kickoff-keyed - rather than by oversight. Do not read this file as
+ * having already won.
  *
  * THE PROBLEM IT ANSWERS. Team identity is written into this database in
  * three vocabularies and no column says which one it is holding:

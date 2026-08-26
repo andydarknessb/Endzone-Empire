@@ -874,7 +874,8 @@ async function applyGameBoxScore({ box, season, week, maps }) {
     // keyed by nfl_games.nfl_team, also Tank01's raw spelling — is looked up
     // with, so keep both those raw-on-raw pairings raw (#431). Its partner in
     // that pairing is nfl_games; a schedule writer that started storing WAS would
-    // break the opponent lookup.
+    // break the opponent lookup. (modules/espnScoreboard.js keeps the same
+    // WSH-not-WAS boundary when it mints live_game_states rows and gameIDs.)
     const rawAbbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
     // `teamCode` folds that raw code to the canonical WAS, the vocabulary the DEF
     // map is keyed in, so a WSH box score finds the `Washington Commanders` unit.
