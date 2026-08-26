@@ -117,17 +117,21 @@ test('draft:presence is the joining manager\'s Team and nothing about their acco
 
 // =============================================================== chat:message
 // chatMessagePayload(...) ->
-//   { id, leagueId, teamId, teamName, message, created_at }
+//   { type, id, seq, leagueId, teamId, teamName, message, created_at }
+// The broadcast is a typed feed entry (#434) - `type` and its per-league `seq`
+// beside the same Team-only attribution - plus `leagueId`, which the entry a
+// REST read returns does not carry (that read is already scoped to one league).
 
 const chat = () => chatMessagePayload({
   id: 5,
+  seq: 7,
   leagueId: LEAGUE_ID,
   user: { id: OTHER.userId, username: OTHER.username },
   team: { id: OTHER.teamId, name: OTHER.teamName },
   message: 'good luck everyone',
   createdAt: '2026-09-01T00:00:00.000Z',
 });
-const CHAT_CLEAN = ['created_at', 'id', 'leagueId', 'message', TEAM_ID, TEAM_NAME];
+const CHAT_CLEAN = ['created_at', 'id', 'leagueId', 'message', 'seq', TEAM_ID, TEAM_NAME, 'type'];
 // `user_id` is the raw chat_messages column; it must never leak onto the
 // broadcast in either the raw or the `userId` spelling.
 const CHAT_FORBIDDEN_ALWAYS = ['user_id', 'userId', 'username', ...VIEWER_RELATIVE];

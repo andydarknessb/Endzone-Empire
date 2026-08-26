@@ -259,3 +259,68 @@ test('does not blow up before a socket exists, and sendMessage is a no-op then',
   // History still loads without a socket.
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
 });
+
+// A typed feed entry as the cursor-based history returns it (#434): Team
+// identity plus its per-league `seq`, the cursor the client pages back from.
+const feedEntry = (over = {}) => ({
+  type: 'league_chat',
+  id: 1,
+  seq: 1,
+  teamId: 11,
+  teamName: 'Anvils',
+  message: 'hello there',
+  created_at: '2026-01-01T12:00:00Z',
+  ...over,
+});
+
+test('loadOlder pages older entries by the oldest loaded seq and prepends them', async () => {
+  // Newest page first: seq 5 and 6 are what the initial read returned.
+  const older = [feedEntry({ id: 3, seq: 3, message: 'older-3' }), feedEntry({ id: 4, seq: 4, message: 'older-4' })];
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('before=')) return Promise.resolve({ data: older });
+    return Promise.resolve({ data: [feedEntry({ id: 5, seq: 5, message: 'recent-5' }), feedEntry({ id: 6, seq: 6, message: 'recent-6' })] });
+  });
+
+  const { result } = render();
+  await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+  await act(async () => { await result.current.loadOlder(); });
+
+  // Paged from the lowest seq currently held (5), and the older page is
+  // prepended ahead of it in ascending order.
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?before=5');
+  expect(result.current.messages.map((m) => m.seq)).toEqual([3, 4, 5, 6]);
+});
+
+test('loadOlder dedupes by id and does not page when nothing is loaded', async () => {
+  const overlap = [feedEntry({ id: 4, seq: 4, message: 'older-4' }), feedEntry({ id: 5, seq: 5, message: 'recent-5' })];
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('before=')) return Promise.resolve({ data: overlap });
+    return Promise.resolve({ data: [feedEntry({ id: 5, seq: 5, message: 'recent-5' })] });
+  });
+
+  const { result } = render();
+  await waitFor(() => expect(result.current.messages).toHaveLength(1));
+
+  await act(async () => { await result.current.loadOlder(); });
+
+  // id 5 already present is not duplicated; only the genuinely older 4 lands.
+  expect(result.current.messages.map((m) => m.id)).toEqual([4, 5]);
+});
+
+test('hasMore is true only when a read fills a full page', async () => {
+  const fullPage = Array.from({ length: 100 }, (_, i) => feedEntry({ id: i + 1, seq: i + 1 }));
+  mockGets({ history: fullPage });
+  const { result } = render();
+  await waitFor(() => expect(result.current.messages).toHaveLength(100));
+  expect(result.current.hasMore).toBe(true);
+});
+
+test('hasMore is false when the initial read is a partial page', async () => {
+  mockGets({ history: [feedEntry({ id: 1, seq: 1 })] });
+  const { result } = render();
+  await waitFor(() => expect(result.current.messages).toHaveLength(1));
+  expect(result.current.hasMore).toBe(false);
+});

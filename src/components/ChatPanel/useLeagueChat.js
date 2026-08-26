@@ -22,10 +22,18 @@ import { onReconnect } from '../../api/socket';
  *    handed in from the per-viewer join acknowledgement the socket's owner
  *    holds, because a broadcast `chat:message` carries no viewer-relative field.
  */
+// One feed read returns at most this many entries (server FEED_PAGE_SIZE). A
+// read that comes back full is the signal there may be more to page back to;
+// a short read is the end of the conversation. Kept in step with the server by
+// value, the way the client Team-identity fields mirror the server's.
+const CHAT_PAGE = 100;
+
 export default function useLeagueChat({ socket, leagueId, open = true, viewerTeamId = null }) {
   const [messages, setMessages] = useState([]);
   const [unread, setUnread] = useState(0);
   const [error, setError] = useState(null);
+  // Whether an older page may exist behind the oldest entry currently held.
+  const [hasMore, setHasMore] = useState(false);
 
   // Refs mirror the state the long-lived socket handler needs: it is bound
   // once per (socket, league), and reading a stale `open` or viewer Team ID
@@ -33,6 +41,9 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   // the join ack lands.
   const openRef = useRef(open);
   const viewerTeamIdRef = useRef(viewerTeamId);
+  // The current messages, for loadOlder to read the oldest seq to page from
+  // without being re-created on every append.
+  const messagesRef = useRef([]);
 
   // These three are fire-and-forget over the REST client. `Promise.resolve`
   // wraps every call so the chat never throws on the client's return value:
@@ -42,7 +53,33 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   // uncaught render error rather than a swallowed no-op.
   const fetchHistory = useCallback(() => {
     Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat`))
-      .then((res) => setMessages(Array.isArray(res?.data) ? res.data : []))
+      .then((res) => {
+        const rows = Array.isArray(res?.data) ? res.data : [];
+        setMessages(rows);
+        // A full latest page means there is probably history behind it.
+        setHasMore(rows.length >= CHAT_PAGE);
+      })
+      .catch(() => {});
+  }, [leagueId]);
+
+  // Page back through the conversation: fetch the entries just older than the
+  // oldest one currently held, keyed by its `seq` cursor, and prepend them.
+  // A no-op when nothing is loaded yet, or when the oldest entry has no seq
+  // (an old client shape) to page from.
+  const loadOlder = useCallback(() => {
+    const current = messagesRef.current;
+    const oldest = current[0];
+    if (!oldest || oldest.seq == null) return Promise.resolve();
+    return Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat?before=${oldest.seq}`))
+      .then((res) => {
+        const older = Array.isArray(res?.data) ? res.data : [];
+        setMessages((prev) => {
+          const known = new Set(prev.map((m) => m.id));
+          const fresh = older.filter((m) => !known.has(m.id));
+          return [...fresh, ...prev];
+        });
+        setHasMore(older.length >= CHAT_PAGE);
+      })
       .catch(() => {});
   }, [leagueId]);
 
@@ -65,6 +102,10 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   useEffect(() => {
     viewerTeamIdRef.current = viewerTeamId;
   }, [viewerTeamId]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Initial load for this league. Independent of the socket: history is REST,
   // and it must be there whether or not a live connection has arrived yet.
@@ -143,5 +184,5 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
     [socket, leagueId]
   );
 
-  return { messages, unread, error, sendMessage };
+  return { messages, unread, error, sendMessage, loadOlder, hasMore };
 }

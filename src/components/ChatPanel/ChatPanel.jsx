@@ -57,7 +57,7 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
-  const { messages, unread, error, sendMessage } = useLeagueChat({
+  const { messages, unread, error, sendMessage, loadOlder, hasMore } = useLeagueChat({
     socket,
     leagueId,
     open,
@@ -68,7 +68,15 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
     if (onUnreadChange) onUnreadChange(unread);
   }, [unread, onUnreadChange]);
 
-  return <ChatConversation messages={messages} error={error} onSend={sendMessage} />;
+  return (
+    <ChatConversation
+      messages={messages}
+      error={error}
+      onSend={sendMessage}
+      hasMore={hasMore}
+      onLoadOlder={loadOlder}
+    />
+  );
 }
 
 export default ChatPanel;

@@ -195,14 +195,16 @@ async function getChat(t) {
   createFakePool([
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     // The chat SELECT no longer projects the author's account id or username,
-    // and the route passes its rows through verbatim, so this fixture mirrors
-    // the narrowed SELECT (#343). `chat_messages.user_id` is still read inside
-    // the query for the block filter, but never reaches the wire.
+    // so this fixture mirrors the narrowed SELECT (#343). `chat_messages.user_id`
+    // is still read inside the query for the block filter, but never reaches the
+    // wire. The route now shapes each row as a typed feed entry (#434), so the
+    // fixture also carries the row's feed_seq (the entry's `seq`).
     [/FROM "chat_messages"/, () => ({
       rows: [{
         id: 5,
         message: 'good luck everyone',
         created_at: '2026-09-01T00:00:00.000Z',
+        feed_seq: 7,
         teamId: OTHER.teamId,
         teamName: OTHER.teamName,
       }],
@@ -213,7 +215,9 @@ async function getChat(t) {
   return res.body;
 }
 
-const CHAT_ENTRY_CLEAN = ['created_at', 'id', 'message', 'teamId', 'teamName'];
+// A typed League-chat feed entry (#434): the Team-only attribution of before,
+// plus the entry `type` and its `seq` cursor. Still no account field.
+const CHAT_ENTRY_CLEAN = ['created_at', 'id', 'message', 'seq', 'teamId', 'teamName', 'type'];
 
 test('chat history: a message is attributed by Team, not by the author account', async (t) => {
   for (const message of await getChat(t)) assertExactKeys(message, CHAT_ENTRY_CLEAN);

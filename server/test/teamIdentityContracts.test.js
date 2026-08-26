@@ -425,6 +425,7 @@ test('chat history: every message is attributed by Team and no account fields', 
         id: 5,
         message: 'good luck everyone',
         created_at: '2026-09-01T00:00:00.000Z',
+        feed_seq: 7,
         teamId: OTHER.teamId,
         teamName: OTHER.teamName,
       }],
@@ -439,6 +440,9 @@ test('chat history: every message is attributed by Team and no account fields', 
   const [message] = res.body;
   assert.equal(message.teamId, OTHER.teamId);
   assert.equal(message.teamName, OTHER.teamName);
+  // A typed feed entry carrying its per-league sequence (#434), still Team-only.
+  assert.equal(message.type, 'league_chat');
+  assert.equal(message.seq, 7);
   assert.equal('user_id' in message, false, 'the author account id is gone (#343)');
   assert.equal('username' in message, false, 'the author username is gone (#343)');
   const [chatQuery] = fake.matching(/FROM "chat_messages"/);
@@ -453,6 +457,7 @@ test('chat:message attributes the message by Team and nothing about the author a
   assert.deepEqual(
     chatMessagePayload({
       id: 5,
+      seq: 7,
       leagueId: LEAGUE_ID,
       user: { id: OTHER.userId, username: 'u43' },
       team: { id: OTHER.teamId, name: OTHER.teamName },
@@ -460,7 +465,9 @@ test('chat:message attributes the message by Team and nothing about the author a
       createdAt: '2026-09-01T00:00:00.000Z',
     }),
     {
+      type: 'league_chat',
       id: 5,
+      seq: 7,
       leagueId: LEAGUE_ID,
       teamId: OTHER.teamId,
       teamName: OTHER.teamName,

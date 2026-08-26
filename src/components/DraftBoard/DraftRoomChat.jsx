@@ -22,14 +22,22 @@ import ChatConversation from '../ChatPanel/ChatConversation';
  * a separate feed (CONTEXT.md: Draft activity; ADR 0012); this is chat alone.
  */
 function DraftRoomChat({ socket, leagueId, viewerTeamId = null }) {
-  const { messages, error, sendMessage } = useLeagueChat({
+  const { messages, error, sendMessage, loadOlder, hasMore } = useLeagueChat({
     socket,
     leagueId,
     open: true,
     viewerTeamId,
   });
 
-  return <ChatConversation messages={messages} error={error} onSend={sendMessage} />;
+  return (
+    <ChatConversation
+      messages={messages}
+      error={error}
+      onSend={sendMessage}
+      hasMore={hasMore}
+      onLoadOlder={loadOlder}
+    />
+  );
 }
 
 export default DraftRoomChat;

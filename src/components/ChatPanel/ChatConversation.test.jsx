@@ -88,3 +88,23 @@ test('renders the send error passed to it', () => {
   renderWithProviders(<ChatConversation messages={[]} error="message rejected" onSend={noop} />);
   expect(screen.getByText('message rejected')).toBeInTheDocument();
 });
+
+test('offers Load older messages only when there is more to page back to', () => {
+  const { rerender } = renderWithProviders(
+    <ChatConversation messages={[message()]} onSend={noop} hasMore onLoadOlder={() => {}} />
+  );
+  expect(screen.getByRole('button', { name: 'Load older messages' })).toBeInTheDocument();
+
+  rerender(<ChatConversation messages={[message()]} onSend={noop} hasMore={false} onLoadOlder={() => {}} />);
+  expect(screen.queryByRole('button', { name: 'Load older messages' })).not.toBeInTheDocument();
+});
+
+test('Load older messages calls onLoadOlder', async () => {
+  const onLoadOlder = jest.fn();
+  renderWithProviders(
+    <ChatConversation messages={[message()]} onSend={noop} hasMore onLoadOlder={onLoadOlder} />
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load older messages' }));
+  expect(onLoadOlder).toHaveBeenCalled();
+});
