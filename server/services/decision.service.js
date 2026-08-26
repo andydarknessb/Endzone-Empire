@@ -20,6 +20,7 @@ const {
 } = require('./lineup.service');
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
+const { normalizeNflTeam } = require('./nflTeam');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -52,13 +53,22 @@ function pointsOf(projections, playerId) {
   return Number(raw) || 0;
 }
 
-/** Map nflTeam -> opponent for a given (season, week), from the synced schedule. */
+/**
+ * Map nflTeam -> opponent for a given (season, week), from the synced
+ * schedule. Keyed by normalizeNflTeam(row.nfl_team), NOT the raw column: the
+ * caller (startSitAdvice) has already read a `players` row into memory and
+ * looks this map up with normalizeNflTeam(entry.nfl_team) too, so both sides
+ * of the JS-side comparison agree even when one side is a DEF unit's full
+ * team name (#423). The map's VALUE stays raw `nfl_games.opponent` on
+ * purpose: it feeds `defense.get(opponent)`, a raw-on-raw pairing (#320 /
+ * #422) that must not change.
+ */
 async function getWeekOpponents({ season, week }) {
   const result = await pool.query(
     `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
     [season, week]
   );
-  return new Map(result.rows.map((r) => [r.nfl_team, r.opponent]));
+  return new Map(result.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
 }
 
 // ---------------------------------------------------------------------------
@@ -351,7 +361,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
 
   const defenseByPlayer = new Map();
   for (const entry of lineup.entries) {
-    const opponent = opponents.get(entry.nfl_team) || null;
+    const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;
     const teamDefense = opponent ? defense.get(opponent) : null;
     const opponentPointsAllowed = teamDefense ? teamDefense[entry.position] ?? null : null;
     defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed });
