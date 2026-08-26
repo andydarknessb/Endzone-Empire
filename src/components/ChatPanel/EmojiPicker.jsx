@@ -55,38 +55,40 @@ export const EMOJI_CHOICES = [
   { char: '\u{1F3C8}', name: 'american football' },
 ];
 
-function EmojiPicker({ onSelect }) {
+function EmojiPicker({ onSelect, onChoiceClosed = null }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const triggerRef = useRef(null);
-  // Which close path we are on. A dismissal returns focus to the trigger; a
-  // choice leaves focus for the composer to claim. It is read in onExited, after
-  // the menu has fully closed, so returning focus never fights the unmount.
-  const dismissedRef = useRef(false);
+  // Which close path we are on, read in onExited once the menu has fully closed.
+  // Returning focus only then keeps it from fighting the menu's focus trap and
+  // unmount: a choice hands focus to the composer, a dismissal to the trigger.
+  const closeReasonRef = useRef(null); // 'choice' | 'dismiss' | null
   const open = Boolean(anchorEl);
 
   const handleOpen = (event) => setAnchorEl(event.currentTarget);
 
-  // A choice: report the Unicode and close. Focus is intentionally NOT returned
-  // to the trigger here - the composer takes it so the manager keeps typing.
+  // A choice: report the Unicode and close. Focus goes to the composer (not the
+  // trigger) once the menu is gone, so the manager keeps typing.
   const handleChoose = (char) => {
-    dismissedRef.current = false;
+    closeReasonRef.current = 'choice';
     onSelect(char);
     setAnchorEl(null);
   };
 
   // A dismissal (Escape, click-away): close, then return focus to the trigger
-  // once the menu is gone, so a keyboard user lands exactly where they opened
-  // the picker from.
+  // the user opened the picker from.
   const handleClose = () => {
-    dismissedRef.current = true;
+    closeReasonRef.current = 'dismiss';
     setAnchorEl(null);
   };
 
   // Runs after the close transition finishes and the menu list is unmounted, so
-  // focusing the trigger here is not overridden by the menu tearing down.
+  // moving focus here is not overridden by the menu tearing down.
   const handleExited = () => {
-    if (dismissedRef.current) {
-      dismissedRef.current = false;
+    const reason = closeReasonRef.current;
+    closeReasonRef.current = null;
+    if (reason === 'choice') {
+      onChoiceClosed?.();
+    } else if (reason === 'dismiss') {
       triggerRef.current?.focus();
     }
   };
