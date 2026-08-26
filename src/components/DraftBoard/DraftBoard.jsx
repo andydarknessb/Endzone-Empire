@@ -24,6 +24,7 @@ import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
+import DraftChat from './DraftChat';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { upcomingTeamsFor } from './upcomingTeams';
 import { viewerPicksFor } from './viewerPicks';
@@ -229,6 +230,10 @@ function DraftBoard() {
   // passed into the hook itself never changes.
   const pickLandedRef = useRef(() => {});
   const {
+    // The room's one authenticated session, so league chat can ride it here
+    // rather than opening a second connection (#433). draft:join has already
+    // put it in the `league:${id}` room chat broadcasts to.
+    socket,
     league,
     teams,
     picks,
@@ -523,6 +528,13 @@ function DraftBoard() {
     viewerPicks: viewerPicksFor({
       league, teams, picks, rounds, viewerTeamId,
     }),
+    // League chat, wired to the room's own session (#433). Rendered only once
+    // the socket exists; before draft:join lands there is nothing for it to
+    // ride. It lives in the rail, so it appears wherever the rail does and
+    // travels with the manager across the Draft and Board views.
+    chatPanel: socket ? (
+      <DraftChat socket={socket} leagueId={Number(leagueId)} viewerTeamId={viewerTeamId} />
+    ) : null,
   };
 
   // Board is the team-by-round matrix; Pick history is the chronological view
