@@ -89,6 +89,29 @@ jobs:
             sbom.cdx.json
           retention-days: 14
 
+  guards:
+    # #247: three config guards (test:eslint-scoping, test:check-dom-dedupe,
+    # test:jest-discovery) existed only as npm scripts nobody's CI ran. CRA
+    # pins `jest.testMatch` to `src/` (see scripts/jestTestMatch.test.js), and
+    # these guards are `node:test` files anyway, so the client suite in the
+    # test-build job above never reaches them. This job runs all three
+    # through a single aggregating `guards` npm script instead of inlining
+    # each guard's command, so a script renamed out from under this job
+    # fails on "Missing script" (a red job) rather than silently no-op'ing.
+    # No eslint CLI invocation is added here: test:eslint-scoping uses
+    # eslint's config-resolution API on a handful of fixed paths and short
+    # in-memory snippets, not a lint pass over the tree (that gate is
+    # blocked on #246 then #245, tracked separately).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run guards
+
   browser-security:
     runs-on: ubuntu-latest
     # Healthy runs finish in 3-8 minutes (npm ci ~25s, browser install
