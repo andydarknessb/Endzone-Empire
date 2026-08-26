@@ -4,6 +4,8 @@ const { DraftError } = require('./draft.service');
 const { startPlan } = require('./draftValidation.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
+const { appendLifecycleActivity, DRAFT_START, COMPLETE } = require('./draftActivity');
+const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
 
 /** Re-broadcast the full draft state so connected clients pick up the new status/order. */
 async function broadcastDraftState(leagueId) {
@@ -31,6 +33,8 @@ async function broadcastDraftState(leagueId) {
  */
 async function startDraft({ leagueId, userId = null }) {
   const client = await pool.connect();
+  // The lifecycle entries this start committed, broadcast only after COMMIT.
+  let committedActivities = [];
   try {
     await client.query('BEGIN');
 
@@ -51,11 +55,20 @@ async function startDraft({ leagueId, userId = null }) {
     }
 
     const teamsResult = await client.query(
-      `SELECT "id", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
+      // "name" rides along for the Draft-activity actor snapshot (#437): the
+      // draft_start entry attributes the start to the acting commissioner's
+      // Team, resolved from this already-loaded list rather than a second read.
+      `SELECT "id", "name", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
        WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
       [leagueId]
     );
     const teams = teamsResult.rows;
+    // The acting commissioner's Team, or null when there is no manager behind
+    // the start (the scheduler passes userId null) or the commissioner holds no
+    // team in this league. A null actor is recorded as null, never fabricated
+    // (#437 AC5). teamIdentityOf keeps this to Team id + name, no account field.
+    const actorRow = userId == null ? null : teams.find((t) => t.owner_id === userId);
+    const actorTeam = actorRow ? { id: actorRow.id, name: actorRow.name } : null;
     if (!meetsMinimum(teams.length, league.min_teams)) {
       throw new DraftError(409, `need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`);
     }
@@ -95,6 +108,13 @@ async function startDraft({ leagueId, userId = null }) {
       await client.query(`UPDATE "teams" SET "autodraft" = true WHERE "league_id" = $1`, [leagueId]);
     }
 
+    // The draft started: append the authoritative draft_start activity from
+    // this same transaction (#437 AC1), attributed to the acting commissioner's
+    // Team (null for a scheduler start, #437 AC5). Collected and broadcast after
+    // COMMIT so a rolled-back start emits nothing.
+    const activities = [];
+    activities.push(await appendLifecycleActivity(client, { leagueId, kind: DRAFT_START, team: actorTeam }));
+
     if (plan.firstOpenPick === null) {
       // Every roster slot was pre-filled by keepers — the draft is over before
       // a single live pick, so run the same completion side effects draftPlayer
@@ -113,6 +133,10 @@ async function startDraft({ leagueId, userId = null }) {
       );
       const { generateRegularSeason } = require('./season.service');
       await generateRegularSeason({ leagueId }, client);
+      // The same transaction also completed the draft (no live pick was ever
+      // possible), so record the completion after the start (#437 AC4). It is an
+      // actor-less state transition, so no Team is attributed (#437 AC5).
+      activities.push(await appendLifecycleActivity(client, { leagueId, kind: COMPLETE, team: null }));
     } else {
       // Fix draft_rounds once, from Draft roster size at this instant (ADR
       // 0005). draftPlayer's completion check and every other active/completed
@@ -133,6 +157,7 @@ async function startDraft({ leagueId, userId = null }) {
     }
 
     await client.query('COMMIT');
+    committedActivities = activities;
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
@@ -141,6 +166,10 @@ async function startDraft({ leagueId, userId = null }) {
   }
 
   await broadcastDraftState(leagueId);
+  // Only after a successful COMMIT: deliver each lifecycle entry to the room's
+  // combined feed (#437). draft:state above refreshed the board; these carry the
+  // start (and, on a keeper-filled start, the completion) to the feed.
+  for (const entry of committedActivities) broadcastDraftActivity(leagueId, entry);
   return { leagueId };
 }
 
