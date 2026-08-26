@@ -217,7 +217,10 @@ async function getChat(t) {
 
 // A typed League-chat feed entry (#434): the Team-only attribution of before,
 // plus the entry `type` and its `seq` cursor. Still no account field.
-const CHAT_ENTRY_CLEAN = ['created_at', 'id', 'message', 'seq', 'teamId', 'teamName', 'type'];
+// `hidden` (#441) rides on every feed entry: false normally, true on a
+// commissioner-hidden tombstone (whose `message` is then null). Still no
+// account field.
+const CHAT_ENTRY_CLEAN = ['created_at', 'hidden', 'id', 'message', 'seq', 'teamId', 'teamName', 'type'];
 
 test('chat history: a message is attributed by Team, not by the author account', async (t) => {
   for (const message of await getChat(t)) assertExactKeys(message, CHAT_ENTRY_CLEAN);
