@@ -165,8 +165,34 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
 
     // On reconnect the socket's OWNER re-joins the room; this hook's job is to
     // re-sync the conversation over REST so anything sent while offline appears.
+    // It RESUMES from the last acknowledged cursor (#442): the max seq held is
+    // what the client last saw, so it asks only for entries newer than it and
+    // appends them, reproducing the same seq order without refetching the whole
+    // conversation. With nothing held yet there is no cursor, so it falls back
+    // to a full latest-page read (the first-load path).
     const offReconnect = onReconnect(socket, () => {
-      fetchHistory();
+      const seqs = messagesRef.current
+        .map((m) => (m ? m.seq : null))
+        .filter((s) => Number.isFinite(s));
+      if (seqs.length === 0) {
+        fetchHistory();
+      } else {
+        const lastSeq = Math.max(...seqs);
+        Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat?after=${lastSeq}`))
+          .then((res) => {
+            const newer = Array.isArray(res?.data) ? res.data : [];
+            if (newer.length === 0) return;
+            setMessages((prev) => {
+              const known = new Set(prev.map((m) => m.id));
+              const fresh = newer.filter((m) => !known.has(m.id));
+              return fresh.length ? [...prev, ...fresh] : prev;
+            });
+            // Resumed entries are visible if the surface is open; keep the read
+            // marker honest, the same as a live arrival while open.
+            if (openRef.current) markRead();
+          })
+          .catch(() => {});
+      }
       fetchUnread();
     });
 

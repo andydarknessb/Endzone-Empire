@@ -341,6 +341,45 @@ test('re-fetches chat history and unread when the socket reconnects', async () =
   await waitFor(() => expect(result.current.messages.some((m) => m.message === 'missed while offline')).toBe(true));
 });
 
+test('reconnect resumes AFTER the last acknowledged seq and preserves order (#442)', async () => {
+  // A page is already held, each entry carrying its seq; the acknowledged
+  // cursor is the max seq. On reconnect the hook must resume from it, not
+  // refetch the whole conversation, and the recovered order is still by seq.
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('after=')) {
+      return Promise.resolve({ data: [feedEntry({ id: 8, seq: 8, message: 'after-8' }), feedEntry({ id: 9, seq: 9, message: 'after-9' })] });
+    }
+    return Promise.resolve({ data: [feedEntry({ id: 6, seq: 6, message: 'have-6' }), feedEntry({ id: 7, seq: 7, message: 'have-7' })] });
+  });
+
+  const { result } = render({ open: false });
+  await waitFor(() => expect(result.current.messages).toHaveLength(2));
+  apiClient.get.mockClear();
+
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?after=7'));
+  await waitFor(() => expect(result.current.messages.map((m) => m.seq)).toEqual([6, 7, 8, 9]));
+  // A resume is not a full refetch of the conversation.
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1/chat');
+});
+
+test('reconnect falls back to a full history read when nothing is held (#442)', async () => {
+  // No cursor to resume from yet (empty feed) means the reconnect must load the
+  // latest page outright, the behaviour the first-load path already relies on.
+  mockGets({ history: [] });
+  const { result } = render({ open: false });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
+  apiClient.get.mockClear();
+  mockGets({ history: [chatMessage({ id: 9, seq: 3, message: 'first ever' })] });
+
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
+  await waitFor(() => expect(result.current.messages.some((m) => m.message === 'first ever')).toBe(true));
+});
+
 test('removes its chat:message listener on unmount, and never disconnects the shared socket', async () => {
   mockGets();
   const { socket, unmount } = render();
