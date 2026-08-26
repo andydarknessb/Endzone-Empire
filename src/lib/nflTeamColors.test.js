@@ -8,13 +8,14 @@ import {
   getNameColors,
   colorDistance,
 } from './nflTeamColors';
+// The Team codes are OWNED by the server's normalizer (the same object its own
+// drift guard reads), and the client colour table must key on exactly those
+// values. Deriving the expected set from that object rather than a hand-copied
+// literal means a relocation or rename added on the server fails THIS test too
+// instead of the two vocabularies drifting silently apart (#449).
+import { NFL_TEAM_FULL_NAMES } from '../../server/services/nflTeam';
 
-const ALL_32 = [
-  'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE',
-  'DAL', 'DEN', 'DET', 'GB', 'HOU', 'IND', 'JAX', 'KC',
-  'LV', 'LAC', 'LAR', 'MIA', 'MIN', 'NE', 'NO', 'NYG',
-  'NYJ', 'PHI', 'PIT', 'SF', 'SEA', 'TB', 'TEN', 'WAS',
-];
+const ALL_32 = Object.values(NFL_TEAM_FULL_NAMES);
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -42,6 +43,52 @@ describe('nflTeamColors lookup', () => {
 
   test('getTeamKit is case-insensitive', () => {
     expect(getTeamKit('min')).toBe(NFL_TEAM_COLORS.MIN);
+  });
+
+  test('every server Team code resolves a non-fallback kit through all three consumers (#449)', () => {
+    // The three client consumers a scoring play feeds: the sprite kits, the
+    // BOOM-band name colours, and (via getTeamKit) the retro-field moment text.
+    // Driven off the server's own team object, so a code the server can emit
+    // that this table lacks fails here.
+    expect(ALL_32).toHaveLength(32);
+    for (const code of ALL_32) {
+      expect(getTeamKit(code)).not.toBe(FALLBACK_KIT);
+      // getNameColors' stripe is the raw jersey; a fallback would surface it.
+      expect(getNameColors(code).stripe).not.toBe(FALLBACK_KIT.jersey);
+      // getSpriteColors resolves the runner off a real kit (contrast guard may
+      // swap a green team to its alt, but it never lands on the neutral kit).
+      const { runner } = getSpriteColors(code, 'KC');
+      for (const role of ['helmet', 'jersey', 'pants', 'accent']) {
+        expect(runner[role]).toMatch(HEX);
+      }
+    }
+  });
+
+  test('getTeamKit warns (dev builds) when a non-empty code misses, but still returns the fallback (#449)', () => {
+    // The miss used to be silent, so a raw code like WSH rendered the neutral
+    // kit with no signal. It must now name the code that missed. NODE_ENV is
+    // 'test' here (not 'production'), so the dev-mode warning fires.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(getTeamKit('WSH')).toBe(FALLBACK_KIT);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0].join(' '))).toContain('WSH');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('getTeamKit stays silent for a genuinely-absent code (no code to name)', () => {
+    // undefined/'' are absence, not a drift: there is nothing to name, so no
+    // warning, and still the fallback with no throw.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(getTeamKit(undefined)).toBe(FALLBACK_KIT);
+      expect(getTeamKit('')).toBe(FALLBACK_KIT);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

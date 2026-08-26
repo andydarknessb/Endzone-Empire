@@ -82,10 +82,26 @@ export function colorDistance(a, b) {
 // Below this RGB distance two colors read as "the same" at sprite scale.
 export const CONTRAST_THRESHOLD = 100;
 
-/** The team's kit, or the neutral fallback for unknown/missing abbreviations. */
+/**
+ * The team's kit, or the neutral fallback for unknown/missing abbreviations.
+ *
+ * The table is keyed by Team code (CONTEXT.md), so the server folds a play's
+ * nflTeam/opponent before they reach here (#449). A miss on a NON-EMPTY code
+ * therefore means a raw code slipped through, or a team the server knows and
+ * this table does not: never silent in a dev build, so it surfaces at once
+ * instead of rendering the neutral kit unnoticed. Still no throw, and an empty
+ * or absent code (a bye, an unpopulated field) is genuine absence with nothing
+ * to name, so it warns for neither.
+ */
 export function getTeamKit(abbr) {
   const key = String(abbr || '').toUpperCase();
-  return NFL_TEAM_COLORS[key] || FALLBACK_KIT;
+  const kit = NFL_TEAM_COLORS[key];
+  if (kit) return kit;
+  if (key && process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.warn(`[nflTeamColors] no kit for team code "${key}"; using the neutral fallback`);
+  }
+  return FALLBACK_KIT;
 }
 
 /** A kit's contrasting combo: its explicit `alt`, or a derived white kit. */
