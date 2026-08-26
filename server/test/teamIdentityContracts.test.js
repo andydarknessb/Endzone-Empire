@@ -27,9 +27,12 @@ const lineupService = require('../services/lineup.service');
  *    the EXPAND step left beside them are gone. Those tests assert the account
  *    field is ABSENT; the exact key sets are pinned in
  *    leagueSharedPayloadShape.test.js.
- *  - The Draft / chat SOCKET payloads still carry the account fields beside
- *    Team identity: their contraction is #344 (child C). Those tests still
- *    assert the legacy field survives, and stay that way until #344.
+ *  - The Draft / chat SOCKET payloads are CONTRACTED by #344 (child C): the
+ *    broadcasts (`draft:presence`, `chat:message`, `draft:picked`,
+ *    `draft:state`) carry Team identity and the event's non-identity content
+ *    only, and the account fields the EXPAND step left beside them are gone.
+ *    Those tests assert the account field is ABSENT; the exact key sets are
+ *    pinned in socketPayloadShape.test.js.
  *
  * Four surfaces, in the order the issue names them: league detail, Draft
  * snapshots and events, chat, and pick'em.
@@ -185,7 +188,9 @@ const DRAFT_LEAGUE = {
   invite_code: 'invite',
 };
 
-const draftTeamRow = ({ userId, teamId, teamName }, draftPosition) => ({
+// Mirrors the narrowed getDraftState SELECT after #344: Team identity and the
+// team's own draft columns, no manager account fields.
+const draftTeamRow = ({ teamId, teamName }, draftPosition) => ({
   id: teamId,
   name: teamName,
   teamId,
@@ -193,14 +198,12 @@ const draftTeamRow = ({ userId, teamId, teamName }, draftPosition) => ({
   draft_position: draftPosition,
   autodraft: false,
   draft_ready: true,
-  owner_id: userId,
-  owner: `u${userId}`,
 });
 
 function draftStateFake(t) {
   return createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...DRAFT_LEAGUE }] })],
-    [/FROM "teams" JOIN "users"/, () => ({
+    [/FROM "teams"\s+WHERE/, () => ({
       rows: [draftTeamRow(VIEWER, 1), draftTeamRow(OTHER, 2)],
     })],
     [/FROM "draft_picks"/, () => ({
@@ -219,7 +222,7 @@ function draftStateFake(t) {
   ]).install(t);
 }
 
-test('Draft snapshot: every team carries Team identity beside its account fields', async (t) => {
+test('Draft snapshot: every team is named by Team identity and no account fields', async (t) => {
   const fake = draftStateFake(t);
 
   const state = await getDraftState(LEAGUE_ID);
@@ -228,20 +231,25 @@ test('Draft snapshot: every team carries Team identity beside its account fields
     state.teams.map((team) => [team.teamId, team.teamName]),
     [[VIEWER.teamId, VIEWER.teamName], [OTHER.teamId, OTHER.teamName]]
   );
-  assert.equal(state.teams[1].owner_id, OTHER.userId, 'the legacy account fields survive');
-  assert.equal(state.teams[1].owner, `u${OTHER.userId}`);
-  const [teamsQuery] = fake.matching(/FROM "teams" JOIN "users"/);
+  // The account fields the EXPAND step left beside Team identity are gone from
+  // the snapshot (#344): the SELECT no longer projects owner_id or the owner
+  // username, and no longer joins users to reach it.
+  assert.equal('owner_id' in state.teams[1], false, 'owner_id is off the snapshot (#344)');
+  assert.equal('owner' in state.teams[1], false, 'the owner username is off the snapshot (#344)');
+  const [teamsQuery] = fake.matching(/FROM "teams"\s+WHERE/);
   assert.match(teamsQuery.text, /"teams"\."id" AS "teamId", "teams"\."name" AS "teamName"/);
+  assert.doesNotMatch(teamsQuery.text, /"teams"\."owner_id"/, 'owner_id is off the SELECT (#344)');
+  assert.doesNotMatch(teamsQuery.text, /JOIN "users"/, 'the owner-username join is gone (#344)');
 });
 
-test('Draft snapshot: the team On the clock carries Team identity', async (t) => {
+test('Draft snapshot: the team On the clock carries Team identity and no account fields', async (t) => {
   draftStateFake(t);
 
   const state = await getDraftState(LEAGUE_ID);
 
   assert.equal(state.onTheClock.teamId, VIEWER.teamId);
   assert.equal(state.onTheClock.teamName, VIEWER.teamName);
-  assert.equal(state.onTheClock.owner_id, VIEWER.userId);
+  assert.equal('owner_id' in state.onTheClock, false, 'owner_id is off the snapshot (#344)');
 });
 
 test('Draft snapshot: every Pick names the Team that made it, not just its id', async (t) => {
@@ -261,8 +269,9 @@ test('Draft snapshot: every Pick names the Team that made it, not just its id', 
 });
 
 test('draft:picked: the Pick outcome names the Team that made it', async (t) => {
-  // draft:picked is `{ ...outcome, by }`, so the Pick's own Team identity has
-  // to come off the outcome for the broadcast to attribute it by Team.
+  // draft:picked is `{ ...outcome, auto }` (#344 dropped the account `by`
+  // object), so the Pick's own Team identity has to come off the outcome for
+  // the broadcast to attribute it by Team.
   const league = {
     id: LEAGUE_ID,
     draft_status: 'active',
@@ -384,10 +393,10 @@ test('every join refusal code the handlers emit is one of the three, spelled SCR
   }
 });
 
-test('draft:presence carries the joining manager\'s Team identity beside their account', () => {
+test('draft:presence names the joining manager by Team and nothing about their account', () => {
   assert.deepEqual(
     presencePayload({ id: VIEWER.userId, username: 'u42' }, { id: VIEWER.teamId, name: VIEWER.teamName }),
-    { userId: VIEWER.userId, username: 'u42', teamId: VIEWER.teamId, teamName: VIEWER.teamName, joined: true }
+    { teamId: VIEWER.teamId, teamName: VIEWER.teamName, joined: true }
   );
 });
 
@@ -440,7 +449,7 @@ test('chat history: every message is attributed by Team and no account fields', 
   assert.match(chatQuery.text, /LEFT JOIN "teams"/);
 });
 
-test('chat:message carries the author\'s Team identity beside their account', () => {
+test('chat:message attributes the message by Team and nothing about the author account', () => {
   assert.deepEqual(
     chatMessagePayload({
       id: 5,
@@ -453,8 +462,6 @@ test('chat:message carries the author\'s Team identity beside their account', ()
     {
       id: 5,
       leagueId: LEAGUE_ID,
-      userId: OTHER.userId,
-      username: 'u43',
       teamId: OTHER.teamId,
       teamName: OTHER.teamName,
       message: 'good luck everyone',

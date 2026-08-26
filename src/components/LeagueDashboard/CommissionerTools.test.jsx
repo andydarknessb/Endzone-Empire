@@ -162,7 +162,7 @@ test('a join request with a blank Team name renders "Former manager", not an orp
 // (which control is offered, not just that the section renders) and would
 // fail against a username comparison: the first because a stale/renamed
 // owner string no longer matches the signed-in username, the second because
-// #115 drops the owner field from league-shared team rows entirely, which
+// #115 dropped the owner field from league-shared team rows entirely, which
 // makes `undefined !== username` true for every team.
 test("excludes the viewer's own team by Team ID even once its owner string is stale (a username change)", () => {
   const staleOwnerTeams = teams.map((t) => (t.id === 1 ? { ...t, owner: 'alice_old_handle' } : t));

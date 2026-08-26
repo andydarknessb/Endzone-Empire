@@ -128,7 +128,7 @@ test('calls onPickLanded (fresh callback, no stale closure) whenever a pick land
       player: { id: 10, name: 'X', position: 'QB', nfl_team: 'KC' },
       nextTeamId: null,
       draftComplete: false,
-      by: {},
+      auto: false,
     })
   );
 
@@ -157,7 +157,7 @@ test('a landed pick enters history attributed by Team, carrying no account ident
       player: { id: 10, name: 'X', position: 'QB', nfl_team: 'KC' },
       nextTeamId: 2,
       draftComplete: false,
-      by: { userId: 5, username: 'alice', auto: true },
+      auto: true,
     })
   );
 
@@ -172,8 +172,8 @@ test('a landed pick enters history attributed by Team, carrying no account ident
     nfl_team: 'KC',
     auto: true,
   });
-  // `by` carried the picking manager's username and account id; only the
-  // autopick flag survives into client state (#113 acceptance criterion 4).
+  // The broadcast no longer carries an account `by` object (#344); the autopick
+  // flag rides at the root as `auto` and is the only thing carried into state.
   expect(pick).not.toHaveProperty('by');
 });
 
@@ -217,7 +217,7 @@ test('fires the on-clock alert exactly once per turn, and again once the turn co
       player: { id: 10, name: 'X', position: 'QB', nfl_team: 'KC' },
       nextTeamId: 2,
       draftComplete: false,
-      by: {},
+      auto: false,
     });
   });
   expect(result.current.isMyTurn).toBe(false);
@@ -232,7 +232,7 @@ test('fires the on-clock alert exactly once per turn, and again once the turn co
       player: { id: 11, name: 'Y', position: 'RB', nfl_team: 'SF' },
       nextTeamId: 1,
       draftComplete: false,
-      by: {},
+      auto: false,
     });
   });
   expect(result.current.isMyTurn).toBe(true);

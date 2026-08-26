@@ -159,89 +159,20 @@ jobs:
       - run: npm run migrate
       - run: npm run migrate:rollback
       - run: npm run migrate
-      # draft_rounds backfill (#118, ADR 0005): the migrate/rollback/migrate
-      # smoke above runs against an empty leagues table, so it can never
-      # exercise the backfill UPDATE's WHERE clause or math. This seeds
-      # active/completed/pending legacy leagues, rolls the one migration
-      # back and forward again, and asserts the backfilled values.
-      - run: npm run test:draft-rounds-pg
+      # Every server/test/*.pg.test.js, run serially from one directory-wide
+      # script (#371). scripts/run-pg-tests.js resolves the glob, runs the files
+      # with --test-concurrency=1 (they share this one database), and keeps
+      # holdout.pg.test.js last so its append-only ledger rows never break the
+      # empty-ledger rollback smoke above; the backtest, roster-tenure and
+      # lineup files that seed and delete a far-future season all run before it.
+      # PG_TESTS=1 enables every file at once; each file also still honours its
+      # own *_PG_TESTS variable for local runs. A new pg test file is picked up
+      # here automatically, with no edit to this workflow -- what each file
+      # proves, and why only a real Postgres can prove it, now lives in that
+      # file's own head comment.
+      - run: npm run test:pg
         env:
-          DRAFT_ROUNDS_PG_TESTS: "1"
-      # Team-name backfill + CHECK constraint + widened join_requests column
-      # (#111): same reasoning as the draft_rounds smoke above -- the empty
-      # leagues table in the plain migrate/rollback/migrate smoke can never
-      # exercise this migration's backfill predicate or cancellation UPDATE.
-      - run: npm run test:team-names-pg
-        env:
-          TEAM_NAMES_PG_TESTS: "1"
-      # Pick'em season result (#292): real uniqueness and JSON outcome guards,
-      # plus durable readback after its projected trophy and Team are deleted.
-      - run: npm run test:pickem-season-result-pg
-        env:
-          PICKEM_SEASON_RESULT_PG_TESTS: "1"
-      # Legacy Pick'em result import (#293): seed archived awards and live
-      # trophy evidence against the pre-import schema, then prove precedence,
-      # provenance, co-champions, ambiguity refusal, and conflict-safe reruns.
-      - run: npm run test:pickem-season-result-import-pg
-        env:
-          PICKEM_SEASON_RESULT_IMPORT_PG_TESTS: "1"
-      # Audited Pick'em result repair (#294): recovery/correction dry-run and
-      # apply behavior, stable retries, stale refusal, trophy reconciliation,
-      # rollback, and database-enforced append-only audit evidence.
-      - run: npm run test:pickem-season-result-operator-pg
-        env:
-          PICKEM_SEASON_RESULT_OPERATOR_PG_TESTS: "1"
-      # Pick'em history cutover (#295): archive backfill, survival without a
-      # live Team/account display, and database-enforced outcome consistency.
-      - run: npm run test:pickem-history-pg
-        env:
-          PICKEM_HISTORY_PG_TESTS: "1"
-      # league_history.standings account-identity strip + CHECK (#342, PR #370):
-      # the empty history table in the plain migrate/rollback/migrate smoke
-      # cannot exercise the per-element strip or the constraint rejection.
-      - run: npm run test:history-standings-pg
-        env:
-          HISTORY_STANDINGS_PG_TESTS: "1"
-      # A lineup entry follows the roster (#197): the stale-row cleanup
-      # migration's WHERE clause, and the runtime operation that maintains
-      # the same rule from now on, checked against real rows. The mocked
-      # suites can pin the predicate text but cannot prove which rows go --
-      # in particular that no PAST week is ever touched. Seeds and deletes
-      # its own far-future season.
-      - run: npm run test:lineup-roster-pg
-        env:
-          LINEUP_FOLLOWS_ROSTER_PG_TESTS: "1"
-
-      # Snapshot-client CONTRACTS: the eight production queries re-implemented
-      # in JS, checked against the real Postgres on identical seeded rows, plus
-      # fn_normalize_nfl_team vs its JS twin, ORDER BY under the server
-      # collation, ANY/LIMIT/LEFT-JOIN semantics, and reconstructed-mode
-      # attribution against independent reference SQL. Seeds and deletes its
-      # own far-future season, so it runs BEFORE the holdout tests below.
-      - run: npm run test:backtest-pg
-        env:
-          BACKTEST_PG_TESTS: "1"
-
-      # Roster tenure as a recorded fact (#228): the trigger on team_players
-      # and the migration's backfill, which no mocked suite can prove because
-      # the test fakes do not run triggers (ADR 0006). Covers the bulk
-      # draft-reset delete that bypasses the service chokepoint, a trade's
-      # single-instant handover, and the league-delete cascade that fires the
-      # close trigger while its parent rows are going away. Seeds and deletes
-      # its own far-future season, so it runs BEFORE the holdout tests below.
-      - run: npm run test:roster-tenures-pg
-        env:
-          ROSTER_TENURES_PG_TESTS: "1"
-
-      # Holdout-ledger guarantees that only a real Postgres can prove:
-      # append-only triggers, the child kickoff cutoff, transactional
-      # atomicity, role/RLS compatibility, and the nonempty-rollback
-      # refusal. Runs LAST: these tests insert ledger rows that by design
-      # cannot be deleted, and the empty-ledger rollback smoke above must
-      # keep passing.
-      - run: npm run test:holdout-pg
-        env:
-          HOLDOUT_PG_TESTS: "1"
+          PG_TESTS: "1"
 
   dependency-audit-root:
     runs-on: ubuntu-latest

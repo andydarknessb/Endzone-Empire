@@ -201,7 +201,7 @@ function GameCenter() {
   // delivered on league detail's own response (#112, contract in
   // src/lib/teamIdentity.js). It replaces a lookup through the league-shared
   // rosters payload's `ownerId`: that rebuilt viewer identity out of an
-  // account field, and #115 takes account fields off league-shared payloads,
+  // account field, and #115 took account fields off league-shared payloads,
   // at which point the old comparison would have matched nothing and every
   // viewer would have lost their hero card with nothing failing to say so.
   const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);

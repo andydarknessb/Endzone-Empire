@@ -34,12 +34,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const ENABLED = process.env.BACKTEST_PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.BACKTEST_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((k) => process.env[k]);
 
 if (!ENABLED) {
-  test('Gate 1 role lifecycle (skipped: BACKTEST_PG_TESTS not set - CI migration-smoke runs these)',
+  test('Gate 1 role lifecycle (skipped: set PG_TESTS=1 or BACKTEST_PG_TESTS=1; CI migration-smoke runs these)',
     { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('Gate 1 role tests refuse to run with DATABASE_URL* set', () => {

@@ -1,17 +1,21 @@
 /**
  * Disposable-PostgreSQL coverage for the Pick'em history archive migration
  * (#295). Refuses DATABASE_URL* so it cannot touch the shared database.
+ *
+ * Covers the archive backfill, survival without a live Team or account display,
+ * and database-enforced outcome consistency: the constraint holds even after
+ * the projected Team and account rows are gone, which only real Postgres proves.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const ENABLED = process.env.PICKEM_HISTORY_PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.PICKEM_HISTORY_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((key) => process.env[key]);
 
 if (!ENABLED) {
-  test('Pick\'em history PG tests (skipped: PICKEM_HISTORY_PG_TESTS not set)', { skip: true }, () => {});
+  test('Pick\'em history PG tests (skipped: set PG_TESTS=1 or PICKEM_HISTORY_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('Pick\'em history PG tests refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only see a disposable PG* database`);

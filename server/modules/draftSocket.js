@@ -7,7 +7,6 @@ const { teamForPick } = require('../services/draftOrder.service');
 const {
   teamIdentityColumns,
   teamIdentityOf,
-  withTeamIdentity,
   lookupTeam,
 } = require('../services/teamIdentity');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
@@ -128,10 +127,13 @@ function attachDraftSocket(httpServer) {
       }
       try {
         const outcome = await draftPlayer({ leagueId, userId: socket.user.id, playerId });
-        io.to(`league:${leagueId}`).emit('draft:picked', {
-          ...outcome,
-          by: { userId: socket.user.id, username: socket.user.username },
-        });
+        // Attributed by Team at the root (`teamId` / `teamName` off the
+        // outcome), so the old `by: { userId, username }` account object is
+        // gone from the broadcast (#344, #115 child C). `auto` is the one
+        // non-identity fact the room still needs about how the pick was made;
+        // a manual pick is not an autopick. autopick.service is the other emit
+        // site; socketPayloadShape.test.js pins both to one key set.
+        io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: false });
         if (outcome.draftComplete) {
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
@@ -251,17 +253,30 @@ async function viewerContext(db, { leagueId, userId } = {}) {
   return { viewerTeam, isCommissioner: await isLeagueCommissioner(db, leagueId, userId) };
 }
 
-/** The `draft:presence` payload: who joined the room, by Team and by account. */
+/**
+ * The `draft:presence` payload: who joined the room, by Team and nothing about
+ * their account (#344, #115 child C). A broadcast reaches the whole league
+ * room, so it names the joining manager by their Team only; the room's one
+ * per-viewer channel is the join ack (`viewerTeamId` / `isCommissioner`). The
+ * `user` argument is no longer read - the account id and username it carried
+ * left the wire here - but the signature is kept so the emit call site and the
+ * contract tests do not have to change shape.
+ */
 function presencePayload(user, team) {
-  return { ...withTeamIdentity({ userId: user.id, username: user.username }, team), joined: true };
+  return { ...teamIdentityOf(team), joined: true };
 }
 
-/** The `chat:message` payload: one message, attributed by Team and by account. */
-function chatMessagePayload({ id, leagueId, user, team, message, createdAt }) {
+/**
+ * The `chat:message` payload: one message, attributed by Team and nothing about
+ * the author account (#344). The author's `user_id` is still the stored row's
+ * key (it is the LEFT-join key that lets history read back "Former manager"),
+ * but neither it nor the username rides on this broadcast.
+ */
+function chatMessagePayload({ id, leagueId, team, message, createdAt }) {
   return {
     id,
     leagueId,
-    ...withTeamIdentity({ userId: user.id, username: user.username }, team),
+    ...teamIdentityOf(team),
     message,
     created_at: createdAt,
   };
@@ -274,11 +289,16 @@ async function getDraftState(leagueId) {
   if (!league) return null;
   delete league.invite_code;
 
+  // Team identity only, no manager account: the snapshot is broadcast to the
+  // whole league room, so it names each team by Team and never by its owner's
+  // account (#344, #115 child C). The `owner_id` column and the
+  // `"users"."username" AS "owner"` join that fed the old `owner` field are
+  // gone; the join is dropped with them, which also lets a team whose owner
+  // has left the league appear rather than being filtered out.
   const teamsResult = await pool.query(
     `SELECT "teams"."id", "teams"."name", "teams"."draft_position", "teams"."autodraft",
-            "teams"."draft_ready", "teams"."owner_id", ${teamIdentityColumns()},
-            "users"."username" AS "owner"
-     FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
+            "teams"."draft_ready", ${teamIdentityColumns()}
+     FROM "teams"
      WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "teams"."id"`,
     [leagueId]
   );

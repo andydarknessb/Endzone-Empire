@@ -47,7 +47,10 @@ const wideLeagueRow = (over = {}) => ({
   ...over,
 });
 
-// The teams query joins users and aliases "users"."username" AS "owner".
+// The teams query no longer joins users or projects an owner (#344); this
+// fixture still carries owner/owner_id/username/email as WIDER-than-contract
+// rows, so the presenter allowlist is proven to strip a field a future query
+// might re-add straight through (see the forbidden-key loop below).
 const wideTeamRow = (id, draftPosition, over = {}) => ({
   id,
   name: `Team ${id}`,
@@ -91,7 +94,7 @@ function presenterPool({ league = {}, teams, picks } = {}) {
     // than by the shared select() shape matcher.
     [/FROM "leagues" WHERE "draft_share_token" = \$1/, () => ({ rows: [{ id: 3 }] })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [wideLeagueRow(league)] })],
-    [/FROM "teams" JOIN "users"/, () => ({ rows: teamRows })],
+    [/FROM "teams"\s+WHERE/, () => ({ rows: teamRows })],
     [/FROM "draft_picks" JOIN "players"/, () => ({ rows: pickRows })],
   ]);
 }
