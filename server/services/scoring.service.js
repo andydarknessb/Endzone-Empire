@@ -850,13 +850,19 @@ async function applyGameBoxScore({ box, season, week, maps }) {
       const meta = metaById.get(playerId) || {};
       const pointsDelta =
         Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+      // The opponent map is keyed by the raw `nfl_games.nfl_team` and looked up
+      // with the raw `meta.nfl_team` (its partner): that pairing stays raw-on-raw
+      // (#431). The play object it feeds is a different contract: `nflTeam` and
+      // `opponent` on a scoring play are Team codes (CONTEXT.md **Team code**),
+      // so both are folded through normalizeNflTeam before they leave the server.
+      const rawOpponent = opponentByTeam.get(meta.nfl_team) || null;
       for (const ev of events) {
         plays.push({
           playerId,
           name: meta.name,
           position: meta.position,
-          nflTeam: meta.nfl_team,
-          opponent: opponentByTeam.get(meta.nfl_team) || null,
+          nflTeam: normalizeNflTeam(meta.nfl_team),
+          opponent: rawOpponent ? normalizeNflTeam(rawOpponent) : null,
           type: ev.type,
           tdDelta: ev.tdDelta,
           pointsDelta,
