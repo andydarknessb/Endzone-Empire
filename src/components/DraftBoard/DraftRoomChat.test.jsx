@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
-import DraftChat from './DraftChat';
+import DraftRoomChat from './DraftRoomChat';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -16,7 +16,7 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
-// The draft room hands DraftChat the session it already owns. This fake stands
+// The draft room hands DraftRoomChat the session it already owns. This fake stands
 // in for that session: it records `.on` handlers, has a real `.off` for
 // listener cleanup, and deliberately no `.disconnect` - ending the session is
 // the draft room's job, never the chat's.
@@ -43,10 +43,15 @@ const chatMessage = (overrides = {}) => ({
 });
 
 let socket;
+let reconnectHandlers;
 
 beforeEach(() => {
   socket = makeSharedSocket();
-  onReconnect.mockReturnValue(() => {});
+  reconnectHandlers = [];
+  onReconnect.mockImplementation((s, handler) => {
+    reconnectHandlers.push(handler);
+    return () => { reconnectHandlers = reconnectHandlers.filter((h) => h !== handler); };
+  });
   apiClient.get.mockResolvedValue({ data: [] });
   apiClient.post.mockResolvedValue({ data: { ok: true } });
 });
@@ -58,7 +63,7 @@ afterEach(() => {
 test('shows existing League-chat history, attributed by Team', async () => {
   apiClient.get.mockResolvedValue({ data: [chatMessage({ message: 'welcome', teamName: 'Anvils', username: 'alice' })] });
 
-  renderWithProviders(<DraftChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
 
   expect(await screen.findByText('welcome')).toBeInTheDocument();
   expect(screen.getByText('Anvils')).toBeInTheDocument();
@@ -67,7 +72,7 @@ test('shows existing League-chat history, attributed by Team', async () => {
 });
 
 test('appends a message broadcast over the shared draft session', async () => {
-  renderWithProviders(<DraftChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
   await screen.findByText('No messages yet');
 
   act(() => socket.trigger('chat:message', chatMessage({ id: 2, teamName: 'Bulldogs', message: 'good luck all' })));
@@ -81,7 +86,7 @@ test('sends over the shared session and never opens a second connection', async 
     if (event === 'chat:send' && ack) ack({ ok: true });
   });
 
-  renderWithProviders(<DraftChat socket={socket} leagueId={7} viewerTeamId={11} />);
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={7} viewerTeamId={11} />);
   await screen.findByText('No messages yet');
 
   await userEvent.type(screen.getByLabelText('Message'), 'from the draft room');
@@ -100,7 +105,7 @@ test('sends over the shared session and never opens a second connection', async 
 });
 
 test('takes back its own listener on unmount and never ends the shared session', async () => {
-  const { unmount } = renderWithProviders(<DraftChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  const { unmount } = renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
   await waitFor(() => expect(socket.hasHandler('chat:message')).toBe(true));
 
   unmount();
@@ -109,9 +114,24 @@ test('takes back its own listener on unmount and never ends the shared session',
   expect(socket).not.toHaveProperty('disconnect');
 });
 
+test('re-syncs chat history when the draft session reconnects', async () => {
+  // The Draft surface's own reconnection coverage (issue #433: tests cover
+  // "both surfaces and reconnection"). The draft room re-joins on reconnect
+  // over in useDraftSocket; here we prove the chat riding that session pulls a
+  // fresh history so anything sent while offline appears.
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  await screen.findByText('No messages yet');
+
+  apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 5, message: 'missed while offline' })] });
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  expect(await screen.findByText('missed while offline')).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/chat');
+});
+
 test('renders nothing that throws before the session exists', async () => {
   // The draft room hands a null socket until draft:join has landed; the chat
   // must render its history and wait, not crash.
-  renderWithProviders(<DraftChat socket={null} leagueId={3} viewerTeamId={null} />);
+  renderWithProviders(<DraftRoomChat socket={null} leagueId={3} viewerTeamId={null} />);
   expect(await screen.findByText('No messages yet')).toBeInTheDocument();
 });

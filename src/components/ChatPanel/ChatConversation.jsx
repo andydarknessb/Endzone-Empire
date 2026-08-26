@@ -14,11 +14,14 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * `teamNameLabel(teamName)`, which names a departed author as a former manager
  * rather than printing a blank or the string "null".
  *
- * The title is a level-2 heading in a named region, matching every other panel
+ * The heading is fixed to "League chat" - the one conversation on both
+ * surfaces (CONTEXT.md: League chat) - rather than parameterized, so no caller
+ * can retitle it to "Draft chat", the term the glossary tells the repo to
+ * avoid. It is a level-2 heading in a named region, matching every other panel
  * in the surfaces this appears in, so it slots into their heading order without
  * skipping a level.
  */
-function ChatConversation({ title = 'League Chat', messages = [], error = null, onSend }) {
+function ChatConversation({ messages = [], error = null, onSend }) {
   const [text, setText] = useState('');
   const headingId = useId();
 
@@ -33,7 +36,7 @@ function ChatConversation({ title = 'League Chat', messages = [], error = null, 
   return (
     <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, mt: 3 }}>
       <Typography id={headingId} variant="h6" component="h2" sx={{ mb: 2 }}>
-        {title}
+        League Chat
       </Typography>
 
       {error && (

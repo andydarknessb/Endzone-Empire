@@ -24,7 +24,7 @@ import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
-import DraftChat from './DraftChat';
+import DraftRoomChat from './DraftRoomChat';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { upcomingTeamsFor } from './upcomingTeams';
 import { viewerPicksFor } from './viewerPicks';
@@ -533,7 +533,7 @@ function DraftBoard() {
     // ride. It lives in the rail, so it appears wherever the rail does and
     // travels with the manager across the Draft and Board views.
     chatPanel: socket ? (
-      <DraftChat socket={socket} leagueId={Number(leagueId)} viewerTeamId={viewerTeamId} />
+      <DraftRoomChat socket={socket} leagueId={Number(leagueId)} viewerTeamId={viewerTeamId} />
     ) : null,
   };
 

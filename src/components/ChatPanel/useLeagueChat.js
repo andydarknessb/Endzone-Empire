@@ -34,10 +34,15 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   const openRef = useRef(open);
   const viewerTeamIdRef = useRef(viewerTeamId);
 
+  // These three are fire-and-forget over the REST client. `Promise.resolve`
+  // wraps every call so the chat never throws on the client's return value:
+  // a mocked or stubbed client can hand back undefined, and `open` chat marks
+  // read the instant it mounts (the Draft room, where it is always visible),
+  // so an unguarded `.catch`/`.then` on a non-thenable would surface as an
+  // uncaught render error rather than a swallowed no-op.
   const fetchHistory = useCallback(() => {
-    apiClient
-      .get(`/api/league/${leagueId}/chat`)
-      .then((res) => setMessages(Array.isArray(res.data) ? res.data : []))
+    Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat`))
+      .then((res) => setMessages(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, [leagueId]);
 
@@ -45,17 +50,16 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   // while closed - opening resets it via markRead below.
   const fetchUnread = useCallback(() => {
     if (openRef.current) return;
-    apiClient
-      .get(`/api/league/${leagueId}/chat/unread`)
+    Promise.resolve(apiClient.get(`/api/league/${leagueId}/chat/unread`))
       .then((res) => {
-        const count = Number(res.data && res.data.unread);
+        const count = Number(res && res.data && res.data.unread);
         if (Number.isFinite(count) && !openRef.current) setUnread(count);
       })
       .catch(() => {});
   }, [leagueId]);
 
   const markRead = useCallback(() => {
-    apiClient.post(`/api/league/${leagueId}/chat/read`).catch(() => {});
+    Promise.resolve(apiClient.post(`/api/league/${leagueId}/chat/read`)).catch(() => {});
   }, [leagueId]);
 
   useEffect(() => {

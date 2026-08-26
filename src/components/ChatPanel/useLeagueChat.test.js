@@ -202,7 +202,7 @@ test('opening resets unread and moves the server-side read marker', async () => 
   await waitFor(() => expect(result.current.unread).toBe(5));
 
   // Flip the drawer open, keeping the same handed-in socket.
-  act(() => rerender({ socket, leagueId: 1, open: true, viewerTeamId: null }));
+  rerender({ socket, leagueId: 1, open: true, viewerTeamId: null });
 
   await waitFor(() => expect(result.current.unread).toBe(0));
   expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/chat/read');
