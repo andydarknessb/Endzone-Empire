@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createSocketHarness } = require('./helpers/socketHarness');
 const { createFakePool } = require('./helpers/fakePool');
-const { deliverFeedEntry, normalizeClientMsgId } = require('../modules/draftSocket');
+const { deliverFeedEntry, normalizeClientMsgId, clampToCharacters } = require('../modules/draftSocket');
 const { LEAGUE_CHAT } = require('../services/leagueFeed');
 
 /**
@@ -282,4 +282,63 @@ test('a malformed clientMsgId is refused before any database work', async (t) =>
 
   assert.deepEqual(ack, { error: 'clientMsgId must be a string of at most 64 characters', code: 'INVALID_REQUEST' });
   assert.equal(world.fake.calls.length, callsBefore, 'a malformed key reaches no query');
+});
+
+// ---------------------------------------------------------------------------
+// #443: the 500 limit is counted in CHARACTERS (code points), so an emoji made
+// reachable by the composer's new picker survives the character limit as
+// ordinary text - it is never bisected into a lone surrogate at the boundary.
+// ---------------------------------------------------------------------------
+
+const THUMBS = '\u{1F44D}'; // one character, two UTF-16 code units
+
+// A lone (unpaired) surrogate is not representable in UTF-8; encoding one to
+// UTF-8 and back replaces it, so a stable round-trip proves the string holds
+// only whole characters - exactly what Postgres would need to store it.
+const isValidUtf8 = (s) => Buffer.from(s, 'utf8').toString('utf8') === s;
+
+test('clampToCharacters truncates by code point and never bisects an emoji into a lone surrogate (#443)', () => {
+  // Under the limit: unchanged, the emoji intact.
+  assert.equal(clampToCharacters(`gg ${THUMBS}`), `gg ${THUMBS}`);
+
+  // An emoji straddling the 500th UTF-16 code unit. A slice(0, 500) would keep
+  // its leading surrogate alone; clamping by character keeps the whole emoji
+  // (500 characters, 501 code units) and the result is valid UTF-8.
+  const straddling = 'a'.repeat(499) + THUMBS;
+  const clamped = clampToCharacters(straddling);
+  assert.equal(Array.from(clamped).length, 500, 'kept exactly 500 characters');
+  assert.ok(clamped.endsWith(THUMBS), 'the boundary emoji survives whole');
+  assert.ok(isValidUtf8(clamped), 'no lone surrogate is produced');
+
+  // An emoji one character PAST the limit is dropped whole, not split.
+  const past = 'a'.repeat(500) + THUMBS;
+  const clampedPast = clampToCharacters(past);
+  assert.equal(clampedPast, 'a'.repeat(500), 'the over-limit emoji is dropped, not halved');
+  assert.ok(isValidUtf8(clampedPast), 'no lone surrogate is produced');
+
+  // Plain overflow is still capped at the limit.
+  assert.equal(Array.from(clampToCharacters('x'.repeat(600))).length, 500);
+});
+
+test('a sent message straddling the limit is stored and broadcast as a whole emoji, valid UTF-8 (#443)', async (t) => {
+  const leagueId = 4407;
+  const world = chatWorld({
+    leagueId,
+    teams: { [A.userId]: { teamId: 71, teamName: 'Founders' }, [C.userId]: { teamId: 91, teamName: 'Neutral' } },
+  });
+  world.fake.install(t);
+  const sender = await harness.connectAs(A, t);
+  const watcher = await harness.connectAs(C, t);
+  await harness.emit(sender, 'league:join', { leagueId });
+  await harness.emit(watcher, 'league:join', { leagueId });
+
+  const received = eventOrSilence(watcher, 'chat:message', 300);
+  // 499 filler + an emoji whose UTF-16 units straddle the 500-unit boundary.
+  await harness.emit(sender, 'chat:send', { leagueId, message: 'a'.repeat(499) + THUMBS });
+  const entry = await received;
+
+  assert.ok(entry, 'the room saw the message');
+  assert.equal(Array.from(entry.message).length, 500, 'stored at the character limit');
+  assert.ok(entry.message.endsWith(THUMBS), 'the boundary emoji arrives whole');
+  assert.ok(isValidUtf8(entry.message), 'no lone surrogate reached the room');
 });
