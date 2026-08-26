@@ -23,6 +23,7 @@
  * rather than dropping out, because the join behind the read is LEFT.
  */
 const {
+  TEAM_IDENTITY_FIELDS,
   teamIdentityColumns,
   teamIdentityJoin,
 } = require('./teamIdentity');
@@ -52,12 +53,17 @@ const FEED_PAGE_SIZE = 100;
  * league the value stays far below the safe-integer ceiling.
  */
 function feedEntryOf(row) {
+  const [idField, nameField] = TEAM_IDENTITY_FIELDS;
   return {
     type: LEAGUE_CHAT,
     id: row.id,
     seq: Number(row.feed_seq),
-    teamId: row.teamId == null ? null : row.teamId,
-    teamName: row.teamName == null ? null : row.teamName,
+    // Read the Team identity back under the SAME frozen keys teamIdentityOf
+    // and teamIdentityColumns write it as, so the entry's identity fields
+    // cannot drift from the wire contract (teamIdentity.js, rule 1). A missing
+    // value reads as null so the keys are always present.
+    [idField]: row[idField] ?? null,
+    [nameField]: row[nameField] ?? null,
     message: row.message,
     created_at: row.created_at,
   };
