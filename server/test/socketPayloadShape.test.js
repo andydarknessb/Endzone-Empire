@@ -191,12 +191,15 @@ function pickWorld(t) {
       { id: VIEWER.teamId, name: VIEWER.teamName, owner_id: VIEWER.userId, draft_position: 1, autodraft: false, locked: false },
       { id: OTHER.teamId, name: OTHER.teamName, owner_id: OTHER.userId, draft_position: 2, autodraft: false, locked: false },
     ] })],
-    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    // The Pick's Draft activity, appended in the same transaction (#435); the
+    // trigger allocates feed_seq and RETURNING hands it back.
+    [insert('draft_activity'), () => ({ rows: [{ id: 3, feed_seq: '2', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
@@ -226,15 +229,30 @@ async function capturePicked(t) {
 // added a single non-identity fact the room still needs: `auto`, whether the
 // pick was made by autodraft. Both emit sites carry it (false at the pick
 // handler, true at autopick), so both share this key set.
+// #435 added `activity` to the outcome: the typed Draft-activity feed entry for
+// this Pick, carried on the broadcast so the combined feed appends it beside the
+// board update. Both emit sites share the key set, so both gain `activity`.
 const PICKED_ROOT_CLEAN = [
-  'auto', 'draftComplete', 'leagueId', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
+  'activity', 'auto', 'draftComplete', 'leagueId', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
 ];
+
+// The Draft-activity entry now rides on a room broadcast, so it is bound by the
+// same rule as the rest of the payload: Team identity only, never an account
+// identifier, and no viewer-relative field.
+const ACTIVITY_CLEAN = ['type', 'kind', 'id', 'seq', TEAM_ID, TEAM_NAME, 'player', 'round', 'pickNumber', 'isAutopick', 'created_at'];
+const ACTIVITY_FORBIDDEN = ['user_id', 'userId', 'username', 'owner_id', ...VIEWER_RELATIVE];
 
 test('draft:picked names the picker by Team at the root, with no by account object and no viewer-relative field', async (t) => {
   const picked = await capturePicked(t);
   assert.equal('by' in picked, false, 'the account by object is gone from the broadcast');
   assertExactKeys(picked, PICKED_ROOT_CLEAN);
   assert.equal(picked.auto, false, 'a manual pick is not an autopick');
+  // The Draft-activity entry rides along and is itself Team-only (#435, ADR 0012).
+  assertExactKeys(picked.activity, ACTIVITY_CLEAN);
+  assertForbidden(picked.activity, ACTIVITY_FORBIDDEN);
+  assert.equal(picked.activity.type, 'draft_activity');
+  assert.equal(picked.activity.kind, 'pick');
+  assert.equal(picked.activity.isAutopick, false);
 });
 
 // The SECOND draft:picked emit site (autopick.service.js), pinned so #344
@@ -256,6 +274,14 @@ async function captureAutopickPicked(t) {
     nextTeamId: null,
     draftComplete: false,
     pickDeadlineAt: null,
+    // draftPlayer returns the typed activity entry; the autopick emit spreads it
+    // onto the broadcast just as the pick handler does. isAutopick is true here.
+    activity: {
+      type: 'draft_activity', kind: 'pick', id: 3, seq: 2,
+      teamId: AUTOPICK_TEAM.id, teamName: 'The Autodrafters',
+      player: { id: 500, name: 'Pick Me', position: 'RB', nflTeam: 'KC' },
+      round: 1, pickNumber: 1, isAutopick: true, created_at: '2026-09-01T00:00:00.000Z',
+    },
   }));
   const emitted = [];
   const priorIo = getIo();
@@ -275,6 +301,9 @@ test('draft:picked (autopick emit site) names the picker by Team at the root, wi
   assert.equal('by' in picked, false, 'the account by object is gone from the autopick broadcast too');
   assertExactKeys(picked, PICKED_ROOT_CLEAN);
   assert.equal(picked.auto, true, 'an autopick is marked auto');
+  assertExactKeys(picked.activity, ACTIVITY_CLEAN);
+  assertForbidden(picked.activity, ACTIVITY_FORBIDDEN);
+  assert.equal(picked.activity.isAutopick, true, 'the activity entry is labeled an autopick too');
 });
 
 // ================================================================ draft:state

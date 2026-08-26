@@ -1,7 +1,35 @@
 import React, { useId, useRef, useState } from 'react';
-import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
+import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
+
+// One committed Pick as Draft activity in the combined feed (#435). It is NOT
+// drawn as a chat bubble: Draft activity is server-authored, never a manager
+// message (ADR 0012), so it reads as an event line and is attributed by Team
+// without pretending the Team "said" anything. The snapshot shows player,
+// position, NFL team, round and overall Pick number so the event is
+// understandable without leaving the feed; an autopick is labeled AUTO.
+function DraftActivityEntry({ entry }) {
+  const player = entry.player || {};
+  // House style: middot separators, no em-dashes. Null facts are dropped
+  // rather than printed as "null".
+  const meta = [player.position, player.nflTeam, `Round ${entry.round}`, `Pick ${entry.pickNumber}`]
+    .filter((part) => part != null && part !== '')
+    .join(' · ');
+  return (
+    <Box sx={{ mb: 1 }} data-testid="draft-activity">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <strong>{teamNameLabel(entry.teamName)}</strong> drafted {player.name}
+        {entry.isAutopick && (
+          <Chip label="AUTO" size="small" sx={{ ml: 1 }} />
+        )}
+      </Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        {meta} {'·'} {new Date(entry.created_at).toLocaleTimeString()}
+      </Typography>
+    </Box>
+  );
+}
 
 /**
  * The visible half of League chat: the scrollback and the compose box. It is
@@ -73,16 +101,20 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
         {messages.length === 0 ? (
           <Typography sx={{ color: 'text.secondary' }}>No messages yet</Typography>
         ) : (
-          messages.map((m) => (
-            <Box key={m.id} sx={{ mb: 1 }}>
-              <Typography variant="body2">
-                <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {new Date(m.created_at).toLocaleTimeString()}
-              </Typography>
-            </Box>
-          ))
+          messages.map((m) =>
+            m.type === 'draft_activity' ? (
+              <DraftActivityEntry key={feedEntryKey(m)} entry={m} />
+            ) : (
+              <Box key={feedEntryKey(m)} sx={{ mb: 1 }}>
+                <Typography variant="body2">
+                  <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  {new Date(m.created_at).toLocaleTimeString()}
+                </Typography>
+              </Box>
+            )
+          )
         )}
       </Box>
 
