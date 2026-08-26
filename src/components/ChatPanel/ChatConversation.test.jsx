@@ -144,3 +144,64 @@ test('Load older messages calls onLoadOlder', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Load older messages' }));
   expect(onLoadOlder).toHaveBeenCalled();
 });
+
+// --------------------------------------------------------------------------
+// #441: commissioner content moderation - tombstone + hide control
+// --------------------------------------------------------------------------
+
+test('a hidden message renders the neutral tombstone, never its content', () => {
+  renderWithProviders(
+    <ChatConversation
+      messages={[message({ message: null, hidden: true, teamName: 'Anvils' })]}
+      onSend={noop}
+    />
+  );
+  expect(screen.getByText('Message hidden by commissioner')).toBeInTheDocument();
+  // The original content is gone; only the tombstone shows.
+  expect(screen.queryByText('hello there')).not.toBeInTheDocument();
+});
+
+test('a member sees no Hide control (canModerate defaults off)', () => {
+  renderWithProviders(
+    <ChatConversation messages={[message()]} onSend={noop} onHide={jest.fn()} />
+  );
+  expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
+});
+
+test('a commissioner hides a message: reason required, then onHide is called', async () => {
+  const onHide = jest.fn().mockResolvedValue(true);
+  renderWithProviders(
+    <ChatConversation
+      messages={[message({ id: 55, message: 'you are worthless', teamName: 'Anvils' })]}
+      onSend={noop}
+      canModerate
+      onHide={onHide}
+    />
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Hide message from Anvils' }));
+
+  const confirm = screen.getByRole('button', { name: 'Confirm hide' });
+  // A hide cannot be confirmed without a sufficient reason (AC2).
+  expect(confirm).toBeDisabled();
+  expect(onHide).not.toHaveBeenCalled();
+
+  await userEvent.type(screen.getByLabelText('Reason for hiding'), 'targeted harassment');
+  expect(confirm).toBeEnabled();
+  await userEvent.click(confirm);
+
+  expect(onHide).toHaveBeenCalledWith(55, 'targeted harassment');
+});
+
+test('a commissioner sees no Hide control on an already-hidden message', () => {
+  renderWithProviders(
+    <ChatConversation
+      messages={[message({ id: 55, message: null, hidden: true, teamName: 'Anvils' })]}
+      onSend={noop}
+      canModerate
+      onHide={jest.fn()}
+    />
+  );
+  expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
+  expect(screen.getByText('Message hidden by commissioner')).toBeInTheDocument();
+});

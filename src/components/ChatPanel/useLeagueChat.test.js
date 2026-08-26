@@ -389,3 +389,74 @@ test('hasMore is false when the initial read is a partial page', async () => {
   await waitFor(() => expect(result.current.messages).toHaveLength(1));
   expect(result.current.hasMore).toBe(false);
 });
+
+// --------------------------------------------------------------------------
+// #441: content moderation - live tombstone and the hide action
+// --------------------------------------------------------------------------
+
+test('a chat:hidden broadcast tombstones the held entry in place, dropping its content', async () => {
+  mockGets({ history: [chatMessage({ id: 7, message: 'you are worthless', teamName: 'Anvils' })] });
+  const { result, socket } = render();
+  await waitFor(() => expect(result.current.messages).toHaveLength(1));
+  expect(socket.hasHandler('chat:hidden')).toBe(true);
+
+  act(() => {
+    socket.trigger('chat:hidden', { id: 7, type: 'league_chat', hidden: true, message: null, teamId: 11, teamName: 'Anvils' });
+  });
+
+  // Same entry, same place - content gone, hidden flipped true.
+  expect(result.current.messages).toHaveLength(1);
+  expect(result.current.messages[0].id).toBe(7);
+  expect(result.current.messages[0].hidden).toBe(true);
+  expect(result.current.messages[0].message).toBeNull();
+});
+
+test('a chat:hidden for an entry the client never held is ignored', async () => {
+  mockGets({ history: [chatMessage({ id: 7 })] });
+  const { result, socket } = render();
+  await waitFor(() => expect(result.current.messages).toHaveLength(1));
+
+  act(() => {
+    socket.trigger('chat:hidden', { id: 999, hidden: true, message: null });
+  });
+
+  expect(result.current.messages).toHaveLength(1);
+  expect(result.current.messages[0].id).toBe(7);
+});
+
+test('hideMessage posts the hide to the moderation surface and resolves true', async () => {
+  mockGets();
+  const { result } = render();
+
+  let outcome;
+  await act(async () => {
+    outcome = await result.current.hideMessage(55, '  targeted harassment  ');
+  });
+
+  expect(outcome).toBe(true);
+  expect(apiClient.post).toHaveBeenCalledWith('/api/safety/hide', {
+    leagueId: 1,
+    messageId: 55,
+    reason: 'targeted harassment',
+  });
+});
+
+test('hideMessage surfaces a rejection and resolves false', async () => {
+  mockGets();
+  // Reject only the hide; the mount's markRead post must still resolve, or it
+  // would consume a one-shot rejection instead of the hide.
+  apiClient.post.mockImplementation((url) =>
+    url === '/api/safety/hide'
+      ? Promise.reject({ response: { data: { error: 'moderator access required' } } })
+      : Promise.resolve({ data: { ok: true } })
+  );
+  const { result } = render();
+
+  let outcome;
+  await act(async () => {
+    outcome = await result.current.hideMessage(55, 'targeted harassment');
+  });
+
+  expect(outcome).toBe(false);
+  await waitFor(() => expect(result.current.error).toBe('moderator access required'));
+});

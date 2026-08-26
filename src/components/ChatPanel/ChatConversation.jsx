@@ -3,6 +3,17 @@ import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material'
 import { teamNameLabel } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 
+// A hide reason is required and bounded the same as the server enforces
+// (safety.router: 10..500 chars), so the Confirm control is disabled until the
+// reason is long enough and the server never has to reject a well-formed click.
+const HIDE_REASON_MIN = 10;
+const HIDE_REASON_MAX = 500;
+
+// The neutral tombstone a member sees in place of hidden content (#441, AC3).
+// It names neither the reason nor the moderator - those reach authorized
+// reviewers alone (AC4) and never ride on the feed entry.
+const HIDDEN_TOMBSTONE = 'Message hidden by commissioner';
+
 /**
  * The visible half of League chat: the scrollback and the compose box. It is
  * the same conversation wherever managers gather (CONTEXT.md: League chat), so
@@ -22,9 +33,43 @@ import { newClientMsgId } from '../../lib/clientMessageId';
  * in the surfaces this appears in, so it slots into their heading order without
  * skipping a level.
  */
-function ChatConversation({ messages = [], error = null, onSend, hasMore = false, onLoadOlder = null }) {
+function ChatConversation({
+  messages = [],
+  error = null,
+  onSend,
+  hasMore = false,
+  onLoadOlder = null,
+  // A commissioner (or co-commissioner / platform admin) may hide human
+  // messages; a member may not. Both default off so the surfaces that do not
+  // pass them (and any older caller) render no moderation affordance at all.
+  canModerate = false,
+  onHide = null,
+}) {
   const [text, setText] = useState('');
+  // The message currently being hidden (its id), and the reason being typed for
+  // it. Only one hide form is open at a time; opening another replaces it.
+  const [hidingId, setHidingId] = useState(null);
+  const [hideReason, setHideReason] = useState('');
   const headingId = useId();
+
+  const startHiding = (id) => {
+    setHidingId(id);
+    setHideReason('');
+  };
+  const cancelHiding = () => {
+    setHidingId(null);
+    setHideReason('');
+  };
+  const confirmHide = async (id) => {
+    const reason = hideReason.trim();
+    if (reason.length < HIDE_REASON_MIN) return;
+    const ok = onHide ? await onHide(id, reason) : false;
+    // Clear the form whether or not the hide succeeded; a failure surfaces
+    // through the shared error Alert, and the message stays visible until the
+    // tombstone broadcast replaces it.
+    if (ok !== false) cancelHiding();
+  };
+  const moderating = canModerate && typeof onHide === 'function';
 
   // The idempotency key for the message being composed (#440). It is stable for
   // one logical message: a retry of the SAME text (a rejected send left in the
@@ -75,9 +120,54 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
         ) : (
           messages.map((m) => (
             <Box key={m.id} sx={{ mb: 1 }}>
-              <Typography variant="body2">
-                <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                  <strong>{teamNameLabel(m.teamName)}</strong>{' '}
+                  {m.hidden ? (
+                    <em style={{ color: 'inherit', opacity: 0.7 }}>{HIDDEN_TOMBSTONE}</em>
+                  ) : (
+                    m.message
+                  )}
+                </Typography>
+                {/* A commissioner may hide a human message that is not already
+                    hidden. Draft activity is a different feed and is never
+                    rendered here, so nothing on this surface can hide it (AC6). */}
+                {moderating && !m.hidden && hidingId !== m.id && (
+                  <Button
+                    size="small"
+                    color="warning"
+                    onClick={() => startHiding(m.id)}
+                    aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
+                  >
+                    Hide
+                  </Button>
+                )}
+              </Box>
+              {moderating && hidingId === m.id && (
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, mb: 0.5 }}>
+                  <TextField
+                    label="Reason for hiding"
+                    size="small"
+                    fullWidth
+                    value={hideReason}
+                    onChange={(e) => setHideReason(e.target.value)}
+                    inputProps={{ maxLength: HIDE_REASON_MAX }}
+                    helperText={`${HIDE_REASON_MIN}-${HIDE_REASON_MAX} characters, kept for review`}
+                  />
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="warning"
+                    disabled={hideReason.trim().length < HIDE_REASON_MIN}
+                    onClick={() => confirmHide(m.id)}
+                  >
+                    Confirm hide
+                  </Button>
+                  <Button size="small" onClick={cancelHiding}>
+                    Cancel
+                  </Button>
+                </Box>
+              )}
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 {new Date(m.created_at).toLocaleTimeString()}
               </Typography>
