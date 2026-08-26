@@ -37,26 +37,33 @@ on:
 permissions:
   contents: read
 
+# Resolved as a pure Actions `${{ }}` expression, substituted straight into
+# `with: ref:` / the concurrency group string - never into a shell `run:`
+# script - so an attacker-controlled workflow_dispatch `inputs.ref` has no
+# shell to inject into. (This repo's own holdout-uptime.yml applies the same
+# principle - keep untrusted input out of `run:` bodies - via env-var
+# indirection instead, since that workflow's `force_fail` input is consumed
+# inside a shell script; this one avoids a shell entirely.)
+#
+# Reused identically for the concurrency group below: `schedule` runs always
+# resolve to `integration`, `workflow_dispatch` resolves to whatever ref was
+# requested, everything else (the `push` trigger) keeps `github.ref`. Without
+# this, a nightly `schedule` run's `github.ref` is the DEFAULT branch (`main`)
+# - the exact same value a `push`-to-`main` run gets - so the two would land
+# in the same concurrency group and a nightly `integration` sweep could queue
+# behind an unrelated release sweep for no reason.
 concurrency:
-  group: sweep-${{ github.ref }}
+  group: sweep-${{ github.event_name == 'schedule' && 'integration' || (github.event_name == 'workflow_dispatch' && inputs.ref || github.ref) }}
   cancel-in-progress: false
 
 jobs:
   test-server-sweep:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve the ref to check out
-        id: resolve-ref
-        run: |
-          case "${{ github.event_name }}" in
-            schedule) echo "ref=integration" >> "$GITHUB_OUTPUT" ;;
-            workflow_dispatch) echo "ref=${{ inputs.ref }}" >> "$GITHUB_OUTPUT" ;;
-            *) echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT" ;;
-          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ steps.resolve-ref.outputs.ref }}
+          ref: ${{ github.event_name == 'schedule' && 'integration' || (github.event_name == 'workflow_dispatch' && inputs.ref || github.ref) }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
