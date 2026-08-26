@@ -219,14 +219,13 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
       return json(route, 200, { viewerTeamId: myTeamId, league: opts.league, teams: [] });
     }
 
-    // League chat (issue #433): since the Draft room brings League chat in over
-    // its own session, mounting the room now fetches chat history and marks it
-    // read on mount (the panel is visible here, not collapsed), and the
-    // Dashboard path also reads the unread count while closed. The socket
-    // itself is faked by window.__ENDZONE_TEST_SOCKET_FACTORY__, so only these
-    // REST calls reach the route layer. An empty conversation is the honest
-    // default: it adds no chat DOM to a Draft test that did not ask for any,
-    // and leaves every existing Draft assertion untouched.
+    // The Draft room reads the combined Chat + Draft-activity feed (#435), then
+    // marks visible Chat read (#433). An empty feed is the honest default: it
+    // adds no feed DOM to a Draft test that did not ask for any and leaves each
+    // existing Draft assertion focused on its own fixture.
+    if (method === 'GET' && path === `/api/league/${opts.league.id}/draft-feed`) {
+      return json(route, 200, []);
+    }
     if (method === 'GET' && path === `/api/league/${opts.league.id}/chat`) {
       return json(route, 200, []);
     }

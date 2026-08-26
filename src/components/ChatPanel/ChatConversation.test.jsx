@@ -205,3 +205,45 @@ test('a commissioner sees no Hide control on an already-hidden message', () => {
   expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
   expect(screen.getByText('Message hidden by commissioner')).toBeInTheDocument();
 });
+
+// #435: the combined Draft-room feed renders Draft activity beside chat. A Pick
+// entry (type draft_activity) reads as an event line, not a chat bubble.
+const pickActivity = (overrides = {}) => ({
+  type: 'draft_activity',
+  kind: 'pick',
+  id: 1,
+  seq: 6,
+  teamId: 12,
+  teamName: 'Bulldogs',
+  player: { id: 500, name: 'Pat Mahomes', position: 'QB', nflTeam: 'KC' },
+  round: 2,
+  pickNumber: 15,
+  isAutopick: false,
+  created_at: '2026-01-01T12:05:00Z',
+  ...overrides,
+});
+
+test('renders a Pick as Draft activity with its snapshot facts, attributed by Team', () => {
+  renderWithProviders(<ChatConversation messages={[pickActivity()]} onSend={noop} />);
+
+  const line = screen.getByTestId('draft-activity');
+  expect(line).toHaveTextContent('Bulldogs');
+  expect(line).toHaveTextContent('Pat Mahomes');
+  expect(line).toHaveTextContent('QB');
+  expect(line).toHaveTextContent('KC');
+  expect(line).toHaveTextContent('Round 2');
+  expect(line).toHaveTextContent('Pick 15');
+  // A manual pick carries no AUTO label.
+  expect(screen.queryByText('AUTO')).not.toBeInTheDocument();
+});
+
+test('labels an autopick AUTO', () => {
+  renderWithProviders(<ChatConversation messages={[pickActivity({ isAutopick: true })]} onSend={noop} />);
+  expect(screen.getByText('AUTO')).toBeInTheDocument();
+});
+
+test('a departed Team on a Pick activity reads as a former manager', () => {
+  renderWithProviders(<ChatConversation messages={[pickActivity({ teamName: null })]} onSend={noop} />);
+  expect(screen.getByText('Former manager')).toBeInTheDocument();
+  expect(screen.queryByText('null')).not.toBeInTheDocument();
+});

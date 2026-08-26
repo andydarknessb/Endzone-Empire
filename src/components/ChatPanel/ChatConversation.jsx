@@ -1,6 +1,6 @@
 import React, { useId, useRef, useState } from 'react';
-import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
+import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 
 // A hide reason is required and bounded the same as the server enforces
@@ -13,6 +13,34 @@ const HIDE_REASON_MAX = 500;
 // It names neither the reason nor the moderator - those reach authorized
 // reviewers alone (AC4) and never ride on the feed entry.
 const HIDDEN_TOMBSTONE = 'Message hidden by commissioner';
+
+// One committed Pick as Draft activity in the combined feed (#435). It is NOT
+// drawn as a chat bubble: Draft activity is server-authored, never a manager
+// message (ADR 0012), so it reads as an event line and is attributed by Team
+// without pretending the Team "said" anything. The snapshot shows player,
+// position, NFL team, round and overall Pick number so the event is
+// understandable without leaving the feed; an autopick is labeled AUTO.
+function DraftActivityEntry({ entry }) {
+  const player = entry.player || {};
+  // House style: middot separators, no em-dashes. Null facts are dropped
+  // rather than printed as "null".
+  const meta = [player.position, player.nflTeam, `Round ${entry.round}`, `Pick ${entry.pickNumber}`]
+    .filter((part) => part != null && part !== '')
+    .join(' · ');
+  return (
+    <Box sx={{ mb: 1 }} data-testid="draft-activity">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        <strong>{teamNameLabel(entry.teamName)}</strong> drafted {player.name}
+        {entry.isAutopick && (
+          <Chip label="AUTO" size="small" sx={{ ml: 1 }} />
+        )}
+      </Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        {meta} {'·'} {new Date(entry.created_at).toLocaleTimeString()}
+      </Typography>
+    </Box>
+  );
+}
 
 /**
  * The visible half of League chat: the scrollback and the compose box. It is
@@ -118,61 +146,70 @@ function ChatConversation({
         {messages.length === 0 ? (
           <Typography sx={{ color: 'text.secondary' }}>No messages yet</Typography>
         ) : (
-          messages.map((m) => (
-            <Box key={m.id} sx={{ mb: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                <Typography variant="body2" sx={{ flexGrow: 1 }}>
-                  <strong>{teamNameLabel(m.teamName)}</strong>{' '}
-                  {m.hidden ? (
-                    <em style={{ color: 'inherit', opacity: 0.7 }}>{HIDDEN_TOMBSTONE}</em>
-                  ) : (
-                    m.message
+          // Draft activity (#435) is server-authored and never a manager
+          // message: it renders as an event line and is NEVER hideable (AC6) -
+          // the hide affordance lives only on the chat branch below. Both kinds
+          // share one combined-feed key (feedEntryKey), since chat ids and
+          // Draft-activity ids can collide across the two stores.
+          messages.map((m) =>
+            m.type === 'draft_activity' ? (
+              <DraftActivityEntry key={feedEntryKey(m)} entry={m} />
+            ) : (
+              <Box key={feedEntryKey(m)} sx={{ mb: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                  <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                    <strong>{teamNameLabel(m.teamName)}</strong>{' '}
+                    {m.hidden ? (
+                      <em style={{ color: 'inherit', opacity: 0.7 }}>{HIDDEN_TOMBSTONE}</em>
+                    ) : (
+                      m.message
+                    )}
+                  </Typography>
+                  {/* A commissioner may hide a human message that is not already
+                      hidden. Draft activity takes the branch above and never
+                      reaches here, so nothing on this surface can hide it (AC6). */}
+                  {moderating && !m.hidden && hidingId !== m.id && (
+                    <Button
+                      size="small"
+                      color="warning"
+                      onClick={() => startHiding(m.id)}
+                      aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
+                    >
+                      Hide
+                    </Button>
                   )}
-                </Typography>
-                {/* A commissioner may hide a human message that is not already
-                    hidden. Draft activity is a different feed and is never
-                    rendered here, so nothing on this surface can hide it (AC6). */}
-                {moderating && !m.hidden && hidingId !== m.id && (
-                  <Button
-                    size="small"
-                    color="warning"
-                    onClick={() => startHiding(m.id)}
-                    aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
-                  >
-                    Hide
-                  </Button>
-                )}
-              </Box>
-              {moderating && hidingId === m.id && (
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, mb: 0.5 }}>
-                  <TextField
-                    label="Reason for hiding"
-                    size="small"
-                    fullWidth
-                    value={hideReason}
-                    onChange={(e) => setHideReason(e.target.value)}
-                    inputProps={{ maxLength: HIDE_REASON_MAX }}
-                    helperText={`${HIDE_REASON_MIN}-${HIDE_REASON_MAX} characters, kept for review`}
-                  />
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="warning"
-                    disabled={hideReason.trim().length < HIDE_REASON_MIN}
-                    onClick={() => confirmHide(m.id)}
-                  >
-                    Confirm hide
-                  </Button>
-                  <Button size="small" onClick={cancelHiding}>
-                    Cancel
-                  </Button>
                 </Box>
-              )}
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {new Date(m.created_at).toLocaleTimeString()}
-              </Typography>
-            </Box>
-          ))
+                {moderating && hidingId === m.id && (
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, mb: 0.5 }}>
+                    <TextField
+                      label="Reason for hiding"
+                      size="small"
+                      fullWidth
+                      value={hideReason}
+                      onChange={(e) => setHideReason(e.target.value)}
+                      inputProps={{ maxLength: HIDE_REASON_MAX }}
+                      helperText={`${HIDE_REASON_MIN}-${HIDE_REASON_MAX} characters, kept for review`}
+                    />
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="warning"
+                      disabled={hideReason.trim().length < HIDE_REASON_MIN}
+                      onClick={() => confirmHide(m.id)}
+                    >
+                      Confirm hide
+                    </Button>
+                    <Button size="small" onClick={cancelHiding}>
+                      Cancel
+                    </Button>
+                  </Box>
+                )}
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  {new Date(m.created_at).toLocaleTimeString()}
+                </Typography>
+              </Box>
+            )
+          )
         )}
       </Box>
 

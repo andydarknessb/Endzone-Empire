@@ -250,9 +250,10 @@ class FakeDraftDatabase {
     if (sql.includes('FROM "teams"') && sql.includes('ORDER BY "draft_position"')) {
       return { rows: state.teams.map((team) => ({ ...team })) };
     }
-    if (sql.includes('SELECT "id", "name", "position" FROM "players"')) {
+    if (sql.includes('FROM "players"') && sql.includes('WHERE "id" = $1')) {
       const found = state.players.get(values[0]);
-      return { rows: found ? [{ id: found.id, name: found.name, position: found.position }] : [] };
+      // nfl_team rides along for the Draft-activity snapshot (#435).
+      return { rows: found ? [{ id: found.id, name: found.name, position: found.position, nfl_team: found.nfl_team ?? null }] : [] };
     }
     if (sql.includes('SELECT COUNT(*)::int AS n FROM "team_players"') && !sql.includes('JOIN "players"')) {
       return { rows: [{ n: state.teamPlayers.filter((entry) => entry.teamId === values[0]).length }] };
@@ -280,6 +281,12 @@ class FakeDraftDatabase {
       if (duplicate) throw Object.assign(new Error('unique violation'), { code: '23505' });
       state.draftPicks.push({ leagueId, teamId, playerId, pickNumber });
       return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes('INSERT INTO "draft_activity"')) {
+      // The Pick's Draft activity, appended in the same transaction (#435). The
+      // trigger allocates feed_seq; the fake hands one back on RETURNING.
+      const seq = state.draftPicks.length;
+      return { rows: [{ id: seq, feed_seq: String(seq), created_at: new Date().toISOString() }], rowCount: 1 };
     }
     if (sql.includes('UPDATE "leagues"') && sql.includes('SET "current_pick"')) {
       const [currentPick, draftStatus, leagueId, clockSeconds] = values;

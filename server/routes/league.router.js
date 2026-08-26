@@ -30,7 +30,7 @@ const { isMember, joinLeague } = require('../services/leagueMembership.service')
 const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
-const { listLeagueChatFeed } = require('../services/leagueFeed');
+const { listLeagueChatFeed, listCombinedDraftFeed } = require('../services/leagueFeed');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -702,6 +702,35 @@ router.get('/:id/chat', async (req, res) => {
   } catch (error) {
     console.error('Error fetching chat', error);
     res.status(500).json({ error: 'failed to fetch chat' });
+  }
+});
+
+// GET /api/league/:id/draft-feed — the combined Draft-room feed (#435, ADR
+// 0012): League chat and Draft activity interleaved into one order by the
+// shared per-league `seq`, latest 100 visible entries oldest-first, with
+// `?before=<seq>` paging older. This is the Draft room's feed; the League
+// Dashboard drawer stays chat-only on `/chat`. Members only, same as chat: the
+// combined feed can carry Draft activity a presenter link may see, but League
+// chat rides here too, so a non-member is refused (presenter-safe activity-only
+// exposure is #438, a separate surface). Each entry is a typed feed entry
+// (leagueFeed.combinedEntryOf) carrying its Team-only identity and its `seq`.
+router.get('/:id/draft-feed', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const before = intParam(req.query.before);
+  try {
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
+    const entries = await listCombinedDraftFeed(pool, {
+      leagueId,
+      viewerId: req.user.id,
+      before,
+    });
+    res.json(entries);
+  } catch (error) {
+    console.error('Error fetching draft feed', error);
+    res.status(500).json({ error: 'failed to fetch draft feed' });
   }
 });
 

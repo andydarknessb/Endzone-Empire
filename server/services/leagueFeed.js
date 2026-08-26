@@ -27,6 +27,7 @@ const {
   teamIdentityColumns,
   teamIdentityJoin,
 } = require('./teamIdentity');
+const { activityEntryOf, DRAFT_ACTIVITY } = require('./draftActivity');
 
 /**
  * The typed feed-entry kinds that share one per-league chronology. League chat
@@ -195,6 +196,138 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, limit
   return result.rows.map(feedEntryOf);
 }
 
+/**
+ * Shape one row of the COMBINED feed read by its `source` discriminator. Chat
+ * rows go through feedEntryOf (LEAGUE_CHAT), Draft-activity rows through
+ * activityEntryOf (DRAFT_ACTIVITY). Both read Team identity under the same
+ * frozen TEAM_IDENTITY_FIELDS aliases, so one union can carry either.
+ */
+function combinedEntryOf(row) {
+  return row.source === DRAFT_ACTIVITY ? activityEntryOf(row) : feedEntryOf(row);
+}
+
+/**
+ * The combined Draft-room feed for a league: League chat and Draft activity
+ * interleaved into ONE order by the shared per-league `feed_seq` (#435, ADR
+ * 0012), oldest-first, or the page just older than `before` (a `seq` cursor).
+ *
+ * This is the Draft room's feed. The League Dashboard drawer stays chat-only
+ * (listLeagueChatFeed); ADR 0012 keeps the two records apart and presents them
+ * together only here.
+ *
+ * Ordering is by `feed_seq`, the authoritative chronology both kinds share, so
+ * every client and every reconnecting client reproduces the same interleaving
+ * (#435 AC4) - not by `created_at`, which cannot tie-break a chat message and a
+ * Pick committed in the same instant. That the two kinds never hold the SAME
+ * `feed_seq` in a league is produced by the shared counter (both allocate under
+ * its row lock), not enforced across the two tables - each has only its own
+ * per-table unique index. Enforcing it across records is tracked as #471; it
+ * becomes reachable only when a writer supplies an explicit position (legacy
+ * backfill, #436), which nothing here does.
+ *
+ * EACH branch is bounded to the page size before the union, not just the union
+ * afterwards: the latest N overall are within the latest N of each branch (a
+ * row with N-1 entries above it overall has at most N-1 above it in its own
+ * table), so `(chat DESC LIMIT n) UNION ALL (activity DESC LIMIT n)` then a
+ * final `DESC LIMIT n` returns the same page without materializing a whole
+ * league's chat and Picks first - each arm is an index-only walk of the unique
+ * `(league_id, feed_seq)` index. The outermost `ORDER BY feed_seq ASC` gives the
+ * oldest-first display order, matching listLeagueChatFeed's idiom.
+ *
+ * The block predicate applies to CHAT ONLY: a blocked manager's messages are
+ * hidden (the same predicate the unread badge and the chat feed use), but their
+ * authoritative Draft activity stays visible, because blocking must never hide
+ * shared Draft state (CONTEXT.md; ADR 0012; spec user story 83).
+ *
+ * Commissioner moderation is CHAT ONLY for the same reason (#441, AC6): the chat
+ * arm projects `hidden_at` so a hidden message reads back here as the same
+ * neutral tombstone the chat-only feed produces (combinedEntryOf -> feedEntryOf),
+ * while the Draft-activity arm carries a NULL `hidden_at` placeholder and routes
+ * to activityEntryOf - a Pick is never moderatable and never a tombstone.
+ */
+async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, limit = FEED_PAGE_SIZE } = {}) {
+  const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
+  const cursor = Number.isInteger(before) ? before : null;
+
+  const params = [leagueId, viewerId];
+  let chatCursor = '';
+  let activityCursor = '';
+  if (cursor !== null) {
+    params.push(cursor);
+    const p = `$${params.length}`;
+    chatCursor = `AND "chat_messages"."feed_seq" < ${p}`;
+    activityCursor = `AND "draft_activity"."feed_seq" < ${p}`;
+  }
+  params.push(capped);
+  // One bound parameter, referenced by all three LIMITs (per-branch and outer).
+  const lim = `$${params.length}`;
+
+  // The two branches carry the SAME columns in the SAME order so the UNION is
+  // well-typed; the NULL placeholders are cast so Postgres can resolve each
+  // column's type from either branch. combinedEntryOf then reads only the ones
+  // its kind needs. Each arm is parenthesized so it can carry its own ORDER
+  // BY / LIMIT.
+  const result = await db.query(
+    `SELECT * FROM (
+       SELECT * FROM (
+         (SELECT '${LEAGUE_CHAT}' AS source,
+                 "chat_messages"."id" AS id,
+                 "chat_messages"."feed_seq" AS feed_seq,
+                 "chat_messages"."created_at" AS created_at,
+                 "chat_messages"."message" AS message,
+                 "chat_messages"."hidden_at" AS hidden_at,
+                 ${teamIdentityColumns()},
+                 NULL::text AS kind,
+                 NULL::int AS player_id,
+                 NULL::text AS player_name,
+                 NULL::text AS player_position,
+                 NULL::text AS player_nfl_team,
+                 NULL::int AS round,
+                 NULL::int AS pick_number,
+                 NULL::boolean AS is_autopick
+            FROM "chat_messages"
+            ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
+           WHERE "chat_messages"."league_id" = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM "user_blocks"
+                WHERE "user_blocks"."blocker_id" = $2
+                  AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
+             )
+             ${chatCursor}
+           ORDER BY "chat_messages"."feed_seq" DESC
+           LIMIT ${lim})
+         UNION ALL
+         (SELECT '${DRAFT_ACTIVITY}' AS source,
+                 "draft_activity"."id" AS id,
+                 "draft_activity"."feed_seq" AS feed_seq,
+                 "draft_activity"."created_at" AS created_at,
+                 NULL::text AS message,
+                 NULL::timestamptz AS hidden_at,
+                 "draft_activity"."team_id" AS "teamId",
+                 "draft_activity"."team_name" AS "teamName",
+                 "draft_activity"."kind" AS kind,
+                 "draft_activity"."player_id" AS player_id,
+                 "draft_activity"."player_name" AS player_name,
+                 "draft_activity"."player_position" AS player_position,
+                 "draft_activity"."player_nfl_team" AS player_nfl_team,
+                 "draft_activity"."round" AS round,
+                 "draft_activity"."pick_number" AS pick_number,
+                 "draft_activity"."is_autopick" AS is_autopick
+            FROM "draft_activity"
+           WHERE "draft_activity"."league_id" = $1
+             ${activityCursor}
+           ORDER BY "draft_activity"."feed_seq" DESC
+           LIMIT ${lim})
+       ) merged
+       ORDER BY feed_seq DESC
+       LIMIT ${lim}
+     ) page
+     ORDER BY feed_seq ASC`,
+    params
+  );
+  return result.rows.map(combinedEntryOf);
+}
+
 module.exports = {
   LEAGUE_CHAT,
   BLOCKABLE_FEED_TYPES,
@@ -205,4 +338,6 @@ module.exports = {
   FEED_PAGE_SIZE,
   feedEntryOf,
   listLeagueChatFeed,
+  combinedEntryOf,
+  listCombinedDraftFeed,
 };

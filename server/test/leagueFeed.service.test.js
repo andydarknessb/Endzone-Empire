@@ -9,7 +9,10 @@ const {
   isModeratableFeedType,
   feedEntryOf,
   listLeagueChatFeed,
+  combinedEntryOf,
+  listCombinedDraftFeed,
 } = require('../services/leagueFeed');
+const { DRAFT_ACTIVITY } = require('../services/draftActivity');
 
 // A chat_messages row as the feed SELECT projects it: the Team identity join
 // has already aliased owner -> teamId/teamName, and feed_seq is the row's
@@ -148,6 +151,49 @@ test('listLeagueChatFeed projects hidden_at and keeps hidden rows in place as to
   assert.equal(entries[0].hidden, false);
   assert.equal(entries[1].hidden, true);
   assert.equal(entries[1].message, null);
+});
+
+// The combined Draft-room feed (#435) meets moderation (#441) in one union.
+// combinedEntryOf must tombstone a hidden CHAT row the same way the chat-only
+// feed does, and must never turn Draft activity into a tombstone (AC6).
+test('combinedEntryOf tombstones a hidden chat row and never a Draft-activity row', () => {
+  const chat = combinedEntryOf({
+    source: LEAGUE_CHAT,
+    id: 5, feed_seq: 7, message: 'abuse', created_at: 'x',
+    teamId: 12, teamName: 'Scaries', hidden_at: '2026-09-01T01:00:00.000Z',
+  });
+  assert.equal(chat.type, LEAGUE_CHAT);
+  assert.equal(chat.hidden, true);
+  assert.equal(chat.message, null);
+
+  // A Pick reaches activityEntryOf, which has no `hidden` concept at all: a
+  // Draft event is not moderatable and can never read back as a tombstone.
+  const activity = combinedEntryOf({
+    source: DRAFT_ACTIVITY,
+    id: 9, feed_seq: 8, kind: 'pick', created_at: 'x',
+    teamId: 12, teamName: 'Scaries', player_id: 1, player_name: 'QB1',
+    round: 1, pick_number: 1, is_autopick: false, hidden_at: null,
+  });
+  assert.equal(activity.type, DRAFT_ACTIVITY);
+  assert.equal('hidden' in activity, false, 'Draft activity is never a tombstone');
+});
+
+test('listCombinedDraftFeed projects hidden_at in the CHAT arm only, and blocks chat only', async () => {
+  let seenSql = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text) => { seenSql = text; return { rows: [] }; }],
+  ]);
+  await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9 });
+
+  // The chat arm carries the real hidden_at so a hidden message tombstones here
+  // too; the activity arm carries a NULL placeholder for column alignment.
+  assert.match(seenSql, /"chat_messages"\."hidden_at" AS hidden_at/);
+  assert.match(seenSql, /NULL::timestamptz AS hidden_at/);
+  // The block filter is on the CHAT arm and NOT on the draft_activity arm - a
+  // Pick by a blocked Team stays visible (AC7 / ADR 0012).
+  const activityArm = seenSql.slice(seenSql.indexOf('FROM "draft_activity"'));
+  assert.doesNotMatch(activityArm, /"user_blocks"/, 'the activity arm never filters on blocks');
+  assert.match(seenSql, /NOT EXISTS \(\s*SELECT 1 FROM "user_blocks"/);
 });
 
 test('listLeagueChatFeed pages older than a cursor with feed_seq < before', async () => {
