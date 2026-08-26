@@ -3,18 +3,23 @@
  * season results (#293). The migration is rolled back so fixtures are seeded
  * against the exact pre-import schema, then reapplied and observed only
  * through the immutable result boundary.
+ *
+ * Seeds archived awards and live trophy evidence, then proves precedence,
+ * provenance, co-champions, ambiguity refusal, and conflict-safe reruns:
+ * properties only a real Postgres, with the real uniqueness and outcome
+ * constraints, can enforce.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const ENABLED = process.env.PICKEM_SEASON_RESULT_IMPORT_PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.PICKEM_SEASON_RESULT_IMPORT_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((key) => process.env[key]);
 
 if (!ENABLED) {
-  test('Pick\'em legacy-result import PG tests (skipped: PICKEM_SEASON_RESULT_IMPORT_PG_TESTS not set)', { skip: true }, () => {});
+  test('Pick\'em legacy-result import PG tests (skipped: set PG_TESTS=1 or PICKEM_SEASON_RESULT_IMPORT_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('Pick\'em legacy-result import PG tests refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only see a disposable PG* database`);

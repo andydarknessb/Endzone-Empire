@@ -2,16 +2,21 @@
  * Disposable-PostgreSQL coverage for audited Pick'em result recovery and
  * correction (#294). Refuses every DATABASE_URL* variable so this cannot run
  * against the shared application database.
+ *
+ * Covers the recovery/correction dry-run and apply behaviour, stable retries,
+ * stale refusal, trophy reconciliation, rollback, and the database-enforced
+ * append-only audit evidence: only a real Postgres runs the triggers that make
+ * the audit trail append-only.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const ENABLED = process.env.PICKEM_SEASON_RESULT_OPERATOR_PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.PICKEM_SEASON_RESULT_OPERATOR_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((key) => process.env[key]);
 
 if (!ENABLED) {
-  test('Pick\'em result operator PG tests (skipped: PICKEM_SEASON_RESULT_OPERATOR_PG_TESTS not set)', { skip: true }, () => {});
+  test('Pick\'em result operator PG tests (skipped: set PG_TESTS=1 or PICKEM_SEASON_RESULT_OPERATOR_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('Pick\'em result operator PG tests refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only see a disposable PG* database`);

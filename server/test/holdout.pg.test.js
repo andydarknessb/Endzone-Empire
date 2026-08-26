@@ -9,17 +9,23 @@
  * variable must be ABSENT — connections are built from PG* variables only,
  * so a stray local run can never touch the shared production database
  * (server/knexfile.js loads .env; this file deliberately does not).
+ *
+ * Runs LAST among the pg files (scripts/run-pg-tests.js pins it there): these
+ * tests insert ledger rows that by design cannot be deleted, and the
+ * empty-ledger migrate/rollback/migrate smoke earlier in migration-smoke must
+ * keep passing, so every file that seeds and deletes a far-future season in the
+ * one shared database runs before this one.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const ENABLED = process.env.HOLDOUT_PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.HOLDOUT_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((k) => process.env[k]);
 
 if (!ENABLED) {
-  test('holdout PG tests (skipped: HOLDOUT_PG_TESTS not set — CI migration-smoke runs these)', { skip: true }, () => {});
+  test('holdout PG tests (skipped: set PG_TESTS=1 or HOLDOUT_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('holdout PG tests refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} — these tests must only ever see a disposable PG* database`);
