@@ -7,9 +7,18 @@ export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}/og-brand-gradient.png`;
 
 // Site-wide default, shared with the static shell (public/index.html), which
 // cannot import it: shellMeta.test.jsx asserts the two stay equal (#351).
-// Fantasy-led with pick'em as the second clause (#50 ruling); no em-dashes.
+// Product-first: the fantasy league is named before the pick'em league, and
+// the sentence opens with the product clause (2026-08-25 ruling on #399,
+// follow-up to #50). The pick'em clause reuses the hero's exact middot
+// fragment (LandingPage.jsx) so the two cannot drift; no em-dashes.
 export const DEFAULT_DESCRIPTION =
-  "Fantasy football rankings, player profiles, strategy guides, and NFL game recaps. Run a fantasy league or an NFL pick'em league with no draft and no rosters.";
+  "Run a fantasy football league, or an NFL pick'em league · no draft, no rosters. Free rankings, player profiles, strategy guides, and NFL game recaps.";
+
+// Shell-only title (public/index.html <title>, og:title, twitter:title): a
+// descriptor beyond the bare site name so a search/social snippet says what
+// the product is (2026-08-25 ruling on #399). SITE_NAME is untouched; it
+// still builds the `Page | Endzone Empire` per-route title below (#401).
+export const SHELL_TITLE = "Endzone Empire · Fantasy Football & NFL Pick'em Leagues";
 
 function absoluteUrl(value) {
   if (/^https?:\/\//i.test(String(value || ''))) return value;
