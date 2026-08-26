@@ -103,23 +103,6 @@ function teamIdentityOf(teamRow) {
 }
 
 /**
- * Add Team identity beside whatever an entry already carries. Beside, never
- * instead of: the fields already on `entry` survive untouched.
- *
- * This was the EXPAND-step helper: it put Team identity beside account fields
- * while both had to coexist. With #115 complete (#343 for REST, #344 for the
- * Socket.IO payloads), no league-shared payload carries account identity any
- * more, so nothing in production calls it today - the socket builders that were
- * its last callers now use `teamIdentityOf` directly. It is kept as a generic
- * merge utility (and covered by teamIdentity.test.js); do NOT reach for it to
- * put an account field back beside Team identity on a shared payload, which is
- * exactly what this migration removed.
- */
-function withTeamIdentity(entry, teamRow) {
-  return { ...entry, ...teamIdentityOf(teamRow) };
-}
-
-/**
  * The SELECT fragment that puts Team identity on the wire under its contract
  * names. `alias` is the table alias the `teams` row is joined under.
  *
@@ -189,7 +172,6 @@ function viewerTeamIdOf(teams, userId) {
 module.exports = {
   TEAM_IDENTITY_FIELDS,
   teamIdentityOf,
-  withTeamIdentity,
   teamIdentityColumns,
   teamIdentityJoin,
   lookupTeam,

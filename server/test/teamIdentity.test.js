@@ -3,7 +3,6 @@ const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const {
   teamIdentityOf,
-  withTeamIdentity,
   teamIdentityColumns,
   teamIdentityJoin,
   lookupTeam,
@@ -32,18 +31,6 @@ test('teamIdentityOf answers with nulls when there is no team row', () => {
 test('teamIdentityOf never invents identity from a partial row', () => {
   assert.deepEqual(teamIdentityOf({ id: 11 }), { teamId: 11, teamName: null });
   assert.deepEqual(teamIdentityOf({ name: 'Nameless Id' }), { teamId: null, teamName: 'Nameless Id' });
-});
-
-test('withTeamIdentity adds Team identity beside the fields an entry already carries', () => {
-  const entry = { userId: 5, username: 'eve', message: 'hi' };
-  assert.deepEqual(withTeamIdentity(entry, { id: 11, name: 'Eve Picks' }), {
-    userId: 5,
-    username: 'eve',
-    message: 'hi',
-    teamId: 11,
-    teamName: 'Eve Picks',
-  });
-  assert.deepEqual(entry, { userId: 5, username: 'eve', message: 'hi' }, 'the input entry is not mutated');
 });
 
 test('teamIdentityColumns aliases the wire field names, whatever the table alias is', () => {
