@@ -22,7 +22,7 @@ tooling, carry the measurement:
 | 2 | The same, in a second notes directory | none | 4 of 17 broken, two by a different mechanism than the first |
 | 3 | Three config guard scripts existing and passing | none until #247 | They ran nowhere. Working guards protecting nothing. |
 | 4 | `Closes #N` keywords in PR bodies | none until #330 | Inert for every PR targeting `integration`, because GitHub honours keywords only on the default branch. Issues stayed open with their work merged. |
-| 5 | Release conditions in the fleet's own skip file | none today | Nothing parses them; the Stop hook reads only the key set. One condition was satisfied while its hold had to stand, caught by an audit run for an unrelated reason. |
+| 5 | Release conditions in the fleet's own skip file | none today | Nothing parses them; the Stop hook reads only the key set (fleet repo: `hooks/stop.ps1`, lines 67 and 115). One condition was satisfied while its hold had to stand, caught by an audit run for an unrelated reason. |
 
 Instance 1 is decisive: a rule that fails every single time survived fifty
 repetitions because nothing ever read the output. The finding also predicts
