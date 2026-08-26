@@ -5,8 +5,21 @@ export const SITE_NAME = 'Endzone Empire';
 export const SITE_ORIGIN = 'https://endzoneempire.gg';
 export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}/og-brand-gradient.png`;
 
-const DEFAULT_DESCRIPTION =
-  'Fantasy football rankings, player profiles, strategy guides, and NFL game recaps from Endzone Empire.';
+// Site-wide default, shared with the static shell (public/index.html), which
+// cannot import it: shellMeta.test.jsx asserts the two stay equal (#351).
+// Product-first: the fantasy league is named before the pick'em league, and
+// the sentence opens with the product clause (2026-08-25 ruling on #399,
+// follow-up to #50). The pick'em clause matches the hero's middot fragment
+// (LandingPage.jsx) as of this writing; the two are independent literals,
+// not a shared constant, so keep them in sync by hand. No em-dashes.
+export const DEFAULT_DESCRIPTION =
+  "Run a fantasy football league, or an NFL pick'em league · no draft, no rosters. Free rankings, player profiles, strategy guides, and NFL game recaps.";
+
+// Shell-only title (public/index.html <title>, og:title, twitter:title): a
+// descriptor beyond the bare site name so a search/social snippet says what
+// the product is (2026-08-25 ruling on #399). SITE_NAME is untouched; it
+// still builds the `Page · Endzone Empire` per-route title below (#401).
+export const SHELL_TITLE = "Endzone Empire · Fantasy Football & NFL Pick'em Leagues";
 
 function absoluteUrl(value) {
   if (/^https?:\/\//i.test(String(value || ''))) return value;
@@ -34,7 +47,7 @@ function PublicSeo({
   imageAlt = 'Endzone Empire fantasy football',
   noIndex = false,
 }) {
-  const fullTitle = title.includes(SITE_NAME) ? title : `${title} | ${SITE_NAME}`;
+  const fullTitle = title.includes(SITE_NAME) ? title : `${title} · ${SITE_NAME}`;
   const normalizedDescription = trimDescription(description);
   const canonicalUrl = absoluteUrl(path);
   const imageUrl = absoluteUrl(image);

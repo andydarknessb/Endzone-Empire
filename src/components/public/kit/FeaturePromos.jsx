@@ -23,8 +23,9 @@ export const PROMOS = [
   {
     id: 'pickem',
     Icon: FactCheckIcon,
-    title: "League Pick'em",
-    body: 'Pick NFL winners against your league every week, straight up or with confidence points. Picks lock at kickoff and reveal game by game.',
+    title: "NFL Pick'em",
+    body:
+      "Pick NFL winners every week, straight up or with confidence points. A side game in a fantasy league, or the whole game in a pick'em league. Picks lock at kickoff and reveal game by game.",
     ctaLabel: 'Create a league',
     href: '/#/registration',
   },

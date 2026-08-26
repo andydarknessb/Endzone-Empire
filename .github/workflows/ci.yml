@@ -52,22 +52,17 @@ jobs:
       - run: npm test -- --runInBand
         env:
           CI: "true"
+      # Guard the content-based cross-tree server-test discovery (#234) that
+      # `npm run test:server` relies on, before running it. A step, not a job.
+      # It fails if discovery regresses - e.g. if it silently stops finding a
+      # jest test under src/ that exercises server code - which is exactly the
+      # gap #234 closes: a discovery step that runs zero (or too few) files
+      # while looking authoritative is worse than the hard-coded list it
+      # replaces. The sibling testMatch guard (test:jest-discovery, #171) is
+      # already run in CI by the `guards` job via `npm run guards`, so it is not
+      # repeated here.
+      - run: npm run test:cross-tree-discovery
       - run: npm run test:server
-        env:
-          # The Gate-3 publication (backtest-data/publish/) is committed as of
-          # this workflow, so the clean-clone reconstruction test's
-          # skip-if-absent mode is no longer the right default here - flip it
-          # to a hard failure so a future accidental omission of the
-          # publication tree cannot pass CI silently.
-          BACKTEST_PUBLICATION_REQUIRED: "1"
-      # Split out because six backtest sweep files are ~40 of the suite's 42
-      # minutes; run-backtest-sweep alone is ~35. Same coverage, separate step,
-      # so a failure points at which half broke.
-      # Pushes to integration/main still run it; pull requests skip it so a PR
-      # sees a ~10 minute test-build instead of ~50. Backtest changes on a PR
-      # are covered by backtest-reproduction.yml, which triggers on those paths.
-      - run: npm run test:server:sweep
-        if: github.event_name != 'pull_request'
         env:
           # The Gate-3 publication (backtest-data/publish/) is committed as of
           # this workflow, so the clean-clone reconstruction test's
@@ -88,6 +83,29 @@ jobs:
             build
             sbom.cdx.json
           retention-days: 14
+
+  guards:
+    # #247: three config guards (test:eslint-scoping, test:check-dom-dedupe,
+    # test:jest-discovery) existed only as npm scripts nobody's CI ran. CRA
+    # pins `jest.testMatch` to `src/` (see scripts/jestTestMatch.test.js), and
+    # these guards are `node:test` files anyway, so the client suite in the
+    # test-build job above never reaches them. This job runs all three
+    # through a single aggregating `guards` npm script instead of inlining
+    # each guard's command, so a script renamed out from under this job
+    # fails on "Missing script" (a red job) rather than silently no-op'ing.
+    # No eslint CLI invocation is added here: test:eslint-scoping uses
+    # eslint's config-resolution API on a handful of fixed paths and short
+    # in-memory snippets, not a lint pass over the tree (that gate is
+    # blocked on #246 then #245, tracked separately).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run guards
 
   browser-security:
     runs-on: ubuntu-latest
