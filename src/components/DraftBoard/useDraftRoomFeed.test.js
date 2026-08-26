@@ -137,6 +137,27 @@ test('reconnect resumes AFTER the last held seq and keeps one order (#442)', asy
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/3/draft-feed');
 });
 
+test('reconnect falls back to a full read when more than a page accrued offline (#442)', async () => {
+  apiClient.get.mockResolvedValueOnce({ data: [chatEntry({ id: 1, seq: 6 }), pickEntry({ id: 2, seq: 7 })] });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toHaveLength(2));
+  apiClient.get.mockClear();
+
+  // A full resume page means the gap exceeded one page: snap to the latest
+  // window rather than leaving the newest entries unfetched.
+  const fullPage = Array.from({ length: 100 }, (_, i) => chatEntry({ id: 100 + i, seq: 100 + i }));
+  apiClient.get.mockImplementation((url) =>
+    url.includes('after=')
+      ? Promise.resolve({ data: fullPage })
+      : Promise.resolve({ data: [pickEntry({ id: 900, seq: 900 })] })
+  );
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed?after=7'));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed'));
+  await waitFor(() => expect(result.current.entries.some((e) => e.seq === 900)).toBe(true));
+});
+
 test('takes back both listeners on unmount and never ends the shared session', async () => {
   const { unmount } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
   await waitFor(() => expect(socket.hasHandler('chat:message')).toBe(true));

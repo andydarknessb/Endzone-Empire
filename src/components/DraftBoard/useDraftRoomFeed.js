@@ -132,6 +132,13 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
         .then((res) => {
           const newer = Array.isArray(res?.data) ? res.data : [];
           if (newer.length === 0) return;
+          if (newer.length >= FEED_PAGE) {
+            // More than a page accrued while offline: a single resume page would
+            // leave the newest entries unfetched. Snap to the latest window
+            // instead; the gap behind it is reachable through loadOlder.
+            fetchHistory();
+            return;
+          }
           setEntries((prev) => newer.reduce((acc, entry) => mergeEntry(acc, entry), prev));
           // The draft room shows chat live; a resumed human message keeps the
           // unread badge honest, the same as a live arrival.

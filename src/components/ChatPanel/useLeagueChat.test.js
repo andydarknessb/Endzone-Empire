@@ -365,6 +365,34 @@ test('reconnect resumes AFTER the last acknowledged seq and preserves order (#44
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1/chat');
 });
 
+test('reconnect falls back to a full read when more than a page accrued offline (#442)', async () => {
+  // A resume page that comes back FULL means the offline gap exceeded one page;
+  // appending it would leave the newest entries unfetched. The hook must snap to
+  // the latest window instead so the freshest entries are shown (the gap behind
+  // is reachable through loadOlder), never silently drop the tail.
+  const fullAfter = Array.from({ length: 100 }, (_, i) => feedEntry({ id: 100 + i, seq: 100 + i }));
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('after=')) return Promise.resolve({ data: fullAfter });
+    return Promise.resolve({ data: [feedEntry({ id: 6, seq: 6 }), feedEntry({ id: 7, seq: 7 })] });
+  });
+  const { result } = render({ open: false });
+  await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+  apiClient.get.mockClear();
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('after=')) return Promise.resolve({ data: fullAfter });
+    return Promise.resolve({ data: [feedEntry({ id: 500, seq: 500, message: 'latest window' })] });
+  });
+
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?after=7'));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
+  await waitFor(() => expect(result.current.messages.some((m) => m.message === 'latest window')).toBe(true));
+});
+
 test('reconnect falls back to a full history read when nothing is held (#442)', async () => {
   // No cursor to resume from yet (empty feed) means the reconnect must load the
   // latest page outright, the behaviour the first-load path already relies on.

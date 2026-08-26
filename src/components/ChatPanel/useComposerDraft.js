@@ -21,6 +21,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
  * keeps nothing between mounts. Every storage access is guarded because a
  * private-mode or storage-disabled browser makes it throw, and a composer that
  * cannot save a draft must still let the manager type and send.
+ *
+ * Text is all the composer holds today: emoji are inline Unicode, so they ride
+ * the preserved string for free (#442 AC5), and GIF is release-gated and
+ * disabled (#429), so there is no selected-GIF state to keep yet. When an
+ * approved GIF integration ships, the stored record ({ acct, text }) gains a
+ * `gif` field beside the text; the account stamp and clear-on-send/logout/
+ * account-change rules carry over unchanged.
  */
 const KEY_PREFIX = 'endzone:composerDraft:';
 

@@ -269,22 +269,31 @@ test('the feed auto-follows a new entry while the reader is already at the botto
   expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
 });
 
-test('loading older entries does not disturb position or raise an N-new affordance', () => {
+test('loading older entries holds the reader position by absorbing the added height, and raises no N-new affordance', () => {
   renderWithProviders(
     <LiveFeed initial={[seqMsg({ id: 2, seq: 2, message: 'second' }), seqMsg({ id: 3, seq: 3, message: 'third' })]} />
   );
   const box = screen.getByTestId('chat-scroll');
-  atTop(box);
+  // Reading partway up the backlog: a mutable scrollHeight lets the prepend
+  // "grow" the content above the viewport the way a real older page would.
+  let height = 1000;
+  Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => height });
+  Object.defineProperty(box, 'clientHeight', { configurable: true, get: () => 300 });
+  box.scrollTop = 120;
   fireEvent.scroll(box);
 
-  // An older page is prepended at the head (lower seq), the shape loadOlder produces.
+  // An older page is prepended at the head (lower seq), the shape loadOlder
+  // produces, adding 300px of content above the reader.
+  height = 1300;
   setFeed([
     seqMsg({ id: 1, seq: 1, message: 'zeroth' }),
     seqMsg({ id: 2, seq: 2, message: 'second' }),
     seqMsg({ id: 3, seq: 3, message: 'third' }),
   ]);
 
-  expect(box.scrollTop).toBe(0);
+  // The reader's content stays put: scrollTop advanced by exactly what was added.
+  expect(box.scrollTop).toBe(420);
+  // Nothing arrived at the bottom, so no catch-up affordance.
   expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
 });
 

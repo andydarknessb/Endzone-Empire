@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState, useEffect, useCallback } from 'react';
+import React, { useId, useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
@@ -107,6 +107,11 @@ function ChatConversation({
   const atBottomRef = useRef(true);
   const seenKeyRef = useRef(null);
   const didAnchorRef = useRef(false);
+  // The scroll height and head entry as they were before the latest feed change,
+  // so a prepend (Load older) can be told from an append and the reader's place
+  // held across it (#442 AC2).
+  const prevScrollHeightRef = useRef(0);
+  const prevFirstKeyRef = useRef(null);
   const [newCount, setNewCount] = useState(0);
 
   const lastKey = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
@@ -138,10 +143,31 @@ function ChatConversation({
     // Within a small threshold of the end still counts as at the bottom.
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
     atBottomRef.current = atBottom;
+    // Keep the pre-change height fresh from the reader's latest scroll, so a
+    // prepend that follows can measure exactly how much was added above.
+    prevScrollHeightRef.current = el.scrollHeight;
     if (atBottom) {
       seenKeyRef.current = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
       setNewCount(0);
     }
+  }, [messages]);
+
+  // Hold the reader's place across a prepend (Load older, #442 AC2). Older
+  // entries added at the HEAD grow the content above the viewport, which would
+  // shove the reader's content down; before the browser paints, absorb exactly
+  // the added height into scrollTop so what they were reading stays put. Runs in
+  // a layout effect so the adjustment lands in the same frame as the new rows.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const firstKey = messages.length ? feedEntryKey(messages[0]) : null;
+    const prepended = prevFirstKeyRef.current != null && firstKey !== prevFirstKeyRef.current;
+    if (prepended && !atBottomRef.current) {
+      const added = el.scrollHeight - prevScrollHeightRef.current;
+      if (added > 0) el.scrollTop += added;
+    }
+    prevFirstKeyRef.current = firstKey;
+    prevScrollHeightRef.current = el.scrollHeight;
   }, [messages]);
 
   // Anchor to the newest entry once, when the first entries land.

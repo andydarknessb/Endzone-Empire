@@ -129,37 +129,21 @@ function feedEntryOf(row) {
  */
 async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
+  // One query, two directions - the same parameterization the sibling
+  // listCombinedDraftFeed uses. `after` resumes forward (feed_seq > cursor),
+  // walking the oldest page after it, already ascending; the default/`before`
+  // window takes the newest page (feed_seq < cursor) descending then flips to
+  // ascending display order. `after` takes precedence; a caller pages one way.
   const resumeFrom = Number.isInteger(after) ? after : null;
-
-  if (resumeFrom !== null) {
-    const params = [leagueId, viewerId, resumeFrom, capped];
-    const result = await db.query(
-      `SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-              "chat_messages"."feed_seq",
-              ${teamIdentityColumns()}
-       FROM "chat_messages"
-       ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
-       WHERE "chat_messages"."league_id" = $1
-         AND NOT EXISTS (
-           SELECT 1 FROM "user_blocks"
-           WHERE "user_blocks"."blocker_id" = $2
-             AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
-         )
-         AND "chat_messages"."feed_seq" > $3
-       ORDER BY "chat_messages"."feed_seq" ASC
-       LIMIT $4`,
-      params
-    );
-    return result.rows.map(feedEntryOf);
-  }
-
-  const cursor = Number.isInteger(before) ? before : null;
+  const cursor = resumeFrom !== null ? resumeFrom : (Number.isInteger(before) ? before : null);
+  const cmp = resumeFrom !== null ? '>' : '<';
+  const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
   const params = [leagueId, viewerId];
   let cursorClause = '';
   if (cursor !== null) {
     params.push(cursor);
-    cursorClause = `AND "chat_messages"."feed_seq" < $${params.length}`;
+    cursorClause = `AND "chat_messages"."feed_seq" ${cmp} $${params.length}`;
   }
   params.push(capped);
   const limitClause = `LIMIT $${params.length}`;
@@ -178,7 +162,7 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after
              AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
          )
          ${cursorClause}
-       ORDER BY "chat_messages"."feed_seq" DESC
+       ORDER BY "chat_messages"."feed_seq" ${windowOrder}
        ${limitClause}
      ) recent ORDER BY "feed_seq" ASC`,
     params
@@ -240,8 +224,9 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
   const resumeFrom = Number.isInteger(after) ? after : null;
   const cursor = resumeFrom !== null ? resumeFrom : (Number.isInteger(before) ? before : null);
   const cmp = resumeFrom !== null ? '>' : '<';
-  const armOrder = resumeFrom !== null ? 'ASC' : 'DESC';
-  const mergeOrder = resumeFrom !== null ? 'ASC' : 'DESC';
+  // Both union arms and the merge share one direction: resume walks forward
+  // ascending, the default/before window takes the newest page descending.
+  const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
   const params = [leagueId, viewerId];
   let chatCursor = '';
@@ -287,7 +272,7 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                   AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
              )
              ${chatCursor}
-           ORDER BY "chat_messages"."feed_seq" ${armOrder}
+           ORDER BY "chat_messages"."feed_seq" ${windowOrder}
            LIMIT ${lim})
          UNION ALL
          (SELECT '${DRAFT_ACTIVITY}' AS source,
@@ -308,10 +293,10 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
             FROM "draft_activity"
            WHERE "draft_activity"."league_id" = $1
              ${activityCursor}
-           ORDER BY "draft_activity"."feed_seq" ${armOrder}
+           ORDER BY "draft_activity"."feed_seq" ${windowOrder}
            LIMIT ${lim})
        ) merged
-       ORDER BY feed_seq ${mergeOrder}
+       ORDER BY feed_seq ${windowOrder}
        LIMIT ${lim}
      ) page
      ORDER BY feed_seq ASC`,

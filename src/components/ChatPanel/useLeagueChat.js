@@ -182,6 +182,13 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
           .then((res) => {
             const newer = Array.isArray(res?.data) ? res.data : [];
             if (newer.length === 0) return;
+            if (newer.length >= CHAT_PAGE) {
+              // More than a page accrued while offline: a single resume page
+              // would leave the newest entries unfetched. Snap to the latest
+              // window instead; the gap behind it is reachable through loadOlder.
+              fetchHistory();
+              return;
+            }
             setMessages((prev) => {
               const known = new Set(prev.map((m) => m.id));
               const fresh = newer.filter((m) => !known.has(m.id));
