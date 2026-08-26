@@ -2,6 +2,7 @@ import React, { useId, useRef, useState, useEffect, useCallback } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
+import useComposerDraft from './useComposerDraft';
 
 // One committed Pick as Draft activity in the combined feed (#435). It is NOT
 // drawn as a chat bubble: Draft activity is server-authored, never a manager
@@ -49,9 +50,24 @@ function DraftActivityEntry({ entry }) {
  * avoid. It is a level-2 heading in a named region, matching every other panel
  * in the surfaces this appears in, so it slots into their heading order without
  * skipping a level.
+ *
+ * `leagueId` and `viewerUserId` are the composer-draft scope (#442 AC5/AC6):
+ * unsent text is preserved per league for the browser session and cleared on
+ * send, logout or account change. They are handed in (never read from a store
+ * here) so this component stays purely prop-driven; the container that owns the
+ * league room supplies them. With neither, the composer still works, it just
+ * keeps no draft between mounts.
  */
-function ChatConversation({ messages = [], error = null, onSend, hasMore = false, onLoadOlder = null }) {
-  const [text, setText] = useState('');
+function ChatConversation({
+  messages = [],
+  error = null,
+  onSend,
+  hasMore = false,
+  onLoadOlder = null,
+  leagueId = null,
+  viewerUserId = null,
+}) {
+  const [text, setText, clearDraft] = useComposerDraft({ leagueId, userId: viewerUserId });
   const headingId = useId();
 
   // The idempotency key for the message being composed (#440). It is stable for
@@ -71,9 +87,10 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
     }
     const ok = await onSend(trimmed, sendKeyRef.current.key);
     // Clear only on success, so a rejected message stays in the box to retry
-    // (under the same key). A cleared box starts the next message fresh.
+    // (under the same key). A cleared box starts the next message fresh and
+    // discards the preserved draft (#442 AC6).
     if (ok) {
-      setText('');
+      clearDraft();
       sendKeyRef.current = { text: null, key: null };
     }
   };

@@ -28,6 +28,9 @@ const message = (overrides = {}) => ({
 
 const noop = () => Promise.resolve(true);
 
+// Composer drafts live in sessionStorage; reset it so each test starts clean.
+afterEach(() => window.sessionStorage.clear());
+
 test('renders each message attributed to its Team, never its account', () => {
   renderWithProviders(
     <ChatConversation messages={[message({ message: 'hi', username: 'alice', teamName: 'Anvils' })]} onSend={noop} />
@@ -283,4 +286,72 @@ test('loading older entries does not disturb position or raise an N-new affordan
 
   expect(box.scrollTop).toBe(0);
   expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
+});
+
+// #442 AC5/AC6: unsent composer text is preserved per league for the current
+// browser session, and cleared on a successful send, logout or account change.
+test('preserves unsent text per league for the browser session, and restores it', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'half a thought');
+
+  // The draft is held for this league, keyed so another league cannot read it.
+  unmount();
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('half a thought');
+});
+
+test('a draft does not leak into a different league', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'league five only');
+  unmount();
+
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={6} viewerUserId={7} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+});
+
+test('a successful send clears the preserved draft', async () => {
+  const onSend = jest.fn().mockResolvedValue(true);
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={onSend} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'ship it');
+  await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(''));
+
+  // Nothing is left in the session to restore on the next visit.
+  unmount();
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+});
+
+test('logging out clears the preserved draft', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'private thought');
+  unmount();
+
+  // Logged out: no account. The draft must not survive to the logged-out view...
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={null} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+
+  // ...nor be waiting for whoever logs in next.
+  unmount();
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={8} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+});
+
+test('a different account does not inherit the previous account\'s draft', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'account seven note');
+  unmount();
+
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={8} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
 });
