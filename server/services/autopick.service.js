@@ -5,6 +5,7 @@ const pool = require('../modules/pool');
 const draftService = require('./draft.service');
 const { teamForPick } = require('./draftOrder.service');
 const { getIo } = require('../modules/io');
+const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 
@@ -92,11 +93,10 @@ async function autoPick({ leagueId }) {
         io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: true });
         if (outcome.draftComplete) {
           // An autopick can be the Pick that ends the draft; its completion
-          // lifecycle entry (#437) rides to the combined feed on draft:activity,
-          // exactly as the manual-pick handler delivers it.
-          if (outcome.completion) {
-            io.to(`league:${leagueId}`).emit('draft:activity', outcome.completion);
-          }
+          // lifecycle entry (#437) rides to the combined feed on draft:activity
+          // through the one shared helper (null-safe), exactly as the manual-pick
+          // handler delivers it.
+          broadcastDraftActivity(leagueId, outcome.completion);
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
       }
