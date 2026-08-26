@@ -238,7 +238,7 @@ function DraftBoard() {
     // and answered on the per-viewer join acknowledgement (#178; the hook's
     // header has the rest of the why). Read it ALONE: the old
     // `league.owner_id === user.id` fallback beside it is deliberately gone,
-    // because #115 takes `owner_id` off this snapshot and a fallback
+    // because #115 took `owner_id` off this snapshot (#344) and a fallback
     // comparing against an absent field just goes quiet - every viewer, the
     // owner included, would lose the controls with nothing failing to say so.
     isCommissioner,
