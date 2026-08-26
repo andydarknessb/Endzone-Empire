@@ -136,6 +136,12 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
             // pick landing, only that the request was accepted.
             if (typeof ack === 'function') ack({});
           }
+          if (event === 'chat:send') {
+            // The composer clears only on a successful ack (#442/#443). The
+            // harness accepts the send so that clear-on-send is observable; it
+            // does not broadcast the message back (no live feed is simulated).
+            if (typeof ack === 'function') ack({});
+          }
         },
         disconnect() {},
         io: {
