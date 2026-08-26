@@ -73,10 +73,13 @@ test('compareAdr: replacing the Status: line with something that is not a Status
 });
 
 test('compareAdr: inserting a line between existing lines is a violation (append-only means at the end)', () => {
+  // The blank line after the heading still matches base line 8, so the first
+  // divergence is base line 9, where the inserted text sits in the head.
   const head = BASE.replace('## Why\n', '## Why\n\nInserted context.\n');
   const result = compareAdr(BASE, head);
   assert.equal(result.ok, false);
-  assert.equal(result.line, 8);
+  assert.equal(result.line, 9);
+  assert.match(result.reason, /Inserted context/);
 });
 
 test('compareAdr: removing lines from the end is a violation', () => {
