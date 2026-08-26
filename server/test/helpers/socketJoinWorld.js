@@ -81,8 +81,12 @@ function leagueWorld({ coCommissioners = [] } = {}) {
 
   return createFakePool([
     // OVERRIDE FIRST: the draft-state teams read, which `select('teams')`
-    // below would otherwise swallow.
-    [/FROM "teams" JOIN "users"/,
+    // below would otherwise swallow. #344 dropped the `JOIN "users"` this used
+    // to key on, so it now keys on the snapshot's own projection
+    // (`draft_position` + `autodraft`), which lookupTeam's `SELECT "id","name"`
+    // does not carry. The rows mirror the narrowed SELECT: Team identity and
+    // draft columns, no owner_id / owner.
+    [/"teams"\."draft_position", "teams"\."autodraft"/,
       (text, [leagueId]) => ({
         rows: leagueId === LEAGUE_ID
           ? MANAGERS.map((m, index) => ({
@@ -91,10 +95,8 @@ function leagueWorld({ coCommissioners = [] } = {}) {
             draft_position: index + 1,
             autodraft: false,
             draft_ready: false,
-            owner_id: m.userId,
             teamId: m.teamId,
             teamName: m.teamName,
-            owner: m.username,
           }))
           : [],
       })],

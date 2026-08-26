@@ -43,9 +43,10 @@ function reducer(state, action) {
     case 'picked': {
       const { data } = action;
       // A Pick is attributed by Team (#113, contract #112): `teamId` and
-      // `teamName` come straight off the broadcast, and `by` - which carried
-      // the picking manager's account id and username - is reduced to the one
-      // thing about it that is not account identity, the autopick flag.
+      // `teamName` come straight off the broadcast. The account `by` object
+      // (the picking manager's id and username) is gone from the wire (#344,
+      // #115 child C); the one non-account fact it used to carry, the autopick
+      // flag, now rides at the root of the broadcast as `auto`.
       const pick = {
         pick_number: data.pickNumber,
         teamId: data.teamId,
@@ -54,7 +55,7 @@ function reducer(state, action) {
         name: data.player.name,
         position: data.player.position,
         nfl_team: data.player.nfl_team,
-        auto: !!data.by?.auto,
+        auto: !!data.auto,
       };
       const nextOnTheClock = data.nextTeamId
         ? state.teams.find((t) => t.teamId === data.nextTeamId) || null

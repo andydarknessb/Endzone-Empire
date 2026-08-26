@@ -28,34 +28,18 @@ const lineupService = require('../services/lineup.service');
  * Team identity BESIDE those account fields in the EXPAND step (#112); the
  * account fields are removed from the socket payloads by:
  *
- *   #344 (child C) — the Draft / chat Socket.IO payloads pinned here.
+ *   #344 (child C) — the Draft / chat Socket.IO payloads pinned here. DONE:
+ *                    every guard below is a LIVE assertion of the post-removal
+ *                    shape.
  *
- * Before this file no test in `server/test` pinned the exact key set of any
- * socket payload (`teamIdentityContracts.test.js` asserts individual fields on
- * them, never the whole shape), so a removal could land with nothing proving
- * the field was gone and nothing catching it come back — the ordering
- * constraint #334 was split around.
- *
- * THE PAIR CHOREOGRAPHY (identical to the REST module's, read its header for
- * the full argument). Each payload that still carries an account field has a
- * PAIR of guards, and the pair is the mechanism:
- *
- *   1. A `todo` guard that asserts the key set the payload will carry AFTER
- *      #344. It fails today (the account field is still there), so it is
- *      marked `todo` naming #344: `node --test` runs it, prints the red diff,
- *      and still exits 0. #344 turns it into a live guard by deleting the
- *      `todo` marker.
- *
- *   2. A NORMAL (non-todo) guard that asserts the account field is STILL
- *      PRESENT today. This is the loud half. A `todo` guard alone can go inert
- *      silently: a failing todo and a passing todo both roll into "todo N,
- *      exit 0", so if #344 removed the field and FORGOT its marker, CI would
- *      stay green. The present-today guard closes that: the moment #344 removes
- *      the field this guard goes RED (a real failure, not a todo), which drags
- *      the author into THIS file to flip the paired todo.
- *
- * `joinAck` is already Team-only, so it ships as a SINGLE live guard (no todo,
- * no present-today pair): it pins that win against the sibling removal.
+ * How this file came to be live: #381 shipped each socket guard as a PAIR — a
+ * `todo` guard asserting the post-#344 key set (red, exit 0) and a NORMAL guard
+ * asserting the account field was STILL PRESENT (so a removal that forgot to
+ * flip the todo would go loudly red instead of silently inert, the way a bare
+ * `todo` can). #344 removed each field, deleted its present-today guard, and
+ * turned its `todo` guard into the live exact-key-set assertion you see below.
+ * `joinAck` was already Team-only, so it shipped as a single live guard with no
+ * pair. The pairs are spent; what remains is the standing contract.
  *
  * THE BROADCAST-vs-ACK CHANNEL RULE (the teamIdentity module docstring). A
  * broadcast reaches the whole league room, so `viewerTeamId` and
@@ -64,33 +48,33 @@ const lineupService = require('../services/lineup.service');
  * per-viewer `joinAck`. So every broadcast here is guarded to FORBID both, and
  * the ack is guarded to REQUIRE both.
  *
- * TWO CAVEATS this file narrows itself on:
+ * TWO THINGS this file narrows itself on:
  *
  *   - getDraftState returns its `teams` rows VERBATIM from the SELECT (no
  *     serializer allowlist narrows them), so an exact-key-set guard driven by a
- *     fixture can only ever describe the fixture. Its present-today guard is
- *     therefore pinned to the SQL TEXT (that the projection still selects
- *     `owner_id` and `AS "owner"`), not only to the fixture row — so #344
- *     narrowing the SELECT turns the loud guard red for real. When #344 narrows
- *     it, update the fixture row here to mirror the narrowed SELECT so the
- *     flipped todo describes the true shape. (chat REST history is the same
- *     verbatim case in the REST module.)
+ *     fixture can only ever describe the fixture. The account fields left the
+ *     PROJECTION, so the live guard here also asserts the SQL TEXT no longer
+ *     selects `owner_id` or `AS "owner"` (and no longer joins `users`), which
+ *     is what actually keeps the removal in place; the fixture row mirrors the
+ *     narrowed SELECT so the exact-key guard describes the true shape. (chat
+ *     REST history is the same verbatim case in the REST module.)
  *
- *   - `draft:picked` has NO builder: it is assembled inline at TWO emit sites
- *     with DIFFERENT `by` shapes, and BOTH are pinned here so #344 cannot flip
- *     one and leave the other broadcasting an account id to the room:
- *       * the pick handler's `by: { userId, username }` (captured off the real
- *         room emitter through the socket harness); and
- *       * autopick.service's `by: { userId, username: 'AUTO', auto: true }`
- *         (captured off a fake `io` singleton, since autopick emits through
- *         getIo()). `username` there is a literal, but `by.userId` is
- *         `onTheClock.owner_id`, a real account id.
- *     Both pins assume #344 DROPS `by` (the picker is already named at the root
- *     by Team via `teamId` / `teamName`, so `by` is redundant account identity),
- *     so both share PICKED_ROOT_CLEAN. If #344 instead keeps a Team-only `by`,
- *     add `by` back to PICKED_ROOT_CLEAN and pin each `picked.by` to
- *     TEAM_IDENTITY_FIELDS, in lockstep across both sites. Extracting a
- *     `draft:picked` builder is #344's call, not this ticket's.
+ *   - `draft:picked` has NO builder: it is assembled inline at TWO emit sites,
+ *     and BOTH are pinned here so a re-added account id at either site goes red:
+ *       * the pick handler (captured off the real room emitter through the
+ *         socket harness); and
+ *       * autopick.service (captured off a fake `io` singleton, since autopick
+ *         emits through getIo()).
+ *     #344 DROPPED the old `by` account object at both (the picker is already
+ *     named at the root by Team via `teamId` / `teamName`, so `by` was
+ *     redundant account identity) and, in its place, put a single non-identity
+ *     field the room still needs — `auto`, whether the pick was an autopick —
+ *     at the root of both. So both share PICKED_ROOT_CLEAN, which carries
+ *     `auto` (false at the pick handler, true at autopick) and no `by`. A
+ *     builder was considered and rejected: the only cheap way to share it from
+ *     autopick is a lazy require of this heavy module inside the emit path,
+ *     which the autopick latency budget (draftAutopickClock.integration) does
+ *     not allow. This shared key set is what keeps the two sites in lockstep.
  */
 
 const [TEAM_ID, TEAM_NAME] = TEAM_IDENTITY_FIELDS; // 'teamId', 'teamName'
@@ -106,14 +90,7 @@ const VIEWER_RELATIVE = ['viewerTeamId', 'isCommissioner'];
 const assertExactKeys = (obj, cleanKeys) =>
   assert.deepEqual(Object.keys(obj).sort(), [...cleanKeys].sort());
 
-/** The present-today assertion: the account field(s) #344 removes are here NOW. */
-function assertStillPresent(obj, fields) {
-  for (const field of fields) {
-    assert.equal(field in obj, true, `${field} is still on the wire today; #344 removing it must turn this guard red`);
-  }
-}
-
-/** A key that must never appear on this payload (today or after #344). */
+/** A key that must never appear on this payload. */
 function assertForbidden(obj, fields) {
   for (const field of fields) {
     assert.equal(field in obj, false, `${field} must not appear on this payload`);
@@ -121,27 +98,26 @@ function assertForbidden(obj, fields) {
 }
 
 // ============================================================ draft:presence
-// presencePayload(user, team) -> { userId, username, teamId, teamName, joined }
+// presencePayload(user, team) -> { teamId, teamName, joined }
+// (the `user` argument is no longer read; the signature is kept, see the module)
 
 const presence = () => presencePayload(
   { id: VIEWER.userId, username: VIEWER.username },
   { id: VIEWER.teamId, name: VIEWER.teamName }
 );
 const PRESENCE_CLEAN = [TEAM_ID, TEAM_NAME, 'joined'];
-const PRESENCE_ACCOUNT = ['userId', 'username'];
 
-test('draft:presence STILL carries userId / username today, and never a viewer-relative field', () => {
-  assertStillPresent(presence(), PRESENCE_ACCOUNT);
+test('draft:presence never carries a viewer-relative field', () => {
   assertForbidden(presence(), VIEWER_RELATIVE);
 });
 
-test('draft:presence is the joining manager\'s Team and nothing about their account', { todo: '#344 removes draft:presence userId / username' }, () => {
+test('draft:presence is the joining manager\'s Team and nothing about their account', () => {
   assertExactKeys(presence(), PRESENCE_CLEAN);
 });
 
 // =============================================================== chat:message
 // chatMessagePayload(...) ->
-//   { id, leagueId, userId, username, teamId, teamName, message, created_at }
+//   { id, leagueId, teamId, teamName, message, created_at }
 
 const chat = () => chatMessagePayload({
   id: 5,
@@ -152,17 +128,15 @@ const chat = () => chatMessagePayload({
   createdAt: '2026-09-01T00:00:00.000Z',
 });
 const CHAT_CLEAN = ['created_at', 'id', 'leagueId', 'message', TEAM_ID, TEAM_NAME];
-const CHAT_ACCOUNT = ['userId', 'username'];
-// `user_id` is the raw chat_messages column; it is mapped to `userId` today and
-// must never leak onto the broadcast in either spelling.
-const CHAT_FORBIDDEN_ALWAYS = ['user_id', ...VIEWER_RELATIVE];
+// `user_id` is the raw chat_messages column; it must never leak onto the
+// broadcast in either the raw or the `userId` spelling.
+const CHAT_FORBIDDEN_ALWAYS = ['user_id', 'userId', 'username', ...VIEWER_RELATIVE];
 
-test('chat:message STILL carries userId / username today, and never user_id or a viewer-relative field', () => {
-  assertStillPresent(chat(), CHAT_ACCOUNT);
+test('chat:message never carries user_id or a viewer-relative field', () => {
   assertForbidden(chat(), CHAT_FORBIDDEN_ALWAYS);
 });
 
-test('chat:message is the message attributed by Team, not by the author account', { todo: '#344 removes chat:message userId / username' }, () => {
+test('chat:message is the message attributed by Team, not by the author account', () => {
   assertExactKeys(chat(), CHAT_CLEAN);
 });
 
@@ -243,22 +217,20 @@ async function capturePicked(t) {
 }
 
 // draftPlayer's outcome is `{ leagueId, teamId, teamName, player, pickNumber,
-// nextTeamId, draftComplete, pickDeadlineAt }`; the handler adds `by`.
+// nextTeamId, draftComplete, pickDeadlineAt }`. #344 dropped the account `by`
+// object (the picker is already named at the root by Team) and, in its place,
+// added a single non-identity fact the room still needs: `auto`, whether the
+// pick was made by autodraft. Both emit sites carry it (false at the pick
+// handler, true at autopick), so both share this key set.
 const PICKED_ROOT_CLEAN = [
-  'draftComplete', 'leagueId', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
+  'auto', 'draftComplete', 'leagueId', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
 ];
 
-test('draft:picked STILL carries a by:{userId,username} account object today, and no viewer-relative field', async (t) => {
+test('draft:picked names the picker by Team at the root, with no by account object and no viewer-relative field', async (t) => {
   const picked = await capturePicked(t);
-  assert.equal('by' in picked, true, 'draft:picked still carries a by object today');
-  assertStillPresent(picked.by, ['userId', 'username']);
-  assert.equal(picked.by.userId, VIEWER.userId);
-  assert.equal(picked.by.username, VIEWER.username);
-  assertForbidden(picked, VIEWER_RELATIVE);
-});
-
-test('draft:picked names the picker by Team at the root, with no by account object', { todo: '#344 removes draft:picked by:{userId,username} (the picker is already named at the root by Team via teamId/teamName). If #344 keeps a Team-only by instead, add by to PICKED_ROOT_CLEAN and pin picked.by to TEAM_IDENTITY_FIELDS.' }, async (t) => {
-  assertExactKeys(await capturePicked(t), PICKED_ROOT_CLEAN);
+  assert.equal('by' in picked, false, 'the account by object is gone from the broadcast');
+  assertExactKeys(picked, PICKED_ROOT_CLEAN);
+  assert.equal(picked.auto, false, 'a manual pick is not an autopick');
 });
 
 // The SECOND draft:picked emit site (autopick.service.js), pinned so #344
@@ -291,18 +263,14 @@ async function captureAutopickPicked(t) {
   return picked.payload;
 }
 
-test('draft:picked (autopick emit site) STILL carries a by.userId account id today, and no viewer-relative field', async (t) => {
+test('draft:picked (autopick emit site) names the picker by Team at the root, with no by account object, and marks the pick auto', async (t) => {
   const picked = await captureAutopickPicked(t);
-  assert.equal('by' in picked, true, 'the autopick emit still carries a by object today');
-  assertStillPresent(picked.by, ['userId']);
-  // by.userId is onTheClock.owner_id, a real account id broadcast to the room.
-  // (by.username is the literal 'AUTO' and by.auto a flag; the userId is the leak.)
-  assert.equal(picked.by.userId, AUTOPICK_TEAM.owner_id);
-  assertForbidden(picked, VIEWER_RELATIVE);
-});
-
-test('draft:picked (autopick emit site) names the picker by Team at the root, with no by account object', { todo: '#344 removes the by object from the autopick draft:picked (autopick.service.js) too, a SECOND emit site (by.userId is onTheClock.owner_id, a real account id). Keep it in lockstep with the pick-handler by decision.' }, async (t) => {
-  assertExactKeys(await captureAutopickPicked(t), PICKED_ROOT_CLEAN);
+  // The old leak here was by.userId = onTheClock.owner_id, a real account id
+  // broadcast to the room; the whole `by` object is gone (#344). This second
+  // emit site stays in lockstep with the pick handler, sharing PICKED_ROOT_CLEAN.
+  assert.equal('by' in picked, false, 'the account by object is gone from the autopick broadcast too');
+  assertExactKeys(picked, PICKED_ROOT_CLEAN);
+  assert.equal(picked.auto, true, 'an autopick is marked auto');
 });
 
 // ================================================================ draft:state
@@ -320,26 +288,25 @@ const DRAFT_STATE_LEAGUE = {
   invite_code: 'invite',
 };
 
-// A `teams` row exactly as getDraftState's SELECT projects it today: the team's
-// own draft columns, Team identity, and the two account fields #344 removes.
-// The row passes through getDraftState verbatim, so it must MIRROR the SELECT
-// for the exact-key-set guard to describe the real shape (see header caveat).
-const draftStateTeamRow = ({ userId, teamId, teamName }, draftPosition) => ({
+// A `teams` row exactly as getDraftState's SELECT projects it now that #344
+// has narrowed it: the team's own draft columns and Team identity, and no
+// account fields. The row passes through getDraftState verbatim, so it MIRRORS
+// the narrowed SELECT for the exact-key-set guard to describe the real shape
+// (see header caveat).
+const draftStateTeamRow = ({ teamId, teamName }, draftPosition) => ({
   id: teamId,
   name: teamName,
   draft_position: draftPosition,
   autodraft: false,
   draft_ready: true,
-  owner_id: userId, // #344 removes (from the SELECT)
   teamId,
   teamName,
-  owner: `u${userId}`, // #344 removes (from the SELECT)
 });
 
 function draftStateFake(t) {
   return createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...DRAFT_STATE_LEAGUE }] })],
-    [/FROM "teams" JOIN "users"/, () => ({
+    [/FROM "teams"\s+WHERE/, () => ({
       rows: [draftStateTeamRow(VIEWER, 1), draftStateTeamRow(OTHER, 2)],
     })],
     [/FROM "draft_picks" JOIN "players"/, () => ({ rows: [] })],
@@ -350,10 +317,9 @@ const STATE_ROOT_CLEAN = ['league', 'onTheClock', 'picks', 'teams'];
 const STATE_TEAM_CLEAN = [
   'autodraft', 'draft_position', 'draft_ready', 'id', 'name', TEAM_ID, TEAM_NAME,
 ];
-const STATE_TEAM_ACCOUNT = ['owner_id', 'owner'];
 
 // GREEN root pin: the snapshot root carries no account field and no
-// viewer-relative field, and stays that shape across #344.
+// viewer-relative field.
 test('draft:state root is league/teams/picks/onTheClock, and never a viewer-relative field', async (t) => {
   draftStateFake(t);
   const state = await getDraftState(LEAGUE_ID);
@@ -361,15 +327,15 @@ test('draft:state root is league/teams/picks/onTheClock, and never a viewer-rela
   assertForbidden(state, VIEWER_RELATIVE);
 });
 
-test('draft:state teams[] entry STILL carries owner_id / owner today (in the row and the SELECT)', async (t) => {
+test('draft:state teams[] entry no longer projects owner_id / owner from the SELECT', async (t) => {
   const fake = draftStateFake(t);
-  const state = await getDraftState(LEAGUE_ID);
-  for (const team of state.teams) assertStillPresent(team, STATE_TEAM_ACCOUNT);
+  await getDraftState(LEAGUE_ID);
   // Pinned to the SELECT, not only the fixture: the rows pass through verbatim,
-  // so this is what actually turns red when #344 narrows the projection.
-  const [teamsQuery] = fake.matching(/FROM "teams" JOIN "users"/);
-  assert.match(teamsQuery.text, /"teams"\."owner_id"/, 'the SELECT still projects owner_id');
-  assert.match(teamsQuery.text, /AS "owner"/, 'the SELECT still projects the owner username');
+  // so the projection is what #344 narrowed and what must stay narrowed.
+  const [teamsQuery] = fake.matching(/FROM "teams"\s+WHERE/);
+  assert.doesNotMatch(teamsQuery.text, /"teams"\."owner_id"/, 'the SELECT no longer projects owner_id');
+  assert.doesNotMatch(teamsQuery.text, /AS "owner"/, 'the SELECT no longer projects the owner username');
+  assert.doesNotMatch(teamsQuery.text, /JOIN "users"/, 'the users join that fed owner is gone');
 });
 
 test('draft:state teams[] entry carries no viewer-relative field', async (t) => {
@@ -378,7 +344,7 @@ test('draft:state teams[] entry carries no viewer-relative field', async (t) => 
   for (const team of state.teams) assertForbidden(team, VIEWER_RELATIVE);
 });
 
-test('draft:state teams[] entry is Team identity and draft attributes, not the manager account', { todo: '#344 removes draft:state teams[].owner_id / owner from the getDraftState SELECT; update draftStateTeamRow here to mirror the narrowed SELECT when it does' }, async (t) => {
+test('draft:state teams[] entry is Team identity and draft attributes, not the manager account', async (t) => {
   draftStateFake(t);
   const state = await getDraftState(LEAGUE_ID);
   for (const team of state.teams) assertExactKeys(team, STATE_TEAM_CLEAN);
