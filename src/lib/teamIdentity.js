@@ -85,6 +85,19 @@ export function teamRowKey(teamId, index) {
 }
 
 /**
+ * A combined-feed entry's stable key (#435). League chat and Draft activity
+ * share one per-league `seq`, so `seq` alone identifies an entry across both
+ * kinds without a chat id colliding with an activity id; an older shape with no
+ * seq falls back to a type-tagged id. One helper for both consumers - the React
+ * list key in ChatConversation and the de-duplication key in useDraftRoomFeed -
+ * so the two cannot drift.
+ */
+export function feedEntryKey(entry) {
+  if (entry && entry.seq != null) return `seq:${entry.seq}`;
+  return `${(entry && entry.type) || 'league_chat'}:${entry && entry.id}`;
+}
+
+/**
  * Whether the viewer is the one who created this league, asked the only way
  * the contract allows: the league names its creator's Team (`ownerTeamId`),
  * the per-viewer channel names the reader's own, and the two are compared.

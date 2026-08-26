@@ -27,8 +27,9 @@ app.use('/api/league', leagueRouter);
 const authed = () => `Bearer ${signToken({ id: 9, username: 'member' })}`;
 
 // The union read the route runs. Membership is answered true; the combined feed
-// query returns two rows already ORDER BY feed_seq DESC (chat seq 7, activity
-// seq 8 -> returned 8 then 7), which listCombinedDraftFeed reverses to ascending.
+// query returns rows already in ascending display order (the query's outermost
+// ORDER BY feed_seq ASC), so the fake hands them back chat seq 7 then Pick
+// activity seq 8.
 function mockFeed(t, { member = true } = {}) {
   const captured = { sql: null, params: null };
   t.mock.method(pool, 'query', async (sql, params) => {
@@ -41,23 +42,6 @@ function mockFeed(t, { member = true } = {}) {
       captured.params = params;
       return {
         rows: [
-          {
-            source: 'draft_activity',
-            id: 3,
-            feed_seq: '8',
-            created_at: '2026-09-01T00:01:00.000Z',
-            message: null,
-            teamId: 11,
-            teamName: 'Gridiron Ghosts',
-            kind: 'pick',
-            player_id: 500,
-            player_name: 'Pick Me',
-            player_position: 'RB',
-            player_nfl_team: 'KC',
-            round: 1,
-            pick_number: 1,
-            is_autopick: false,
-          },
           {
             source: 'league_chat',
             id: 5,
@@ -74,6 +58,23 @@ function mockFeed(t, { member = true } = {}) {
             round: null,
             pick_number: null,
             is_autopick: null,
+          },
+          {
+            source: 'draft_activity',
+            id: 3,
+            feed_seq: '8',
+            created_at: '2026-09-01T00:01:00.000Z',
+            message: null,
+            teamId: 11,
+            teamName: 'Gridiron Ghosts',
+            kind: 'pick',
+            player_id: 500,
+            player_name: 'Pick Me',
+            player_position: 'RB',
+            player_nfl_team: 'KC',
+            round: 1,
+            pick_number: 1,
+            is_autopick: false,
           },
         ],
       };

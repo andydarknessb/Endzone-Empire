@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../api/apiClient';
 import { onReconnect } from '../../api/socket';
+import { feedEntryKey } from '../../lib/teamIdentity';
 
 /**
  * The Draft room's combined feed: League chat and Draft activity in one order
@@ -25,19 +26,13 @@ import { onReconnect } from '../../api/socket';
  */
 const FEED_PAGE = 100;
 
-// Unique across both kinds: chat and activity share one per-league sequence, so
-// `seq` alone identifies an entry; an older shape without a seq falls back to a
-// type-tagged id so a chat id never collides with an activity id.
-function entryId(entry) {
-  return entry.seq != null ? `seq:${entry.seq}` : `${entry.type || 'league_chat'}:${entry.id}`;
-}
-
 // Merge one live entry into the feed in its `seq` position, de-duplicated. An
 // entry already present (the sender's own echo, or a reconnect overlap) is left
-// as-is rather than doubled.
+// as-is rather than doubled. feedEntryKey (the same key ChatConversation renders
+// with) is the identity, so the dedup and the React keys cannot drift.
 function mergeEntry(entries, incoming) {
-  const key = entryId(incoming);
-  if (entries.some((e) => entryId(e) === key)) return entries;
+  const key = feedEntryKey(incoming);
+  if (entries.some((e) => feedEntryKey(e) === key)) return entries;
   const next = [...entries, incoming];
   // Order by the shared sequence; entries without a seq keep insertion order at
   // the end (defensive - live entries always carry one).
@@ -83,8 +78,8 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
       .then((res) => {
         const older = Array.isArray(res?.data) ? res.data : [];
         setEntries((prev) => {
-          const known = new Set(prev.map(entryId));
-          const fresh = older.filter((e) => !known.has(entryId(e)));
+          const known = new Set(prev.map(feedEntryKey));
+          const fresh = older.filter((e) => !known.has(feedEntryKey(e)));
           return [...fresh, ...prev];
         });
         setHasMore(older.length >= FEED_PAGE);

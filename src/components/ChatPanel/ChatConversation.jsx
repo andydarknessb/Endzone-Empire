@@ -1,15 +1,6 @@
 import React, { useId, useState } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
-import { teamNameLabel } from '../../lib/teamIdentity';
-
-// A feed entry's stable React key. `seq` is unique across the whole combined
-// feed (chat and Draft activity share one per-league sequence, #435), so it
-// keys either kind without a chat id colliding with an activity id; entries
-// from an older client shape without a seq fall back to a type-tagged id.
-function entryKey(entry) {
-  if (entry.seq != null) return `seq-${entry.seq}`;
-  return `${entry.type || 'league_chat'}-${entry.id}`;
-}
+import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 
 // One committed Pick as Draft activity in the combined feed (#435). It is NOT
 // drawn as a chat bubble: Draft activity is server-authored, never a manager
@@ -95,9 +86,9 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
         ) : (
           messages.map((m) =>
             m.type === 'draft_activity' ? (
-              <DraftActivityEntry key={entryKey(m)} entry={m} />
+              <DraftActivityEntry key={feedEntryKey(m)} entry={m} />
             ) : (
-              <Box key={entryKey(m)} sx={{ mb: 1 }}>
+              <Box key={feedEntryKey(m)} sx={{ mb: 1 }}>
                 <Typography variant="body2">
                   <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
                 </Typography>

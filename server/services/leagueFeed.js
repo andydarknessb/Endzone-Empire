@@ -138,8 +138,16 @@ function combinedEntryOf(row) {
  * Ordering is by `feed_seq`, the authoritative chronology both kinds share, so
  * every client and every reconnecting client reproduces the same interleaving
  * (#435 AC4) - not by `created_at`, which cannot tie-break a chat message and a
- * Pick committed in the same instant. The union is taken newest-first with the
- * cursor and page limit, then flipped to ascending display order.
+ * Pick committed in the same instant.
+ *
+ * EACH branch is bounded to the page size before the union, not just the union
+ * afterwards: the latest N overall are within the latest N of each branch (a
+ * row with N-1 entries above it overall has at most N-1 above it in its own
+ * table), so `(chat DESC LIMIT n) UNION ALL (activity DESC LIMIT n)` then a
+ * final `DESC LIMIT n` returns the same page without materializing a whole
+ * league's chat and Picks first - each arm is an index-only walk of the unique
+ * `(league_id, feed_seq)` index. The outermost `ORDER BY feed_seq ASC` gives the
+ * oldest-first display order, matching listLeagueChatFeed's idiom.
  *
  * The block predicate applies to CHAT ONLY: a blocked manager's messages are
  * hidden (the same predicate the unread badge and the chat feed use), but their
@@ -160,62 +168,71 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, li
     activityCursor = `AND "draft_activity"."feed_seq" < ${p}`;
   }
   params.push(capped);
-  const limitClause = `LIMIT $${params.length}`;
+  // One bound parameter, referenced by all three LIMITs (per-branch and outer).
+  const lim = `$${params.length}`;
 
   // The two branches carry the SAME columns in the SAME order so the UNION is
   // well-typed; the NULL placeholders are cast so Postgres can resolve each
   // column's type from either branch. combinedEntryOf then reads only the ones
-  // its kind needs.
+  // its kind needs. Each arm is parenthesized so it can carry its own ORDER
+  // BY / LIMIT.
   const result = await db.query(
     `SELECT * FROM (
-       SELECT '${LEAGUE_CHAT}' AS source,
-              "chat_messages"."id" AS id,
-              "chat_messages"."feed_seq" AS feed_seq,
-              "chat_messages"."created_at" AS created_at,
-              "chat_messages"."message" AS message,
-              ${teamIdentityColumns()},
-              NULL::text AS kind,
-              NULL::int AS player_id,
-              NULL::text AS player_name,
-              NULL::text AS player_position,
-              NULL::text AS player_nfl_team,
-              NULL::int AS round,
-              NULL::int AS pick_number,
-              NULL::boolean AS is_autopick
-         FROM "chat_messages"
-         ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
-        WHERE "chat_messages"."league_id" = $1
-          AND NOT EXISTS (
-            SELECT 1 FROM "user_blocks"
-             WHERE "user_blocks"."blocker_id" = $2
-               AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
-          )
-          ${chatCursor}
-       UNION ALL
-       SELECT '${DRAFT_ACTIVITY}' AS source,
-              "draft_activity"."id" AS id,
-              "draft_activity"."feed_seq" AS feed_seq,
-              "draft_activity"."created_at" AS created_at,
-              NULL::text AS message,
-              "draft_activity"."team_id" AS "teamId",
-              "draft_activity"."team_name" AS "teamName",
-              "draft_activity"."kind" AS kind,
-              "draft_activity"."player_id" AS player_id,
-              "draft_activity"."player_name" AS player_name,
-              "draft_activity"."player_position" AS player_position,
-              "draft_activity"."player_nfl_team" AS player_nfl_team,
-              "draft_activity"."round" AS round,
-              "draft_activity"."pick_number" AS pick_number,
-              "draft_activity"."is_autopick" AS is_autopick
-         FROM "draft_activity"
-        WHERE "draft_activity"."league_id" = $1
-          ${activityCursor}
-     ) feed
-     ORDER BY feed_seq DESC
-     ${limitClause}`,
+       SELECT * FROM (
+         (SELECT '${LEAGUE_CHAT}' AS source,
+                 "chat_messages"."id" AS id,
+                 "chat_messages"."feed_seq" AS feed_seq,
+                 "chat_messages"."created_at" AS created_at,
+                 "chat_messages"."message" AS message,
+                 ${teamIdentityColumns()},
+                 NULL::text AS kind,
+                 NULL::int AS player_id,
+                 NULL::text AS player_name,
+                 NULL::text AS player_position,
+                 NULL::text AS player_nfl_team,
+                 NULL::int AS round,
+                 NULL::int AS pick_number,
+                 NULL::boolean AS is_autopick
+            FROM "chat_messages"
+            ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
+           WHERE "chat_messages"."league_id" = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM "user_blocks"
+                WHERE "user_blocks"."blocker_id" = $2
+                  AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
+             )
+             ${chatCursor}
+           ORDER BY "chat_messages"."feed_seq" DESC
+           LIMIT ${lim})
+         UNION ALL
+         (SELECT '${DRAFT_ACTIVITY}' AS source,
+                 "draft_activity"."id" AS id,
+                 "draft_activity"."feed_seq" AS feed_seq,
+                 "draft_activity"."created_at" AS created_at,
+                 NULL::text AS message,
+                 "draft_activity"."team_id" AS "teamId",
+                 "draft_activity"."team_name" AS "teamName",
+                 "draft_activity"."kind" AS kind,
+                 "draft_activity"."player_id" AS player_id,
+                 "draft_activity"."player_name" AS player_name,
+                 "draft_activity"."player_position" AS player_position,
+                 "draft_activity"."player_nfl_team" AS player_nfl_team,
+                 "draft_activity"."round" AS round,
+                 "draft_activity"."pick_number" AS pick_number,
+                 "draft_activity"."is_autopick" AS is_autopick
+            FROM "draft_activity"
+           WHERE "draft_activity"."league_id" = $1
+             ${activityCursor}
+           ORDER BY "draft_activity"."feed_seq" DESC
+           LIMIT ${lim})
+       ) merged
+       ORDER BY feed_seq DESC
+       LIMIT ${lim}
+     ) page
+     ORDER BY feed_seq ASC`,
     params
   );
-  return result.rows.reverse().map(combinedEntryOf);
+  return result.rows.map(combinedEntryOf);
 }
 
 module.exports = {
