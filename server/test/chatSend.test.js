@@ -280,6 +280,6 @@ test('a malformed clientMsgId is refused before any database work', async (t) =>
 
   const ack = await harness.emit(client, 'chat:send', { leagueId, message: 'hi', clientMsgId: 42 });
 
-  assert.deepEqual(ack, { error: 'clientMsgId must be a string of at most 64 characters' });
+  assert.deepEqual(ack, { error: 'clientMsgId must be a string of at most 64 characters', code: 'INVALID_REQUEST' });
   assert.equal(world.fake.calls.length, callsBefore, 'a malformed key reaches no query');
 });

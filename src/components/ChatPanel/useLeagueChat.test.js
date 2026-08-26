@@ -126,19 +126,32 @@ test('sendMessage emits chat:send with trimmed text and resolves true on an ok a
   });
 
   let resolved;
-  await act(async () => { resolved = await result.current.sendMessage('  hey team  '); });
+  await act(async () => { resolved = await result.current.sendMessage('  hey team  ', 'caller-key'); });
 
+  // A caller-supplied key rides on the wire verbatim, so a retry that reuses it
+  // collapses onto one server row.
   expect(socket.emit).toHaveBeenCalledWith(
     'chat:send',
-    expect.objectContaining({ leagueId: 5, message: 'hey team' }),
+    { leagueId: 5, message: 'hey team', clientMsgId: 'caller-key' },
     expect.any(Function)
   );
-  // Every send carries a client idempotency key so a retry cannot duplicate it.
+  expect(resolved).toBe(true);
+  expect(result.current.error).toBe(null);
+});
+
+test('sendMessage mints a key when the caller supplies none', async () => {
+  mockGets();
+  const { socket, result } = render({ leagueId: 5 });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true });
+  });
+
+  await act(async () => { await result.current.sendMessage('hey team'); });
+
   const [, payload] = socket.emit.mock.calls.find(([event]) => event === 'chat:send');
   expect(typeof payload.clientMsgId).toBe('string');
   expect(payload.clientMsgId.length).toBeGreaterThan(0);
-  expect(resolved).toBe(true);
-  expect(result.current.error).toBe(null);
 });
 
 test('a rate-limited ack surfaces the error with its explicit retry time', async () => {

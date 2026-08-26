@@ -118,7 +118,10 @@ function attachDraftSocket(httpServer) {
       }
       const key = normalizeClientMsgId(clientMsgId);
       if (key === INVALID_KEY) {
-        return ack && ack({ error: 'clientMsgId must be a string of at most 64 characters' });
+        // A client can branch on the code, per the room's refusal convention
+        // (#230, ADR 0008): a malformed key is a bad request, not a rejection of
+        // the message's content.
+        return ack && ack({ error: 'clientMsgId must be a string of at most 64 characters', code: 'INVALID_REQUEST' });
       }
       const text = message.trim().slice(0, 500);
       try {
@@ -139,11 +142,7 @@ function attachDraftSocket(httpServer) {
         if (key) {
           const prior = await selectChatByKey(pool, { userId: socket.user.id, key });
           if (prior) {
-            return ack && ack({
-              ok: true,
-              duplicate: true,
-              entry: chatEntryFrom({ row: prior, leagueId, team: authorTeam }),
-            });
+            return ack && ack(duplicateAck(chatEntryFrom({ row: prior, leagueId, team: authorTeam })));
           }
         }
 
@@ -177,12 +176,13 @@ function attachDraftSocket(httpServer) {
           [leagueId, socket.user.id, text, key]
         );
         if (inserted.rows.length === 0) {
+          // The concurrent duplicate that lost the unique-index race. It already
+          // consumed a flood slot above (it passed the SELECT before the winner
+          // committed), which is the one case a duplicate is charged - rare, and
+          // never for a sequential retry, which the SELECT short-circuits before
+          // the flood check. Answer success from the winner's stored row.
           const prior = await selectChatByKey(pool, { userId: socket.user.id, key });
-          return ack && ack({
-            ok: true,
-            duplicate: true,
-            entry: prior ? chatEntryFrom({ row: prior, leagueId, team: authorTeam }) : undefined,
-          });
+          return ack && ack(duplicateAck(prior ? chatEntryFrom({ row: prior, leagueId, team: authorTeam }) : undefined));
         }
 
         const entry = chatEntryFrom({ row: inserted.rows[0], leagueId, team: authorTeam, message: text });
@@ -398,6 +398,14 @@ async function selectChatByKey(db, { userId, key }) {
     [userId, key]
   );
   return result.rows[0] || null;
+}
+
+/** The acknowledgement for a send the server already stored under this key: a
+ *  success (never a silent nothing, #440 AC5) carrying the original entry so a
+ *  client that missed the first broadcast can reconcile. `entry` may be
+ *  undefined if the stored row could not be re-read; the client tolerates it. */
+function duplicateAck(entry) {
+  return { ok: true, duplicate: true, entry };
 }
 
 /** Shape a stored or freshly inserted chat row as the typed feed entry the room

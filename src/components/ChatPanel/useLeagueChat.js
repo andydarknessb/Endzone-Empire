@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../api/apiClient';
 import { onReconnect } from '../../api/socket';
+import { newClientMsgId } from '../../lib/clientMessageId';
 
 /**
  * The League chat conversation over a socket the caller already owns.
@@ -27,21 +28,6 @@ import { onReconnect } from '../../api/socket';
 // a short read is the end of the conversation. Kept in step with the server by
 // value, the way the client Team-identity fields mirror the server's.
 const CHAT_PAGE = 100;
-
-/**
- * A stable idempotency key for one composed message (#440). The server collapses
- * retries carrying the same key onto one stored row, so a lost ack, a reconnect
- * replay or a double-tapped Send cannot duplicate the message in the feed. The
- * key is generated ONCE per logical send and reused on every retry of it; a
- * fresh send gets a fresh key. Mirrors src/lib/pendingLineupMutations.mutationId
- * so both idempotency paths mint keys the same way.
- */
-function newClientMsgId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 export default function useLeagueChat({ socket, leagueId, open = true, viewerTeamId = null }) {
   const [messages, setMessages] = useState([]);
@@ -181,7 +167,7 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   }, [socket, fetchHistory, fetchUnread, markRead]);
 
   const sendMessage = useCallback(
-    (raw) => {
+    (raw, clientMsgId) => {
       const trimmed = typeof raw === 'string' ? raw.trim() : '';
       if (!trimmed) return Promise.resolve(false);
       setError(null);
@@ -190,8 +176,12 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
           resolve(false);
           return;
         }
-        const clientMsgId = newClientMsgId();
-        socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed, clientMsgId }, (ack) => {
+        // The caller (the compose box) owns the key so it stays stable across a
+        // retry of the SAME message; a direct caller that passes none still gets
+        // idempotency, just per-call. See ChatConversation for the stable-key
+        // ownership and src/lib/clientMessageId.
+        const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
+        socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed, clientMsgId: key }, (ack) => {
           if (ack && ack.error) {
             // A rate-limited refusal carries an explicit retry time (#440 AC5);
             // surface it so the sender knows to wait rather than assuming their
