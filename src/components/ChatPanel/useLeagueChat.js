@@ -29,14 +29,23 @@ import { newClientMsgId } from '../../lib/clientMessageId';
 // value, the way the client Team-identity fields mirror the server's.
 const CHAT_PAGE = 100;
 
+// The one feed kind that is human correspondence. Mirrors the server's
+// leagueFeed.LEAGUE_CHAT by value (a client module cannot import server code),
+// and useLeagueChat.humanType.parity.test.js pins the two equal so a rename on
+// either side is a test failure rather than a silent miscount.
+export const HUMAN_MESSAGE_TYPE = 'league_chat';
+
 // Whether a feed entry is a HUMAN League-chat message, the only kind the unread
 // badge counts (#442; spec #429: "Count unread human messages only"). The live
 // broadcast tags a message `type: 'league_chat'` (leagueFeed.feedEntryOf), so
 // that is a human message; a legacy row with no type predates the tag and is
-// also human. Draft activity, the cutover boundary and moderation tombstones
-// carry their own types and are correspondence to no one, so they never count.
+// also human (the default is human on purpose: failing closed there would
+// under-count real messages). Draft activity, the cutover boundary and
+// moderation tombstones carry their own types and are correspondence to no one,
+// so they never count. The invariant the default leans on - every typed path
+// tags, so untyped means legacy - is what the parity test guards.
 function isHumanMessage(entry) {
-  return !entry || entry.type == null || entry.type === 'league_chat';
+  return !entry || entry.type == null || entry.type === HUMAN_MESSAGE_TYPE;
 }
 
 export default function useLeagueChat({ socket, leagueId, open = true, viewerTeamId = null }) {
