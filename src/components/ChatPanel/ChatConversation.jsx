@@ -21,7 +21,7 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * in the surfaces this appears in, so it slots into their heading order without
  * skipping a level.
  */
-function ChatConversation({ messages = [], error = null, onSend }) {
+function ChatConversation({ messages = [], error = null, onSend, hasMore = false, onLoadOlder = null }) {
   const [text, setText] = useState('');
   const headingId = useId();
 
@@ -46,6 +46,13 @@ function ChatConversation({ messages = [], error = null, onSend }) {
       )}
 
       <Box sx={{ maxHeight: 320, overflowY: 'auto', mb: 2 }}>
+        {hasMore && onLoadOlder && (
+          <Box sx={{ textAlign: 'center', mb: 1 }}>
+            <Button size="small" onClick={() => onLoadOlder()}>
+              Load older messages
+            </Button>
+          </Box>
+        )}
         {messages.length === 0 ? (
           <Typography sx={{ color: 'text.secondary' }}>No messages yet</Typography>
         ) : (
