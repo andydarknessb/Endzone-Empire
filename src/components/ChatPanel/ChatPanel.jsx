@@ -1,212 +1,74 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Paper, Typography, Box, TextField, Button, Alert } from '@mui/material';
-import apiClient from '../../api/apiClient';
+import React, { useState, useEffect } from 'react';
 import { createDraftSocket, onReconnect } from '../../api/socket';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import useLeagueChat from './useLeagueChat';
+import ChatConversation from './ChatConversation';
 
 /**
- * League chat with unread tracking. The panel stays mounted (and its socket
- * connected) inside a persistent drawer even while the drawer is closed, so
- * it is the natural owner of the unread count:
+ * League chat on the League Dashboard, with unread tracking. The panel stays
+ * mounted (and its socket connected) inside a persistent drawer even while the
+ * drawer is closed, so it is the natural owner of the unread count:
  *  - closed + someone else's message arrives -> unread goes up
  *  - open (or opening) -> the server-side read marker moves to now and the
  *    count resets, so the badge survives reloads without ever double-counting
  * The parent renders the badge from onUnreadChange.
  *
- * Chat is a league-shared surface, so an author is a Team and never an
- * account (#114, parent #108). Two consequences shape this component:
- *
- *  - Messages are attributed by `teamName`. A manager who has left the league
- *    keeps their history and reads back with null Team identity, which
- *    `teamNameLabel` names rather than printing blank.
- *  - "Is this mine" is `message.teamId === viewerTeamId`. The viewer's own
- *    Team ID cannot ride on `chat:message`, which is one payload broadcast to
- *    the whole league room, and chat history is a bare array with no root to
- *    carry it, so it comes from the `league:join` acknowledgement this panel
- *    already makes. That ack is the only per-viewer channel chat has, which
- *    is why the panel owns the field rather than taking it as a prop.
+ * The Dashboard has no live Draft session of its own, so this panel owns the
+ * one connection chat rides here: it creates the socket, does `league:join`,
+ * and re-joins on reconnect. The viewer's own Team ID arrives on that join
+ * acknowledgement - the panel's only per-viewer channel, since a broadcast
+ * `chat:message` carries no viewer-relative field (#112, parent #108) - and is
+ * handed to useLeagueChat, which owns the conversation itself. The Draft room
+ * reuses that same hook over its existing draft:join session instead of a
+ * second connection (issue #433); the two surfaces share the conversation, not
+ * the socket ownership.
  */
 function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
-  const [messages, setMessages] = useState([]);
-  const [text, setText] = useState('');
-  const [error, setError] = useState(null);
-  const [unread, setUnread] = useState(0);
-  const socketRef = useRef(null);
-  // Refs mirror state the socket handler needs: the handler is bound once per
-  // league, and reading a stale `open` or viewer Team ID from its closure
-  // would count messages wrong after the drawer toggles or the join ack lands.
-  const openRef = useRef(open);
-  const viewerTeamIdRef = useRef(null);
-
-  const fetchHistory = () => {
-    apiClient
-      .get(`/api/league/${leagueId}/chat`)
-      .then((res) => setMessages(Array.isArray(res.data) ? res.data : []))
-      .catch(() => {});
-  };
-
-  // Server-persisted unread count (badge survives reloads). Only meaningful
-  // while closed — opening resets it via markRead below.
-  const fetchUnread = () => {
-    if (openRef.current) return;
-    apiClient
-      .get(`/api/league/${leagueId}/chat/unread`)
-      .then((res) => {
-        const count = Number(res.data && res.data.unread);
-        if (Number.isFinite(count) && !openRef.current) setUnread(count);
-      })
-      .catch(() => {});
-  };
-
-  const markRead = () => {
-    apiClient.post(`/api/league/${leagueId}/chat/read`).catch(() => {});
-  };
+  const [socket, setSocket] = useState(null);
+  const [viewerTeamId, setViewerTeamId] = useState(null);
 
   useEffect(() => {
-    if (onUnreadChange) onUnreadChange(unread);
-  }, [unread, onUnreadChange]);
-
-  useEffect(() => {
-    fetchHistory();
-    fetchUnread();
-    // fetchHistory/fetchUnread close over leagueId, which is the explicit trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leagueId]);
-
-  // Opening the drawer reads everything currently in it.
-  useEffect(() => {
-    openRef.current = open;
-    if (open) {
-      setUnread(0);
-      markRead();
-    }
-    // markRead closes over leagueId; open/leagueId are the triggers.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, leagueId]);
-
-  useEffect(() => {
+    // A fresh Team ID per league room: nothing can match a stale one, but
+    // leaving it standing would briefly claim a Team for a league just left.
+    setViewerTeamId(null);
     const newSocket = createDraftSocket();
-    socketRef.current = newSocket;
+    setSocket(newSocket);
 
     // The ack is the panel's only per-viewer channel, so it is where the
     // viewer's own Team ID arrives. Re-answered on every join, including the
     // reconnect one, so a rejoin cannot leave a stale answer behind.
     const joinLeagueRoom = () => {
       newSocket.emit('league:join', { leagueId: Number(leagueId) }, (ack) => {
-        viewerTeamIdRef.current = ack && ack.viewerTeamId != null ? ack.viewerTeamId : null;
+        setViewerTeamId(ack && ack.viewerTeamId != null ? ack.viewerTeamId : null);
       });
     };
 
     joinLeagueRoom();
 
-    newSocket.on('chat:message', (data) => {
-      setMessages((prev) => [...prev, data]);
-      if (openRef.current) {
-        // Reading live: keep the server-side marker current so a later
-        // reload doesn't resurrect these as unread.
-        markRead();
-      } else if (viewerTeamIdRef.current == null || data.teamId !== viewerTeamIdRef.current) {
-        // The viewer's own broadcast echo is recognised by Team, because the
-        // broadcast carries no viewer-relative field to recognise it by.
-        //
-        // The null guard is the same one isLeagueCreator's docstring explains,
-        // reached here through the unread badge (#188). A departed author's
-        // message reads back with `teamId: null` - chat's join is LEFT so they
-        // keep their history - and this ref is null until the `league:join`
-        // ack lands. Without the guard those two nulls match, and such a
-        // message is misread as the viewer's own echo and never counted. A
-        // viewer with no Team of their own owns no message here, so while the
-        // answer is unknown nothing can be theirs.
-        setUnread((count) => count + 1);
-      }
-    });
-
-    // On reconnect: re-join the room (server re-adds us) and re-fetch chat
-    // history via REST so any messages sent while we were offline appear.
-    // The unread count re-syncs from the server for the same reason.
-    const offReconnect = onReconnect(newSocket, () => {
-      joinLeagueRoom();
-      fetchHistory();
-      fetchUnread();
-    });
+    // On reconnect the room re-adds us; useLeagueChat re-syncs history and
+    // unread over REST for messages missed while offline.
+    const offReconnect = onReconnect(newSocket, joinLeagueRoom);
 
     return () => {
       offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
-      socketRef.current.disconnect();
-      socketRef.current = null;
+      newSocket.disconnect();
+      setSocket(null);
     };
     // Rebuild the socket only when the league room changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
-  const handleSend = () => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+  const { messages, unread, error, sendMessage } = useLeagueChat({
+    socket,
+    leagueId,
+    open,
+    viewerTeamId,
+  });
 
-    setError(null);
-    socketRef.current.emit(
-      'chat:send',
-      { leagueId: Number(leagueId), message: trimmed },
-      (ack) => {
-        if (ack && ack.error) {
-          setError(ack.error);
-          return;
-        }
-        setText('');
-      }
-    );
-  };
+  useEffect(() => {
+    if (onUnreadChange) onUnreadChange(unread);
+  }, [unread, onUnreadChange]);
 
-  return (
-    <Paper sx={{ p: 2, mt: 3 }}>
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        League Chat
-      </Typography>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
-      <Box sx={{ maxHeight: 320, overflowY: 'auto', mb: 2 }}>
-        {messages.length === 0 ? (
-          <Typography sx={{ color: 'text.secondary' }}>No messages yet</Typography>
-        ) : (
-          messages.map((m) => (
-            <Box key={m.id} sx={{ mb: 1 }}>
-              <Typography variant="body2">
-                <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {new Date(m.created_at).toLocaleTimeString()}
-              </Typography>
-            </Box>
-          ))
-        )}
-      </Box>
-
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-        <TextField
-          id="chat-message-input"
-          label="Message"
-          size="small"
-          fullWidth
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-        />
-        <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
-          Send
-        </Button>
-      </Box>
-    </Paper>
-  );
+  return <ChatConversation messages={messages} error={error} onSend={sendMessage} />;
 }
 
 export default ChatPanel;

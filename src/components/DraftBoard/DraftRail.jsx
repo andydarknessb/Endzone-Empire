@@ -141,6 +141,13 @@ function DraftRail({
   // the panels beneath it in that same narrow column, so the caller passes a
   // smaller bound for that region instead.
   queueMaxHeight = draftStatus === 'active' ? 'calc(100vh - 164px)' : '80vh',
+  // League chat in the draft room (issue #433), handed in already wired to the
+  // room's own session so the rail neither owns a connection nor knows chat's
+  // internals - it only gives chat a home among the other panels. It sits after
+  // the composed panels, and below even the complete-draft empty state, so a
+  // finished draft's record still carries the conversation. Draft activity is a
+  // separate feed and not this (CONTEXT.md: Draft activity; ADR 0012).
+  chatPanel = null,
 }) {
   // "Which one of these is me" is the viewer-relative contract (#113): the
   // viewer's own Team ID, answered on the draft:join acknowledgement, against
@@ -752,15 +759,19 @@ function DraftRail({
   // there would read as a failed load rather than as a finished draft.
   if (composed.length === 0) {
     return (
-      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        This draft is complete. Open the Board for the full record.
-      </Typography>
+      <>
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          This draft is complete. Open the Board for the full record.
+        </Typography>
+        {chatPanel}
+      </>
     );
   }
 
   return (
     <>
       {composed.map(({ panelKey, panel }) => <React.Fragment key={panelKey}>{panel}</React.Fragment>)}
+      {chatPanel}
     </>
   );
 }
