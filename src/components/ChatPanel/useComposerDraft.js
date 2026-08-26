@@ -33,8 +33,10 @@ function readDraft(leagueId, userId) {
     if (!raw) return '';
     const parsed = JSON.parse(raw);
     // Only the account that wrote the draft may read it back; anyone else
-    // (a switched account, a logout) gets nothing.
-    if (parsed && parsed.ownerId === userId && typeof parsed.text === 'string') {
+    // (a switched account, a logout) gets nothing. `acct` is the authoring
+    // account id: this is a local draft-ownership stamp, not an authorization
+    // or league-owner decision, so it is deliberately NOT named ownerId.
+    if (parsed && parsed.acct === userId && typeof parsed.text === 'string') {
       return parsed.text;
     }
   } catch {
@@ -47,7 +49,7 @@ function writeDraft(leagueId, userId, text) {
   if (leagueId == null || userId == null) return;
   try {
     if (text) {
-      window.sessionStorage.setItem(keyFor(leagueId), JSON.stringify({ ownerId: userId, text }));
+      window.sessionStorage.setItem(keyFor(leagueId), JSON.stringify({ acct: userId, text }));
     } else {
       window.sessionStorage.removeItem(keyFor(leagueId));
     }
