@@ -138,7 +138,12 @@ function combinedEntryOf(row) {
  * Ordering is by `feed_seq`, the authoritative chronology both kinds share, so
  * every client and every reconnecting client reproduces the same interleaving
  * (#435 AC4) - not by `created_at`, which cannot tie-break a chat message and a
- * Pick committed in the same instant.
+ * Pick committed in the same instant. That the two kinds never hold the SAME
+ * `feed_seq` in a league is produced by the shared counter (both allocate under
+ * its row lock), not enforced across the two tables - each has only its own
+ * per-table unique index. Enforcing it across records is tracked as #471; it
+ * becomes reachable only when a writer supplies an explicit position (legacy
+ * backfill, #436), which nothing here does.
  *
  * EACH branch is bounded to the page size before the union, not just the union
  * afterwards: the latest N overall are within the latest N of each branch (a
