@@ -75,6 +75,16 @@ test('GET chat?before=<seq> pages older than the cursor', async (t) => {
   assert.deepEqual(captured.params, [12, 9, 7, 100]);
 });
 
+test('GET chat?after=<seq> resumes newer than the cursor, ascending (#442)', async (t) => {
+  const captured = mockFeed(t);
+  const res = await request(app).get('/api/league/12/chat?after=7').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$3/);
+  assert.match(captured.sql, /ORDER BY "chat_messages"\."feed_seq" ASC/);
+  assert.deepEqual(captured.params, [12, 9, 7, 100]);
+});
+
 test('GET chat ignores a non-integer before cursor', async (t) => {
   const captured = mockFeed(t);
   const res = await request(app).get('/api/league/12/chat?before=abc').set('Authorization', authed());

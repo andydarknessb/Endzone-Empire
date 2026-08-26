@@ -1,8 +1,20 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import ChatConversation from './ChatConversation';
+
+// jsdom computes no layout, so scroll geometry is faked on the element instance:
+// scrollHeight/clientHeight are read-only getters we override, scrollTop is a
+// plain settable property. This lets a test place the reader at the bottom or
+// up in the backlog and fire a scroll, the only signals the anchoring reads.
+function setScrollMetrics(el, { scrollHeight, clientHeight, scrollTop }) {
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => clientHeight });
+  el.scrollTop = scrollTop;
+}
+const atTop = (el, over = {}) => setScrollMetrics(el, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0, ...over });
+const atBottom = (el, over = {}) => setScrollMetrics(el, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700, ...over });
 
 const message = (overrides = {}) => ({
   id: 1,
@@ -15,6 +27,9 @@ const message = (overrides = {}) => ({
 });
 
 const noop = () => Promise.resolve(true);
+
+// Composer drafts live in sessionStorage; reset it so each test starts clean.
+afterEach(() => window.sessionStorage.clear());
 
 test('renders each message attributed to its Team, never its account', () => {
   renderWithProviders(
@@ -185,4 +200,167 @@ test('a departed Team on a Pick activity reads as a former manager', () => {
   renderWithProviders(<ChatConversation messages={[pickActivity({ teamName: null })]} onSend={noop} />);
   expect(screen.getByText('Former manager')).toBeInTheDocument();
   expect(screen.queryByText('null')).not.toBeInTheDocument();
+});
+
+// #442 AC1/AC2: the live feed auto-follows only while the reader is at the
+// bottom; a reader up in the backlog keeps their place and gets an N-new
+// affordance to return to the newest entries.
+const seqMsg = (over = {}) => message({ id: over.id ?? 1, seq: over.seq ?? 1, ...over });
+
+// A harness that owns the feed as state, so the ChatConversation instance (and
+// its scroll refs) SURVIVE a feed change. Driving new entries through
+// setMessages models a live append or prepend far better than re-rendering a
+// bare element, which would remount the component and reset its anchoring.
+let feedSetter;
+function LiveFeed({ initial }) {
+  const [messages, setMessages] = React.useState(initial);
+  feedSetter = setMessages;
+  return <ChatConversation messages={messages} onSend={noop} />;
+}
+const setFeed = (messages) => act(() => feedSetter(messages));
+
+test('a reader up in the backlog keeps position and gets an N-new affordance when new entries arrive', () => {
+  renderWithProviders(<LiveFeed initial={[seqMsg({ id: 1, seq: 1, message: 'first' })]} />);
+  const box = screen.getByTestId('chat-scroll');
+
+  // The reader scrolls up into older content.
+  atTop(box);
+  fireEvent.scroll(box);
+
+  // Two new entries arrive at the bottom while they read.
+  setFeed([
+    seqMsg({ id: 1, seq: 1, message: 'first' }),
+    seqMsg({ id: 2, seq: 2, message: 'second' }),
+    seqMsg({ id: 3, seq: 3, message: 'third' }),
+  ]);
+
+  // Position is not yanked to the bottom...
+  expect(box.scrollTop).toBe(0);
+  // ...and an affordance names how many are new.
+  expect(screen.getByRole('button', { name: /2 new/i })).toBeInTheDocument();
+});
+
+test('the N-new affordance jumps to the newest entries and clears', () => {
+  renderWithProviders(<LiveFeed initial={[seqMsg({ id: 1, seq: 1, message: 'first' })]} />);
+  const box = screen.getByTestId('chat-scroll');
+  atTop(box);
+  fireEvent.scroll(box);
+  setFeed([seqMsg({ id: 1, seq: 1 }), seqMsg({ id: 2, seq: 2, message: 'second' })]);
+
+  const jump = screen.getByRole('button', { name: /1 new/i });
+  fireEvent.click(jump);
+
+  // Jumped to the bottom (scrollTop driven to the full scroll height)...
+  expect(box.scrollTop).toBe(1000);
+  // ...and the affordance is gone.
+  expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
+});
+
+test('the feed auto-follows a new entry while the reader is already at the bottom', () => {
+  renderWithProviders(<LiveFeed initial={[seqMsg({ id: 1, seq: 1, message: 'first' })]} />);
+  const box = screen.getByTestId('chat-scroll');
+  atBottom(box);
+  fireEvent.scroll(box);
+
+  setFeed([seqMsg({ id: 1, seq: 1 }), seqMsg({ id: 2, seq: 2, message: 'second' })]);
+
+  // Followed to the bottom, and no catch-up affordance is offered.
+  expect(box.scrollTop).toBe(1000);
+  expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
+});
+
+test('loading older entries holds the reader position by absorbing the added height, and raises no N-new affordance', () => {
+  renderWithProviders(
+    <LiveFeed initial={[seqMsg({ id: 2, seq: 2, message: 'second' }), seqMsg({ id: 3, seq: 3, message: 'third' })]} />
+  );
+  const box = screen.getByTestId('chat-scroll');
+  // Reading partway up the backlog: a mutable scrollHeight lets the prepend
+  // "grow" the content above the viewport the way a real older page would.
+  let height = 1000;
+  Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => height });
+  Object.defineProperty(box, 'clientHeight', { configurable: true, get: () => 300 });
+  box.scrollTop = 120;
+  fireEvent.scroll(box);
+
+  // An older page is prepended at the head (lower seq), the shape loadOlder
+  // produces, adding 300px of content above the reader.
+  height = 1300;
+  setFeed([
+    seqMsg({ id: 1, seq: 1, message: 'zeroth' }),
+    seqMsg({ id: 2, seq: 2, message: 'second' }),
+    seqMsg({ id: 3, seq: 3, message: 'third' }),
+  ]);
+
+  // The reader's content stays put: scrollTop advanced by exactly what was added.
+  expect(box.scrollTop).toBe(420);
+  // Nothing arrived at the bottom, so no catch-up affordance.
+  expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
+});
+
+// #442 AC5/AC6: unsent composer text is preserved per league for the current
+// browser session, and cleared on a successful send, logout or account change.
+test('preserves unsent text per league for the browser session, and restores it', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'half a thought');
+
+  // The draft is held for this league, keyed so another league cannot read it.
+  unmount();
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('half a thought');
+});
+
+test('a draft does not leak into a different league', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'league five only');
+  unmount();
+
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={6} viewerUserId={7} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+});
+
+test('a successful send clears the preserved draft', async () => {
+  const onSend = jest.fn().mockResolvedValue(true);
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={onSend} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'ship it');
+  await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(''));
+
+  // Nothing is left in the session to restore on the next visit.
+  unmount();
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+});
+
+test('logging out clears the preserved draft', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'private thought');
+  unmount();
+
+  // Logged out: no account. The draft must not survive to the logged-out view...
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={null} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+
+  // ...nor be waiting for whoever logs in next.
+  unmount();
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={8} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
+});
+
+test('a different account does not inherit the previous account\'s draft', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  await userEvent.type(screen.getByLabelText('Message'), 'account seven note');
+  unmount();
+
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={8} />);
+  expect(screen.getByLabelText('Message')).toHaveValue('');
 });

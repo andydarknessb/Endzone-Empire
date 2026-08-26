@@ -1,4 +1,5 @@
 import React from 'react';
+import { useSelector } from 'react-redux';
 import useDraftRoomFeed from './useDraftRoomFeed';
 import ChatConversation from '../ChatPanel/ChatConversation';
 
@@ -26,6 +27,9 @@ function DraftRoomChat({ socket, leagueId, viewerTeamId = null }) {
     leagueId,
     viewerTeamId,
   });
+  // The account scopes the composer draft (#442 AC5/AC6); Team identity stays
+  // the actor on the wire, the account id never leaves the client.
+  const viewerUserId = useSelector((store) => (store.user && store.user.id != null ? store.user.id : null));
 
   return (
     <ChatConversation
@@ -34,6 +38,8 @@ function DraftRoomChat({ socket, leagueId, viewerTeamId = null }) {
       onSend={sendMessage}
       hasMore={hasMore}
       onLoadOlder={loadOlder}
+      leagueId={leagueId}
+      viewerUserId={viewerUserId}
     />
   );
 }
