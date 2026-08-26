@@ -103,6 +103,8 @@
     "test:check-dom-dedupe": "node --test scripts/ci/check-dom-dedupe.test.js",
     "check:adr-uniqueness": "npm run test:check-adr-uniqueness && node scripts/ci/check-adr-uniqueness.js",
     "test:check-adr-uniqueness": "node --test scripts/ci/check-adr-uniqueness.test.js",
+    "check:adr-immutability": "npm run test:check-adr-immutability && node scripts/ci/check-adr-immutability.js",
+    "test:check-adr-immutability": "node --test scripts/ci/check-adr-immutability.test.js",
     "test:eslint-scoping": "node --test scripts/eslintRuleScoping.test.js",
     "test:migration-prefixes": "node --test scripts/migrationPrefixes.test.js",
     "test:agent-docs-orphans": "node --test scripts/agentDocsOrphans.test.js",
