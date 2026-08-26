@@ -59,8 +59,8 @@ if (!ENABLED) {
     migrations: { directory: path.join(__dirname, '..', 'db', 'migrations') },
   });
 
-  const MIGRATION_NAME = '20260826000003_draft_activity.js';
-  const migration = require('../db/migrations/20260826000003_draft_activity');
+  const MIGRATION_NAME = '20260826000004_draft_activity.js';
+  const migration = require('../db/migrations/20260826000004_draft_activity');
 
   let leagueA = null;
   let leagueB = null;
