@@ -1196,7 +1196,11 @@ test.describe('browser evidence: every required width in both themes', () => {
 test.describe('state-dependent rail composition (issue #123)', () => {
   test.use({ viewport: VIEWPORTS.desktop });
 
-  /** The rail's panels in the order a manager meets them, top to bottom. */
+  /** The rail's panels in the order a manager meets them, top to bottom.
+   *  League Chat (issue #433) is the one panel every status carries: it is the
+   *  same conversation managers see on the Dashboard, brought into the room over
+   *  its own session, appended after the status-driven composition (#123). So it
+   *  is the last entry in each list below, whatever the draft's status. */
   const railPanels = (page: Page) =>
     page.getByRole('region', { name: 'Draft rail' }).getByRole('heading', { level: 2 }).allTextContents();
 
@@ -1210,7 +1214,7 @@ test.describe('state-dependent rail composition (issue #123)', () => {
     await gotoDraft(page);
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 
-    expect(await railPanels(page)).toEqual(['Readiness', 'Draft order', 'My Queue']);
+    expect(await railPanels(page)).toEqual(['Readiness', 'Draft order', 'My Queue', 'League Chat']);
     // Readiness composes a count sentence, not a per-Team list (issue #124).
     // At 0 of 2 ready, readinessSummary's exception list is empty - nobody
     // has declared yet, so nothing is worth naming (CONTEXT.md: Readiness)
@@ -1223,7 +1227,7 @@ test.describe('state-dependent rail composition (issue #123)', () => {
   test('active composes My Queue, My Roster, Upcoming, under a persistent On the clock', async ({ page }) => {
     await setupActiveDraft(page);
 
-    expect(await railPanels(page)).toEqual(['My Queue', 'My Roster', 'Upcoming']);
+    expect(await railPanels(page)).toEqual(['My Queue', 'My Roster', 'Upcoming', 'League Chat']);
     // On the clock is the fourth member of the active composition and is
     // deliberately not a rail panel: it is the banner ABOVE the rail's own
     // scrolling region, which is what keeps it persistent (issue #122).
@@ -1269,7 +1273,7 @@ test.describe('state-dependent rail composition (issue #123)', () => {
 
     // Both at once, without changing tabs: the record is what the page is for.
     await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
-    expect(await railPanels(page)).toEqual(['My Roster']);
+    expect(await railPanels(page)).toEqual(['My Roster', 'League Chat']);
     await expect(page.getByRole('region', { name: 'My Queue' })).toHaveCount(0);
   });
 });
