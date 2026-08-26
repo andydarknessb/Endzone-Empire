@@ -14,6 +14,8 @@
 
 const path = require('node:path');
 
+// Mirrors migrations.directory in knexfile.js and server/knexfile.js; the test
+// file reads both and fails if this path and theirs ever disagree.
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'server', 'db', 'migrations');
 
 // The one duplicate that existed when this guard was written, kept exactly

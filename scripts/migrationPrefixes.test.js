@@ -95,6 +95,34 @@ test('buildViolationMessage: names the prefix, every file, and the knex ordering
   assert.match(message, /#251/);
 });
 
+// The directory the guard reads is what the two knexfiles point knex at, not
+// a path that happened to be right when the guard was written. Both knexfiles
+// are read as TEXT rather than required: requiring either one runs
+// resolveKnexConnection(), which announces a target on stderr and throws when
+// it is not loopback, and a guard must not depend on a database target.
+test('MIGRATIONS_DIR is the directory the root knexfile (the accident path) declares', () => {
+  const repoRoot = path.join(__dirname, '..');
+  const knexfile = fs.readFileSync(path.join(repoRoot, 'knexfile.js'), 'utf8');
+  const match = /migrations:\s*\{\s*directory:\s*'([^']+)'/.exec(knexfile);
+  assert.ok(match, 'could not find migrations.directory in knexfile.js');
+  assert.equal(path.resolve(MIGRATIONS_DIR), path.resolve(repoRoot, match[1]));
+});
+
+test('MIGRATIONS_DIR is the directory server/knexfile.js (the deploy path) declares', () => {
+  const serverDir = path.join(__dirname, '..', 'server');
+  const knexfile = fs.readFileSync(path.join(serverDir, 'knexfile.js'), 'utf8');
+  const match = /migrations:\s*\{\s*directory:\s*path\.join\(__dirname((?:,\s*'[^']+')+)\)/.exec(knexfile);
+  assert.ok(match, 'could not find migrations.directory in server/knexfile.js');
+  const segments = match[1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
+  assert.equal(path.resolve(MIGRATIONS_DIR), path.resolve(serverDir, ...segments));
+});
+
+test('MIGRATIONS_DIR exists and is the tracked server/db/migrations directory', () => {
+  assert.ok(fs.existsSync(MIGRATIONS_DIR), MIGRATIONS_DIR + ' does not exist');
+  assert.equal(path.basename(MIGRATIONS_DIR), 'migrations');
+  assert.equal(path.basename(path.dirname(MIGRATIONS_DIR)), 'db');
+});
+
 test('GRANDFATHERED_PREFIXES: every recorded file still exists on disk', () => {
   // If one of these is ever renamed or removed, the entry is stale and the
   // exemption should be reconsidered rather than silently kept.

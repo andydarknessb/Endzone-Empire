@@ -5,8 +5,10 @@
  * and neither reads the other's column. Both are applied everywhere and knex
  * matches applied migrations by filename, so the pair is left as-is and
  * recorded in scripts/migrationPrefixes.js as the one grandfathered
- * duplicate. Do not rename this file, and do not add a third file on this
- * prefix; the migration-prefix guard rejects both.
+ * duplicate. Do not rename this file (the guard checks the grandfathered pair
+ * still exists on disk) and do not add a third file on this prefix (the
+ * duplicate check fails). Every migration from here on takes its own unique
+ * prefix; scripts/migrationPrefixes.test.js enforces it.
  *
  * ADR 0005 (docs/adr/0005-fix-draft-rounds-at-start.md): Draft rounds stops
  * being recomputed on every read for an active or completed draft.
