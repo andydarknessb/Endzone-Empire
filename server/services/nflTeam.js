@@ -10,11 +10,12 @@
  * NOT decide a DEF-unit match against a live box score - a DEF row's Team code
  * is `WAS` and Tank01's teamAbv is `WSH`, and leaving them un-folded was the
  * #431 bug; the DEF join on both the live and nflverse paths now folds through
- * `normalizeNflTeam` here. What still uses the local resolver are the callers
- * whose two sides already agree or need only a name folded (the DEF backfill,
- * adp.service, projectionFeatures). #227 left those alone deliberately - they
- * are not kickoff-keyed - rather than by oversight. Do not read this file as
- * having already won.
+ * `normalizeNflTeam` here. adp.service's DEF match had the same disagreeing-
+ * vocabularies shape and moved to `normalizeNflTeam` too (#451). What still
+ * uses the local resolver are the callers whose two sides already agree or
+ * need only a name folded (the DEF backfill, projectionFeatures). #227 left
+ * those alone deliberately - they are not kickoff-keyed - rather than by
+ * oversight. Do not read this file as having already won.
  *
  * THE PROBLEM IT ANSWERS. Team identity is written into this database in
  * three vocabularies and no column says which one it is holding:

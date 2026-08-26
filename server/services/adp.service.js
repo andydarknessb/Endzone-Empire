@@ -1,7 +1,8 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
 const { normalizeNameKey } = require('./nameMatch');
-const { normalizeTeamAbbr, IDP_POSITIONS } = require('./scoring.service');
+const { IDP_POSITIONS } = require('./scoring.service');
+const { normalizeNflTeam } = require('./nflTeam');
 
 const IDP_POSITION_SET = new Set(IDP_POSITIONS);
 
@@ -36,10 +37,11 @@ function normalizeAdpEntry(entry) {
     name: String(name),
     nameKey: normalizeNameKey(name),
     position: normalizeAdpPosition(entry.position),
-    // FFC's team code ("DEN", "LAR", ...) — the only reliable key for DEF
-    // entries, whose names ("Denver Defense") never match our DEF rows
-    // ("Denver Broncos").
-    teamAbbr: normalizeTeamAbbr(entry.team),
+    // Team code (CONTEXT.md), folded from FFC's `team` field — the only
+    // reliable key for DEF entries, whose names ("Denver Defense") never
+    // match our DEF rows ("Denver Broncos"). See the DEF match in
+    // buildAdpUpdates for why both sides fold through normalizeNflTeam.
+    teamAbbr: normalizeNflTeam(entry.team),
     adp: Math.round(adp * 100) / 100,
   };
 }
@@ -66,7 +68,12 @@ function buildAdpUpdates(players, entries) {
   for (const player of players) {
     const pos = String(player.position || '').toUpperCase();
     if (pos === 'DEF') {
-      const match = defByTeam.get(normalizeTeamAbbr(player.nfl_team));
+      // Both sides are Team codes (CONTEXT.md) folded through normalizeNflTeam:
+      // FFC's `team` field (built into defByTeam above) and players.nfl_team,
+      // which for a DEF row holds a full team name, not an abbreviation. A
+      // raw-spelling mismatch (FFC's WSH vs. our "Washington Commanders")
+      // would silently fail to match without folding both sides the same way.
+      const match = defByTeam.get(normalizeNflTeam(player.nfl_team));
       if (match) updates.push({ id: player.id, adp: match.adp });
       continue;
     }

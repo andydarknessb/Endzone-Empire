@@ -549,11 +549,13 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats) {
  * it must NOT be used to match a DEF unit against a live box score: the DEF
  * row's Team code is WAS and Tank01's teamAbv is WSH, and this resolver would
  * leave them in different vocabularies (the #431 bug). The DEF join folds
- * through normalizeNflTeam instead. What remains here is the callers whose two
- * sides do already agree or need only a name folded: the syncTeamDefenses
- * backfill (missingTeamDefenses, below), adp.service, projectionFeatures. #227
- * deliberately did not merge this with normalizeNflTeam; nothing here is
- * kickoff-keyed, and those callers were not asked to change.
+ * through normalizeNflTeam instead. adp.service's DEF match had the same
+ * disagreeing-vocabularies shape and was moved to normalizeNflTeam too (#451).
+ * What remains here is the callers whose two sides do already agree or need
+ * only a name folded: the syncTeamDefenses backfill (missingTeamDefenses,
+ * below), projectionFeatures. #227 deliberately did not merge this with
+ * normalizeNflTeam; nothing here is kickoff-keyed, and those callers were not
+ * asked to change.
  */
 function normalizeTeamAbbr(nflTeam) {
   const raw = String(nflTeam || '').trim();
