@@ -6,7 +6,7 @@ import publicApiClient from '../../api/publicApiClient';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import PublicApp from './PublicApp';
 import LandingPage from '../LandingPage/LandingPage';
-import { DEFAULT_DESCRIPTION, DEFAULT_OG_IMAGE, SITE_NAME, SITE_ORIGIN } from './PublicSeo';
+import { DEFAULT_DESCRIPTION, DEFAULT_OG_IMAGE, SHELL_TITLE, SITE_NAME, SITE_ORIGIN } from './PublicSeo';
 
 jest.mock('../../api/publicApiClient', () => ({
   __esModule: true,
@@ -57,9 +57,11 @@ afterEach(() => {
 });
 
 test('the shell declares the site-wide description, Open Graph and Twitter metadata from the shared constants', () => {
+  expect(SHELL_TITLE.startsWith(SITE_NAME)).toBe(true);
+
   // eslint-disable-next-line testing-library/no-node-access -- the subject is document.head, which Testing Library queries do not reach
   const title = shellHead().querySelector('title').textContent;
-  expect(title).toBe(SITE_NAME);
+  expect(title).toBe(SHELL_TITLE);
 
   expect(shellContent('meta[name="description"]')).toBe(DEFAULT_DESCRIPTION);
   expect(shellContent('meta[property="og:description"]')).toBe(DEFAULT_DESCRIPTION);
@@ -78,10 +80,15 @@ test('the shell declares the site-wide description, Open Graph and Twitter metad
   expect(shellContent('meta[name="twitter:image"]')).toBe(DEFAULT_OG_IMAGE);
 });
 
-test('the default description is fantasy-led, carries the pick\'em clause, and fits a search snippet', () => {
-  // #50 ruling: fantasy first, pick'em as the second clause. House style: no em-dashes.
-  expect(DEFAULT_DESCRIPTION).toMatch(/^Fantasy football/);
-  expect(DEFAULT_DESCRIPTION).toMatch(/pick'em/);
+test('the default description is product-first, binds the pick\'em clause with the hero\'s middot, and fits a search snippet', () => {
+  // 2026-08-25 ruling on #399: product-first, so the sentence opens with the
+  // fantasy league before the pick'em clause. This pins the shell's own copy
+  // to the agreed middot form. Matching the hero's fragment (LandingPage.jsx)
+  // is a hand-maintained convention, not something this assertion checks;
+  // the two are independent literals, so keep them in sync by hand.
+  expect(DEFAULT_DESCRIPTION).toMatch(/^Run a fantasy football league/);
+  expect(DEFAULT_DESCRIPTION.indexOf('fantasy')).toBeLessThan(DEFAULT_DESCRIPTION.indexOf("pick'em"));
+  expect(DEFAULT_DESCRIPTION).toContain("· no draft, no rosters");
   expect(DEFAULT_DESCRIPTION).not.toMatch(/—/);
   expect(DEFAULT_DESCRIPTION.length).toBeLessThanOrEqual(160);
 });
