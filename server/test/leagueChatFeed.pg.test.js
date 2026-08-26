@@ -60,7 +60,7 @@ if (!ENABLED) {
     migrations: { directory: path.join(__dirname, '..', 'db', 'migrations') },
   });
 
-  const MIGRATION_NAME = '20260826000001_league_chat_feed_sequence.js';
+  const MIGRATION_NAME = '20260826000002_league_chat_feed_sequence.js';
 
   // Two shared timestamps: TIE is used twice in league A so the (created_at, id)
   // tiebreak is actually exercised, not assumed.
