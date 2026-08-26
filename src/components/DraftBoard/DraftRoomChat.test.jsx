@@ -68,7 +68,7 @@ test('shows existing League-chat history, attributed by Team', async () => {
   expect(await screen.findByText('welcome')).toBeInTheDocument();
   expect(screen.getByText('Anvils')).toBeInTheDocument();
   expect(screen.queryByText('alice')).not.toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/chat');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed');
 });
 
 test('appends a message broadcast over the shared draft session', async () => {
@@ -79,6 +79,49 @@ test('appends a message broadcast over the shared draft session', async () => {
 
   expect(await screen.findByText('good luck all')).toBeInTheDocument();
   expect(screen.getByText('Bulldogs')).toBeInTheDocument();
+});
+
+const pickActivity = (overrides = {}) => ({
+  type: 'draft_activity',
+  kind: 'pick',
+  id: 1,
+  seq: 6,
+  teamId: 12,
+  teamName: 'Bulldogs',
+  player: { id: 500, name: 'Pat Mahomes', position: 'QB', nflTeam: 'KC' },
+  round: 1,
+  pickNumber: 1,
+  isAutopick: false,
+  created_at: '2026-01-01T12:05:00Z',
+  ...overrides,
+});
+
+test('appends a committed Pick as Draft activity from the shared draft:picked broadcast (#435)', async () => {
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  await screen.findByText('No messages yet');
+
+  // The Pick rides on draft:picked beside the board update; the feed reads its
+  // activity entry.
+  act(() => socket.trigger('draft:picked', { auto: false, activity: pickActivity() }));
+
+  expect(await screen.findByText(/drafted/)).toBeInTheDocument();
+  expect(screen.getByText('Bulldogs')).toBeInTheDocument();
+  expect(screen.getByText('Pat Mahomes', { exact: false })).toBeInTheDocument();
+  // The snapshot facts are shown without leaving the feed.
+  expect(screen.getByText(/Round 1/)).toBeInTheDocument();
+  expect(screen.getByText(/Pick 1/)).toBeInTheDocument();
+});
+
+test('labels an autopick AUTO in the feed (#435 AC3)', async () => {
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  await screen.findByText('No messages yet');
+
+  act(() => socket.trigger('chat:message', chatMessage({ id: 9, seq: 5, teamName: 'Anvils', message: 'my turn' })));
+  act(() => socket.trigger('draft:picked', { auto: true, activity: pickActivity({ seq: 6, isAutopick: true }) }));
+
+  expect(await screen.findByText('AUTO')).toBeInTheDocument();
+  expect(screen.getByText('my turn')).toBeInTheDocument();
+  // Strict seq ordering of the combined feed is pinned in useDraftRoomFeed.test.js.
 });
 
 test('sends over the shared session and never opens a second connection', async () => {
@@ -126,7 +169,7 @@ test('re-syncs chat history when the draft session reconnects', async () => {
   act(() => reconnectHandlers.forEach((cb) => cb()));
 
   expect(await screen.findByText('missed while offline')).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/chat');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed');
 });
 
 test('renders nothing that throws before the session exists', async () => {
