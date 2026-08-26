@@ -25,6 +25,10 @@ Limit this treatment to social preview crawlers. Do not send Googlebot or Bingbo
 | Full SSR inside CRA | One response can contain metadata and page content | Requires a server bundle, routing/data-fetch duplication, MUI style hydration, and different deployment behavior | Do not build |
 | Move the public shell to an SSR/SSG framework | Durable indexable HTML, static generation plus dynamic rendering, cleaner long-term SEO | Separate migration and hosting work; public/auth navigation boundary must remain explicit | Revisit if organic search becomes a primary acquisition channel |
 
+## The static shell
+
+Every URL outside the public tree, the marketing landing page included, mounts the HashRouter app and reaches a crawler or link unfurler with only what `public/index.html` declares (#351). The shell therefore carries the site-wide description, Open Graph and Twitter tags itself. Two rules keep it honest: its description text equals `DEFAULT_DESCRIPTION` exported from `PublicSeo.jsx` (asserted by `shellMeta.test.jsx`, since a static file cannot import a constant), and every shell tag carries `data-rh="true"` so react-helmet-async treats it as its own and replaces it on a public route instead of leaving a second copy beside the route's.
+
 ## Reconsideration trigger
 
 Move the public shell to a framework designed for SSR/SSG instead of extending CRA SSR when either condition is true:

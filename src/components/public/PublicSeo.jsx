@@ -5,8 +5,11 @@ export const SITE_NAME = 'Endzone Empire';
 export const SITE_ORIGIN = 'https://endzoneempire.gg';
 export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}/og-brand-gradient.png`;
 
-const DEFAULT_DESCRIPTION =
-  'Fantasy football rankings, player profiles, strategy guides, and NFL game recaps from Endzone Empire.';
+// Site-wide default, shared with the static shell (public/index.html), which
+// cannot import it: shellMeta.test.jsx asserts the two stay equal (#351).
+// Fantasy-led with pick'em as the second clause (#50 ruling); no em-dashes.
+export const DEFAULT_DESCRIPTION =
+  "Fantasy football rankings, player profiles, strategy guides, and NFL game recaps. Run a fantasy league or an NFL pick'em league with no draft and no rosters.";
 
 function absoluteUrl(value) {
   if (/^https?:\/\//i.test(String(value || ''))) return value;
