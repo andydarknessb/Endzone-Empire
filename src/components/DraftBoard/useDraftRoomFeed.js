@@ -145,7 +145,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
       socket.off?.('chat:message', onChatMessage);
       socket.off?.('draft:picked', onPicked);
     };
-  }, [socket, fetchHistory, markRead]);
+  }, [socket, leagueId, fetchHistory, markRead]);
 
   const sendMessage = useCallback(
     (raw, clientMsgId) => {

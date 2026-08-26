@@ -204,7 +204,7 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
       // listener left behind would keep appending after unmount.
       socket.off?.('chat:message', onChatMessage);
     };
-  }, [socket, fetchHistory, fetchUnread, markRead]);
+  }, [socket, leagueId, fetchHistory, fetchUnread, markRead]);
 
   const sendMessage = useCallback(
     (raw, clientMsgId) => {

@@ -248,7 +248,7 @@ test('the N-new affordance jumps to the newest entries and clears', () => {
   setFeed([seqMsg({ id: 1, seq: 1 }), seqMsg({ id: 2, seq: 2, message: 'second' })]);
 
   const jump = screen.getByRole('button', { name: /1 new/i });
-  act(() => fireEvent.click(jump));
+  fireEvent.click(jump);
 
   // Jumped to the bottom (scrollTop driven to the full scroll height)...
   expect(box.scrollTop).toBe(1000);
