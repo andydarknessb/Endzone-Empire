@@ -21,10 +21,18 @@ function makeTempRoot() {
 
 // Install a fake @testing-library/dom under <dir>/node_modules so the walk-up
 // sees a real package.json there, without spawning npm.
+//
+// Trust boundary: every caller passes a directory this test suite created
+// itself via makeTempRoot()'s fs.mkdtempSync, or a literal descendant of one
+// (see the walk-up tests below) — never request or user input — and the
+// remaining segments are fixed string literals, so neither join below can be
+// steered by external data.
 function installPackage(dir) {
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   const pkgDir = path.join(dir, 'node_modules', '@testing-library', 'dom');
   fs.mkdirSync(pkgDir, { recursive: true });
   fs.writeFileSync(
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
     path.join(pkgDir, 'package.json'),
     JSON.stringify({ name: '@testing-library/dom', version: '9.3.4' })
   );

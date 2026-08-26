@@ -799,6 +799,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
     const { materializeLineup } = require('../services/lineup.service');
     const { getWeekProjections } = require('../services/projection.service');
+    const { normalizeNflTeam } = require('../services/nflTeam');
     const rules = rulesForLeague(leagueResult.rows[0]);
 
     // Per-week projections power the pace bars and the live win-probability bar.
@@ -814,7 +815,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
       [matchup.season, matchup.week]
     );
-    const opponentByTeam = new Map(scheduleRows.rows.map((r) => [r.nfl_team, r.opponent]));
+    // Keyed by normalizeNflTeam(row.nfl_team), NOT the raw column: a DEF
+    // unit's players.nfl_team is a full team name (syncTeamDefenses), while
+    // nfl_games.nfl_team is Tank01's raw abbreviation. The lookup below
+    // normalizes the same way, so both sides of this JS-side comparison agree
+    // (#425, same pattern as #423 in decision.service). The VALUE stays raw
+    // nfl_games.opponent on purpose - ADR 0011 keeps the schedule in Tank01's
+    // own vocabulary.
+    const opponentByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
 
     await client.query('BEGIN');
     const toPlayer = (row) => {
@@ -830,7 +838,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         stats: row.stats || null,
         points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
         projected: projection ? Math.round(projection.points * 100) / 100 : null,
-        opponent: opponentByTeam.get(row.nfl_team) || null,
+        opponent: opponentByTeam.get(normalizeNflTeam(row.nfl_team)) || null,
       };
     };
     const teamLineup = async (teamId) => {

@@ -125,10 +125,19 @@ function resolveSearchRoot() {
 // itself (search root == install root), which is the correct "judge this tree
 // on its own" behavior — npm ls then emits the INVALID four-field shape the
 // parser already collapses to one copy.
+//
+// Trust boundary: every real call site passes `resolveSearchRoot()`'s return
+// value — `path.resolve(__dirname, '..', '..')`, fixed by where this script
+// lives on disk — and the unit tests pass a `fs.mkdtempSync` directory they
+// created themselves. Neither is request or user input, and `dir` here only
+// ever walks upward (`path.dirname`) from one of those two starting points,
+// so it cannot be steered to an attacker-chosen path.
 function resolveInstallRoot(searchRoot) {
   const pkgSegments = PACKAGE_NAME.split('/'); // ['@testing-library', 'dom']
   const hasCopy = (dir) =>
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
     fs.existsSync(path.join(dir, 'node_modules', ...pkgSegments, 'package.json'));
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   let dir = path.resolve(searchRoot);
   let parent = path.dirname(dir);
   while (parent !== dir) {

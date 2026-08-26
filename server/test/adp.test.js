@@ -5,6 +5,7 @@ const {
   normalizeAdpEntry,
   buildAdpUpdates,
 } = require('../services/adp.service');
+const { NFL_TEAM_FULL_NAMES } = require('../services/nflTeam');
 
 test('normalizeAdpPosition maps FFC PK to our K, passes others through', () => {
   assert.equal(normalizeAdpPosition('PK'), 'K');
@@ -79,6 +80,40 @@ test('buildAdpUpdates matches a DEF row whose nfl_team is already an abbreviatio
     defEntries
   );
   assert.deepEqual(updates, [{ id: 53, adp: 101.1 }]);
+});
+
+test('buildAdpUpdates matches a DEF row across a raw-spelling mismatch (FFC WSH vs our full name)', () => {
+  // Washington: our DEF row spells its team the full-name way
+  // ("Washington Commanders"); FFC spells it the Tank01-style raw code
+  // ("WSH"). Only folding both sides through normalizeNflTeam reconciles them.
+  const updates = buildAdpUpdates(
+    [{ id: 70, name: 'Washington Commanders', position: 'DEF', nfl_team: 'Washington Commanders' }],
+    [
+      normalizeAdpEntry({ position: 'DEF', team: 'WSH', name: 'Washington Defense', adp: 150.2 }),
+    ]
+  );
+  assert.deepEqual(updates, [{ id: 70, adp: 150.2 }]);
+});
+
+test('buildAdpUpdates matches every canonical team\'s DEF row by its full name', () => {
+  // Driven from NFL_TEAM_FULL_NAMES itself (not a literal list): every one of
+  // the 32 canonical teams must still match its own full-name DEF row after
+  // the switch to normalizeNflTeam, proving the switch changed nothing here.
+  const fullNames = Object.keys(NFL_TEAM_FULL_NAMES);
+  const players = fullNames.map((fullName, i) => ({
+    id: i,
+    name: fullName,
+    position: 'DEF',
+    nfl_team: fullName,
+  }));
+  const defEntries = fullNames.map((fullName, i) =>
+    normalizeAdpEntry({ position: 'DEF', team: NFL_TEAM_FULL_NAMES[fullName], name: `${fullName} Defense`, adp: i + 1 })
+  );
+  const updates = buildAdpUpdates(players, defEntries);
+  assert.deepEqual(
+    updates,
+    players.map((p) => ({ id: p.id, adp: p.id + 1 }))
+  );
 });
 
 test('an IDP player never inherits a same-named offensive player\'s ADP', () => {

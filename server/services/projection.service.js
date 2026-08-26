@@ -207,7 +207,12 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
  * perfectly plausible. The `opponent` key is deliberately NOT folded: the
  * caller (`decision.service.startSitAdvice`) looks this map up with an
  * opponent read straight out of `nfl_games`, so both sides of that lookup
- * already speak the schedule's own vocabulary.
+ * already speak the schedule's own vocabulary. This map's key is therefore a
+ * Raw team code (CONTEXT.md), the one exception the glossary allows, because
+ * its lookup partner is raw too. Contrast projectionFeatures.js's
+ * `loadFeatureBundle` league scan, whose equivalent `defense` key IS folded
+ * into a Team code, because its `allowedByDefense` map (`buildLeagueContext`)
+ * is only ever read against keys already folded on the JS side.
  *
  * One consequence to know about, shared with every other normalised join in
  * the app: `nfl_games` is unique on the RAW `(season, week, nfl_team)`, so a

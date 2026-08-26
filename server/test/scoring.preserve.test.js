@@ -164,7 +164,7 @@ function playerMaps(prevStats) {
   return {
     idByExternal: new Map([['4433971', 7]]),
     metaById: new Map([[7, { name: 'Star Back', position: 'RB', nfl_team: 'KC' }]]),
-    defByAbbr: new Map(),
+    defByTeamCode: new Map(),
     prevById: prevStats ? new Map([[7, prevStats]]) : new Map(),
     opponentByTeam: new Map([['KC', 'BUF']]),
   };
@@ -232,7 +232,7 @@ test('applyGameBoxScore: a DST re-apply preserves gameTeam/gameOpponent', async 
   const maps = {
     idByExternal: new Map(),
     metaById: new Map(),
-    defByAbbr: new Map([['KC', { id: 91, name: 'Kansas City Chiefs', nfl_team: 'Kansas City Chiefs' }]]),
+    defByTeamCode: new Map([['KC', { id: 91, name: 'Kansas City Chiefs', nfl_team: 'Kansas City Chiefs' }]]),
     prevById: new Map([[91, { sack: 1, gameTeam: 'KC', gameOpponent: 'BUF' }]]),
     opponentByTeam: new Map([['KC', 'BUF']]),
   };
@@ -246,6 +246,100 @@ test('applyGameBoxScore: a DST re-apply preserves gameTeam/gameOpponent', async 
   assert.equal(stored.gameTeam, 'KC');
   assert.equal(stored.gameOpponent, 'BUF');
   assert.equal(stored.sack, 3, 'fresh Tank01 DST numbers still land');
+});
+
+// --- Washington skill player: the emitted play carries Team codes (#449) -----
+
+/**
+ * Regression for #449. A scoring play's `nflTeam` and `opponent` are the
+ * payload the matchup cutscene keys its colour table by, and CONTEXT.md's
+ * **Team code** entry forbids a raw code there. Washington is the one team
+ * whose raw spelling (`WSH`) is not its Team code (`WAS`), so it is the only
+ * fixture that can catch a missing fold; the KC/BUF fixtures above cannot,
+ * their raw code already equals their Team code. The LOOKUPS stay raw-on-raw
+ * (the opponent map is keyed by the raw `nfl_games.nfl_team` and looked up with
+ * the raw player code); only the values written INTO the play are folded.
+ */
+test('applyGameBoxScore: a WSH skill player emits a play folded to Team codes (#449)', async (t) => {
+  const upserts = stubUpserts(t);
+  const maps = {
+    idByExternal: new Map([['4433971', 7]]),
+    metaById: new Map([[7, { name: 'Star Back', position: 'RB', nfl_team: 'WSH' }]]),
+    defByTeamCode: new Map(),
+    // The schedule speaks Tank01's raw vocabulary on BOTH columns: the row is
+    // keyed WSH and its opponent is another drifted raw code (JAC), so a folded
+    // opponent (JAX) proves the emission fold ran on the opponent too.
+    prevById: new Map([[7, { rushingYards: 40, rushingTDs: 0 }]]),
+    opponentByTeam: new Map([['WSH', 'JAC']]),
+  };
+  const out = await scoring.applyGameBoxScore({ box: BOX, season: 2026, week: 2, maps });
+
+  const play = out.plays.find((p) => p.position === 'RB');
+  assert.ok(play, 'a Washington skill-player scoring play must be emitted');
+  assert.equal(play.nflTeam, 'WAS', "the play carries WSH folded to the Team code WAS, not the raw code");
+  assert.equal(play.opponent, 'JAX', 'the opponent is folded to a Team code too (raw JAC -> JAX)');
+  // The stored player_stats row is untouched by the fold: ADR 0011 keeps the
+  // raw code in the table.
+  assert.ok(upserts.some((p) => p[0] === 7), 'the player_stats row was still written');
+});
+
+// --- Washington DEF: teamAbv 'WSH' must match a 'Washington Commanders' unit --
+
+/**
+ * Regression for #431. Washington is the one team whose live box-score DST side
+ * (Tank01's raw `teamAbv: 'WSH'`) does not equal the Team code its seeded DEF
+ * unit folds to (`Washington Commanders` -> WAS). The DEF-unit map must be built
+ * AND looked up on the folded Team code, or Washington's DST aggregate is
+ * silently skipped every live sync. This drives loadWeekMaps (which builds the
+ * map) so the fix at the real keying site is what turns it green; a hand-built
+ * defByTeamCode would test the fixture, not the code. The other DST tests use KC/BAL,
+ * whose Team code already equals Tank01's raw code, so they cannot catch this.
+ */
+test('applyGameBoxScore: a WSH box score matches the Washington Commanders DEF unit and scores it (#431)', async (t) => {
+  const captured = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('INTO "player_stats"')) {
+      captured.push(params);
+      return { rows: [] };
+    }
+    if (text.includes(`WHERE "external_id" IS NOT NULL`)) return { rows: [] };
+    if (text.includes(`"position" = 'DEF'`)) {
+      return { rows: [{ id: 91, name: 'Washington Commanders', nfl_team: 'Washington Commanders' }] };
+    }
+    if (text.includes('FROM "player_stats"')) return { rows: [] }; // no prior stats
+    if (text.includes('FROM "nfl_games"')) {
+      // nfl_games speaks Tank01's raw vocabulary on BOTH columns: WSH, not WAS,
+      // and a drifted opponent code (JAC) so the emitted opponent fold to JAX
+      // is visible on the DEF path too (#449).
+      return { rows: [{ nfl_team: 'WSH', opponent: 'JAC' }] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const maps = await scoring.loadWeekMaps({ season: 2026, week: 1 });
+  const box = {
+    playerStats: {},
+    DST: { home: { teamAbv: 'WSH', sacks: '3', defTD: '1', ptsAllowed: '10' } },
+    teamStats: { away: {} },
+  };
+  const out = await scoring.applyGameBoxScore({ box, season: 2026, week: 1, maps });
+
+  // A player_stats row was written for the Washington DEF id.
+  const defUpsert = captured.find((p) => p[0] === 91);
+  assert.ok(defUpsert, 'a player_stats row must be written for the Washington DEF unit');
+  const stored = JSON.parse(defUpsert[3]);
+  assert.equal(stored.sack, 3, 'the Tank01 DST numbers landed on the Washington unit');
+  assert.equal(stored.defensiveTD, 1);
+
+  // A DEF scoring play was emitted. The DEF-unit match and the opponent lookup
+  // still succeed on the raw code (proving #431 did not regress), but the play
+  // object now carries Team codes (#449): the DST side's raw teamAbv `WSH` folds
+  // to `WAS`, and the raw-keyed opponent `JAC` folds to `JAX`.
+  const defPlay = out.plays.find((p) => p.position === 'DEF');
+  assert.ok(defPlay, 'a Washington DEF scoring play must be emitted');
+  assert.equal(defPlay.nflTeam, 'WAS', "the play carries the folded Team code WAS, not Tank01's raw WSH (#449)");
+  assert.equal(defPlay.opponent, 'JAX', 'opponent found via the raw WSH-keyed schedule row, then folded to a Team code (#449)');
 });
 
 // --- carried keys can never fire a cutscene ----------------------------------

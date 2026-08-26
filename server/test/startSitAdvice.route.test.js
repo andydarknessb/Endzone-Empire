@@ -53,13 +53,24 @@ function mockAdviceDependencies(t, {
   projections,
   rosterSlots = ROSTER_SLOTS,
   league = { id: 3, best_ball: false, scoring_rules: null },
+  // Defaults to today's behaviour: an nfl_games row per entry, echoing the
+  // entry's own nfl_team back as both sides of the schedule comparison. That
+  // means these two defaults can never express a spelling mismatch between
+  // players.nfl_team and nfl_games.nfl_team - pass gameRows explicitly (as
+  // the DEF/WSH tests below do) whenever team keying is the point of the
+  // test: the DEF test's players.nfl_team genuinely disagrees with its
+  // schedule row and must be normalized to match; the WSH test's schedule
+  // row matches raw-on-raw and guards that the already-working case doesn't
+  // regress (#428).
+  gameRows,
+  positionDefense = new Map([['NYJ', { RB: 21.4, WR: 15.2 }]]),
 } = {}) {
   const projectionCalls = [];
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('FROM "leagues"')) return { rows: [league] };
     if (text.includes('FROM "nfl_games"')) {
-      return { rows: entries.map((e) => ({ nfl_team: e.nfl_team, opponent: 'NYJ' })) };
+      return { rows: gameRows || entries.map((e) => ({ nfl_team: e.nfl_team, opponent: 'NYJ' })) };
     }
     throw new Error(`unexpected query: ${text.slice(0, 90)}`);
   });
@@ -84,8 +95,7 @@ function mockAdviceDependencies(t, {
       projections: new Map(projections),
     };
   });
-  t.mock.method(projectionService, 'getPositionDefense', async () =>
-    new Map([['NYJ', { RB: 21.4, WR: 15.2 }]]));
+  t.mock.method(projectionService, 'getPositionDefense', async () => positionDefense);
   return projectionCalls;
 }
 
@@ -212,6 +222,50 @@ test('a starter on a bye is reported unavailable and replaced', async (t) => {
   assert.deepEqual(advice.unavailable.map((u) => [u.playerId, u.reason]), [[1, 'bye']]);
   assert.equal(advice.projectedTotal, 0);
   assert.equal(advice.suggestions[0].suggested.playerId, 3);
+});
+
+test('a DEF unit resolves its opponent even though players.nfl_team is a full team name (#423)', async (t) => {
+  // players.nfl_team for a DEF is seeded as a full team name ('Denver
+  // Broncos') by syncTeamDefenses, while nfl_games.nfl_team is Tank01's raw
+  // abbreviation ('DEN'). getWeekOpponents must normalize both sides of that
+  // comparison rather than compare them raw.
+  const entries = [
+    lineupEntry(1, 'DEF', 'DEF', { nfl_team: 'Denver Broncos' }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] }],
+    gameRows: [{ nfl_team: 'DEN', opponent: 'KC' }],
+    positionDefense: new Map([['KC', { DEF: 5.5 }]]),
+    projections: [[1, projectionFor(1, 7, {
+      factors: { opponent: { available: true, pointsContribution: 0.8, opponentTeam: 'KC' } },
+    })]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  const defPlayer = advice.players.find((p) => p.playerId === 1);
+  assert.equal(defPlayer.opponent, 'KC');
+  assert.equal(defPlayer.opponentPointsAllowed, 5.5);
+});
+
+test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedule row (#423)', async (t) => {
+  const entries = [
+    lineupEntry(2, 'WR', 'RB', { nfl_team: 'WSH' }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['WR'] }],
+    gameRows: [{ nfl_team: 'WSH', opponent: 'DAL' }],
+    positionDefense: new Map([['DAL', { WR: 12.3 }]]),
+    projections: [[2, projectionFor(2, 9, {
+      factors: { opponent: { available: true, pointsContribution: 0.8, opponentTeam: 'DAL' } },
+    })]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  const wrPlayer = advice.players.find((p) => p.playerId === 2);
+  assert.equal(wrPlayer.opponent, 'DAL');
+  assert.equal(wrPlayer.opponentPointsAllowed, 12.3);
 });
 
 test('advice never lists a player in two recommendations', async (t) => {
