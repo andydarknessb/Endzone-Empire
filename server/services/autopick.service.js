@@ -91,6 +91,12 @@ async function autoPick({ leagueId }) {
         // and both are pinned to one key set by socketPayloadShape.test.js.
         io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: true });
         if (outcome.draftComplete) {
+          // An autopick can be the Pick that ends the draft; its completion
+          // lifecycle entry (#437) rides to the combined feed on draft:activity,
+          // exactly as the manual-pick handler delivers it.
+          if (outcome.completion) {
+            io.to(`league:${leagueId}`).emit('draft:activity', outcome.completion);
+          }
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
       }

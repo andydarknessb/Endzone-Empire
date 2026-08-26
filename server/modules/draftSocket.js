@@ -216,6 +216,12 @@ function attachDraftSocket(httpServer) {
         // site; socketPayloadShape.test.js pins both to one key set.
         io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: false });
         if (outcome.draftComplete) {
+          // The Pick that ended the draft also appended a completion lifecycle
+          // entry (#437); deliver it to the room's combined feed on draft:activity,
+          // beside the draft:complete board signal.
+          if (outcome.completion) {
+            io.to(`league:${leagueId}`).emit('draft:activity', outcome.completion);
+          }
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
         ack && ack({ ok: true, outcome });
