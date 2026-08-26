@@ -11,19 +11,21 @@
  * interleave a Pick with the chat around it without inventing a fake chat
  * author for a Draft event.
  *
- * WHY THE SAME COUNTER, VIA THE SAME TRIGGER FUNCTION. `fn_allocate_league_feed_seq()`
- * (created by 20260826000002) is generic over `NEW.league_id` / `NEW.feed_seq`:
- * it bumps the one `league_feed_sequences` row for the league under its row
- * lock and returns the next position. Attaching it to `draft_activity` too means
- * a chat insert and an activity insert for the same league SERIALIZE on that
- * lock and can never take the same position - cross-table uniqueness comes from
- * the shared counter, not from any one table's index. The order the counter
- * hands out therefore agrees with commit visibility (the lock is held to
- * COMMIT), which is exactly what makes the feed order deterministic for every
+ * WHY THE SAME COUNTER, THROUGH THIS MIGRATION'S OWN TRIGGER FUNCTION. The
+ * coordination point of the shared sequence is the COUNTER TABLE
+ * (`league_feed_sequences`, created by 20260826000002), not the trigger
+ * function. This migration's `fn_allocate_draft_activity_feed_seq()` bumps the
+ * one counter row for the league under its row lock, exactly as chat's
+ * `fn_allocate_league_feed_seq()` does, so a chat insert and an activity insert
+ * for the same league SERIALIZE on that lock and draw one contiguous per-league
+ * run - the order the counter hands out agrees with commit visibility (the lock
+ * is held to COMMIT), which is what makes the feed order deterministic for every
  * client and every reconnect (#435 AC4). Allocation stays at the DATABASE
  * boundary, not in application code, for the reason #434 spells out and ADR 0006
  * (roster_tenures) set the precedent for: a fact every write path must maintain
- * belongs in a trigger a caller cannot forget.
+ * belongs in a trigger a caller cannot forget. Owning the function here (rather
+ * than reusing chat's) keeps this migration's rollback independent of chat's -
+ * see the CREATE TRIGGER below and exports.down for why that matters.
  *
  * WHY THE SNAPSHOT COLUMNS. Draft activity must survive later Draft mutations
  * (#435): a commissioner correction or reset reverses a `draft_picks` row, and
@@ -95,13 +97,44 @@ exports.up = async function (knex) {
     t.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
   });
 
-  // Allocate the shared per-league position from the SAME function chat uses.
-  // A row that already names a feed_seq (a future writer that allocates
-  // explicitly, e.g. #436's legacy backfill) is left untouched by the function.
+  // Allocate the shared per-league position from the SAME counter chat uses
+  // (league_feed_sequences), through this migration's OWN trigger function.
+  //
+  // WHY A SEPARATE FUNCTION rather than reusing chat's fn_allocate_league_feed_seq.
+  // The coordination point of the shared sequence is the COUNTER TABLE, not the
+  // trigger function: both functions bump the one league_feed_sequences row for
+  // the league under its row lock, so a chat insert and an activity insert still
+  // serialize and still draw one contiguous per-league run. Sharing the function
+  // instead made this migration's trigger DEPEND on chat's function, and chat's
+  // applied down() (20260826000002, immutable) does an unqualified
+  // `DROP FUNCTION IF EXISTS fn_allocate_league_feed_seq()` with no CASCADE - so
+  // a TARGETED rollback of the chat migration while draft_activity still exists
+  // (what leagueChatFeed.pg.test.js does, and a case a full reverse-order
+  // rollback hides) fails with "trigger ... depends on function". Owning the
+  // function here breaks that dependency: chat's function has no dependents but
+  // its own trigger, and this migration depends only on the counter TABLE (a
+  // plpgsql body referencing it by name is not a hard drop-blocking dependency).
+  //
+  // The body mirrors chat's: a row that already names a feed_seq (a future
+  // writer that allocates explicitly, e.g. #436's legacy backfill) is left
+  // untouched, so only NULL positions are allocated from the counter.
+  await knex.raw(`
+    CREATE OR REPLACE FUNCTION fn_allocate_draft_activity_feed_seq() RETURNS trigger AS $$
+    BEGIN
+      IF NEW."feed_seq" IS NULL THEN
+        INSERT INTO "league_feed_sequences" AS s ("league_id", "last_seq")
+        VALUES (NEW."league_id", 1)
+        ON CONFLICT ("league_id") DO UPDATE SET "last_seq" = s."last_seq" + 1
+        RETURNING s."last_seq" INTO NEW."feed_seq";
+      END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql;
+  `);
+
   await knex.raw(
     `CREATE TRIGGER "draft_activity_allocate_feed_seq"
      BEFORE INSERT ON "${ACTIVITY}"
-     FOR EACH ROW EXECUTE FUNCTION fn_allocate_league_feed_seq()`
+     FOR EACH ROW EXECUTE FUNCTION fn_allocate_draft_activity_feed_seq()`
   );
 
   // One index does double duty: it forbids a league handing the same position
@@ -129,7 +162,8 @@ exports.down = async function (knex) {
     );
   }
   await knex.raw(`DROP TRIGGER IF EXISTS "draft_activity_allocate_feed_seq" ON "${ACTIVITY}"`);
-  // Drops the unique index with it. Leaves fn_allocate_league_feed_seq and
-  // league_feed_sequences in place: chat still owns them.
+  await knex.raw('DROP FUNCTION IF EXISTS fn_allocate_draft_activity_feed_seq()');
+  // Drops the unique index with it. Leaves chat's fn_allocate_league_feed_seq and
+  // the shared league_feed_sequences counter in place: chat still owns them.
   await knex.schema.dropTableIfExists(ACTIVITY);
 };
