@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState } from 'react';
+import React, { useId, useRef, useState, useEffect, useCallback } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
@@ -78,6 +78,79 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
     }
   };
 
+  // #442 AC1/AC2: the live feed auto-follows ONLY while the reader is at the
+  // bottom; a reader up in the backlog keeps their scroll position and gets an
+  // N-new affordance to return to the newest entries. The scroll container is
+  // the anchoring authority: `atBottomRef` records whether the last scroll left
+  // the reader at the end, and `seenKeyRef` is the newest entry they have
+  // actually seen. Unseen entries are the ones AFTER that key, so the count is
+  // derived from current state on every render rather than accumulated, which
+  // keeps it correct even if a render fires the effect twice.
+  const scrollRef = useRef(null);
+  const atBottomRef = useRef(true);
+  const seenKeyRef = useRef(null);
+  const didAnchorRef = useRef(false);
+  const [newCount, setNewCount] = useState(0);
+
+  const lastKey = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const anchorToLatest = useCallback(() => {
+    atBottomRef.current = true;
+    seenKeyRef.current = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
+    setNewCount(0);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  const unseenAfterSeen = useCallback(() => {
+    const seen = seenKeyRef.current;
+    if (seen == null) return 0;
+    const idx = messages.findIndex((m) => feedEntryKey(m) === seen);
+    // The seen entry has aged out (retention); do not invent a count.
+    if (idx < 0) return 0;
+    return messages.length - idx - 1;
+  }, [messages]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Within a small threshold of the end still counts as at the bottom.
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+    atBottomRef.current = atBottom;
+    if (atBottom) {
+      seenKeyRef.current = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
+      setNewCount(0);
+    }
+  }, [messages]);
+
+  // Anchor to the newest entry once, when the first entries land.
+  useEffect(() => {
+    if (!didAnchorRef.current && messages.length) {
+      didAnchorRef.current = true;
+      anchorToLatest();
+    }
+  }, [messages.length, anchorToLatest]);
+
+  // On each feed change: follow to the bottom if the reader is already there,
+  // otherwise surface how many entries they have not seen. A change that only
+  // prepends older entries (loadOlder) leaves the seen tail in place, so the
+  // unseen count stays 0 and the reader's position is undisturbed.
+  useEffect(() => {
+    if (!didAnchorRef.current) return;
+    if (atBottomRef.current) {
+      anchorToLatest();
+    } else {
+      setNewCount(unseenAfterSeen());
+    }
+    // anchorToLatest / unseenAfterSeen change with `messages`; keying on the
+    // tail entry and the length is what makes an append vs a prepend distinct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastKey, messages.length]);
+
   return (
     <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, mt: 3 }}>
       <Typography id={headingId} variant="h6" component="h2" sx={{ mb: 2 }}>
@@ -90,7 +163,12 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
         </Alert>
       )}
 
-      <Box sx={{ maxHeight: 320, overflowY: 'auto', mb: 2 }}>
+      <Box
+        ref={scrollRef}
+        onScroll={handleScroll}
+        data-testid="chat-scroll"
+        sx={{ maxHeight: 320, overflowY: 'auto', mb: 1 }}
+      >
         {hasMore && onLoadOlder && (
           <Box sx={{ textAlign: 'center', mb: 1 }}>
             <Button size="small" onClick={() => onLoadOlder()}>
@@ -117,6 +195,14 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
           )
         )}
       </Box>
+
+      {newCount > 0 && (
+        <Box sx={{ textAlign: 'center', mb: 2 }}>
+          <Button size="small" variant="outlined" onClick={anchorToLatest}>
+            {newCount} new message{newCount === 1 ? '' : 's'}
+          </Button>
+        </Box>
+      )}
 
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
         <TextField
