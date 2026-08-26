@@ -130,11 +130,63 @@ test('sendMessage emits chat:send with trimmed text and resolves true on an ok a
 
   expect(socket.emit).toHaveBeenCalledWith(
     'chat:send',
-    { leagueId: 5, message: 'hey team' },
+    expect.objectContaining({ leagueId: 5, message: 'hey team' }),
     expect.any(Function)
   );
+  // Every send carries a client idempotency key so a retry cannot duplicate it.
+  const [, payload] = socket.emit.mock.calls.find(([event]) => event === 'chat:send');
+  expect(typeof payload.clientMsgId).toBe('string');
+  expect(payload.clientMsgId.length).toBeGreaterThan(0);
   expect(resolved).toBe(true);
   expect(result.current.error).toBe(null);
+});
+
+test('a rate-limited ack surfaces the error with its explicit retry time', async () => {
+  mockGets();
+  const { socket, result } = render();
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) {
+      ack({ error: 'you are sending too quickly', code: 'RATE_LIMITED', retryAfterMs: 4200, retryAfterSeconds: 5 });
+    }
+  });
+
+  let resolved;
+  await act(async () => { resolved = await result.current.sendMessage('spammy'); });
+
+  expect(resolved).toBe(false);
+  await waitFor(() => expect(result.current.error).toBe('you are sending too quickly. Try again in 5s.'));
+});
+
+test('a duplicate ack carrying the original entry shows it once, never twice', async () => {
+  mockGets();
+  const { socket, result } = render();
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+  const original = { type: 'league_chat', id: 55, seq: 9, teamId: 11, teamName: 'Anvils', message: 'gg', created_at: '2026-01-01T12:00:00Z' };
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true, duplicate: true, entry: original });
+  });
+
+  await act(async () => { await result.current.sendMessage('gg'); });
+  await waitFor(() => expect(result.current.messages.some((m) => m.id === 55)).toBe(true));
+
+  // A second retry acked the same way must not append a second copy.
+  await act(async () => { await result.current.sendMessage('gg'); });
+  expect(result.current.messages.filter((m) => m.id === 55)).toHaveLength(1);
+});
+
+test('a re-broadcast of an entry already held is not appended twice', async () => {
+  mockGets();
+  const { socket, result } = render();
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  act(() => socket.trigger('chat:message', broadcast({ id: 77, message: 'once' })));
+  await waitFor(() => expect(result.current.messages.some((m) => m.id === 77)).toBe(true));
+
+  // Same id again (e.g. a reconnect history refetch overlapping the live one).
+  act(() => socket.trigger('chat:message', broadcast({ id: 77, message: 'once' })));
+
+  expect(result.current.messages.filter((m) => m.id === 77)).toHaveLength(1);
 });
 
 test('sendMessage surfaces the ack error and resolves false', async () => {

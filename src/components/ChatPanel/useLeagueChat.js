@@ -28,6 +28,21 @@ import { onReconnect } from '../../api/socket';
 // value, the way the client Team-identity fields mirror the server's.
 const CHAT_PAGE = 100;
 
+/**
+ * A stable idempotency key for one composed message (#440). The server collapses
+ * retries carrying the same key onto one stored row, so a lost ack, a reconnect
+ * replay or a double-tapped Send cannot duplicate the message in the feed. The
+ * key is generated ONCE per logical send and reused on every retry of it; a
+ * fresh send gets a fresh key. Mirrors src/lib/pendingLineupMutations.mutationId
+ * so both idempotency paths mint keys the same way.
+ */
+function newClientMsgId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function useLeagueChat({ socket, leagueId, open = true, viewerTeamId = null }) {
   const [messages, setMessages] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -127,6 +142,10 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
     if (!socket) return undefined;
 
     const onChatMessage = (data) => {
+      // Idempotent append: the same entry can reach the client twice - a live
+      // broadcast and then a reconnect history refetch that re-includes it (#440)
+      // - so an entry already held is never appended or counted again.
+      if (data && messagesRef.current.some((m) => m.id === data.id)) return;
       setMessages((prev) => [...prev, data]);
       if (openRef.current) {
         // Reading live: keep the server-side marker current so a later reload
@@ -171,11 +190,25 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
           resolve(false);
           return;
         }
-        socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed }, (ack) => {
+        const clientMsgId = newClientMsgId();
+        socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed, clientMsgId }, (ack) => {
           if (ack && ack.error) {
-            setError(ack.error);
+            // A rate-limited refusal carries an explicit retry time (#440 AC5);
+            // surface it so the sender knows to wait rather than assuming their
+            // message vanished. The text stays in the composer either way -
+            // the presenter clears it only on success - so nothing is dropped.
+            const seconds = Number(ack.retryAfterSeconds);
+            setError(Number.isFinite(seconds) && seconds > 0
+              ? `${ack.error}. Try again in ${seconds}s.`
+              : ack.error);
             resolve(false);
             return;
+          }
+          // On a duplicate ack (a retry the server already stored), the original
+          // entry rides back so a client that missed the first broadcast can
+          // still show it; append only if it is not already held.
+          if (ack && ack.entry && !messagesRef.current.some((m) => m.id === ack.entry.id)) {
+            setMessages((prev) => [...prev, ack.entry]);
           }
           resolve(true);
         });
