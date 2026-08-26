@@ -38,6 +38,20 @@ click that no E2E test performs) are declared beside the table, grouped under
 one reason per source file, each covered path listed, so an eleventh call in
 an exempted file still fails with its path named.
 
+## Two halves, because neither is enough alone
+
+The #474 amendment proposed a runtime shape instead: the harness records
+every request it falls through on, and the fixture teardown fails naming
+the method and full path. That is right, and it is built too. It fires
+where the gap manifests and sees everything, shell calls and dynamic paths
+included; but it fires only when the Draft E2E suites run, and they are not
+CI gates (#478), so on its own its only consumer is a person running the
+suite locally, which ADR 0010 calls unaudited. The static guard fires in
+CI on every PR but sees only the literal calls in the closure. Each closes
+the other's hole, and the amendment's objection to source-scraping
+(brittleness) is met by the guard failing on any non-literal call and on a
+zero count rather than passing green for the wrong reason.
+
 ## Consequences
 
 - An endpoint that enters the Draft room's closure lands with a harness entry
