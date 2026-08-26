@@ -100,7 +100,7 @@ test('a public route replaces the shell metadata with its own, leaving exactly o
   render(<PublicApp />);
 
   await screen.findByRole('heading', { name: 'Mock Draft Simulator' }, { timeout: 5000 });
-  await waitFor(() => expect(document.title).toBe('Fantasy Football Mock Draft Simulator | Endzone Empire'));
+  await waitFor(() => expect(document.title).toBe('Fantasy Football Mock Draft Simulator · Endzone Empire'));
 
   // react-helmet-async only replaces head tags that carry its data-rh marker;
   // an unmarked static tag would survive beside the route's own.

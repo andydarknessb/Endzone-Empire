@@ -48,7 +48,7 @@ test('player profile emits its real canonical URL and points-based OG/Twitter me
   render(<PublicApp />);
 
   await screen.findByRole('heading', { name: 'Alpha Back' }, { timeout: 5000 });
-  await waitFor(() => expect(document.title).toBe('Alpha Back: 45.6 Fantasy Points | Endzone Empire'));
+  await waitFor(() => expect(document.title).toBe('Alpha Back: 45.6 Fantasy Points · Endzone Empire'));
 
   expect(canonical()).toHaveAttribute('href', 'https://endzoneempire.gg/players/42');
   expect(meta('meta[property="og:title"]')).toHaveAttribute('content', document.title);
@@ -72,7 +72,7 @@ test('the mock draft simulator is an indexable public page with its own canonica
 
   await screen.findByRole('heading', { name: 'Mock Draft Simulator' }, { timeout: 5000 });
   await waitFor(() =>
-    expect(document.title).toBe('Fantasy Football Mock Draft Simulator | Endzone Empire')
+    expect(document.title).toBe('Fantasy Football Mock Draft Simulator · Endzone Empire')
   );
 
   expect(canonical()).toHaveAttribute('href', 'https://endzoneempire.gg/draft-simulator');
@@ -108,7 +108,7 @@ test('recap detail puts the final scoreboard in canonical OG metadata', async ()
   render(<PublicApp />);
 
   await screen.findByText('Week 19 · 2026', {}, { timeout: 5000 });
-  await waitFor(() => expect(document.title).toBe('KC 27–24 BUF Final | Endzone Empire'));
+  await waitFor(() => expect(document.title).toBe('KC 27–24 BUF Final · Endzone Empire'));
 
   expect(canonical()).toHaveAttribute(
     'href',

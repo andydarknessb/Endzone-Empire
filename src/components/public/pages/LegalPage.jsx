@@ -46,7 +46,7 @@ function LegalPage({ document }) {
   return (
     <>
       <PublicSeo
-        title={`${content.title} | Endzone Empire`}
+        title={content.title}
         description={`${content.title} for the Endzone Empire fantasy football service.`}
         path={`/${document}`}
       />
