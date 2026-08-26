@@ -92,16 +92,36 @@ function extractReferenceCandidates(content) {
 // breaking on a differently-shaped README (or a hand-written test fixture
 // with no headings at all); it only narrows what counts once the
 // structure it's narrowing to actually exists.
-function extractDocsSection(content) {
+//
+// This is the pure core; extractDocsSection and extractDocsSectionMeta
+// below are both thin views onto it, so the "was the heading found" flag
+// (#411) can never disagree with the text callers actually search.
+function locateDocsSection(content) {
   const text = content || '';
   const headingPattern = /^##\s+Docs\s*$/m;
   const headingMatch = headingPattern.exec(text);
-  if (!headingMatch) return text;
+  if (!headingMatch) return { text, found: false };
 
   const afterHeading = text.slice(headingMatch.index + headingMatch[0].length);
   const nextHeadingPattern = /^##\s+/m;
   const nextHeadingMatch = nextHeadingPattern.exec(afterHeading);
-  return nextHeadingMatch ? afterHeading.slice(0, nextHeadingMatch.index) : afterHeading;
+  const sectionText = nextHeadingMatch
+    ? afterHeading.slice(0, nextHeadingMatch.index)
+    : afterHeading;
+  return { text: sectionText, found: true };
+}
+
+function extractDocsSection(content) {
+  return locateDocsSection(content).text;
+}
+
+// Same scoping as extractDocsSection, plus whether the "## Docs" heading
+// was actually found (#411). Callers that only need the string keep using
+// extractDocsSection unchanged; the real-tree test uses `found` to print
+// which of the two scopes was used, and to announce the fallback instead
+// of unconditionally claiming the "## Docs" section was searched.
+function extractDocsSectionMeta(content) {
+  return locateDocsSection(content);
 }
 
 // A doc is an orphan when its filename does not appear inside any
@@ -116,6 +136,56 @@ function findOrphans(docFiles, readmeContent) {
   return docFiles.filter((doc) => !candidates.some((candidate) => candidate.includes(doc)));
 }
 
+// findOrphans' sibling check (#411): findOrphans only asserts every real
+// doc is mentioned somewhere in the "## Docs" section; it never asserts
+// that a mentioned path resolves to a file that exists, so a README entry
+// naming a deleted or misspelled docs/agents/foo.md passed green.
+//
+// "Shaped like a doc-in-this-directory reference" means the candidate
+// contains a docs/agents/<file>.md PATH. A bare `<file>.md` form was
+// considered and dropped (flagged on this ticket before work started): the
+// "## Docs" section legitimately contains bare `<file>.md`-shaped mentions
+// of files that live outside docs/agents/ entirely — `CONTEXT.md` and
+// `CONTEXT-MAP.md` are at the repo root — and treating those as
+// doc-in-this-directory references would report them dead on a correct
+// README. Every other code span in the section (a label name like
+// `needs-triage`, `docs/adr/`, `.claude/worktrees/<name>`) is ignored
+// because it never matches the path form at all.
+// Global so a single candidate naming more than one docs/agents/ path (e.g.
+// "See `docs/agents/a.md docs/agents/b.md`", one code span) has every path
+// checked via matchAll below, not only the first. Reusing one module-level
+// instance across candidates and across findDeadReferences calls is safe
+// only because of two facts together, not one: matchAll does not WRITE
+// this shared regex's lastIndex (it honours whatever lastIndex is already
+// set, but never advances or resets it itself), and nothing in this module
+// ever calls .exec() or .test() on it - those are the only operations that
+// write lastIndex. That second fact is a property of this file today, not
+// of matchAll, and it is the one to check first if this ever looks broken:
+// an .exec() added anywhere on DOCS_AGENTS_PATH_PATTERN (a lastIndex left
+// nonzero from a prior call) would make later matchAll calls silently skip
+// early matches, or find nothing at all. (The /g flag itself can't be
+// silently dropped from this constant - matchAll throws TypeError on a
+// non-global regex - so that failure mode is loud, not silent.)
+const DOCS_AGENTS_PATH_PATTERN = /docs\/agents\/([^\s`\]()]+\.md)/g;
+
+function findDeadReferences(docFiles, readmeContent) {
+  const docsSection = extractDocsSection(readmeContent);
+  const candidates = extractReferenceCandidates(docsSection);
+  const existingFiles = new Set([...docFiles, README_FILENAME]);
+
+  const dead = [];
+  for (const candidate of candidates) {
+    for (const match of candidate.matchAll(DOCS_AGENTS_PATH_PATTERN)) {
+      const referencedFile = match[1];
+      const reference = match[0];
+      if (!existingFiles.has(referencedFile) && !dead.includes(reference)) {
+        dead.push(reference);
+      }
+    }
+  }
+  return dead;
+}
+
 // The whole check, for one docs/agents-shaped directory. Defaults to the
 // real, tracked docs/agents/ directory this repo ships, which is what makes
 // this the actual guard rather than only a demonstration of the logic.
@@ -124,11 +194,18 @@ function checkAgentDocsOrphans(dir = AGENTS_DOCS_DIR) {
   const readmeContent = readReadme(dir);
 
   if (readmeContent === null) {
-    return { ok: false, missingReadme: true, docFiles, orphans: docFiles.slice() };
+    return { ok: false, missingReadme: true, docFiles, orphans: docFiles.slice(), deadReferences: [] };
   }
 
   const orphans = findOrphans(docFiles, readmeContent);
-  return { ok: orphans.length === 0, missingReadme: false, docFiles, orphans };
+  const deadReferences = findDeadReferences(docFiles, readmeContent);
+  return {
+    ok: orphans.length === 0 && deadReferences.length === 0,
+    missingReadme: false,
+    docFiles,
+    orphans,
+    deadReferences,
+  };
 }
 
 module.exports = {
@@ -138,6 +215,8 @@ module.exports = {
   readReadme,
   extractReferenceCandidates,
   extractDocsSection,
+  extractDocsSectionMeta,
   findOrphans,
+  findDeadReferences,
   checkAgentDocsOrphans,
 };
