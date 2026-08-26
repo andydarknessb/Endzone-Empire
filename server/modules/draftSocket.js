@@ -9,6 +9,7 @@ const {
   teamIdentityOf,
   lookupTeam,
 } = require('../services/teamIdentity');
+const { feedEntryOf } = require('../services/leagueFeed');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
@@ -101,15 +102,18 @@ function attachDraftSocket(httpServer) {
         // after it would leave the message persisted but never broadcast,
         // and tell the sender it failed.
         const authorTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
+        // The BEFORE INSERT trigger allocates feed_seq from the per-league
+        // sequence, so the row's authoritative chronological position comes
+        // straight back on RETURNING (#434) without a second round trip.
         const result = await pool.query(
           `INSERT INTO "chat_messages" ("league_id", "user_id", "message")
-           VALUES ($1, $2, $3) RETURNING "id", "created_at"`,
+           VALUES ($1, $2, $3) RETURNING "id", "created_at", "feed_seq"`,
           [leagueId, socket.user.id, text]
         );
         io.to(`league:${leagueId}`).emit('chat:message', chatMessagePayload({
           id: result.rows[0].id,
+          seq: result.rows[0].feed_seq,
           leagueId,
-          user: socket.user,
           team: authorTeam,
           message: text,
           createdAt: result.rows[0].created_at,
@@ -272,13 +276,23 @@ function presencePayload(user, team) {
  * key (it is the LEFT-join key that lets history read back "Former manager"),
  * but neither it nor the username rides on this broadcast.
  */
-function chatMessagePayload({ id, leagueId, team, message, createdAt }) {
+// The live broadcast of a League-chat entry: the same typed feed entry a REST
+// read returns (leagueFeed.feedEntryOf: type, id, seq, Team-only identity,
+// message, created_at), plus `leagueId` so a client in more than one league
+// room can route it. `seq` is the entry's per-league sequence position, its
+// stable cursor; a reconnecting client compares it against what it last saw.
+// The `team` is a teams row ({ id, name }); feedEntryOf reads Team identity
+// off the aliased teamId/teamName, so it is normalised here first.
+function chatMessagePayload({ id, seq, leagueId, team, message, createdAt }) {
   return {
-    id,
+    ...feedEntryOf({
+      id,
+      feed_seq: seq,
+      message,
+      created_at: createdAt,
+      ...teamIdentityOf(team),
+    }),
     leagueId,
-    ...teamIdentityOf(team),
-    message,
-    created_at: createdAt,
   };
 }
 
