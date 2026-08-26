@@ -83,7 +83,6 @@ function buildViolationMessage(violations) {
 module.exports = {
   MIGRATIONS_DIR,
   GRANDFATHERED_PREFIXES,
-  parseMigrationPrefix,
   findDuplicatePrefixes,
   buildViolationMessage,
 };

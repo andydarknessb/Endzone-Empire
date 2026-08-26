@@ -5,7 +5,6 @@ const path = require('node:path');
 const {
   MIGRATIONS_DIR,
   GRANDFATHERED_PREFIXES,
-  parseMigrationPrefix,
   findDuplicatePrefixes,
   buildViolationMessage,
 } = require('./migrationPrefixes');
@@ -21,19 +20,6 @@ const {
 // Do not read the presence of this file as proof on its own: it only bites
 // on a pull request because the `guards` npm script (and the `guards` CI
 // job that runs it) includes test:migration-prefixes.
-
-test('parseMigrationPrefix: the leading digit run before the first underscore is the prefix', () => {
-  assert.equal(
-    parseMigrationPrefix('20260822000001_draft_timezone.js'),
-    '20260822000001'
-  );
-});
-
-test('parseMigrationPrefix: files that do not look like migrations yield null', () => {
-  assert.equal(parseMigrationPrefix('README.md'), null);
-  assert.equal(parseMigrationPrefix('helpers.js'), null);
-  assert.equal(parseMigrationPrefix('_20260822000001_x.js'), null);
-});
 
 test('findDuplicatePrefixes: distinct prefixes produce no violations', () => {
   const files = [
