@@ -650,21 +650,14 @@ async function applyNflverseFullWeek({
     }
   }
 
-  // The twin of syncWeekStats's DEF-unit map, and it must fold the SAME way or
-  // the two paths drift: key on the canonical Team code (normalizeNflTeam), not
-  // the local normalizeTeamAbbr, so a `Washington Commanders` unit keys WAS.
-  // nflverse spells Washington WAS, so the lookup side (buildDstStatUpdates ->
-  // nflverseTeamToOurAbbr, which only diverges on the Rams) already lands on WAS
-  // and keeps matching; normalizeNflTeam('WAS') is a no-op. Folding it here is
-  // what stops the live path (#431) from being the only one that reconciles WSH.
-  const defByTeamCode = new Map();
-  const defPlayers = await pool.query(
-    `SELECT "id", "nfl_team" FROM "players" WHERE "position" = 'DEF'`
-  );
-  for (const row of defPlayers.rows) {
-    const teamCode = normalizeNflTeam(row.nfl_team);
-    if (teamCode) defByTeamCode.set(teamCode, row.id);
-  }
+  // The DEF-unit map, built by the SAME shared builder the live path uses
+  // (scoring.loadDefUnitsByTeamCode), so the Team-code keying rule lives in one
+  // place and the two paths cannot drift. nflverse spells Washington WAS, so the
+  // lookup side (buildDstStatUpdates -> nflverseTeamToOurAbbr, which only
+  // diverges on the Rams) already lands on WAS and keeps matching;
+  // normalizeNflTeam('WAS') is a no-op. Sharing the builder is what stops the
+  // live path (#431) from being the only one that reconciles WSH.
+  const defByTeamCode = await scoring.loadDefUnitsByTeamCode();
 
   const playerUpdates = buildFullStatUpdates({
     rows: weekPlayerRows,
@@ -690,10 +683,11 @@ async function applyNflverseFullWeek({
 
   let dstUpdated = 0;
   for (const { teamAbbr, stats } of dstUpdates) {
-    // Fold the lookup side through the same resolver as the key side, so the two
-    // stay in one vocabulary no matter what buildDstStatUpdates emits.
-    const defPlayerId = defByTeamCode.get(normalizeNflTeam(teamAbbr));
-    if (!defPlayerId) continue;
+    // Fold the lookup side through the same resolver the shared builder keys on,
+    // so the two stay in one vocabulary no matter what buildDstStatUpdates emits.
+    const defRow = defByTeamCode.get(normalizeNflTeam(teamAbbr));
+    if (!defRow) continue;
+    const defPlayerId = defRow.id;
     const points = scoring.calculateFantasyPoints(stats);
     await pool.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")

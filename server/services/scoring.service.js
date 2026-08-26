@@ -734,6 +734,38 @@ function detectScoringEvents(prevStats, newStats) {
 }
 
 /**
+ * The rostered DEF (team-defense) units, keyed by Team code, for matching a
+ * box score's team-level DST aggregate.
+ *
+ * Team-defense units have no external_id — Tank01's player list never reports
+ * them as individual entries — so they are matched by team rather than by id.
+ * The key is the Team code (folded through normalizeNflTeam), NOT the local
+ * normalizeTeamAbbr: a DEF row's nfl_team is a full name (`Washington
+ * Commanders`) and a box score's teamAbv is Tank01's raw code (`WSH`), two
+ * different vocabularies that only meet once both fold to the canonical WAS.
+ * normalizeTeamAbbr short-circuits on an already-abbreviated input, so it would
+ * leave WSH as WSH and never reconcile it with WAS (the #431 bug).
+ *
+ * ONE builder, shared by both DEF-scoring paths — the live box-score apply
+ * (loadWeekMaps, below) and the nflverse finalization (applyNflverseFullWeek) —
+ * so the keying rule lives in exactly one place and the two paths cannot drift.
+ * Each caller looks the map up by folding ITS box-score/stat side through
+ * normalizeNflTeam the same way, and reads what it needs off the row (the live
+ * path needs the name for the cutscene; nflverse needs only the id).
+ */
+async function loadDefUnitsByTeamCode() {
+  const defPlayers = await pool.query(
+    `SELECT "id", "name", "nfl_team" FROM "players" WHERE "position" = 'DEF'`
+  );
+  const byTeamCode = new Map();
+  for (const row of defPlayers.rows) {
+    const teamCode = normalizeNflTeam(row.nfl_team);
+    if (teamCode) byTeamCode.set(teamCode, row);
+  }
+  return byTeamCode;
+}
+
+/**
  * Every lookup table a box-score apply needs for one (season, week), loaded
  * once and reused across the week's games.
  */
@@ -747,24 +779,9 @@ async function loadWeekMaps({ season, week }) {
   );
   const metaById = new Map(knownPlayers.rows.map((r) => [r.id, r]));
 
-  // Team-defense (DEF slot) units have no external_id — Tank01's player list
-  // never reports them as individual entries — so they're matched by team
-  // against the box score's separate team-level DST aggregate instead of by id,
-  // below. The key is the Team code (folded through normalizeNflTeam), NOT the
-  // raw resolver: a DEF row's nfl_team is a full name (`Washington Commanders`)
-  // and the box score's teamAbv is Tank01's raw code (`WSH`), two different
-  // vocabularies that only meet once both fold to the canonical WAS. The lookup
-  // in applyGameBoxScore folds the box-score side the same way (#431). The local
-  // normalizeTeamAbbr short-circuits on an already-abbreviated input, so it would
-  // leave WSH as WSH and never reconcile it with WAS.
-  const defByTeamCode = new Map();
-  const defPlayers = await pool.query(
-    `SELECT "id", "name", "nfl_team" FROM "players" WHERE "position" = 'DEF'`
-  );
-  for (const row of defPlayers.rows) {
-    const teamCode = normalizeNflTeam(row.nfl_team);
-    if (teamCode) defByTeamCode.set(teamCode, row);
-  }
+  // The DEF-unit map, keyed by Team code (see loadDefUnitsByTeamCode). The
+  // lookup in applyGameBoxScore folds the box score's raw teamAbv the same way.
+  const defByTeamCode = await loadDefUnitsByTeamCode();
 
   // Prior stats for this week, so we can diff for new touchdowns.
   const priorStats = await pool.query(
@@ -1875,6 +1892,7 @@ module.exports = {
   normalizeTank01DstStats,
   normalizeTeamAbbr,
   NFL_TEAM_NAME_TO_ABBR,
+  loadDefUnitsByTeamCode,
   loadWeekMaps,
   applyGameBoxScore,
   gamesNeedingBoxScore,
