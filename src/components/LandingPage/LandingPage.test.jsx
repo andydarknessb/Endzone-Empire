@@ -41,7 +41,7 @@ test('renders the feature grid covering the core product areas', () => {
     'Playoffs & Standings',
     'League Chat',
     'Commissioner Tools',
-    "League Pick'em",
+    "NFL Pick'em",
     'Mock Draft Simulator',
   ].forEach((title) => {
     expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
