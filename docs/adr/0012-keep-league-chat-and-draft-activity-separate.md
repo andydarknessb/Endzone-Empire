@@ -3,7 +3,7 @@
 Status: accepted (2026-08-26)
 
 The Draft room makes League chat its centerpiece and shows an authoritative
-Draft activity stream beside it (spec #108, contract #432). The two look like
+Draft activity stream beside it (spec #429, contract #432). The two look like
 one feed to a manager, and the temptation is to make them one thing: write
 Draft events into the chat table as system messages, or read chat rows through
 the Pick history that Draft events already have. Both would collapse a
@@ -18,6 +18,10 @@ server from the same transaction as the state change it records. Neither is
 stored inside the other. They are ordered into one feed by a per-league
 chronology, and a public presenter link receives Draft activity only, never
 League chat.
+
+Naming Commissioner correction as part of this contract also resolves a
+forward reference the glossary already carried: the Pick entry ends by
+deferring to "a separate administrative act", which until now named nothing.
 
 ## Why
 
