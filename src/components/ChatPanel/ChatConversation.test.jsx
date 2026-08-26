@@ -420,6 +420,15 @@ test('an emoji is sent as ordinary text and clears on success', async () => {
   expect(input).toHaveValue('');
 });
 
+test('an emoji in a feed message renders as ordinary text in history', () => {
+  // A sent emoji is just Unicode in the message string, so it reads back in the
+  // scrollback with no special handling (#443: emoji is portable text).
+  renderWithProviders(
+    <ChatConversation messages={[message({ message: `great pick ${THUMBS_UP}` })]} onSend={noop} />
+  );
+  expect(screen.getByText(`great pick ${THUMBS_UP}`)).toBeInTheDocument();
+});
+
 test('an emoji-bearing draft is preserved per league across a remount, like any text', async () => {
   const { unmount } = renderWithProviders(
     <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />

@@ -121,7 +121,10 @@ function EmojiPicker({ onSelect, onChoiceClosed = null }) {
             key={name}
             aria-label={name}
             onClick={() => handleChoose(char)}
-            sx={{ fontSize: '1.25rem', minWidth: 44, justifyContent: 'center' }}
+            // The menu items are the real tap targets in the palette, so they
+            // carry the shared 44x44 minimum (src/lib/a11y.js) rather than a
+            // hand-rolled width that omits the height.
+            sx={{ fontSize: '1.25rem', justifyContent: 'center', ...MIN_TOUCH_TARGET_SX }}
           >
             {/* The glyph is decorative; the accessible name is the label above. */}
             <span aria-hidden="true">{char}</span>
