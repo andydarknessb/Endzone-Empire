@@ -9,7 +9,8 @@ const {
   teamIdentityOf,
   lookupTeam,
 } = require('../services/teamIdentity');
-const { feedEntryOf } = require('../services/leagueFeed');
+const { feedEntryOf, isBlockableFeedType, listBlockersOf } = require('../services/leagueFeed');
+const { checkChatSend } = require('./chatFlood');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
@@ -42,7 +43,17 @@ function attachDraftSocket(httpServer) {
   io.use(requireSocketAuth);
   setIo(io); // let scoring/scheduler broadcast without a circular require
 
+  // Per-instance flood-control store for chat sends (#440). socket.io sessions
+  // are sticky to one instance, so a process-local store sees all of a member's
+  // sends; this mirrors modules/rateLimit.js's local fallback.
+  const chatFloodStore = new Map();
+
   io.on('connection', (socket) => {
+    // Expose the authenticated user id on socket.data so a per-recipient chat
+    // broadcast can identify a REMOTE socket (one on another instance behind the
+    // Redis adapter), which carries only `data`, not the local `user` object.
+    socket.data.userId = socket.user.id;
+
     // Generic league room join (live scores, chat) — no draft state attached
     socket.on('league:join', async ({ leagueId } = {}, ack) => {
       if (!Number.isInteger(leagueId)) {
@@ -87,37 +98,103 @@ function attachDraftSocket(httpServer) {
       }
     });
 
-    // League chat: sender must be in the league room (i.e. passed league:join
-    // or draft:join membership checks); messages persist and broadcast.
-    socket.on('chat:send', async ({ leagueId, message } = {}, ack) => {
+    // League chat send, hardened (#440). Layered, in order, because each layer
+    // assumes the ones before it held:
+    //   AC1  membership is REVALIDATED from the source of truth on every send,
+    //        not trusted from the room the socket joined earlier;
+    //   AC2  a client idempotency key collapses retries onto one stored row and
+    //        answers a retry with the ORIGINAL message, never a silent nothing;
+    //   AC3/AC5 flood control refuses an over-rate send with an explicit retry
+    //        time and persists nothing, so the sender keeps their text;
+    //   AC6/AC7 the live broadcast is delivered per recipient, skipping viewers
+    //        who blocked the author - but only for a BLOCKABLE feed kind, so
+    //        Draft activity involving a blocked Team is never hidden.
+    socket.on('chat:send', async ({ leagueId, message, clientMsgId } = {}, ack) => {
       if (!Number.isInteger(leagueId) || typeof message !== 'string' || !message.trim()) {
         return ack && ack({ error: 'leagueId (integer) and message (string) required' });
       }
       if (!socket.rooms.has(`league:${leagueId}`)) {
         return ack && ack({ error: 'join the league room first' });
       }
+      const key = normalizeClientMsgId(clientMsgId);
+      if (key === INVALID_KEY) {
+        return ack && ack({ error: 'clientMsgId must be a string of at most 64 characters' });
+      }
       const text = message.trim().slice(0, 500);
       try {
-        // Read the author's Team BEFORE the insert: a lookup that failed
-        // after it would leave the message persisted but never broadcast,
-        // and tell the sender it failed.
+        // AC1. The sender's CURRENT Team is their membership (ADR 0002): a
+        // manager removed after joining holds none and may no longer speak,
+        // even though their socket is still in the room. Reading it here, per
+        // send, is the revalidation - and it is also the author identity the
+        // broadcast needs, so it is not an extra round trip.
         const authorTeam = await lookupTeam(pool, { leagueId, userId: socket.user.id });
-        // The BEFORE INSERT trigger allocates feed_seq from the per-league
-        // sequence, so the row's authoritative chronological position comes
-        // straight back on RETURNING (#434) without a second round trip.
-        const result = await pool.query(
-          `INSERT INTO "chat_messages" ("league_id", "user_id", "message")
-           VALUES ($1, $2, $3) RETURNING "id", "created_at", "feed_seq"`,
-          [leagueId, socket.user.id, text]
-        );
-        io.to(`league:${leagueId}`).emit('chat:message', chatMessagePayload({
-          id: result.rows[0].id,
-          seq: result.rows[0].feed_seq,
+        if (!authorTeam) {
+          return ack && ack(joinError({ code: 'NOT_A_MEMBER', message: 'you are not in this league' }));
+        }
+
+        // AC2, common case. A keyed retry that the server already stored is
+        // answered from the stored row - success carrying the original entry,
+        // no second insert, no second broadcast, and crucially not counted
+        // against the flood limit below (a retry is not new content).
+        if (key) {
+          const prior = await selectChatByKey(pool, { userId: socket.user.id, key });
+          if (prior) {
+            return ack && ack({
+              ok: true,
+              duplicate: true,
+              entry: chatEntryFrom({ row: prior, leagueId, team: authorTeam }),
+            });
+          }
+        }
+
+        // AC3/AC5. Over-rate: tell the sender when they may retry and persist
+        // nothing. The content is not dropped - it stays in their composer.
+        const decision = checkChatSend(chatFloodStore, {
           leagueId,
-          team: authorTeam,
-          message: text,
-          createdAt: result.rows[0].created_at,
-        }));
+          userId: socket.user.id,
+          kind: 'text',
+          now: Date.now(),
+        });
+        if (!decision.allowed) {
+          return ack && ack({
+            error: 'you are sending too quickly',
+            code: 'RATE_LIMITED',
+            retryAfterMs: decision.retryAfterMs,
+            retryAfterSeconds: decision.retryAfterSeconds,
+          });
+        }
+
+        // AC2, race case. Two sends of one key arriving concurrently both pass
+        // the SELECT above (neither is committed yet); the unique index lets
+        // exactly one INSERT win and the other DO NOTHING. The BEFORE INSERT
+        // trigger allocates feed_seq (#434), so the winner's chronological
+        // position returns straight back.
+        const inserted = await pool.query(
+          `INSERT INTO "chat_messages" ("league_id", "user_id", "message", "client_msg_id")
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT ("user_id", "client_msg_id") WHERE "client_msg_id" IS NOT NULL DO NOTHING
+           RETURNING "id", "created_at", "feed_seq"`,
+          [leagueId, socket.user.id, text, key]
+        );
+        if (inserted.rows.length === 0) {
+          const prior = await selectChatByKey(pool, { userId: socket.user.id, key });
+          return ack && ack({
+            ok: true,
+            duplicate: true,
+            entry: prior ? chatEntryFrom({ row: prior, leagueId, team: authorTeam }) : undefined,
+          });
+        }
+
+        const entry = chatEntryFrom({ row: inserted.rows[0], leagueId, team: authorTeam, message: text });
+        // AC6/AC7. Blockable kind -> deliver per recipient; skip only viewers
+        // who blocked THIS author. Draft activity is not a blockable kind, so
+        // this path never withholds it.
+        await deliverFeedEntry(io, pool, {
+          leagueId,
+          event: 'chat:message',
+          entry,
+          authorUserId: socket.user.id,
+        });
         ack && ack({ ok: true });
       } catch (error) {
         console.error('chat:send failed', error);
@@ -296,6 +373,78 @@ function chatMessagePayload({ id, seq, leagueId, team, message, createdAt }) {
   };
 }
 
+/**
+ * A rejected client idempotency key, told apart from "no key supplied" (null)
+ * so the handler can answer a malformed key with an error rather than silently
+ * sending unprotected.
+ */
+const INVALID_KEY = Symbol('invalid-client-msg-id');
+
+/** A client-supplied idempotency key, or null when none was sent, or the
+ *  INVALID_KEY sentinel when one was sent but is not a bounded string. */
+function normalizeClientMsgId(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.length < 1 || value.length > 64) return INVALID_KEY;
+  return value;
+}
+
+/** The stored chat row for one author's idempotency key, or null. Reads only
+ *  what building a feed entry needs; the author's Team is supplied separately by
+ *  the live per-send membership read, never re-derived here. */
+async function selectChatByKey(db, { userId, key }) {
+  const result = await db.query(
+    `SELECT "id", "message", "created_at", "feed_seq" FROM "chat_messages"
+     WHERE "user_id" = $1 AND "client_msg_id" = $2`,
+    [userId, key]
+  );
+  return result.rows[0] || null;
+}
+
+/** Shape a stored or freshly inserted chat row as the typed feed entry the room
+ *  broadcasts. `message` overrides the row's own text only on the insert path,
+ *  where the trimmed text is already in hand. */
+function chatEntryFrom({ row, leagueId, team, message }) {
+  return chatMessagePayload({
+    id: row.id,
+    seq: row.feed_seq,
+    leagueId,
+    team,
+    message: message !== undefined ? message : row.message,
+    createdAt: row.created_at,
+  });
+}
+
+/**
+ * Deliver a feed entry to a league room, honouring per-viewer blocking for
+ * blockable kinds only (#440, AC6/AC7).
+ *
+ * A non-blockable kind (Draft activity) is broadcast to the whole room
+ * untouched: a blocked Team's Pick is a shared draft fact, never hidden. A
+ * blockable kind (League chat) with no blockers of its author is also a plain
+ * broadcast - the per-socket path is taken only when someone actually blocked
+ * the author, so the common case stays a single room emit. The author is never
+ * among their own blockers (the user_blocks CHECK forbids it), so they always
+ * receive their own echo.
+ */
+async function deliverFeedEntry(io, db, { leagueId, event, entry, authorUserId }) {
+  const room = `league:${leagueId}`;
+  if (!isBlockableFeedType(entry.type)) {
+    io.to(room).emit(event, entry);
+    return;
+  }
+  const blockers = await listBlockersOf(db, authorUserId);
+  if (blockers.size === 0) {
+    io.to(room).emit(event, entry);
+    return;
+  }
+  const sockets = await io.in(room).fetchSockets();
+  for (const member of sockets) {
+    const uid = member.data?.userId;
+    if (uid != null && blockers.has(uid)) continue;
+    member.emit(event, entry);
+  }
+}
+
 /** Full draft-room snapshot: league, teams in draft order, picks so far, on the clock. */
 async function getDraftState(leagueId) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
@@ -344,4 +493,6 @@ module.exports = {
   joinError,
   presencePayload,
   chatMessagePayload,
+  deliverFeedEntry,
+  normalizeClientMsgId,
 };
