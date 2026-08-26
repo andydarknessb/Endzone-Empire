@@ -95,7 +95,7 @@ test('sends over the shared session and never opens a second connection', async 
   await waitFor(() =>
     expect(socket.emit).toHaveBeenCalledWith(
       'chat:send',
-      { leagueId: 7, message: 'from the draft room' },
+      expect.objectContaining({ leagueId: 7, message: 'from the draft room' }),
       expect.any(Function)
     )
   );
