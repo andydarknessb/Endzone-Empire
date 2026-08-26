@@ -73,6 +73,7 @@
     "test:check-color-literals": "node --test scripts/check-color-literals.test.js",
     "test:holdout-pg": "node --test server/test/holdout.pg.test.js",
     "test:draft-rounds-pg": "node --test server/test/draftRoundsBackfill.pg.test.js",
+    "test:nfl-games-team-code-pg": "node --test server/test/nflGamesTeamCode.pg.test.js",
     "test:team-names-pg": "node --test server/test/teamNamesBackfill.pg.test.js",
     "test:lineup-roster-pg": "node --test server/test/lineupFollowsRoster.pg.test.js",
     "test:roster-tenures-pg": "node --test server/test/rosterTenures.pg.test.js",

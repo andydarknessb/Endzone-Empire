@@ -39,6 +39,11 @@ async function computeByeWeeks(nflTeams, season, { client = pool } = {}) {
   // fn_normalize_nfl_team collapses full names AND alias codes (notably
   // Tank01's WSH vs. WAS) on both sides; the SELECT returns the caller's
   // original string so the result map stays keyed by caller vocabulary.
+  // A folded join could only double-count if two Raw team codes for one team
+  // shared a team-week; `nfl_games_season_week_team_code_unique` (the Team
+  // code index, ADR 0011, #421) rejects that row at insert, so this site
+  // relies on the database rather than on every writer spelling Washington
+  // the same way.
   //
   // `client` is injectable because the holdout capture reads its ENTIRE
   // input set through one REPEATABLE READ transaction; a read through the
