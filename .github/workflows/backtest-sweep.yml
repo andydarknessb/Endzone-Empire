@@ -22,6 +22,14 @@ name: Backtest sweep
 # merge.
 
 on:
+  # TEMPORARY - throwaway commit, dropped before merge (#395 review): proves
+  # this workflow actually parses, registers, checks out, and runs
+  # test:server:sweep to completion, since it has never executed and the
+  # workflow_dispatch/schedule paths can't be dispatched pre-merge (see PR
+  # body). Under pull_request, github.event_name is 'pull_request', so the
+  # ref expression below falls through to github.ref - this run does NOT
+  # exercise the schedule or workflow_dispatch branches of that expression.
+  pull_request:
   push:
     branches: [main]
   schedule:
