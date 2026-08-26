@@ -49,6 +49,7 @@ test('renders the NFL Pick\'em promo, the observable form of the promo band on t
 
   await screen.findByText('Alpha Runner');
   expect(screen.getByRole('heading', { name: "NFL Pick'em" })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: "League Pick'em" })).not.toBeInTheDocument();
 });
 
 test('rankings search filters by player name and team without refetching', async () => {
