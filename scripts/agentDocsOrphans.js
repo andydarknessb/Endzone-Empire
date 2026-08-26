@@ -153,10 +153,19 @@ function findOrphans(docFiles, readmeContent) {
 // because it never matches the path form at all.
 // Global so a single candidate naming more than one docs/agents/ path (e.g.
 // "See `docs/agents/a.md docs/agents/b.md`", one code span) has every path
-// checked via matchAll below, not only the first. matchAll doesn't mutate
-// this shared regex's lastIndex across calls (it works from an internal
-// copy per call), so reusing one module-level instance across candidates
-// and across findDeadReferences calls is safe.
+// checked via matchAll below, not only the first. Reusing one module-level
+// instance across candidates and across findDeadReferences calls is safe
+// only because of two facts together, not one: matchAll does not WRITE
+// this shared regex's lastIndex (it honours whatever lastIndex is already
+// set, but never advances or resets it itself), and nothing in this module
+// ever calls .exec() or .test() on it - those are the only operations that
+// write lastIndex. That second fact is a property of this file today, not
+// of matchAll, and it is the one to check first if this ever looks broken:
+// an .exec() added anywhere on DOCS_AGENTS_PATH_PATTERN (a lastIndex left
+// nonzero from a prior call) would make later matchAll calls silently skip
+// early matches, or find nothing at all. (The /g flag itself can't be
+// silently dropped from this constant - matchAll throws TypeError on a
+// non-global regex - so that failure mode is loud, not silent.)
 const DOCS_AGENTS_PATH_PATTERN = /docs\/agents\/([^\s`\]()]+\.md)/g;
 
 function findDeadReferences(docFiles, readmeContent) {
