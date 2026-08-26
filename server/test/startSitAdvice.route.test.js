@@ -57,8 +57,11 @@ function mockAdviceDependencies(t, {
   // entry's own nfl_team back as both sides of the schedule comparison. That
   // means these two defaults can never express a spelling mismatch between
   // players.nfl_team and nfl_games.nfl_team - pass gameRows explicitly (as
-  // the DEF/WSH tests below do) whenever the point of the test is that the
-  // two sides disagree and the lookup must normalize them anyway (#428).
+  // the DEF/WSH tests below do) whenever team keying is the point of the
+  // test: the DEF test's players.nfl_team genuinely disagrees with its
+  // schedule row and must be normalized to match; the WSH test's schedule
+  // row matches raw-on-raw and guards that the already-working case doesn't
+  // regress (#428).
   gameRows,
   positionDefense = new Map([['NYJ', { RB: 21.4, WR: 15.2 }]]),
 } = {}) {
