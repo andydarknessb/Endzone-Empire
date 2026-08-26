@@ -66,7 +66,8 @@ async function startDraft({ leagueId, userId = null }) {
     // The acting commissioner's Team, or null when there is no manager behind
     // the start (the scheduler passes userId null) or the commissioner holds no
     // team in this league. A null actor is recorded as null, never fabricated
-    // (#437 AC5). teamIdentityOf keeps this to Team id + name, no account field.
+    // (#437 AC5). Only the Team id + name are carried on, never the owner
+    // account; activityEntryOf then shapes them under the frozen identity keys.
     const actorRow = userId == null ? null : teams.find((t) => t.owner_id === userId);
     const actorTeam = actorRow ? { id: actorRow.id, name: actorRow.name } : null;
     if (!meetsMinimum(teams.length, league.min_teams)) {
