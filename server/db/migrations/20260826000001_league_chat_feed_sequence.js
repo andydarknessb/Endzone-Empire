@@ -34,6 +34,25 @@
  * share a `created_at` (ADR 0012: "equal-time legacy entries receive
  * deterministic synthetic ordering"). The counter is then seeded to each
  * league's high-water mark so the next live insert continues the run.
+ *
+ * WHY THE TRIGGER-BEFORE-BACKFILL ORDERING IS SAFE. On its face this ordering
+ * has a race: an insert landing after the backfill but before the counter seed
+ * would take `feed_seq = 1` from a fresh counter row, collide with a
+ * backfilled row, and the unique `(league_id, feed_seq)` index at the end
+ * would abort the migration on production. It cannot happen, but the reason is
+ * NOT local to this file: knex runs each migration inside ONE transaction (no
+ * `disableTransactions` is set anywhere in this repo), and the `ADD COLUMN`
+ * above takes an ACCESS EXCLUSIVE lock on `chat_messages` that is held for the
+ * whole of `up()`. No insert can interleave with the backfill and the seed;
+ * they are one atomic unit. This safety is a property of the RUNNER, so it
+ * rots silently the day someone sets `disableTransactions` on this migration -
+ * if you ever do, allocate the seed and backfill so no gap between them can
+ * exist, or this ordering becomes the race it looks like.
+ *
+ * APPLYING IT: that same ACCESS EXCLUSIVE lock blocks every chat insert for the
+ * duration of `up()` (the backfill is a single UPDATE over one small table, so
+ * milliseconds - but not zero). Apply this when no draft is live, so no
+ * manager's `chat:send` is blocked mid-draft.
  */
 
 const CHAT = 'chat_messages';
