@@ -80,7 +80,7 @@ if (!ENABLED) {
   // #437 relaxes the Pick columns to NULL for lifecycle kinds and adds the
   // pick-fields CHECK. Applied here for a standalone run; the CI migration-smoke
   // has already run every migration to latest before this suite.
-  const LIFECYCLE_MIGRATION_NAME = '20260826000005_draft_activity_lifecycle.js';
+  const LIFECYCLE_MIGRATION_NAME = '20260826000006_draft_activity_lifecycle.js';
 
   let leagueA = null;
   let leagueB = null;
