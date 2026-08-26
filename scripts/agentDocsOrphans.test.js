@@ -7,6 +7,8 @@ const {
   README_FILENAME,
   listAgentDocFiles,
   readReadme,
+  extractReferenceCandidates,
+  extractDocsSection,
   findOrphans,
   checkAgentDocsOrphans,
   AGENTS_DOCS_DIR,
@@ -33,7 +35,7 @@ const {
 // missing reference clears the same failure — is testable without touching
 // a filesystem at all.
 
-test('findOrphans: a doc mentioned anywhere in the README text is not an orphan', () => {
+test('findOrphans: a doc named in a backtick code span is not an orphan', () => {
   const orphans = findOrphans(
     ['triage-labels.md'],
     'See `docs/agents/triage-labels.md` when mapping a triage role to a label.'
@@ -41,9 +43,90 @@ test('findOrphans: a doc mentioned anywhere in the README text is not an orphan'
   assert.deepEqual(orphans, []);
 });
 
+test('findOrphans: a doc named as a markdown link target is not an orphan, even without backticks', () => {
+  const orphans = findOrphans(
+    ['triage-labels.md'],
+    'See [triage labels](docs/agents/triage-labels.md).'
+  );
+  assert.deepEqual(orphans, []);
+});
+
 test('findOrphans: a doc added to the directory with no README entry is reported as an orphan', () => {
   const orphans = findOrphans(['refusal-tests.md'], 'This README does not mention it.');
   assert.deepEqual(orphans, ['refusal-tests.md']);
+});
+
+// A second false-green, distinct from the bare-prose one below: an
+// explanatory section of the README (e.g. one that documents this very
+// guard's convention) will naturally quote a real filename in backticks as
+// an ILLUSTRATION of the syntax, not as an index entry for that file. That
+// quote is indistinguishable from a real entry by markdown form alone (both
+// are backtick code spans), so form-only matching cannot rule it out.
+// Restricting reference-extraction to the "## Docs" section — the actual
+// index, and the one place this repo's own README convention puts entries
+// — rules it out structurally: a mention above or below that heading never
+// counts, no matter what markdown form it uses.
+test('findOrphans: an illustrative example outside the "## Docs" section does not count, even in a code span naming a real file', () => {
+  const readme = [
+    '# Agent docs',
+    '',
+    '## How to add an entry',
+    '',
+    'Write a line like: See `docs/agents/triage-labels.md` for the label map.',
+    '',
+    '## Docs',
+    '',
+    '### Domain docs',
+    'Read before exploring the codebase.',
+    'See `docs/agents/domain.md`.',
+  ].join('\n');
+
+  // triage-labels.md is only named in the explanatory example ABOVE
+  // "## Docs" — it has no real entry in the index — so it must still read
+  // as an orphan. domain.md's entry is inside "## Docs" and counts.
+  assert.deepEqual(findOrphans(['triage-labels.md', 'domain.md'], readme), ['triage-labels.md']);
+});
+
+test('findOrphans: falls back to scanning the whole file when the README has no "## Docs" heading', () => {
+  const readme = 'See `domain.md` here — no headings at all in this README.';
+  assert.deepEqual(findOrphans(['domain.md'], readme), []);
+});
+
+// extractDocsSection directly, isolated from the reference-matching it
+// feeds — these pin the boundary itself (where the section starts and
+// ends) rather than only its effect on findOrphans above.
+test('extractDocsSection: returns only the text between "## Docs" and the next "## " heading', () => {
+  const readme = ['# Title', '', '## Docs', '', 'inside', '', '## Later', '', 'outside'].join(
+    '\n'
+  );
+  assert.equal(extractDocsSection(readme).trim(), 'inside');
+});
+
+test('extractDocsSection: runs to end of file when "## Docs" is the last heading', () => {
+  const readme = ['# Title', '', 'intro', '', '## Docs', '', 'inside, to the end'].join('\n');
+  assert.equal(extractDocsSection(readme).trim(), 'inside, to the end');
+});
+
+test('extractDocsSection: falls back to the whole string when no "## Docs" heading exists', () => {
+  const readme = 'no headings here at all';
+  assert.equal(extractDocsSection(readme), readme);
+});
+
+test('extractDocsSection: an empty or missing README returns an empty string, not a crash', () => {
+  assert.equal(extractDocsSection(''), '');
+  assert.equal(extractDocsSection(null), '');
+});
+
+// This is the false-green this guard must not produce: a bare prose mention
+// of a filename is not the same thing as indexing it. A doc that later
+// explains this very guard is a natural thing to write, and prose about it
+// ("the directory also has a stale-worktrees.md file") would satisfy a
+// plain substring match without the README having routed a reader to it.
+// Requiring a code span or a link target rules out the bare-prose case;
+// see the module header for what it does NOT rule out.
+test('findOrphans: a bare prose mention of a filename, with no code span and no link, is still an orphan', () => {
+  const readme = 'This project also has a stale-worktrees.md file, for what it is worth.';
+  assert.deepEqual(findOrphans(['stale-worktrees.md'], readme), ['stale-worktrees.md']);
 });
 
 test('findOrphans: adding the missing reference clears the same orphan (proves the guard can go green, not just red)', () => {
@@ -144,6 +227,18 @@ test('checkAgentDocsOrphans: a doc the README does not mention fails, naming onl
 // — turns this test red, and it is wired into `npm run guards`.
 test('the real docs/agents/ tree is fully indexed by its own README (#323)', () => {
   const result = checkAgentDocsOrphans();
+
+  // Auditability: print what the extractor found, not just pass/fail, so an
+  // over- or under-eager matcher shows up as a suspicious count rather than
+  // as silence. A candidate count of 0 alongside 0 orphans would mean the
+  // matcher itself is broken (nothing looked like a reference), which is a
+  // different failure than "matched, and every doc had one".
+  const candidateCount = extractReferenceCandidates(extractDocsSection(readReadme())).length;
+  console.log(
+    `docs/agents/: ${result.docFiles.length} doc(s), ${candidateCount} reference-shaped ` +
+      `candidate(s) found in the "## Docs" section, ${result.orphans.length} orphan(s).`
+  );
+
   assert.equal(
     result.missingReadme,
     false,

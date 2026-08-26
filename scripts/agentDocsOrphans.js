@@ -41,14 +41,79 @@ function readReadme(dir = AGENTS_DOCS_DIR) {
   return fs.readFileSync(readmePath, 'utf8');
 }
 
-// A doc is an orphan when its filename does not appear anywhere in the
-// README's text. Pure function of (filenames, string) so both directions —
-// the guard can fail on a missing reference, and the identical failure
-// clears once the reference is added — are testable without touching a
-// filesystem.
+// Extract the substrings of the README that look like a deliberate
+// reference: a backtick code span (`docs/agents/x.md`) or a markdown link
+// target (`[label](docs/agents/x.md)`). A doc is only counted as indexed
+// when its filename appears inside one of these, not merely anywhere in
+// the file's prose.
+//
+// Why this matters (raised on #323's review): a plain substring match over
+// the whole file is a false-green risk. A doc that later explains this very
+// guard is a natural thing to write, and prose describing it ("the
+// directory also has a stale-worktrees.md file") would satisfy a bare
+// substring check without the README having actually routed a reader to
+// it. Restricting to code spans and link targets rules that bare-prose
+// case out, because writers don't accidentally wrap a filename in
+// backticks or link syntax the way they accidentally type it in a
+// sentence.
+//
+// Markdown form alone still can't tell an index entry apart from an
+// ILLUSTRATION that happens to use the same form — an explanatory section
+// showing "an entry looks like `docs/agents/x.md`" is indistinguishable
+// from a real entry by syntax, since both are backtick code spans. That is
+// solved below by extractDocsSection instead: scope extraction to the
+// "## Docs" heading, the one place this repo's own README convention puts
+// real entries, so an illustration written elsewhere in the file never
+// counts regardless of what markdown form it uses.
+function extractReferenceCandidates(content) {
+  const candidates = [];
+  const backtickPattern = /`([^`]*)`/g;
+  const linkTargetPattern = /\]\(([^)]*)\)/g;
+  let match;
+  while ((match = backtickPattern.exec(content)) !== null) {
+    candidates.push(match[1]);
+  }
+  while ((match = linkTargetPattern.exec(content)) !== null) {
+    candidates.push(match[1]);
+  }
+  return candidates;
+}
+
+// Scope reference-extraction to the body of the "## Docs" heading (this
+// repo's README convention: an intro/meta section, then "## Docs" holding
+// one entry per file, see docs/agents/README.md). Everything from the
+// heading up to the next "## "-level heading (or end of file) is the
+// index; everything outside it — an intro paragraph, a future "how this
+// guard works" section — is meta text that must not count, even if it
+// quotes a real filename in backticks as an example.
+//
+// Falls back to the WHOLE file when no "## Docs" heading is found, rather
+// than treating every doc as an orphan. That keeps this guard from
+// breaking on a differently-shaped README (or a hand-written test fixture
+// with no headings at all); it only narrows what counts once the
+// structure it's narrowing to actually exists.
+function extractDocsSection(content) {
+  const text = content || '';
+  const headingPattern = /^##\s+Docs\s*$/m;
+  const headingMatch = headingPattern.exec(text);
+  if (!headingMatch) return text;
+
+  const afterHeading = text.slice(headingMatch.index + headingMatch[0].length);
+  const nextHeadingPattern = /^##\s+/m;
+  const nextHeadingMatch = nextHeadingPattern.exec(afterHeading);
+  return nextHeadingMatch ? afterHeading.slice(0, nextHeadingMatch.index) : afterHeading;
+}
+
+// A doc is an orphan when its filename does not appear inside any
+// reference-shaped substring (see extractReferenceCandidates) of the
+// README's "## Docs" section (see extractDocsSection). Pure function of
+// (filenames, string) so both directions — the guard can fail on a missing
+// reference, and the identical failure clears once the reference is added
+// — are testable without touching a filesystem.
 function findOrphans(docFiles, readmeContent) {
-  const content = readmeContent || '';
-  return docFiles.filter((doc) => !content.includes(doc));
+  const docsSection = extractDocsSection(readmeContent);
+  const candidates = extractReferenceCandidates(docsSection);
+  return docFiles.filter((doc) => !candidates.some((candidate) => candidate.includes(doc)));
 }
 
 // The whole check, for one docs/agents-shaped directory. Defaults to the
@@ -71,6 +136,8 @@ module.exports = {
   README_FILENAME,
   listAgentDocFiles,
   readReadme,
+  extractReferenceCandidates,
+  extractDocsSection,
   findOrphans,
   checkAgentDocsOrphans,
 };
