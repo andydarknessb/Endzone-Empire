@@ -67,35 +67,46 @@ function manifestFor(commitA, commitM) {
   return `${JSON.stringify({ commitA: { sha: commitA }, commitM: { sha: commitM } })}\n`;
 }
 
-function discover(repo) {
-  const result = spawnSync(process.execPath, [discoveryScript, 'HEAD'], { cwd: repo, encoding: 'utf8' });
+// The freeze lineage's immutable final boundary (Commit F) is the script's
+// second CLI argument, defaulting to the sealed production constant. Every
+// fixture repo builds its own history with its own SHAs, so each test that
+// reaches the post-B window passes the boundary it wants enforced; omitting
+// it would fall back to the production SHA, which no fixture repo contains.
+function discover(repo, finalBoundary) {
+  const args = [discoveryScript, 'HEAD'];
+  if (finalBoundary) args.push(finalBoundary);
+  const result = spawnSync(process.execPath, args, { cwd: repo, encoding: 'utf8' });
   return { status: result.status, stdout: JSON.parse(result.stdout), stderr: result.stderr };
 }
 
 test('discovers A/M and accepts a directly parented B plus output-only descendants', (t) => {
   const { repo, commitA, commitM } = initFreezeRepo(t);
   const commitB = commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
-  commit(repo, 'backtest-artifacts/pit-sweep-2024-2025/REPORT.md', 'report\n', 'report');
+  const commitF = commit(repo, 'backtest-artifacts/pit-sweep-2024-2025/REPORT.md', 'report\n', 'report');
 
-  const result = discover(repo);
+  const result = discover(repo, commitF);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.ok, true);
   assert.equal(result.stdout.commitA, commitA);
   assert.equal(result.stdout.commitM, commitM);
   assert.equal(result.stdout.commitB, commitB);
   assert.equal(result.stdout.bCheck.outputOnlyCommits, 1);
+  assert.equal(result.stdout.bCheck.finalBoundary, commitF);
 });
 
 test('discovers an explicit byte-identical MDE witness when regeneration keeps the existing blob', (t) => {
   const { repo, commitA, commitM } = initByteIdenticalWitnessRepo(t);
   const commitB = commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
 
-  const result = discover(repo);
+  // No output commit followed B in this lineage, so B is its own final
+  // boundary and the quiet window B..F is empty.
+  const result = discover(repo, commitB);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.ok, true);
   assert.equal(result.stdout.commitA, commitA);
   assert.equal(result.stdout.commitM, commitM);
   assert.equal(result.stdout.commitB, commitB);
+  assert.equal(result.stdout.bCheck.outputOnlyCommits, 0);
 });
 
 test('refuses a claimed byte-identical MDE witness whose blob trailer is forged', (t) => {
@@ -156,13 +167,90 @@ test('refuses Commit B when an intervening commit breaks parent(B)=M', (t) => {
   assert.match(result.stdout.reason, /parent\(B\) = M/);
 });
 
-test('refuses a non-output path changed after Commit B', (t) => {
+test('refuses a non-output path changed inside the quiet window (between B and the final boundary)', (t) => {
   const { repo, commitA, commitM } = initFreezeRepo(t);
   commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
   commit(repo, 'server/services/drift.js', 'module.exports = false;\n', 'forbidden drift');
+  const commitF = commit(repo, 'backtest-artifacts/pit-sweep-2024-2025/report.json', '{}\n', 'results');
 
-  const result = discover(repo);
+  // The drift commit sits inside the declared window B..F, so it must fail
+  // loud even though a later output commit (F) closes the window.
+  const result = discover(repo, commitF);
   assert.equal(result.status, 1);
   assert.equal(result.stdout.ok, false);
   assert.match(result.stdout.reason, /server\/services\/drift\.js/);
+});
+
+test('does not create a chronic red for an unrelated change AFTER the final boundary', (t) => {
+  const { repo, commitA, commitM } = initFreezeRepo(t);
+  const commitB = commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
+  const commitF = commit(repo, 'backtest-artifacts/pit-sweep-2024-2025/report.json', '{}\n', 'results');
+  // Ordinary development resumes after the lineage is sealed. These commits
+  // are outside the window B..F and must not be judged against it - this is
+  // the regression that made the workflow permanently red (#468).
+  commit(repo, 'server/services/unrelated.js', 'module.exports = 1;\n', 'unrelated feature');
+  commit(repo, 'src/app/page.jsx', 'export default null;\n', 'more unrelated work');
+
+  const result = discover(repo, commitF);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.ok, true);
+  assert.equal(result.stdout.commitA, commitA);
+  assert.equal(result.stdout.commitM, commitM);
+  assert.equal(result.stdout.commitB, commitB);
+  assert.equal(result.stdout.bCheck.finalBoundary, commitF);
+  // Only the single output commit F falls inside the window.
+  assert.equal(result.stdout.bCheck.outputOnlyCommits, 1);
+});
+
+test('report-only changes inside the window pass', (t) => {
+  const { repo, commitA, commitM } = initFreezeRepo(t);
+  commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
+  commit(repo, 'backtest-artifacts/pit-sweep-2024-2025/REPORT.md', 'report\n', 'report');
+  const commitF = commit(repo, 'backtest-artifacts/pit-sweep-2024-2025/report.json', '{"x":1}\n', 'report json');
+
+  const result = discover(repo, commitF);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.ok, true);
+  assert.equal(result.stdout.bCheck.outputOnlyCommits, 2);
+});
+
+test('the finalized lineage stays discoverable from a much later ref', (t) => {
+  const { repo, commitA, commitM } = initFreezeRepo(t);
+  const commitB = commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
+  const commitF = commit(repo, 'backtest-artifacts/pit-sweep-2024-2025/report.json', '{}\n', 'results');
+  for (let i = 0; i < 6; i += 1) {
+    commit(repo, `src/feature-${i}.js`, `module.exports = ${i};\n`, `later work ${i}`);
+  }
+
+  const result = discover(repo, commitF);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.ok, true);
+  assert.equal(result.stdout.commitA, commitA);
+  assert.equal(result.stdout.commitM, commitM);
+  assert.equal(result.stdout.commitB, commitB);
+});
+
+test('fails loud when the configured final boundary is not a descendant of Commit B', (t) => {
+  const { repo, commitA, commitM } = initFreezeRepo(t);
+  const commitB = commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
+  // A boundary that predates B (here, Commit B's own parent, Commit M) can
+  // never bound the window - a stale or superseded constant must fail loud so
+  // it gets corrected, never silently check an empty or wrong window.
+  const staleBoundary = commitM;
+
+  const result = discover(repo, staleBoundary);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout.ok, false);
+  assert.equal(result.stdout.commitB, commitB);
+  assert.match(result.stdout.reason, /not a descendant of/i);
+});
+
+test('fails loud when the configured final boundary does not resolve to a commit', (t) => {
+  const { repo, commitA, commitM } = initFreezeRepo(t);
+  commit(repo, manifestPath, manifestFor(commitA, commitM), 'commit B');
+
+  const result = discover(repo, '0'.repeat(40));
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout.ok, false);
+  assert.match(result.stdout.reason, /final boundary/i);
 });
