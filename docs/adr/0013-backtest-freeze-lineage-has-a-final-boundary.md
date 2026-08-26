@@ -76,9 +76,10 @@ are not in the endzone tenant's `ciGates`
 (`C:\Users\Cory\fleet\tenants\endzone.json`), so under the fleet merge policy a
 red result on them never blocks a merge; it is a finding to read, the same
 class as `scan`. The tenant file expresses this class today only implicitly
-(absence from `ciGates`), the same way `scan` is expressed. If an explicit
-"watched, not gating" field is wanted, that is a fleet-repo change owned by
-Cory, tracked as fleet follow-up rather than made here; this ADR is the
+(absence from `ciGates`), the same way `scan` is expressed. Making it explicit
+(a "watched, not gating" field, or formalizing "absent from `ciGates` ==
+watched" as the documented convention) is a fleet-repo change owned by Cory,
+tracked as follow-up issue #472 rather than made here; this ADR is the
 repository-owned record of the classification in the meantime.
 
 ## Consequences
