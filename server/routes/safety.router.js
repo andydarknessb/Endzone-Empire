@@ -15,6 +15,18 @@ const {
 const router = express.Router();
 router.use(requireAuth);
 
+// A moderation reason - whether it accompanies a report or a hide - is required
+// and bounded identically, so the two routes share one rule rather than each
+// spelling the bound. The client mirrors these by value (ChatConversation's
+// HIDE_REASON_MIN/MAX), the way the feed page size is mirrored across the seam.
+const REASON_MIN = 10;
+const REASON_MAX = 500;
+function reasonError(reason) {
+  return reason.length < REASON_MIN || reason.length > REASON_MAX
+    ? `reason must be between ${REASON_MIN} and ${REASON_MAX} characters`
+    : null;
+}
+
 // Allowed as-is (#378 ruling): this is the caller's OWN block list, keyed on
 // the same user id the block/unblock writes below take. It is viewer-own
 // chrome, not a manager-shared surface, so it is not a Team identity leak.
@@ -68,9 +80,8 @@ router.post('/reports', async (req, res) => {
   if (!Number.isInteger(leagueId) || (messageId != null && !Number.isInteger(messageId))) {
     return res.status(400).json({ error: 'valid leagueId and messageId are required' });
   }
-  if (reason.length < 10 || reason.length > 500) {
-    return res.status(400).json({ error: 'reason must be between 10 and 500 characters' });
-  }
+  const reasonProblem = reasonError(reason);
+  if (reasonProblem) return res.status(400).json({ error: reasonProblem });
   const allowed = await pool.query(
     `SELECT 1 FROM "teams"
      WHERE "league_id" = $1 AND "owner_id" = $2
@@ -161,9 +172,8 @@ router.post('/hide', async (req, res) => {
     return res.status(400).json({ error: 'valid leagueId and messageId are required' });
   }
   // A hide MUST carry a reason (AC2), bounded like a report reason.
-  if (reason.length < 10 || reason.length > 500) {
-    return res.status(400).json({ error: 'reason must be between 10 and 500 characters' });
-  }
+  const reasonProblem = reasonError(reason);
+  if (reasonProblem) return res.status(400).json({ error: reasonProblem });
   const isCommissioner = await isLeagueCommissioner(pool, leagueId, req.user.id);
   if (!isCommissioner && !isPlatformAdmin(req.user.id)) {
     return res.status(403).json({ error: 'moderator access required' });

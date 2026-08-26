@@ -58,21 +58,30 @@ function isBlockableFeedType(type) {
 }
 
 /**
- * THE ONE PLACE that decides whether a feed entry may be HIDDEN by a
- * commissioner (#441, AC6). The reasoning is identical to blockability above,
- * and deliberately kept as its own named set so the coupling stays one obvious
- * line: hiding is a tool for moderating another MANAGER's human message, so it
- * must never touch authoritative Draft activity - a Pick is a shared fact of
- * the draft, not that manager talking, and moderation may not edit, hide or
- * delete it (AC6). Only human-authored kinds are moderatable.
+ * The set of feed kinds a commissioner may HIDE league-wide (#441, AC6). It is
+ * the EXPLICIT, machine-checked form of the AC6 invariant "Draft activity
+ * cannot be hidden through moderation": hiding is a tool for moderating another
+ * MANAGER's human message, and a Pick is a shared fact of the draft, not that
+ * manager talking, so only human-authored kinds are moderatable.
  *
- * When Draft activity gains its own kind (ADR 0012, #435), whoever adds it must
- * look here and leave it OUT. If a Draft-activity kind is ever added to this
- * set, AC6 breaks. The two sets happen to be equal today because League chat is
- * the only human-authored kind; they are named separately because they answer
- * different questions (who may I hide from view for myself, vs. what may a
- * commissioner hide for everyone) and a future kind could be one but not the
- * other.
+ * WHY THIS EXISTS ALONGSIDE A STRUCTURAL GUARD. Today the hide path
+ * (safety.router POST /hide) also enforces AC6 structurally - its UPDATE is
+ * scoped to `chat_messages` by id, so a Draft-activity id reaches nothing. This
+ * set is the second, explicit barrier: it states the invariant where the feed
+ * kinds are defined, so "Draft activity is not moderatable" lives in the
+ * repository as a checked fact rather than only as the shape of a WHERE clause -
+ * the same two-barrier philosophy as the #378 allowlist (SQL AND JS). It stops
+ * being merely explanatory the moment Draft activity gains its own feed kind
+ * (ADR 0012, its filed sibling #435 appends Picks to this same feed): a
+ * hide-by-feed-entry path added then MUST consult this set and leave that kind
+ * out, and `isModeratableFeedType` is the one line it calls. If a Draft-activity
+ * kind is ever ADDED to this set, AC6 breaks.
+ *
+ * It mirrors BLOCKABLE_FEED_TYPES because both answer "human-authored only", and
+ * the service test pins them equal so the parallel cannot silently diverge; they
+ * are named apart because they answer different questions (what may I mute for
+ * myself vs. what may a commissioner hide for everyone) and a future kind could
+ * be one but not the other.
  */
 const MODERATABLE_FEED_TYPES = new Set([LEAGUE_CHAT]);
 
