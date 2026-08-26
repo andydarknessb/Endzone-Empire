@@ -1,0 +1,17 @@
+# Acceptance criteria in agent briefs
+
+A criterion is a **result** the assigned actor can observe from inside its own sandbox, worded so a reader can tell red from green. The tell for a weak one: it names a **thing** (a suite, a job, a live session) where a result belongs. Each thing a criterion names has passed three lookups before the brief is posted:
+
+1. **Exists.** The command, script, suite or fixture is in the tree today: `git grep` it, or read the `scripts` block of `package.json`. A rhetorical reference in the prose ("even axe would miss this") stays prose. #354's checklist turned it into "the axe suite still passes", and no axe suite has ever been in this repo; the IC spent time hunting for it.
+2. **Producible.** The actor can make it from a branch and a PR. A required-check setting, a merged workflow's first green run on `integration`, an applied migration and a Render env var are the maintainer's actions, so the criterion stops at what the PR carries: the job definition, the migration file, the `Carve-out:` heading naming the post-merge action. #247 asked an IC for a job "required for merge on the same footing as the existing unit job".
+3. **Observable.** The actor can see the result without a production side effect. The dev database is production, so a live session is not an IC observation; the observable stand-ins are a unit test rendering from the new shape and a `tests/e2e` spec on the mocked origin (the specs route `**/api/**` themselves). #344 asked for "a live Draft with two browsers, recorded in the PR body".
+
+Write the criterion from what the lookups return: a command and its exit status, an assertion and the input that turns it red, a line the PR body must carry. Where the real check needs a human (a screen-reader pass, a two-browser session against production), the brief says so and the ticket is `ready-for-human`, or the human half becomes its own child issue.
+
+| Names a thing | Names a result |
+|---|---|
+| The axe suite still passes. | `npm test -- src/theme/tokens.contrast.test.js` is green, and lowering the hero tint's alpha in the test-only value turns it red. |
+| The job is required for merge. | The PR adds the job to `ci.yml` on the unit job's triggers; renaming one guard script in a throwaway commit turns it red, run linked in the PR body. Making it required is the maintainer's step, named under `Carve-out:`. |
+| A live Draft with two browsers shows picks attributed by Team name. | A `tests/e2e` spec on the mocked origin renders a pick, a presence entry and a chat line from the post-removal payload shape, each attributed by Team name; the builder key-set tests are green. |
+
+A criterion that turns out unmeetable as written is recorded on the PR as unmet, with the reason (PR #374 did this for #354's AC6), and the brief is corrected. A tick on it would tell the next reader that a check ran which never existed.
