@@ -31,8 +31,22 @@
  * additive, and a client too old to send a key still sends chat, just without
  * the retry protection.
  *
- * EXPAND-ONLY. Adds a nullable column and one index; no backfill, no rewrite,
- * no lock beyond the brief ADD COLUMN. Safe to apply while chat is live.
+ * EXPAND-ONLY, AND BOTH STEPS LOCK BRIEFLY. Adds a nullable column and one
+ * index; no backfill, no table rewrite. Two locks are taken, not one: the
+ * ADD COLUMN takes an ACCESS EXCLUSIVE lock, and the CREATE UNIQUE INDEX (plain,
+ * not CONCURRENTLY) takes a SHARE lock that conflicts with the ROW EXCLUSIVE a
+ * chat insert holds - so the index BUILD blocks chat writes for its duration
+ * too, not just the ADD COLUMN. "Safe to apply while chat is live" rests on
+ * chat_messages being SMALL: at its current size both locks are milliseconds. On
+ * a large table the same two statements would block writes long enough to be an
+ * outage, and this note is what stops someone applying it there believing they
+ * were told there was no lock.
+ *
+ * NOT CONCURRENTLY. CREATE INDEX CONCURRENTLY would avoid the write lock, but it
+ * cannot run inside a transaction, and knex runs every migration in this repo
+ * transactionally (no disableTransactions is set anywhere). Making that trade
+ * would mean restructuring the migration, not editing a comment; it is a real
+ * decision for when the table is large enough to need it, not before.
  */
 
 const CHAT = 'chat_messages';
