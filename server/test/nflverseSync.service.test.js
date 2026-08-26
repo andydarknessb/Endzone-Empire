@@ -543,6 +543,62 @@ test('applyNflverseFullWeek preserves nothing by default (backfill behavior)', a
   assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
 });
 
+test('applyNflverseFullWeek still matches Washington: nflverse WAS -> the Washington Commanders DEF unit (#431)', async (t) => {
+  const upserts = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "players" WHERE "external_id"')) return { rows: [] };
+    if (text.includes(`"position" = 'DEF'`)) {
+      // Seeded DEF unit stored as a full name, which folds to the Team code WAS.
+      return { rows: [{ id: 91, nfl_team: 'Washington Commanders' }] };
+    }
+    if (text.includes('FROM "player_stats"')) return { rows: [] };
+    if (text.includes('INTO "player_stats"')) {
+      upserts.push(params);
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  // nflverse spells Washington WAS (not Tank01's WSH); the fold to the Team code
+  // must leave that path matching, since it is what masks the live bug today.
+  const teamRows = [
+    {
+      season: '2026', week: '1', season_type: 'REG',
+      game_id: '2026_01_DAL_WAS', team: 'WAS', opponent_team: 'DAL',
+      def_sacks: '3', def_interceptions: '1', fumble_recovery_opp: '0',
+      def_tds: '1', def_safeties: '0',
+      passing_yards: '200', sack_yards_lost: '-10', rushing_yards: '80',
+      fg_blocked: '0', pat_blocked: '0', pt_blocked: '0',
+    },
+    {
+      season: '2026', week: '1', season_type: 'REG',
+      game_id: '2026_01_DAL_WAS', team: 'DAL', opponent_team: 'WAS',
+      def_sacks: '1', def_interceptions: '0', fumble_recovery_opp: '0',
+      def_tds: '0', def_safeties: '0',
+      passing_yards: '250', sack_yards_lost: '-5', rushing_yards: '90',
+      fg_blocked: '0', pat_blocked: '0', pt_blocked: '0',
+    },
+  ];
+  const out = await nflverseSync.applyNflverseFullWeek({
+    season: 2026,
+    week: 1,
+    playerRows: [],
+    teamRows,
+    scoresByGameId: new Map([
+      ['2026_01_DAL_WAS', { homeTeam: 'WAS', awayTeam: 'DAL', homeScore: 20, awayScore: 17 }],
+    ]),
+    crosswalk: new Map(),
+  });
+
+  assert.equal(out.dstUpdated, 1, 'only the seeded Washington DEF unit was matched (DAL is not seeded)');
+  const wasUpsert = upserts.find((p) => p[0] === 91);
+  assert.ok(wasUpsert, 'the Washington DEF unit (id 91) got its nflverse DST row');
+  const stored = JSON.parse(wasUpsert[3]);
+  assert.equal(stored.sack, 3);
+  assert.equal(stored.pointsAllowed, 17, 'away score, WAS is home');
+});
+
 /** Stubs the four CSV fetches + every query the correction path makes. */
 function stubCorrectionWorld(t) {
   const upserts = [];
