@@ -9,8 +9,9 @@ export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}/og-brand-gradient.png`;
 // cannot import it: shellMeta.test.jsx asserts the two stay equal (#351).
 // Product-first: the fantasy league is named before the pick'em league, and
 // the sentence opens with the product clause (2026-08-25 ruling on #399,
-// follow-up to #50). The pick'em clause reuses the hero's exact middot
-// fragment (LandingPage.jsx) so the two cannot drift; no em-dashes.
+// follow-up to #50). The pick'em clause matches the hero's middot fragment
+// (LandingPage.jsx) as of this writing; the two are independent literals,
+// not a shared constant, so keep them in sync by hand. No em-dashes.
 export const DEFAULT_DESCRIPTION =
   "Run a fantasy football league, or an NFL pick'em league · no draft, no rosters. Free rankings, player profiles, strategy guides, and NFL game recaps.";
 
