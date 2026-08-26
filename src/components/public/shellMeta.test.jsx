@@ -82,8 +82,10 @@ test('the shell declares the site-wide description, Open Graph and Twitter metad
 
 test('the default description is product-first, binds the pick\'em clause with the hero\'s middot, and fits a search snippet', () => {
   // 2026-08-25 ruling on #399: product-first, so the sentence opens with the
-  // fantasy league before the pick'em clause. The middot form must match the
-  // hero's exact fragment (LandingPage.jsx) so the two never drift.
+  // fantasy league before the pick'em clause. This pins the shell's own copy
+  // to the agreed middot form. Matching the hero's fragment (LandingPage.jsx)
+  // is a hand-maintained convention, not something this assertion checks;
+  // the two are independent literals, so keep them in sync by hand.
   expect(DEFAULT_DESCRIPTION).toMatch(/^Run a fantasy football league/);
   expect(DEFAULT_DESCRIPTION.indexOf('fantasy')).toBeLessThan(DEFAULT_DESCRIPTION.indexOf("pick'em"));
   expect(DEFAULT_DESCRIPTION).toContain("· no draft, no rosters");
