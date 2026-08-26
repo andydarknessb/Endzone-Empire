@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import useLeagueChat from './useLeagueChat';
 import ChatConversation from './ChatConversation';
@@ -29,6 +30,10 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
   // per-viewer join ack that carries viewerTeamId (#178) - never inferred on
   // the client. A member gets false and so no hide affordance.
   const [isCommissioner, setIsCommissioner] = useState(false);
+  // The account scopes the composer draft (#442 AC5/AC6): a preserved draft
+  // belongs to one account and is dropped on logout or account change. Team
+  // identity stays the actor on the wire; the account id never leaves the client.
+  const viewerUserId = useSelector((store) => (store.user && store.user.id != null ? store.user.id : null));
 
   useEffect(() => {
     // A fresh Team ID per league room: nothing can match a stale one, but
@@ -84,6 +89,8 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
       onLoadOlder={loadOlder}
       canModerate={isCommissioner}
       onHide={hideMessage}
+      leagueId={leagueId}
+      viewerUserId={viewerUserId}
     />
   );
 }

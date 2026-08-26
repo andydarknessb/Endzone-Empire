@@ -160,16 +160,32 @@ function feedEntryOf(row) {
  * taken newest-first with the cursor and page limit, then flipped to ascending
  * display order. Blocked authors are filtered with the same predicate the
  * unread badge uses, so the feed never shows what the badge would never count.
+ *
+ * `after` is the reconnect-resume cursor (#442): given the last `seq` a client
+ * acknowledged, it returns the entries just NEWER than it (`feed_seq > after`)
+ * in ascending order, so a reconnecting client resumes from where it left off
+ * and reproduces the same chronology without refetching the whole conversation.
+ * It walks forward from the cursor, so it takes the OLDEST page after it and is
+ * already ascending - no newest-first window to flip. `after` takes precedence
+ * over `before`; a caller uses one direction at a time.
  */
-async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, limit = FEED_PAGE_SIZE } = {}) {
+async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
-  const cursor = Number.isInteger(before) ? before : null;
+  // One query, two directions - the same parameterization the sibling
+  // listCombinedDraftFeed uses. `after` resumes forward (feed_seq > cursor),
+  // walking the oldest page after it, already ascending; the default/`before`
+  // window takes the newest page (feed_seq < cursor) descending then flips to
+  // ascending display order. `after` takes precedence; a caller pages one way.
+  const resumeFrom = Number.isInteger(after) ? after : null;
+  const cursor = resumeFrom !== null ? resumeFrom : (Number.isInteger(before) ? before : null);
+  const cmp = resumeFrom !== null ? '>' : '<';
+  const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
   const params = [leagueId, viewerId];
   let cursorClause = '';
   if (cursor !== null) {
     params.push(cursor);
-    cursorClause = `AND "chat_messages"."feed_seq" < $${params.length}`;
+    cursorClause = `AND "chat_messages"."feed_seq" ${cmp} $${params.length}`;
   }
   params.push(capped);
   const limitClause = `LIMIT $${params.length}`;
@@ -188,7 +204,7 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, limit
              AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
          )
          ${cursorClause}
-       ORDER BY "chat_messages"."feed_seq" DESC
+       ORDER BY "chat_messages"."feed_seq" ${windowOrder}
        ${limitClause}
      ) recent ORDER BY "feed_seq" ASC`,
     params
@@ -245,9 +261,20 @@ function combinedEntryOf(row) {
  * while the Draft-activity arm carries a NULL `hidden_at` placeholder and routes
  * to activityEntryOf - a Pick is never moderatable and never a tombstone.
  */
-async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, limit = FEED_PAGE_SIZE } = {}) {
+async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
-  const cursor = Number.isInteger(before) ? before : null;
+  // `after` is the reconnect-resume cursor (#442): walk FORWARD from the last
+  // acknowledged seq, taking the oldest page NEWER than it so a reconnecting
+  // client resumes in the same chronology without refetching the whole feed.
+  // It takes precedence over `before`; a caller pages one direction at a time.
+  // Forward resume compares `>` and reads ascending on each arm; the default
+  // newest-first window compares `<` and reads descending then flips.
+  const resumeFrom = Number.isInteger(after) ? after : null;
+  const cursor = resumeFrom !== null ? resumeFrom : (Number.isInteger(before) ? before : null);
+  const cmp = resumeFrom !== null ? '>' : '<';
+  // Both union arms and the merge share one direction: resume walks forward
+  // ascending, the default/before window takes the newest page descending.
+  const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
   const params = [leagueId, viewerId];
   let chatCursor = '';
@@ -255,8 +282,8 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, li
   if (cursor !== null) {
     params.push(cursor);
     const p = `$${params.length}`;
-    chatCursor = `AND "chat_messages"."feed_seq" < ${p}`;
-    activityCursor = `AND "draft_activity"."feed_seq" < ${p}`;
+    chatCursor = `AND "chat_messages"."feed_seq" ${cmp} ${p}`;
+    activityCursor = `AND "draft_activity"."feed_seq" ${cmp} ${p}`;
   }
   params.push(capped);
   // One bound parameter, referenced by all three LIMITs (per-branch and outer).
@@ -294,7 +321,7 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, li
                   AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
              )
              ${chatCursor}
-           ORDER BY "chat_messages"."feed_seq" DESC
+           ORDER BY "chat_messages"."feed_seq" ${windowOrder}
            LIMIT ${lim})
          UNION ALL
          (SELECT '${DRAFT_ACTIVITY}' AS source,
@@ -316,10 +343,10 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, li
             FROM "draft_activity"
            WHERE "draft_activity"."league_id" = $1
              ${activityCursor}
-           ORDER BY "draft_activity"."feed_seq" DESC
+           ORDER BY "draft_activity"."feed_seq" ${windowOrder}
            LIMIT ${lim})
        ) merged
-       ORDER BY feed_seq DESC
+       ORDER BY feed_seq ${windowOrder}
        LIMIT ${lim}
      ) page
      ORDER BY feed_seq ASC`,

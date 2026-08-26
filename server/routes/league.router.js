@@ -671,7 +671,10 @@ router.get('/:id/matchups', async (req, res) => {
 // GET /api/league/:id/chat — the League chat feed, oldest first (#434).
 // The initial read returns the latest 100 visible entries; `?before=<seq>`
 // pages the 100 entries just older than that cursor, so a client can walk back
-// through the whole conversation instead of the old fixed last-50 window. Each
+// through the whole conversation instead of the old fixed last-50 window.
+// `?after=<seq>` is the reconnect-resume cursor (#442): given the last seq a
+// client acknowledged, it returns the entries just newer than it, so a
+// reconnecting client resumes from where it left off in the same order. Each
 // entry is a typed feed entry (leagueFeed.service) carrying its authoritative
 // per-league `seq` beside its Team-only identity.
 //
@@ -689,6 +692,9 @@ router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   const before = intParam(req.query.before);
+  // `?after=<seq>` is the reconnect-resume cursor (#442): the client hands back
+  // the last seq it acknowledged and gets the entries newer than it.
+  const after = intParam(req.query.after);
   try {
     if (!(await isMember(pool, leagueId, req.user.id))) {
       return res.status(403).json({ error: 'not a member of this league' });
@@ -697,6 +703,7 @@ router.get('/:id/chat', async (req, res) => {
       leagueId,
       viewerId: req.user.id,
       before,
+      after,
     });
     res.json(entries);
   } catch (error) {
@@ -708,7 +715,8 @@ router.get('/:id/chat', async (req, res) => {
 // GET /api/league/:id/draft-feed — the combined Draft-room feed (#435, ADR
 // 0012): League chat and Draft activity interleaved into one order by the
 // shared per-league `seq`, latest 100 visible entries oldest-first, with
-// `?before=<seq>` paging older. This is the Draft room's feed; the League
+// `?before=<seq>` paging older and `?after=<seq>` resuming newer after a
+// reconnect (#442). This is the Draft room's feed; the League
 // Dashboard drawer stays chat-only on `/chat`. Members only, same as chat: the
 // combined feed can carry Draft activity a presenter link may see, but League
 // chat rides here too, so a non-member is refused (presenter-safe activity-only
@@ -718,6 +726,8 @@ router.get('/:id/draft-feed', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
   const before = intParam(req.query.before);
+  // `?after=<seq>` is the reconnect-resume cursor (#442), same as /chat.
+  const after = intParam(req.query.after);
   try {
     if (!(await isMember(pool, leagueId, req.user.id))) {
       return res.status(403).json({ error: 'not a member of this league' });
@@ -726,6 +736,7 @@ router.get('/:id/draft-feed', async (req, res) => {
       leagueId,
       viewerId: req.user.id,
       before,
+      after,
     });
     res.json(entries);
   } catch (error) {

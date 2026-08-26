@@ -249,3 +249,64 @@ test('listLeagueChatFeed ignores a non-integer before cursor', async () => {
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
   assert.deepEqual(seenParams, [12, 9, 100]);
 });
+
+test('listLeagueChatFeed resumes AFTER a cursor with feed_seq > after, ascending (#442)', async () => {
+  // Reconnect recovery: the client hands back the last seq it acknowledged, and
+  // the read returns the entries just NEWER than it, in ascending order, so the
+  // same chronology is reproduced without refetching the whole conversation.
+  let seenSql = null;
+  let seenParams = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text, params) => {
+      seenSql = text;
+      seenParams = params;
+      return { rows: [row({ id: 8, feed_seq: 9 }), row({ id: 9, feed_seq: 10 })] };
+    }],
+  ]);
+
+  const entries = await listLeagueChatFeed(fake, { leagueId: 12, viewerId: 9, after: 7 });
+
+  assert.match(seenSql, /AND "chat_messages"\."feed_seq" > \$3/);
+  // Ascending straight out - no newest-first window to flip for a resume read.
+  assert.match(seenSql, /ORDER BY "chat_messages"\."feed_seq" ASC/);
+  assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
+  assert.deepEqual(seenParams, [12, 9, 7, 100]);
+  assert.deepEqual(entries.map((e) => e.seq), [9, 10]);
+});
+
+test('listLeagueChatFeed ignores a non-integer after cursor', async () => {
+  let seenSql = null;
+  let seenParams = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text, params) => {
+      seenSql = text;
+      seenParams = params;
+      return { rows: [] };
+    }],
+  ]);
+
+  await listLeagueChatFeed(fake, { leagueId: 12, viewerId: 9, after: 'not-a-number' });
+  assert.doesNotMatch(seenSql, /"feed_seq" > \$/);
+  assert.deepEqual(seenParams, [12, 9, 100]);
+});
+
+test('listCombinedDraftFeed resumes AFTER a cursor on both kinds with feed_seq > after (#442)', async () => {
+  let seenSql = null;
+  let seenParams = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text, params) => {
+      seenSql = text;
+      seenParams = params;
+      return { rows: [] };
+    }],
+  ]);
+
+  await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9, after: 7 });
+
+  // Both arms of the union advance past the cursor...
+  assert.match(seenSql, /"chat_messages"\."feed_seq" > \$3/);
+  assert.match(seenSql, /"draft_activity"\."feed_seq" > \$3/);
+  // ...and the resume read is ascending, not the newest-first-then-flip window.
+  assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
+  assert.deepEqual(seenParams, [12, 9, 7, 100]);
+});

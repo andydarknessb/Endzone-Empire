@@ -261,6 +261,49 @@ test('counts a former manager\'s message as unread when the viewer\'s own Team i
   await waitFor(() => expect(result.current.unread).toBe(1));
 });
 
+test('only unseen human messages move the unread count; Draft activity never does (#442)', async () => {
+  // The unread badge counts unseen HUMAN chat only. Draft activity, cutover
+  // boundaries and moderation tombstones are not correspondence, so an entry
+  // that is not a league_chat message must be appended without touching unread
+  // (spec #429: "Count unread human messages only").
+  mockGets({ unread: 0 });
+  const { socket, result } = render({ open: false, viewerTeamId: 99 });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  // A committed Pick arriving over the shared room is Draft activity, not chat.
+  act(() =>
+    socket.trigger('chat:message', {
+      type: 'draft_activity',
+      id: 501,
+      seq: 12,
+      teamId: 22,
+      teamName: 'Bulldogs',
+      player: { name: 'Pat Mahomes' },
+      created_at: '2026-01-01T12:06:00Z',
+    })
+  );
+  // It still shows in the feed...
+  await waitFor(() => expect(result.current.messages.some((m) => m.id === 501)).toBe(true));
+  // ...but never as unread.
+  expect(result.current.unread).toBe(0);
+
+  // A genuine human message still increments, proving the guard is on kind.
+  act(() => socket.trigger('chat:message', broadcast({ id: 8, message: 'real chat' })));
+  await waitFor(() => expect(result.current.unread).toBe(1));
+});
+
+test('an explicitly typed league_chat message still counts as unread (#442)', async () => {
+  // The live broadcast carries type: 'league_chat' (leagueFeed.feedEntryOf);
+  // the human-kind guard must accept it, not only the legacy untyped shape.
+  mockGets({ unread: 0 });
+  const { socket, result } = render({ open: false, viewerTeamId: 99 });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  act(() => socket.trigger('chat:message', broadcast({ id: 9, type: 'league_chat', message: 'typed' })));
+
+  await waitFor(() => expect(result.current.unread).toBe(1));
+});
+
 test('opening resets unread and moves the server-side read marker', async () => {
   mockGets({ unread: 5 });
   const { socket, result, rerender } = render({ open: false });
@@ -296,6 +339,73 @@ test('re-fetches chat history and unread when the socket reconnects', async () =
 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
   await waitFor(() => expect(result.current.messages.some((m) => m.message === 'missed while offline')).toBe(true));
+});
+
+test('reconnect resumes AFTER the last acknowledged seq and preserves order (#442)', async () => {
+  // A page is already held, each entry carrying its seq; the acknowledged
+  // cursor is the max seq. On reconnect the hook must resume from it, not
+  // refetch the whole conversation, and the recovered order is still by seq.
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('after=')) {
+      return Promise.resolve({ data: [feedEntry({ id: 8, seq: 8, message: 'after-8' }), feedEntry({ id: 9, seq: 9, message: 'after-9' })] });
+    }
+    return Promise.resolve({ data: [feedEntry({ id: 6, seq: 6, message: 'have-6' }), feedEntry({ id: 7, seq: 7, message: 'have-7' })] });
+  });
+
+  const { result } = render({ open: false });
+  await waitFor(() => expect(result.current.messages).toHaveLength(2));
+  apiClient.get.mockClear();
+
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?after=7'));
+  await waitFor(() => expect(result.current.messages.map((m) => m.seq)).toEqual([6, 7, 8, 9]));
+  // A resume is not a full refetch of the conversation.
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/1/chat');
+});
+
+test('reconnect falls back to a full read when more than a page accrued offline (#442)', async () => {
+  // A resume page that comes back FULL means the offline gap exceeded one page;
+  // appending it would leave the newest entries unfetched. The hook must snap to
+  // the latest window instead so the freshest entries are shown (the gap behind
+  // is reachable through loadOlder), never silently drop the tail.
+  const fullAfter = Array.from({ length: 100 }, (_, i) => feedEntry({ id: 100 + i, seq: 100 + i }));
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('after=')) return Promise.resolve({ data: fullAfter });
+    return Promise.resolve({ data: [feedEntry({ id: 6, seq: 6 }), feedEntry({ id: 7, seq: 7 })] });
+  });
+  const { result } = render({ open: false });
+  await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+  apiClient.get.mockClear();
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/chat/unread')) return Promise.resolve({ data: { unread: 0 } });
+    if (url.includes('after=')) return Promise.resolve({ data: fullAfter });
+    return Promise.resolve({ data: [feedEntry({ id: 500, seq: 500, message: 'latest window' })] });
+  });
+
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat?after=7'));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
+  await waitFor(() => expect(result.current.messages.some((m) => m.message === 'latest window')).toBe(true));
+});
+
+test('reconnect falls back to a full history read when nothing is held (#442)', async () => {
+  // No cursor to resume from yet (empty feed) means the reconnect must load the
+  // latest page outright, the behaviour the first-load path already relies on.
+  mockGets({ history: [] });
+  const { result } = render({ open: false });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
+  apiClient.get.mockClear();
+  mockGets({ history: [chatMessage({ id: 9, seq: 3, message: 'first ever' })] });
+
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/chat'));
+  await waitFor(() => expect(result.current.messages.some((m) => m.message === 'first ever')).toBe(true));
 });
 
 test('removes its chat:message listener on unmount, and never disconnects the shared socket', async () => {

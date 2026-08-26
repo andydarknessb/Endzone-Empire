@@ -285,13 +285,19 @@ test('opening the chat resets unread and moves the server-side read marker', asy
   mockGets({ unread: 5 });
   const onUnreadChange = jest.fn();
 
-  const { rerender } = renderWithProviders(
-    <ChatPanel leagueId={1} open={false} onUnreadChange={onUnreadChange} />
-  );
+  // ChatPanel now reads the account from the store, so the drawer is toggled
+  // through a stateful harness inside the Provider rather than a bare rerender
+  // (which would drop the react-redux context).
+  let setOpen;
+  function OpenHarness() {
+    const [open, set] = React.useState(false);
+    setOpen = set;
+    return <ChatPanel leagueId={1} open={open} onUnreadChange={onUnreadChange} />;
+  }
+  renderWithProviders(<OpenHarness />);
   await waitFor(() => expect(onUnreadChange).toHaveBeenCalledWith(5));
 
-  // ChatPanel needs no providers, so a bare rerender flips the drawer open.
-  rerender(<ChatPanel leagueId={1} open onUnreadChange={onUnreadChange} />);
+  act(() => setOpen(true));
 
   await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(0));
   expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/chat/read');
