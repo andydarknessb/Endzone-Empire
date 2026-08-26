@@ -155,7 +155,7 @@ test('sending a message emits chat:send with the trimmed text and clears the inp
   await waitFor(() =>
     expect(mockSocket.emit).toHaveBeenCalledWith(
       'chat:send',
-      { leagueId: 5, message: 'hey team' },
+      expect.objectContaining({ leagueId: 5, message: 'hey team' }),
       expect.any(Function)
     )
   );

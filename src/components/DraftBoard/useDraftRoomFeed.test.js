@@ -140,5 +140,11 @@ test('sends chat over the handed-in session', async () => {
   let ok;
   await act(async () => { ok = await result.current.sendMessage('from the room'); });
   expect(ok).toBe(true);
-  expect(socket.emit).toHaveBeenCalledWith('chat:send', { leagueId: 7, message: 'from the room' }, expect.any(Function));
+  // The send carries the #440 idempotency key alongside the message, same
+  // contract as the Dashboard chat (useLeagueChat).
+  expect(socket.emit).toHaveBeenCalledWith(
+    'chat:send',
+    expect.objectContaining({ leagueId: 7, message: 'from the room', clientMsgId: expect.any(String) }),
+    expect.any(Function)
+  );
 });

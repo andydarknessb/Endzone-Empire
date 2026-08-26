@@ -2260,7 +2260,7 @@ describe('League chat in the draft room (issue #433)', () => {
     await waitFor(() =>
       expect(fakeSocket.emit).toHaveBeenCalledWith(
         'chat:send',
-        { leagueId: 1, message: 'gg everyone' },
+        expect.objectContaining({ leagueId: 1, message: 'gg everyone' }),
         expect.any(Function)
       )
     );

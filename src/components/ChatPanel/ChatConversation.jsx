@@ -1,6 +1,7 @@
-import React, { useId, useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
+import { newClientMsgId } from '../../lib/clientMessageId';
 
 // One committed Pick as Draft activity in the combined feed (#435). It is NOT
 // drawn as a chat bubble: Draft activity is server-authored, never a manager
@@ -53,12 +54,28 @@ function ChatConversation({ messages = [], error = null, onSend, hasMore = false
   const [text, setText] = useState('');
   const headingId = useId();
 
+  // The idempotency key for the message being composed (#440). It is stable for
+  // one logical message: a retry of the SAME text (a rejected send left in the
+  // box, or a second click before the first ack) reuses the key, so the server
+  // collapses it onto one row instead of posting a duplicate. Editing the text
+  // makes it a different message and mints a fresh key, so two distinct sends
+  // can never collide on one key; a successful send clears both the box and the
+  // key so the next message starts clean.
+  const sendKeyRef = useRef({ text: null, key: null });
+
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const ok = await onSend(trimmed);
-    // Clear only on success, so a rejected message stays in the box to retry.
-    if (ok) setText('');
+    if (sendKeyRef.current.text !== trimmed) {
+      sendKeyRef.current = { text: trimmed, key: newClientMsgId() };
+    }
+    const ok = await onSend(trimmed, sendKeyRef.current.key);
+    // Clear only on success, so a rejected message stays in the box to retry
+    // (under the same key). A cleared box starts the next message fresh.
+    if (ok) {
+      setText('');
+      sendKeyRef.current = { text: null, key: null };
+    }
   };
 
   return (

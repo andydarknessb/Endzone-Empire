@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../api/apiClient';
 import { onReconnect } from '../../api/socket';
 import { feedEntryKey } from '../../lib/teamIdentity';
+import { newClientMsgId } from '../../lib/clientMessageId';
 
 /**
  * The Draft room's combined feed: League chat and Draft activity in one order
@@ -125,7 +126,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
   }, [socket, fetchHistory, markRead]);
 
   const sendMessage = useCallback(
-    (raw) => {
+    (raw, clientMsgId) => {
       const trimmed = typeof raw === 'string' ? raw.trim() : '';
       if (!trimmed) return Promise.resolve(false);
       setError(null);
@@ -134,12 +135,27 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
           resolve(false);
           return;
         }
-        socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed }, (ack) => {
+        // Same send contract as the Dashboard chat (useLeagueChat, #440): the
+        // compose box owns a stable idempotency key so a retry of the SAME text
+        // collapses server-side instead of duplicating; a direct caller that
+        // passes none still gets per-call idempotency.
+        const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
+        socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed, clientMsgId: key }, (ack) => {
           if (ack && ack.error) {
-            setError(ack.error);
+            // A rate-limited refusal carries an explicit retry time (#440 AC5);
+            // surface it so the sender knows to wait. The text stays in the
+            // composer (cleared only on success), so nothing is dropped.
+            const seconds = Number(ack.retryAfterSeconds);
+            setError(Number.isFinite(seconds) && seconds > 0
+              ? `${ack.error}. Try again in ${seconds}s.`
+              : ack.error);
             resolve(false);
             return;
           }
+          // On a duplicate ack (a retry the server already stored), the original
+          // entry rides back; merge it in its seq position so a client that
+          // missed the first broadcast still shows it, deduped like any entry.
+          if (ack && ack.entry) setEntries((prev) => mergeEntry(prev, ack.entry));
           resolve(true);
         });
       });

@@ -76,6 +76,11 @@ function manualPickWorld(t) {
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
+    // The merged chat:send (#440) filters live delivery by the author's
+    // blockers and de-dupes by client_msg_id; this world has neither, so both
+    // read empty. (No clientMsgId is sent here, so selectChatByKey is skipped.)
+    [/^SELECT "blocker_id" FROM "user_blocks"/, () => ({ rows: [] })],
+    [/^SELECT "id", "message", "created_at", "feed_seq" FROM "chat_messages"/, () => ({ rows: [] })],
   ]).install(t);
   t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
   return fake;
