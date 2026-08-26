@@ -893,15 +893,19 @@ async function applyGameBoxScore({ box, season, week, maps }) {
   for (const side of ['home', 'away']) {
     const dstSide = dst[side];
     // `rawAbbr` is Tank01's own spelling (Raw team code): WSH for Washington. It
-    // is what the DEF play carries out to the client and what the opponent map —
-    // keyed by nfl_games.nfl_team, also Tank01's raw spelling — is looked up
-    // with, so keep both those raw-on-raw pairings raw (#431). Its partner in
-    // that pairing is nfl_games; a schedule writer that started storing WAS would
-    // break the opponent lookup. (modules/espnScoreboard.js keeps the same
-    // WSH-not-WAS boundary when it mints live_game_states rows and gameIDs.)
+    // is the LOOKUP key on two raw-on-raw pairings that stay raw (#431): the
+    // DEF-unit match (its partner folds the same way, below) and the opponent
+    // map, which is keyed by nfl_games.nfl_team, also Tank01's raw spelling. Its
+    // partner in the opponent pairing is nfl_games; a schedule writer that
+    // started storing WAS would break that lookup. (modules/espnScoreboard.js
+    // keeps the same WSH-not-WAS boundary when it mints live_game_states rows
+    // and gameIDs.) What the play object CARRIES is a different contract: its
+    // `nflTeam`/`opponent` are Team codes (CONTEXT.md **Team code**), folded
+    // through normalizeNflTeam below, never the raw code.
     const rawAbbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
     // `teamCode` folds that raw code to the canonical WAS, the vocabulary the DEF
     // map is keyed in, so a WSH box score finds the `Washington Commanders` unit.
+    // It is also the Team code the DEF play carries out for `nflTeam`.
     const teamCode = rawAbbr ? normalizeNflTeam(rawAbbr) : null;
     const defPlayer = teamCode ? defByTeamCode.get(teamCode) : null;
     if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
@@ -919,13 +923,16 @@ async function applyGameBoxScore({ box, season, week, maps }) {
     if (events.length > 0) {
       const pointsDelta =
         Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+      // Raw-on-raw lookup (rawAbbr keys nfl_games' raw spelling), Team-code
+      // payload: fold the found opponent before it leaves the server.
+      const rawOpponent = opponentByTeam.get(rawAbbr) || null;
       for (const ev of events) {
         plays.push({
           playerId: defPlayer.id,
           name: defPlayer.name,
           position: 'DEF',
-          nflTeam: rawAbbr,
-          opponent: opponentByTeam.get(rawAbbr) || null,
+          nflTeam: teamCode,
+          opponent: rawOpponent ? normalizeNflTeam(rawOpponent) : null,
           type: ev.type,
           tdDelta: ev.tdDelta,
           pointsDelta,

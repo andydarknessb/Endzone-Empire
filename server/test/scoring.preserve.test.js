@@ -309,8 +309,10 @@ test('applyGameBoxScore: a WSH box score matches the Washington Commanders DEF u
     }
     if (text.includes('FROM "player_stats"')) return { rows: [] }; // no prior stats
     if (text.includes('FROM "nfl_games"')) {
-      // nfl_games speaks Tank01's raw vocabulary: WSH, not WAS.
-      return { rows: [{ nfl_team: 'WSH', opponent: 'DAL' }] };
+      // nfl_games speaks Tank01's raw vocabulary on BOTH columns: WSH, not WAS,
+      // and a drifted opponent code (JAC) so the emitted opponent fold to JAX
+      // is visible on the DEF path too (#449).
+      return { rows: [{ nfl_team: 'WSH', opponent: 'JAC' }] };
     }
     throw new Error(`Unexpected SQL: ${text}`);
   });
@@ -330,13 +332,14 @@ test('applyGameBoxScore: a WSH box score matches the Washington Commanders DEF u
   assert.equal(stored.sack, 3, 'the Tank01 DST numbers landed on the Washington unit');
   assert.equal(stored.defensiveTD, 1);
 
-  // A DEF scoring play was emitted, carrying Tank01's RAW spelling and an
-  // opponent resolved from the raw-keyed nfl_games row (proves the raw-on-raw
-  // opponent lookup did not regress).
+  // A DEF scoring play was emitted. The DEF-unit match and the opponent lookup
+  // still succeed on the raw code (proving #431 did not regress), but the play
+  // object now carries Team codes (#449): the DST side's raw teamAbv `WSH` folds
+  // to `WAS`, and the raw-keyed opponent `JAC` folds to `JAX`.
   const defPlay = out.plays.find((p) => p.position === 'DEF');
   assert.ok(defPlay, 'a Washington DEF scoring play must be emitted');
-  assert.equal(defPlay.nflTeam, 'WSH', "the play carries Tank01's raw team code, not the folded Team code");
-  assert.equal(defPlay.opponent, 'DAL', 'opponent resolved from the WSH-keyed schedule row');
+  assert.equal(defPlay.nflTeam, 'WAS', "the play carries the folded Team code WAS, not Tank01's raw WSH (#449)");
+  assert.equal(defPlay.opponent, 'JAX', 'opponent found via the raw WSH-keyed schedule row, then folded to a Team code (#449)');
 });
 
 // --- carried keys can never fire a cutscene ----------------------------------
