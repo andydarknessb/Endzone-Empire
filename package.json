@@ -82,6 +82,7 @@
     "test:pickem-history-pg": "node --test server/test/pickemHistory.pg.test.js",
     "test:history-standings-pg": "node --test server/test/historyStandingsIdentity.pg.test.js",
     "test:backtest-pg": "node --test server/test/backtestSnapshotClient.pg.test.js server/test/backtestGate1Role.pg.test.js",
+    "test:discovery-pg": "node --test server/test/discovery.pg.test.js",
     "test:security": "playwright test --config=playwright.security.config.js",
     "test:e2e": "playwright test --config=playwright.e2e.config.js",
     "test:e2e:auth-offline": "playwright test --config=playwright.e2e.config.js tests/e2e/auth-offline.spec.ts",
