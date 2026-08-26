@@ -151,7 +151,13 @@ function findOrphans(docFiles, readmeContent) {
 // README. Every other code span in the section (a label name like
 // `needs-triage`, `docs/adr/`, `.claude/worktrees/<name>`) is ignored
 // because it never matches the path form at all.
-const DOCS_AGENTS_PATH_PATTERN = /docs\/agents\/([^\s`\]()]+\.md)/;
+// Global so a single candidate naming more than one docs/agents/ path (e.g.
+// "See `docs/agents/a.md docs/agents/b.md`", one code span) has every path
+// checked via matchAll below, not only the first. matchAll doesn't mutate
+// this shared regex's lastIndex across calls (it works from an internal
+// copy per call), so reusing one module-level instance across candidates
+// and across findDeadReferences calls is safe.
+const DOCS_AGENTS_PATH_PATTERN = /docs\/agents\/([^\s`\]()]+\.md)/g;
 
 function findDeadReferences(docFiles, readmeContent) {
   const docsSection = extractDocsSection(readmeContent);
@@ -160,11 +166,12 @@ function findDeadReferences(docFiles, readmeContent) {
 
   const dead = [];
   for (const candidate of candidates) {
-    const match = DOCS_AGENTS_PATH_PATTERN.exec(candidate);
-    if (!match) continue;
-    const referencedFile = match[1];
-    if (!existingFiles.has(referencedFile) && !dead.includes(candidate)) {
-      dead.push(candidate);
+    for (const match of candidate.matchAll(DOCS_AGENTS_PATH_PATTERN)) {
+      const referencedFile = match[1];
+      const reference = match[0];
+      if (!existingFiles.has(referencedFile) && !dead.includes(reference)) {
+        dead.push(reference);
+      }
     }
   }
   return dead;
