@@ -18,7 +18,7 @@ export const DEFAULT_DESCRIPTION =
 // Shell-only title (public/index.html <title>, og:title, twitter:title): a
 // descriptor beyond the bare site name so a search/social snippet says what
 // the product is (2026-08-25 ruling on #399). SITE_NAME is untouched; it
-// still builds the `Page | Endzone Empire` per-route title below (#401).
+// still builds the `Page · Endzone Empire` per-route title below (#401).
 export const SHELL_TITLE = "Endzone Empire · Fantasy Football & NFL Pick'em Leagues";
 
 function absoluteUrl(value) {
@@ -47,7 +47,7 @@ function PublicSeo({
   imageAlt = 'Endzone Empire fantasy football',
   noIndex = false,
 }) {
-  const fullTitle = title.includes(SITE_NAME) ? title : `${title} | ${SITE_NAME}`;
+  const fullTitle = title.includes(SITE_NAME) ? title : `${title} · ${SITE_NAME}`;
   const normalizedDescription = trimDescription(description);
   const canonicalUrl = absoluteUrl(path);
   const imageUrl = absoluteUrl(image);
