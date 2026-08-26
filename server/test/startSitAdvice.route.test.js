@@ -53,13 +53,24 @@ function mockAdviceDependencies(t, {
   projections,
   rosterSlots = ROSTER_SLOTS,
   league = { id: 3, best_ball: false, scoring_rules: null },
+  // Defaults to today's behaviour: an nfl_games row per entry, echoing the
+  // entry's own nfl_team back as both sides of the schedule comparison. That
+  // means these two defaults can never express a spelling mismatch between
+  // players.nfl_team and nfl_games.nfl_team - pass gameRows explicitly (as
+  // the DEF/WSH tests below do) whenever team keying is the point of the
+  // test: the DEF test's players.nfl_team genuinely disagrees with its
+  // schedule row and must be normalized to match; the WSH test's schedule
+  // row matches raw-on-raw and guards that the already-working case doesn't
+  // regress (#428).
+  gameRows,
+  positionDefense = new Map([['NYJ', { RB: 21.4, WR: 15.2 }]]),
 } = {}) {
   const projectionCalls = [];
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('FROM "leagues"')) return { rows: [league] };
     if (text.includes('FROM "nfl_games"')) {
-      return { rows: entries.map((e) => ({ nfl_team: e.nfl_team, opponent: 'NYJ' })) };
+      return { rows: gameRows || entries.map((e) => ({ nfl_team: e.nfl_team, opponent: 'NYJ' })) };
     }
     throw new Error(`unexpected query: ${text.slice(0, 90)}`);
   });
@@ -84,8 +95,7 @@ function mockAdviceDependencies(t, {
       projections: new Map(projections),
     };
   });
-  t.mock.method(projectionService, 'getPositionDefense', async () =>
-    new Map([['NYJ', { RB: 21.4, WR: 15.2 }]]));
+  t.mock.method(projectionService, 'getPositionDefense', async () => positionDefense);
   return projectionCalls;
 }
 
@@ -220,35 +230,17 @@ test('a DEF unit resolves its opponent even though players.nfl_team is a full te
   // abbreviation ('DEN'). getWeekOpponents must normalize both sides of that
   // comparison rather than compare them raw.
   const entries = [
-    lineupEntry(1, 'DEF', 'RB', { nfl_team: 'Denver Broncos' }),
+    lineupEntry(1, 'DEF', 'DEF', { nfl_team: 'Denver Broncos' }),
   ];
-  const rosterSlots = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['DEF'] }];
-  t.mock.method(pool, 'query', async (sql) => {
-    const text = String(sql);
-    if (text.includes('FROM "leagues"')) return { rows: [{ id: 3, best_ball: false, scoring_rules: null }] };
-    if (text.includes('FROM "nfl_games"')) return { rows: [{ nfl_team: 'DEN', opponent: 'KC' }] };
-    throw new Error(`unexpected query: ${text.slice(0, 90)}`);
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] }],
+    gameRows: [{ nfl_team: 'DEN', opponent: 'KC' }],
+    positionDefense: new Map([['KC', { DEF: 5.5 }]]),
+    projections: [[1, projectionFor(1, 7, {
+      factors: { opponent: { available: true, pointsContribution: 0.8, opponentTeam: 'KC' } },
+    })]],
   });
-  t.mock.method(lineupService, 'getLineup', async () => ({
-    leagueId: 3, teamId: 10, season: 2026, week: 6, currentWeek: 6,
-    rosterSlots, benchSlots: 5, irSlots: 1, entries,
-  }));
-  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => ({
-    season: options.season,
-    week: options.week,
-    modelVersion: model.MODEL_VERSION,
-    scoringHash: 'abc123',
-    generatedAt: '2026-10-08T12:00:00.000Z',
-    inputCutoff: '2026-10-11T17:00:00.000Z',
-    sourceCoverage: {
-      opponent: { status: 'available' },
-      weather: { status: 'unavailable', reason: 'no verified stadium coordinates' },
-      expertConsensus: { status: 'unavailable', source: null },
-    },
-    projections: new Map([[1, projectionFor(1, 7)]]),
-  }));
-  t.mock.method(projectionService, 'getPositionDefense', async () =>
-    new Map([['KC', { DEF: 5.5 }]]));
 
   const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
   const defPlayer = advice.players.find((p) => p.playerId === 1);
@@ -260,33 +252,15 @@ test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedu
   const entries = [
     lineupEntry(2, 'WR', 'RB', { nfl_team: 'WSH' }),
   ];
-  const rosterSlots = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['WR'] }];
-  t.mock.method(pool, 'query', async (sql) => {
-    const text = String(sql);
-    if (text.includes('FROM "leagues"')) return { rows: [{ id: 3, best_ball: false, scoring_rules: null }] };
-    if (text.includes('FROM "nfl_games"')) return { rows: [{ nfl_team: 'WSH', opponent: 'DAL' }] };
-    throw new Error(`unexpected query: ${text.slice(0, 90)}`);
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['WR'] }],
+    gameRows: [{ nfl_team: 'WSH', opponent: 'DAL' }],
+    positionDefense: new Map([['DAL', { WR: 12.3 }]]),
+    projections: [[2, projectionFor(2, 9, {
+      factors: { opponent: { available: true, pointsContribution: 0.8, opponentTeam: 'DAL' } },
+    })]],
   });
-  t.mock.method(lineupService, 'getLineup', async () => ({
-    leagueId: 3, teamId: 10, season: 2026, week: 6, currentWeek: 6,
-    rosterSlots, benchSlots: 5, irSlots: 1, entries,
-  }));
-  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => ({
-    season: options.season,
-    week: options.week,
-    modelVersion: model.MODEL_VERSION,
-    scoringHash: 'abc123',
-    generatedAt: '2026-10-08T12:00:00.000Z',
-    inputCutoff: '2026-10-11T17:00:00.000Z',
-    sourceCoverage: {
-      opponent: { status: 'available' },
-      weather: { status: 'unavailable', reason: 'no verified stadium coordinates' },
-      expertConsensus: { status: 'unavailable', source: null },
-    },
-    projections: new Map([[2, projectionFor(2, 9)]]),
-  }));
-  t.mock.method(projectionService, 'getPositionDefense', async () =>
-    new Map([['DAL', { WR: 12.3 }]]));
 
   const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
   const wrPlayer = advice.players.find((p) => p.playerId === 2);
