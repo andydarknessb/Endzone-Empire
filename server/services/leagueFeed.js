@@ -36,6 +36,44 @@ const {
 const LEAGUE_CHAT = 'league_chat';
 
 /**
+ * THE ONE PLACE that decides whether a feed entry is subject to per-viewer
+ * blocking (#440, AC6/AC7). Blocking is a tool for muting another MANAGER's
+ * human messages; it must never hide authoritative Draft activity involving the
+ * blocked Team (AC7), because a Pick is a shared fact of the draft, not that
+ * manager talking. So the decision is made on the entry's KIND, not on which
+ * socket event happened to carry it: only human-authored kinds are blockable.
+ *
+ * This is deliberately a named set rather than an inline check at the delivery
+ * site. When Draft activity gains its own kind here (ADR 0012, #435), whoever
+ * adds it must look at this set and leave it out - the coupling is one obvious
+ * line, not an assumption spread through a broadcast path. If a Draft-activity
+ * kind is ever added here, AC7 breaks.
+ */
+const BLOCKABLE_FEED_TYPES = new Set([LEAGUE_CHAT]);
+
+/** Whether entries of this kind may be withheld from a viewer who blocked the
+ *  author. Only human-authored League chat is; Draft activity never is (AC7). */
+function isBlockableFeedType(type) {
+  return BLOCKABLE_FEED_TYPES.has(type);
+}
+
+/**
+ * The set of user ids who have blocked `authorId`, for filtering a LIVE
+ * broadcast per recipient (#440, AC6). History and the unread badge filter with
+ * the same `user_blocks` relation from the viewer's side; live delivery has to
+ * ask it from the author's side, once per send, so the room broadcast can skip
+ * exactly the viewers who would never see this message on a later history read.
+ */
+async function listBlockersOf(db, authorId) {
+  if (!Number.isInteger(authorId)) return new Set();
+  const result = await db.query(
+    `SELECT "blocker_id" FROM "user_blocks" WHERE "blocked_id" = $1`,
+    [authorId]
+  );
+  return new Set(result.rows.map((row) => row.blocker_id));
+}
+
+/**
  * The default and maximum number of entries one feed read returns. The initial
  * read returns the latest 100 visible entries (#434 acceptance criteria), and
  * a cursor page is bounded by the same ceiling so no caller can ask the server
@@ -117,6 +155,9 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, limit
 
 module.exports = {
   LEAGUE_CHAT,
+  BLOCKABLE_FEED_TYPES,
+  isBlockableFeedType,
+  listBlockersOf,
   FEED_PAGE_SIZE,
   feedEntryOf,
   listLeagueChatFeed,

@@ -60,8 +60,44 @@ test('sending trims the text, calls onSend, and clears the input on success', as
   await userEvent.type(input, '  hey team  ');
   await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-  await waitFor(() => expect(onSend).toHaveBeenCalledWith('hey team'));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith('hey team', expect.any(String)));
   expect(input).toHaveValue('');
+});
+
+test('a retry of the same text reuses the idempotency key; editing mints a new one', async () => {
+  const onSend = jest.fn().mockResolvedValue(false); // fail so the text stays to retry
+  renderWithProviders(<ChatConversation messages={[]} onSend={onSend} />);
+  const input = screen.getByLabelText('Message');
+  const send = () => userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+  await userEvent.type(input, 'same text');
+  await send();
+  await send(); // retry the identical text
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+  const [firstKey, retryKey] = onSend.mock.calls.map(([, key]) => key);
+  expect(retryKey).toBe(firstKey); // a retry of the same message reuses the key
+
+  await userEvent.type(input, ' now edited');
+  await send();
+  const editedKey = onSend.mock.calls[2][1];
+  expect(editedKey).not.toBe(firstKey); // a different message gets a different key
+});
+
+test('a successful send starts the next message with a fresh key', async () => {
+  const onSend = jest.fn().mockResolvedValue(true);
+  renderWithProviders(<ChatConversation messages={[]} onSend={onSend} />);
+  const input = screen.getByLabelText('Message');
+  const send = () => userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+  await userEvent.type(input, 'first');
+  await send();
+  await waitFor(() => expect(input).toHaveValue(''));
+  await userEvent.type(input, 'first'); // same text, but a new logical message
+  await send();
+
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+  const [k1, k2] = onSend.mock.calls.map(([, key]) => key);
+  expect(k2).not.toBe(k1);
 });
 
 test('a failed send keeps the text so the manager can retry', async () => {
@@ -81,7 +117,7 @@ test('Enter sends without adding a newline', async () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={onSend} />);
 
   await userEvent.type(screen.getByLabelText('Message'), 'quick one{Enter}');
-  await waitFor(() => expect(onSend).toHaveBeenCalledWith('quick one'));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith('quick one', expect.any(String)));
 });
 
 test('renders the send error passed to it', () => {
