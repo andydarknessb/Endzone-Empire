@@ -147,12 +147,19 @@ test('the real docs/agents/ tree is fully indexed by its own README (#323)', () 
   assert.equal(
     result.missingReadme,
     false,
-    `docs/agents/${README_FILENAME} must exist and be tracked so discoverability does not depend on the gitignored CLAUDE.md`
+    `docs/agents/${README_FILENAME} is missing. Create it (tracked, not gitignored) indexing ` +
+      'every doc in this directory — discoverability must not depend solely on the ' +
+      'gitignored, per-checkout CLAUDE.md.'
   );
   assert.deepEqual(
     result.orphans,
     [],
-    `docs/agents/ docs with no README.md entry: ${result.orphans.join(', ')}`
+    result.orphans.length
+      ? `docs/agents/ has ${result.orphans.length} file(s) with no docs/agents/${README_FILENAME} ` +
+        `entry: ${result.orphans.join(', ')}. Fix: add a "See \`docs/agents/<file>\`" line (with a ` +
+        `one-line "when an agent needs it" description) to docs/agents/${README_FILENAME} for each ` +
+        'file named above.'
+      : undefined
   );
 });
 
