@@ -76,6 +76,25 @@ function mockFeed(t, { member = true } = {}) {
             pick_number: 1,
             is_autopick: false,
           },
+          // A lifecycle entry (#437): NULL Pick columns, an acting Team, kind
+          // 'pause'. It must shape to the base lifecycle entry, not a broken Pick.
+          {
+            source: 'draft_activity',
+            id: 4,
+            feed_seq: '9',
+            created_at: '2026-09-01T00:02:00.000Z',
+            message: null,
+            teamId: 11,
+            teamName: 'Gridiron Ghosts',
+            kind: 'pause',
+            player_id: null,
+            player_name: null,
+            player_position: null,
+            player_nfl_team: null,
+            round: null,
+            pick_number: null,
+            is_autopick: null,
+          },
         ],
       };
     }
@@ -89,7 +108,7 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
   const res = await request(app).get('/api/league/12/draft-feed').set('Authorization', authed());
 
   assert.equal(res.status, 200);
-  assert.equal(res.body.length, 2);
+  assert.equal(res.body.length, 3);
   // Reversed to ascending: chat seq 7 first, then Pick activity seq 8.
   assert.deepEqual(res.body[0], {
     type: 'league_chat',
@@ -112,6 +131,17 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     pickNumber: 1,
     isAutopick: false,
     created_at: '2026-09-01T00:01:00.000Z',
+  });
+  // The lifecycle entry shapes to the base entry: Team identity and the instant,
+  // and NO Pick fields (#437). It interleaves after the Pick by the shared seq.
+  assert.deepEqual(res.body[2], {
+    type: 'draft_activity',
+    kind: 'pause',
+    id: 4,
+    seq: 9,
+    teamId: 11,
+    teamName: 'Gridiron Ghosts',
+    created_at: '2026-09-01T00:02:00.000Z',
   });
 });
 

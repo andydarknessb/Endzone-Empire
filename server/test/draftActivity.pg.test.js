@@ -37,7 +37,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { appendPickActivity, DRAFT_ACTIVITY, PICK } = require('../services/draftActivity');
+const {
+  appendPickActivity,
+  appendLifecycleActivity,
+  DRAFT_ACTIVITY,
+  PICK,
+  DRAFT_START,
+  PAUSE,
+  RESET,
+  COMPLETE,
+} = require('../services/draftActivity');
 const { listCombinedDraftFeed, LEAGUE_CHAT } = require('../services/leagueFeed');
 
 const ENABLED = process.env.PG_TESTS === '1' || process.env.DRAFT_ACTIVITY_PG_TESTS === '1';
@@ -68,6 +77,10 @@ if (!ENABLED) {
 
   const MIGRATION_NAME = '20260826000004_draft_activity.js';
   const migration = require('../db/migrations/20260826000004_draft_activity');
+  // #437 relaxes the Pick columns to NULL for lifecycle kinds and adds the
+  // pick-fields CHECK. Applied here for a standalone run; the CI migration-smoke
+  // has already run every migration to latest before this suite.
+  const LIFECYCLE_MIGRATION_NAME = '20260826000005_draft_activity_lifecycle.js';
 
   let leagueA = null;
   let leagueB = null;
@@ -124,6 +137,8 @@ if (!ENABLED) {
   test.before(async () => {
     const applied = await knex('knex_migrations').where({ name: MIGRATION_NAME }).first();
     if (!applied) await knex.migrate.up({ name: MIGRATION_NAME });
+    const appliedLifecycle = await knex('knex_migrations').where({ name: LIFECYCLE_MIGRATION_NAME }).first();
+    if (!appliedLifecycle) await knex.migrate.up({ name: LIFECYCLE_MIGRATION_NAME });
 
     ownerA = await seedUser('draft_activity_pg_a');
     ownerB = await seedUser('draft_activity_pg_b');
@@ -263,6 +278,62 @@ if (!ENABLED) {
     const expected = Array.from({ length: N }, (_, i) => start + 1 + i);
     assert.deepEqual(seqs, expected, 'N concurrent inserts took a unique, contiguous run with no gap or collision');
     assert.equal(new Set(seqs).size, N, 'every allocated position is distinct');
+  });
+
+  test('lifecycle activity shares the sequence, interleaves, and reads back with no Pick facts (#437)', async () => {
+    // leagueA has reached seq 4 (chat/pick/chat/pick); the guard and concurrency
+    // tests consumed no leagueA positions, so lifecycle draws 5, 6, 7 next.
+    const start = await appendLifecycleActivity(pool, { leagueId: leagueA, kind: DRAFT_START, team: { id: teamA, name: 'Alpha' } });
+    const pause = await appendLifecycleActivity(pool, { leagueId: leagueA, kind: PAUSE, team: { id: teamA, name: 'Alpha' } });
+    const complete = await appendLifecycleActivity(pool, { leagueId: leagueA, kind: COMPLETE, team: null });
+    assert.deepEqual([start.seq, pause.seq, complete.seq], [5, 6, 7], 'lifecycle draws from the same per-league counter as chat and Picks');
+
+    const feed = await listCombinedDraftFeed(pool, { leagueId: leagueA, viewerId: ownerA });
+    const tail = feed.slice(-3);
+    assert.deepEqual(tail.map((e) => e.kind), [DRAFT_START, PAUSE, COMPLETE], 'lifecycle events interleave in shared-seq order');
+    for (const e of tail) {
+      assert.equal(e.type, DRAFT_ACTIVITY);
+      // A lifecycle entry is not a Pick: it carries none of the Pick facts.
+      assert.equal('player' in e, false);
+      assert.equal('round' in e, false);
+      assert.equal('pickNumber' in e, false);
+      assert.ok(e.created_at, 'the event carries its own timestamp');
+    }
+    assert.equal(tail[0].teamName, 'Alpha', 'the start is attributed to its acting Team');
+    assert.equal(tail[2].teamId, null, 'the completion is an actor-less transition');
+    assert.equal(tail[2].teamName, null);
+  });
+
+  test('the pick-fields CHECK still requires a Pick to carry its snapshot, but frees lifecycle kinds', async () => {
+    // A 'pick' row missing its player is refused: the invariant #435 relied on,
+    // now stated as "for a pick" after the columns were relaxed for lifecycle.
+    await assert.rejects(
+      () =>
+        pool.query(
+          `INSERT INTO "draft_activity" ("league_id", "kind", "team_id", "team_name", "round", "pick_number")
+           VALUES ($1, 'pick', $2, 'Alpha', 1, 9)`,
+          [leagueA, teamA]
+        ),
+      /pick_fields_present|check constraint/i,
+      'a Pick with a null player is refused by the CHECK'
+    );
+    // A lifecycle row with null player / round / pick_number is allowed.
+    const ok = await appendLifecycleActivity(pool, { leagueId: leagueA, kind: RESET, team: { id: teamA, name: 'Alpha' } });
+    assert.ok(ok.seq > 0, 'a lifecycle kind may carry null Pick columns');
+  });
+
+  test('deleting draft_picks leaves append-only Draft activity intact (reset semantics, #437 AC3)', async () => {
+    // A real Pick row to delete, so this proves there is NO cascade from
+    // draft_picks to draft_activity, not merely that the delete found nothing.
+    await pool.query(
+      `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number") VALUES ($1, $2, $3, 99)`,
+      [leagueA, teamA, playerId]
+    );
+    const before = await pool.query(`SELECT COUNT(*)::int AS n FROM "draft_activity" WHERE "league_id" = $1`, [leagueA]);
+    await pool.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueA]);
+    const after = await pool.query(`SELECT COUNT(*)::int AS n FROM "draft_activity" WHERE "league_id" = $1`, [leagueA]);
+    assert.ok(before.rows[0].n > 0, 'the league has append-only activity to preserve');
+    assert.equal(after.rows[0].n, before.rows[0].n, 'wiping picks never erases earlier Pick or lifecycle activity');
   });
 
   test('down() refuses to drop the table while it holds append-only history', async () => {
