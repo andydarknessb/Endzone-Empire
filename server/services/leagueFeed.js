@@ -58,6 +58,31 @@ function isBlockableFeedType(type) {
 }
 
 /**
+ * THE ONE PLACE that decides whether a feed entry may be HIDDEN by a
+ * commissioner (#441, AC6). The reasoning is identical to blockability above,
+ * and deliberately kept as its own named set so the coupling stays one obvious
+ * line: hiding is a tool for moderating another MANAGER's human message, so it
+ * must never touch authoritative Draft activity - a Pick is a shared fact of
+ * the draft, not that manager talking, and moderation may not edit, hide or
+ * delete it (AC6). Only human-authored kinds are moderatable.
+ *
+ * When Draft activity gains its own kind (ADR 0012, #435), whoever adds it must
+ * look here and leave it OUT. If a Draft-activity kind is ever added to this
+ * set, AC6 breaks. The two sets happen to be equal today because League chat is
+ * the only human-authored kind; they are named separately because they answer
+ * different questions (who may I hide from view for myself, vs. what may a
+ * commissioner hide for everyone) and a future kind could be one but not the
+ * other.
+ */
+const MODERATABLE_FEED_TYPES = new Set([LEAGUE_CHAT]);
+
+/** Whether a commissioner may hide entries of this kind league-wide. Only
+ *  human-authored League chat; Draft activity never is (AC6). */
+function isModeratableFeedType(type) {
+  return MODERATABLE_FEED_TYPES.has(type);
+}
+
+/**
  * The set of user ids who have blocked `authorId`, for filtering a LIVE
  * broadcast per recipient (#440, AC6). History and the unread badge filter with
  * the same `user_blocks` relation from the viewer's side; live delivery has to
@@ -92,6 +117,13 @@ const FEED_PAGE_SIZE = 100;
  */
 function feedEntryOf(row) {
   const [idField, nameField] = TEAM_IDENTITY_FIELDS;
+  // A commissioner-hidden message reads back as a neutral tombstone (#441,
+  // AC3): its content never rides on the member feed, and the reason and the
+  // moderator who acted are not projected here AT ALL - only the
+  // authorized-reviewer history (safety.router) exposes those (AC4). The entry
+  // keeps its seq and Team identity so ordering, pagination and "is this mine"
+  // are unchanged; only the content becomes a tombstone.
+  const hidden = row.hidden_at != null;
   return {
     type: LEAGUE_CHAT,
     id: row.id,
@@ -102,7 +134,8 @@ function feedEntryOf(row) {
     // value reads as null so the keys are always present.
     [idField]: row[idField] ?? null,
     [nameField]: row[nameField] ?? null,
-    message: row.message,
+    message: hidden ? null : row.message,
+    hidden,
     created_at: row.created_at,
   };
 }
@@ -134,7 +167,7 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, limit
   const result = await db.query(
     `SELECT * FROM (
        SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-              "chat_messages"."feed_seq",
+              "chat_messages"."feed_seq", "chat_messages"."hidden_at",
               ${teamIdentityColumns()}
        FROM "chat_messages"
        ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
@@ -157,6 +190,8 @@ module.exports = {
   LEAGUE_CHAT,
   BLOCKABLE_FEED_TYPES,
   isBlockableFeedType,
+  MODERATABLE_FEED_TYPES,
+  isModeratableFeedType,
   listBlockersOf,
   FEED_PAGE_SIZE,
   feedEntryOf,

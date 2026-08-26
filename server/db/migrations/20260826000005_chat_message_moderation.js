@@ -13,6 +13,14 @@
  *                  the ACTOR the audit preserves. SET NULL rather than CASCADE
  *                  because a deleted moderator must not erase the hide - the
  *                  tombstone and the reason outlive the account that acted.
+ *                  DELIBERATE CONSEQUENCE: a NULL hidden_by on a hidden row
+ *                  means the moderator's ACCOUNT WAS DELETED (a former manager),
+ *                  never "hidden by the system" - account deletion is chosen to
+ *                  win over audit-actor retention rather than snapshot a name
+ *                  (which would reintroduce the retained copy this design
+ *                  avoids). The authorized-reviewer history renders that null
+ *                  actor as a former-manager label, the same way Team identity
+ *                  already renders a departed author (teamNameLabel).
  *   hidden_reason  the required reason. A hide is refused without one (AC2), so
  *                  a hidden row always carries it; a member never sees it, only
  *                  an authorized reviewer does (AC4).
