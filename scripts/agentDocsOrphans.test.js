@@ -201,13 +201,22 @@ test('findDeadReferences: correcting the reference to an existing file clears th
   assert.deepEqual(findDeadReferences(['domain.md'], readme), []);
 });
 
-test('findDeadReferences: non-doc code spans in the "## Docs" section (a label name, a repo-root CONTEXT.md) are not reported', () => {
+test('findDeadReferences: non-doc code spans in the "## Docs" section (a label name, a repo-root CONTEXT.md, an untracked CONTEXT-MAP.md) are not reported', () => {
   const readme = [
     '## Docs',
     '',
     'Triage labels include `needs-triage` and `wontfix`.',
-    'Domain docs point at `CONTEXT.md`, `docs/adr/`, and `.claude/worktrees/<name>`.',
+    'Domain docs point at `CONTEXT.md`, `CONTEXT-MAP.md`, `docs/adr/`, and `.claude/worktrees/<name>`.',
   ].join('\n');
+  // CONTEXT.md and CONTEXT-MAP.md are both bare `<file>.md` spans naming
+  // files that live outside docs/agents/ (CONTEXT.md at the repo root;
+  // CONTEXT-MAP.md untracked and per-checkout, like CLAUDE.md). Neither is
+  // path-shaped, so neither is checked against docs/agents/ at all — that
+  // is what makes the path-form-only rule correct rather than merely
+  // convenient: a bare-name rule would report CONTEXT-MAP.md as a dead
+  // docs/agents/CONTEXT-MAP.md reference with no fix available (creating
+  // the file would itself be the error; the README entry is correct as
+  // written).
   assert.deepEqual(findDeadReferences(['domain.md'], readme), []);
 });
 
@@ -288,18 +297,36 @@ test('checkAgentDocsOrphans: a doc the README does not mention fails, naming onl
 // docs/agents/ directory (the default AGENTS_DOCS_DIR), so a new .md file
 // landing there with no docs/agents/README.md entry — the #323 failure mode
 // — turns this test red, and it is wired into `npm run guards`.
-test('the real docs/agents/ tree is fully indexed by its own README (#323)', () => {
+test('the real docs/agents/ tree is fully indexed by its own README (#323, #411)', () => {
   const result = checkAgentDocsOrphans();
+  const readmeContent = readReadme();
+  const sectionMeta = extractDocsSectionMeta(readmeContent);
+
+  // #411: the fallback to whole-file matching used to be silent, and worse
+  // than silent — the count line below unconditionally claimed candidates
+  // came "from the ## Docs section" even when that heading was not found,
+  // so a reader debugging a false green on a renamed heading was told the
+  // wrong scope. Announce the fallback explicitly, and make the count line
+  // name whichever scope was actually used.
+  if (!sectionMeta.found) {
+    console.log(
+      `no "## Docs" heading found in docs/agents/${README_FILENAME}, matching the whole file`
+    );
+  }
 
   // Auditability: print what the extractor found, not just pass/fail, so an
   // over- or under-eager matcher shows up as a suspicious count rather than
   // as silence. A candidate count of 0 alongside 0 orphans would mean the
   // matcher itself is broken (nothing looked like a reference), which is a
   // different failure than "matched, and every doc had one".
-  const candidateCount = extractReferenceCandidates(extractDocsSection(readReadme())).length;
+  const candidateCount = extractReferenceCandidates(sectionMeta.text).length;
+  const scopeDescription = sectionMeta.found
+    ? 'the "## Docs" section'
+    : 'the whole file (no "## Docs" heading found)';
   console.log(
     `docs/agents/: ${result.docFiles.length} doc(s), ${candidateCount} reference-shaped ` +
-      `candidate(s) found in the "## Docs" section, ${result.orphans.length} orphan(s).`
+      `candidate(s) found in ${scopeDescription}, ${result.orphans.length} orphan(s), ` +
+      `${result.deadReferences.length} dead reference(s).`
   );
 
   assert.equal(
@@ -317,6 +344,15 @@ test('the real docs/agents/ tree is fully indexed by its own README (#323)', () 
         `entry: ${result.orphans.join(', ')}. Fix: add a "See \`docs/agents/<file>\`" line (with a ` +
         `one-line "when an agent needs it" description) to docs/agents/${README_FILENAME} for each ` +
         'file named above.'
+      : undefined
+  );
+  assert.deepEqual(
+    result.deadReferences,
+    [],
+    result.deadReferences.length
+      ? `docs/agents/${README_FILENAME} has ${result.deadReferences.length} dead reference(s) that ` +
+        `do not resolve to a real file: ${result.deadReferences.join(', ')}. Fix or remove the ` +
+        `entry in docs/agents/${README_FILENAME}.`
       : undefined
   );
 });
