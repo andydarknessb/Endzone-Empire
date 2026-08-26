@@ -147,7 +147,7 @@ test('pages older entries by the oldest held seq and prepends them', async () =>
   expect(result.current.entries.map((e) => e.seq)).toEqual([4, 5]);
 });
 
-test('re-syncs the whole feed on reconnect', async () => {
+test('re-syncs the whole feed on reconnect when nothing is held yet', async () => {
   const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
   await waitFor(() => expect(result.current.entries).toEqual([]));
 
@@ -156,6 +156,43 @@ test('re-syncs the whole feed on reconnect', async () => {
 
   await waitFor(() => expect(result.current.entries).toHaveLength(1));
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/3/draft-feed');
+});
+
+test('reconnect resumes AFTER the last held seq and keeps one order (#442)', async () => {
+  // A feed already loaded: the acknowledged cursor is the max seq held.
+  apiClient.get.mockResolvedValueOnce({ data: [chatEntry({ id: 1, seq: 6 }), pickEntry({ id: 2, seq: 7 })] });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toHaveLength(2));
+  apiClient.get.mockClear();
+
+  // On reconnect it asks only for entries newer than seq 7, not the whole feed.
+  apiClient.get.mockResolvedValue({ data: [chatEntry({ id: 3, seq: 8, message: 'missed' })] });
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed?after=7'));
+  await waitFor(() => expect(result.current.entries.map((e) => e.seq)).toEqual([6, 7, 8]));
+  expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/3/draft-feed');
+});
+
+test('reconnect falls back to a full read when more than a page accrued offline (#442)', async () => {
+  apiClient.get.mockResolvedValueOnce({ data: [chatEntry({ id: 1, seq: 6 }), pickEntry({ id: 2, seq: 7 })] });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toHaveLength(2));
+  apiClient.get.mockClear();
+
+  // A full resume page means the gap exceeded one page: snap to the latest
+  // window rather than leaving the newest entries unfetched.
+  const fullPage = Array.from({ length: 100 }, (_, i) => chatEntry({ id: 100 + i, seq: 100 + i }));
+  apiClient.get.mockImplementation((url) =>
+    url.includes('after=')
+      ? Promise.resolve({ data: fullPage })
+      : Promise.resolve({ data: [pickEntry({ id: 900, seq: 900 })] })
+  );
+  act(() => reconnectHandlers.forEach((cb) => cb()));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed?after=7'));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/3/draft-feed'));
+  await waitFor(() => expect(result.current.entries.some((e) => e.seq === 900)).toBe(true));
 });
 
 test('takes back both listeners on unmount and never ends the shared session', async () => {

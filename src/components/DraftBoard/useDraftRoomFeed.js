@@ -123,8 +123,37 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
     socket.on('draft:picked', onPicked);
     socket.on('draft:activity', onActivity);
 
+    // Reconnect RESUMES from the last acknowledged cursor (#442): the max seq
+    // held is what the client last saw, so it asks only for entries newer than
+    // it and merges them into their seq position, reproducing the one shared
+    // order without refetching the whole feed. Nothing held yet means no cursor
+    // to resume from, so it falls back to a full latest-page read.
     const offReconnect = onReconnect(socket, () => {
-      fetchHistory();
+      const seqs = entriesRef.current
+        .map((e) => (e ? e.seq : null))
+        .filter((s) => Number.isFinite(s));
+      if (seqs.length === 0) {
+        fetchHistory();
+        return;
+      }
+      const lastSeq = Math.max(...seqs);
+      Promise.resolve(apiClient.get(`/api/league/${leagueId}/draft-feed?after=${lastSeq}`))
+        .then((res) => {
+          const newer = Array.isArray(res?.data) ? res.data : [];
+          if (newer.length === 0) return;
+          if (newer.length >= FEED_PAGE) {
+            // More than a page accrued while offline: a single resume page would
+            // leave the newest entries unfetched. Snap to the latest window
+            // instead; the gap behind it is reachable through loadOlder.
+            fetchHistory();
+            return;
+          }
+          setEntries((prev) => newer.reduce((acc, entry) => mergeEntry(acc, entry), prev));
+          // The draft room shows chat live; a resumed human message keeps the
+          // unread badge honest, the same as a live arrival.
+          markRead();
+        })
+        .catch(() => {});
     });
 
     return () => {
@@ -133,7 +162,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
       socket.off?.('draft:picked', onPicked);
       socket.off?.('draft:activity', onActivity);
     };
-  }, [socket, fetchHistory, markRead]);
+  }, [socket, leagueId, fetchHistory, markRead]);
 
   const sendMessage = useCallback(
     (raw, clientMsgId) => {

@@ -151,6 +151,14 @@ test('GET draft-feed hands the ?before cursor through as a bound integer', async
   assert.ok(captured.params.includes(8), 'the numeric cursor rode into the query params');
 });
 
+test('GET draft-feed?after=<seq> resumes newer than the cursor on both kinds (#442)', async (t) => {
+  const captured = mockFeed(t);
+  await request(app).get('/api/league/12/draft-feed?after=8').set('Authorization', authed());
+  assert.ok(captured.params.includes(8), 'the resume cursor rode into the query params');
+  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$3/);
+  assert.match(captured.sql, /"draft_activity"\."feed_seq" > \$3/);
+});
+
 test('GET draft-feed refuses a non-member', async (t) => {
   mockFeed(t, { member: false });
   const res = await request(app).get('/api/league/12/draft-feed').set('Authorization', authed());

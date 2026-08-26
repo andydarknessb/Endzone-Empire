@@ -133,7 +133,7 @@ _Avoid_: season engine (engine is the projection engine), season progression
 **Draft status**:
 Where a draft sits in its own lifecycle: pending (not yet started), active
 (picks are being made), complete. Owned and driven by the draft itself, and
-read directly by the draft room and the draft workflow. It is one input to
+read directly by the Draft room and the draft workflow. It is one input to
 league phase, never a substitute for it: "may this pick be made" is a draft
 question, "may a team join" is a phase question. A pick'em-only league has no
 draft, so its draft status carries no meaning and is never read.
@@ -301,6 +301,13 @@ The team-by-round matrix of committed picks. Pick history is the chronological
 view of those same picks, not another draft board.
 _Avoid_: pick history, player pool
 
+**Draft room**:
+The live page where a league's members follow the Draft and make Picks while
+it is running. The Draft board, the player pool, League chat and Draft
+activity are panels inside it; the presenter link is a separate public view
+of the same Draft, not the room.
+_Avoid_: draft board (one panel inside the room), draft page, draft screen
+
 **Draft type**:
 How a league's draft is conducted, chosen before it starts: snake (teams pick
 in turn on a clock), auction (teams bid from a salary cap), autopick (every
@@ -391,7 +398,7 @@ The board a Draft Sim drafts from: every player the market ranks (has an ADP)
 or who produced last completed season, in best-available order, plus the IDP
 tranche when the template needs it. Membership is that rule, never a count:
 a player a mock draft could plausibly reach is in it, and a player in it can
-be found by search. The draft room's available players are the real league's
+be found by search. The Draft room's available players are the real league's
 equivalent and are paged from the whole player table instead.
 _Avoid_: player pool, top N, the board (that is the Draft board, committed picks)
 
