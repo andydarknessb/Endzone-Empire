@@ -170,6 +170,7 @@ describe('multi-season rollover transaction', () => {
   let queryLog;
   let result;
   let fetchSpy;
+  let suppliedFetch;
 
   beforeAll(async () => {
     state = completedSeasonState();
@@ -177,6 +178,15 @@ describe('multi-season rollover transaction', () => {
     queryLog = harness.queryLog;
     mockPoolConnect.mockResolvedValue(harness.client);
     createClient('https://supabase.test.invalid', 'test-only-key');
+    // Under a node test environment (bare `jest` or `--env=node`), CRA's
+    // whatwg-fetch polyfill is absent, so there is no global.fetch to spy on.
+    // Supply a stub first, then spy on it, and remove it afterward, the way
+    // lineupLockTimeline.integration.test.js does, so this file passes under
+    // either jest environment. See issue #234.
+    suppliedFetch = !global.fetch;
+    if (suppliedFetch) {
+      Object.defineProperty(global, 'fetch', { configurable: true, writable: true, value: jest.fn() });
+    }
     fetchSpy = jest.spyOn(global, 'fetch').mockRejectedValue(
       new Error('Network isolation violation: global fetch was called')
     );
@@ -191,6 +201,7 @@ describe('multi-season rollover transaction', () => {
   afterAll(() => {
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+    if (suppliedFetch) delete global.fetch;
   });
 
   test('archives final standings, roster snapshots, and trophies before reset queries', () => {

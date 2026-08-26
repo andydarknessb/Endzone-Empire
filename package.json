@@ -98,6 +98,7 @@
     "infra:activate-k6": "node scripts/activate-k6.js",
     "test:load-pipeline": "node scripts/run-load-triage.js",
     "test:jest-discovery": "node --test scripts/jestTestMatch.test.js",
+    "test:cross-tree-discovery": "node --test scripts/crossTreeTests.test.js",
     "check:dom-dedupe": "npm run test:check-dom-dedupe && node scripts/ci/check-dom-dedupe.js",
     "test:check-dom-dedupe": "node --test scripts/ci/check-dom-dedupe.test.js",
     "check:adr-uniqueness": "npm run test:check-adr-uniqueness && node scripts/ci/check-adr-uniqueness.js",
