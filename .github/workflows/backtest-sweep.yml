@@ -1,0 +1,79 @@
+name: Backtest sweep
+
+# Moved out of ci.yml (#160). ci.yml's own `concurrency` group has
+# `cancel-in-progress: true`, so a push to `integration`/`main` that ran the
+# ~35-minute `npm run test:server:sweep` step got cancelled the moment the
+# next push landed on the same ref - with ~10 merges a day to `integration`,
+# every push run got cancelled and every PR run skipped it by design (it was
+# gated on `github.event_name != 'pull_request'`). Eight `integration` runs
+# checked on 2026-08-22 confirmed this: the sweep effectively never
+# completed.
+#
+# This workflow runs the same six sweep files instead on: every push to
+# `main` (a release), nightly against `integration`, and on demand. It
+# deliberately never runs per push to `integration` - that would recreate the
+# same never-draining queue this change exists to fix, and would hide which
+# push broke it. Backtest changes on a PR branch are already covered by
+# backtest-reproduction.yml (path-filtered) and by `npm run test:server` (the
+# fast set) in ci.yml's own test-build job.
+#
+# NOT A MERGE GATE. This check's name must never be added to the tenant's
+# ciGates - it is expected to be red sometimes and that must never block a
+# merge.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 7 * * *' # 07:00 UTC = 02:00 CDT, always against `integration`
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Ref to run the sweep against
+        required: false
+        type: string
+        default: integration
+
+permissions:
+  contents: read
+
+# Resolved as a pure Actions `${{ }}` expression, substituted straight into
+# `with: ref:` / the concurrency group string - never into a shell `run:`
+# script - so an attacker-controlled workflow_dispatch `inputs.ref` has no
+# shell to inject into. (This repo's own holdout-uptime.yml applies the same
+# principle - keep untrusted input out of `run:` bodies - via env-var
+# indirection instead, since that workflow's `force_fail` input is consumed
+# inside a shell script; this one avoids a shell entirely.)
+#
+# Reused identically for the concurrency group below: `schedule` runs always
+# resolve to `integration`, `workflow_dispatch` resolves to whatever ref was
+# requested, everything else (the `push` trigger) keeps `github.ref`. Without
+# this, a nightly `schedule` run's `github.ref` is the DEFAULT branch (`main`)
+# - the exact same value a `push`-to-`main` run gets - so the two would land
+# in the same concurrency group and a nightly `integration` sweep could queue
+# behind an unrelated release sweep for no reason.
+concurrency:
+  group: sweep-${{ github.event_name == 'schedule' && 'integration' || (github.event_name == 'workflow_dispatch' && inputs.ref || github.ref) }}
+  cancel-in-progress: false
+
+jobs:
+  test-server-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'schedule' && 'integration' || (github.event_name == 'workflow_dispatch' && inputs.ref || github.ref) }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:server:sweep
+        env:
+          # The Gate-3 publication (backtest-data/publish/) is committed as of
+          # this workflow, so the clean-clone reconstruction test's
+          # skip-if-absent mode is no longer the right default here - flip it
+          # to a hard failure so a future accidental omission of the
+          # publication tree cannot pass CI silently.
+          BACKTEST_PUBLICATION_REQUIRED: "1"
