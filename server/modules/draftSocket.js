@@ -123,7 +123,7 @@ function attachDraftSocket(httpServer) {
         // the message's content.
         return ack && ack({ error: 'clientMsgId must be a string of at most 64 characters', code: 'INVALID_REQUEST' });
       }
-      const text = message.trim().slice(0, 500);
+      const text = clampToCharacters(message.trim());
       try {
         // AC1. The sender's CURRENT Team is their membership (ADR 0002): a
         // manager removed after joining holds none and may no longer speak,
@@ -380,6 +380,28 @@ function chatMessagePayload({ id, seq, leagueId, team, message, createdAt }) {
  */
 const INVALID_KEY = Symbol('invalid-client-msg-id');
 
+/** The chat message length limit, counted in Unicode CODE POINTS. A "character"
+ *  here is one code point, not one UTF-16 code unit (#443): an astral emoji like
+ *  👍 is a single character even though it is two code units, and a ZWJ sequence
+ *  is several. The chat_messages.message column is varchar(500), which Postgres
+ *  also counts in characters, so this limit and the column agree exactly. */
+const MAX_CHAT_CHARS = 500;
+
+/** Truncate a chat message to at most MAX_CHAT_CHARS characters (#443).
+ *  Iterating by code point - Array.from uses the string iterator - makes the
+ *  cut land on a character boundary, so it can never bisect a surrogate pair
+ *  into a lone surrogate the way a UTF-16-unit `slice(0, 500)` would to an emoji
+ *  straddling the boundary. That matters because a lone surrogate is not
+ *  representable in UTF-8 and so cannot be stored as ordinary text (#443 AC3):
+ *  a boundary emoji is instead kept whole or dropped whole, never split into an
+ *  invalid character. Splitting a multi-code-point grapheme (a ZWJ family) can
+ *  still drop a trailing joined glyph, but every code point that remains is a
+ *  valid character, which is the guarantee the limit owes. */
+function clampToCharacters(str) {
+  const points = Array.from(str);
+  return points.length <= MAX_CHAT_CHARS ? str : points.slice(0, MAX_CHAT_CHARS).join('');
+}
+
 /** A client-supplied idempotency key, or null when none was sent, or the
  *  INVALID_KEY sentinel when one was sent but is not a bounded string. */
 function normalizeClientMsgId(value) {
@@ -503,4 +525,6 @@ module.exports = {
   chatMessagePayload,
   deliverFeedEntry,
   normalizeClientMsgId,
+  clampToCharacters,
+  MAX_CHAT_CHARS,
 };

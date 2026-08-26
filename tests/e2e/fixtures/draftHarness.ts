@@ -18,6 +18,10 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { FIXTURE_USER, FIXTURE_LEAGUE_ID, FIXTURE_PLAYERS, VIEWER_TEAM_ID, type FixturePlayer, type FixtureTeam, type FixturePick } from './draftFixtures';
 import { json } from './jsonRoute';
+// The REST coverage is declared as data (issue #474, ADR 0014). This handler
+// dispatches from the same route table the static coverage guard imports, so
+// the description and the behaviour cannot drift apart.
+import { routeTable, findRoute } from './draftRouteTable';
 
 export { expect };
 
@@ -132,6 +136,12 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
             // pick landing, only that the request was accepted.
             if (typeof ack === 'function') ack({});
           }
+          if (event === 'chat:send') {
+            // The composer clears only on a successful ack (#442/#443). The
+            // harness accepts the send so that clear-on-send is observable; it
+            // does not broadcast the message back (no live feed is simulated).
+            if (typeof ack === 'function') ack({});
+          }
         },
         disconnect() {},
         io: {
@@ -169,39 +179,51 @@ export type DraftApiOptions = {
 export type DraftApiHandle = {
   /** Every body PUT to /api/draft/queue, in call order. */
   queueWrites: Array<{ leagueId: number; playerIds: number[] }>;
+  /**
+   * Every request the route table did not answer, as `METHOD /path`, in
+   * arrival order (issue #474). The 500 fallthrough still fires; this list is
+   * what turns it into a named failure. The shared `test` fixture's teardown
+   * fails when it is non-empty, so a missing harness entry surfaces as the
+   * concrete endpoint rather than a bare console 500. Specs may also read it.
+   */
+  unmocked: string[];
 };
+
+// The teardown in the shared `test` fixture asserts the unmocked list is empty,
+// but the handle is created per-test inside installDraftRestApi and not
+// threaded through every test signature. Each install records its page's list
+// here so the teardown can find it by the page it is tearing down.
+const unmockedByPage = new WeakMap<Page, string[]>();
 
 /**
  * Installs the one REST seam every request from the Draft route (and the
- * surrounding Nav chrome) goes through. Anything not explicitly recognised
- * fails the request with a 500 `unexpected mocked request` body instead of
- * ever reaching a real network, matching the convention already established
- * in tests/e2e/auth-offline.spec.ts.
+ * surrounding Nav chrome) goes through. It dispatches from the shared route
+ * table (tests/e2e/fixtures/draftRouteTable.js, the same table the static
+ * coverage guard reads), and anything the table does not answer is both
+ * recorded on `handle.unmocked` and failed with a 500 `unexpected mocked
+ * request` body instead of ever reaching a real network, matching the
+ * convention already established in tests/e2e/auth-offline.spec.ts.
  */
 export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Promise<DraftApiHandle> {
   const user = opts.user || FIXTURE_USER;
   const players = opts.players || FIXTURE_PLAYERS;
   const myTeamId = opts.myTeamId ?? VIEWER_TEAM_ID;
   const draftedIds = new Set(opts.picks.map((p) => p.player_id));
-  let queue: FixturePlayer[] = [...(opts.initialQueue || [])];
-  const handle: DraftApiHandle = { queueWrites: [] };
+  const handle: DraftApiHandle = { queueWrites: [], unmocked: [] };
+  unmockedByPage.set(page, handle.unmocked);
 
-  // Nulls sort last regardless of direction: `dir` only flips the ordering of
-  // the non-null values (folded into the comparator itself, not a post-hoc
-  // `.reverse()` of the whole array - reversing would also flip the nulls to
-  // the front on a descending sort).
-  const sortPlayers = (list: FixturePlayer[], sort: string, dir: string) => {
-    const key = sort;
-    const direction = dir === 'desc' ? -1 : 1;
-    return [...list].sort((a: any, b: any) => {
-      const av = a[key];
-      const bv = b[key];
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (typeof av === 'string') return direction * av.localeCompare(bv);
-      return direction * (av - bv);
-    });
+  // Per-test mutable state the pure responders read through `ctx.state`. The
+  // draft queue is reassigned by the PUT /api/draft/queue responder, so it
+  // lives on this object rather than in a captured local.
+  const state = {
+    user,
+    players,
+    league: opts.league,
+    myTeamId,
+    picks: opts.picks,
+    draftedIds,
+    queue: [...(opts.initialQueue || [])] as FixturePlayer[],
+    handle,
   };
 
   await page.route('**/api/**', async (route) => {
@@ -210,104 +232,41 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
     const path = url.pathname;
     const method = request.method();
 
-    if (method === 'GET' && path === '/api/user') return json(route, 200, user);
-    if (method === 'GET' && path === '/api/notifications') return json(route, 200, { notifications: [], unread: 0 });
-
-    if (method === 'GET' && path === `/api/league/${opts.league.id}`) {
-      // viewerTeamId sits at the response root, which is the per-viewer
-      // channel league detail has (#113, contract #112).
-      return json(route, 200, { viewerTeamId: myTeamId, league: opts.league, teams: [] });
+    const match = findRoute(routeTable, method, path);
+    if (!match) {
+      handle.unmocked.push(`${method} ${path}`);
+      return json(route, 500, { error: `unexpected mocked request in draft harness: ${method} ${path}` });
     }
 
-    // The Draft room reads the combined Chat + Draft-activity feed (#435), then
-    // marks visible Chat read (#433). An empty feed is the honest default: it
-    // adds no feed DOM to a Draft test that did not ask for any and leaves each
-    // existing Draft assertion focused on its own fixture.
-    if (method === 'GET' && path === `/api/league/${opts.league.id}/draft-feed`) {
-      return json(route, 200, []);
-    }
-    if (method === 'GET' && path === `/api/league/${opts.league.id}/chat`) {
-      return json(route, 200, []);
-    }
-    if (method === 'GET' && path === `/api/league/${opts.league.id}/chat/unread`) {
-      return json(route, 200, { unread: 0 });
-    }
-    if (method === 'POST' && path === `/api/league/${opts.league.id}/chat/read`) {
-      return json(route, 200, { ok: true });
+    let body: any;
+    try {
+      body = request.postDataJSON();
+    } catch {
+      body = undefined;
     }
 
-    if (method === 'GET' && path === '/api/players') {
-      const params = url.searchParams;
-      const position = params.get('position');
-      const search = (params.get('search') || '').toLowerCase();
-      const available = params.get('available') === 'true';
-      const sort = params.get('sort') || 'adp';
-      const dir = params.get('dir') || 'asc';
-
-      let list = players.filter((p) => (!position || position === 'All' ? true : p.position === position));
-      if (search) list = list.filter((p) => p.name.toLowerCase().includes(search));
-      if (available) list = list.filter((p) => !draftedIds.has(p.id));
-      // Bye-weeks filter (multi-select, issue #119): applied here, before
-      // sorting/pagination, across the WHOLE matching pool - the harness has
-      // no separate page to short-cut, same as the real server.
-      const byeWeeksParam = params.get('byeWeeks');
-      if (byeWeeksParam) {
-        const weeks = new Set(byeWeeksParam.split(',').map(Number));
-        list = list.filter((p) => p.bye_week != null && weeks.has(p.bye_week));
-      }
-      list = sortPlayers(list, sort, dir);
-
-      return json(route, 200, { players: list, totalPages: 1 });
-    }
-
-    const summaryMatch = path.match(/^\/api\/players\/(\d+)\/summary$/);
-    if (method === 'GET' && summaryMatch) {
-      const id = Number(summaryMatch[1]);
-      const player = players.find((p) => p.id === id) || null;
-      return json(route, 200, { player, fantasy: {}, currentSeason: null, previousSeasons: [] });
-    }
-
-    // Feeds only the pool's Bye overlap hint (useMyRoster.js) — every rostered
-    // player this fixture's viewer (FIXTURE_USER, team `myTeamId`) already
-    // holds, with the same bye_week each player carries in the pool response.
-    if (method === 'GET' && path === '/api/team/roster') {
-      const roster = opts.picks
-        .filter((p) => p.teamId === myTeamId)
-        .map((p) => {
-          const player = players.find((pl) => pl.id === p.player_id);
-          return {
-            id: p.player_id,
-            name: p.name,
-            position: p.position,
-            nfl_team: p.nfl_team,
-            bye_week: player ? player.bye_week : null,
-          };
-        });
-      return json(route, 200, roster);
-    }
-
-    if (method === 'GET' && path === '/api/draft/queue') return json(route, 200, queue);
-    if (method === 'PUT' && path === '/api/draft/queue') {
-      const body = request.postDataJSON();
-      handle.queueWrites.push(body);
-      const idsInOrder: number[] = body.playerIds;
-      queue = idsInOrder
-        .map((id) => players.find((p) => p.id === id) || queue.find((p) => p.id === id))
-        .filter((p): p is FixturePlayer => !!p);
-      return json(route, 200, { updated: queue.length });
-    }
-
-    return json(route, 500, { error: `unexpected mocked request in draft harness: ${method} ${path}` });
+    const result = match.entry.respond({
+      params: match.params,
+      query: url.searchParams,
+      method,
+      path,
+      body,
+      state,
+    });
+    return json(route, result.status, result.body);
   });
 
   return handle;
 }
 
 /**
- * Playwright's `test`, extended so every test using it automatically fails
- * if the page logs a console error or throws an uncaught page error -
- * acceptance criterion (5) for the harness. No test needs to opt in; the
- * assertion runs in this fixture's teardown after the test body returns.
+ * Playwright's `test`, extended so every test using it automatically fails if
+ * the page logs a console error or throws an uncaught page error, OR if the
+ * Draft room called an endpoint the harness route table does not answer
+ * (issue #474). No test needs to opt in; both assertions run in this fixture's
+ * teardown after the test body returns. The unmocked-endpoint assertion runs
+ * first because it names the exact `METHOD /path`, where a fallthrough 500
+ * otherwise reaches the console only as a bare "Failed to load resource: 500".
  */
 export const test = base.extend<{}>({
   page: async ({ page }, use) => {
@@ -321,6 +280,14 @@ export const test = base.extend<{}>({
 
     await use(page);
 
+    const unmocked = unmockedByPage.get(page) || [];
+    unmockedByPage.delete(page);
+    expect(
+      unmocked,
+      `the Draft room called endpoints the harness route table does not answer ` +
+        `(issue #474). Add an entry to tests/e2e/fixtures/draftRouteTable.js with a ` +
+        `driven fixture, or declare it in \`unstubbed\`:\n${unmocked.join('\n')}`
+    ).toEqual([]);
     expect(errors, `browser console/page errors were logged:\n${errors.join('\n')}`).toEqual([]);
   },
 });

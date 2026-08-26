@@ -3,6 +3,7 @@ import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/mat
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
+import EmojiPicker from './EmojiPicker';
 
 // A hide reason is required and bounded the same as the server enforces
 // (safety.router: 10..500 chars), so the Confirm control is disabled until the
@@ -93,6 +94,10 @@ function ChatConversation({
   const [hideReason, setHideReason] = useState('');
   const headingId = useId();
 
+  // Moderation controls (#441): open a hide form for one message at a time,
+  // cancel it, or confirm the hide. These read and write only hidingId /
+  // hideReason - never the composer's `text` - so they sit beside the emoji
+  // helpers below without contending for the composer draft state.
   const startHiding = (id) => {
     setHidingId(id);
     setHideReason('');
@@ -111,6 +116,42 @@ function ChatConversation({
     if (ok !== false) cancelHiding();
   };
   const moderating = canModerate && typeof onHide === 'function';
+
+  // The composer input, so an emoji can be inserted at the caret (#443) rather
+  // than only appended, and focus can be returned here after a choice.
+  const inputRef = useRef(null);
+  // Where the caret should sit after an insert, applied once the picker has
+  // closed so returning focus does not fight the menu's focus trap.
+  const pendingCaretRef = useRef(null);
+
+  // Insert a chosen emoji as ordinary Unicode at the current selection (#443).
+  // It becomes part of `text` and rides every existing path from there: send,
+  // the preserved draft (owned by useComposerDraft, #442), history, reconnect
+  // and the character limit all treat it as the plain text it is. It uses the
+  // same `text`/`setText` as every other edit, so there is no second text path.
+  // Choosing never sends.
+  const insertEmoji = (emoji) => {
+    const el = inputRef.current;
+    const start = el && el.selectionStart != null ? el.selectionStart : text.length;
+    const end = el && el.selectionEnd != null ? el.selectionEnd : text.length;
+    pendingCaretRef.current = start + emoji.length;
+    setText(text.slice(0, start) + emoji + text.slice(end));
+  };
+
+  // Called after the picker menu has fully closed following a choice (#443):
+  // return focus to the composer and place the caret just after the emoji, so
+  // the manager keeps typing where they left off. By this point the new text is
+  // in the input, so the caret index is valid.
+  const returnFocusToComposer = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    if (pendingCaretRef.current != null) {
+      const caret = pendingCaretRef.current;
+      pendingCaretRef.current = null;
+      el.setSelectionRange(caret, caret);
+    }
+  };
 
   // The idempotency key for the message being composed (#440). It is stable for
   // one logical message: a retry of the SAME text (a rejected send left in the
@@ -339,13 +380,14 @@ function ChatConversation({
         </Box>
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <TextField
           id="chat-message-input"
           label="Message"
           size="small"
           fullWidth
           value={text}
+          inputRef={inputRef}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -354,6 +396,7 @@ function ChatConversation({
             }
           }}
         />
+        <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
         <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
           Send
         </Button>
