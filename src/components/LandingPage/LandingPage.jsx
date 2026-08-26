@@ -66,8 +66,9 @@ const FEATURES = [
     Icon: AdminPanelSettingsIcon,
   },
   {
-    title: "League Pick'em",
-    description: 'Pick NFL winners against your league every week, straight up or with confidence points.',
+    title: "NFL Pick'em",
+    description:
+      "Pick NFL winners every week, straight up or with confidence points. A side game in a fantasy league, or the whole game in a pick'em league.",
     Icon: FactCheckIcon,
   },
   {
