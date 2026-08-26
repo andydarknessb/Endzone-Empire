@@ -9,7 +9,9 @@ const {
   readReadme,
   extractReferenceCandidates,
   extractDocsSection,
+  extractDocsSectionMeta,
   findOrphans,
+  findDeadReferences,
   checkAgentDocsOrphans,
   AGENTS_DOCS_DIR,
 } = require('./agentDocsOrphans');
@@ -117,6 +119,33 @@ test('extractDocsSection: an empty or missing README returns an empty string, no
   assert.equal(extractDocsSection(null), '');
 });
 
+// extractDocsSectionMeta exposes the same scoped text as extractDocsSection,
+// plus whether the "## Docs" heading was actually found. Callers that only
+// want the string (findOrphans, findDeadReferences) keep using
+// extractDocsSection; the real-tree test uses the flag to print which of
+// the two scopes was used instead of unconditionally claiming the
+// "## Docs" section, and to announce the fallback when it fires (#411).
+test('extractDocsSectionMeta: found is true and text matches extractDocsSection when the heading exists', () => {
+  const readme = ['# Title', '', '## Docs', '', 'inside', '', '## Later', '', 'outside'].join(
+    '\n'
+  );
+  const meta = extractDocsSectionMeta(readme);
+  assert.equal(meta.found, true);
+  assert.equal(meta.text, extractDocsSection(readme));
+});
+
+test('extractDocsSectionMeta: found is false and text is the whole file when the heading is missing', () => {
+  const readme = 'no headings here at all';
+  const meta = extractDocsSectionMeta(readme);
+  assert.equal(meta.found, false);
+  assert.equal(meta.text, extractDocsSection(readme));
+});
+
+test('extractDocsSectionMeta: found is false on an empty or missing README', () => {
+  assert.equal(extractDocsSectionMeta('').found, false);
+  assert.equal(extractDocsSectionMeta(null).found, false);
+});
+
 // This is the false-green this guard must not produce: a bare prose mention
 // of a filename is not the same thing as indexing it. A doc that later
 // explains this very guard is a natural thing to write, and prose about it
@@ -146,6 +175,40 @@ test('findOrphans: an empty or missing README treats every doc as an orphan', ()
 
 test('findOrphans: no docs at all yields no orphans regardless of README content', () => {
   assert.deepEqual(findOrphans([], 'anything or nothing'), []);
+});
+
+// findDeadReferences is findOrphans' sibling check (#411): findOrphans only
+// asserts every real doc is mentioned somewhere; it never asserts that a
+// mentioned path actually resolves to a file, so a README entry naming a
+// deleted or misspelled docs/agents/foo.md passed green before this. Only
+// the docs/agents/<file>.md PATH FORM counts as "shaped like" a
+// doc-in-this-directory reference (the bare-`<file>.md` form was dropped:
+// it misclassified real, non-doc mentions like `CONTEXT.md`, which lives at
+// the repo root, not in docs/agents/).
+test('findDeadReferences: a "## Docs" entry naming a file that does not exist is reported', () => {
+  const readme = [
+    '## Docs',
+    '',
+    'See `docs/agents/does-not-exist.md` for details.',
+  ].join('\n');
+  assert.deepEqual(findDeadReferences(['domain.md'], readme), [
+    'docs/agents/does-not-exist.md',
+  ]);
+});
+
+test('findDeadReferences: correcting the reference to an existing file clears the same finding', () => {
+  const readme = ['## Docs', '', 'See `docs/agents/domain.md` for details.'].join('\n');
+  assert.deepEqual(findDeadReferences(['domain.md'], readme), []);
+});
+
+test('findDeadReferences: non-doc code spans in the "## Docs" section (a label name, a repo-root CONTEXT.md) are not reported', () => {
+  const readme = [
+    '## Docs',
+    '',
+    'Triage labels include `needs-triage` and `wontfix`.',
+    'Domain docs point at `CONTEXT.md`, `docs/adr/`, and `.claude/worktrees/<name>`.',
+  ].join('\n');
+  assert.deepEqual(findDeadReferences(['domain.md'], readme), []);
 });
 
 // listAgentDocFiles / readReadme / checkAgentDocsOrphans touch the
