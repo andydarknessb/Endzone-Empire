@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const scoring = require('./scoring.service');
 const correction = require('./correction.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
+const { normalizeNflTeam } = require('./nflTeam');
 
 /**
  * Two nflverse-backed jobs share this service:
@@ -302,8 +303,8 @@ function optionalTeamAbbr(team) {
 // game ids are spelled WSH (see modules/espnScoreboard.js) — while games.csv
 // says WAS and LA. Schedule rows must be written in Tank01 codes so a
 // backfilled week joins cleanly against Tank01-written weeks. This is a
-// DIFFERENT target than nflverseTeamToOurAbbr above: DST stat matching goes
-// through normalizeTeamAbbr, whose Washington code is WAS.
+// DIFFERENT target than nflverseTeamToOurAbbr above: DST stat matching keys the
+// DEF-unit map on the Team code (normalizeNflTeam), whose Washington code is WAS.
 const NFLVERSE_TO_TANK01_SCHEDULE_ABBR = { LA: 'LAR', WAS: 'WSH' };
 function nflverseTeamToScheduleAbbr(team) {
   const abbr = String(team || '').toUpperCase();
@@ -649,15 +650,14 @@ async function applyNflverseFullWeek({
     }
   }
 
-  // Same abbreviation-keyed DEF-unit matching syncWeekStats uses.
-  const defPlayers = await pool.query(
-    `SELECT "id", "nfl_team" FROM "players" WHERE "position" = 'DEF'`
-  );
-  const defByAbbr = new Map();
-  for (const row of defPlayers.rows) {
-    const abbr = scoring.normalizeTeamAbbr(row.nfl_team);
-    if (abbr) defByAbbr.set(abbr, row.id);
-  }
+  // The DEF-unit map, built by the SAME shared builder the live path uses
+  // (scoring.loadDefUnitsByTeamCode), so the Team-code keying rule lives in one
+  // place and the two paths cannot drift. nflverse spells Washington WAS, so the
+  // lookup side (buildDstStatUpdates -> nflverseTeamToOurAbbr, which only
+  // diverges on the Rams) already lands on WAS and keeps matching;
+  // normalizeNflTeam('WAS') is a no-op. Sharing the builder is what stops the
+  // live path (#431) from being the only one that reconciles WSH.
+  const defByTeamCode = await scoring.loadDefUnitsByTeamCode();
 
   const playerUpdates = buildFullStatUpdates({
     rows: weekPlayerRows,
@@ -683,8 +683,11 @@ async function applyNflverseFullWeek({
 
   let dstUpdated = 0;
   for (const { teamAbbr, stats } of dstUpdates) {
-    const defPlayerId = defByAbbr.get(teamAbbr);
-    if (!defPlayerId) continue;
+    // Fold the lookup side through the same resolver the shared builder keys on,
+    // so the two stay in one vocabulary no matter what buildDstStatUpdates emits.
+    const defRow = defByTeamCode.get(normalizeNflTeam(teamAbbr));
+    if (!defRow) continue;
+    const defPlayerId = defRow.id;
     const points = scoring.calculateFantasyPoints(stats);
     await pool.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")

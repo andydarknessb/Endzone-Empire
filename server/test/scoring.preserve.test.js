@@ -164,7 +164,7 @@ function playerMaps(prevStats) {
   return {
     idByExternal: new Map([['4433971', 7]]),
     metaById: new Map([[7, { name: 'Star Back', position: 'RB', nfl_team: 'KC' }]]),
-    defByAbbr: new Map(),
+    defByTeamCode: new Map(),
     prevById: prevStats ? new Map([[7, prevStats]]) : new Map(),
     opponentByTeam: new Map([['KC', 'BUF']]),
   };
@@ -232,7 +232,7 @@ test('applyGameBoxScore: a DST re-apply preserves gameTeam/gameOpponent', async 
   const maps = {
     idByExternal: new Map(),
     metaById: new Map(),
-    defByAbbr: new Map([['KC', { id: 91, name: 'Kansas City Chiefs', nfl_team: 'Kansas City Chiefs' }]]),
+    defByTeamCode: new Map([['KC', { id: 91, name: 'Kansas City Chiefs', nfl_team: 'Kansas City Chiefs' }]]),
     prevById: new Map([[91, { sack: 1, gameTeam: 'KC', gameOpponent: 'BUF' }]]),
     opponentByTeam: new Map([['KC', 'BUF']]),
   };
@@ -246,6 +246,62 @@ test('applyGameBoxScore: a DST re-apply preserves gameTeam/gameOpponent', async 
   assert.equal(stored.gameTeam, 'KC');
   assert.equal(stored.gameOpponent, 'BUF');
   assert.equal(stored.sack, 3, 'fresh Tank01 DST numbers still land');
+});
+
+// --- Washington DEF: teamAbv 'WSH' must match a 'Washington Commanders' unit --
+
+/**
+ * Regression for #431. Washington is the one team whose live box-score DST side
+ * (Tank01's raw `teamAbv: 'WSH'`) does not equal the Team code its seeded DEF
+ * unit folds to (`Washington Commanders` -> WAS). The DEF-unit map must be built
+ * AND looked up on the folded Team code, or Washington's DST aggregate is
+ * silently skipped every live sync. This drives loadWeekMaps (which builds the
+ * map) so the fix at the real keying site is what turns it green; a hand-built
+ * defByTeamCode would test the fixture, not the code. The other DST tests use KC/BAL,
+ * whose Team code already equals Tank01's raw code, so they cannot catch this.
+ */
+test('applyGameBoxScore: a WSH box score matches the Washington Commanders DEF unit and scores it (#431)', async (t) => {
+  const captured = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('INTO "player_stats"')) {
+      captured.push(params);
+      return { rows: [] };
+    }
+    if (text.includes(`WHERE "external_id" IS NOT NULL`)) return { rows: [] };
+    if (text.includes(`"position" = 'DEF'`)) {
+      return { rows: [{ id: 91, name: 'Washington Commanders', nfl_team: 'Washington Commanders' }] };
+    }
+    if (text.includes('FROM "player_stats"')) return { rows: [] }; // no prior stats
+    if (text.includes('FROM "nfl_games"')) {
+      // nfl_games speaks Tank01's raw vocabulary: WSH, not WAS.
+      return { rows: [{ nfl_team: 'WSH', opponent: 'DAL' }] };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+
+  const maps = await scoring.loadWeekMaps({ season: 2026, week: 1 });
+  const box = {
+    playerStats: {},
+    DST: { home: { teamAbv: 'WSH', sacks: '3', defTD: '1', ptsAllowed: '10' } },
+    teamStats: { away: {} },
+  };
+  const out = await scoring.applyGameBoxScore({ box, season: 2026, week: 1, maps });
+
+  // A player_stats row was written for the Washington DEF id.
+  const defUpsert = captured.find((p) => p[0] === 91);
+  assert.ok(defUpsert, 'a player_stats row must be written for the Washington DEF unit');
+  const stored = JSON.parse(defUpsert[3]);
+  assert.equal(stored.sack, 3, 'the Tank01 DST numbers landed on the Washington unit');
+  assert.equal(stored.defensiveTD, 1);
+
+  // A DEF scoring play was emitted, carrying Tank01's RAW spelling and an
+  // opponent resolved from the raw-keyed nfl_games row (proves the raw-on-raw
+  // opponent lookup did not regress).
+  const defPlay = out.plays.find((p) => p.position === 'DEF');
+  assert.ok(defPlay, 'a Washington DEF scoring play must be emitted');
+  assert.equal(defPlay.nflTeam, 'WSH', "the play carries Tank01's raw team code, not the folded Team code");
+  assert.equal(defPlay.opponent, 'DAL', 'opponent resolved from the WSH-keyed schedule row');
 });
 
 // --- carried keys can never fire a cutscene ----------------------------------
