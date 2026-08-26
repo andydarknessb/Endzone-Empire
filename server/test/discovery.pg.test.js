@@ -55,6 +55,7 @@ if (!ENABLED) {
     connection,
     migrations: { directory: path.join(__dirname, '..', 'db', 'migrations') },
   });
+  const { previewLeagueByInviteCode, discoverLeagues } = require('../services/discovery.service');
 
   let userIds = {};
   let leagueIds = {};
@@ -121,7 +122,6 @@ if (!ENABLED) {
   // -------------------------------------------------------------------
 
   test('previewLeagueByInviteCode: returns the creator\'s Team name and exact team count', async () => {
-    const { previewLeagueByInviteCode } = require('../services/discovery.service');
     const preview = await previewLeagueByInviteCode({ code: 'pgd0000a', userId: viewerId });
     assert.ok(preview, 'league A is found by its invite code');
     assert.equal(preview.ownerTeamName, 'Alpha A Team');
@@ -133,7 +133,6 @@ if (!ENABLED) {
   });
 
   test('previewLeagueByInviteCode: a creator with no Team anywhere answers null, not a fallback', async () => {
-    const { previewLeagueByInviteCode } = require('../services/discovery.service');
     const preview = await previewLeagueByInviteCode({ code: 'pgd0000b', userId: viewerId });
     assert.ok(preview, 'league B is found by its invite code');
     assert.equal(preview.ownerTeamName, null, 'the creator holds no team, so the subselect answers null');
@@ -141,7 +140,6 @@ if (!ENABLED) {
   });
 
   test('previewLeagueByInviteCode: the same creator\'s Team in a DIFFERENT league never leaks in', async () => {
-    const { previewLeagueByInviteCode } = require('../services/discovery.service');
     const preview = await previewLeagueByInviteCode({ code: 'pgd0000c', userId: viewerId });
     assert.ok(preview, 'league C is found by its invite code');
     // `alpha` owns both League A and League C, with a DIFFERENT team name in
@@ -153,13 +151,11 @@ if (!ENABLED) {
   });
 
   test('previewLeagueByInviteCode: an unknown invite code answers null', async () => {
-    const { previewLeagueByInviteCode } = require('../services/discovery.service');
     const preview = await previewLeagueByInviteCode({ code: 'pgd0000z', userId: viewerId });
     assert.equal(preview, null);
   });
 
   test('previewLeagueByInviteCode: a member of the league sees alreadyMember true', async () => {
-    const { previewLeagueByInviteCode } = require('../services/discovery.service');
     const preview = await previewLeagueByInviteCode({ code: 'pgd0000a', userId: userIds.beta });
     assert.equal(preview.alreadyMember, true);
     // The card's own team count is unaffected by which team the caller is.
@@ -172,7 +168,6 @@ if (!ENABLED) {
   // -------------------------------------------------------------------
 
   test('discoverLeagues: team counts are exact and not multiplied by the pickem_settings/join_requests joins', async () => {
-    const { discoverLeagues } = require('../services/discovery.service');
     const rows = await discoverLeagues({ userId: viewerId, search: 'PG Discovery League' });
     assert.equal(rows.length, 3, 'all three seeded leagues are public and joinable');
 
@@ -188,7 +183,6 @@ if (!ENABLED) {
   });
 
   test('discoverLeagues: alreadyMember and myRequestStatus are per-caller, not per-league-total', async () => {
-    const { discoverLeagues } = require('../services/discovery.service');
     const asBeta = await discoverLeagues({ userId: userIds.beta, search: 'PG Discovery League' });
     const byIdForBeta = Object.fromEntries(asBeta.map((r) => [r.id, r]));
     assert.equal(byIdForBeta[leagueIds.a].alreadyMember, true, 'beta holds a team in League A');
