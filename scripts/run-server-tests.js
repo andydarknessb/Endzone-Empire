@@ -9,7 +9,7 @@
  *
  *   fast       server/test/*.test.js minus the sweep set, via `node --test`.
  *              The default. A couple of minutes.
- *   sweep      the six backtest sweep files below, via `node --test`. ~35 min,
+ *   sweep      the backtest sweep files below, via `node --test`. ~35 min,
  *              essentially the whole wall clock; never run per commit. `--sweep`
  *              runs ONLY these.
  *   cross-tree jest tests under src/ that require/import server code, discovered
@@ -37,7 +37,7 @@
  * cmd.exe.
  *
  *   node scripts/run-server-tests.js            # fast set, then cross-tree
- *   node scripts/run-server-tests.js --sweep    # only the six heavy ones
+ *   node scripts/run-server-tests.js --sweep    # only the heavy sweep set
  *   node scripts/run-server-tests.js --all      # everything, then cross-tree
  *
  * Exit status: the process exits non-zero if EITHER the node:test run or the
@@ -157,7 +157,7 @@ async function main() {
 
   const nodeTestCode = await runNodeTestSet(mode);
 
-  // --sweep runs only the six heavy node:test files; the cross-tree set is not
+  // --sweep runs only the heavy sweep node:test files; the cross-tree set is not
   // part of it. The default and --all both append the cross-tree run, and run
   // it even when the node:test set failed, so one invocation reports both.
   let crossTreeCode = 0;

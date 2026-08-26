@@ -52,15 +52,16 @@ jobs:
       - run: npm test -- --runInBand
         env:
           CI: "true"
-      # Guard the test discovery that `npm run test:server` relies on, before
-      # running it: the jest.testMatch pins (#171, test:jest-discovery) and the
-      # content-based cross-tree server-test discovery (#234,
-      # test:cross-tree-discovery). A step, not a job. It fails if discovery
-      # regresses - e.g. if it silently stops finding a jest test under src/
-      # that exercises server code - which is exactly the gap #234 closes: a
-      # discovery step that runs zero (or too few) files while looking
-      # authoritative is worse than the hard-coded list it replaces.
-      - run: npm run test:jest-discovery && npm run test:cross-tree-discovery
+      # Guard the content-based cross-tree server-test discovery (#234) that
+      # `npm run test:server` relies on, before running it. A step, not a job.
+      # It fails if discovery regresses - e.g. if it silently stops finding a
+      # jest test under src/ that exercises server code - which is exactly the
+      # gap #234 closes: a discovery step that runs zero (or too few) files
+      # while looking authoritative is worse than the hard-coded list it
+      # replaces. The sibling testMatch guard (test:jest-discovery, #171) is
+      # already run in CI by the `guards` job via `npm run guards`, so it is not
+      # repeated here.
+      - run: npm run test:cross-tree-discovery
       - run: npm run test:server
         env:
           # The Gate-3 publication (backtest-data/publish/) is committed as of
