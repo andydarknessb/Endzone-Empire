@@ -115,18 +115,34 @@ exports.up = async function (knex) {
   // its own trigger, and this migration depends only on the counter TABLE (a
   // plpgsql body referencing it by name is not a hard drop-blocking dependency).
   //
-  // The body mirrors chat's: a row that already names a feed_seq (a future
-  // writer that allocates explicitly, e.g. #436's legacy backfill) is left
-  // untouched, so only NULL positions are allocated from the counter.
+  // The body diverges from chat's in one deliberate way: where chat LEAVES an
+  // explicitly-supplied feed_seq untouched, this function RAISES on one. That
+  // makes "draft_activity.feed_seq is always counter-allocated" an enforced
+  // per-league invariant this table can state and test, not merely a convention
+  // the caller is trusted to keep - every #435 write path inserts NULL, so the
+  // guard never fires in practice and AC1's Pick transaction is unaffected.
+  //
+  // WHAT THE GUARD IS NOT. It does NOT close the cross-table gap tracked by
+  // #471: chat and draft_activity share one counter but each has its OWN
+  // (league_id, feed_seq) unique index, so nothing forbids a chat row and an
+  // activity row in a league from holding the same position. The counter keeps
+  // them apart in practice because every writer allocates; the day a writer
+  // supplies an explicit position (legacy backfill is #436's job) that guarantee
+  // is only as strong as this guard on this table and whatever chat grows on
+  // its side. The guard's real value is a TRIPWIRE: #436 cannot introduce an
+  // explicit draft_activity position by accident - it must lift this guard in
+  // its own migration, which forces the #471 question at exactly the moment it
+  // becomes reachable, rather than letting it slip in silent as Finding 1 did.
   await knex.raw(`
     CREATE OR REPLACE FUNCTION fn_allocate_draft_activity_feed_seq() RETURNS trigger AS $$
     BEGIN
-      IF NEW."feed_seq" IS NULL THEN
-        INSERT INTO "league_feed_sequences" AS s ("league_id", "last_seq")
-        VALUES (NEW."league_id", 1)
-        ON CONFLICT ("league_id") DO UPDATE SET "last_seq" = s."last_seq" + 1
-        RETURNING s."last_seq" INTO NEW."feed_seq";
+      IF NEW."feed_seq" IS NOT NULL THEN
+        RAISE EXCEPTION 'draft_activity.feed_seq is trigger-allocated from league_feed_sequences and must not be supplied explicitly (see #471 before lifting this guard)';
       END IF;
+      INSERT INTO "league_feed_sequences" AS s ("league_id", "last_seq")
+      VALUES (NEW."league_id", 1)
+      ON CONFLICT ("league_id") DO UPDATE SET "last_seq" = s."last_seq" + 1
+      RETURNING s."last_seq" INTO NEW."feed_seq";
       RETURN NEW;
     END $$ LANGUAGE plpgsql;
   `);

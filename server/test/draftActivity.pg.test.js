@@ -18,9 +18,16 @@
  *    round, overall Pick number and its autopick flag (#435 AC2, AC3).
  * 3. BLOCKING. A blocked author's CHAT drops from a viewer's combined read, but
  *    that author's authoritative Draft ACTIVITY stays visible (user story 83).
- * 4. UNIQUE POSITION. The unique (league_id, feed_seq) index rejects a second
- *    activity row that claims a position already handed out.
- * 5. GUARDED ROLLBACK. down() refuses while the table holds rows (ADR 0012's
+ * 4. OWN-TABLE GUARD (#471). The allocator RAISES on an explicitly-supplied
+ *    feed_seq, so draft_activity positions are always counter-allocated - an
+ *    enforced per-table invariant. This is NOT the cross-table enforcement of
+ *    #471 (chat can still explicit-write); it is the tripwire that makes #436
+ *    lift the guard deliberately rather than introduce an explicit position by
+ *    accident.
+ * 5. CONCURRENCY. N concurrent inserts across BOTH kinds for one league take a
+ *    unique, contiguous run - the counter row lock serializing them is the real
+ *    mechanism behind the deterministic order (#435 AC4).
+ * 6. GUARDED ROLLBACK. down() refuses while the table holds rows (ADR 0012's
  *    append-only history), and the table survives the refusal.
  *
  * Gated twice, exactly like leagueChatFeed.pg.test.js: DRAFT_ACTIVITY_PG_TESTS=1
@@ -196,7 +203,15 @@ if (!ENABLED) {
     await pool.query('DELETE FROM "user_blocks" WHERE "blocker_id" = $1 AND "blocked_id" = $2', [ownerA, ownerB]);
   });
 
-  test('the unique (league_id, feed_seq) index rejects a duplicate position', async () => {
+  test('the allocator refuses an explicitly-supplied feed_seq (own-table guard, #471)', async () => {
+    // An explicit feed_seq is refused outright by fn_allocate_draft_activity_feed_seq,
+    // so draft_activity positions are ALWAYS counter-allocated - an enforced
+    // per-table invariant, not a convention the caller is trusted to keep.
+    //
+    // This guard is NOT the cross-table enforcement of #471: chat still has its
+    // own index and could hold the same position; the counter is what keeps the
+    // two apart in practice. The guard's job is to make #436 lift it DELIBERATELY
+    // (and confront #471) rather than introduce an explicit position by accident.
     await assert.rejects(
       () =>
         pool.query(
@@ -205,9 +220,49 @@ if (!ENABLED) {
            VALUES ($1, 'pick', $2, 'Alpha', 'Dup', 1, 9, 1)`,
           [leagueA, teamA]
         ),
-      /duplicate key|unique/i,
-      'a row explicitly claiming seq 1 collides with the chat that already holds it'
+      /must not be supplied explicitly|trigger-allocated|#471/i,
+      'an explicit feed_seq claim is refused by the guard, whatever value it names'
     );
+  });
+
+  test('concurrent chat and activity inserts draw a unique, contiguous per-league run', async () => {
+    // The real mechanism behind AC4: the counter row lock serializes concurrent
+    // inserts across BOTH tables, so N inserts fired at once still take positions
+    // that are unique and gap-free. Uses league B, whose only prior entry is the
+    // single 'other league' chat at seq 1, so the new run is a clean 2..N+1.
+    const before = await pool.query(
+      `SELECT COALESCE(MAX("last_seq"), 0)::int AS last FROM "league_feed_sequences" WHERE "league_id" = $1`,
+      [leagueB]
+    );
+    const start = before.rows[0].last;
+
+    const N = 12;
+    const jobs = [];
+    for (let i = 0; i < N; i += 1) {
+      // Alternate the two kinds so the serialization is genuinely cross-table.
+      if (i % 2 === 0) {
+        jobs.push(liveChat(leagueB, ownerB, `c${i}`));
+      } else {
+        jobs.push(
+          pickActivity(
+            leagueB,
+            { id: teamB, name: 'Bravo' },
+            { id: playerId, name: 'Pat Mahomes', position: 'QB', nfl_team: 'KC' },
+            1,
+            i,
+            false
+          )
+        );
+      }
+    }
+    const results = await Promise.all(jobs);
+    const seqs = results
+      .map((r) => Number(r.feed_seq !== undefined ? r.feed_seq : r.seq))
+      .sort((a, b) => a - b);
+
+    const expected = Array.from({ length: N }, (_, i) => start + 1 + i);
+    assert.deepEqual(seqs, expected, 'N concurrent inserts took a unique, contiguous run with no gap or collision');
+    assert.equal(new Set(seqs).size, N, 'every allocated position is distinct');
   });
 
   test('down() refuses to drop the table while it holds append-only history', async () => {
