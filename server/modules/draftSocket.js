@@ -350,6 +350,10 @@ function joinAck({ viewerTeam, isCommissioner }) {
     ok: true,
     viewerTeamId: teamIdentityOf(viewerTeam).teamId,
     isCommissioner: !!isCommissioner,
+    // The GIF-message capability (#446, AC7): server-authoritative, off by
+    // default (AC9), delivered on the same per-viewer ack as isCommissioner so
+    // the client renders the picker only when it is on and never infers it.
+    gifMessagesEnabled: isGifMessagesEnabled(),
   };
 }
 

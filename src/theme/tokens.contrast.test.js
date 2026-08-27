@@ -89,6 +89,12 @@ const PAIRINGS = [
   pairing('accent', 'surface-raised', AA_TEXT, 'active nav link on the app bar'),
   pairing('text-primary', 'surface-raised', AA_TEXT, 'body text on a raised surface'),
   pairing('text-muted', 'surface-raised', AA_TEXT, 'muted text on a raised surface'),
+  // #446: the "GIF unavailable" tile (GifMessage) paints surface-sunken and puts
+  // its label on it (text-primary) with the description/attribution as muted
+  // text. surface-sunken had no text pairing before this tile, so the guard's
+  // green said nothing about it; these two make it a measurement.
+  pairing('text-primary', 'surface-sunken', AA_TEXT, 'GIF unavailable tile label'),
+  pairing('text-muted', 'surface-sunken', AA_TEXT, 'GIF unavailable tile description/attribution'),
   pairing('on-accent', 'accent', AA_LARGE, 'button label on accent'),
   pairing('text-inverse', 'danger', AA_LARGE, 'alert banner text'),
   pairing('danger', 'surface', AA_TEXT, 'error text on cards'),

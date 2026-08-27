@@ -763,3 +763,61 @@ test('Send stays enabled past the limit: the server is the single enforcement po
   expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
   expect(countText()).toBe('501 / 500');
 });
+
+// ---------------------------------------------------------------------------
+// #446: GIF messages render as their own bubble, and the picker is gated on the
+// capability. The bubble and picker behaviour are proven in isolation in
+// GifMessage/GifComposer tests; these prove the WIRING through ChatConversation.
+// ---------------------------------------------------------------------------
+describe('ChatConversation - GIF messages (#446)', () => {
+  // eslint-disable-next-line global-require
+  const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID, fakeGifResolver } = require('../../lib/gifProviderFake');
+
+  beforeEach(() => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: false, media: query, onchange: null,
+      addListener: jest.fn(), removeListener: jest.fn(),
+      addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => clearGifProviders());
+
+  const gifMessage = (over = {}) => message({
+    id: 42,
+    message: 'this is me at 3pm',
+    media: { provider: FAKE_PROVIDER_ID, assetId: 'abc123', description: 'a cat knocking a cup off a table' },
+    ...over,
+  });
+
+  test('a GIF message with no provider renders the unavailable tile, preserving caption and description (AC5)', () => {
+    renderWithProviders(<ChatConversation messages={[gifMessage()]} onSend={noop} />);
+    expect(screen.getByTestId('gif-unavailable')).toBeInTheDocument();
+    expect(screen.getByText('a cat knocking a cup off a table')).toBeInTheDocument();
+    expect(screen.getByText('this is me at 3pm')).toBeInTheDocument();
+  });
+
+  test('a GIF message with a registered provider renders the animation (AC8)', () => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    renderWithProviders(<ChatConversation messages={[gifMessage()]} onSend={noop} />);
+    expect(screen.getByTestId('gif-animated').getAttribute('src')).toContain('abc123');
+  });
+
+  test('a HIDDEN GIF shows the tombstone, never the media (moderation)', () => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    // A hidden entry arrives with media suppressed to null by the server; assert
+    // the client renders the tombstone and nothing GIF-shaped.
+    renderWithProviders(<ChatConversation messages={[gifMessage({ hidden: true, media: null, message: null })]} onSend={noop} />);
+    expect(screen.getByText(/hidden by commissioner/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('gif-message')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gif-unavailable')).not.toBeInTheDocument();
+  });
+
+  test('the GIF picker is absent unless gifEnabled, and present when it is (AC7, one query both ways)', () => {
+    const { rerender } = renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+    expect(screen.queryByTestId('gif-picker-trigger')).not.toBeInTheDocument();
+    rerender(<ChatConversation messages={[]} onSend={noop} gifEnabled onSendGif={noop} />);
+    expect(screen.getByTestId('gif-picker-trigger')).toBeInTheDocument();
+  });
+});

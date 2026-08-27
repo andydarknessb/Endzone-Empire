@@ -218,7 +218,7 @@ async function capturePicked(t) {
   // league:join puts this socket in `league:${id}`, so the room broadcast
   // reaches it (the handler uses `io.to(room)`, which includes the sender).
   const ack = await harness.emit(client, 'league:join', { leagueId: LEAGUE_ID });
-  assert.deepEqual(ack, { ok: true, viewerTeamId: VIEWER.teamId, isCommissioner: false }, JSON.stringify(ack));
+  assert.deepEqual(ack, { ok: true, viewerTeamId: VIEWER.teamId, isCommissioner: false, gifMessagesEnabled: false }, JSON.stringify(ack));
   const sawPicked = harness.nextEvent(client, 'draft:picked');
   await harness.emit(client, 'draft:pick', { leagueId: LEAGUE_ID, playerId: 500 });
   const picked = await sawPicked;
@@ -454,7 +454,7 @@ test('draft:state teams[] entry is Team identity and draft attributes, not the m
 // joinAck({ viewerTeam, isCommissioner }) -> { ok, viewerTeamId, isCommissioner }.
 // Already Team-only: one live guard, no pair. Both joins answer this one shape.
 
-const ACK_CLEAN = ['isCommissioner', 'ok', 'viewerTeamId'];
+const ACK_CLEAN = ['gifMessagesEnabled', 'isCommissioner', 'ok', 'viewerTeamId'];
 
 test('the league:join / draft:join ack is Team identity plus the two viewer-relative facts, and no account (already contracted)', () => {
   const ack = joinAck({ viewerTeam: { id: VIEWER.teamId, name: VIEWER.teamName }, isCommissioner: true });

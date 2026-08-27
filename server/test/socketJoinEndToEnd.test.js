@@ -86,6 +86,7 @@ for (const event of JOIN_EVENTS) {
         ok: true,
         viewerTeamId: manager.teamId,
         isCommissioner,
+        gifMessagesEnabled: false,
       });
     });
   }
@@ -146,7 +147,7 @@ test('the handshake also succeeds on the default transports, not just websocket'
 
   const ack = await harness.emit(client, 'draft:join', { leagueId: LEAGUE_ID });
 
-  assert.deepEqual(ack, { ok: true, viewerTeamId: OWNER.teamId, isCommissioner: true });
+  assert.deepEqual(ack, { ok: true, viewerTeamId: OWNER.teamId, isCommissioner: true, gifMessagesEnabled: false });
 });
 
 test('a connection with no token is refused by the socket middleware', async (t) => {

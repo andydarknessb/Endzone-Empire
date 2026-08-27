@@ -312,5 +312,64 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
     [socket, leagueId]
   );
 
-  return { messages, unread, error, sendMessage, hideMessage, loadOlder, hasMore };
+  // Send a GIF message (#446). Mirrors sendMessage's ack handling - the same
+  // MESSAGE_TOO_LONG (a long caption) and RATE_LIMITED surfacing, the same
+  // duplicate-entry reconcile - and adds the GIF-specific refusal codes. The
+  // description-required and url/upload rules are enforced SERVER-side
+  // (DESCRIPTION_REQUIRED, MEDIA_NOT_ALLOWED) and the disabled capability by
+  // GIF_PROVIDER_DISABLED; a client that never rendered the picker can still
+  // emit, so the client mirror is a convenience, not the guarantee.
+  const sendGif = useCallback(
+    (gif, clientMsgId) => {
+      if (!gif || !gif.provider || !gif.assetId) return Promise.resolve(false);
+      setError(null);
+      return new Promise((resolve) => {
+        if (!socket) {
+          resolve(false);
+          return;
+        }
+        const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
+        socket.emit('chat:send', { leagueId: Number(leagueId), gif, clientMsgId: key }, (ack) => {
+          if (ack && ack.error) {
+            if (ack.code === 'MESSAGE_TOO_LONG') {
+              const { length, limit } = ack;
+              setError(Number.isFinite(length) && Number.isFinite(limit)
+                ? `Your caption is ${length} characters. The limit is ${limit}. Shorten it and send again.`
+                : ack.error);
+              resolve(false);
+              return;
+            }
+            if (ack.code === 'DESCRIPTION_REQUIRED') {
+              setError('A GIF needs an accessible description before it can be sent.');
+              resolve(false);
+              return;
+            }
+            if (ack.code === 'MEDIA_NOT_ALLOWED') {
+              setError('That GIF could not be sent: only a provider GIF is allowed, not a link or an upload.');
+              resolve(false);
+              return;
+            }
+            if (ack.code === 'GIF_PROVIDER_DISABLED') {
+              setError('GIF messages are not available right now.');
+              resolve(false);
+              return;
+            }
+            const seconds = Number(ack.retryAfterSeconds);
+            setError(Number.isFinite(seconds) && seconds > 0
+              ? `${ack.error}. Try again in ${seconds}s.`
+              : ack.error);
+            resolve(false);
+            return;
+          }
+          if (ack && ack.entry && !messagesRef.current.some((m) => m.id === ack.entry.id)) {
+            setMessages((prev) => [...prev, ack.entry]);
+          }
+          resolve(true);
+        });
+      });
+    },
+    [socket, leagueId]
+  );
+
+  return { messages, unread, error, sendMessage, sendGif, hideMessage, loadOlder, hasMore };
 }
