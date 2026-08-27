@@ -146,6 +146,10 @@ function feedEntryOf(row) {
     [nameField]: row[nameField] ?? null,
     message: hidden ? null : row.message,
     hidden,
+    // Whether this message predates the cutover boundary and was backfilled as a
+    // legacy fact (#436). Live messages read false; a message from before the
+    // column existed reads false too, so the key is always present.
+    isLegacy: row.is_legacy ?? false,
     created_at: row.created_at,
   };
 }
@@ -193,7 +197,7 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after
   const result = await db.query(
     `SELECT * FROM (
        SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-              "chat_messages"."feed_seq", "chat_messages"."hidden_at",
+              "chat_messages"."feed_seq", "chat_messages"."hidden_at", "chat_messages"."is_legacy",
               ${teamIdentityColumns()}
        FROM "chat_messages"
        ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
@@ -311,7 +315,8 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  NULL::text AS player_nfl_team,
                  NULL::int AS round,
                  NULL::int AS pick_number,
-                 NULL::boolean AS is_autopick
+                 NULL::boolean AS is_autopick,
+                 "chat_messages"."is_legacy" AS is_legacy
             FROM "chat_messages"
             ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
            WHERE "chat_messages"."league_id" = $1
@@ -339,7 +344,8 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "draft_activity"."player_nfl_team" AS player_nfl_team,
                  "draft_activity"."round" AS round,
                  "draft_activity"."pick_number" AS pick_number,
-                 "draft_activity"."is_autopick" AS is_autopick
+                 "draft_activity"."is_autopick" AS is_autopick,
+                 "draft_activity"."is_legacy" AS is_legacy
             FROM "draft_activity"
            WHERE "draft_activity"."league_id" = $1
              ${activityCursor}

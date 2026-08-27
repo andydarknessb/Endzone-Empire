@@ -371,6 +371,27 @@ receives, so it carries Team identity and no account identifier.
 _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
+**Legacy feed entry**:
+A chat message or Pick that existed before the Draft room's combined feed and
+was backfilled into it as an observable fact, keeping its original source id and
+timestamp and marked legacy. Legacy entries are ordered among each other by one
+synthetic per-league chronology: by timestamp, and at an equal instant a Pick
+before a chat message, then by source id. What was never recorded (a historical
+pause, resume, correction, reset, or whether a Pick was an autopick) is left
+unstated, never fabricated.
+_Avoid_: imported message, migrated pick (they are legacy facts, not re-authored
+ones), backfilled draft (a draft is not an entry)
+
+**Cutover boundary**:
+The single per-league marker that separates synthetic legacy ordering from
+authoritative live ordering in the combined feed. It sits just after a league's
+legacy set; every entry before it is legacy, and every entry after it is a live
+event ordered by the shared per-league sequence. It is a Draft-activity entry
+but not a Draft event, carries no Team or Pick facts, and is itself never
+legacy.
+_Avoid_: cutover pick, migration marker, divider (a presentation word, not the
+fact)
+
 **Commissioner correction**:
 The administrative act by which a commissioner records a reason, then
 pauses an active Draft and reverses only its latest non-keeper Pick as one

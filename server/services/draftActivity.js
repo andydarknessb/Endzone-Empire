@@ -58,6 +58,17 @@ const COMPLETE = 'complete';
 const CORRECTION = 'correction';
 
 /**
+ * The cutover BOUNDARY kind (#436, ADR 0012). It is not a Draft event: it is the
+ * single per-league marker the legacy backfill inserts just after the legacy set
+ * to separate synthetic legacy ordering from authoritative live ordering. It
+ * carries no Team or Pick facts and is never legacy itself (is_legacy = false):
+ * the boundary is where live ordering BEGINS. Written only by the #436 migration
+ * and its reconciliation, never by an append path here, so it is deliberately
+ * excluded from LIFECYCLE_KINDS and shaped as a bare entry by activityEntryOf.
+ */
+const CUTOVER = 'cutover';
+
+/**
  * The non-Pick lifecycle kinds appendLifecycleActivity accepts. PICK is
  * excluded on purpose: a Pick carries snapshot facts and goes through
  * appendPickActivity, so routing one here (which writes no Pick columns) would
@@ -89,6 +100,12 @@ function activityEntryOf(row) {
     // reads back null here rather than an omitted field.
     [idField]: row[idField] ?? null,
     [nameField]: row[nameField] ?? null,
+    // Whether this is a backfilled legacy fact rather than an authoritative live
+    // event (#436). The cutover boundary and every live entry read false; a
+    // backfilled legacy Pick reads true. A row from before this column existed
+    // (or one that never carries it) reads false, so the wire contract always
+    // has the key.
+    isLegacy: row.is_legacy ?? false,
     created_at: row.created_at,
   };
   // A bare lifecycle event (#437) is not a Pick: it has no player, round, Pick
@@ -293,6 +310,7 @@ module.exports = {
   RESET,
   COMPLETE,
   CORRECTION,
+  CUTOVER,
   LIFECYCLE_KINDS,
   activityEntryOf,
   appendPickActivity,
