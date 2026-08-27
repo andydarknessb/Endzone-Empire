@@ -50,6 +50,53 @@ describe('pickAnnouncementFor', () => {
     expect(pickAnnouncementFor(undefined)).toBe('');
   });
 
+  it('appends "Draft complete." to the Pick that completes the draft (#519)', () => {
+    // The final live Pick carries draftComplete:true on the same draft:picked
+    // payload (server spreads the pick outcome). One ordered polite update:
+    // Team and player FIRST, then the completion sentence, so a reader hears
+    // who was picked before hearing the draft is over.
+    expect(
+      pickAnnouncementFor({
+        teamName: 'Gridiron Giants',
+        player: { name: 'Justin Jefferson' },
+        auto: false,
+        draftComplete: true,
+      })
+    ).toBe('Gridiron Giants drafted Justin Jefferson. Draft complete.');
+  });
+
+  it('appends "Draft complete." to a final AUTOMATIC Pick too (#519)', () => {
+    expect(
+      pickAnnouncementFor({
+        teamName: 'Gridiron Giants',
+        player: { name: 'Bijan Robinson' },
+        auto: true,
+        draftComplete: true,
+      })
+    ).toBe('Gridiron Giants autodrafted Bijan Robinson. Draft complete.');
+  });
+
+  it('adds no completion sentence to a non-final Pick (#519)', () => {
+    // Every Pick before the last leaves the wording exactly as it was: a
+    // draftComplete that is false, or absent entirely, means no completion
+    // sentence.
+    expect(
+      pickAnnouncementFor({
+        teamName: 'Gridiron Giants',
+        player: { name: 'Justin Jefferson' },
+        auto: false,
+        draftComplete: false,
+      })
+    ).toBe('Gridiron Giants drafted Justin Jefferson');
+    expect(
+      pickAnnouncementFor({
+        teamName: 'Gridiron Giants',
+        player: { name: 'Bijan Robinson' },
+        auto: true,
+      })
+    ).toBe('Gridiron Giants autodrafted Bijan Robinson');
+  });
+
   it('uses no em-dashes in any announcement (house style, guarded copy)', () => {
     const samples = [
       pickAnnouncementFor({ teamName: 'A', player: { name: 'P' }, auto: false }),
