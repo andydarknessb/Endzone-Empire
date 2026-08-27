@@ -39,6 +39,7 @@ import {
 import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
+import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
 
 // The Draft page's one landmark structure: a single <main>, named by the
 // league-name H1 inside it, that the App-level skip link (see App.jsx)
@@ -51,6 +52,12 @@ const DRAFT_H1_ID = 'draft-league-name';
 // first, the centerpiece the room opens on). One list, so the valid-view guard,
 // the default and the tab bar all read the same set and cannot drift.
 const DRAFT_VIEWS = ['chat', 'players', 'board', 'draft'];
+
+// The tab and its panel reference each other by id (#445 AC1): the selected Tab
+// carries aria-controls pointing at the panel, and the panel is aria-labelledby
+// the Tab, so a screen reader names the region by the tab a manager chose.
+const draftTabId = (view) => `draft-tab-${view}`;
+const draftTabPanelId = (view) => `draft-tabpanel-${view}`;
 
 /**
  * Everything the roster panel needs, derived from live draft state. A plain
@@ -207,10 +214,12 @@ function DraftBoard() {
     }, { replace: true });
   }, [view, setSearchParams]);
 
-  // Per-user pick chime, default muted, remembered in localStorage. Read via
-  // a ref inside the alert-driven effect below so toggling sound mid-turn
-  // can't itself retrigger a beep.
-  const [soundOn, setSoundOn] = useState(() => localStorage.getItem('endzone_draft_sound') === '1');
+  // The optional on-the-clock chime (#445 AC5/AC6), default muted, remembered
+  // per device. Read via a ref inside the alert-driven effect below so toggling
+  // sound mid-turn can't itself retrigger a beep. Storage is guarded in
+  // draftSoundPreference so a private-mode throw degrades to muted rather than
+  // breaking the room.
+  const [soundOn, setSoundOn] = useState(readDraftSoundOn);
   const soundOnRef = useRef(soundOn);
   useEffect(() => {
     soundOnRef.current = soundOn;
@@ -218,7 +227,7 @@ function DraftBoard() {
   const toggleSound = () => {
     setSoundOn((prev) => {
       const next = !prev;
-      localStorage.setItem('endzone_draft_sound', next ? '1' : '0');
+      writeDraftSoundOn(next);
       return next;
     });
   };
@@ -832,13 +841,37 @@ function DraftBoard() {
             sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
           >
             {tabDefs.map((tab) => (
-              <Tab key={tab.value} label={tab.label} value={tab.value} sx={MIN_TOUCH_TARGET_SX} />
+              <Tab
+                key={tab.value}
+                label={tab.label}
+                value={tab.value}
+                id={draftTabId(tab.value)}
+                aria-controls={draftTabPanelId(tab.value)}
+                sx={MIN_TOUCH_TARGET_SX}
+              />
             ))}
           </Tabs>
         </Box>
       )}
 
-      {isNarrow ? narrowRegion : panesLayout}
+      {/* On a narrow container the single visible region is the selected tab's
+          panel (#445 AC1): role="tabpanel", named by its Tab (aria-labelledby)
+          and pointed at by that Tab's aria-controls, and focusable (tabIndex 0)
+          so the standard tabs keyboard flow reaches it - selecting a tab keeps
+          focus on the tab, and one Tab press moves into the panel. On a wide
+          container there are no tabs; the three panes are each their own named
+          region (panesLayout) and no tabpanel wraps them. */}
+      {isNarrow ? (
+        <Box
+          role="tabpanel"
+          id={draftTabPanelId(view)}
+          aria-labelledby={draftTabId(view)}
+          tabIndex={0}
+          sx={{ minWidth: 0 }}
+        >
+          {narrowRegion}
+        </Box>
+      ) : panesLayout}
 
       <PlayerQuickView
         open={quickViewId != null}

@@ -2150,6 +2150,36 @@ describe('narrow container layout (#444)', () => {
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
   });
 
+  test('the selected tab controls a tabpanel named by that tab (#445 AC1)', async () => {
+    await showNarrowActiveDraft();
+
+    // The panel is a tabpanel, named by the selected tab (aria-labelledby), and
+    // the tab points back at it (aria-controls) - so a reader hears "Chat, tab
+    // panel" and can move between the two.
+    const chatTab = screen.getByRole('tab', { name: 'Chat' });
+    const chatPanel = screen.getByRole('tabpanel', { name: 'Chat' });
+    expect(chatTab).toHaveAttribute('aria-controls', chatPanel.getAttribute('id'));
+    expect(chatPanel).toHaveAttribute('aria-labelledby', chatTab.getAttribute('id'));
+
+    // Switching tabs renames the panel to the newly selected tab.
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(screen.getByRole('tabpanel', { name: 'Board' })).toBeInTheDocument();
+    expect(screen.queryByRole('tabpanel', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
+  test('selecting a tab keeps focus on the tab, and one Tab press reaches its panel (#445 AC4)', async () => {
+    await showNarrowActiveDraft();
+
+    const boardTab = screen.getByRole('tab', { name: 'Board' });
+    await userEvent.click(boardTab);
+    // The standard tabs pattern: focus stays on the chosen tab...
+    expect(boardTab).toHaveFocus();
+
+    // ...and the panel is the very next thing in the tab order (tabIndex 0).
+    await userEvent.tab();
+    expect(screen.getByRole('tabpanel', { name: 'Board' })).toHaveFocus();
+  });
+
   test('a completed draft opens on the Board tab, the one exception to Chat-first', async () => {
     // A finished draft is a record, so it opens on the Board on both layouts
     // (issue #123 criterion 4). This is the single intentional exception to
@@ -2430,5 +2460,70 @@ describe('League chat in the draft room (issue #433)', () => {
     expect(await screen.findByText('nice pick')).toBeInTheDocument();
     // The author is the Team, never the account behind it.
     expect(screen.queryByText('bob')).not.toBeInTheDocument();
+  });
+});
+
+// --- The optional on-the-clock chime (#445 AC5/AC7) ---
+//
+// AC5: ONE sound, and only when the VIEWER's own Team becomes On the clock.
+// AC7: no chat/Pick/timer-tick sounds and no notifications. The once-per-turn,
+// viewer-only edge itself is pinned in useDraftSocket.test.js (onClockAlertOpen);
+// these tests pin the beep that rides it, gated on the sound preference.
+describe('on-the-clock chime (#445 AC5/AC7)', () => {
+  let startSpy;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    startSpy = jest.fn();
+    const makeCtx = () => ({
+      createOscillator: () => ({ type: '', frequency: {}, connect: jest.fn(), start: startSpy, stop: jest.fn() }),
+      createGain: () => ({ gain: {}, connect: jest.fn() }),
+      destination: {},
+      close: jest.fn(),
+    });
+    window.AudioContext = jest.fn().mockImplementation(makeCtx);
+  });
+
+  afterEach(() => {
+    delete window.AudioContext;
+  });
+
+  const goOnTheClock = (onTheClock) =>
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock })));
+
+  test('stays silent when the viewer becomes On the clock but sound is off (the default)', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+
+    goOnTheClock(TEAM_A); // viewer is Team 1 = TEAM_A, so this is their turn
+
+    // Off by default: no AudioContext is ever constructed, so nothing plays.
+    expect(window.AudioContext).not.toHaveBeenCalled();
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  test('plays exactly one beep when the viewer becomes On the clock with sound enabled', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+
+    // Enabling the preference is the user gesture browsers require for audio.
+    await userEvent.click(screen.getByRole('button', { name: 'Unmute pick sound' }));
+
+    goOnTheClock(TEAM_A);
+
+    expect(startSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not beep when a DIFFERENT Team is On the clock, even with sound on', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Unmute pick sound' }));
+
+    goOnTheClock(TEAM_B); // someone else's turn
+
+    expect(startSpy).not.toHaveBeenCalled();
   });
 });
