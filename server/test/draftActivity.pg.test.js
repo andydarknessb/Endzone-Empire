@@ -18,12 +18,12 @@
  *    round, overall Pick number and its autopick flag (#435 AC2, AC3).
  * 3. BLOCKING. A blocked author's CHAT drops from a viewer's combined read, but
  *    that author's authoritative Draft ACTIVITY stays visible (user story 83).
- * 4. OWN-TABLE GUARD (#471). The allocator RAISES on an explicitly-supplied
- *    feed_seq, so draft_activity positions are always counter-allocated - an
- *    enforced per-table invariant. This is NOT the cross-table enforcement of
- *    #471 (chat can still explicit-write); it is the tripwire that makes #436
- *    lift the guard deliberately rather than introduce an explicit position by
- *    accident.
+ * 4. OWN-TABLE ALLOCATOR (#471, lifted by #436). The allocator used to RAISE on
+ *    an explicitly-supplied feed_seq - a tripwire that made #436 confront #471
+ *    before introducing an explicit position. #436 lifted it so the legacy Pick
+ *    and cutover backfill can name positions; the allocator now ACCEPTS an
+ *    explicit feed_seq and the shared registry is the structural protection the
+ *    tripwire stood in for.
  * 5. CONCURRENCY. N concurrent inserts across BOTH kinds for one league take a
  *    unique, contiguous run - the counter row lock serializing them is the real
  *    mechanism behind the deterministic order (#435 AC4).
@@ -218,26 +218,33 @@ if (!ENABLED) {
     await pool.query('DELETE FROM "user_blocks" WHERE "blocker_id" = $1 AND "blocked_id" = $2', [ownerA, ownerB]);
   });
 
-  test('the allocator refuses an explicitly-supplied feed_seq (own-table guard, #471)', async () => {
-    // An explicit feed_seq is refused outright by fn_allocate_draft_activity_feed_seq,
-    // so draft_activity positions are ALWAYS counter-allocated - an enforced
-    // per-table invariant, not a convention the caller is trusted to keep.
-    //
-    // This guard is NOT the cross-table enforcement of #471: chat still has its
-    // own index and could hold the same position; the counter is what keeps the
-    // two apart in practice. The guard's job is to make #436 lift it DELIBERATELY
-    // (and confront #471) rather than introduce an explicit position by accident.
-    await assert.rejects(
-      () =>
-        pool.query(
-          `INSERT INTO "draft_activity"
-             ("league_id", "kind", "team_id", "team_name", "player_name", "round", "pick_number", "feed_seq")
-           VALUES ($1, 'pick', $2, 'Alpha', 'Dup', 1, 9, 1)`,
-          [leagueA, teamA]
-        ),
-      /must not be supplied explicitly|trigger-allocated|#471/i,
-      'an explicit feed_seq claim is refused by the guard, whatever value it names'
+  test('the allocator now ACCEPTS an explicit feed_seq (own-table guard lifted by #436)', async () => {
+    // #436 lifted fn_allocate_draft_activity_feed_seq's explicit-position RAISE:
+    // the legacy Pick and cutover backfill must name positions, and the shared
+    // registry (#471) is now the structural protection the guard stood in for. An
+    // explicit position is accepted, claims the shared namespace and advances the
+    // counter high-water; a SECOND row on a taken position is refused by the
+    // registry (proven in sharedFeedPosition.pg.test.js). Here we prove the
+    // accept half, on a fresh league so no earlier activity interferes.
+    const league = await seedLeague('Draft Activity Explicit', ownerA, 'draftactexpl');
+    const team = await seedTeam(league, ownerA, 'Alpha');
+    const inserted = await pool.query(
+      `INSERT INTO "draft_activity"
+         ("league_id", "kind", "team_id", "team_name", "player_name", "round", "pick_number", "feed_seq")
+       VALUES ($1, 'pick', $2, 'Alpha', 'Legacy Star', 1, 1, 7)
+       RETURNING "feed_seq"`,
+      [league, team]
     );
+    assert.equal(Number(inserted.rows[0].feed_seq), 7, 'the explicit position is accepted, not raised');
+    const reg = await pool.query(
+      `SELECT "record_kind" FROM "league_feed_positions" WHERE "league_id" = $1 AND "feed_seq" = 7`,
+      [league]
+    );
+    assert.equal(reg.rows.length, 1, 'the explicit position is registered in the shared namespace');
+    assert.equal(reg.rows[0].record_kind, 'draft_activity');
+    const counter = await pool.query('SELECT "last_seq" FROM "league_feed_sequences" WHERE "league_id" = $1', [league]);
+    assert.equal(Number(counter.rows[0].last_seq), 7, 'the counter cannot sit behind a reserved position (#471 AC5)');
+    await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [league]);
   });
 
   test('concurrent chat and activity inserts draw a unique, contiguous per-league run', async () => {

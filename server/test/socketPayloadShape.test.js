@@ -134,7 +134,7 @@ const chat = () => chatMessagePayload({
 // `hidden` (#441) rides on every chat feed entry: false on a live send, true
 // on a commissioner-hidden tombstone. It is a property of the entry, not of the
 // viewer, so it belongs on the broadcast.
-const CHAT_CLEAN = ['created_at', 'hidden', 'id', 'leagueId', 'message', 'seq', TEAM_ID, TEAM_NAME, 'type'];
+const CHAT_CLEAN = ['created_at', 'hidden', 'id', 'isLegacy', 'leagueId', 'message', 'seq', TEAM_ID, TEAM_NAME, 'type'];
 // `user_id` is the raw chat_messages column; it must never leak onto the
 // broadcast in either the raw or the `userId` spelling.
 const CHAT_FORBIDDEN_ALWAYS = ['user_id', 'userId', 'username', ...VIEWER_RELATIVE];
@@ -245,14 +245,14 @@ const PICKED_ROOT_CLEAN = [
 // The Draft-activity entry now rides on a room broadcast, so it is bound by the
 // same rule as the rest of the payload: Team identity only, never an account
 // identifier, and no viewer-relative field.
-const ACTIVITY_CLEAN = ['type', 'kind', 'id', 'seq', TEAM_ID, TEAM_NAME, 'player', 'round', 'pickNumber', 'isAutopick', 'created_at'];
+const ACTIVITY_CLEAN = ['type', 'kind', 'id', 'seq', TEAM_ID, TEAM_NAME, 'player', 'round', 'pickNumber', 'isAutopick', 'isLegacy', 'created_at'];
 const ACTIVITY_FORBIDDEN = ['user_id', 'userId', 'username', 'owner_id', ...VIEWER_RELATIVE];
 
 // A LIFECYCLE Draft-activity entry (#437) is not a Pick: it carries the acting
 // Team identity and the instant, and NO player / round / Pick number / autopick.
 // It rides on the `draft:activity` broadcast, so it is bound by the same
 // Team-only, no-account-identifier, no-viewer-relative rule.
-const LIFECYCLE_CLEAN = ['type', 'kind', 'id', 'seq', TEAM_ID, TEAM_NAME, 'created_at'];
+const LIFECYCLE_CLEAN = ['type', 'kind', 'id', 'seq', TEAM_ID, TEAM_NAME, 'isLegacy', 'created_at'];
 
 test('draft:picked names the picker by Team at the root, with no by account object and no viewer-relative field', async (t) => {
   const picked = await capturePicked(t);
@@ -292,7 +292,7 @@ async function captureAutopickPicked(t) {
       type: 'draft_activity', kind: 'pick', id: 3, seq: 2,
       teamId: AUTOPICK_TEAM.id, teamName: 'The Autodrafters',
       player: { id: 500, name: 'Pick Me', position: 'RB', nflTeam: 'KC' },
-      round: 1, pickNumber: 1, isAutopick: true, created_at: '2026-09-01T00:00:00.000Z',
+      round: 1, pickNumber: 1, isAutopick: true, isLegacy: false, created_at: '2026-09-01T00:00:00.000Z',
     },
     // This pick did not end the draft, so no completion lifecycle entry (#437).
     completion: null,
@@ -343,12 +343,12 @@ async function captureAutopickActivity(t) {
       type: 'draft_activity', kind: 'pick', id: 3, seq: 2,
       teamId: AUTOPICK_TEAM.id, teamName: 'The Autodrafters',
       player: { id: 500, name: 'Pick Me', position: 'RB', nflTeam: 'KC' },
-      round: 1, pickNumber: 1, isAutopick: true, created_at: '2026-09-01T00:00:00.000Z',
+      round: 1, pickNumber: 1, isAutopick: true, isLegacy: false, created_at: '2026-09-01T00:00:00.000Z',
     },
     // The final Pick completed the draft: an actor-less completion entry (#437).
     completion: {
       type: 'draft_activity', kind: 'complete', id: 4, seq: 3,
-      teamId: null, teamName: null, created_at: '2026-09-01T00:00:01.000Z',
+      teamId: null, teamName: null, isLegacy: false, created_at: '2026-09-01T00:00:01.000Z',
     },
   }));
   const emitted = [];

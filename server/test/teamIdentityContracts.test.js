@@ -476,6 +476,8 @@ test('chat:message attributes the message by Team and nothing about the author a
       message: 'good luck everyone',
       // #441: a live send is never hidden; the flag rides on every entry.
       hidden: false,
+      // #436: a live send is never legacy; the flag rides on every entry.
+      isLegacy: false,
       created_at: '2026-09-01T00:00:00.000Z',
     }
   );
