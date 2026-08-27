@@ -26,6 +26,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { stripComments: stripJsComments } = require('./check-color-literals');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const SCAN_ROOTS = ['src', 'server'];
@@ -38,9 +39,11 @@ const SCAN_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx']);
 // guard was written) is out of scope by ruling, not by accident.
 const EXCLUDED_DIRS = [{ dir: 'server/db/migrations', reason: 'SQL text, never rendered' }];
 
-// Paths allowed to keep an em dash, with a reason per entry, in the shape
-// of scripts/check-color-literals.js's ALLOWLIST. Expected empty at merge;
-// anything added here needs a reason a reader can check.
+// Paths allowed to keep an em dash, with a reason per entry, in the actual
+// shape of scripts/check-color-literals.js's ALLOWLIST: a flat array of
+// posix paths, each with its reason as a trailing `//` comment, where a
+// trailing '/' marks a directory prefix rather than one file. Expected
+// empty at merge; anything added here needs a reason a reader can check.
 const ALLOWLIST = [];
 
 const TEST_FILE_PATTERN = /\.(test|spec)\.(js|jsx|ts|tsx)$/;
@@ -66,7 +69,9 @@ function isExcludedDir(relPosix) {
 }
 
 function isAllowlisted(relPosix) {
-  return ALLOWLIST.some((entry) => entry.path === relPosix);
+  return ALLOWLIST.some((entry) =>
+    entry.endsWith('/') ? relPosix.startsWith(entry) : relPosix === entry
+  );
 }
 
 // Strip comments out of a file's text before it is scanned for an em dash.
@@ -75,139 +80,50 @@ function isAllowlisted(relPosix) {
 // literal content is copied through untouched -- it is the one place a
 // literal character actually reaches a user.
 //
-// Handles:
-//   - `//` line comments
-//   - `/* ... */` block comments, single- or multi-line -- this also
-//     covers JSX `{/* ... */}` comments, since the outer `{`/`}` are left
-//     alone (they aren't comment syntax) and the `/* ... */` inside them is
-//     stripped the same as any other block comment
-//   - single/double-quoted strings and template literals, scanned as
-//     opaque units so a `//` inside one (e.g. `'https://example.com'`) is
-//     never misread as the start of a line comment. A quoted string is
-//     only recognized as such when a matching closing quote appears before
-//     the next newline (a real JS string can't contain a raw newline);
-//     otherwise the quote is just an apostrophe in ordinary text (JSX
-//     content like "can't") and is left as an ordinary character, so it
-//     can't swallow a real comment later in the file while "looking for" a
-//     closing quote that was never a string's to begin with
-//   - regex literals (e.g. `/[/*]/`) are scanned as opaque units too, so a
-//     `/*`-like sequence inside a character class is never misread as a
-//     block-comment start on a later pass. A `/` right after `<` is never
-//     treated as a regex start, since that's a JSX closing tag (`</a>`),
-//     not an expression position
+// This delegates to check-color-literals.js's stripComments rather than
+// re-implementing it: that tokenizer (`//`/`/* */`/JSX `{/* */}` comments,
+// quoted strings and template literals scanned as opaque units so a `//`
+// inside a URL string is never misread as a comment start, regex literals
+// scanned opaquely too) is already built and already tested there, and
+// scripts/check-identity-comparisons.js already reuses it the same way, for
+// the same stated reason: "getting it right is genuinely hard ... and it is
+// already tested." A second, drifting copy would only add a place for these
+// two guards to silently disagree.
 //
-// Line breaks are always preserved (stripped characters become spaces, not
-// removed) so line numbers in reported hits stay accurate.
+// The '.js' passed below is not a claim about the file being scanned -- it
+// only selects stripComments' JS-like `//`-comment branch (its only
+// extension-sensitive behavior), which is correct for all four of this
+// guard's scanned extensions: TypeScript's comment, string, template-literal
+// and regex-literal grammar is the same JS grammar for every construct this
+// tokenizer cares about, so `.ts`/`.tsx` get identical treatment to
+// `.js`/`.jsx` here on purpose, not by omission.
+//
+// KNOWN LIMITATIONS, inherited from the shared tokenizer and verified
+// against this guard during #501's review (each also reproduces against
+// check-color-literals.js's own stripComments, so this is shared,
+// pre-existing behavior, not something this guard introduced):
+//   - a template literal nested inside another template literal's `${...}`
+//     interpolation desyncs the closing-backtick scan, which can misread a
+//     `//` inside the inner literal as a line-comment start and blank the
+//     rest of that source line
+//   - a comment written inside a template literal's `${...}` interpolation
+//     (e.g. `` `${/* note */ x}` ``) is copied through opaquely as part of
+//     the template span instead of being recognized and stripped, which can
+//     produce a false positive
+//   - a `/` immediately after a postfix `++`/`--` (or certain other
+//     non-identifier characters) can be misread as the start of a regex
+//     literal, consuming through a genuine trailing `//` comment on the same
+//     line without recognizing it as one
+// A correct fix for all three needs a real JS/JSX parser, which is a bigger
+// lift than a lightweight, regex-based guard script -- consistent with this
+// repo's existing choice not to do that in check-color-literals.js either.
+// None of the four em-dash violations #501 found trip any of these paths
+// (verified: the "the real tree carries no em dash" test below reads the
+// actual tree, not a stand-in). If one of these ever bites on a real file,
+// the fix belongs in check-color-literals.js's stripComments, where both
+// guards would pick it up together.
 function stripComments(text) {
-  let out = '';
-  let i = 0;
-  const n = text.length;
-
-  while (i < n) {
-    const c = text[i];
-    const c2 = i + 1 < n ? text[i + 1] : '';
-
-    if (c === '"' || c === "'") {
-      const quote = c;
-      let j = i + 1;
-      let closed = false;
-      while (j < n) {
-        if (text[j] === quote) { closed = true; break; }
-        if (text[j] === '\n') break;
-        j += text[j] === '\\' ? 2 : 1;
-      }
-      if (!closed) {
-        out += c;
-        i += 1;
-        continue;
-      }
-      j += 1;
-      out += text.slice(i, j);
-      i = j;
-      continue;
-    }
-
-    if (c === '`') {
-      let j = i + 1;
-      while (j < n && text[j] !== '`') {
-        j += text[j] === '\\' ? 2 : 1;
-      }
-      j = Math.min(j + 1, n);
-      out += text.slice(i, j);
-      i = j;
-      continue;
-    }
-
-    if (c === '/' && c2 === '/') {
-      let j = i;
-      while (j < n && text[j] !== '\n') j++;
-      out += text.slice(i, j).replace(/[^\n]/g, ' ');
-      i = j;
-      continue;
-    }
-
-    if (c === '/' && c2 === '*') {
-      let j = i + 2;
-      while (j < n && !(text[j] === '*' && text[j + 1] === '/')) j++;
-      j = Math.min(j + 2, n);
-      out += text.slice(i, j).replace(/[^\n]/g, ' ');
-      i = j;
-      continue;
-    }
-
-    if (c === '/' && c2 !== '*' && c2 !== '/' && isRegexContext(out)) {
-      const end = scanRegexLiteral(text, i);
-      if (end !== null) {
-        out += text.slice(i, end);
-        i = end;
-        continue;
-      }
-    }
-
-    out += c;
-    i += 1;
-  }
-
-  return out;
-}
-
-const REGEX_CONTEXT_KEYWORDS = new Set([
-  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
-  'case', 'do', 'else', 'yield', 'await', 'throw',
-]);
-
-function isRegexContext(out) {
-  let j = out.length - 1;
-  while (j >= 0 && /\s/.test(out[j])) j--;
-  if (j < 0) return true;
-  const ch = out[j];
-  if (/[)\]}]/.test(ch)) return false;
-  if (ch === '<') return false;
-  if (/[A-Za-z0-9_$]/.test(ch)) {
-    let k = j;
-    while (k >= 0 && /[A-Za-z0-9_$]/.test(out[k])) k--;
-    return REGEX_CONTEXT_KEYWORDS.has(out.slice(k + 1, j + 1));
-  }
-  return true;
-}
-
-function scanRegexLiteral(text, i) {
-  const n = text.length;
-  let j = i + 1;
-  let inClass = false;
-  let closed = false;
-  while (j < n) {
-    const ch = text[j];
-    if (ch === '\n') break;
-    if (ch === '\\') { j += 2; continue; }
-    if (ch === '[') { inClass = true; j += 1; continue; }
-    if (ch === ']') { inClass = false; j += 1; continue; }
-    if (ch === '/' && !inClass) { j += 1; closed = true; break; }
-    j += 1;
-  }
-  if (!closed) return null;
-  while (j < n && /[a-zA-Z]/.test(text[j])) j += 1;
-  return j;
+  return stripJsComments(text, '.js');
 }
 
 // The pure core: source text in, em-dash hits with line numbers out. Both
