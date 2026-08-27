@@ -29,9 +29,9 @@
  *                   backfill and no change to the text send path. On Postgres 11+
  *                   a constant DEFAULT is a metadata-only fast default: no table
  *                   rewrite, only a brief ACCESS EXCLUSIVE lock to add the
- *                   column (milliseconds while `chat_messages` is small; the same
- *                   lock note the sibling moderation and client_msg_id
- *                   migrations carry).
+ *                   column. This step does not scan existing rows, so it is cheap
+ *                   regardless of row count - unlike the shape CHECK below, whose
+ *                   cost scales with the table (see the note further down).
  *   gif_provider    the opaque provider id a GIF asset belongs to (e.g. a future
  *                   'giphy' / 'tenor', or the test-only fake). It is an
  *                   IDENTIFIER, never a URL: nothing in this feature builds a URL
@@ -80,12 +80,18 @@
  * content_kind='text' / gif_* NULL until external approval turns the capability
  * on. Nothing here enables a provider.
  *
- * EXPAND-ONLY, LOCKS BRIEFLY. Four ADD COLUMNs (one with a fast default), one
- * ALTER of `message` to drop NOT NULL, and one ADD CONSTRAINT that validates the
- * (small) table. No backfill, no table rewrite. As with the sibling chat
- * migrations, "safe to apply while chat is live" rests on `chat_messages` being
- * small; the ACCESS EXCLUSIVE locks are milliseconds at its current size. Apply
- * when no draft is live so no manager's chat:send is blocked mid-draft.
+ * EXPAND-ONLY, BUT THE CHECK SCANS. The four ADD COLUMNs (one a metadata-only
+ * fast default) and the ALTER of `message` to drop NOT NULL are cheap. The
+ * ADD CONSTRAINT ... CHECK is NOT: it validates EVERY existing row in
+ * chat_messages under an ACCESS EXCLUSIVE lock, so its lock duration SCALES WITH
+ * ROW COUNT - a table scan, not a metadata-only change. Do not assume it is
+ * brief: check the row count before applying (that number lives only in
+ * production, which no author of this file can measure), and apply when no draft
+ * is live so no manager's chat:send is blocked mid-draft. (The sibling chat
+ * migrations froze this as a "milliseconds while small" DURATION; a duration is
+ * the wrong thing to record, because the row count that sets it is exactly what
+ * changes between authoring and apply, and the scaling relationship above cannot
+ * go stale. Tracked across those files as #520.)
  *
  * ROLLBACK is safe while no GIF message exists - which is the disabled-by-default
  * state, and the state CI's migrate/rollback/migrate runs in. Restoring `message`
