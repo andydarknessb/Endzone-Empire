@@ -16,17 +16,14 @@ const PICKS = [
 ];
 
 function renderControls(overrides = {}) {
-  const props = {
-    league: LEAGUE,
-    picks: PICKS,
+  const handlers = {
     onTogglePause: jest.fn(),
     onCorrect: jest.fn().mockResolvedValue(true),
     onReset: jest.fn().mockResolvedValue(true),
     onGetShareLink: jest.fn().mockResolvedValue('http://x'),
-    ...overrides,
   };
-  render(<DraftDayControls {...props} />);
-  return props;
+  render(<DraftDayControls league={LEAGUE} picks={PICKS} {...handlers} {...overrides} />);
+  return handlers;
 }
 
 test('the toolbar carries Pause/Resume beside Correct latest Pick, and keeps Reset separate', () => {
@@ -43,13 +40,13 @@ test('the pause control reads Resume Draft when the draft is paused', () => {
 });
 
 test('pausing calls onTogglePause', async () => {
-  const props = renderControls();
+  const { onTogglePause } = renderControls();
   await userEvent.click(screen.getByRole('button', { name: 'Pause Draft' }));
-  expect(props.onTogglePause).toHaveBeenCalled();
+  expect(onTogglePause).toHaveBeenCalled();
 });
 
 test('the correction dialog names the Pick, Team and player and requires a 10-200 character reason', async () => {
-  const props = renderControls();
+  const { onCorrect } = renderControls();
   await userEvent.click(screen.getByRole('button', { name: 'Correct latest Pick' }));
 
   const dialog = screen.getByRole('dialog');
@@ -66,27 +63,27 @@ test('the correction dialog names the Pick, Team and player and requires a 10-20
   const reason = within(dialog).getByRole('textbox', { name: /reason/i });
   await userEvent.type(reason, 'too short');
   expect(confirm).toBeDisabled();
-  expect(props.onCorrect).not.toHaveBeenCalled();
+  expect(onCorrect).not.toHaveBeenCalled();
 
   // A valid reason enables it, and submit posts the confirmed pick number + reason.
   await userEvent.clear(reason);
   await userEvent.type(reason, 'entered against the wrong team, correcting now');
   expect(confirm).toBeEnabled();
   await userEvent.click(confirm);
-  expect(props.onCorrect).toHaveBeenCalledWith({
+  expect(onCorrect).toHaveBeenCalledWith({
     pickNumber: 3,
     reason: 'entered against the wrong team, correcting now',
   });
 });
 
 test('a reason beyond 200 characters cannot be submitted', async () => {
-  const props = renderControls();
+  const { onCorrect } = renderControls();
   await userEvent.click(screen.getByRole('button', { name: 'Correct latest Pick' }));
   const dialog = screen.getByRole('dialog');
   const reason = within(dialog).getByRole('textbox', { name: /reason/i });
   await userEvent.type(reason, 'x'.repeat(201));
   expect(within(dialog).getByRole('button', { name: 'Correct pick' })).toBeDisabled();
-  expect(props.onCorrect).not.toHaveBeenCalled();
+  expect(onCorrect).not.toHaveBeenCalled();
 });
 
 test('Correct latest Pick is disabled and explained when the latest reached pick is a keeper', () => {
@@ -99,7 +96,7 @@ test('Correct latest Pick is disabled and explained when the latest reached pick
 });
 
 test('Reset draft still requires typing the exact league name (kept separate and destructive)', async () => {
-  const props = renderControls();
+  const { onReset } = renderControls();
   await userEvent.click(screen.getByRole('button', { name: 'Reset draft' }));
   const dialog = screen.getByRole('dialog');
   const reset = within(dialog).getByRole('button', { name: 'Reset draft' });
@@ -107,5 +104,5 @@ test('Reset draft still requires typing the exact league name (kept separate and
   await userEvent.type(within(dialog).getByRole('textbox', { name: 'League name' }), 'Sunday Ballers');
   expect(reset).toBeEnabled();
   await userEvent.click(reset);
-  expect(props.onReset).toHaveBeenCalled();
+  expect(onReset).toHaveBeenCalled();
 });
