@@ -2746,3 +2746,142 @@ describe('room-level Pick announcement across narrow tabs (#513)', () => {
     expect(announcementsSaying('New message from Rivals')).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The final Pick and Draft completion (#519). The last live Pick and the
+// completion must be ONE ordered polite update - Team and player first, then
+// "Draft complete." - and the visible "Draft complete!" success Alert must stay
+// on screen WITHOUT speaking. The defect this closes is DOUBLE announcement:
+// the assertive completion Alert (MUI role="alert") firing beside the polite
+// Pick announcement queued in the same commit. So the assertions COUNT the live
+// regions, across BOTH role=status and role=alert, and assert exactly one - a
+// presence check cannot tell one live update from two.
+// ---------------------------------------------------------------------------
+
+// Live regions currently carrying a given text, across BOTH live-region roles.
+// role=status (polite) and role=alert (assertive) are DIFFERENT roles: counting
+// only one would "prove" the polite region is alone while the assertive Alert is
+// still speaking. queryAllByRole never throws when a role is absent.
+const liveRegionsSaying = (text) =>
+  [...screen.queryAllByRole('status'), ...screen.queryAllByRole('alert')].filter((region) =>
+    region.textContent.includes(text)
+  );
+
+describe('the final Pick and Draft completion (#519)', () => {
+  const showWideActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1); // viewer holds Team A
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  // The Pick that completes the draft: draftComplete:true rides the same
+  // draft:picked payload the board and the room-level announcer already read
+  // (server spreads the pick outcome), so no separate draft:complete is needed.
+  const landFinalPick = ({ auto = false } = {}) => {
+    act(() =>
+      fakeSocket.trigger('draft:picked', {
+        pickNumber: 30,
+        teamId: 1,
+        teamName: 'Team A',
+        player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+        nextTeamId: null,
+        draftComplete: true,
+        auto,
+        activity: {
+          type: 'draft_activity',
+          kind: 'pick',
+          seq: 200,
+          id: 'act-200',
+          teamName: 'Team A',
+          player: { name: 'Patrick Mahomes' },
+          isAutopick: auto,
+        },
+      })
+    );
+    // The real wire on completion emits THREE things, not one (draftSocket.js:
+    // 287-293, identically in autopick.service.js): the pick, a completion
+    // lifecycle entry on draft:activity (#437), and draft:complete. Fire all
+    // three so "exactly one live update on the final Pick" is proven against the
+    // wire, not against a simplification. The other two are silent today - the
+    // feed announcer returns empty for every draft_activity, and draft:complete
+    // only re-sets an already-true flag - which is exactly what the count below
+    // must confirm.
+    act(() =>
+      fakeSocket.trigger('draft:activity', {
+        type: 'draft_activity',
+        kind: 'complete',
+        id: 21,
+        seq: 201,
+        teamId: null,
+        teamName: null,
+        created_at: '2026-01-01T12:05:00Z',
+      })
+    );
+    act(() => fakeSocket.trigger('draft:complete', { leagueId: 1 }));
+  };
+
+  test('a final manual Pick produces exactly one live update, ordered Team then completion', async () => {
+    await showWideActiveDraft();
+    seedFeed(); // so a double-speech regression through the feed announcer shows, not hides
+    landFinalPick();
+
+    // AC1 + AC6: exactly one live region speaks the completion, even with the
+    // Chat feed announcer mounted beside the room-level one. Both roles counted.
+    await waitFor(() => expect(liveRegionsSaying('Draft complete')).toHaveLength(1));
+
+    // That one update is the polite announcer, both facts in order: Team and
+    // player FIRST, then the completion sentence, as a single polite string.
+    const [live] = liveRegionsSaying('Draft complete');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveTextContent('Team A drafted Patrick Mahomes. Draft complete.');
+
+    // AC4: the visible success Alert is still rendered...
+    const completionAlert = screen.getByTestId('draft-complete-alert');
+    expect(completionAlert).toHaveTextContent('Draft complete!');
+    // AC5: ...but it is not a live region. Pin the actual role shipped rather
+    // than "not alert/status" - log, marquee and timer are all live-region roles
+    // that a bare negative would let through. The count assertion at the top of
+    // this test is the real guard; this is belt-and-braces on what silenced it.
+    expect(completionAlert).toHaveAttribute('role', 'presentation');
+  });
+
+  test('a final automatic Pick announces autodrafted, once', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landFinalPick({ auto: true });
+
+    await waitFor(() => expect(liveRegionsSaying('Draft complete')).toHaveLength(1));
+    const [live] = liveRegionsSaying('Draft complete');
+    expect(live).toHaveTextContent('Team A autodrafted Patrick Mahomes. Draft complete.');
+    // Never the manual wording as well.
+    expect(liveRegionsSaying('Team A drafted Patrick Mahomes')).toHaveLength(0);
+  });
+
+  test('a NON-final Pick carries no completion sentence and no completion Alert', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landPick(); // draftComplete:false
+
+    await waitFor(() => expect(announcementsSaying(PICK_TEXT)).toHaveLength(1));
+    // AC3: the ordinary wording, with nothing appended.
+    const [live] = announcementsSaying(PICK_TEXT);
+    expect(live).toHaveTextContent('Team A drafted Patrick Mahomes');
+    expect(live.textContent).not.toMatch(/Draft complete/);
+    expect(screen.queryByTestId('draft-complete-alert')).not.toBeInTheDocument();
+  });
+
+  test('an error Alert keeps its assertive role=alert (#519 leaves error Alerts alone)', async () => {
+    // AC7: the completion Alert loses its live-region role, but the error Alert
+    // beside it in DraftBoard keeps role="alert" - an error SHOULD interrupt.
+    // No draftComplete here, so the only alert-role region is the error one.
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    act(() => fakeSocket.trigger('connect'));
+    const [, , ack] = fakeSocket.emit.mock.calls.find(([event]) => event === 'draft:join');
+    act(() => ack({ error: 'you are not in this league' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('you are not in this league');
+  });
+});
