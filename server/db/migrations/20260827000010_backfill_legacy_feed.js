@@ -236,6 +236,9 @@ exports.up = async function (knex) {
         ON m."record_kind" = 'draft_pick' AND m."source_id" = dp."id" AND m."league_id" = dp."league_id"
       LEFT JOIN "teams" t ON t."id" = dp."team_id"
       LEFT JOIN "players" p ON p."id" = dp."player_id"
+      -- team_count is never zero here: draft_picks.team_id is NOT NULL with an
+      -- ON DELETE CASCADE FK to teams, so a league that still has a Pick still
+      -- has that Pick's team. The inner JOIN therefore drops no surviving Pick.
       JOIN (SELECT "league_id", count(*) AS "team_count" FROM "teams" GROUP BY "league_id") tc
         ON tc."league_id" = dp."league_id"
      WHERE NOT EXISTS (

@@ -60,6 +60,13 @@ const PICK_COVERED = `
  * Idempotent: the NOT-covered guard skips any Pick already represented, so a
  * second run captures nothing. It never touches chat, the boundary or the
  * already-backfilled legacy set.
+ *
+ * The round derivation and snapshot column list deliberately mirror the #436
+ * migration's legacy-Pick backfill (20260827000010, step 6): the two run in
+ * different engines (a frozen migration vs this runtime executor) and cannot
+ * share a helper, so the one formula every Pick path uses -
+ * floor((pick_number - 1) / team_count) + 1, the same rule draft.service derives
+ * live - is stated in both. If that rule ever changes, all three move together.
  */
 async function captureLegacyPicks(db, { leagueId = null } = {}) {
   const params = [];
@@ -183,14 +190,20 @@ async function reconcileLegacyFeed(db, { leagueId = null } = {}) {
 
   // Counter high-water agreement: a counter that sits BELOW its league's highest
   // registered position, which would let the next allocation re-hand-out a
-  // reserved position (#471 AC5).
+  // reserved position (#471 AC5). Driven from the registry with a LEFT JOIN to
+  // the counter, so a league that has positions but NO counter row at all (a
+  // wholly-absent counter, maximally behind) is caught too, not silently
+  // excluded the way an inner join would.
+  const scopePos = leagueId != null ? 'AND pos."league_id" = $1' : '';
   const counterLag = await db.query(
-    `SELECT s."league_id", s."last_seq"::text AS "last_seq", max(pos."feed_seq")::text AS "high_water"
-       FROM "league_feed_sequences" s
-       JOIN "league_feed_positions" pos ON pos."league_id" = s."league_id"
-      WHERE true ${scope}
-      GROUP BY s."league_id", s."last_seq"
-     HAVING s."last_seq" < max(pos."feed_seq")`,
+    `SELECT pos."league_id",
+            COALESCE(s."last_seq"::text, 'absent') AS "last_seq",
+            max(pos."feed_seq")::text AS "high_water"
+       FROM "league_feed_positions" pos
+       LEFT JOIN "league_feed_sequences" s ON s."league_id" = pos."league_id"
+      WHERE true ${scopePos}
+      GROUP BY pos."league_id", s."last_seq"
+     HAVING s."last_seq" IS NULL OR s."last_seq" < max(pos."feed_seq")`,
     params
   );
 

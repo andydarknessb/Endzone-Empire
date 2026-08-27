@@ -310,6 +310,19 @@ if (!ENABLED) {
     assert.equal(all.ok, true, `whole-database reconciliation is clean: ${JSON.stringify(all.failures)}`);
   });
 
+  test('a completed Draft backfills every Pick as legacy, with no live entry and nothing left to capture (AC8)', async () => {
+    // League A is a completed Draft: every Pick was committed before the
+    // migration, so all three land as legacy Pick entries and none is live, and
+    // a capture pass finds no straggler (the draft produces no more Picks).
+    const feed = await feedOf(L.A, owner.A);
+    const picks = feed.filter((e) => e.kind === 'pick');
+    assert.equal(picks.length, 3, 'all three committed Picks are in the feed');
+    assert.ok(picks.every((p) => p.isLegacy === true), 'every Pick of a completed Draft is legacy');
+    assert.equal(feed.filter((e) => e.kind === 'pick' && e.isLegacy === false).length, 0, 'a completed Draft has no live Pick');
+    assert.equal(await captureLegacyPicks(pool, { leagueId: L.A }), 0, 'a completed Draft has no straggler to capture');
+    assert.equal((await reconcileLegacyFeed(pool, { leagueId: L.A })).ok, true);
+  });
+
   test('a rolling-deploy straggler Pick fails reconciliation, then captures as a live entry past the boundary (AC4)', async () => {
     // An old instance commits a Pick AFTER the migration: a draft_picks row with
     // no activity. Reconciliation catches the uncovered Pick.
