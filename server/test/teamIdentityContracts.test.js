@@ -474,6 +474,9 @@ test('chat:message attributes the message by Team and nothing about the author a
       teamId: OTHER.teamId,
       teamName: OTHER.teamName,
       message: 'good luck everyone',
+      // #446: a text message carries no media; the key rides on every entry so
+      // a GIF message can carry its structured asset under it.
+      media: null,
       // #441: a live send is never hidden; the flag rides on every entry.
       hidden: false,
       // #436: a live send is never legacy; the flag rides on every entry.

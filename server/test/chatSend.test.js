@@ -4,6 +4,17 @@ const { createSocketHarness } = require('./helpers/socketHarness');
 const { createFakePool } = require('./helpers/fakePool');
 const { deliverFeedEntry, normalizeClientMsgId, MAX_CHAT_CHARS } = require('../modules/draftSocket');
 const { LEAGUE_CHAT } = require('../services/leagueFeed');
+const { setGifMessagesEnabledForTests } = require('../modules/gifCapability');
+
+// A well-formed GIF payload the client would send: one provider asset named by
+// (provider, assetId), a required accessible description and an optional caption
+// (#446 AC1). Never a URL and never an upload (AC2).
+const GIF_OK = {
+  provider: 'fake',
+  assetId: 'abc123',
+  description: 'a cat knocking a cup off a table',
+  caption: 'this is me at 3pm',
+};
 
 /**
  * #440: League chat send, hardened, proven through a real socket.io server and
@@ -47,22 +58,38 @@ function chatWorld({ leagueId, teams, commissioners = [], blocks = [] }) {
     [/^SELECT 1 FROM "leagues"/, (t, [lg, uid]) => ({
       rows: lg === leagueId && commish.has(uid) ? [{ '?column?': 1 }] : [],
     })],
-    // selectChatByKey — the idempotency lookup.
-    [/^SELECT "id", "message", "created_at", "feed_seq" FROM "chat_messages"/, (t, [uid, key]) => {
+    // selectChatByKey — the idempotency lookup (now also projects the gif
+    // columns, #446, so a keyed retry of a GIF send re-reads its media).
+    [/^SELECT "id", "message", "created_at", "feed_seq"/, (t, [uid, key]) => {
       const row = state.stored.get(`${uid}:${key}`);
       return { rows: row ? [row] : [] };
     }],
-    // INSERT ... ON CONFLICT DO NOTHING RETURNING.
-    [/^INSERT INTO "chat_messages"/, (t, [lg, uid, text, key]) => {
+    // INSERT ... ON CONFLICT DO NOTHING RETURNING. Params, #446:
+    // [league, user, caption, key, content_kind, gif_provider, gif_asset_id, gif_description].
+    [/^INSERT INTO "chat_messages"/, (t, [lg, uid, caption, key, contentKind, gifProvider, gifAssetId, gifDescription]) => {
       if (key != null && state.stored.has(`${uid}:${key}`)) return { rows: [] };
       const row = {
         id: state.nextId++,
-        message: text,
+        message: caption,
         created_at: '2026-08-26T00:00:00.000Z',
         feed_seq: ++state.seq,
+        content_kind: contentKind,
+        gif_provider: gifProvider,
+        gif_asset_id: gifAssetId,
+        gif_description: gifDescription,
       };
       if (key != null) state.stored.set(`${uid}:${key}`, row);
-      return { rows: [{ id: row.id, created_at: row.created_at, feed_seq: row.feed_seq }] };
+      return {
+        rows: [{
+          id: row.id,
+          created_at: row.created_at,
+          feed_seq: row.feed_seq,
+          content_kind: row.content_kind,
+          gif_provider: row.gif_provider,
+          gif_asset_id: row.gif_asset_id,
+          gif_description: row.gif_description,
+        }],
+      };
     }],
     // listBlockersOf — who has blocked this author.
     [/^SELECT "blocker_id" FROM "user_blocks"/, (t, [blockedId]) => ({
@@ -387,4 +414,144 @@ test('a 501-code-point message is refused MESSAGE_TOO_LONG, persists nothing, an
   assert.equal(world.fake.matching(/^INSERT INTO "chat_messages"/).length, 0, 'nothing was stored');
   assert.equal(world.fake.calls.length, callsBefore, 'the refusal reaches no query at all');
   assert.equal(await watcherHeard, null, 'no chat:message was broadcast');
+});
+
+// ---------------------------------------------------------------------------
+// #446: GIF messages. A GIF message is a chat_messages row like any other, so
+// it reuses the whole hardened send path (membership, idempotency, flood, the
+// #502 length check) and adds only the provider-asset contract on top.
+// ---------------------------------------------------------------------------
+
+test('a GIF send is refused GIF_PROVIDER_DISABLED while the capability is off, and stores nothing (AC7/AC9)', async (t) => {
+  const leagueId = 4460;
+  // The capability is off by default; assert that default rather than setting it.
+  const world = chatWorld({ leagueId, teams: { [A.userId]: { teamId: 71, teamName: 'Founders' } } });
+  world.fake.install(t);
+  const client = await harness.connectAs(A, t);
+  await harness.emit(client, 'league:join', { leagueId });
+
+  const ack = await harness.emit(client, 'chat:send', { leagueId, gif: GIF_OK });
+  assert.equal(ack.code, 'GIF_PROVIDER_DISABLED');
+  assert.equal(world.fake.matching(/^INSERT INTO "chat_messages"/).length, 0, 'a disabled GIF send stores nothing');
+});
+
+test('an enabled well-formed GIF send stores a gif row and broadcasts media + caption (AC1)', async (t) => {
+  setGifMessagesEnabledForTests(true);
+  t.after(() => setGifMessagesEnabledForTests(null));
+  const leagueId = 4461;
+  const world = chatWorld({
+    leagueId,
+    teams: { [A.userId]: { teamId: 71, teamName: 'Founders' }, [C.userId]: { teamId: 91, teamName: 'Neutral' } },
+  });
+  world.fake.install(t);
+  const sender = await harness.connectAs(A, t);
+  const watcher = await harness.connectAs(C, t);
+  await harness.emit(sender, 'league:join', { leagueId });
+  await harness.emit(watcher, 'league:join', { leagueId });
+
+  const heard = eventOrSilence(watcher, 'chat:message');
+  const ack = await harness.emit(sender, 'chat:send', { leagueId, gif: GIF_OK, clientMsgId: 'gif-key-1' });
+  assert.deepEqual(ack, { ok: true });
+
+  const entry = await heard;
+  assert.equal(entry.type, LEAGUE_CHAT);
+  assert.equal(entry.message, 'this is me at 3pm', 'the optional caption rides on message');
+  assert.deepEqual(entry.media, {
+    provider: 'fake',
+    assetId: 'abc123',
+    description: 'a cat knocking a cup off a table',
+  });
+  assert.equal(entry.hidden, false);
+  const inserts = world.fake.matching(/^INSERT INTO "chat_messages"/);
+  assert.equal(inserts.length, 1);
+  assert.deepEqual(
+    inserts[0].params.slice(2),
+    ['this is me at 3pm', 'gif-key-1', 'gif', 'fake', 'abc123', 'a cat knocking a cup off a table']
+  );
+});
+
+test('an enabled GIF send with a missing description is refused DESCRIPTION_REQUIRED and stores nothing (AC3)', async (t) => {
+  setGifMessagesEnabledForTests(true);
+  t.after(() => setGifMessagesEnabledForTests(null));
+  const leagueId = 4462;
+  const world = chatWorld({ leagueId, teams: { [A.userId]: { teamId: 71, teamName: 'Founders' } } });
+  world.fake.install(t);
+  const client = await harness.connectAs(A, t);
+  await harness.emit(client, 'league:join', { leagueId });
+
+  const ack = await harness.emit(client, 'chat:send', { leagueId, gif: { ...GIF_OK, description: '   ' } });
+  assert.equal(ack.code, 'DESCRIPTION_REQUIRED');
+  assert.equal(world.fake.matching(/^INSERT INTO "chat_messages"/).length, 0, 'a description-less GIF stores nothing');
+});
+
+test('an enabled GIF send naming a URL asset is refused MEDIA_NOT_ALLOWED and stores nothing (AC2)', async (t) => {
+  setGifMessagesEnabledForTests(true);
+  t.after(() => setGifMessagesEnabledForTests(null));
+  const leagueId = 4463;
+  const world = chatWorld({ leagueId, teams: { [A.userId]: { teamId: 71, teamName: 'Founders' } } });
+  world.fake.install(t);
+  const client = await harness.connectAs(A, t);
+  await harness.emit(client, 'league:join', { leagueId });
+
+  const ack = await harness.emit(client, 'chat:send', {
+    leagueId,
+    gif: { ...GIF_OK, assetId: 'https://media.giphy.com/x.gif' },
+  });
+  assert.equal(ack.code, 'MEDIA_NOT_ALLOWED');
+  assert.equal(world.fake.matching(/^INSERT INTO "chat_messages"/).length, 0, 'a URL asset stores nothing');
+});
+
+test('an enabled GIF send with NO caption succeeds and never throws in the length path (#502 integration)', async (t) => {
+  setGifMessagesEnabledForTests(true);
+  t.after(() => setGifMessagesEnabledForTests(null));
+  const leagueId = 4464;
+  const world = chatWorld({ leagueId, teams: { [A.userId]: { teamId: 71, teamName: 'Founders' } } });
+  world.fake.install(t);
+  const sender = await harness.connectAs(A, t);
+  await harness.emit(sender, 'league:join', { leagueId });
+
+  const heard = eventOrSilence(sender, 'chat:message');
+  const ack = await harness.emit(sender, 'chat:send', { leagueId, gif: { ...GIF_OK, caption: undefined } });
+  assert.deepEqual(ack, { ok: true }, 'a captionless GIF is accepted, not a MESSAGE_TOO_LONG throw');
+  const entry = await heard;
+  assert.equal(entry.message, null, 'no caption reads back as null');
+  assert.equal(entry.media.description, 'a cat knocking a cup off a table', 'the description still rides');
+});
+
+test('an enabled GIF CAPTION is still length-checked with MESSAGE_TOO_LONG (#502 integration)', async (t) => {
+  setGifMessagesEnabledForTests(true);
+  t.after(() => setGifMessagesEnabledForTests(null));
+  const leagueId = 4465;
+  const world = chatWorld({ leagueId, teams: { [A.userId]: { teamId: 71, teamName: 'Founders' } } });
+  world.fake.install(t);
+  const client = await harness.connectAs(A, t);
+  await harness.emit(client, 'league:join', { leagueId });
+
+  const overLong = 'a'.repeat(MAX_CHAT_CHARS + 1);
+  const ack = await harness.emit(client, 'chat:send', { leagueId, gif: { ...GIF_OK, caption: overLong } });
+  assert.equal(ack.code, 'MESSAGE_TOO_LONG');
+  assert.equal(ack.length, 501);
+  assert.equal(world.fake.matching(/^INSERT INTO "chat_messages"/).length, 0, 'an over-long caption stores nothing');
+});
+
+test('a keyed GIF retry re-reads the original media (idempotency + reconnect survival, AC8)', async (t) => {
+  setGifMessagesEnabledForTests(true);
+  t.after(() => setGifMessagesEnabledForTests(null));
+  const leagueId = 4466;
+  const world = chatWorld({ leagueId, teams: { [A.userId]: { teamId: 71, teamName: 'Founders' } } });
+  world.fake.install(t);
+  const sender = await harness.connectAs(A, t);
+  await harness.emit(sender, 'league:join', { leagueId });
+
+  const first = await harness.emit(sender, 'chat:send', { leagueId, gif: GIF_OK, clientMsgId: 'gif-key-9' });
+  assert.deepEqual(first, { ok: true });
+
+  const retry = await harness.emit(sender, 'chat:send', { leagueId, gif: GIF_OK, clientMsgId: 'gif-key-9' });
+  assert.equal(retry.duplicate, true);
+  assert.deepEqual(retry.entry.media, {
+    provider: 'fake',
+    assetId: 'abc123',
+    description: 'a cat knocking a cup off a table',
+  }, 'the retry reproduces the media and description, never a bare success');
+  assert.equal(world.fake.matching(/^INSERT INTO "chat_messages"/).length, 1, 'the retry stores no second row');
 });
