@@ -3,6 +3,7 @@ import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/mat
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
+import EmojiPicker from './EmojiPicker';
 
 // The past-tense verb each Draft LIFECYCLE kind reads as (#437). A lifecycle
 // event is attributed to the acting commissioner's Team ("<Team> started the
@@ -128,6 +129,40 @@ function ChatConversation({
 }) {
   const [text, setText, clearDraft] = useComposerDraft({ leagueId, userId: viewerUserId });
   const headingId = useId();
+
+  // The composer input, so an emoji can be inserted at the caret (#443) rather
+  // than only appended, and focus can be returned here after a choice.
+  const inputRef = useRef(null);
+  // Where the caret should sit after an insert, applied once the picker has
+  // closed so returning focus does not fight the menu's focus trap.
+  const pendingCaretRef = useRef(null);
+
+  // Insert a chosen emoji as ordinary Unicode at the current selection (#443).
+  // It becomes part of `text` and rides every existing path from there: send,
+  // the preserved draft, history, reconnect and the character limit all treat
+  // it as the plain text it is. Choosing never sends.
+  const insertEmoji = (emoji) => {
+    const el = inputRef.current;
+    const start = el && el.selectionStart != null ? el.selectionStart : text.length;
+    const end = el && el.selectionEnd != null ? el.selectionEnd : text.length;
+    pendingCaretRef.current = start + emoji.length;
+    setText(text.slice(0, start) + emoji + text.slice(end));
+  };
+
+  // Called after the picker menu has fully closed following a choice (#443):
+  // return focus to the composer and place the caret just after the emoji, so
+  // the manager keeps typing where they left off. By this point the new text is
+  // in the input, so the caret index is valid.
+  const returnFocusToComposer = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    if (pendingCaretRef.current != null) {
+      const caret = pendingCaretRef.current;
+      pendingCaretRef.current = null;
+      el.setSelectionRange(caret, caret);
+    }
+  };
 
   // The idempotency key for the message being composed (#440). It is stable for
   // one logical message: a retry of the SAME text (a rejected send left in the
@@ -306,13 +341,14 @@ function ChatConversation({
         </Box>
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <TextField
           id="chat-message-input"
           label="Message"
           size="small"
           fullWidth
           value={text}
+          inputRef={inputRef}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -321,6 +357,7 @@ function ChatConversation({
             }
           }}
         />
+        <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
         <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
           Send
         </Button>

@@ -410,3 +410,83 @@ test('a different account does not inherit the previous account\'s draft', async
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={8} />);
   expect(screen.getByLabelText('Message')).toHaveValue('');
 });
+
+// #443: the composer carries an accessible emoji picker. A chosen emoji is
+// inserted as ordinary Unicode at the caret and then rides the existing text
+// path - it is never a separate message type, never sends on its own, and is
+// preserved and sent exactly as typed text is.
+const THUMBS_UP = '\u{1F44D}';
+
+async function pickEmoji(name = 'thumbs up') {
+  await userEvent.click(screen.getByRole('button', { name: 'Insert emoji' }));
+  await userEvent.click(await screen.findByRole('menuitem', { name }));
+}
+
+test('inserts a chosen emoji at the caret, not just at the end, and returns focus to the composer', async () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const input = screen.getByLabelText('Message');
+
+  await userEvent.type(input, 'ab');
+  // Place the caret between the two characters.
+  input.setSelectionRange(1, 1);
+
+  await pickEmoji();
+
+  // The emoji lands at the caret: a, then the emoji, then b.
+  await waitFor(() => expect(input).toHaveValue(`a${THUMBS_UP}b`));
+  // Predictable focus return: the manager can keep typing straight away.
+  await waitFor(() => expect(input).toHaveFocus());
+  // The caret sits after the inserted emoji, ready for the next keystroke.
+  expect(input.selectionStart).toBe(1 + THUMBS_UP.length);
+});
+
+test('choosing an emoji does not send the message', async () => {
+  const onSend = jest.fn().mockResolvedValue(true);
+  renderWithProviders(<ChatConversation messages={[]} onSend={onSend} />);
+
+  await userEvent.type(screen.getByLabelText('Message'), 'nice pick');
+  await pickEmoji();
+
+  await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(`nice pick${THUMBS_UP}`));
+  // Inserting an emoji is composing, not sending.
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+test('an emoji is sent as ordinary text and clears on success', async () => {
+  const onSend = jest.fn().mockResolvedValue(true);
+  renderWithProviders(<ChatConversation messages={[]} onSend={onSend} />);
+  const input = screen.getByLabelText('Message');
+
+  await userEvent.type(input, 'gg');
+  await pickEmoji();
+  await waitFor(() => expect(input).toHaveValue(`gg${THUMBS_UP}`));
+  await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith(`gg${THUMBS_UP}`, expect.any(String)));
+  expect(input).toHaveValue('');
+});
+
+test('an emoji in a feed message renders as ordinary text in history', () => {
+  // A sent emoji is just Unicode in the message string, so it reads back in the
+  // scrollback with no special handling (#443: emoji is portable text).
+  renderWithProviders(
+    <ChatConversation messages={[message({ message: `great pick ${THUMBS_UP}` })]} onSend={noop} />
+  );
+  expect(screen.getByText(`great pick ${THUMBS_UP}`)).toBeInTheDocument();
+});
+
+test('an emoji-bearing draft is preserved per league across a remount, like any text', async () => {
+  const { unmount } = renderWithProviders(
+    <ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />
+  );
+  const input = screen.getByLabelText('Message');
+  await userEvent.type(input, 'later ');
+  await pickEmoji();
+  await waitFor(() => expect(input).toHaveValue(`later ${THUMBS_UP}`));
+
+  // The emoji rides the preserved draft string for free (#442 AC5): it is just
+  // Unicode text, so it survives the same tab-change / reconnect preservation.
+  unmount();
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />);
+  expect(screen.getByLabelText('Message')).toHaveValue(`later ${THUMBS_UP}`);
+});

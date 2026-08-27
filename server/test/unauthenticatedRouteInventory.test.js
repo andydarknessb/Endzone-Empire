@@ -6,6 +6,12 @@ const path = require('node:path');
 const express = require('express');
 const request = require('supertest');
 const { requireAuth, requireSocketAuth } = require('../modules/auth');
+const {
+  mountPathOf,
+  isRootMiddleware,
+  canContinue,
+  classifyApp,
+} = require('./helpers/expressStackWalker');
 
 /**
  * The inventory of routes reachable WITHOUT a session (#201).
@@ -40,130 +46,13 @@ const { requireAuth, requireSocketAuth } = require('../modules/auth');
  */
 
 /**
- * Is this layer the auth guard?
- *
- * Keyed on the Layer's recorded handler NAME rather than on function
- * identity, because `express-async-errors` (required by server.js) replaces
- * `Layer.prototype.handle` with a setter that stores a wrapper, so
- * `layer.handle === requireAuth` is false for every layer in the real app.
- * Express records `fn.name` in the constructor, before that wrapping, so the
- * name survives. The hole a name leaves - some other function also called
- * `requireAuth` - is closed by the source assertion at the end of this file:
- * no router may define or import a `requireAuth` that is not the real one.
+ * The route-classifying walker (`isAuthGuard`, `mountPathOf`, `isRootMiddleware`,
+ * `canContinue`, `guardsMethod`, `classifyRoutes`, `classifyApp`) lives in
+ * ./helpers/expressStackWalker and is required at the top of this file, because #477's
+ * inverse harness-coverage guard walks the same stack and the two must not drift
+ * apart. The classifier proofs below still exercise it here; the middleware and
+ * socket helpers that remain in this file build on the same imported primitives.
  */
-function isAuthGuard(layer) {
-  return layer.name === requireAuth.name || layer.handle === requireAuth;
-}
-
-/** The path `app.use(path, router)` was mounted at, recovered from the layer's regexp. */
-function mountPathOf(layer) {
-  const tail = '\\/?(?=\\/|$)';
-  let src = layer.regexp.source;
-  if (src.endsWith(tail)) src = src.slice(0, -tail.length);
-  if (src.startsWith('^')) src = src.slice(1);
-  return src.replace(/\\\//g, '/');
-}
-
-/** True for a middleware layer mounted at the router root, i.e. one that runs for every route below it. */
-function isRootMiddleware(layer) {
-  return mountPathOf(layer) === '';
-}
-
-/**
- * Could this layer hand the request on to the next one?
- *
- * A function that does not DECLARE a `next` parameter cannot call one, so it
- * is the end of its chain: everything registered behind it is dead code.
- * Arity is the only decidable form of that question from a mounted stack, and
- * it survives `express-async-errors` - the wrapper it installs is built with
- * the same arity as the function it wraps (verified against the installed
- * express 4.22.2 and express-async-errors 3.1.1, not read off the docs).
- *
- * SCOPE: this is sound in one direction only. A layer that declares `next`
- * MIGHT still answer and never call it - `requireAuth` itself does exactly
- * that when it refuses - so a three-argument handler that responds is read
- * here as "could continue". That direction is the safe one for a guard placed
- * BEFORE it. The unsafe residue is a three-argument handler that responds
- * followed by a guard, which still reads as guarded; nothing in the app has
- * that shape, and closing it would need the handler's behaviour rather than
- * its signature.
- */
-function canContinue(layer) {
-  return layer.handle.length >= 3;
-}
-
-/**
- * Is `requireAuth` in the chain Express would actually run for THIS method of
- * this route?
- *
- * Two things make that narrower than "is the guard anywhere in the stack",
- * and the route classifier got both wrong before #241:
- *
- * 1. METHOD. All of a `Route`'s handlers live on one `Route.stack`, each layer
- *    tagged with `.method` (undefined for `route.all`, which runs for every
- *    method). Express dispatches by that tag. So `route('/t').get(open)
- *    .post(requireAuth, h)` has a guard in its stack that GET never meets.
- * 2. ORDER. Express runs the matching layers left to right and stops at the
- *    one that answers, so a guard behind a terminal handler - `router.get(
- *    '/x', handler, requireAuth)` - never runs at all.
- */
-function guardsMethod(route, method) {
-  for (const layer of route.stack) {
-    if (layer.method && layer.method !== method) continue;
-    if (isAuthGuard(layer)) return true;
-    if (!canContinue(layer)) return false;
-  }
-  return false;
-}
-
-/**
- * Every route in `router`, each tagged with whether `requireAuth` is in the
- * chain Express would run for it. Order matters and is the whole point: a
- * root-mounted `requireAuth` protects only the routes registered AFTER it.
- */
-function classifyRoutes(router, prefix = '') {
-  const found = [];
-  let guardedFromHere = false;
-  for (const layer of router.stack) {
-    if (!layer.route) {
-      if (isRootMiddleware(layer) && isAuthGuard(layer)) guardedFromHere = true;
-      // A router mounted inside a router inherits whatever guards it already.
-      if (layer.handle && Array.isArray(layer.handle.stack)) {
-        for (const nested of classifyRoutes(layer.handle, prefix + mountPathOf(layer))) {
-          found.push({ ...nested, guarded: nested.guarded || guardedFromHere });
-        }
-      }
-      continue;
-    }
-    for (const method of Object.keys(layer.route.methods)) {
-      found.push({
-        signature: `${method.toUpperCase()} ${prefix}${layer.route.path}`,
-        guarded: guardedFromHere || guardsMethod(layer.route, method),
-      });
-    }
-  }
-  return found;
-}
-
-/** Every route the app mounts, classified. */
-function classifyApp(app) {
-  const found = [];
-  for (const layer of app._router.stack) {
-    if (layer.route) {
-      for (const method of Object.keys(layer.route.methods)) {
-        found.push({
-          signature: `${method.toUpperCase()} ${layer.route.path}`,
-          guarded: guardsMethod(layer.route, method),
-        });
-      }
-      continue;
-    }
-    if (layer.handle && Array.isArray(layer.handle.stack)) {
-      found.push(...classifyRoutes(layer.handle, mountPathOf(layer)));
-    }
-  }
-  return found;
-}
 
 /**
  * Every middleware in the mounted tree that is neither a route nor a router:
