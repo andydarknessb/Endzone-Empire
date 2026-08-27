@@ -2161,10 +2161,21 @@ describe('narrow container layout (#444)', () => {
     expect(chatTab).toHaveAttribute('aria-controls', chatPanel.getAttribute('id'));
     expect(chatPanel).toHaveAttribute('aria-labelledby', chatTab.getAttribute('id'));
 
-    // Switching tabs renames the panel to the newly selected tab.
+    // Only the SELECTED tab may carry aria-controls: only its panel is rendered,
+    // so the other three would point at ids that do not exist (a dangling
+    // aria-controls / aria-valid-attr-value violation). Assert they have none.
+    for (const name of ['Players', 'Board', 'Draft']) {
+      expect(screen.getByRole('tab', { name })).not.toHaveAttribute('aria-controls');
+    }
+
+    // Switching tabs renames the panel to the newly selected tab, and moves the
+    // aria-controls with the selection.
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    const boardTab = screen.getByRole('tab', { name: 'Board' });
     expect(screen.getByRole('tabpanel', { name: 'Board' })).toBeInTheDocument();
     expect(screen.queryByRole('tabpanel', { name: 'Chat' })).not.toBeInTheDocument();
+    expect(boardTab).toHaveAttribute('aria-controls', 'draft-tabpanel-board');
+    expect(screen.getByRole('tab', { name: 'Chat' })).not.toHaveAttribute('aria-controls');
   });
 
   test('selecting a tab keeps focus on the tab, and one Tab press reaches its panel (#445 AC4)', async () => {

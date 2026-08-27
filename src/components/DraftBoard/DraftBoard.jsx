@@ -846,7 +846,10 @@ function DraftBoard() {
                 label={tab.label}
                 value={tab.value}
                 id={draftTabId(tab.value)}
-                aria-controls={draftTabPanelId(tab.value)}
+                // Only the selected tab's panel is rendered (one region at a time
+                // on a narrow container, #444), so only the selected tab may point
+                // aria-controls at a panel that exists; the others would dangle.
+                aria-controls={tab.value === view ? draftTabPanelId(tab.value) : undefined}
                 sx={MIN_TOUCH_TARGET_SX}
               />
             ))}
