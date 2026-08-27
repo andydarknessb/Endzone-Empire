@@ -2323,6 +2323,77 @@ describe('readiness live region (issue #164)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// GIF composition survives the real narrow-tab unmount (#524, acceptance
+// criterion 5). The restore MECHANISM is proven fast and focused at the
+// ChatPanel level (ChatConversation.test.jsx, useComposerDraft.test.js); this
+// proves the Draft ROOM actually exercises it - that the room's own tab switch
+// unmounts the chat subtree and the composition comes back across THAT, not a
+// hand-driven unmount. It follows the readiness-region precedent above (the
+// same-DOM-node-across-a-narrow-tab-switch test) but asserts restoration of
+// state rather than node identity: the whole subtree is deliberately destroyed
+// and rebuilt here, so a node-identity check would be the wrong instrument.
+//
+// Every helper below is block-scoped inside this describe on purpose: nothing is
+// added at module scope, so it cannot collide with a sibling IC editing the same
+// file near the width stub.
+// ---------------------------------------------------------------------------
+describe('GIF composition survives a narrow Chat-tab unmount (#524 AC5)', () => {
+  mockNarrowContainer();
+
+  // eslint-disable-next-line global-require
+  const { registerGifProvider: gifPersist524Register, clearGifProviders: gifPersist524Clear } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID: GIF_PERSIST_524_PROVIDER, fakeGifResolver: gifPersist524Resolver } = require('../../lib/gifProviderFake');
+
+  beforeEach(() => gifPersist524Register(GIF_PERSIST_524_PROVIDER, gifPersist524Resolver));
+  afterEach(() => {
+    gifPersist524Clear();
+    window.sessionStorage.clear();
+  });
+
+  // The room opens on Chat (#444), narrow, with the GIF capability answered on
+  // the join ack and an account id in the store so the composer draft is scoped
+  // (leagueId 1, account 5).
+  const gifPersist524ShowNarrowChatWithGif = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1, { gifMessagesEnabled: true });
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [{ teamId: 1, teamName: 'Team A' }, { teamId: 2, teamName: 'Team B' }],
+      picks: [],
+      onTheClock: { teamId: 1, teamName: 'Team A' },
+    })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('filling the GIF composer, switching to Board and back, restores the composition', async () => {
+    await gifPersist524ShowNarrowChatWithGif();
+
+    // Fill a partial GIF composition on the Chat tab.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+    await userEvent.type(screen.getByLabelText(/description/i), 'a cat knocking a cup');
+    await userEvent.type(screen.getByLabelText(/caption/i), 'me at 3pm');
+
+    // Switch to the Board tab: on a narrow container only the active tab's region
+    // is mounted, so this genuinely UNMOUNTS the chat subtree (the composer with
+    // it). Prove that, so the restoration below is across a real unmount.
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(screen.queryByRole('heading', { level: 2, name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+
+    // Back to Chat: the subtree remounts and the composition is restored, with
+    // the panel reopened because the stored composition is non-empty.
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a cat knocking a cup');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('me at 3pm');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Wide-container three-pane layout (#444 acceptance criterion 1): Players or
 // Board on the left, the largest Chat/activity feed in the centre, and the
 // status-dependent rail on the right, all visible at once (no tabs). The unit
