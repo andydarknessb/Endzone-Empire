@@ -16,7 +16,7 @@
 //     and accessible names a reader computes from, and a live region's text at
 //     the moment it changes. That is a STRICTLY WEAKER claim than a reader
 //     announcing it; the reader run remains a named gap for the maintainer
-//     (#507).
+//     (#156, which absorbed #507).
 //   - the screenshot matrix at both layouts is attached to the report.
 import {
   test,
