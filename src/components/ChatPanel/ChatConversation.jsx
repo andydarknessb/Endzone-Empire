@@ -536,8 +536,31 @@ function ChatConversation({
           half-composed GIF survives an unmount exactly as the text draft does
           and the panel reopens when a restored composition is non-empty. A
           successful GIF send (or a Cancel) clears only this slice through
-          setGif, leaving the message draft above untouched. */}
+          setGif, leaving the message draft above untouched.
+
+          The key is the composer-draft identity (league + account). GifComposer
+          keeps two pieces of purely local UI state that the hook does not own -
+          the open/closed disclosure and the description touched flag - and it
+          computes the panel's initial open state once, from the composition it
+          mounts with. When the identity CHANGES IN PLACE (the hook re-seeds the
+          composition to the new scope without an unmount), that local state would
+          otherwise go stale: a previously-touched empty Description could show a
+          validation error for content the new scope never had. Keying on the
+          identity remounts the composer on that transition, so its open state is
+          recomputed from the re-seeded composition and the touched flag resets -
+          the same fresh start a real unmount gives it.
+
+          When is an in-place identity change even reachable? Not on logout or an
+          account switch: ProtectedRoute (App.jsx wraps both the Draft room and
+          the Dashboard) swaps the whole subtree for the login page the instant
+          the account id goes null, so this component unmounts rather than
+          re-rendering with a null viewerUserId. The one path that keeps it
+          mounted is a direct league-to-league navigation whose target league is
+          already warm in the useLeague cache (FantasyOnly then skips its loader).
+          The key covers that path; without it the residual is only cosmetic and
+          capability-gated, but the key is a cheaper guarantee than the analysis. */}
       <GifComposer
+        key={`${leagueId}:${viewerUserId}`}
         enabled={gifEnabled}
         onSendGif={onSendGif}
         composition={gif}

@@ -880,22 +880,78 @@ describe('ChatConversation - GIF composition persistence (#524)', () => {
     expect(screen.getByLabelText(/caption/i)).toHaveValue('me at 3pm');
   });
 
-  test('a restored composition does not come back already showing a validation error (touched flag not persisted)', async () => {
-    // Fill only the asset id, leaving the required description empty, then remount.
+  test('the touched/validation flag is not persisted, and validation still works after a restore', async () => {
     const { unmount } = renderWithProviders(
       <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
     );
-    await fillGif({ assetId: 'abc123', description: '' });
+    // Compose an asset id but leave the required Description empty, then TOUCH it
+    // (focus and blur) so descriptionTouched genuinely goes true and the first
+    // mount is actually showing the validation error. Without this blur the flag
+    // never flips, and the post-remount assertion below could not fail whether or
+    // not the flag were persisted.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+    const firstDescription = screen.getByLabelText(/description/i);
+    await userEvent.click(firstDescription);
+    await userEvent.tab();
+    // The flag is genuinely true here: the error is on screen before the unmount.
+    expect(firstDescription).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+
     unmount();
     renderWithProviders(
       <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
     );
 
-    // The panel is open (asset id makes the composition non-empty) but the empty
-    // description is NOT marked invalid: touched did not survive the remount.
-    const description = screen.getByLabelText(/description/i);
-    expect(description).not.toHaveAttribute('aria-invalid', 'true');
+    // The asset id restored (panel open), but the touched flag did NOT survive, so
+    // the restored composition is not already shouting an error.
+    const restored = screen.getByLabelText(/description/i);
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(restored).not.toHaveAttribute('aria-invalid', 'true');
     expect(screen.queryByText(/description is required/i)).not.toBeInTheDocument();
+
+    // The converse: validation is not merely silenced, it still works after a
+    // restore. Touching the emptied Description now surfaces the error, so a
+    // manager who tries to send an incomplete restored GIF still learns why.
+    await userEvent.click(restored);
+    await userEvent.tab();
+    expect(restored).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+  });
+
+  test('an in-place league change resets the composer, so a touched-empty Description does not carry a stale error into the new scope', async () => {
+    // The one path that re-seeds the composition WITHOUT an unmount: a direct
+    // league-to-league navigation whose target is already warm (FantasyOnly skips
+    // its loader), so ChatConversation stays mounted while leagueId changes.
+    // GifComposer is keyed on the league+account identity precisely so its local
+    // touched/open state does not survive that transition; without the key a
+    // Description touched and left empty in league 5 would show aria-invalid in
+    // league 6 for content league 6 never had. (Logout/account-switch cannot take
+    // this path - ProtectedRoute unmounts the subtree when the account id clears.)
+    function IdentityHarness() {
+      const [lid, setLid] = React.useState(5);
+      return (
+        <>
+          <button type="button" onClick={() => setLid(6)}>switch-league</button>
+          <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={lid} viewerUserId={7} />
+        </>
+      );
+    }
+    renderWithProviders(<IdentityHarness />);
+
+    // Touch an empty Description in league 5: the error is on screen.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+    await userEvent.click(screen.getByLabelText(/description/i));
+    await userEvent.tab();
+    expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-invalid', 'true');
+
+    // Change league in place. The composer resets to the new (empty) scope: the
+    // stale validation error is gone, and league 5's asset id does not bleed into
+    // league 6 (no field anywhere still holds it).
+    await userEvent.click(screen.getByRole('button', { name: 'switch-league' }));
+    expect(screen.queryByText(/description is required/i)).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('abc123')).not.toBeInTheDocument();
   });
 
   test('a different account finds an empty GIF composition and a closed panel', async () => {
