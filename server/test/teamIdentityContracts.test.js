@@ -295,12 +295,14 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
       { id: VIEWER.teamId, name: VIEWER.teamName, owner_id: VIEWER.userId, draft_position: 1, autodraft: false, locked: false },
       { id: OTHER.teamId, name: OTHER.teamName, owner_id: OTHER.userId, draft_position: 2, autodraft: false, locked: false },
     ] })],
-    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    // The Pick's Draft activity, appended in the same transaction (#435).
+    [insert('draft_activity'), () => ({ rows: [{ id: 3, feed_seq: '2', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
@@ -425,6 +427,7 @@ test('chat history: every message is attributed by Team and no account fields', 
         id: 5,
         message: 'good luck everyone',
         created_at: '2026-09-01T00:00:00.000Z',
+        feed_seq: 7,
         teamId: OTHER.teamId,
         teamName: OTHER.teamName,
       }],
@@ -439,6 +442,9 @@ test('chat history: every message is attributed by Team and no account fields', 
   const [message] = res.body;
   assert.equal(message.teamId, OTHER.teamId);
   assert.equal(message.teamName, OTHER.teamName);
+  // A typed feed entry carrying its per-league sequence (#434), still Team-only.
+  assert.equal(message.type, 'league_chat');
+  assert.equal(message.seq, 7);
   assert.equal('user_id' in message, false, 'the author account id is gone (#343)');
   assert.equal('username' in message, false, 'the author username is gone (#343)');
   const [chatQuery] = fake.matching(/FROM "chat_messages"/);
@@ -453,6 +459,7 @@ test('chat:message attributes the message by Team and nothing about the author a
   assert.deepEqual(
     chatMessagePayload({
       id: 5,
+      seq: 7,
       leagueId: LEAGUE_ID,
       user: { id: OTHER.userId, username: 'u43' },
       team: { id: OTHER.teamId, name: OTHER.teamName },
@@ -460,11 +467,15 @@ test('chat:message attributes the message by Team and nothing about the author a
       createdAt: '2026-09-01T00:00:00.000Z',
     }),
     {
+      type: 'league_chat',
       id: 5,
+      seq: 7,
       leagueId: LEAGUE_ID,
       teamId: OTHER.teamId,
       teamName: OTHER.teamName,
       message: 'good luck everyone',
+      // #441: a live send is never hidden; the flag rides on every entry.
+      hidden: false,
       created_at: '2026-09-01T00:00:00.000Z',
     }
   );

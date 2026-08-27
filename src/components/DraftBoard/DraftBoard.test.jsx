@@ -34,12 +34,30 @@ function makeFakeSocket() {
   const socket = {
     viewerTeamId: null,
     isCommissioner: false,
+    // A socket is an EventEmitter: more than one consumer can listen for the
+    // same event on one session. Since #435 the draft board (advance the clock,
+    // land the pick) and the combined feed (append the Pick activity) both
+    // listen for 'draft:picked' on this one session, so this records a LIST per
+    // event rather than a single slot the second listener would overwrite -
+    // mirroring the manager (`io`) below, which #433 made a list for the same
+    // reason.
     on: jest.fn((event, cb) => {
-      handlers[event] = cb;
+      (handlers[event] = handlers[event] || []).push(cb);
+    }),
+    off: jest.fn((event, cb) => {
+      if (handlers[event]) handlers[event] = handlers[event].filter((h) => h !== cb);
     }),
     io: {
+      // The socket.io manager is an EventEmitter: more than one consumer can
+      // listen for 'reconnect' on the same session. Since #433 the draft room
+      // (re-join) and league chat (re-sync history) both do, so this records a
+      // list per event rather than a single slot that the second listener
+      // would overwrite.
       on: jest.fn((event, cb) => {
-        managerHandlers[event] = cb;
+        (managerHandlers[event] = managerHandlers[event] || []).push(cb);
+      }),
+      off: jest.fn((event, cb) => {
+        if (managerHandlers[event]) managerHandlers[event] = managerHandlers[event].filter((h) => h !== cb);
       }),
     },
     emit: jest.fn((event, payload, ack) => {
@@ -49,10 +67,10 @@ function makeFakeSocket() {
     }),
     disconnect: jest.fn(),
     trigger(event, payload) {
-      if (handlers[event]) handlers[event](payload);
+      (handlers[event] || []).forEach((cb) => cb(payload));
     },
     triggerManager(event, payload) {
-      if (managerHandlers[event]) managerHandlers[event](payload);
+      (managerHandlers[event] || []).forEach((cb) => cb(payload));
     },
   };
   return socket;
@@ -2204,5 +2222,68 @@ describe('readiness live region (issue #164)', () => {
 
     expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// League chat in the Draft room (issue #433): the same conversation the
+// Dashboard shows, carried over the draft room's ONE authenticated session.
+// ---------------------------------------------------------------------------
+
+describe('League chat in the draft room (issue #433)', () => {
+  const showActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague())));
+    // Chat mounts on the room's session, so its heading is the settled signal.
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('renders League chat in the room, as a named region with a level-2 heading', async () => {
+    await showActiveDraft();
+
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+  });
+
+  test('carries chat over the one draft session, never a second connection', async () => {
+    await showActiveDraft();
+
+    // useDraftSocket opens exactly one authenticated session for the whole
+    // room; chat rides it rather than minting its own (acceptance criterion 3).
+    expect(createDraftSocket).toHaveBeenCalledTimes(1);
+
+    await userEvent.type(screen.getByLabelText('Message'), 'gg everyone');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() =>
+      expect(fakeSocket.emit).toHaveBeenCalledWith(
+        'chat:send',
+        expect.objectContaining({ leagueId: 1, message: 'gg everyone' }),
+        expect.any(Function)
+      )
+    );
+  });
+
+  test('shows a message that arrives over the draft session, attributed by Team', async () => {
+    await showActiveDraft();
+
+    act(() =>
+      fakeSocket.trigger('chat:message', {
+        id: 91,
+        leagueId: 1,
+        userId: 2,
+        username: 'bob',
+        teamId: 2,
+        teamName: 'Team B',
+        message: 'nice pick',
+        created_at: '2026-01-01T12:00:00Z',
+      })
+    );
+
+    expect(await screen.findByText('nice pick')).toBeInTheDocument();
+    // The author is the Team, never the account behind it.
+    expect(screen.queryByText('bob')).not.toBeInTheDocument();
   });
 });

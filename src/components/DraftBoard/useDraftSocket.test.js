@@ -490,3 +490,32 @@ test('disconnects the socket on unmount', () => {
   unmount();
   expect(fakeSocket.disconnect).toHaveBeenCalled();
 });
+
+// --- the room's one connection, exposed so chat can ride it (#433) ---
+//
+// The Draft room is already in the `league:${id}` room its draft:join put it
+// in, which is exactly the room league chat broadcasts to. Exposing this one
+// authenticated session lets the room carry chat over it rather than mounting
+// a second connection (#433 acceptance criterion 3).
+
+test('exposes the live draft session so another concern can share it', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+  // The socket is created on mount, before the first connect, so a consumer
+  // can attach to it as soon as the room renders.
+  expect(result.current.socket).toBe(fakeSocket);
+});
+
+test('swaps the exposed socket when the league changes, never handing back the old one', () => {
+  const { result, rerender } = renderHook(({ leagueId }) => useDraftSocket(leagueId), {
+    initialProps: { leagueId: 1 },
+  });
+  expect(result.current.socket).toBe(fakeSocket);
+
+  // A new league gets a new session, and the old socket is torn down.
+  const nextSocket = makeFakeSocket();
+  createDraftSocket.mockReturnValue(nextSocket);
+  rerender({ leagueId: 2 });
+
+  expect(fakeSocket.disconnect).toHaveBeenCalled();
+  expect(result.current.socket).toBe(nextSocket);
+});

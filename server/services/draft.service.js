@@ -7,6 +7,7 @@ const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { teamIdentityOf } = require('./teamIdentity');
+const { appendPickActivity, appendLifecycleActivity, COMPLETE } = require('./draftActivity');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRounds } = require('./rosterShape');
 const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
@@ -150,7 +151,10 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     }
 
     const playerResult = await client.query(
-      `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
+      // nfl_team rides along for the Draft-activity snapshot (#435): the feed's
+      // Pick entry shows the player's NFL team, and the activity is written from
+      // this same transaction, so the fact is read here rather than re-fetched.
+      `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
       [playerId]
     );
     if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
@@ -182,6 +186,14 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     let draftComplete = false;
     let nextTeamId = null;
     let pickDeadlineAt = null;
+    // The Draft-activity entry for this Pick (#435), null for a post-draft
+    // free-agent add (that is not a Draft Pick and appends no Draft activity).
+    let activity = null;
+    // The completion lifecycle entry (#437), set only on the Pick that ends the
+    // draft. It is a state transition no manager performed, so it carries no
+    // actor Team; the final Pick's own `activity` above already attributes the
+    // Pick to the drafting Team.
+    let completion = null;
 
     if (league.draft_status === 'active') {
       if (league.draft_paused) {
@@ -197,6 +209,24 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
          VALUES ($1, $2, $3, $4)`,
         [leagueId, myTeam.id, playerId, pickNumber]
       );
+
+      // Append the immutable Draft activity for this Pick in the SAME
+      // transaction as the Pick (#435 AC1), snapshotting the facts the feed must
+      // show and survive a later correction (#435 AC2). The round is derived
+      // from the overall Pick number and the team count (the same 0-based
+      // pickNumber / teamCount the rotation uses, made 1-based); `auto` is the
+      // authoritative write's own fact, so an autopick is labeled only when it
+      // truly occurred (#435 AC3). The row names no feed_seq: the trigger
+      // allocates it from the shared per-league sequence.
+      const round = Math.floor((pickNumber - 1) / teams.length) + 1;
+      activity = await appendPickActivity(client, {
+        leagueId,
+        team: myTeam,
+        player: playerResult.rows[0],
+        round,
+        pickNumber,
+        auto,
+      });
 
       // Rounds are draftRounds(league): fixed once when the draft went active
       // (ADR 0005), NOT a live draftRosterSize() recomputation — a completion
@@ -266,6 +296,18 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         // The season schedule exists the moment the draft ends
         const { generateRegularSeason } = require('./season.service');
         await generateRegularSeason({ leagueId }, client);
+        // Record the completion as append-only Draft activity, in the SAME
+        // transaction that flips the status to complete (#437 AC4). No actor:
+        // completion is a state transition, not an action a manager took, so
+        // fabricating one would be a missing-fact invention (#437 AC5). It
+        // orders AFTER this final Pick's own activity by the shared sequence.
+        // #437 records completion only; it carries no post-completion
+        // correction contract, so nothing here arms one.
+        completion = await appendLifecycleActivity(client, {
+          leagueId,
+          kind: COMPLETE,
+          team: null,
+        });
       } else {
         nextTeamId = nextTeam.id;
       }
@@ -304,6 +346,14 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       nextTeamId,
       draftComplete,
       pickDeadlineAt,
+      // The typed Draft-activity entry for the combined feed (#435), so the
+      // `draft:picked` broadcast carries it to the room beside the board update.
+      // Null for a post-draft free-agent add.
+      activity,
+      // The completion lifecycle entry (#437), set only on the Pick that ends
+      // the draft, else null. The socket emit sites deliver it on `draft:activity`
+      // so the room's feed shows the draft closing beside the final Pick.
+      completion,
     };
   } catch (error) {
     await client.query('ROLLBACK');

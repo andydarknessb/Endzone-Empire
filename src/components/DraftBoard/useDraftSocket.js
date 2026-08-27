@@ -153,6 +153,14 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [isCommissioner, setIsCommissioner] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
+  // The live session, exposed so another concern in the room can ride it. The
+  // room's draft:join already puts this socket in the `league:${id}` room that
+  // carries league chat, so chat rides this one authenticated connection
+  // rather than mounting a second (#433). Kept in state, not just the ref
+  // below, so a consumer re-renders onto the new socket when the league (and
+  // so the socket) changes. The ref stays for the socket-effect internals and
+  // emitPick, which must read the current socket without re-subscribing.
+  const [socket, setSocket] = useState(null);
   const socketRef = useRef(null);
   // The socket effect below is registered once per leagueId; this ref keeps
   // its 'draft:picked' handler calling the current callback instead of a
@@ -175,6 +183,7 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     setIsCommissioner(false);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
+    setSocket(newSocket);
 
     // Shared by the initial connect and every reconnect: re-joins the draft
     // room, which also makes the server push a fresh 'draft:state' snapshot
@@ -249,6 +258,10 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
       offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
       newSocket.disconnect();
       socketRef.current = null;
+      // Re-run on a league change (this cleanup, then a fresh effect) swaps the
+      // exposed socket to the new one; on unmount React drops the value with
+      // the component, so there is no stale session to hand back either way.
+      setSocket(null);
     };
   }, [leagueId]);
 
@@ -286,6 +299,7 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const dismissOnClockAlert = useCallback(() => setOnClockAlertOpen(false), []);
 
   return {
+    socket,
     league: state.league,
     teams: state.teams,
     picks: state.picks,

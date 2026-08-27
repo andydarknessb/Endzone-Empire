@@ -32,6 +32,17 @@ jobs:
       # (scripts/ci/check-adr-uniqueness.js), which fails on a duplicate
       # numeric prefix or a gap in the sequence.
       - run: npm run check:adr-uniqueness
+      # The uniqueness guard above only lists docs/adr/ (readdirSync); it never
+      # opens an ADR, so it cannot see a merged ADR being rewritten in place,
+      # which is the more damaging path. This guard compares every ADR that
+      # exists on the base ref against the checkout: append-only, with the
+      # Status: line free to change (superseded in place). Base is the PR's
+      # target sha on pull requests and the previous tip on pushes, so a
+      # rewrite merged on stale checks is caught by the push build. The guard
+      # fails on a missing base rather than passing on nothing.
+      - run: npm run check:adr-immutability
+        env:
+          ADR_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
       # close-merged-issues.yml closes the issues a merged PR names (#330).
       # Its parser tests run here so a broken parser cannot merge; the
       # post-merge job re-runs them as a tripwire before it writes anything.

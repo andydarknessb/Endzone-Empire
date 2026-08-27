@@ -120,15 +120,18 @@ function completionPool({ league, picksMade }) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
     [select('teams'), () => ({ rows: [
-      { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
-      { id: 12, owner_id: 8, draft_position: 2, autodraft: false, locked: false },
+      { id: 11, owner_id: 7, name: 'Team Eleven', draft_position: 1, autodraft: false, locked: false },
+      { id: 12, owner_id: 8, name: 'Team Twelve', draft_position: 2, autodraft: false, locked: false },
     ] })],
-    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    // The Pick's Draft activity, written in the same transaction (#435). The
+    // BEFORE INSERT trigger allocates feed_seq; the fake returns it on RETURNING.
+    [insert('draft_activity'), () => ({ rows: [{ id: 77, feed_seq: '5', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
@@ -146,6 +149,99 @@ test('draftPlayer: the draft completes at teams x draft roster size, not x roste
   assert.equal(result.nextTeamId, null);
   const leagueUpdate = fake.matching(/^UPDATE "leagues" SET "current_pick"/)[0];
   assert.equal(leagueUpdate.params[1], 'complete');
+  fake.assertClean();
+});
+
+test('draftPlayer: a committed Pick appends its Draft-activity entry in the same transaction (#435)', async (t) => {
+  const fake = completionPool({ league: { ...completionLeague, current_pick: 0 }, picksMade: 1 }).install(t);
+  recordBenching(t, fake);
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  // Exactly one activity row, written alongside the one Pick row.
+  assert.equal(fake.matching(insert('draft_picks')).length, 1, 'one pick recorded');
+  assert.equal(fake.matching(insert('draft_activity')).length, 1, 'one activity appended');
+  // The outcome carries the typed entry the broadcast will hand the feed.
+  assert.equal(result.activity.type, 'draft_activity');
+  assert.equal(result.activity.kind, 'pick');
+  assert.equal(result.activity.seq, 5);
+  assert.equal(result.activity.teamId, 11);
+  assert.equal(result.activity.teamName, 'Team Eleven');
+  assert.deepEqual(result.activity.player, { id: 500, name: 'Pick Me', position: 'RB', nflTeam: 'KC' });
+  assert.equal(result.activity.round, 1);
+  assert.equal(result.activity.pickNumber, 1);
+  assert.equal(result.activity.isAutopick, false);
+  fake.assertClean();
+});
+
+test('draftPlayer: an autopick labels its activity isAutopick (#435 AC3)', async (t) => {
+  const fake = completionPool({ league: { ...completionLeague, current_pick: 0 }, picksMade: 1 }).install(t);
+  recordBenching(t, fake);
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500, auto: true });
+
+  assert.equal(result.activity.isAutopick, true, 'the write knew this pick was an autopick');
+  fake.assertClean();
+});
+
+// A completion-aware pool: the draft_activity insert is stateful so the Pick
+// and the completion draw DISTINCT feed_seqs (5 then 6), the way the shared
+// trigger allocates them.
+function completionActivityPool({ league, picksMade }) {
+  let seq = 5;
+  return createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, owner_id: 7, name: 'Team Eleven', draft_position: 1, autodraft: false, locked: false },
+      { id: 12, owner_id: 8, name: 'Team Twelve', draft_position: 2, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('draft_activity'), () => ({ rows: [{ id: 70 + seq, feed_seq: String(seq++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+  ]);
+}
+
+test('draftPlayer: the final Pick appends an actor-less completion lifecycle entry (#437)', async (t) => {
+  const fake = completionActivityPool({ league: completionLeague, picksMade: 4 }).install(t);
+  recordBenching(t, fake);
+  t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, true);
+  // Two activity rows: the Pick and the completion, both in this transaction.
+  assert.equal(fake.matching(insert('draft_activity')).length, 2, 'pick + completion appended');
+  // The Pick entry is unchanged (#435).
+  assert.equal(result.activity.kind, 'pick');
+  // The completion is a state transition no manager performed: it carries no
+  // actor Team (not fabricated, #437 AC5) and no Pick facts.
+  assert.ok(result.completion, 'the outcome carries the completion entry');
+  assert.equal(result.completion.type, 'draft_activity');
+  assert.equal(result.completion.kind, 'complete');
+  assert.equal(result.completion.teamId, null);
+  assert.equal(result.completion.teamName, null);
+  assert.equal('player' in result.completion, false);
+  // It orders AFTER the Pick by the shared sequence.
+  assert.ok(result.completion.seq > result.activity.seq, 'completion follows the final Pick');
+  fake.assertClean();
+});
+
+test('draftPlayer: a non-final Pick carries no completion entry', async (t) => {
+  const fake = completionActivityPool({ league: { ...completionLeague, current_pick: 0 }, picksMade: 1 }).install(t);
+  recordBenching(t, fake);
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, false);
+  assert.equal(result.completion, null, 'no completion entry until the draft actually completes');
+  assert.equal(fake.matching(insert('draft_activity')).length, 1, 'only the Pick activity');
   fake.assertClean();
 });
 
@@ -536,12 +632,13 @@ test('draftPlayer: the completing pick schedules the season for real, gate and a
       { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
       { id: 12, owner_id: 8, draft_position: 2, autodraft: false, locked: false },
     ] })],
-    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 4 }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('draft_activity'), () => ({ rows: [{ id: 78, feed_seq: '9', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [select('matchups'), () => ({ rows: [] })],
     [insert('matchups'), () => ({ rows: [], rowCount: 1 })],

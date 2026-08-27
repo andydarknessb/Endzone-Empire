@@ -30,6 +30,7 @@ const { isMember, joinLeague } = require('../services/leagueMembership.service')
 const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
+const { listLeagueChatFeed, listCombinedDraftFeed } = require('../services/leagueFeed');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -667,45 +668,80 @@ router.get('/:id/matchups', async (req, res) => {
   }
 });
 
-// GET /api/league/:id/chat — last 50 chat messages, oldest first
+// GET /api/league/:id/chat — the League chat feed, oldest first (#434).
+// The initial read returns the latest 100 visible entries; `?before=<seq>`
+// pages the 100 entries just older than that cursor, so a client can walk back
+// through the whole conversation instead of the old fixed last-50 window.
+// `?after=<seq>` is the reconnect-resume cursor (#442): given the last seq a
+// client acknowledged, it returns the entries just newer than it, so a
+// reconnecting client resumes from where it left off in the same order. Each
+// entry is a typed feed entry (leagueFeed.service) carrying its authoritative
+// per-league `seq` beside its Team-only identity.
+//
 // Chat authors are identified by Team identity ALONE (#112, parent #108,
-// contracted by #343): the author's account id and username no longer ride on
-// the history, and the users JOIN that supplied the username is gone. The Team
-// identity join is LEFT so a message from a manager who has since left the
-// league still reads back rather than dropping out of the history; its Team
-// identity is simply null. `chat_messages.user_id` is still read INSIDE the
-// query (the block filter below) but is not projected onto the wire. This
-// response is a bare array with no root to carry `viewerTeamId`, so a viewer
-// takes theirs from the `league:join` acknowledgement the chat panel already
-// makes, and compares `message.teamId` against it.
+// contracted by #343): the author's account id and username never ride on the
+// history, and the Team identity join is LEFT so a message from a manager who
+// has since left the league still reads back (null Team identity) rather than
+// dropping out. `chat_messages.user_id` is read INSIDE the query (the block
+// filter) but is not projected onto the wire. The response is a bare array
+// with no root to carry `viewerTeamId`, so a viewer takes theirs from the
+// `league:join` acknowledgement the chat panel already makes, and compares
+// `entry.teamId` against it. Adding `type` and `seq` is additive, so a client
+// built against the old shape keeps working through the expansion.
 router.get('/:id/chat', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const before = intParam(req.query.before);
+  // `?after=<seq>` is the reconnect-resume cursor (#442): the client hands back
+  // the last seq it acknowledged and gets the entries newer than it.
+  const after = intParam(req.query.after);
   try {
     if (!(await isMember(pool, leagueId, req.user.id))) {
       return res.status(403).json({ error: 'not a member of this league' });
     }
-    const result = await pool.query(
-      `SELECT * FROM (
-         SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-                ${teamIdentityColumns()}
-         FROM "chat_messages"
-         ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
-         WHERE "chat_messages"."league_id" = $1
-           AND NOT EXISTS (
-             SELECT 1 FROM "user_blocks"
-             WHERE "user_blocks"."blocker_id" = $2
-               AND "user_blocks"."blocked_id" = "chat_messages"."user_id"
-           )
-         ORDER BY "chat_messages"."created_at" DESC
-         LIMIT 50
-       ) recent ORDER BY "created_at" ASC`,
-      [leagueId, req.user.id]
-    );
-    res.json(result.rows);
+    const entries = await listLeagueChatFeed(pool, {
+      leagueId,
+      viewerId: req.user.id,
+      before,
+      after,
+    });
+    res.json(entries);
   } catch (error) {
     console.error('Error fetching chat', error);
     res.status(500).json({ error: 'failed to fetch chat' });
+  }
+});
+
+// GET /api/league/:id/draft-feed — the combined Draft-room feed (#435, ADR
+// 0012): League chat and Draft activity interleaved into one order by the
+// shared per-league `seq`, latest 100 visible entries oldest-first, with
+// `?before=<seq>` paging older and `?after=<seq>` resuming newer after a
+// reconnect (#442). This is the Draft room's feed; the League
+// Dashboard drawer stays chat-only on `/chat`. Members only, same as chat: the
+// combined feed can carry Draft activity a presenter link may see, but League
+// chat rides here too, so a non-member is refused (presenter-safe activity-only
+// exposure is #438, a separate surface). Each entry is a typed feed entry
+// (leagueFeed.combinedEntryOf) carrying its Team-only identity and its `seq`.
+router.get('/:id/draft-feed', async (req, res) => {
+  const leagueId = intParam(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
+  const before = intParam(req.query.before);
+  // `?after=<seq>` is the reconnect-resume cursor (#442), same as /chat.
+  const after = intParam(req.query.after);
+  try {
+    if (!(await isMember(pool, leagueId, req.user.id))) {
+      return res.status(403).json({ error: 'not a member of this league' });
+    }
+    const entries = await listCombinedDraftFeed(pool, {
+      leagueId,
+      viewerId: req.user.id,
+      before,
+      after,
+    });
+    res.json(entries);
+  } catch (error) {
+    console.error('Error fetching draft feed', error);
+    res.status(500).json({ error: 'failed to fetch draft feed' });
   }
 });
 
