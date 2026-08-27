@@ -30,7 +30,11 @@ describe('feedAnnouncementFor', () => {
     ).toBe('');
   });
 
-  it('announces a committed Pick with the Team and the player', () => {
+  it('no longer announces a committed Pick - the room-level PickAnnouncer speaks it (#513)', () => {
+    // Picks moved to a room-level announcer (PickAnnouncer, #513) so they are
+    // heard on every tab and in both layouts, not only while Chat is mounted.
+    // The Chat-scoped feed announcer must therefore go SILENT on a Pick, or a
+    // screen-reader user with Chat mounted would hear the same Pick twice.
     expect(
       feedAnnouncementFor({
         type: 'draft_activity',
@@ -40,10 +44,10 @@ describe('feedAnnouncementFor', () => {
         round: 1,
         pickNumber: 3,
       })
-    ).toBe('Gridiron Giants drafted Justin Jefferson');
+    ).toBe('');
   });
 
-  it('marks an autopick as autodrafted', () => {
+  it('no longer announces an autopick either (#513)', () => {
     expect(
       feedAnnouncementFor({
         type: 'draft_activity',
@@ -52,20 +56,15 @@ describe('feedAnnouncementFor', () => {
         isAutopick: true,
         player: { name: 'Bijan Robinson' },
       })
-    ).toBe('Gridiron Giants autodrafted Bijan Robinson');
+    ).toBe('');
   });
 
-  it('falls back to "a player" when a Pick carries no player name', () => {
-    expect(
-      feedAnnouncementFor({ type: 'draft_activity', kind: 'pick', teamName: 'Gridiron Giants', player: {} })
-    ).toBe('Gridiron Giants drafted a player');
-  });
-
-  it('says nothing for Draft lifecycle activity (start/pause/resume/reset/complete)', () => {
-    // AC2 names human messages and Picks. Live draft-state is already carried by
-    // the on-the-clock (LiveDraftBanner), countdown (#117) and readiness (#164)
-    // regions; announcing lifecycle here too would only add contention.
-    for (const kind of ['draft_start', 'pause', 'resume', 'reset', 'complete']) {
+  it('says nothing for any Draft activity - Picks and lifecycle alike (#513)', () => {
+    // AC2 no longer names Picks here (#513 moved them to PickAnnouncer). Live
+    // draft-state is carried by the on-the-clock (LiveDraftBanner), countdown
+    // (#117), readiness (#164) and the room-level Pick announcer; announcing any
+    // of it in the feed too would only add contention or duplicate speech.
+    for (const kind of ['pick', 'draft_start', 'pause', 'resume', 'reset', 'complete']) {
       expect(feedAnnouncementFor({ type: 'draft_activity', kind, teamName: 'Gridiron Giants' })).toBe('');
     }
   });
@@ -84,15 +83,9 @@ describe('feedAnnouncementFor', () => {
     expect(feedAnnouncementFor(own)).toBe('New message from My Team');
   });
 
-  it("still announces the viewer's OWN Pick (a committed Pick is worth confirming)", () => {
-    const ownPick = { type: 'draft_activity', kind: 'pick', teamId: 11, teamName: 'My Team', player: { name: 'Justin Jefferson' } };
-    expect(feedAnnouncementFor(ownPick, 11)).toBe('My Team drafted Justin Jefferson');
-  });
-
   it('uses no em-dashes in any announcement (house style, guarded copy)', () => {
     const samples = [
       feedAnnouncementFor({ type: 'league_chat', teamName: 'A', message: 'x' }),
-      feedAnnouncementFor({ type: 'draft_activity', kind: 'pick', teamName: 'A', player: { name: 'P' } }),
     ];
     for (const text of samples) {
       expect(text).not.toMatch(/—/);

@@ -81,7 +81,7 @@ test('appends a message broadcast over the shared draft session', async () => {
   expect(screen.getByText('Bulldogs')).toBeInTheDocument();
 });
 
-test('announces a live message and a live Pick in a polite region, but not the opening backlog (#445 AC2)', async () => {
+test('announces a live human message in a polite region - but never a Pick (#513) or the opening backlog', async () => {
   // Opening backlog: a message already in history is not "new" and must not be
   // announced.
   apiClient.get.mockResolvedValue({ data: [chatMessage({ message: 'welcome', teamName: 'Anvils', seq: 1 })] });
@@ -97,7 +97,12 @@ test('announces a live message and a live Pick in a polite region, but not the o
   act(() => socket.trigger('chat:message', chatMessage({ id: 2, seq: 5, teamId: 12, teamName: 'Bulldogs', message: 'good luck all' })));
   expect(await screen.findByText('New message from Bulldogs')).toBeInTheDocument();
 
-  // A live Pick announces the Team and the player.
+  // A live Pick is NO LONGER announced by the feed's polite region (#513). Picks
+  // moved to a room-level announcer (PickAnnouncer, wired in DraftBoard and
+  // tested there) so they are heard on every tab and exactly once - if this
+  // Chat-scoped region also spoke the Pick, a reader with Chat mounted would hear
+  // it twice. The Pick still appears in the VISIBLE feed; only the duplicate
+  // polite announcement is gone.
   act(() => socket.trigger('draft:picked', {
     auto: false,
     activity: {
@@ -105,7 +110,17 @@ test('announces a live message and a live Pick in a polite region, but not the o
       player: { name: 'Pat Mahomes' }, round: 1, pickNumber: 1, created_at: '2026-01-01T12:05:00Z',
     },
   }));
-  expect(await screen.findByText('Bulldogs drafted Pat Mahomes')).toBeInTheDocument();
+  // Visible in the feed's normal activity line...
+  expect(await screen.findByText(/drafted/)).toBeInTheDocument();
+  // ...but no polite status region announces it: a Pick is a no-op for the feed
+  // announcer now (#513), so the region keeps whatever it last held (here the
+  // prior "New message from Bulldogs") rather than speaking the Pick. It does NOT
+  // clear it - that a Pick must not blank a pending message is pinned in
+  // FeedAnnouncer.test.jsx.
+  const announcingPick = screen
+    .getAllByRole('status')
+    .filter((region) => /drafted|Pat Mahomes/.test(region.textContent));
+  expect(announcingPick).toHaveLength(0);
 });
 
 const pickActivity = (overrides = {}) => ({

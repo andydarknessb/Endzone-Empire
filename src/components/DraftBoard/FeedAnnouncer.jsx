@@ -12,11 +12,20 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
 /**
  * The Draft room's combined-feed announcer (#445 AC2): one persistent, visually
- * hidden polite region that speaks a CONCISE summary when a human message or a
- * Pick arrives live. It follows the room's established idiom exactly -
- * ReadinessAnnouncer (#164), CountdownAnnouncer (#117) and ComposerCharacterCount
- * (#486) all mount one permanently-present Box with role="status" /
+ * hidden polite region that speaks a CONCISE summary when a human message
+ * arrives live. It follows the room's established idiom exactly - the room's
+ * other visually-hidden status regions (ReadinessAnnouncer #164, the countdown
+ * #117, ComposerCharacterCount #486) mount a Box with role="status" /
  * aria-live="polite", styled visuallyHidden, and only change its TEXT.
+ *
+ * IT NO LONGER ANNOUNCES PICKS (#513). Picks moved to the room-level
+ * PickAnnouncer, mounted in the Draft room's chrome so a committed Pick is heard
+ * on every tab and exactly once; this Chat-scoped announcer speaks human
+ * messages only. Do NOT re-add a Pick branch here or route a Pick tail into the
+ * empty-clear below - either reintroduces the double-speech #513 exists to
+ * prevent (when Chat is mounted) or blanks a still-unread message announcement.
+ * If you are here to fix #518 (the parity-flip desync), it is the flip alone;
+ * the Pick removal is intentional and must stay.
  *
  * WHY A SEPARATE POLITE REGION, AND WHO IT ACTUALLY SHARES A PHASE WITH. The
  * room's other polite regions are phase-separated: readiness (#164) and the
@@ -27,16 +36,16 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * On-the-clock banner (LiveDraftBanner) - two, not a crowd. It still earns its
  * place rather than folding into either:
  *
- *  - It carries a DIFFERENT axis: message/Pick arrival, which neither the
+ *  - It carries a DIFFERENT axis: human-message arrival, which neither the
  *    counter nor the banner announces. Folding it into one would make that
  *    region speak two unrelated things.
  *  - It fires on a live arrival, identified by the NEWEST entry advancing the
  *    shared per-league seq past the highest we have announced. A render that does
  *    not change the tail says nothing, and there is no timer and no debounce, so
  *    it cannot chatter the way a per-tick region would.
- *  - It announces PRESENCE, not content, and only two kinds (feedAnnouncement.js),
- *    so it stays terse rather than reading long message bodies or every
- *    lifecycle transition.
+ *  - It announces PRESENCE, not content, and only human-message arrivals
+ *    (feedAnnouncement.js), so it stays terse rather than reading long message
+ *    bodies or every lifecycle transition.
  *
  * What a test can show about this region - that it exists, its DOM order, and
  * that its text changes exactly on a strictly-newer entry - is asserted here and
@@ -54,15 +63,17 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  *    an OLDER row with a different key - so the guard is the monotonic seq.
  *  - The viewer's OWN message: the server echoes a send to the whole room
  *    including the sender, and a manager does not need their own line read back.
- *    Suppressed by teamId in feedAnnouncement; a Pick still announces whoever
- *    made it, the viewer included.
+ *    Suppressed by teamId in feedAnnouncement.
  *
  * TWO ENTRIES THAT DESCRIBE IDENTICALLY. Two messages from the same Team both
  * read "New message from <Team>". React bails on an Object.is-equal state, so a
  * byte-identical string would leave the text node untouched and the second
- * arrival silent. A zero-width space flips on alternate announcements so the node
- * value always changes; it is invisible and unspoken. This is distinct from the
- * identical-TAIL rerender above, which is a non-event and stays silent.
+ * arrival silent. A zero-width space flips on alternate announcements to change
+ * the node value - but the parity counter that drives it has a desync defect
+ * (#518): a different entry between two repeat-pairs (A, A, B, B) leaves the
+ * fourth silent. PickAnnouncer.jsx (#513) fixed the same shape by comparing
+ * against the rendered value; this announcer is left for #518. This is distinct
+ * from the identical-TAIL rerender above, which is a non-event and stays silent.
  */
 function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
   const [announcement, setAnnouncement] = useState('');
@@ -107,6 +118,18 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
       highWaterSeqRef.current = tailSeq;
     }
 
+    // ALL Draft activity - a Pick (now the room-level PickAnnouncer's, #513) and
+    // every lifecycle entry (draft_start, pause, resume, reset, complete) alike -
+    // is a NO-OP here, keyed on the entry type rather than kind=pick so both are
+    // covered. Draft activity still advances the seq high-water mark above so a
+    // later message is not taken for backlog, but it must NOT fall through to the
+    // empty-clear below: that would BLANK a still-unread chat announcement (the
+    // previous "New message from X") every time activity lands, and in an active
+    // draft that is constant. Leave the region's current text untouched. This is
+    // distinct from the deliberate clear for a hidden arrival or the viewer's own
+    // message below, which stays exactly as it was (#513 did not change it).
+    if (tail && tail.type === 'draft_activity') return;
+
     const text = feedAnnouncementFor(tail, viewerTeamId);
     if (!text) {
       // A lifecycle entry, a hidden arrival, or the viewer's own message: clear
@@ -125,6 +148,13 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
     // announced; the marker is invisible and unspoken. Distinct messages stay
     // clean. This is not the identical-tail case above - that returns before here
     // and stays deliberately silent.
+    // NOTE: this parity-counter flip has a desync defect - a different entry
+    // landing between two repeat-pairs (A, A, B, B) leaves the fourth silent,
+    // because the global nonce decouples from the currently-rendered value.
+    // PickAnnouncer.jsx (#513) DIVERGED from this to compare against the rendered
+    // value instead, which has no counter to desync; do not re-merge them. Left
+    // as-is here deliberately: #518 owns this fix and its own blast radius (a
+    // live message-announcement defect on integration), with its own test.
     let out = text;
     if (text === lastTextRef.current) {
       nonceRef.current += 1;

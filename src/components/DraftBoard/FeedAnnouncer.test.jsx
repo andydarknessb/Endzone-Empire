@@ -35,10 +35,65 @@ describe('FeedAnnouncer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('New message from Team Rocket');
   });
 
-  it('announces a Pick that arrives live', () => {
+  it('stays silent when a Pick arrives live - the room-level PickAnnouncer speaks it (#513)', () => {
+    // Picks moved to a room-level announcer (PickAnnouncer, #513) so they are
+    // heard on every tab. The feed announcer must NOT also speak a Pick, or a
+    // reader with Chat mounted would hear it twice. It still advances its own
+    // high-water seq past the Pick (below) so a later message is not mistaken
+    // for backlog.
     const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'hi')]} />);
     rerender(<FeedAnnouncer entries={[chat(1, 'A', 'hi'), pick(2, 'Gridiron Giants', 'Justin Jefferson')]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('Gridiron Giants drafted Justin Jefferson');
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    // A human message arriving AFTER the (silent) Pick still announces: the Pick
+    // advanced the seq high-water mark but did not leave the announcer stuck.
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'hi'), pick(2, 'Gridiron Giants', 'Justin Jefferson'), chat(3, 'Team Rocket', 'gg')]}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Team Rocket');
+  });
+
+  it('a Pick does not blank a still-unread message announcement (#513)', () => {
+    // feedAnnouncementFor returns '' for a Pick now, but a Pick tail must be a
+    // NO-OP here, not the empty-clear that hidden arrivals and the viewer's own
+    // message take: otherwise the previous "New message from X" is wiped the
+    // instant a Pick lands, and Picks land constantly in an active draft, so a
+    // reader could lose a message announcement a fraction of a second after it
+    // was written.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'old')]} />);
+    // A live message announces...
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'old'), chat(2, 'Rivals', 'hi')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+    // ...then a Pick lands. The message announcement must survive it untouched.
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'old'), chat(2, 'Rivals', 'hi'), pick(3, 'Bulldogs', 'Pat Mahomes')]}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+  });
+
+  it('a Draft LIFECYCLE entry does not blank a pending message announcement either (#513)', () => {
+    // The no-op keys on type === 'draft_activity', not kind === 'pick', so
+    // lifecycle entries (draft_start, pause, resume, reset, complete) are covered
+    // by the same guard as Picks: they too used to fall into the empty-clear and
+    // must now leave a still-unread message announcement intact.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'old')]} />);
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'old'), chat(2, 'Rivals', 'hi')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+    // A lifecycle activity entry (a pause) arrives after the message...
+    rerender(
+      <FeedAnnouncer
+        entries={[
+          chat(1, 'A', 'old'),
+          chat(2, 'Rivals', 'hi'),
+          { type: 'draft_activity', kind: 'pause', seq: 3, id: 3, teamName: 'A' },
+        ]}
+      />
+    );
+    // ...and the message announcement survives it untouched.
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
   });
 
   it('stays silent when older entries are prepended (Load older)', () => {
