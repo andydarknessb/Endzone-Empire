@@ -263,7 +263,7 @@ const unstubbed = [
       { method: 'POST', pattern: '/api/draft/league/:id/pause' },
       { method: 'POST', pattern: '/api/draft/league/:id/teams/:teamId/autodraft' },
       { method: 'POST', pattern: '/api/draft/league/:id/clock' },
-      { method: 'POST', pattern: '/api/draft/league/:id/undo' },
+      { method: 'POST', pattern: '/api/draft/league/:id/correct-pick' },
       { method: 'POST', pattern: '/api/draft/league/:id/reset' },
       { method: 'POST', pattern: '/api/draft/league/:id/ready' },
       { method: 'POST', pattern: '/api/draft/league/:id/share-token' },

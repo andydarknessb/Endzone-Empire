@@ -66,12 +66,17 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
     }
   };
 
-  const handleUndoPick = async () => {
+  // Commissioner correction (#439): the safe, reasoned replacement for the old
+  // bare "undo last pick". Sends the confirmed pick number (so the server can
+  // reject a stale request that would race a manager or autopick) and the
+  // reason; the server pauses the draft, reverses only that pick and broadcasts
+  // a fresh draft:state, so nothing is hand-updated here.
+  const handleCorrectPick = async ({ pickNumber, reason }) => {
     try {
       onError?.(null);
-      await apiClient.post(`/api/draft/league/${leagueId}/undo`, { count: 1 });
+      await apiClient.post(`/api/draft/league/${leagueId}/correct-pick`, { pickNumber, reason });
       clearLeagueCache(leagueId);
-      notify('Last pick undone');
+      notify('Latest pick corrected; draft paused');
       return true;
     } catch (err) {
       const message = err.response?.data?.error || err.message;
@@ -166,7 +171,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
     handleTogglePause,
     handleToggleAutodraft,
     handleSetClock,
-    handleUndoPick,
+    handleCorrectPick,
     handleResetDraft,
     handleToggleReady,
     handleGetShareLink,
