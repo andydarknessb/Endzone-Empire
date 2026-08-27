@@ -52,7 +52,7 @@ function DraftRoomChat({ socket, leagueId, viewerTeamId = null, canModerate = fa
           Chat tab this (and the feed hook) unmount; that matches what a sighted
           manager sees (chat is not on screen), and on return the backlog is
           re-seeded silently rather than replayed. */}
-      <FeedAnnouncer entries={entries} />
+      <FeedAnnouncer entries={entries} viewerTeamId={viewerTeamId} />
       <ChatConversation
         messages={entries}
         error={error}

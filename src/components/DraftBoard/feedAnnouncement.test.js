@@ -75,6 +75,20 @@ describe('feedAnnouncementFor', () => {
     expect(feedAnnouncementFor(undefined)).toBe('');
   });
 
+  it("suppresses the viewer's OWN chat message (the server echoes it to the sender)", () => {
+    const own = { type: 'league_chat', teamId: 11, teamName: 'My Team', message: 'hi' };
+    expect(feedAnnouncementFor(own, 11)).toBe('');
+    // Another Team's message still announces.
+    expect(feedAnnouncementFor({ ...own, teamId: 12, teamName: 'Them' }, 11)).toBe('New message from Them');
+    // With no viewer identity, nothing is suppressed.
+    expect(feedAnnouncementFor(own)).toBe('New message from My Team');
+  });
+
+  it("still announces the viewer's OWN Pick (a committed Pick is worth confirming)", () => {
+    const ownPick = { type: 'draft_activity', kind: 'pick', teamId: 11, teamName: 'My Team', player: { name: 'Justin Jefferson' } };
+    expect(feedAnnouncementFor(ownPick, 11)).toBe('My Team drafted Justin Jefferson');
+  });
+
   it('uses no em-dashes in any announcement (house style, guarded copy)', () => {
     const samples = [
       feedAnnouncementFor({ type: 'league_chat', teamName: 'A', message: 'x' }),

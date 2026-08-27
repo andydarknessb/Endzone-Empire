@@ -92,7 +92,9 @@ test('announces a live message and a live Pick in a polite region, but not the o
   // A live human message announces its arrival by Team. That the announcer is a
   // persistent polite status region is pinned in FeedAnnouncer.test.jsx; here we
   // prove the live socket entry reaches it.
-  act(() => socket.trigger('chat:message', chatMessage({ id: 2, seq: 5, teamName: 'Bulldogs', message: 'good luck all' })));
+  // teamId 12, not the viewer's 11: a message from ANOTHER Team announces (the
+  // viewer's own is suppressed, pinned in FeedAnnouncer.test.jsx).
+  act(() => socket.trigger('chat:message', chatMessage({ id: 2, seq: 5, teamId: 12, teamName: 'Bulldogs', message: 'good luck all' })));
   expect(await screen.findByText('New message from Bulldogs')).toBeInTheDocument();
 
   // A live Pick announces the Team and the player.

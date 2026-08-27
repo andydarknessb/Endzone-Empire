@@ -28,8 +28,14 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * The identity is rendered through teamNameLabel, the one shared helper, so a
  * departed author reads as a former manager rather than blank or "null", exactly
  * as the visible feed renders it.
+ *
+ * `viewerTeamId`, when given, suppresses the viewer's OWN chat message: the
+ * server echoes a send to the whole room including the sender, and a manager who
+ * just typed a line does not need it read back to them. This applies to chat
+ * only - a Pick still announces whoever made it, the viewer included, because a
+ * committed Pick (and an autopick in particular) is an event worth confirming.
  */
-export function feedAnnouncementFor(entry) {
+export function feedAnnouncementFor(entry, viewerTeamId = null) {
   if (!entry) return '';
 
   if (entry.type === 'draft_activity') {
@@ -44,6 +50,7 @@ export function feedAnnouncementFor(entry) {
 
   // A human League chat message (type 'league_chat' or an older untyped shape).
   if (entry.hidden) return '';
+  if (viewerTeamId != null && entry.teamId != null && entry.teamId === viewerTeamId) return '';
   return `New message from ${teamNameLabel(entry.teamName)}`;
 }
 

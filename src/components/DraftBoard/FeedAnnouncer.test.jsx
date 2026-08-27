@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import FeedAnnouncer from './FeedAnnouncer';
 
-const chat = (seq, teamName, message) => ({ type: 'league_chat', seq, id: seq, teamName, message });
+const chat = (seq, teamName, message, teamId = null) => ({ type: 'league_chat', seq, id: seq, teamName, message, teamId });
 const pick = (seq, teamName, playerName) => ({
   type: 'draft_activity',
   kind: 'pick',
@@ -63,5 +63,52 @@ describe('FeedAnnouncer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('New message from B');
     rerender(<FeedAnnouncer entries={[chat(1, 'A', 'hi'), chat(2, 'B', 'one'), chat(3, 'C', 'two')]} />);
     expect(screen.getByRole('status')).toHaveTextContent('New message from C');
+  });
+
+  it('re-announces a SECOND message from the SAME Team (identical text still mutates the region)', () => {
+    // Two consecutive messages from one Team describe identically. Without a
+    // discriminator React would bail on the Object.is-equal state and the second
+    // would be silent. The region's text node must change between them.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'hi')]} />);
+    const region = screen.getByRole('status');
+
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'hi'), chat(2, 'Harbor Hawks', 'one')]} />);
+    expect(region).toHaveTextContent('New message from Harbor Hawks');
+    const afterFirst = region.textContent;
+
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'hi'), chat(2, 'Harbor Hawks', 'one'), chat(3, 'Harbor Hawks', 'two')]} />);
+    expect(region).toHaveTextContent('New message from Harbor Hawks');
+    // The raw text node value changed, so assistive tech re-announces rather than
+    // seeing an unchanged node and staying silent.
+    expect(region.textContent).not.toBe(afterFirst);
+  });
+
+  it('does NOT announce a backlog history replace that resolves after a live seed (#4)', () => {
+    // A live message (seq 50) seeds the announcer, then a wholesale /draft-feed
+    // history replace lands older rows and the tail drops to seq 40. That is not
+    // a new arrival, and the monotonic-seq guard keeps it silent.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(50, 'Live', 'just now')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    rerender(<FeedAnnouncer entries={[chat(38, 'Old', 'a'), chat(39, 'Old', 'b'), chat(40, 'Old', 'c')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
+  it("does not announce the viewer's OWN message, but does announce another Team's (#9)", () => {
+    const { rerender } = render(
+      <FeedAnnouncer entries={[chat(1, 'Mine', 'hi', 11)]} viewerTeamId={11} />
+    );
+    // The viewer's own live message is echoed by the server; do not read it back.
+    rerender(
+      <FeedAnnouncer entries={[chat(1, 'Mine', 'hi', 11), chat(2, 'Mine', 'again', 11)]} viewerTeamId={11} />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    // Another Team's message announces normally.
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'Mine', 'hi', 11), chat(2, 'Mine', 'again', 11), chat(3, 'Rivals', 'gg', 12)]}
+        viewerTeamId={11}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
   });
 });
