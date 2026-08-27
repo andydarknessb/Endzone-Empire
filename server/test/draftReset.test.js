@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');
-const { createFakePool, select, remove, update } = require('./helpers/fakePool');
+const { createFakePool, select, insert, remove, update } = require('./helpers/fakePool');
 
 /**
  * POST /api/draft/league/:id/reset — issue #192.
@@ -54,6 +54,8 @@ const doReset = () => request(app)
 // `finalSeasons` maps a season number to whether a final matchup exists for
 // it, so the matchups handler answers from the season the reset actually
 // asked about rather than a fixed canned response.
+const ACTOR_TEAM = { id: 30, name: 'Commish FC' };
+
 function resetPool(finalSeasons = {}) {
   return createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
@@ -64,6 +66,11 @@ function resetPool(finalSeasons = {}) {
     [remove('draft_picks'), () => ({ rows: [], rowCount: 0 })],
     [update('teams'), () => ({ rows: [], rowCount: 2 })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
+    // lookupTeam (the acting commissioner's Team) and the reset lifecycle append
+    // (#437). The append is append-only: the reset DELETEs picks/rosters, never
+    // draft_activity, so earlier Pick and lifecycle entries survive it.
+    [select('teams'), () => ({ rows: [ACTOR_TEAM] })],
+    [insert('draft_activity'), () => ({ rows: [{ id: 8, feed_seq: '40', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
   ]);
 }
 
@@ -121,5 +128,21 @@ test('POST reset: a final matchup only in a prior season does not block the rese
     [LEAGUE_ID, SEASON],
     "checked this league's current season (2026), not the 2025 season the final matchup sits in"
   );
+  fake.assertClean();
+});
+
+test('POST reset: appends a reset lifecycle activity with the commissioner Team, and deletes no draft_activity (#437 AC3)', async (t) => {
+  const fake = resetPool({}).install(t);
+
+  const res = await doReset();
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const appended = fake.matching(insert('draft_activity'));
+  assert.equal(appended.length, 1, 'exactly one reset activity appended');
+  assert.deepEqual(appended[0].params, [LEAGUE_ID, 'reset', ACTOR_TEAM.id, ACTOR_TEAM.name]);
+  // Append-only: the reset wipes picks and rosters but never the activity feed,
+  // so earlier Pick and lifecycle entries are not erased (#437 AC3).
+  assert.equal(fake.matching(/^DELETE FROM "draft_activity"/).length, 0, 'reset must not delete Draft activity');
+  assert.equal(fake.matching(/^COMMIT$/).length, 1);
   fake.assertClean();
 });

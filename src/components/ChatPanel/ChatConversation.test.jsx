@@ -263,6 +263,52 @@ test('a departed Team on a Pick activity reads as a former manager', () => {
   expect(screen.queryByText('null')).not.toBeInTheDocument();
 });
 
+// #437: the rest of the Draft lifecycle renders as event lines too - a start,
+// pause, resume, reset or completion - attributed to the acting commissioner's
+// Team, or phrased without an actor when there is none (a scheduler start, a
+// completion transition). A lifecycle entry has no player / round / Pick number.
+const lifecycle = (kind, overrides = {}) => ({
+  type: 'draft_activity',
+  kind,
+  id: 20,
+  seq: 3,
+  teamId: 30,
+  teamName: 'Commish FC',
+  created_at: '2026-01-01T12:10:00Z',
+  ...overrides,
+});
+
+test('renders a draft_start as an event line attributed to the acting Team, with no Pick facts', () => {
+  renderWithProviders(<ChatConversation messages={[lifecycle('draft_start')]} onSend={noop} />);
+  const line = screen.getByTestId('draft-activity');
+  expect(line).toHaveTextContent('Commish FC');
+  expect(line).toHaveTextContent('started the draft');
+  // A lifecycle event never renders phantom Pick facts.
+  expect(line).not.toHaveTextContent('Round');
+  expect(line).not.toHaveTextContent('Pick ');
+  expect(line).not.toHaveTextContent('undefined');
+  expect(line).not.toHaveTextContent('null');
+});
+
+test('renders pause, resume and reset attributed to the acting Team', () => {
+  const { rerender } = renderWithProviders(<ChatConversation messages={[lifecycle('pause')]} onSend={noop} />);
+  expect(screen.getByTestId('draft-activity')).toHaveTextContent('paused the draft');
+  rerender(<ChatConversation messages={[lifecycle('resume')]} onSend={noop} />);
+  expect(screen.getByTestId('draft-activity')).toHaveTextContent('resumed the draft');
+  rerender(<ChatConversation messages={[lifecycle('reset')]} onSend={noop} />);
+  expect(screen.getByTestId('draft-activity')).toHaveTextContent('reset the draft');
+});
+
+test('an actor-less lifecycle event (scheduler start / completion) is phrased without a Team, never "Former manager"', () => {
+  renderWithProviders(
+    <ChatConversation messages={[lifecycle('complete', { teamId: null, teamName: null })]} onSend={noop} />
+  );
+  const line = screen.getByTestId('draft-activity');
+  expect(line).toHaveTextContent('The draft is complete');
+  expect(line).not.toHaveTextContent('Former manager');
+  expect(line).not.toHaveTextContent('null');
+});
+
 // #442 AC1/AC2: the live feed auto-follows only while the reader is at the
 // bottom; a reader up in the backlog keeps their place and gets an N-new
 // affordance to return to the newest entries.

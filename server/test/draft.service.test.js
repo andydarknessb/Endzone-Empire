@@ -184,6 +184,67 @@ test('draftPlayer: an autopick labels its activity isAutopick (#435 AC3)', async
   fake.assertClean();
 });
 
+// A completion-aware pool: the draft_activity insert is stateful so the Pick
+// and the completion draw DISTINCT feed_seqs (5 then 6), the way the shared
+// trigger allocates them.
+function completionActivityPool({ league, picksMade }) {
+  let seq = 5;
+  return createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, owner_id: 7, name: 'Team Eleven', draft_position: 1, autodraft: false, locked: false },
+      { id: 12, owner_id: 8, name: 'Team Twelve', draft_position: 2, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
+    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('draft_activity'), () => ({ rows: [{ id: 70 + seq, feed_seq: String(seq++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+  ]);
+}
+
+test('draftPlayer: the final Pick appends an actor-less completion lifecycle entry (#437)', async (t) => {
+  const fake = completionActivityPool({ league: completionLeague, picksMade: 4 }).install(t);
+  recordBenching(t, fake);
+  t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, true);
+  // Two activity rows: the Pick and the completion, both in this transaction.
+  assert.equal(fake.matching(insert('draft_activity')).length, 2, 'pick + completion appended');
+  // The Pick entry is unchanged (#435).
+  assert.equal(result.activity.kind, 'pick');
+  // The completion is a state transition no manager performed: it carries no
+  // actor Team (not fabricated, #437 AC5) and no Pick facts.
+  assert.ok(result.completion, 'the outcome carries the completion entry');
+  assert.equal(result.completion.type, 'draft_activity');
+  assert.equal(result.completion.kind, 'complete');
+  assert.equal(result.completion.teamId, null);
+  assert.equal(result.completion.teamName, null);
+  assert.equal('player' in result.completion, false);
+  // It orders AFTER the Pick by the shared sequence.
+  assert.ok(result.completion.seq > result.activity.seq, 'completion follows the final Pick');
+  fake.assertClean();
+});
+
+test('draftPlayer: a non-final Pick carries no completion entry', async (t) => {
+  const fake = completionActivityPool({ league: { ...completionLeague, current_pick: 0 }, picksMade: 1 }).install(t);
+  recordBenching(t, fake);
+
+  const result = await draftPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+
+  assert.equal(result.draftComplete, false);
+  assert.equal(result.completion, null, 'no completion entry until the draft actually completes');
+  assert.equal(fake.matching(insert('draft_activity')).length, 1, 'only the Pick activity');
+  fake.assertClean();
+});
+
 test('draftPlayer: one pick short of the draft roster size keeps the draft active', async (t) => {
   // Pick 3 of 4: team 12 is on the clock (0-based current_pick 2).
   const league = { ...completionLeague, current_pick: 2 };

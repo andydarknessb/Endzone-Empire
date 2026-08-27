@@ -111,8 +111,17 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
       if (data && data.activity) setEntries((prev) => mergeEntry(prev, data.activity));
     };
 
+    // The rest of the Draft lifecycle - start, pause, resume, reset, completion
+    // (#437) - arrives on its own draft:activity event as a typed entry, merged
+    // into its shared-sequence position like any other. It is never a human
+    // message, so it does not mark chat read or touch the unread badge.
+    const onActivity = (entry) => {
+      if (entry) setEntries((prev) => mergeEntry(prev, entry));
+    };
+
     socket.on('chat:message', onChatMessage);
     socket.on('draft:picked', onPicked);
+    socket.on('draft:activity', onActivity);
 
     // Reconnect RESUMES from the last acknowledged cursor (#442): the max seq
     // held is what the client last saw, so it asks only for entries newer than
@@ -151,6 +160,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
       offReconnect?.();
       socket.off?.('chat:message', onChatMessage);
       socket.off?.('draft:picked', onPicked);
+      socket.off?.('draft:activity', onActivity);
     };
   }, [socket, leagueId, fetchHistory, markRead]);
 

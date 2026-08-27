@@ -235,8 +235,11 @@ async function capturePicked(t) {
 // #435 added `activity` to the outcome: the typed Draft-activity feed entry for
 // this Pick, carried on the broadcast so the combined feed appends it beside the
 // board update. Both emit sites share the key set, so both gain `activity`.
+// #437 added `completion`: the actor-less completion lifecycle entry on the Pick
+// that ends the draft, else null. It is a root key on every outcome (null when
+// the draft did not complete), so both emit sites carry it too.
 const PICKED_ROOT_CLEAN = [
-  'activity', 'auto', 'draftComplete', 'leagueId', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
+  'activity', 'completion', 'auto', 'draftComplete', 'leagueId', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
 ];
 
 // The Draft-activity entry now rides on a room broadcast, so it is bound by the
@@ -244,6 +247,12 @@ const PICKED_ROOT_CLEAN = [
 // identifier, and no viewer-relative field.
 const ACTIVITY_CLEAN = ['type', 'kind', 'id', 'seq', TEAM_ID, TEAM_NAME, 'player', 'round', 'pickNumber', 'isAutopick', 'created_at'];
 const ACTIVITY_FORBIDDEN = ['user_id', 'userId', 'username', 'owner_id', ...VIEWER_RELATIVE];
+
+// A LIFECYCLE Draft-activity entry (#437) is not a Pick: it carries the acting
+// Team identity and the instant, and NO player / round / Pick number / autopick.
+// It rides on the `draft:activity` broadcast, so it is bound by the same
+// Team-only, no-account-identifier, no-viewer-relative rule.
+const LIFECYCLE_CLEAN = ['type', 'kind', 'id', 'seq', TEAM_ID, TEAM_NAME, 'created_at'];
 
 test('draft:picked names the picker by Team at the root, with no by account object and no viewer-relative field', async (t) => {
   const picked = await capturePicked(t);
@@ -285,6 +294,8 @@ async function captureAutopickPicked(t) {
       player: { id: 500, name: 'Pick Me', position: 'RB', nflTeam: 'KC' },
       round: 1, pickNumber: 1, isAutopick: true, created_at: '2026-09-01T00:00:00.000Z',
     },
+    // This pick did not end the draft, so no completion lifecycle entry (#437).
+    completion: null,
   }));
   const emitted = [];
   const priorIo = getIo();
@@ -307,6 +318,59 @@ test('draft:picked (autopick emit site) names the picker by Team at the root, wi
   assertExactKeys(picked.activity, ACTIVITY_CLEAN);
   assertForbidden(picked.activity, ACTIVITY_FORBIDDEN);
   assert.equal(picked.activity.isAutopick, true, 'the activity entry is labeled an autopick too');
+});
+
+// ============================================================= draft:activity
+// The lifecycle broadcast (#437). When a Pick ends the draft, the emit site also
+// broadcasts the completion entry on `draft:activity`; pin that this second
+// broadcast is Team-only too, with no Pick facts and no account identifier. The
+// autopick site is used because it reaches the emit through the getIo singleton
+// with a mockable draftPlayer outcome.
+async function captureAutopickActivity(t) {
+  installAutopickPool(t, {
+    candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],
+  });
+  t.mock.method(draftService, 'draftPlayer', async () => ({
+    leagueId: LEAGUE_ID,
+    teamId: AUTOPICK_TEAM.id,
+    teamName: 'The Autodrafters',
+    player: { id: 500, name: 'Pick Me', position: 'RB' },
+    pickNumber: 1,
+    nextTeamId: null,
+    draftComplete: true,
+    pickDeadlineAt: null,
+    activity: {
+      type: 'draft_activity', kind: 'pick', id: 3, seq: 2,
+      teamId: AUTOPICK_TEAM.id, teamName: 'The Autodrafters',
+      player: { id: 500, name: 'Pick Me', position: 'RB', nflTeam: 'KC' },
+      round: 1, pickNumber: 1, isAutopick: true, created_at: '2026-09-01T00:00:00.000Z',
+    },
+    // The final Pick completed the draft: an actor-less completion entry (#437).
+    completion: {
+      type: 'draft_activity', kind: 'complete', id: 4, seq: 3,
+      teamId: null, teamName: null, created_at: '2026-09-01T00:00:01.000Z',
+    },
+  }));
+  const emitted = [];
+  const priorIo = getIo();
+  setIo({ to: () => ({ emit: (event, payload) => emitted.push({ event, payload }) }) });
+  t.after(() => setIo(priorIo));
+  await autoPick({ leagueId: LEAGUE_ID });
+  const activity = emitted.find((e) => e.event === 'draft:activity');
+  assert.ok(activity, 'the completing autopick emitted a draft:activity');
+  return activity.payload;
+}
+
+test('draft:activity carries a Team-only lifecycle entry, no Pick facts and no account identifier', async (t) => {
+  const entry = await captureAutopickActivity(t);
+  assertExactKeys(entry, LIFECYCLE_CLEAN);
+  assertForbidden(entry, ACTIVITY_FORBIDDEN);
+  assert.equal(entry.type, 'draft_activity');
+  assert.equal(entry.kind, 'complete');
+  // A completion is an actor-less transition; its Team identity keys are present
+  // but null, never fabricated (#437 AC5).
+  assert.equal(entry.teamId, null);
+  assert.equal(entry.teamName, null);
 });
 
 // ================================================================ draft:state
