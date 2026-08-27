@@ -398,6 +398,24 @@ test('a refused GIF surfaces the error and PRESERVES the unsent description and 
   expect(screen.queryByTestId('gif-animated')).not.toBeInTheDocument();
 });
 
+test('the GIF composer Cancel is distinct from the moderation Cancel in the same region', async () => {
+  // A commissioner can have BOTH the hide form and the GIF composer open at once.
+  // Their cancel controls must not share one accessible name, or a button-list
+  // navigator (and a strict-mode locator) cannot tell them apart.
+  registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+  apiClient.get.mockResolvedValue({ data: [{ type: 'league_chat', id: 7, seq: 9, teamId: 11, teamName: 'Anvils', message: 'play nice', created_at: '2026-01-01T12:00:00Z' }] });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} canModerate gifEnabled />);
+  await screen.findByText('play nice');
+
+  // Open both forms.
+  await userEvent.click(screen.getByRole('button', { name: 'Hide message from Anvils' }));
+  await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+
+  // Exactly one bare "Cancel" (the moderation form), and exactly one "Cancel GIF".
+  expect(screen.getAllByRole('button', { name: 'Cancel', exact: true })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Cancel GIF' })).toBeInTheDocument();
+});
+
 test('a commissioner hiding from the room posts through the shared hide route', async () => {
   apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 55, seq: 9, teamName: 'Anvils', message: 'targeted harassment' })] });
   renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} canModerate />);

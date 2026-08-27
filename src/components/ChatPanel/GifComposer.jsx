@@ -148,7 +148,13 @@ function GifComposer({ enabled = false, onSendGif }) {
             >
               Send GIF
             </Button>
-            <Button size="small" onClick={reset}>Cancel</Button>
+            {/* "Cancel GIF", not a bare "Cancel": the same conversation can show
+                the moderation hide form, whose own Cancel (ChatConversation) would
+                otherwise be a second button with the identical accessible name in
+                one region - ambiguous in a button list and a strict-mode locator
+                hazard. The visible label IS the accessible name (no aria-label),
+                so WCAG 2.5.3 holds. */}
+            <Button size="small" onClick={reset}>Cancel GIF</Button>
           </Box>
         </Box>
       )}
