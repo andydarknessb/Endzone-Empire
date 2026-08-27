@@ -57,7 +57,7 @@ describe('GifMessage - unavailable (production default: no provider registered, 
 describe('GifMessage - available (a provider resolves the asset, AC4/AC6/AC8)', () => {
   beforeEach(() => registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver));
 
-  test('with no motion preference: shows the animation (no play control needed), alt = description', () => {
+  test('with no motion preference: autoplays the animation AND offers a pause toggle (WCAG 2.2.2)', async () => {
     render(<GifMessage media={media()} caption="this is me at 3pm" />);
 
     const animated = screen.getByTestId('gif-animated');
@@ -65,33 +65,57 @@ describe('GifMessage - available (a provider resolves the asset, AC4/AC6/AC8)', 
     // through rather than a canned response (AC8).
     expect(animated.getAttribute('src')).toContain('abc123');
     expect(animated).toHaveAttribute('alt', 'a cat knocking a cup off a table');
-    // A viewer with no motion preference already gets the animation, so there is
-    // no explicit play control for them.
-    expect(screen.queryByRole('button', { name: /play gif/i })).not.toBeInTheDocument();
+    // The motion toggle has a STABLE accessible name; state rides on aria-pressed
+    // (#512), and it is PRESSED while autoplaying. It exists so even a
+    // no-preference viewer can stop the looping animation (WCAG 2.2.2).
+    const toggle = screen.getByRole('button', { name: /play gif animation/i });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(toggle);
+    // Pausing returns to the still; the toggle stays mounted (focus is not
+    // stranded) and now reads not-pressed.
+    expect(screen.getByTestId('gif-still')).toBeInTheDocument();
+    expect(screen.queryByTestId('gif-animated')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /play gif animation/i })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  test('reduced-motion: shows the STILL plus an explicit Play control that swaps to the animation (AC4)', async () => {
+  test('reduced-motion: shows the STILL by default with a play toggle that swaps to the animation (AC4)', async () => {
     reducedMotion = true;
     render(<GifMessage media={media()} caption="hi" />);
 
-    // The still, not the animation, is what a reduced-motion viewer sees first.
     const still = screen.getByTestId('gif-still');
     expect(still.getAttribute('src')).toContain('abc123');
     expect(still).toHaveAttribute('alt', 'a cat knocking a cup off a table');
     expect(screen.queryByTestId('gif-animated')).not.toBeInTheDocument();
 
-    // The explicit play control (AC4), which swaps to the animation on activation.
-    const play = screen.getByRole('button', { name: /play gif/i });
-    await userEvent.click(play);
+    const toggle = screen.getByRole('button', { name: /play gif animation/i });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(toggle);
     expect(screen.getByTestId('gif-animated')).toBeInTheDocument();
     expect(screen.queryByTestId('gif-still')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /play gif/i })).not.toBeInTheDocument();
+    // The toggle PERSISTS across activation (focus is never stranded, and it can
+    // pause), now pressed.
+    expect(screen.getByRole('button', { name: /play gif animation/i })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('reduced-motion with an animation but NO still holds the motion behind Play, not autoplay (AC4 edge)', async () => {
-    // A provider that returns only an animation (no still). A reduced-motion
-    // viewer must still not receive motion unasked: the animation is held behind
-    // Play and the description is surfaced as text so the bubble is not empty.
+  test('a still-only rendition renders the still, in both motion states, with no toggle (FIX 1 - logic)', () => {
+    // A provider that returns ONLY a still (no animation). This shape is admitted
+    // by the guard; it must render the still, never nothing. Regression for the
+    // reviewer-found case where imgSrc fell through to null.
+    clearGifProviders();
+    registerGifProvider(FAKE_PROVIDER_ID, (m) => ({ still: `still:${m.assetId}`, animated: null, attribution: null }));
+
+    const { rerender } = render(<GifMessage media={media()} caption="hi" />);
+    expect(screen.getByTestId('gif-still').getAttribute('src')).toContain('abc123');
+    // Nothing to animate, so no motion toggle.
+    expect(screen.queryByRole('button', { name: /play gif animation/i })).not.toBeInTheDocument();
+
+    reducedMotion = true;
+    rerender(<GifMessage media={media()} caption="hi" />);
+    expect(screen.getByTestId('gif-still').getAttribute('src')).toContain('abc123');
+    expect(screen.queryByRole('button', { name: /play gif animation/i })).not.toBeInTheDocument();
+  });
+
+  test('reduced-motion with an animation but NO still holds the motion behind the toggle, not autoplay (AC4 edge)', async () => {
     clearGifProviders();
     registerGifProvider(FAKE_PROVIDER_ID, (m) => ({ animated: `anim:${m.assetId}`, still: null, attribution: null }));
     reducedMotion = true;
@@ -99,7 +123,7 @@ describe('GifMessage - available (a provider resolves the asset, AC4/AC6/AC8)', 
 
     expect(screen.queryByTestId('gif-animated')).not.toBeInTheDocument();
     expect(screen.getByTestId('gif-held-description')).toHaveTextContent('a cat knocking a cup off a table');
-    await userEvent.click(screen.getByRole('button', { name: /play gif/i }));
+    await userEvent.click(screen.getByRole('button', { name: /play gif animation/i }));
     expect(screen.getByTestId('gif-animated')).toBeInTheDocument();
   });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { Box, Button, TextField, Typography } from '@mui/material';
 import { firstGifProviderId } from '../../lib/gifProvider';
 
@@ -23,24 +23,43 @@ import { firstGifProviderId } from '../../lib/gifProvider';
  * DESCRIPTION IS REQUIRED (AC3), enforced here as a disabled Send AND on the
  * server (DESCRIPTION_REQUIRED): a client that never rendered this control can
  * still emit the event, so the button-disable is a convenience, not the
- * guarantee. The caption is optional. All copy uses hyphens (ADR 0016).
+ * guarantee. Because a disabled button announces nothing, the description field
+ * also carries a programmatically associated ERROR once it has been touched and
+ * left empty, so a screen-reader user learns WHY send is unavailable rather than
+ * meeting a silent disabled button. The caption is optional.
+ *
+ * ACCESSIBILITY. Each field's visible label IS its accessible name (no
+ * overriding aria-label, so voice control and WCAG 2.5.3 hold). Opening the
+ * disclosure exposes it via aria-controls; Escape dismisses it and Enter in a
+ * field submits, matching the text composer; and both close paths (Cancel and a
+ * successful send) return focus to the trigger rather than stranding it on the
+ * document body. All copy uses hyphens (ADR 0016).
  */
 function GifComposer({ enabled = false, onSendGif }) {
   const [open, setOpen] = useState(false);
   const [assetId, setAssetId] = useState('');
   const [description, setDescription] = useState('');
   const [caption, setCaption] = useState('');
+  const [descriptionTouched, setDescriptionTouched] = useState(false);
+  const triggerRef = useRef(null);
+  const panelId = useId();
 
   if (!enabled) return null;
 
   const providerId = firstGifProviderId();
-  const canSend = Boolean(providerId) && assetId.trim() !== '' && description.trim() !== '';
+  const descriptionMissing = description.trim() === '';
+  const descriptionError = descriptionTouched && descriptionMissing;
+  const canSend = Boolean(providerId) && assetId.trim() !== '' && !descriptionMissing;
 
   const reset = () => {
     setAssetId('');
     setDescription('');
     setCaption('');
+    setDescriptionTouched(false);
     setOpen(false);
+    // Never strand focus on the document body: the panel unmounts, so return
+    // focus to the trigger, which is always rendered.
+    if (triggerRef.current) triggerRef.current.focus();
   };
 
   const handleSend = async () => {
@@ -54,18 +73,39 @@ function GifComposer({ enabled = false, onSendGif }) {
     if (ok) reset();
   };
 
+  const onPanelKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      reset();
+    }
+  };
+
+  const onFieldKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
     <Box sx={{ mt: 1 }}>
       <Button
+        ref={triggerRef}
         size="small"
         data-testid="gif-picker-trigger"
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
       >
-        GIF
+        Add a GIF
       </Button>
       {open && (
-        <Box data-testid="gif-picker-panel" sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box
+          id={panelId}
+          data-testid="gif-picker-panel"
+          onKeyDown={onPanelKeyDown}
+          sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}
+        >
           {!providerId && (
             <Typography variant="caption" sx={{ color: 'var(--text-muted)' }}>
               The GIF picker becomes available once a provider is enabled.
@@ -76,23 +116,27 @@ function GifComposer({ enabled = false, onSendGif }) {
             size="small"
             value={assetId}
             onChange={(e) => setAssetId(e.target.value)}
-            inputProps={{ 'aria-label': 'GIF asset id' }}
+            onKeyDown={onFieldKeyDown}
           />
           <TextField
-            label="Description (required)"
+            label="Description"
             size="small"
             required
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            helperText="A short accessible description of the GIF. Required to send."
-            inputProps={{ 'aria-label': 'GIF description', 'aria-required': true }}
+            onBlur={() => setDescriptionTouched(true)}
+            onKeyDown={onFieldKeyDown}
+            error={descriptionError}
+            helperText={descriptionError
+              ? 'A description is required before this GIF can be sent.'
+              : 'A short accessible description of the GIF. Required to send.'}
           />
           <TextField
             label="Caption (optional)"
             size="small"
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
-            inputProps={{ 'aria-label': 'GIF caption' }}
+            onKeyDown={onFieldKeyDown}
           />
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
