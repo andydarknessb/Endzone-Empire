@@ -328,7 +328,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
       .map((f) => `${f.op} (${f.season} week ${f.week}): ${f.message}`)
       .join('; ');
     const err = new Error(
-      `stat correction: ${cacheFailures.length} projection cache maintenance operation(s) failed — ${summary}`
+      `stat correction: ${cacheFailures.length} projection cache maintenance operation(s) failed: ${summary}`
     );
     err.cacheFailures = cacheFailures;
     err.corrected = results;
