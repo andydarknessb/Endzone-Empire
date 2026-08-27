@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import ChatConversation from './ChatConversation';
@@ -60,6 +60,24 @@ test('the title is a level-2 heading naming the conversation, in its own region'
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
   expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+});
+
+test('the feed is a named accessible log, named by the visible heading (#445 AC1)', () => {
+  renderWithProviders(<ChatConversation messages={[message({ message: 'hi' })]} onSend={noop} />);
+  const log = screen.getByRole('log', { name: 'League Chat' });
+  expect(log).toBe(screen.getByTestId('chat-scroll'));
+  // Announcement is delegated to the concise FeedAnnouncer (#445 AC2), so the
+  // log itself does not auto-read every entry: aria-live is off, not polite.
+  expect(log).toHaveAttribute('aria-live', 'off');
+});
+
+test('the composer is a named group (#445 AC1)', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const composer = screen.getByRole('group', { name: 'Chat composer' });
+  // Its three controls read as one labelled unit.
+  expect(within(composer).getByLabelText('Message')).toBeInTheDocument();
+  expect(within(composer).getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument();
+  expect(within(composer).getByRole('button', { name: 'Send' })).toBeInTheDocument();
 });
 
 test('Send is disabled while the input is empty', () => {
@@ -206,6 +224,67 @@ test('a commissioner hides a message: reason required, then onHide is called', a
   await userEvent.click(confirm);
 
   expect(onHide).toHaveBeenCalledWith(55, 'targeted harassment');
+});
+
+test('opening the hide form moves focus to the reason field; cancelling returns it to Hide (#445 AC4)', async () => {
+  renderWithProviders(
+    <ChatConversation
+      messages={[message({ id: 55, message: 'be nice', teamName: 'Anvils' })]}
+      onSend={noop}
+      canModerate
+      onHide={jest.fn().mockResolvedValue(true)}
+    />
+  );
+
+  const hideButton = screen.getByRole('button', { name: 'Hide message from Anvils' });
+  await userEvent.click(hideButton);
+
+  // Focus lands in the reason field, not on the document body.
+  expect(screen.getByLabelText('Reason for hiding')).toHaveFocus();
+
+  // Cancelling returns focus to the Hide button that opened the form.
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('button', { name: 'Hide message from Anvils' })).toHaveFocus();
+});
+
+test('a committed hide returns focus to the feed log, not the document body (#445 AC4)', async () => {
+  // The regression: after a committed hide the Hide button is removed, so
+  // returning focus to it strands focus on the body. Focus must land in the feed
+  // log (which holds the now-tombstoned message), never on the body.
+  const onHide = jest.fn().mockResolvedValue(true);
+  const msg = message({ id: 55, message: 'you are worthless', teamName: 'Anvils' });
+  const { rerender } = renderWithProviders(
+    <ChatConversation messages={[msg]} onSend={noop} canModerate onHide={onHide} />
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Hide message from Anvils' }));
+  await userEvent.type(screen.getByLabelText('Reason for hiding'), 'targeted harassment');
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm hide' }));
+
+  // A committed hide moves focus into the feed log, never the document body
+  // (the regression). waitFor lets confirmHide's async path settle - onHide is
+  // called before its await resolves, so waiting on the call alone would race the
+  // focus move. (The full broadcast path - the chat:hidden event removing the
+  // Hide button while focus is held - is driven in a real browser in
+  // draft-accessibility.spec.ts, where focus preservation across a re-render is
+  // faithful; jsdom's rerender does not model it.)
+  const log = screen.getByRole('log', { name: 'League Chat' });
+  await waitFor(() => expect(log).toHaveFocus());
+  expect(onHide).toHaveBeenCalledWith(55, 'targeted harassment');
+  expect(document.body).not.toHaveFocus();
+
+  // The message still shows the hide affordance is gone once the parent supplies
+  // the tombstone; the focus is what this test pins.
+  rerender(
+    <ChatConversation
+      messages={[{ ...msg, message: null, hidden: true }]}
+      onSend={noop}
+      canModerate
+      onHide={onHide}
+    />
+  );
+  expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
+  expect(screen.getByText('Message hidden by commissioner')).toBeInTheDocument();
 });
 
 test('a commissioner sees no Hide control on an already-hidden message', () => {
@@ -361,6 +440,19 @@ test('the N-new affordance jumps to the newest entries and clears', () => {
   expect(box.scrollTop).toBe(1000);
   // ...and the affordance is gone.
   expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
+});
+
+test('the N-new jump moves focus into the log, so a keyboard user lands on live content (#445 AC4)', () => {
+  renderWithProviders(<LiveFeed initial={[seqMsg({ id: 1, seq: 1, message: 'first' })]} />);
+  const box = screen.getByTestId('chat-scroll');
+  atTop(box);
+  fireEvent.scroll(box);
+  setFeed([seqMsg({ id: 1, seq: 1 }), seqMsg({ id: 2, seq: 2, message: 'second' })]);
+
+  fireEvent.click(screen.getByRole('button', { name: /1 new/i }));
+
+  // Focus is now on the log region (the button that had focus has vanished).
+  expect(box).toHaveFocus();
 });
 
 test('the feed auto-follows a new entry while the reader is already at the bottom', () => {

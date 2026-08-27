@@ -78,22 +78,61 @@ function ChatConversation({
   // cancel it, or confirm the hide. These read and write only hidingId /
   // hideReason - never the composer's `text` - so they sit beside the emoji
   // helpers below without contending for the composer draft state.
+  //
+  // Focus management for the inline hide form (#445 AC4). Opening the form moves
+  // focus into the reason field (its autoFocus). Closing it must never drop
+  // focus onto the document body, and the two close paths need DIFFERENT targets:
+  //  - CANCEL: the message is not hidden, so its Hide button remounts; return
+  //    focus there.
+  //  - A COMMITTED HIDE: the `chat:hidden` broadcast sets m.hidden and the Hide
+  //    button is no longer rendered (see the render guard below), so returning to
+  //    it would strand focus on a removed node - the original defect. Return
+  //    focus to the message ROW instead, which is always rendered (it shows the
+  //    tombstone once hidden) and so always exists.
+  // CANCEL returns focus to the Hide button as it remounts (the message is not
+  // hidden), through an inline ref callback that focuses itself when it matches a
+  // pending id - the button is a fresh node on remount, so the callback fires.
+  const pendingHideButtonRef = useRef(null);
+  const hideButtonRef = (id) => (node) => {
+    if (node && pendingHideButtonRef.current === id) {
+      pendingHideButtonRef.current = null;
+      node.focus();
+    }
+  };
+
+  // A COMMITTED hide cannot return focus to the Hide button - the chat:hidden
+  // broadcast sets m.hidden and the button is no longer rendered, so aiming there
+  // strands focus on the document body (the original defect). Return focus to the
+  // feed LOG region instead, which is always mounted and holds the now-tombstoned
+  // message, so a keyboard or screen-reader user lands back in the conversation
+  // rather than on the body. A committed hide bumps this nonce; the layout effect
+  // moves focus once the form has closed and the DOM has settled (a plain focus
+  // call in confirmHide would land before the reason field unmounts and be undone
+  // when the browser moves focus to the body on that unmount).
+  const [committedHideNonce, setCommittedHideNonce] = useState(0);
+
+  const closeHideForm = () => {
+    setHidingId(null);
+    setHideReason('');
+  };
   const startHiding = (id) => {
     setHidingId(id);
     setHideReason('');
   };
   const cancelHiding = () => {
-    setHidingId(null);
-    setHideReason('');
+    // Message stays visible: return focus to its Hide button as it remounts.
+    pendingHideButtonRef.current = hidingId;
+    closeHideForm();
   };
   const confirmHide = async (id) => {
     const reason = hideReason.trim();
     if (reason.length < HIDE_REASON_MIN) return;
     const ok = onHide ? await onHide(id, reason) : false;
-    // Clear the form whether or not the hide succeeded; a failure surfaces
-    // through the shared error Alert, and the message stays visible until the
-    // tombstone broadcast replaces it.
-    if (ok !== false) cancelHiding();
+    // On a rejected hide the form stays open (below), so leave focus where it is.
+    if (ok !== false) {
+      setCommittedHideNonce((n) => n + 1);
+      closeHideForm();
+    }
   };
   const moderating = canModerate && typeof onHide === 'function';
 
@@ -177,6 +216,19 @@ function ChatConversation({
   const prevFirstKeyRef = useRef(null);
   const [newCount, setNewCount] = useState(0);
 
+  // A committed hide moves focus to the feed log (#445 AC4): defined here, after
+  // scrollRef, and keyed on the nonce confirmHide bumps so it runs once the form
+  // has closed and the DOM has settled. The nonce starts at 0 and this effect
+  // no-ops on mount, so it never steals focus except right after a hide.
+  const committedHideFirstRunRef = useRef(true);
+  useLayoutEffect(() => {
+    if (committedHideFirstRunRef.current) {
+      committedHideFirstRunRef.current = false;
+      return;
+    }
+    if (scrollRef.current) scrollRef.current.focus();
+  }, [committedHideNonce]);
+
   const lastKey = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
 
   const scrollToBottom = useCallback(() => {
@@ -190,6 +242,17 @@ function ChatConversation({
     setNewCount(0);
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // The "N new" affordance (#445 AC4 new-entry navigation): jumping to the
+  // latest also moves focus into the log region, so a keyboard or screen-reader
+  // user who activates it lands on the live content rather than staying on a
+  // button that has just vanished. The plain auto-follow path (anchorToLatest,
+  // above) must NOT move focus - it fires on every feed change while the reader
+  // is already at the bottom - so this is a separate, gesture-only handler.
+  const handleJumpToLatest = useCallback(() => {
+    anchorToLatest();
+    scrollRef.current?.focus();
+  }, [anchorToLatest]);
 
   const unseenAfterSeen = useCallback(() => {
     const seen = seenKeyRef.current;
@@ -269,10 +332,31 @@ function ChatConversation({
         </Alert>
       )}
 
+      {/* The feed is a named accessible log (#445 AC1): role="log" names the
+          scrollback as a log for structure and navigation, and it is named by
+          the visible "League Chat" heading (aria-labelledby, a real visible
+          label rather than an aria-label on a generic box).
+
+          aria-live is set to "off" DELIBERATELY. A log role's implicit live
+          value is "polite", which would make assistive tech read every new
+          entry's full rendered text (Team, message body, timestamp). That is
+          both verbose and a SECOND voice competing with the Draft room's concise
+          FeedAnnouncer (#445 AC2), which already summarises new arrivals from
+          derived state. Announcement duty belongs to that one region, so the log
+          itself stays silent and is read on demand. On the League Dashboard,
+          which mounts this same conversation without a FeedAnnouncer, new
+          messages were never announced before either, so nothing regresses.
+
+          tabIndex=-1 lets the "N new" jump move focus here programmatically
+          (handleJumpToLatest, AC4) without adding the log to the Tab order. */}
       <Box
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="chat-scroll"
+        role="log"
+        aria-labelledby={headingId}
+        aria-live="off"
+        tabIndex={-1}
         sx={{ maxHeight: 320, overflowY: 'auto', mb: 1 }}
       >
         {hasMore && onLoadOlder && (
@@ -311,6 +395,7 @@ function ChatConversation({
                     <Button
                       size="small"
                       color="warning"
+                      ref={hideButtonRef(m.id)}
                       onClick={() => startHiding(m.id)}
                       aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
                     >
@@ -324,6 +409,10 @@ function ChatConversation({
                       label="Reason for hiding"
                       size="small"
                       fullWidth
+                      // Focus moves into the reason field as the form opens
+                      // (#445 AC4); on close it returns to the Hide button
+                      // (Cancel) or the message row (a committed hide).
+                      autoFocus
                       value={hideReason}
                       onChange={(e) => setHideReason(e.target.value)}
                       inputProps={{ maxLength: HIDE_REASON_MAX }}
@@ -354,7 +443,7 @@ function ChatConversation({
 
       {newCount > 0 && (
         <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <Button size="small" variant="outlined" onClick={anchorToLatest}>
+          <Button size="small" variant="outlined" onClick={handleJumpToLatest}>
             {newCount} new message{newCount === 1 ? '' : 's'}
           </Button>
         </Box>
@@ -367,7 +456,14 @@ function ChatConversation({
           that grows the composer's height - tips the shell past the viewport and
           makes the page scroll. An end adornment sits within the input's own
           height, so the composer adds no height at all. */}
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+      {/* The composer is a named group (#445 AC1): its three controls - the
+          message field, Insert emoji and Send - read as one labelled unit. A
+          group role takes an accessible name, unlike the generic role a bare box
+          maps to, so aria-label is valid here. The name deliberately avoids the
+          word "Message": Playwright's getByLabel is a substring match, so a group
+          named "Message composer" would be a second match for the existing
+          specs' getByLabel('Message') alongside the message input itself. */}
+      <Box role="group" aria-label="Chat composer" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <TextField
           id="chat-message-input"
           label="Message"
