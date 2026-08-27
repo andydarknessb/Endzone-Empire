@@ -19,6 +19,15 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
+// The readiness announcer (#164) is no longer the only role=status region in
+// the Draft room: the composer's character counter (#486) mounts its own polite
+// status region, and the countdown (#117) mounts one when a draft date is set.
+// So a bare getByRole('status') is ambiguous - the invariant this file cares
+// about is the readiness region specifically, identified by its text, exactly as
+// the "only readiness announcement" test below already does.
+const readinessAnnouncer = () =>
+  screen.getAllByRole('status').find((region) => /managers? ready/.test(region.textContent));
+
 /**
  * A controllable fake socket: captures .on() handlers so tests can fire them,
  * and answers `draft:join` the way the server does.
@@ -1322,7 +1331,7 @@ test('a pending-draft member can toggle readiness and sees the league readiness 
     onTheClock: null,
   })));
 
-  expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
+  expect(readinessAnnouncer()).toHaveTextContent('1 of 2 managers ready');
   // One of two is at or below half, so the ready Team is the exception worth
   // naming and it sits behind a disclosure rather than in a chip per Team
   // (issue #124). The whole path is exercised here - league teams through the
@@ -1906,7 +1915,7 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
   // keeps working. The element it matches is now the Draft room's
   // ReadinessAnnouncer rather than the rail's own line, which #164 stripped
   // role/aria-live from - same invariant, different element.
-  expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
+  expect(readinessAnnouncer()).toHaveTextContent('1 of 2 managers ready');
 });
 
 // ---------------------------------------------------------------------------
@@ -2151,27 +2160,27 @@ describe('readiness live region (issue #164)', () => {
   test('is the same DOM node before and after switching mobile tabs away and back', async () => {
     await showPendingLobby();
 
-    const before = screen.getByRole('status');
+    const before = readinessAnnouncer();
     expect(before).toHaveTextContent('1 of 2 managers ready');
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
     // Present on a tab that does not render the rail at all - which is the
     // point: the region does not belong to the rail any more.
-    expect(screen.getByRole('status')).toBe(before);
+    expect(readinessAnnouncer()).toBe(before);
 
     await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
-    expect(screen.getByRole('status')).toBe(before);
+    expect(readinessAnnouncer()).toBe(before);
 
     // And back to the tab the room opened on, which is the switch the issue
     // describes: "the rail is rendered only while the players tab is active".
     await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
-    expect(screen.getByRole('status')).toBe(before);
+    expect(readinessAnnouncer()).toBe(before);
     expect(before).toHaveTextContent('1 of 2 managers ready');
   });
 
   test('updates its text in place when readiness changes while the rail is unmounted', async () => {
     await showPendingLobby();
-    const region = screen.getByRole('status');
+    const region = readinessAnnouncer();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
     expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
@@ -2186,7 +2195,7 @@ describe('readiness live region (issue #164)', () => {
 
     // Same node, new text: a change to a region already being observed, which
     // is the shape assistive technology announces.
-    expect(screen.getByRole('status')).toBe(region);
+    expect(readinessAnnouncer()).toBe(region);
     expect(region).toHaveTextContent('2 of 2 managers ready');
   });
 
@@ -2229,11 +2238,11 @@ describe('readiness live region (issue #164)', () => {
     // exercising.
     expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
 
-    const before = screen.getByRole('status');
+    const before = readinessAnnouncer();
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
 
     expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
-    expect(screen.getByRole('status')).toBe(before);
+    expect(readinessAnnouncer()).toBe(before);
   });
 });
 

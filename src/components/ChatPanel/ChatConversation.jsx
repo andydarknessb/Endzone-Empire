@@ -1,9 +1,10 @@
 import React, { useId, useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
+import { Paper, Typography, Box, TextField, Button, Alert, Chip, InputAdornment } from '@mui/material';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
 import EmojiPicker from './EmojiPicker';
+import ComposerCharacterCount from './ComposerCharacterCount';
 
 // A hide reason is required and bounded the same as the server enforces
 // (safety.router: 10..500 chars), so the Confirm control is disabled until the
@@ -152,6 +153,9 @@ function ChatConversation({
   const [hidingId, setHidingId] = useState(null);
   const [hideReason, setHideReason] = useState('');
   const headingId = useId();
+  // Associates the visible character counter with the input (#486), so a screen
+  // reader hears the count on focus without the counter being a live region.
+  const countId = useId();
 
   // Moderation controls (#441): open a hide form for one message at a time,
   // cancel it, or confirm the hide. These read and write only hidingId /
@@ -439,6 +443,13 @@ function ChatConversation({
         </Box>
       )}
 
+      {/* The counter rides INSIDE the input as an end adornment, not on a row of
+          its own (#486). The desktop Draft room sizes this shell to exactly the
+          viewport with zero slack (draft-board.spec #122 AC1), and the message
+          list above is empty here, so a second composer row - or any element
+          that grows the composer's height - tips the shell past the viewport and
+          makes the page scroll. An end adornment sits within the input's own
+          height, so the composer adds no height at all. */}
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <TextField
           id="chat-message-input"
@@ -447,6 +458,30 @@ function ChatConversation({
           fullWidth
           value={text}
           inputRef={inputRef}
+          // Describe the input with the visible counter (#486) rather than set
+          // maxLength: the server is the single enforcement point, so typing
+          // and sending past the limit stay possible.
+          //
+          // NOTE: setting aria-describedby through inputProps overrides MUI's own
+          // describedby channel, because InputBase spreads inputProps AFTER the
+          // aria-describedby it would compute from helperText/error. That is
+          // latent, not live, here: this field has neither, so there is nothing
+          // for MUI to describe and nothing is lost. If a helperText or error is
+          // ever added, merge its id in rather than letting this clobber it.
+          inputProps={{ 'aria-describedby': countId }}
+          // disablePointerEvents so a click on the counter strip falls through to
+          // the input and places the caret (#486). Without it the adornment eats
+          // the click - InputBase focuses only when the click target IS the input
+          // root, and the adornment's spans are descendants - so the right edge
+          // that used to be the input's own padding became a dead strip inside
+          // the field's outline. The counter has no interactivity to lose.
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end" disablePointerEvents>
+                <ComposerCharacterCount text={text} indicatorId={countId} />
+              </InputAdornment>
+            ),
+          }}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
