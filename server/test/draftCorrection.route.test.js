@@ -126,9 +126,13 @@ test('POST correct-pick: locks the league FOR UPDATE before any mutation, serial
   // The concurrency defence (#439: cannot race a manager or autopick) is the
   // SAME row lock draftPlayer takes: both do SELECT ... FOR UPDATE on the league
   // before touching draft_picks, so a correction and a concurrent pick serialize
-  // on it. This proves the mechanism is wired - the lock is acquired, and before
-  // any DELETE/UPDATE. (A true two-transaction race is proven against a real
-  // Postgres in the migration-smoke pg suite, which a matcher fake cannot honor.)
+  // on it. This proves correctLatestPick ISSUES that lock, before any
+  // DELETE/UPDATE. It does NOT prove Postgres actually serialises two real
+  // transactions on it - a matcher fake has no lock manager. Its sibling,
+  // draftCorrection.pg.test.js, proves that runtime half against a real Postgres;
+  // neither is sufficient alone, and the honest residual gap (the pg test replays
+  // correctLatestPick's statements, so a drift between them escapes both) is named
+  // there.
   const fake = correctionPool().install(t);
 
   const res = await correct({ pickNumber: 3, reason: REASON });

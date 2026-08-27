@@ -25,6 +25,22 @@
  * REAL draftPlayer. correctLatestPick's own atomicity and error contract are
  * proven in draftCorrection.route.test.js and .socket.test.js.
  *
+ * WHAT THIS DOES NOT COVER, and where its sibling does. This proves a claim
+ * about POSTGRES: given that SOME transaction holds the league row FOR UPDATE,
+ * the real draftPlayer blocks and then observes the committed state. It does NOT
+ * prove that correctLatestPick is the code that takes that lock - it replays the
+ * statements rather than calling the service. The static half,
+ * draftCorrection.route.test.js's "locks the league FOR UPDATE before any
+ * mutation" test, proves correctLatestPick issues the same lock draftPlayer
+ * does. Neither is sufficient alone: this one is blind to the service issuing the
+ * lock; that one is blind to Postgres actually serialising on it. The residual
+ * gap is precise and left open on purpose - if correctLatestPick's statements
+ * DRIFT from what this file replays, neither test catches it. Closing it would
+ * mean refactoring correctLatestPick to accept an injected client; that is a
+ * design change, not a test fix. (The same static/runtime split #474's guards
+ * use: one half proves the code says the right thing, the other that the system
+ * does it.)
+ *
  * Gated twice, exactly like draftActivity.pg.test.js: DRAFT_CORRECTION_PG_TESTS=1
  * (or the umbrella PG_TESTS=1) must be set, and every DATABASE_URL* variable must
  * be ABSENT, so a stray local run can never touch shared production. It self-skips
