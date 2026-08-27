@@ -68,7 +68,7 @@ function manualPickWorld(t) {
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
-    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('draft_picks'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
     // The chat lands at seq 5, the Pick activity at seq 6: the activity orders
     // AFTER the human message, deterministically, for every client (#435 AC4).
     [insert('chat_messages'), () => ({ rows: [{ id: 9, created_at: '2026-09-01T00:00:00.000Z', feed_seq: '5' }], rowCount: 1 })],

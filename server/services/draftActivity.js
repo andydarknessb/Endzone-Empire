@@ -58,6 +58,17 @@ const COMPLETE = 'complete';
 const CORRECTION = 'correction';
 
 /**
+ * The cutover BOUNDARY kind (#436, ADR 0012). It is not a Draft event: it is the
+ * single per-league marker the legacy backfill inserts just after the legacy set
+ * to separate synthetic legacy ordering from authoritative live ordering. It
+ * carries no Team or Pick facts and is never legacy itself (is_legacy = false):
+ * the boundary is where live ordering BEGINS. Written only by the #436 migration
+ * and its reconciliation, never by an append path here, so it is deliberately
+ * excluded from LIFECYCLE_KINDS and shaped as a bare entry by activityEntryOf.
+ */
+const CUTOVER = 'cutover';
+
+/**
  * The non-Pick lifecycle kinds appendLifecycleActivity accepts. PICK is
  * excluded on purpose: a Pick carries snapshot facts and goes through
  * appendPickActivity, so routing one here (which writes no Pick columns) would
@@ -89,6 +100,12 @@ function activityEntryOf(row) {
     // reads back null here rather than an omitted field.
     [idField]: row[idField] ?? null,
     [nameField]: row[nameField] ?? null,
+    // Whether this is a backfilled legacy fact rather than an authoritative live
+    // event (#436). The cutover boundary and every live entry read false; a
+    // backfilled legacy Pick reads true. A row from before this column existed
+    // (or one that never carries it) reads false, so the wire contract always
+    // has the key.
+    isLegacy: row.is_legacy ?? false,
     created_at: row.created_at,
   };
   // A bare lifecycle event (#437) is not a Pick: it has no player, round, Pick
@@ -133,13 +150,13 @@ function activityEntryOf(row) {
  * expired and the server made the Pick - so the entry can label an autopick
  * only when that is actually true (#435 AC3), never inferred later.
  */
-async function appendPickActivity(client, { leagueId, team, player, round, pickNumber, auto = false }) {
+async function appendPickActivity(client, { leagueId, team, player, round, pickNumber, auto = false, sourcePickId = null }) {
   const result = await client.query(
     `INSERT INTO "draft_activity"
        ("league_id", "kind", "team_id", "team_name",
         "player_id", "player_name", "player_position", "player_nfl_team",
-        "round", "pick_number", "is_autopick")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        "round", "pick_number", "is_autopick", "source_pick_id")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING "id", "feed_seq", "created_at"`,
     [
       leagueId,
@@ -153,6 +170,11 @@ async function appendPickActivity(client, { leagueId, team, player, round, pickN
       round,
       pickNumber,
       auto,
+      // The draft_picks row this entry represents (#436), so coverage and
+      // reconciliation match a Pick to its feed entry by identity rather than by
+      // a pick_number that undo + re-pick reuses. Null only for callers (older
+      // tests) that do not supply it.
+      sourcePickId,
     ]
   );
   const inserted = result.rows[0];
@@ -293,6 +315,7 @@ module.exports = {
   RESET,
   COMPLETE,
   CORRECTION,
+  CUTOVER,
   LIFECYCLE_KINDS,
   activityEntryOf,
   appendPickActivity,

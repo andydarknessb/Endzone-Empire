@@ -154,6 +154,18 @@ async function deleteUserAccount({ userId, confirmation }) {
        WHERE "owner_id" = $1`,
       [userId]
     );
+    // Purge the feed positions this account's messages own BEFORE deleting the
+    // messages (#436, ADR 0015): the shared registry mirrors positions the
+    // record tables still hold, so a removed message's position must go with it,
+    // leaving a feed gap with no orphaned position and no retained copy of the
+    // content (ADR 0012). The counter is untouched, so the freed position is
+    // never re-handed-out.
+    await client.query(
+      `DELETE FROM "league_feed_positions"
+        WHERE "record_kind" = 'league_chat'
+          AND "source_id" IN (SELECT "id" FROM "chat_messages" WHERE "user_id" = $1)`,
+      [userId]
+    );
     await client.query('DELETE FROM "chat_messages" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "chat_reads" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "pickem_picks" WHERE "user_id" = $1', [userId]);

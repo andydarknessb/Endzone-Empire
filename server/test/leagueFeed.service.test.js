@@ -30,7 +30,7 @@ const row = (over = {}) => ({
 test('feedEntryOf is a typed League-chat entry attributed by Team alone', () => {
   const entry = feedEntryOf(row());
   assert.deepEqual(Object.keys(entry).sort(), [
-    'created_at', 'hidden', 'id', 'message', 'seq', 'teamId', 'teamName', 'type',
+    'created_at', 'hidden', 'id', 'isLegacy', 'message', 'seq', 'teamId', 'teamName', 'type',
   ]);
   assert.equal(entry.type, LEAGUE_CHAT);
   assert.equal(entry.type, 'league_chat');
@@ -66,7 +66,7 @@ test('feedEntryOf tombstones a hidden message: neutral, no content, no moderator
   assert.equal('hidden_by' in entry, false);
   assert.equal('hidden_at' in entry, false);
   assert.deepEqual(Object.keys(entry).sort(), [
-    'created_at', 'hidden', 'id', 'message', 'seq', 'teamId', 'teamName', 'type',
+    'created_at', 'hidden', 'id', 'isLegacy', 'message', 'seq', 'teamId', 'teamName', 'type',
   ]);
 });
 
