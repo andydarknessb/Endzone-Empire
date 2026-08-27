@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createSocketHarness } = require('./helpers/socketHarness');
 const { createFakePool } = require('./helpers/fakePool');
-const { deliverFeedEntry, normalizeClientMsgId, clampToCharacters } = require('../modules/draftSocket');
+const { deliverFeedEntry, normalizeClientMsgId, MAX_CHAT_CHARS } = require('../modules/draftSocket');
 const { LEAGUE_CHAT } = require('../services/leagueFeed');
 
 /**
@@ -285,9 +285,10 @@ test('a malformed clientMsgId is refused before any database work', async (t) =>
 });
 
 // ---------------------------------------------------------------------------
-// #443: the 500 limit is counted in CHARACTERS (code points), so an emoji made
-// reachable by the composer's new picker survives the character limit as
-// ordinary text - it is never bisected into a lone surrogate at the boundary.
+// #443/#502: the 500 limit is counted in CHARACTERS (code points, via the
+// string iterator), so an astral emoji - two UTF-16 code units but one
+// character - is never mis-measured against the limit either way: exactly at
+// it, it is accepted whole; one character past it, the whole send is refused.
 // ---------------------------------------------------------------------------
 
 const THUMBS = '\u{1F44D}'; // one character, two UTF-16 code units
@@ -297,59 +298,7 @@ const THUMBS = '\u{1F44D}'; // one character, two UTF-16 code units
 // only whole characters - exactly what Postgres would need to store it.
 const isValidUtf8 = (s) => Buffer.from(s, 'utf8').toString('utf8') === s;
 
-test('clampToCharacters truncates by code point and never bisects an emoji into a lone surrogate (#443)', () => {
-  // Under the limit: unchanged, the emoji intact.
-  assert.equal(clampToCharacters(`gg ${THUMBS}`), `gg ${THUMBS}`);
-
-  // An emoji straddling the 500th UTF-16 code unit. A slice(0, 500) would keep
-  // its leading surrogate alone; clamping by character keeps the whole emoji
-  // (500 characters, 501 code units) and the result is valid UTF-8.
-  const straddling = 'a'.repeat(499) + THUMBS;
-  const clamped = clampToCharacters(straddling);
-  assert.equal(Array.from(clamped).length, 500, 'kept exactly 500 characters');
-  assert.ok(clamped.endsWith(THUMBS), 'the boundary emoji survives whole');
-  assert.ok(isValidUtf8(clamped), 'no lone surrogate is produced');
-
-  // An emoji one character PAST the limit is dropped whole, not split.
-  const past = 'a'.repeat(500) + THUMBS;
-  const clampedPast = clampToCharacters(past);
-  assert.equal(clampedPast, 'a'.repeat(500), 'the over-limit emoji is dropped, not halved');
-  assert.ok(isValidUtf8(clampedPast), 'no lone surrogate is produced');
-
-  // Plain overflow is still capped at the limit.
-  assert.equal(Array.from(clampToCharacters('x'.repeat(600))).length, 500);
-});
-
-// #488: the clamp's honest guarantee is "no lone surrogate / always valid
-// UTF-8", NOT "every emoji is kept whole or dropped whole". A multi-code-point
-// emoji straddling the boundary IS bisected: its trailing code points are
-// dropped. The red heart the picker offers is U+2764 (a BMP char, so a
-// character-boundary cut can land right after it) followed by U+FE0F, the
-// emoji variation selector. Clamped at the limit it keeps U+2764 and drops
-// U+FE0F, storing a monochrome text heart. That is acceptable (still valid
-// text), and this pins the EXACT stored string so the doc comment cannot drift
-// back to overclaiming. The heart is spelled out in escapes so the test does
-// not depend on an invisible variation selector surviving in the file.
-const RED_HEART = '\u2764\uFE0F';
-
-test('clampToCharacters bisects a multi-code-point emoji at the boundary but stays valid UTF-8 (#488)', () => {
-  // 499 filler then the heart: its base (U+2764) is the 500th code point and
-  // its variation selector (U+FE0F) is the 501st, so the cut falls between them.
-  const straddling = 'a'.repeat(499) + RED_HEART;
-  assert.equal(Array.from(straddling).length, 501, 'the heart is two code points past 499 filler');
-
-  const clamped = clampToCharacters(straddling);
-  // The exact stored string: the base heart survives, the variation selector is
-  // dropped. This is a bisected emoji (it renders as a text heart, not the red
-  // emoji), which is why "kept whole or dropped whole" was false.
-  assert.equal(clamped, `${'a'.repeat(499)}\u2764`, 'kept the base heart, dropped the VS16');
-  assert.equal(Array.from(clamped).length, 500, 'capped at the character limit');
-  assert.ok(!clamped.includes('\uFE0F'), 'the trailing variation selector was dropped');
-  // The guarantee that DOES hold: every code point kept is whole, so valid UTF-8.
-  assert.ok(isValidUtf8(clamped), 'no lone surrogate; storable as ordinary text');
-});
-
-test('a sent message straddling the limit is stored and broadcast as a whole emoji, valid UTF-8 (#443)', async (t) => {
+test('a message at exactly the limit, straddling a UTF-16 boundary, is stored and broadcast whole (#443)', async (t) => {
   const leagueId = 4407;
   const world = chatWorld({
     leagueId,
@@ -362,12 +311,80 @@ test('a sent message straddling the limit is stored and broadcast as a whole emo
   await harness.emit(watcher, 'league:join', { leagueId });
 
   const received = eventOrSilence(watcher, 'chat:message', 300);
-  // 499 filler + an emoji whose UTF-16 units straddle the 500-unit boundary.
-  await harness.emit(sender, 'chat:send', { leagueId, message: 'a'.repeat(499) + THUMBS });
+  // 499 filler + one emoji = 500 characters, 501 UTF-16 code units: the emoji
+  // itself straddles the 500-code-unit mark, which is exactly the case a
+  // `.length` count would over-count and wrongly refuse.
+  const message = 'a'.repeat(499) + THUMBS;
+  assert.equal(Array.from(message).length, 500, 'exactly at the character limit');
+  const ack = await harness.emit(sender, 'chat:send', { leagueId, message });
+  assert.deepEqual(ack, { ok: true }, 'exactly MAX_CHAT_CHARS characters is accepted');
   const entry = await received;
 
   assert.ok(entry, 'the room saw the message');
-  assert.equal(Array.from(entry.message).length, 500, 'stored at the character limit');
-  assert.ok(entry.message.endsWith(THUMBS), 'the boundary emoji arrives whole');
+  assert.equal(Array.from(entry.message).length, 500, 'delivered at the character limit');
+  assert.ok(entry.message.endsWith(THUMBS), 'the boundary emoji arrives whole, never truncated');
   assert.ok(isValidUtf8(entry.message), 'no lone surrogate reached the room');
+});
+
+test('500 astral emoji (1000 UTF-16 code units, 500 code points) is accepted and delivered whole (#502)', async (t) => {
+  const leagueId = 4408;
+  const world = chatWorld({
+    leagueId,
+    teams: { [A.userId]: { teamId: 71, teamName: 'Founders' }, [C.userId]: { teamId: 91, teamName: 'Neutral' } },
+  });
+  world.fake.install(t);
+  const sender = await harness.connectAs(A, t);
+  const watcher = await harness.connectAs(C, t);
+  await harness.emit(sender, 'league:join', { leagueId });
+  await harness.emit(watcher, 'league:join', { leagueId });
+
+  // 500 code points, but 1000 UTF-16 code units: `message.length` would read
+  // 1000 and wrongly refuse this as over the limit. Counting with the string
+  // iterator (Array.from) reads the true 500 and accepts it.
+  const message = THUMBS.repeat(500);
+  assert.equal(message.length, 1000, 'UTF-16 code units: double the character count');
+  assert.equal(Array.from(message).length, 500, 'code points: exactly at the limit');
+
+  const received = eventOrSilence(watcher, 'chat:message', 300);
+  const ack = await harness.emit(sender, 'chat:send', { leagueId, message });
+  assert.deepEqual(ack, { ok: true });
+  const entry = await received;
+
+  assert.ok(entry, 'the room saw the message');
+  assert.equal(entry.message, message, 'delivered whole, not truncated');
+});
+
+// ---------------------------------------------------------------------------
+// #502: an over-length send is refused with MESSAGE_TOO_LONG before any
+// database work, and never shortened - the same footing as INVALID_REQUEST.
+// ---------------------------------------------------------------------------
+
+test('a 501-code-point message is refused MESSAGE_TOO_LONG, persists nothing, and is never broadcast', async (t) => {
+  const leagueId = 4409;
+  const world = chatWorld({
+    leagueId,
+    teams: { [A.userId]: { teamId: 71, teamName: 'Founders' }, [C.userId]: { teamId: 91, teamName: 'Neutral' } },
+  });
+  world.fake.install(t);
+  const sender = await harness.connectAs(A, t);
+  const watcher = await harness.connectAs(C, t);
+  await harness.emit(sender, 'league:join', { leagueId });
+  await harness.emit(watcher, 'league:join', { leagueId });
+  const callsBefore = world.fake.calls.length;
+
+  const overLong = 'a'.repeat(MAX_CHAT_CHARS + 1);
+  assert.equal(Array.from(overLong).length, 501);
+
+  const watcherHeard = eventOrSilence(watcher, 'chat:message');
+  const ack = await harness.emit(sender, 'chat:send', { leagueId, message: overLong });
+
+  assert.deepEqual(ack, {
+    error: 'message must be at most 500 characters',
+    code: 'MESSAGE_TOO_LONG',
+    limit: MAX_CHAT_CHARS,
+    length: 501,
+  });
+  assert.equal(world.fake.matching(/^INSERT INTO "chat_messages"/).length, 0, 'nothing was stored');
+  assert.equal(world.fake.calls.length, callsBefore, 'the refusal reaches no query at all');
+  assert.equal(await watcherHeard, null, 'no chat:message was broadcast');
 });
