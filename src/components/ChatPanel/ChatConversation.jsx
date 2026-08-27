@@ -4,6 +4,7 @@ import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
 import EmojiPicker from './EmojiPicker';
+import ComposerCharacterCount from './ComposerCharacterCount';
 
 // A hide reason is required and bounded the same as the server enforces
 // (safety.router: 10..500 chars), so the Confirm control is disabled until the
@@ -152,6 +153,9 @@ function ChatConversation({
   const [hidingId, setHidingId] = useState(null);
   const [hideReason, setHideReason] = useState('');
   const headingId = useId();
+  // Associates the visible character counter with the input (#486), so a screen
+  // reader hears the count on focus without the counter being a live region.
+  const countId = useId();
 
   // Moderation controls (#441): open a hide form for one message at a time,
   // cancel it, or confirm the hide. These read and write only hidingId /
@@ -439,26 +443,35 @@ function ChatConversation({
         </Box>
       )}
 
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-        <TextField
-          id="chat-message-input"
-          label="Message"
-          size="small"
-          fullWidth
-          value={text}
-          inputRef={inputRef}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-        />
-        <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
-        <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
-          Send
-        </Button>
+      <Box>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <TextField
+            id="chat-message-input"
+            label="Message"
+            size="small"
+            fullWidth
+            value={text}
+            inputRef={inputRef}
+            // Describe the input with the visible counter (#486) rather than set
+            // maxLength: the server is the single enforcement point, so typing
+            // and sending past the limit stay possible.
+            inputProps={{ 'aria-describedby': countId }}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+          />
+          <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
+          <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
+            Send
+          </Button>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
+          <ComposerCharacterCount text={text} indicatorId={countId} />
+        </Box>
       </Box>
     </Paper>
   );

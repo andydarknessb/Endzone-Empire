@@ -551,3 +551,95 @@ test('an emoji-bearing draft is preserved per league across a remount, like any 
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />);
   expect(screen.getByLabelText('Message')).toHaveValue(`later ${THUMBS_UP}`);
 });
+
+// #486: the composer's character counter. It counts Unicode code points, the
+// unit the server clamp and the varchar(500) column count, shows the live count
+// against the limit, blocks nothing over the limit, and announces at thresholds
+// only. Set the input value directly (fireEvent.change) so a case can jump to a
+// precise code-point count without typing hundreds of keystrokes.
+const setComposer = (value) =>
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value } });
+const countText = () => screen.getByTestId('composer-char-count').textContent;
+const statusText = () => screen.getByRole('status').textContent;
+
+test('the counter reads the code-point count against the limit at 499, 500 and 501', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  setComposer('a'.repeat(499));
+  expect(countText()).toBe('499 / 500');
+  setComposer('a'.repeat(500));
+  expect(countText()).toBe('500 / 500');
+  setComposer('a'.repeat(501));
+  expect(countText()).toBe('501 / 500');
+});
+
+test('a ZWJ family emoji counts as its code points, not 1 and not its UTF-16 length', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  // 👨‍👩‍👧‍👦 is four people joined by three ZWJs: 7 code points, one grapheme,
+  // 11 UTF-16 code units. The count is 7; switching the helper to text.length
+  // (which would read 11) turns this red, and 1 (a grapheme count) also fails.
+  const family = '\u{1F468}‍\u{1F469}‍\u{1F467}‍\u{1F466}';
+  expect(family.length).toBe(11); // guards the premise: code units disagree
+  setComposer(family);
+  expect(countText()).toBe('7 / 500');
+});
+
+test('an emoji inserted through the picker counts the same as typing that emoji', async () => {
+  const { unmount } = renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  await pickEmoji();
+  await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(THUMBS_UP));
+  const viaPicker = countText();
+  unmount();
+
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  setComposer(THUMBS_UP);
+  expect(countText()).toBe(viaPicker);
+  expect(countText()).toBe('1 / 500'); // one code point, though it is two UTF-16 units
+});
+
+test('the status region announces by band: silent above the warning, then at the warning, then at the limit', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+
+  // Well above the warning threshold (50 remaining): two consecutive keystrokes
+  // leave the status text identical, so a screen reader announces nothing.
+  setComposer('a'.repeat(5));
+  const quietA = statusText();
+  setComposer('a'.repeat(6));
+  const quietB = statusText();
+  expect(quietB).toBe(quietA);
+  expect(quietA).toBe('');
+
+  // Crossing to at-or-below the warning threshold changes the text once.
+  setComposer('a'.repeat(450)); // 50 remaining
+  const warn = statusText();
+  expect(warn).not.toBe(quietB);
+  expect(warn).not.toBe('');
+  // Another keystroke still inside the warning band does NOT change it again.
+  setComposer('a'.repeat(470)); // 30 remaining
+  expect(statusText()).toBe(warn);
+
+  // Reaching the limit changes the text again.
+  setComposer('a'.repeat(500)); // 0 remaining
+  const atLimit = statusText();
+  expect(atLimit).not.toBe(warn);
+  expect(atLimit).not.toBe('');
+  // Going further over the limit stays in the same band, so no re-announcement.
+  setComposer('a'.repeat(512));
+  expect(statusText()).toBe(atLimit);
+});
+
+test('the input is described by the visible counter and sets no maxLength', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const input = screen.getByLabelText('Message');
+  const indicator = screen.getByTestId('composer-char-count');
+
+  expect(indicator.id).toBeTruthy();
+  expect(input.getAttribute('aria-describedby') || '').toContain(indicator.id);
+  expect(input).not.toHaveAttribute('maxlength');
+});
+
+test('Send stays enabled past the limit: the server is the single enforcement point', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  setComposer('a'.repeat(501));
+  expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  expect(countText()).toBe('501 / 500');
+});
