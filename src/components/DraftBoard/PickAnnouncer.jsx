@@ -51,9 +51,17 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * setState `prev`), not a separate last-text ref or a parity counter, is what
  * makes this hold for ANY interleaving: a different Pick landing between two
  * repeats (A, A, B, B) cannot desync a counter from what is on screen, because
- * there is no counter. FeedAnnouncer.jsx still uses the older parity-counter
- * flip, which has exactly that desync defect (#518); the two have DIVERGED and
- * must not be merged back together.
+ * there is no counter. FeedAnnouncer.jsx (the Chat-scoped feed announcer) now
+ * uses this same rendered-value comparison too: #518 replaced its older
+ * parity-counter flip, which had exactly that desync defect, so the two no longer
+ * diverge on the repeat handling. That duplication is DELIBERATE, not a pending
+ * cleanup: it is a two-line idiom, not a mechanism, and the two components have
+ * different lifecycles - this one is keyed on a single pick prop; the feed
+ * announcer is seq-gated over a chat feed with a clear path and an initialisation
+ * guard neither of which this one has - so a shared hook would have to reconcile a
+ * clear path only one of them owns, the reset-semantics hazard #513 identified.
+ * REOPEN THIS ONLY IF A THIRD ANNOUNCER NEEDS THE SAME IDIOM: extract a shared
+ * helper at three copies, not two.
  */
 function PickAnnouncer({ pick = null }) {
   const [announcement, setAnnouncement] = useState('');
@@ -66,8 +74,8 @@ function PickAnnouncer({ pick = null }) {
     // zero-width space so the node value still changes and the repeat is
     // announced; otherwise set it clean. Comparing against `prev` (not a parity
     // counter) is what keeps this correct across any interleaving such as
-    // A, A, B, B - see the docblock, and #518 for the counter's desync defect
-    // that FeedAnnouncer still carries.
+    // A, A, B, B - see the docblock. FeedAnnouncer.jsx now uses the same idiom
+    // (#518 replaced its old parity-counter flip that had the desync defect).
     setAnnouncement((prev) => (prev === text ? text + ZERO_WIDTH_SPACE : text));
   }, [pick]);
 

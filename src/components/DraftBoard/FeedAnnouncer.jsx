@@ -4,10 +4,11 @@ import { visuallyHidden } from '@mui/utils';
 import { feedEntryKey } from '../../lib/teamIdentity';
 import { feedAnnouncementFor } from './feedAnnouncement';
 
-// A zero-width space (U+200B): appended to alternate announcements so that two
-// different entries which describe with byte-identical text still change the
-// live region's text node and are both announced. It is not rendered and not
-// spoken. Built from its code point so no invisible literal sits in source.
+// A zero-width space (U+200B): appended to an announcement when its text would
+// exactly equal the CURRENTLY RENDERED announcement, so that two entries whose
+// text is byte-identical still change the live region's text node and are both
+// announced. It is not rendered and not spoken. Built from its code point so no
+// invisible literal sits in source.
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
 /**
@@ -24,8 +25,7 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * messages only. Do NOT re-add a Pick branch here or route a Pick tail into the
  * empty-clear below - either reintroduces the double-speech #513 exists to
  * prevent (when Chat is mounted) or blanks a still-unread message announcement.
- * If you are here to fix #518 (the parity-flip desync), it is the flip alone;
- * the Pick removal is intentional and must stay.
+ * The Pick removal is intentional and must stay: do not re-add a Pick branch.
  *
  * WHY A SEPARATE POLITE REGION, AND WHO IT ACTUALLY SHARES A PHASE WITH. The
  * room's other polite regions are phase-separated: readiness (#164) and the
@@ -68,12 +68,30 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * TWO ENTRIES THAT DESCRIBE IDENTICALLY. Two messages from the same Team both
  * read "New message from <Team>". React bails on an Object.is-equal state, so a
  * byte-identical string would leave the text node untouched and the second
- * arrival silent. A zero-width space flips on alternate announcements to change
- * the node value - but the parity counter that drives it has a desync defect
- * (#518): a different entry between two repeat-pairs (A, A, B, B) leaves the
- * fourth silent. PickAnnouncer.jsx (#513) fixed the same shape by comparing
- * against the rendered value; this announcer is left for #518. This is distinct
- * from the identical-TAIL rerender above, which is a non-event and stays silent.
+ * arrival silent. So when the new text would exactly repeat the CURRENTLY
+ * RENDERED announcement, a zero-width space is appended - invisible and unspoken -
+ * so the node value still changes and the repeat is announced. Comparing against
+ * the rendered value (the functional setState `prev`), not a separate last-text
+ * ref or a parity counter, is what makes this hold for ANY interleaving: a
+ * different entry landing between two repeats (A, A, B, B) cannot desync a counter
+ * from what is on screen, because there is no counter (#518 fixed the earlier
+ * parity-flip that had exactly that desync). This is distinct from the
+ * identical-TAIL rerender above, which is a non-event and stays silent.
+ *
+ * PickAnnouncer.jsx (#513) now uses the identical repeat idiom - compare the new
+ * text against the rendered value and append a zero-width space on an exact
+ * repeat. After #518 the two no longer diverge on the repeat handling. That
+ * duplication is DELIBERATE, not a pending cleanup: it is a two-line idiom, not a
+ * mechanism, so a shared hook buys no reduction in logic and costs an import, an
+ * indirection and a file. And the two components have genuinely different
+ * lifecycles - this one is seq-gated over a feed with a clear path and an
+ * initialisation guard; PickAnnouncer is keyed on a single pick prop with
+ * neither - so a shared hook would have to reconcile a clear path that only one of
+ * them has, which is exactly the reset-semantics hazard #513 identified. The two
+ * did drift once (the fourth-repeat silence #518 fixed), but only because one was
+ * fixed hours before the other; the cross-references now written in both docblocks
+ * are the cheap guard against that. REOPEN THIS ONLY IF A THIRD ANNOUNCER NEEDS
+ * THE SAME IDIOM: at three copies, extract a shared helper then.
  */
 function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
   const [announcement, setAnnouncement] = useState('');
@@ -83,10 +101,6 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
   const lastKeyRef = useRef(null);
   const highWaterSeqRef = useRef(-Infinity);
   const initialisedRef = useRef(false);
-  // The last BASE announcement text (without any marker), and a flip used only
-  // when a new announcement would repeat it (see below).
-  const lastTextRef = useRef('');
-  const nonceRef = useRef(0);
 
   const tail = entries.length ? entries[entries.length - 1] : null;
   const tailKey = tail ? feedEntryKey(tail) : null;
@@ -136,32 +150,22 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
       // to empty. That mutates the node value rather than removing the node, so
       // there is no announcement of silence.
       setAnnouncement('');
-      lastTextRef.current = '';
       return;
     }
     // Two DIFFERENT entries can describe identically - two messages from the same
     // Team both read "New message from <Team>". React bails on an Object.is-equal
     // state, so a byte-identical string would leave the region's text node
     // untouched and a screen reader silent: the first announced, the rest lost.
-    // Only when the new text WOULD repeat the last announcement, append a
-    // zero-width space that flips, so the node value changes and the repeat is
-    // announced; the marker is invisible and unspoken. Distinct messages stay
-    // clean. This is not the identical-tail case above - that returns before here
-    // and stays deliberately silent.
-    // NOTE: this parity-counter flip has a desync defect - a different entry
-    // landing between two repeat-pairs (A, A, B, B) leaves the fourth silent,
-    // because the global nonce decouples from the currently-rendered value.
-    // PickAnnouncer.jsx (#513) DIVERGED from this to compare against the rendered
-    // value instead, which has no counter to desync; do not re-merge them. Left
-    // as-is here deliberately: #518 owns this fix and its own blast radius (a
-    // live message-announcement defect on integration), with its own test.
-    let out = text;
-    if (text === lastTextRef.current) {
-      nonceRef.current += 1;
-      out = nonceRef.current % 2 ? text + ZERO_WIDTH_SPACE : text;
-    }
-    lastTextRef.current = text;
-    setAnnouncement(out);
+    // When the new text would exactly repeat what is CURRENTLY RENDERED, append a
+    // zero-width space so the node value still changes and the repeat is
+    // announced; otherwise set it clean. The marker is invisible and unspoken.
+    // Comparing against `prev` (the rendered value in the functional setState),
+    // not a separate last-text ref or a parity counter, is what keeps this correct
+    // across ANY interleaving such as A, A, B, B: a different entry landing between
+    // two repeat-pairs cannot desync from what is on screen, because there is no
+    // counter. This is not the identical-tail case above - that returns before
+    // here and stays deliberately silent.
+    setAnnouncement((prev) => (prev === text ? text + ZERO_WIDTH_SPACE : text));
   }, [tailKey, tailSeq, tail, viewerTeamId]);
 
   return (

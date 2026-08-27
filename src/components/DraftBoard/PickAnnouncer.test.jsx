@@ -72,6 +72,13 @@ describe('PickAnnouncer', () => {
     // The raw text node value changed (an invisible, unspoken discriminator), so
     // assistive tech re-announces rather than seeing an unchanged node.
     expect(region.textContent).not.toBe(afterFirst);
+    // ...and the discriminator is specifically the zero-width space, nothing
+    // visible or spoken. not.toBe above proves only that SOMETHING changed - a
+    // visible char (even String.fromCharCode(0x2014), which leaves no em-dash byte
+    // for the guard) would satisfy it and the substring toHaveTextContent both,
+    // while a screen reader began speaking it. Pin U+200B exactly, built from its
+    // code point so no invisible literal sits in this file either.
+    expect(region.textContent).toBe('Harbor Hawks autodrafted John Smith' + String.fromCharCode(0x200b));
   });
 
   it('re-announces the fourth of A, A, B, B - a different Pick between two repeat-pairs', () => {
@@ -80,7 +87,8 @@ describe('PickAnnouncer', () => {
     // tracks parity flips on the second A and again on the second B, landing the
     // fourth B on the un-flipped value equal to the third - silent. Comparing
     // against the CURRENTLY RENDERED text instead cannot desync this way. This is
-    // the shape #518 leaves broken in FeedAnnouncer; here it must hold.
+    // the shape #518 fixed in FeedAnnouncer (which now uses the same idiom); here
+    // it must hold.
     const { rerender } = render(<PickAnnouncer pick={null} />);
     const region = screen.getByRole('status');
 
