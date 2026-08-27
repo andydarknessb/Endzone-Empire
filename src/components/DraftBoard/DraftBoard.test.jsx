@@ -2149,6 +2149,25 @@ describe('narrow container layout (#444)', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
   });
+
+  test('a completed draft opens on the Board tab, the one exception to Chat-first', async () => {
+    // A finished draft is a record, so it opens on the Board on both layouts
+    // (issue #123 criterion 4). This is the single intentional exception to
+    // #444's Chat-first default: Chat is still a tab away, just not the landing.
+    renderBoard(1);
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    }));
+
+    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

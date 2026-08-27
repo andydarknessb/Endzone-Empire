@@ -90,7 +90,10 @@ describe('useContainerWidth', () => {
     expect(screen.getByTestId('probe')).toHaveTextContent('1200');
 
     // The container shrank (a split view opened beside it, an orientation
-    // change): the observer callback is the live channel that carries that.
+    // change): the observer callback is the live channel that carries that. The
+    // hook re-measures the node itself on each callback (border-box), so drive
+    // the resize by changing the measured width, then firing the observer.
+    stubWidth(480);
     act(() => {
       observers[0].callback([{ contentRect: { width: 480 } }]);
     });

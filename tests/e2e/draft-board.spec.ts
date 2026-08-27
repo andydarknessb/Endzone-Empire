@@ -752,7 +752,7 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     // Players on the left, the Chat/activity feed in the centre, the rail on
     // the right.
     await expect(page.getByRole('region', { name: 'Available Players' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Chat and Draft activity' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Chat and Draft activity', exact: true })).toBeVisible();
     await expect(page.getByRole('region', { name: 'League Chat' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'My Queue' })).toBeVisible();
@@ -1226,7 +1226,7 @@ test.describe('browser evidence: every required width in both themes', () => {
         // widths, so this split is unambiguous at every evidenced width.
         if (viewport.width >= 960) {
           expect(tabs).toEqual([]);
-          await expect(page.getByRole('region', { name: 'Chat and Draft activity' })).toBeVisible();
+          await expect(page.getByRole('region', { name: 'Chat and Draft activity', exact: true })).toBeVisible();
           await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
         } else {
           expect(tabs).toEqual(['Chat', 'Players', 'Board', 'Draft']);

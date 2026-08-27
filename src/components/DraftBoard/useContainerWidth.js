@@ -37,11 +37,13 @@ export function draftPaneLayout(width) {
  * resizes.
  *
  * Returns `[ref, width]`: attach `ref` (a callback ref) to the element to
- * measure, and read `width` (the element's content-box width in pixels, or
- * `null` before the first measurement). The width is read once synchronously
- * when the ref attaches - inside the commit, before paint, so the first painted
- * frame already has the right value - and then tracked through a ResizeObserver
- * for every later size change.
+ * measure, and read `width` (the element's rendered border-box width in
+ * pixels, or `null` before the first measurement). The width is read once
+ * synchronously when the ref attaches - inside the commit, before paint, so the
+ * first painted frame already has the right value - and then tracked through a
+ * ResizeObserver for every later size change. Both paths measure the same box
+ * (`getBoundingClientRect().width`) so a resize can never disagree with the
+ * initial read by the element's own padding.
  *
  * Where `ResizeObserver` does not exist (jsdom, very old browsers) the width is
  * still measured once on attach; it simply will not update on later resizes,
@@ -65,13 +67,10 @@ export default function useContainerWidth() {
     setWidth(node.getBoundingClientRect().width);
 
     if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const measured = entry.contentRect
-          ? entry.contentRect.width
-          : node.getBoundingClientRect().width;
-        setWidth(measured);
-      }
+    const observer = new ResizeObserver(() => {
+      // Measure the same box as the attach path above (border-box), rather than
+      // the entry's content-box contentRect, so the two readings agree.
+      setWidth(node.getBoundingClientRect().width);
     });
     observer.observe(node);
     observerRef.current = observer;

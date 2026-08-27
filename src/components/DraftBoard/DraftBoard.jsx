@@ -47,6 +47,11 @@ import { teamNameLabel } from '../../lib/teamIdentity';
 const DRAFT_MAIN_ID = 'draft-main-content';
 const DRAFT_H1_ID = 'draft-league-name';
 
+// The Draft room's four views, in the order the narrow tab bar shows them (Chat
+// first, the centerpiece the room opens on). One list, so the valid-view guard,
+// the default and the tab bar all read the same set and cannot drift.
+const DRAFT_VIEWS = ['chat', 'players', 'board', 'draft'];
+
 /**
  * Everything the roster panel needs, derived from live draft state. A plain
  * function rather than a hook: the only place it can be called is below this
@@ -187,7 +192,7 @@ function DraftBoard() {
   // conversation is the centerpiece a manager lands on.
   const [view, setView] = useState(() => {
     const requested = searchParams.get('view');
-    return ['chat', 'players', 'board', 'draft'].includes(requested) ? requested : 'chat';
+    return DRAFT_VIEWS.includes(requested) ? requested : 'chat';
   });
   // Whether the manager has chosen a view themselves - an explicit ?view= in
   // the URL when the page opened, or a tab click since. Only while they have
@@ -281,6 +286,12 @@ function DraftBoard() {
   // the chronological Pick history inside it. draft_status is unknown until
   // the first draft:state frame lands, which is why this is an effect rather
   // than part of `view`'s initial state.
+  //
+  // This is the ONE intentional exception to #444's "the room opens on Chat"
+  // default, and it is narrow-tab and wide-pane alike: a finished draft's point
+  // is its record, so a narrow room lands on the Board tab and a wide room
+  // shows the Board in the left pane. Chat is still one tab / one toggle away.
+  // A live (pending/active) draft is unaffected and opens on Chat as usual.
   //
   // ONLY on the first frame, which is the whole of the rule. Keying this on
   // draft_status alone made it fire mid-session too, because useDraftSocket
@@ -586,14 +597,23 @@ function DraftBoard() {
   // pool on the left here rather than an empty column.
   const leftPane = view === 'board' ? 'board' : 'players';
 
+  // The one place a manager's own view choice is recorded, shared by the wide
+  // left-pane toggle and the narrow tab bar so the two controls cannot drift.
+  // Marking the choice is what stops the completed-draft default (above) from
+  // relocating them afterwards.
+  const chooseView = (next) => {
+    viewChosenRef.current = true;
+    setView(next);
+  };
+
   // The four narrow tabs, in the Chat/Players/Board/Draft order acceptance
   // criterion 2 names, with Chat first so it is the tab the room opens on.
-  const tabDefs = [
-    { value: 'chat', label: 'Chat' },
-    { value: 'players', label: 'Players' },
-    { value: 'board', label: 'Board' },
-    { value: 'draft', label: 'Draft' },
-  ];
+  // Built from DRAFT_VIEWS so their order and the valid-view guard cannot drift;
+  // every view's label is just its capitalized name.
+  const tabDefs = DRAFT_VIEWS.map((value) => ({
+    value,
+    label: value[0].toUpperCase() + value.slice(1),
+  }));
 
   // The three side-by-side panes of a wide container (#444 acceptance
   // criterion 1): Players/Board on the left, the largest Chat/activity feed in
@@ -614,11 +634,9 @@ function DraftBoard() {
             value={leftPane}
             onChange={(e, next) => {
               // null is a click on the already-selected button; keep the pane
-              // rather than clearing it. Any real choice is a deliberate one
-              // the completed-draft default must not override afterwards.
+              // rather than clearing it.
               if (!next) return;
-              viewChosenRef.current = true;
-              setView(next);
+              chooseView(next);
             }}
             aria-label="Left pane"
           >
@@ -636,6 +654,10 @@ function DraftBoard() {
       </Box>
       <Box
         component="section"
+        // "Chat", not "League chat", on purpose: this pane wraps the League
+        // Chat region that ChatConversation names, and a name containing
+        // "League chat" would collide with it under substring accessible-name
+        // matching, leaving two regions a "League Chat" query cannot tell apart.
         aria-label="Chat and Draft activity"
         sx={{ flexBasis: '41%', minWidth: 0, height: '100%', overflowY: 'auto' }}
       >
@@ -805,12 +827,7 @@ function DraftBoard() {
         <Box sx={{ flexShrink: 0 }}>
           <Tabs
             value={view}
-            onChange={(e, next) => {
-              // A deliberate choice, which the completed-draft default above
-              // must never override afterwards.
-              viewChosenRef.current = true;
-              setView(next);
-            }}
+            onChange={(e, next) => chooseView(next)}
             aria-label="Draft view"
             sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
           >
