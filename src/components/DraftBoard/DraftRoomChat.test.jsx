@@ -178,3 +178,79 @@ test('renders nothing that throws before the session exists', async () => {
   renderWithProviders(<DraftRoomChat socket={null} leagueId={3} viewerTeamId={null} />);
   expect(await screen.findByText('No messages yet')).toBeInTheDocument();
 });
+
+// --------------------------------------------------------------------------
+// #482: the Draft room live-tombstones a hidden message and can hide from here
+// --------------------------------------------------------------------------
+
+const hiddenChat = (overrides = {}) => ({
+  type: 'league_chat', id: 7, seq: 9, hidden: true, message: null,
+  teamId: 11, teamName: 'Anvils', ...overrides,
+});
+
+test('a chat:hidden broadcast tombstones the held chat entry in place, not a Pick with the same id, keeping the count and position', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      chatMessage({ id: 7, seq: 9, teamName: 'Anvils', message: 'you are worthless' }),
+      pickActivity({ id: 7, seq: 10 }),
+    ],
+  });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  expect(await screen.findByText('you are worthless')).toBeInTheDocument();
+
+  act(() => socket.trigger('chat:hidden', hiddenChat({ id: 7, seq: 9 })));
+
+  // The neutral tombstone replaces the content in place; the Pick beside it is
+  // untouched, so both entries remain and neither moved.
+  expect(await screen.findByText('Message hidden by commissioner')).toBeInTheDocument();
+  expect(screen.queryByText('you are worthless')).not.toBeInTheDocument();
+  expect(screen.getByText(/drafted/)).toBeInTheDocument();
+  expect(screen.getByText('Pat Mahomes', { exact: false })).toBeInTheDocument();
+});
+
+test('a chat:hidden for an id the feed never held changes nothing', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 7, seq: 9, message: 'still here' })] });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  expect(await screen.findByText('still here')).toBeInTheDocument();
+
+  act(() => socket.trigger('chat:hidden', hiddenChat({ id: 999 })));
+
+  expect(screen.getByText('still here')).toBeInTheDocument();
+  expect(screen.queryByText('Message hidden by commissioner')).not.toBeInTheDocument();
+});
+
+test('a commissioner sees the Hide control on a chat entry but never on a Pick', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [chatMessage({ id: 7, seq: 9, teamName: 'Anvils', message: 'play nice' }), pickActivity({ id: 3, seq: 10 })],
+  });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} canModerate />);
+  await screen.findByText('play nice');
+
+  // One Hide control, on the chat message; the Pick shows none.
+  expect(screen.getByRole('button', { name: 'Hide message from Anvils' })).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /Hide message/ })).toHaveLength(1);
+});
+
+test('a non-commissioner sees no Hide control at all', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 7, seq: 9, teamName: 'Anvils', message: 'play nice' })] });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  await screen.findByText('play nice');
+
+  expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
+});
+
+test('a commissioner hiding from the room posts through the shared hide route', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 55, seq: 9, teamName: 'Anvils', message: 'targeted harassment' })] });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} canModerate />);
+  await screen.findByText('targeted harassment');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Hide message from Anvils' }));
+  await userEvent.type(screen.getByLabelText('Reason for hiding'), 'targeted harassment of a member');
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm hide' }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/safety/hide', {
+      leagueId: 3, messageId: 55, reason: 'targeted harassment of a member',
+    })
+  );
+});
