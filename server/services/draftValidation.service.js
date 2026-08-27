@@ -209,6 +209,36 @@ function undoTargets(picks, count = 1) {
 }
 
 /**
+ * Pure: the single Pick a Commissioner correction (#439) reverses, or a stable
+ * SCREAMING_SNAKE code (ADR 0008) naming exactly why it cannot. A correction is
+ * not the general N-pick undo above: it reverses ONLY the latest live-reached
+ * non-keeper Pick, as one atomic act, so this returns at most one target.
+ *
+ * `currentPick` is the league's 0-based pick-on-the-clock index; a Pick counts
+ * as reached only when its 1-based `pick_number` is at or below it, so a keeper
+ * pre-filled far ahead of live play never poses as the latest Pick (the same
+ * `pick_number <= current_pick` filter the undo route applies).
+ *
+ * `expectedPickNumber` is the Pick the commissioner is looking at when they
+ * confirm. When provided it must still be the latest reached Pick; if a manager
+ * or autopick landed a newer Pick since, the request is stale and rejected
+ * rather than silently reversing a different Pick than the one confirmed (#439:
+ * cannot race a manager or autopick). Pass null to skip that check.
+ */
+function correctionTarget(picks, currentPick, expectedPickNumber = null) {
+  const reached = picks
+    .filter((p) => p.pick_number <= (currentPick ?? 0))
+    .sort((a, b) => b.pick_number - a.pick_number);
+  const latest = reached[0];
+  if (!latest) return { target: null, code: 'NO_PICK_TO_CORRECT' };
+  if (latest.is_keeper) return { target: null, code: 'KEEPER_UNCORRECTABLE' };
+  if (expectedPickNumber != null && expectedPickNumber !== latest.pick_number) {
+    return { target: null, code: 'LATEST_PICK_CHANGED' };
+  }
+  return { target: latest, code: null };
+}
+
+/**
  * Pure: decide whether/how a draft can start. Returns { error: {status,
  * message} } when it can't, otherwise the plan draftStart.service.js needs:
  * which picks are pre-filled by keepers, whether every team should
@@ -292,5 +322,6 @@ module.exports = {
   validateKeepers,
   keeperSettingsPlan,
   undoTargets,
+  correctionTarget,
   startPlan,
 };
