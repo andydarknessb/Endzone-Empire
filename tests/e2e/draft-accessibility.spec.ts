@@ -164,6 +164,31 @@ test.describe('Draft room accessibility (#445)', () => {
     await expect(log).toBeFocused();
   });
 
+  test('a desktop -> mobile resize hands the chat composer its focus back across the layout flip (#525)', async ({ page }) => {
+    // The room chooses panes vs tabs from its own measured CONTAINER width, so
+    // shrinking the window (a desktop resize or window snap, the live triggers
+    // #525 names) crosses the pane threshold and remounts the whole region
+    // subtree. Without the rescue the browser drops focus to <body>; with it the
+    // composer, rendered again on the narrow Chat tab, gets focus back in the
+    // same commit. This is the real-browser counterpart to the jsdom flip tests
+    // in DraftBoard.test.jsx, which prove the same across a controlled resize.
+    await page.setViewportSize(VIEWPORTS.desktop);
+    await openDraftRoom(page);
+
+    // Wide: the composer is the centre pane. Focus it.
+    const composer = page.getByRole('textbox', { name: 'Message' });
+    await composer.focus();
+    await expect(composer).toBeFocused();
+
+    // Cross the threshold: the three panes collapse to the Chat tab (the tab the
+    // room opens on), remounting the composer as a fresh node.
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await expect(page.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+
+    // Focus is on the composer again, not the document body.
+    await expect(page.getByRole('textbox', { name: 'Message' })).toBeFocused();
+  });
+
   test('mobile: tab keyboard flow - arrow moves focus (manual activation), Enter selects, Tab and Shift+Tab cross the panel boundary (AC1/AC4)', async ({ page }, testInfo) => {
     await page.setViewportSize(VIEWPORTS.mobile);
     await openDraftRoom(page);

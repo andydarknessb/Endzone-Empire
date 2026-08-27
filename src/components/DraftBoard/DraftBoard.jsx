@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, {
+  useState, useEffect, useRef, useCallback,
+} from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import {
   Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab,
@@ -30,6 +32,7 @@ import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
 import DraftRoomChat from './DraftRoomChat';
 import useContainerWidth, { draftPaneLayout } from './useContainerWidth';
+import useFocusRescue from './useFocusRescue';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { upcomingTeamsFor } from './upcomingTeams';
 import { viewerPicksFor } from './viewerPicks';
@@ -184,7 +187,30 @@ function DraftBoard() {
   // arrangement is the default until a real measurement proves the container
   // narrow, so nothing flashes and desktop-shaped tests need no width mock.
   const [layoutRef, containerWidth] = useContainerWidth();
-  const isNarrow = draftPaneLayout(containerWidth) === 'tabs';
+  const arrangement = draftPaneLayout(containerWidth);
+  const isNarrow = arrangement === 'tabs';
+
+  // Crossing the pane threshold swaps the three-pane workspace for the tab
+  // panel (or back), remounting the whole region subtree - so a manager focused
+  // inside it loses focus to `<body>` (#525). The same focus-rescue hook the
+  // rail uses moves focus back in the SAME commit as the remount, but only when
+  // focus was inside the region that went away: `arrangement` is the signal, and
+  // `{...regionFocus}` is spread on each arrangement's region wrapper (never on
+  // the chrome, tabs or anything outside the room, which must not be moved).
+  //
+  // The target is the exact control that held focus, if it is rendered again
+  // after the flip - found by its stable id, since a remount mints new React
+  // ids: the chat composer carries a hand-written `chat-message-input`, so it
+  // survives, while an idless control (the player pool, a generated id) falls
+  // through to the room's main content container, the skip-link target that is
+  // always mounted (DRAFT_MAIN_ID). No announcement is added; the room's polite
+  // regions are unchanged.
+  const resolveFlipFocus = useCallback((held) => {
+    const heldId = held && held.id;
+    const again = heldId ? document.getElementById(heldId) : null;
+    return again || document.getElementById(DRAFT_MAIN_ID);
+  }, []);
+  const regionFocus = useFocusRescue(arrangement, resolveFlipFocus);
 
   const [error, setError] = useState(null);
   // Draft/Board view tab, mirrored into the URL (view=board) alongside the
@@ -652,7 +678,10 @@ function DraftBoard() {
   // (Available Players / Draft Board), so the left column is a plain scroll box
   // rather than a second landmark around them.
   const panesLayout = (
-    <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2, flex: '1 1 auto', minHeight: 0 }}>
+    // {...regionFocus} tracks focus across the whole three-pane region so the
+    // flip to tabs can hand it back deliberately (#525); the chrome and tabs
+    // above sit outside this wrapper and are never moved.
+    <Box {...regionFocus} sx={{ display: 'flex', flexDirection: 'row', gap: 2, flex: '1 1 auto', minHeight: 0 }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', flexBasis: '37%', minWidth: 0, height: '100%' }}>
         <Box sx={{ flexShrink: 0, mb: 1 }}>
           <ToggleButtonGroup
@@ -905,6 +934,7 @@ function DraftBoard() {
           region (panesLayout) and no tabpanel wraps them. */}
       {isNarrow ? (
         <Box
+          {...regionFocus}
           role="tabpanel"
           id={draftTabPanelId(view)}
           aria-labelledby={draftTabId(view)}

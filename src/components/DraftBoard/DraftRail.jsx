@@ -1,5 +1,5 @@
 import React, {
-  useId, useState, useRef, useEffect, useLayoutEffect,
+  useId, useState, useRef, useEffect,
 } from 'react';
 import {
   Paper,
@@ -30,48 +30,16 @@ import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
 import { teamsInDraftOrder } from '../../lib/draftTurns';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import useFocusRescue from './useFocusRescue';
 
-/**
- * Hand focus somewhere deliberate when a focusable thing disappears out from
- * under the person using it.
- *
- * The rail is driven by a socket, so its controls come and go in response to
- * what OTHER managers do. Two of them can vanish mid-interaction: the
- * Readiness exception list, when the last manager declares ready, and the
- * viewer's picks popover, when their last pick lands. The browser's answer in
- * both cases is to drop focus to `<body>`, which restarts the next Tab at the
- * top of the document and announces nothing at all - and the manager most
- * likely to be holding the Readiness trigger is precisely the one watching the
- * lobby fill, so the bad case is the expected one rather than an edge.
- *
- * `present` going true -> false is the signal. Focus is only moved if it was
- * actually inside the subtree that went away, tracked by the returned
- * focus/blur handlers: a manager whose focus is elsewhere in the rail when the
- * lobby fills must not have it yanked to a heading. React's synthetic focus
- * events bubble through the React tree rather than the DOM, so these still see
- * focus land inside a portalled popover.
- *
- * `useLayoutEffect` rather than `useEffect` so the move happens in the same
- * commit as the removal, with no frame in which focus is on nothing.
- */
-function useFocusRescue(present, fallbackRef) {
-  const heldFocus = useRef(false);
-  const wasPresent = useRef(present);
-
-  useLayoutEffect(() => {
-    const vanished = wasPresent.current && !present;
-    wasPresent.current = present;
-    if (vanished && heldFocus.current) {
-      heldFocus.current = false;
-      if (fallbackRef.current) fallbackRef.current.focus();
-    }
-  }, [present, fallbackRef]);
-
-  return {
-    onFocus: () => { heldFocus.current = true; },
-    onBlur: () => { heldFocus.current = false; },
-  };
-}
+// The rail's two vanishing controls - the Readiness exception list when the
+// last manager declares ready, and the viewer's picks popover when their last
+// pick lands - come and go in response to what OTHER managers do, and the
+// browser drops focus to `<body>` when they take focus with them. The
+// focus-rescue hook (shared with the room's own layout flip, #525) moves focus
+// to each panel's heading only when focus was inside the control that went
+// away; the manager most likely to hold the Readiness trigger is the one
+// watching the lobby fill, so the bad case is the expected one.
 
 /** Draft-room rail, composed from the draft's status (issue #123 acceptance
  * criteria 1-4).
@@ -177,8 +145,11 @@ function DraftRail({
   const upcomingHeadingRef = useRef(null);
   const hasExceptionList = readiness.listKind !== READINESS_LIST.NONE;
   const hasViewerPicks = viewerPicks.all.length > 0;
-  const readinessFocus = useFocusRescue(hasExceptionList, readinessHeadingRef);
-  const myPicksFocus = useFocusRescue(hasViewerPicks, upcomingHeadingRef);
+  // Each rescue returns focus to its panel's own heading, which names where the
+  // manager still is - the question losing focus leaves them with. The heading
+  // outlives the vanishing control, so it is resolved fresh at rescue time.
+  const readinessFocus = useFocusRescue(hasExceptionList, () => readinessHeadingRef.current);
+  const myPicksFocus = useFocusRescue(hasViewerPicks, () => upcomingHeadingRef.current);
 
   // The anchor outlives the element it points at when the picks group unmounts
   // with the popover open, so drop it rather than leave a detached node to be
