@@ -112,8 +112,11 @@ test('announces a live human message in a polite region - but never a Pick (#513
   }));
   // Visible in the feed's normal activity line...
   expect(await screen.findByText(/drafted/)).toBeInTheDocument();
-  // ...but no polite status region announces it: the feed announcer went silent
-  // on the Pick, clearing the prior message announcement to empty.
+  // ...but no polite status region announces it: a Pick is a no-op for the feed
+  // announcer now (#513), so the region keeps whatever it last held (here the
+  // prior "New message from Bulldogs") rather than speaking the Pick. It does NOT
+  // clear it - that a Pick must not blank a pending message is pinned in
+  // FeedAnnouncer.test.jsx.
   const announcingPick = screen
     .getAllByRole('status')
     .filter((region) => /drafted|Pat Mahomes/.test(region.textContent));

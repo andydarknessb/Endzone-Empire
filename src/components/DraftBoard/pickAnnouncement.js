@@ -35,5 +35,3 @@ export function pickAnnouncementFor(pick) {
   const team = teamNameLabel(pick.teamName);
   return pick.auto ? `${team} autodrafted ${name}` : `${team} drafted ${name}`;
 }
-
-export default pickAnnouncementFor;

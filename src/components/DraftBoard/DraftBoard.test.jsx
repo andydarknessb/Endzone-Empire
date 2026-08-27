@@ -2705,4 +2705,44 @@ describe('room-level Pick announcement across narrow tabs (#513)', () => {
       await waitFor(() => expect(announcementsSaying(PICK_TEXT)).toHaveLength(1));
     }
   );
+
+  test('does not replay a Pick when a narrow tab is switched away and back', async () => {
+    // The room-level announcer lives in the chrome, which never unmounts on a tab
+    // switch, and lastPick does not change when the tab does - so a Pick is
+    // neither re-announced nor replayed on return. Mirrors the ReadinessAnnouncer
+    // same-node check earlier in this file.
+    await showNarrowActiveDraft(); // opens on Chat
+    landPick();
+    const pickRegion = await waitFor(() => {
+      const region = screen.getAllByRole('status').find((r) => r.textContent.includes(PICK_TEXT));
+      expect(region).toBeTruthy();
+      return region;
+    });
+    const textAfterPick = pickRegion.textContent;
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+
+    // Same DOM node (identity, not mere presence) and unchanged text: no replay.
+    const sameRegion = screen.getAllByRole('status').find((r) => r.textContent.includes(PICK_TEXT));
+    expect(sameRegion).toBe(pickRegion);
+    expect(sameRegion.textContent).toBe(textAfterPick);
+  });
+
+  test('a chat message arriving while a NON-Chat tab is selected is not announced (message scope is not global)', async () => {
+    // The asymmetry the ruling turns on: Picks generalise to every tab, human
+    // messages do NOT. On a non-Chat narrow tab the Chat feed (and its announcer
+    // and socket listener) is unmounted, so a message that arrives is never even
+    // received, let alone announced - exactly the scoping #513 must preserve.
+    await showNarrowActiveDraft();
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+
+    act(() =>
+      fakeSocket.trigger('chat:message', {
+        type: 'league_chat', seq: 70, id: 'c70', teamId: 99, teamName: 'Rivals', message: 'hi',
+      })
+    );
+
+    expect(announcementsSaying('New message from Rivals')).toHaveLength(0);
+  });
 });

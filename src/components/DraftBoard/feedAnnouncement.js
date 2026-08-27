@@ -5,7 +5,8 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * pure function so the string is unit-tested on its own and the announcer
  * component is only responsible for WHEN it changes.
  *
- * Two kinds are announced, matching AC2's "new human messages and Picks":
+ * Only ONE kind is announced here now (#513 moved Picks to the room-level
+ * PickAnnouncer): the human League chat message.
  *  - a human League chat message announces its ARRIVAL by Team ("New message
  *    from <Team>"), not its content. Naming who spoke is concise and lets a
  *    reader navigate the named log to read it; reading arbitrary message text
@@ -35,9 +36,11 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  *
  * `viewerTeamId`, when given, suppresses the viewer's OWN chat message: the
  * server echoes a send to the whole room including the sender, and a manager who
- * just typed a line does not need it read back to them. This applies to chat
- * only - a Pick still announces whoever made it, the viewer included, because a
- * committed Pick (and an autopick in particular) is an event worth confirming.
+ * just typed a line does not need it read back to them. That is the only
+ * suppression; a hidden arrival and any Draft activity already return the empty
+ * string above. (The room-level PickAnnouncer, which now owns Picks, announces a
+ * Pick regardless of who made it - the viewer's own included - but that rule
+ * lives in pickAnnouncement.js, not here.)
  */
 export function feedAnnouncementFor(entry, viewerTeamId = null) {
   if (!entry) return '';

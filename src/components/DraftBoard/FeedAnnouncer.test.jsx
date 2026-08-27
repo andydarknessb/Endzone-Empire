@@ -74,6 +74,28 @@ describe('FeedAnnouncer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
   });
 
+  it('a Draft LIFECYCLE entry does not blank a pending message announcement either (#513)', () => {
+    // The no-op keys on type === 'draft_activity', not kind === 'pick', so
+    // lifecycle entries (draft_start, pause, resume, reset, complete) are covered
+    // by the same guard as Picks: they too used to fall into the empty-clear and
+    // must now leave a still-unread message announcement intact.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'old')]} />);
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'old'), chat(2, 'Rivals', 'hi')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+    // A lifecycle activity entry (a pause) arrives after the message...
+    rerender(
+      <FeedAnnouncer
+        entries={[
+          chat(1, 'A', 'old'),
+          chat(2, 'Rivals', 'hi'),
+          { type: 'draft_activity', kind: 'pause', seq: 3, id: 3, teamName: 'A' },
+        ]}
+      />
+    );
+    // ...and the message announcement survives it untouched.
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+  });
+
   it('stays silent when older entries are prepended (Load older)', () => {
     // loadOlder grows the HEAD; the tail the reader is following is unchanged, so
     // nothing new arrived and nothing is announced.

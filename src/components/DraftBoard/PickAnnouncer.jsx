@@ -3,20 +3,24 @@ import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { pickAnnouncementFor } from './pickAnnouncement';
 
-// A zero-width space (U+200B): appended to alternate announcements so that two
-// different Picks whose text is byte-identical still change the live region's
-// text node and are both announced. It is not rendered and not spoken. Built
-// from its code point so no invisible literal sits in source.
+// A zero-width space (U+200B): appended to an announcement when its text would
+// exactly equal the CURRENTLY RENDERED announcement, so that two Picks whose
+// text is byte-identical still change the live region's text node and are both
+// announced. It is not rendered and not spoken. Built from its code point so no
+// invisible literal sits in source.
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
 /**
  * The Draft room's ROOM-LEVEL Pick announcer (#513): one persistent, visually
  * hidden polite region that speaks every live committed Pick, wherever the
- * manager is in the room. It follows the room's established idiom exactly -
- * ReadinessAnnouncer (#164), the combined-feed announcer (FeedAnnouncer, #445)
- * and ComposerCharacterCount (#486) all mount one permanently-present Box with
- * role="status" / aria-live="polite", styled visuallyHidden, and only change its
- * TEXT.
+ * manager is in the room. It follows the room's established idiom - a Box with
+ * role="status" / aria-live="polite", styled visuallyHidden, whose only mutation
+ * is its TEXT, as ReadinessAnnouncer (#164), the combined-feed announcer
+ * (FeedAnnouncer, #445) and ComposerCharacterCount (#486) all do. THIS region is
+ * permanently mounted (it sits in the Draft room chrome, never gated), which a
+ * live region must be to be observed; some of those siblings mount conditionally
+ * (ReadinessAnnouncer returns null when the viewer holds no Team), so the shared
+ * idiom is the construction, not permanence.
  *
  * WHY ROOM-LEVEL, AND WHY THAT IS DIFFERENT FROM CHAT. The combined-feed
  * announcer lives inside DraftRoomChat, so on a narrow container it is mounted
