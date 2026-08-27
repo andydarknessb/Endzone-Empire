@@ -170,36 +170,46 @@ if (!ENABLED) {
     await knex.destroy();
   });
 
-  test('a chat row cannot claim a position an activity row already holds (AC1)', async () => {
-    const league = await seedLeague('Shared Feed Cross Kind', ownerA, 'sharedfeedx');
-    const team = await seedTeam(league, ownerA, 'Alpha');
-
-    // An activity row allocates the first position (feed_seq = 1).
-    const a1 = await pickActivity(league, { id: team, name: 'Alpha' }, 1, 1);
+  test('the shared registry rejects a cross-kind duplicate position in BOTH directions (AC1)', async () => {
+    // Direction 1: an activity row owns the position, a chat writer collides.
+    const l1 = await seedLeague('Shared Feed Cross A', ownerA, 'sharedfeedx1');
+    const t1 = await seedTeam(l1, ownerA, 'Alpha');
+    const a1 = await pickActivity(l1, { id: t1, name: 'Alpha' }, 1, 1);
     assert.equal(a1.seq, 1, 'the activity row took position 1');
-
-    // A chat row EXPLICITLY claiming position 1 is refused by the shared
-    // registry - the exact cross-kind collision the per-table indexes allowed.
+    // A chat row EXPLICITLY claiming position 1 (chat permits explicit
+    // positions; this is PR #470's writer) is refused by the shared registry.
     await assert.rejects(
-      () => explicitChat(league, ownerA, 'me too', 1),
+      () => explicitChat(l1, ownerA, 'me too', 1),
       /duplicate key|unique|league_feed_positions/i,
-      'the shared registry rejects a chat row at an activity-owned position'
+      'the registry rejects a chat row at an activity-owned position'
     );
+    const chatCount = await pool.query('SELECT count(*)::int AS n FROM "chat_messages" WHERE "league_id" = $1', [l1]);
+    assert.equal(chatCount.rows[0].n, 0, 'the rejected chat insert left no row behind (atomic abort)');
 
-    // The collision aborted atomically: no orphaned chat row survived it.
-    const chatRows = await pool.query('SELECT count(*)::int AS n FROM "chat_messages" WHERE "league_id" = $1', [league]);
-    assert.equal(chatRows.rows[0].n, 0, 'the rejected chat insert left no row behind');
+    // Direction 2: a chat row owns the position, an ACTIVITY writer collides.
+    // draft_activity's own tripwire (20260826000004) still refuses an EXPLICIT
+    // activity feed_seq - lifting that is #436's job - so the realistic way an
+    // activity WRITER lands on a taken position is a counter-allocated insert
+    // after the counter is rewound behind a reserved position. That is exactly
+    // what the registry must catch "regardless of writer", and here it does.
+    const l2 = await seedLeague('Shared Feed Cross B', ownerA, 'sharedfeedx2');
+    const t2 = await seedTeam(l2, ownerA, 'Alpha');
+    const chat = await explicitChat(l2, ownerA, 'chat owns five', 5);
+    assert.equal(Number(chat.rows[0].feed_seq), 5, 'the chat row owns position 5');
+    // Rewind the counter behind the reserved position so the next allocation
+    // collides on it (the shape of a lost high-water, which AC5 otherwise
+    // prevents - forced here to prove the registry is the backstop).
+    await pool.query('UPDATE "league_feed_sequences" SET "last_seq" = 4 WHERE "league_id" = $1', [l2]);
+    await assert.rejects(
+      () => pickActivity(l2, { id: t2, name: 'Alpha' }, 1, 1),
+      /duplicate key|unique|league_feed_positions/i,
+      'the registry rejects an activity allocation that lands on a chat-owned position'
+    );
+    const actCount = await pool.query('SELECT count(*)::int AS n FROM "draft_activity" WHERE "league_id" = $1', [l2]);
+    assert.equal(actCount.rows[0].n, 0, 'the rejected activity insert left no row behind (atomic abort)');
 
-    // And the reverse order is protected too: with the registry empty of chat at
-    // position 1 we would have hit the same wall from the other side. Prove the
-    // symmetric case directly - a chat row at 2, then an activity allocation that
-    // must not reuse it.
-    const c2 = await explicitChat(league, ownerA, 'chat at two', 2);
-    assert.equal(Number(c2.rows[0].feed_seq), 2);
-    const a3 = await pickActivity(league, { id: team, name: 'Alpha' }, 1, 2);
-    assert.ok(a3.seq >= 3, 'a later activity allocation continues past the explicit chat position, never reusing it');
-
-    await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [league]);
+    await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [l1]);
+    await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [l2]);
   });
 
   test('ordinary chat and activity inserts keep one chronology and each registers once (AC2)', async () => {

@@ -116,7 +116,6 @@ exports.up = async function (knex) {
     t.bigInteger('feed_seq').notNullable();
     t.string('record_kind', 32).notNullable();
     t.bigInteger('source_id').notNullable();
-    t.timestamp('reserved_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
     t.primary(['league_id', 'feed_seq']);
     t.unique(['record_kind', 'source_id']);
   });
