@@ -66,11 +66,25 @@ test('mute is a control, not part of the status readout', () => {
 // Issue #508: the toggle's Tooltip and accessible name both describe the
 // on-the-clock alert it actually controls, not a pick sound, and the two
 // must never diverge from each other (WCAG 2.5.3, Label in Name).
-test('the sound toggle exposes the approved name for each state, in both the Tooltip and the aria-label', () => {
-  render(<DraftStatusBar {...baseProps} soundOn={false} />);
+test('the sound toggle exposes the approved name for each state, in both the Tooltip and the aria-label', async () => {
+  // getByRole({ name }) and queryByLabelText both resolve off aria-label
+  // alone - MUI's Tooltip spreads the child's own props (including our
+  // aria-label) after the props it would otherwise derive from `title`, so
+  // an aria-label-only assertion can never see the Tooltip text. Hovering
+  // to open the tooltip and reading its rendered content is the only way to
+  // actually pin the visible half of the WCAG 2.5.3 pair.
+  const user = userEvent.setup();
+  const { rerender } = render(<DraftStatusBar {...baseProps} soundOn={false} />);
 
-  expect(screen.getByRole('button', { name: 'Unmute on-the-clock sound' })).toBeInTheDocument();
-  expect(screen.queryByLabelText('Mute on-the-clock sound')).not.toBeInTheDocument();
+  const unmuteButton = screen.getByRole('button', { name: 'Unmute on-the-clock sound' });
+  await user.hover(unmuteButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Unmute on-the-clock sound');
+  await user.unhover(unmuteButton);
+
+  rerender(<DraftStatusBar {...baseProps} soundOn />);
+  const muteButton = screen.getByRole('button', { name: 'Mute on-the-clock sound' });
+  await user.hover(muteButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Mute on-the-clock sound');
 });
 
 test('the sound toggle name flips from Unmute to Mute after toggling, not just at first render', async () => {

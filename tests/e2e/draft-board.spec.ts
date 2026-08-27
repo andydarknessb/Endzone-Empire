@@ -1428,9 +1428,14 @@ test.describe('product language in the status readout and pool filter (issue #12
 
     await toggle.click();
 
+    // exact: true, not a plain string - Playwright's getByRole matches a
+    // plain string as a case-insensitive substring, and "Mute on-the-clock
+    // sound" is a substring of "Unmute on-the-clock sound". An un-anchored
+    // match here would pass whether or not the click changed anything, and
+    // in the Mute-to-Unmute direction would even fail on the correct state.
     const otherName = initialName === 'Mute on-the-clock sound' ? 'Unmute on-the-clock sound' : 'Mute on-the-clock sound';
-    await expect(page.getByRole('button', { name: otherName })).toBeVisible();
-    await expect(page.getByRole('button', { name: initialName })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: otherName, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: initialName, exact: true })).toHaveCount(0);
   });
 
   test('the pool filter is Filter available, distinct from the global player search', async ({ page }) => {
