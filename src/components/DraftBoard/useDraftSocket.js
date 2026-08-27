@@ -155,7 +155,8 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   // server on the SAME per-viewer draft:join ack that carries isCommissioner
   // (#446, AC7) - the composer's sole authority, never inferred client-side, so
   // the picker stays absent in production until external approval turns the
-  // capability on (AC9). Off by default and read strictly === true below.
+  // capability on (enabling it in production is out of scope for #516). Off by
+  // default and read strictly === true below.
   const [gifMessagesEnabled, setGifMessagesEnabled] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);

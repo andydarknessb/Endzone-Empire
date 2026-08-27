@@ -229,7 +229,8 @@ test('sends chat over the handed-in session', async () => {
 // (payload / idempotency key / acknowledgement / reconciliation). The send goes
 // over the SAME chat:send the text path uses; only the payload differs (a `gif`
 // object instead of `message`). The whole thing runs against the deterministic
-// fake provider with no network surface (AC9).
+// fake provider with no network surface (AC7: proven absence of any provider
+// network request).
 // --------------------------------------------------------------------------
 
 const gifPayload = (over = {}) => ({
@@ -371,7 +372,7 @@ test('a duplicate GIF ack (retry the server already stored) reconciles once, no 
   expect(result.current.entries.filter((e) => e.media)).toHaveLength(1);
 });
 
-test('sendGif issues no provider network request - the send is the only wire traffic (AC9)', async () => {
+test('sendGif issues no provider network request - the send is the only wire traffic (AC7)', async () => {
   // The whole path runs against the fake provider and a socket the test owns;
   // there is no fetch/provider client anywhere in it. Prove it by the absence of
   // any REST call on send: apiClient.get is history/reconnect only, apiClient.post

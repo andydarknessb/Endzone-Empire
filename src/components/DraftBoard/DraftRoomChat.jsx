@@ -31,7 +31,7 @@ import FeedAnnouncer from './FeedAnnouncer';
  * `gifEnabled` is the room's GIF-message capability (#516), answered on the same
  * draft:join ack useDraftSocket already reads (gifMessagesEnabled) and threaded
  * through DraftBoard. It defaults off, so a room whose server has not enabled the
- * capability (the production state, AC9) shows no GIF picker while text and emoji
+ * capability (the production state) shows no GIF picker while text and emoji
  * composition stay complete (AC1). When on, the composer sends through
  * useDraftRoomFeed.sendGif, which mirrors useLeagueChat.sendGif over this same
  * shared session (payload, idempotency key, acknowledgement and reconciliation).

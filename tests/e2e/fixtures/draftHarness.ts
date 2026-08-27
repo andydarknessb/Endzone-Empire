@@ -74,6 +74,17 @@ export type DraftSocketState = {
    * `owner_id`, not the signed-in account.
    */
   isCommissioner?: boolean;
+  /**
+   * Whether the server has enabled GIF messages for this league room (#516),
+   * answered on the same per-viewer `draft:join` ack as `isCommissioner` and
+   * for the same reason. Defaults to false, the production answer: the composer
+   * stays absent until this is explicitly true. Setting it true introduces no
+   * provider, key or network request - the picker is a set of local text
+   * fields, and no client provider is registered in a real build, so Send stays
+   * disabled and nothing outbound is issued (issue #516; the AC7 fence proving
+   * no provider network request, upheld by #446).
+   */
+  gifMessagesEnabled?: boolean;
 };
 
 /**
@@ -119,6 +130,10 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
                 ok: true,
                 viewerTeamId: initialState.viewerTeamId ?? null,
                 isCommissioner: initialState.isCommissioner === true,
+                // The GIF-message capability (#516) rides the same ack, read
+                // strictly === true by the client, so a scenario that omits it
+                // gets the production answer (absent -> off) and no composer.
+                gifMessagesEnabled: initialState.gifMessagesEnabled === true,
               });
             }
             setTimeout(() => {

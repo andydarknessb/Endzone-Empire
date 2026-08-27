@@ -376,7 +376,7 @@ test('surfaces the gif-message capability the acknowledgement carries', () => {
 test('an acknowledgement with no gif capability flag reads as false, never as undefined', () => {
   // Only the server may turn the picker on. A missing field is an older or a
   // partial ack, and the safe reading of it is "off" - not a value that could
-  // render the composer by being truthy downstream (AC7, AC9).
+  // render the composer by being truthy downstream (AC1/AC2, and the AC7 fence).
   const { result } = renderHook(() => useDraftSocket(1));
 
   act(() => fakeSocket.trigger('connect'));

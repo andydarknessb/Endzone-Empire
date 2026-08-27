@@ -285,7 +285,7 @@ test('a non-commissioner sees no Hide control at all', async () => {
 // #516: the Draft room offers the GIF composer, gated on the server capability,
 // and its send rides the SAME shared session as text - end to end through the
 // real useDraftRoomFeed and ChatConversation, against the deterministic fake
-// provider with no network surface (AC9).
+// provider with no network surface (AC7: proven absence of any provider request).
 // --------------------------------------------------------------------------
 
 const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
