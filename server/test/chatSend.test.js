@@ -320,6 +320,37 @@ test('clampToCharacters truncates by code point and never bisects an emoji into 
   assert.equal(Array.from(clampToCharacters('x'.repeat(600))).length, 500);
 });
 
+// #488: the clamp's honest guarantee is "no lone surrogate / always valid
+// UTF-8", NOT "every emoji is kept whole or dropped whole". A multi-code-point
+// emoji straddling the boundary IS bisected: its trailing code points are
+// dropped. The red heart the picker offers is U+2764 (a BMP char, so a
+// character-boundary cut can land right after it) followed by U+FE0F, the
+// emoji variation selector. Clamped at the limit it keeps U+2764 and drops
+// U+FE0F, storing a monochrome text heart. That is acceptable (still valid
+// text), and this pins the EXACT stored string so the doc comment cannot drift
+// back to overclaiming.
+// The red heart the picker offers, spelled out in code points so this test does
+// not depend on invisible characters surviving in the file: base heart U+2764
+// then the emoji variation selector U+FE0F.
+const RED_HEART = '❤️';
+
+test('clampToCharacters bisects a multi-code-point emoji at the boundary but stays valid UTF-8 (#488)', () => {
+  // 499 filler then the heart: its base (U+2764) is the 500th code point and
+  // its variation selector (U+FE0F) is the 501st, so the cut falls between them.
+  const straddling = 'a'.repeat(499) + RED_HEART;
+  assert.equal(Array.from(straddling).length, 501, 'the heart is two code points past 499 filler');
+
+  const clamped = clampToCharacters(straddling);
+  // The exact stored string: the base heart survives, the variation selector is
+  // dropped. This is a bisected emoji (it renders as a text heart, not the red
+  // emoji), which is why "kept whole or dropped whole" was false.
+  assert.equal(clamped, `${'a'.repeat(499)}❤`, 'kept the base heart, dropped the VS16');
+  assert.equal(Array.from(clamped).length, 500, 'capped at the character limit');
+  assert.ok(!clamped.includes('️'), 'the trailing variation selector was dropped');
+  // The guarantee that DOES hold: every code point kept is whole, so valid UTF-8.
+  assert.ok(isValidUtf8(clamped), 'no lone surrogate; storable as ordinary text');
+});
+
 test('a sent message straddling the limit is stored and broadcast as a whole emoji, valid UTF-8 (#443)', async (t) => {
   const leagueId = 4407;
   const world = chatWorld({

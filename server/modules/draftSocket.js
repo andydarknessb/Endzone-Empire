@@ -389,14 +389,20 @@ const MAX_CHAT_CHARS = 500;
 
 /** Truncate a chat message to at most MAX_CHAT_CHARS characters (#443).
  *  Iterating by code point - Array.from uses the string iterator - makes the
- *  cut land on a character boundary, so it can never bisect a surrogate pair
+ *  cut land on a code-point boundary, so it can never bisect a surrogate pair
  *  into a lone surrogate the way a UTF-16-unit `slice(0, 500)` would to an emoji
- *  straddling the boundary. That matters because a lone surrogate is not
- *  representable in UTF-8 and so cannot be stored as ordinary text (#443 AC3):
- *  a boundary emoji is instead kept whole or dropped whole, never split into an
- *  invalid character. Splitting a multi-code-point grapheme (a ZWJ family) can
- *  still drop a trailing joined glyph, but every code point that remains is a
- *  valid character, which is the guarantee the limit owes. */
+ *  straddling the boundary. That is the guarantee the limit actually owes and
+ *  the only one it makes (#443 AC3, corrected #488): every code point kept is a
+ *  whole code point, so the result is always valid UTF-8 and storable as text.
+ *
+ *  It does NOT keep every emoji whole. A single grapheme is often several code
+ *  points - a ZWJ family, or a base plus a variation selector such as the red
+ *  heart U+2764 U+FE0F the picker itself offers - and clamping at a boundary
+ *  inside one drops its trailing code points. The heart bisected at the limit
+ *  keeps U+2764 and drops U+FE0F, so it is stored as a monochrome text heart
+ *  rather than the red emoji. That is acceptable and strictly less lossy than
+ *  the old UTF-16 slice (which could emit an unstorable lone surrogate); the
+ *  point is only that what remains is always valid, not that it looks the same. */
 function clampToCharacters(str) {
   const points = Array.from(str);
   return points.length <= MAX_CHAT_CHARS ? str : points.slice(0, MAX_CHAT_CHARS).join('');
