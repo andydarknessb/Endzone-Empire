@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
- * The unsent composer text, preserved per league for the current browser
- * session (#442 AC5/AC6). A manager who checks Players or Board, changes tabs
- * or briefly disconnects should find their half-written message waiting; a
- * successful send, a logout or an account change must clear it so a draft never
+ * The unsent composer draft, preserved per league for the current browser
+ * session (#442 AC5/AC6, extended for the GIF composer by #524). A manager who
+ * checks Players or Board, changes tabs or briefly disconnects should find their
+ * half-written message AND their half-composed GIF waiting; a successful send, a
+ * logout or an account change must clear the relevant part so a draft never
  * leaks across sessions or accounts.
  *
  * Persistence is `sessionStorage` on purpose: it is per browser session (the
@@ -15,48 +16,83 @@ import { useState, useEffect, useRef, useCallback } from 'react';
  *  - a different account (or a logout, account id absent) finds a stamp that
  *    does not match and the draft is dropped rather than inherited.
  *
- * The hook owns the composer's `text` state either way. Persistence is only
- * engaged when both a league and an account are known; without them (a caller
- * that passes neither, or a logged-out view) the composer still works, it just
- * keeps nothing between mounts. Every storage access is guarded because a
- * private-mode or storage-disabled browser makes it throw, and a composer that
- * cannot save a draft must still let the manager type and send.
+ * The hook owns BOTH composers' preserved state: the message `text` and the GIF
+ * composition `gif` ({ assetId, description, caption }). The two ride one
+ * account-stamped record ({ acct, text?, gif? }) but clear INDEPENDENTLY, which
+ * is the whole point of #524: a successful text send clears only `text` and
+ * leaves a half-composed GIF in place, and a successful GIF send clears only
+ * `gif` and leaves the typed message in place. Only when both are empty is the
+ * record removed entirely.
  *
- * Text is all the composer holds today: emoji are inline Unicode, so they ride
- * the preserved string for free (#442 AC5), and GIF is release-gated and
- * disabled (#429), so there is no selected-GIF state to keep yet. When an
- * approved GIF integration ships, the stored record ({ acct, text }) gains a
- * `gif` field beside the text; the account stamp and clear-on-send/logout/
- * account-change rules carry over unchanged.
+ * Persistence is only engaged when both a league and an account are known;
+ * without them (a caller that passes neither, or a logged-out view) the composer
+ * still works, it just keeps nothing between mounts. Every storage access is
+ * guarded because a private-mode or storage-disabled browser makes it throw, and
+ * a composer that cannot save a draft must still let the manager type, compose
+ * and send.
+ *
+ * Emoji ride the preserved text string for free (#442 AC5): they are inline
+ * Unicode, so no separate state is kept for them. The GIF composition holds only
+ * the compose fields; the touched/validation flag is deliberately NOT persisted,
+ * so a restored composition never comes back already showing a validation error.
  */
 const KEY_PREFIX = 'endzone:composerDraft:';
 
 const keyFor = (leagueId) => `${KEY_PREFIX}${leagueId}`;
 
-function readDraft(leagueId, userId) {
-  if (leagueId == null || userId == null) return '';
+const emptyGif = () => ({ assetId: '', description: '', caption: '' });
+
+// A stored gif slice keeps only string fields; anything else reads back as an
+// empty string so a malformed record can never crash the composer.
+function normalizeGif(gif) {
+  if (!gif || typeof gif !== 'object') return emptyGif();
+  return {
+    assetId: typeof gif.assetId === 'string' ? gif.assetId : '',
+    description: typeof gif.description === 'string' ? gif.description : '',
+    caption: typeof gif.caption === 'string' ? gif.caption : '',
+  };
+}
+
+const gifIsEmpty = (gif) => !gif || (!gif.assetId && !gif.description && !gif.caption);
+
+// Read the whole account-stamped record for this league. Only the account that
+// wrote the draft may read it back; anyone else (a switched account, a logout)
+// gets an empty draft. `acct` is the authoring account id: a local
+// draft-ownership stamp, not an authorization or league-owner decision, so it is
+// deliberately NOT named ownerId. A legacy record with only { acct, text }
+// reads back its text and an empty gif.
+function readRecord(leagueId, userId) {
+  const empty = { text: '', gif: emptyGif() };
+  if (leagueId == null || userId == null) return empty;
   try {
     const raw = window.sessionStorage.getItem(keyFor(leagueId));
-    if (!raw) return '';
+    if (!raw) return empty;
     const parsed = JSON.parse(raw);
-    // Only the account that wrote the draft may read it back; anyone else
-    // (a switched account, a logout) gets nothing. `acct` is the authoring
-    // account id: this is a local draft-ownership stamp, not an authorization
-    // or league-owner decision, so it is deliberately NOT named ownerId.
-    if (parsed && parsed.acct === userId && typeof parsed.text === 'string') {
-      return parsed.text;
+    if (parsed && parsed.acct === userId) {
+      return {
+        text: typeof parsed.text === 'string' ? parsed.text : '',
+        gif: normalizeGif(parsed.gif),
+      };
     }
   } catch {
     // Unreadable or unavailable storage: behave as if there were no draft.
   }
-  return '';
+  return empty;
 }
 
-function writeDraft(leagueId, userId, text) {
+// Persist the combined record, storing only the non-empty parts and removing the
+// key entirely when both the text and the gif are empty. Guarded because storage
+// throws in private modes and under quota pressure.
+function writeRecord(leagueId, userId, text, gif) {
   if (leagueId == null || userId == null) return;
   try {
-    if (text) {
-      window.sessionStorage.setItem(keyFor(leagueId), JSON.stringify({ acct: userId, text }));
+    const hasText = Boolean(text);
+    const hasGif = !gifIsEmpty(gif);
+    if (hasText || hasGif) {
+      const record = { acct: userId };
+      if (hasText) record.text = text;
+      if (hasGif) record.gif = normalizeGif(gif);
+      window.sessionStorage.setItem(keyFor(leagueId), JSON.stringify(record));
     } else {
       window.sessionStorage.removeItem(keyFor(leagueId));
     }
@@ -65,7 +101,7 @@ function writeDraft(leagueId, userId, text) {
   }
 }
 
-function removeDraft(leagueId) {
+function removeRecord(leagueId) {
   if (leagueId == null) return;
   try {
     window.sessionStorage.removeItem(keyFor(leagueId));
@@ -75,34 +111,75 @@ function removeDraft(leagueId) {
 }
 
 export default function useComposerDraft({ leagueId = null, userId = null } = {}) {
-  const [text, setTextState] = useState(() => readDraft(leagueId, userId));
+  // Read the stored record once at mount; text and gif are then owned as
+  // independent state so each composer re-renders only on its own edits.
+  const [initial] = useState(() => readRecord(leagueId, userId));
+  const [text, setTextState] = useState(initial.text);
+  const [gif, setGifState] = useState(initial.gif);
 
-  // Re-seed the composer whenever the league or the account changes: restore
+  // The latest text and gif, so a setter for one can persist the combined record
+  // without capturing the other as a stale closure value.
+  const textRef = useRef(text);
+  const gifRef = useRef(gif);
+  textRef.current = text;
+  gifRef.current = gif;
+
+  // Re-seed both composers whenever the league or the account changes: restore
   // this account's draft for the new league, or empty it. An account change
-  // (including a logout, userId null) that leaves a mismatched stamp behind
-  // also drops that stale draft so the next account cannot inherit it.
+  // (including a logout, userId null) that leaves a mismatched stamp behind also
+  // drops that stale record so the next account cannot inherit it.
   const seededRef = useRef(`${leagueId}:${userId}`);
   useEffect(() => {
-    const restored = readDraft(leagueId, userId);
-    setTextState(restored);
-    if (!restored) removeDraft(leagueId);
+    const restored = readRecord(leagueId, userId);
+    setTextState(restored.text);
+    setGifState(restored.gif);
+    textRef.current = restored.text;
+    gifRef.current = restored.gif;
+    if (!restored.text && gifIsEmpty(restored.gif)) removeRecord(leagueId);
     seededRef.current = `${leagueId}:${userId}`;
   }, [leagueId, userId]);
 
-  // Every edit persists (or clears when emptied) for this league and account.
+  // Every text edit persists (or clears when both parts empty) for this league
+  // and account, alongside whatever gif composition is currently held.
   const setText = useCallback(
     (next) => {
       setTextState(next);
-      writeDraft(leagueId, userId, next);
+      textRef.current = next;
+      writeRecord(leagueId, userId, next, gifRef.current);
     },
     [leagueId, userId]
   );
 
-  // A successful send discards the draft entirely.
+  // A successful TEXT send discards only the text draft; the gif composition is
+  // left untouched (#524 independence). If the gif is also empty, writeRecord
+  // removes the record entirely.
   const clearDraft = useCallback(() => {
     setTextState('');
-    removeDraft(leagueId);
-  }, [leagueId]);
+    textRef.current = '';
+    writeRecord(leagueId, userId, '', gifRef.current);
+  }, [leagueId, userId]);
 
-  return [text, setText, clearDraft];
+  // Every gif edit persists (or clears when both parts empty) for this league and
+  // account, alongside whatever message text is currently held.
+  const setGif = useCallback(
+    (next) => {
+      const normalized = normalizeGif(next);
+      setGifState(normalized);
+      gifRef.current = normalized;
+      writeRecord(leagueId, userId, textRef.current, normalized);
+    },
+    [leagueId, userId]
+  );
+
+  // A successful GIF send discards only the gif composition; the text draft is
+  // left untouched (#524 independence). If the text is also empty, writeRecord
+  // removes the record entirely.
+  const clearGif = useCallback(() => {
+    const cleared = emptyGif();
+    setGifState(cleared);
+    gifRef.current = cleared;
+    writeRecord(leagueId, userId, textRef.current, cleared);
+  }, [leagueId, userId]);
+
+  return [text, setText, clearDraft, gif, setGif, clearGif];
 }
