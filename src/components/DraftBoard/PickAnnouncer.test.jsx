@@ -73,4 +73,27 @@ describe('PickAnnouncer', () => {
     // assistive tech re-announces rather than seeing an unchanged node.
     expect(region.textContent).not.toBe(afterFirst);
   });
+
+  it('re-announces the fourth of A, A, B, B - a different Pick between two repeat-pairs', () => {
+    // The interleaving a global parity counter gets wrong: after A, A, B, the
+    // fourth event (a second B) must still change the node. A counter that only
+    // tracks parity flips on the second A and again on the second B, landing the
+    // fourth B on the un-flipped value equal to the third - silent. Comparing
+    // against the CURRENTLY RENDERED text instead cannot desync this way. This is
+    // the shape #518 leaves broken in FeedAnnouncer; here it must hold.
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    const region = screen.getByRole('status');
+
+    rerender(<PickAnnouncer pick={pick('Team A', 'Player One')} />); // A
+    rerender(<PickAnnouncer pick={pick('Team A', 'Player One')} />); // A (repeat)
+    rerender(<PickAnnouncer pick={pick('Team B', 'Player Two')} />); // B
+    expect(region).toHaveTextContent('Team B drafted Player Two');
+    const afterThird = region.textContent;
+
+    rerender(<PickAnnouncer pick={pick('Team B', 'Player Two')} />); // B (repeat)
+    expect(region).toHaveTextContent('Team B drafted Player Two');
+    // The fourth event's node value must differ from the third's, or the second
+    // B is never spoken.
+    expect(region.textContent).not.toBe(afterThird);
+  });
 });

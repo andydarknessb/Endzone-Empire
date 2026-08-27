@@ -54,6 +54,26 @@ describe('FeedAnnouncer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('New message from Team Rocket');
   });
 
+  it('a Pick does not blank a still-unread message announcement (#513)', () => {
+    // feedAnnouncementFor returns '' for a Pick now, but a Pick tail must be a
+    // NO-OP here, not the empty-clear that hidden arrivals and the viewer's own
+    // message take: otherwise the previous "New message from X" is wiped the
+    // instant a Pick lands, and Picks land constantly in an active draft, so a
+    // reader could lose a message announcement a fraction of a second after it
+    // was written.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'old')]} />);
+    // A live message announces...
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'old'), chat(2, 'Rivals', 'hi')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+    // ...then a Pick lands. The message announcement must survive it untouched.
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'old'), chat(2, 'Rivals', 'hi'), pick(3, 'Bulldogs', 'Pat Mahomes')]}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+  });
+
   it('stays silent when older entries are prepended (Load older)', () => {
     // loadOlder grows the HEAD; the tail the reader is following is unchanged, so
     // nothing new arrived and nothing is announced.

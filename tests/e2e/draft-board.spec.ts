@@ -1165,16 +1165,21 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
     // LiveDraftBanner inside the header's flex-shrink wrapper Box capped its
     // sticky containing block at that short wrapper's own height, so it
     // stopped staying pinned almost as soon as the page scrolled at all.
-    // LiveDraftBanner is the only `role="status"` region while a draft is
-    // active and no team roster shape is known (RosterNeedsStrip, the only
-    // other one, needs `roster_slots` this harness league doesn't set).
+    // LiveDraftBanner is no longer the only `role="status"` region here:
+    // PickAnnouncer (#513) mounts a permanently-present, empty polite region in
+    // the chrome, so a bare getByRole('status') now matches two elements and
+    // Playwright strict mode throws. Scope to the banner by its on-the-clock
+    // text - the same disambiguation the ticker test near the top of this file
+    // uses (getByRole('status') alone is ambiguous) - rather than a .first()
+    // that would silently assert nothing about WHICH region it pinned. The empty
+    // PickAnnouncer carries no text and so never matches this filter.
     test(`${label}: on-the-clock information (LiveDraftBanner) stays pinned after scrolling well past the header`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await setupOverflowingDraft(page);
       // The long pool that makes the page scroll is behind the Players tab.
       await showPlayers(page);
 
-      const banner = page.getByRole('status');
+      const banner = page.getByRole('status').filter({ hasText: /on the clock|Your pick|Waiting/ });
       await expect(banner).toBeVisible();
       await expect(banner).toHaveText(/on the clock|Your pick|Waiting/);
       const before = (await banner.boundingBox())!;

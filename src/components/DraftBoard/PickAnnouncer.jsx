@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { pickAnnouncementFor } from './pickAnnouncement';
@@ -39,37 +39,32 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  *
  * TWO PICKS THAT DESCRIBE IDENTICALLY. Two consecutive autodrafts of a
  * same-named player by one Team read the same string. React bails on an
- * Object.is-equal state, so a byte-identical string would leave the region's
- * text node untouched and the second Pick silent. A zero-width space flips on
- * alternate announcements so the node value always changes; it is invisible and
- * unspoken.
+ * Object.is-equal state, so re-setting a byte-identical string would leave the
+ * region's text node untouched and the second Pick silent. So when the new text
+ * would exactly repeat the CURRENTLY RENDERED announcement, a zero-width space is
+ * appended - invisible and unspoken - so the node value still changes and the
+ * repeat is announced. Comparing against the rendered value (the functional
+ * setState `prev`), not a separate last-text ref or a parity counter, is what
+ * makes this hold for ANY interleaving: a different Pick landing between two
+ * repeats (A, A, B, B) cannot desync a counter from what is on screen, because
+ * there is no counter. FeedAnnouncer.jsx still uses the older parity-counter
+ * flip, which has exactly that desync defect (#518); the two have DIVERGED and
+ * must not be merged back together.
  */
 function PickAnnouncer({ pick = null }) {
   const [announcement, setAnnouncement] = useState('');
-  // The last BASE announcement text (without any marker), and a flip used only
-  // when a new announcement would repeat it (see below).
-  const lastTextRef = useRef('');
-  const nonceRef = useRef(0);
 
   useEffect(() => {
     if (!pick) return;
     const text = pickAnnouncementFor(pick);
     if (!text) return;
-    // Only when the new text WOULD repeat the last announcement, append a
-    // zero-width space that flips, so the node value changes and the repeat is
-    // announced; the marker is invisible and unspoken. Distinct Picks stay clean.
-    // These six lines are duplicated in FeedAnnouncer.jsx ON PURPOSE, not shared:
-    // that announcer's empty-clear path resets the same lastTextRef this flip
-    // reads, so the two callers have divergent reset semantics and a shared hook
-    // would need a reset parameter or would change #445's empty-path silence.
-    // Merge them and you break a behaviour neither announcer's tests ask you to.
-    let out = text;
-    if (text === lastTextRef.current) {
-      nonceRef.current += 1;
-      out = nonceRef.current % 2 ? text + ZERO_WIDTH_SPACE : text;
-    }
-    lastTextRef.current = text;
-    setAnnouncement(out);
+    // When the new text would exactly repeat what is CURRENTLY RENDERED, append a
+    // zero-width space so the node value still changes and the repeat is
+    // announced; otherwise set it clean. Comparing against `prev` (not a parity
+    // counter) is what keeps this correct across any interleaving such as
+    // A, A, B, B - see the docblock, and #518 for the counter's desync defect
+    // that FeedAnnouncer still carries.
+    setAnnouncement((prev) => (prev === text ? text + ZERO_WIDTH_SPACE : text));
   }, [pick]);
 
   return (

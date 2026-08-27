@@ -107,6 +107,16 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
       highWaterSeqRef.current = tailSeq;
     }
 
+    // A Pick (draft_activity) is no longer announced here - the room-level
+    // PickAnnouncer owns it (#513). It still advances the seq high-water mark
+    // above so a later message is not taken for backlog, but it must NOT fall
+    // through to the empty-clear below: that would BLANK a still-unread chat
+    // announcement (the previous "New message from X") every time a Pick lands,
+    // which is constant in an active draft. Leave the region's current text
+    // untouched - a no-op, distinct from the deliberate clear for a hidden
+    // arrival or the viewer's own message below.
+    if (tail && tail.type === 'draft_activity') return;
+
     const text = feedAnnouncementFor(tail, viewerTeamId);
     if (!text) {
       // A lifecycle entry, a hidden arrival, or the viewer's own message: clear
@@ -125,11 +135,13 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
     // announced; the marker is invisible and unspoken. Distinct messages stay
     // clean. This is not the identical-tail case above - that returns before here
     // and stays deliberately silent.
-    // These six lines are duplicated in PickAnnouncer.jsx (#513) ON PURPOSE, not
-    // shared: the empty-clear path above resets lastTextRef, which that announcer
-    // has no equivalent of, so the two callers have divergent reset semantics. A
-    // shared hook would need a reset parameter or would change this announcer's
-    // empty-path silence - merging the six lines breaks a behaviour untested for.
+    // NOTE: this parity-counter flip has a desync defect - a different entry
+    // landing between two repeat-pairs (A, A, B, B) leaves the fourth silent,
+    // because the global nonce decouples from the currently-rendered value.
+    // PickAnnouncer.jsx (#513) DIVERGED from this to compare against the rendered
+    // value instead, which has no counter to desync; do not re-merge them. Left
+    // as-is here deliberately: #518 owns this fix and its own blast radius (a
+    // live message-announcement defect on integration), with its own test.
     let out = text;
     if (text === lastTextRef.current) {
       nonceRef.current += 1;
