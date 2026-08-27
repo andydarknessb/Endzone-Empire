@@ -693,7 +693,6 @@ function DraftBoard() {
             toggleSound={toggleSound}
             isCommissioner={isCommissioner}
             onRandomizeOrder={admin.handleRandomizeOrder}
-            onTogglePause={admin.handleTogglePause}
             onClockAlertOpen={onClockAlertOpen}
             onCloseOnClockAlert={dismissOnClockAlert}
           />
@@ -701,7 +700,8 @@ function DraftBoard() {
             <DraftDayControls
               league={league}
               picks={picks}
-              onUndo={admin.handleUndoPick}
+              onTogglePause={admin.handleTogglePause}
+              onCorrect={admin.handleCorrectPick}
               onReset={admin.handleResetDraft}
               onGetShareLink={admin.handleGetShareLink}
             />

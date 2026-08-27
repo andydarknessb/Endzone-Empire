@@ -1241,32 +1241,44 @@ test('Pause Draft POSTs the toggled paused flag for the commissioner during an a
   );
 });
 
-test('commissioner confirms undo before posting the last-pick rollback', async () => {
+test('commissioner corrects the latest pick with a reason, posting the confirmed pick number (#439)', async () => {
   renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
   connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
-    picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false }],
+    picks: [{ pick_number: 1, teamId: 5, teamName: "Bob's Team", player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false }],
   })));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Undo last pick' }));
-  expect(screen.getByText('Undo last pick?')).toBeInTheDocument();
-  expect(apiClient.post).not.toHaveBeenCalledWith('/api/draft/league/1/undo', { count: 1 });
-  await userEvent.click(screen.getByRole('button', { name: 'Undo pick' }));
-  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/undo', { count: 1 }));
-  expect(await screen.findByText('Last pick undone')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Correct latest Pick' }));
+  const dialog = screen.getByRole('dialog');
+  // Names the Pick, Team and player being reversed (#439 AC4).
+  expect(within(dialog).getByText(/Pick 1/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Bob's Team/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Josh Allen/)).toBeInTheDocument();
+
+  // No premature POST while the reason is still missing.
+  expect(apiClient.post).not.toHaveBeenCalledWith('/api/draft/league/1/correct-pick', expect.anything());
+
+  await userEvent.type(within(dialog).getByRole('textbox', { name: /reason/i }), 'wrong team entered, correcting before we resume');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Correct pick' }));
+
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/correct-pick', {
+    pickNumber: 1,
+    reason: 'wrong team entered, correcting before we resume',
+  }));
+  expect(await screen.findByText('Latest pick corrected; draft paused')).toBeInTheDocument();
 });
 
-test('undo is disabled when the most recent reached pick is a keeper', async () => {
+test('Correct latest Pick is disabled when the most recent reached pick is a keeper', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
-    picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: true }],
+    picks: [{ pick_number: 1, teamId: 5, teamName: "Bob's Team", player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: true }],
   })));
 
-  expect(screen.getByRole('button', { name: 'Undo last pick' })).toBeDisabled();
-  expect(screen.getByText('Keeper picks cannot be undone.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Correct latest Pick' })).toBeDisabled();
+  expect(screen.getByText('Keeper picks cannot be corrected.')).toBeInTheDocument();
 });
 
 test('reset draft requires the exact league name before calling the destructive endpoint', async () => {

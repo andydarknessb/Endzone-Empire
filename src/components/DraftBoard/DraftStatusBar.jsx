@@ -26,7 +26,6 @@ function DraftStatusBar({
   toggleSound,
   isCommissioner,
   onRandomizeOrder,
-  onTogglePause,
   onClockAlertOpen,
   onCloseOnClockAlert,
 }) {
@@ -107,11 +106,9 @@ function DraftStatusBar({
               Randomize Draft order
             </Button>
           )}
-          {isCommissioner && league?.draft_status === 'active' && (
-            <Button variant="outlined" size="small" onClick={onTogglePause} sx={MIN_TOUCH_TARGET_SX}>
-              {league?.draft_paused ? 'Resume Draft' : 'Pause Draft'}
-            </Button>
-          )}
+          {/* Pause/Resume moved to the active-draft commissioner toolbar
+              (DraftDayControls) so every active-draft control sits in one
+              separately named toolbar beside the feed (#439). */}
         </Box>
       </Box>
 

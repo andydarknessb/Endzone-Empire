@@ -7,9 +7,9 @@ import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
  * player and states that shared draft state advances immediately and can't
  * be undone by the manager who made it (CONTEXT.md's Pick entry; issue #120
  * acceptance criterion 3). Commissioner correction is a separate
- * administrative act (DraftDayControls' Undo last pick) and stays untouched
- * here - this dialog never offers it, and confirming never introduces a
- * manager-level post-commit undo (acceptance criterion 4).
+ * administrative act (DraftDayControls' Correct latest Pick, #439) and stays
+ * untouched here - this dialog never offers it, and confirming never introduces
+ * a manager-level post-commit undo (acceptance criterion 4).
  */
 export default function DraftPickConfirmDialog({ open, playerName, onConfirm, onCancel }) {
   return (
