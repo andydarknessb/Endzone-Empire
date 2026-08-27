@@ -146,13 +146,17 @@ const renderBoardWithToasts = (leagueId = 1, state) =>
   );
 
 /**
- * Pick history left the rail for the Board (issue #123 acceptance criterion
- * 5), where it is a collapsible chronological view of the same committed
- * Picks the matrix is built from. Anything that asserts on history opens the
- * Board tab and expands it first, exactly as a manager would.
+ * Pick history lives inside the Board (issue #123 acceptance criterion 5),
+ * where it is a collapsible chronological view of the same committed Picks the
+ * matrix is built from. Anything that asserts on history shows the Board first
+ * and expands it, exactly as a manager would. On a wide container (the unit
+ * tests' default) the Board is the left pane, selected by its Players/Board
+ * toggle button rather than a tab (#444).
  */
+const showBoard = () => userEvent.click(screen.getByRole('button', { name: 'Board' }));
+
 const openPickHistory = async () => {
-  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  await showBoard();
   const trigger = screen.getByRole('button', { name: 'Pick history' });
   if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
 };
@@ -514,10 +518,12 @@ test('a draft:picked event with draftComplete shows the completion banner and ma
   // And the manager is NOT relocated. The draft completing in front of
   // someone is the moment they are most engaged with what they are reading,
   // and useDraftSocket flips draft_status in place on this frame - so a
-  // completed-draft default keyed on the status alone would swap the
-  // workspace out from under them here. It opens the Board on arrival only.
-  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  // completed-draft default keyed on the status alone would swap the left pane
+  // to the Board from under them here. It opens the Board on arrival only. On
+  // a wide container the left pane stays on Players (its own region present,
+  // the Board's absent).
   expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft Board' })).not.toBeInTheDocument();
 });
 
 test('a draft that is already complete when the room opens lands on the Board', async () => {
@@ -534,13 +540,17 @@ test('a draft that is already complete when the room opens lands on the Board', 
     })
   );
 
-  expect(screen.getByRole('tab', { name: 'Board', selected: true })).toBeInTheDocument();
+  // On a wide container the completed-draft default puts the Board in the left
+  // pane: its toggle is pressed and the Board's own region is present.
+  expect(screen.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
 });
 
 test('an explicit ?view= wins over the completed-draft default', async () => {
   // The first guard clause. Someone who asked for a view in the URL keeps it,
-  // even on a draft that is already complete when the room opens.
+  // even on a draft that is already complete when the room opens. ?view=draft
+  // is not the Board, so on a wide container the left pane stays on Players
+  // rather than being moved to the Board by the completed-draft default.
   renderWithProviders(<DraftBoard />, {
     path: '/league/:leagueId/draft',
     route: '/league/1/draft?view=draft',
@@ -557,19 +567,21 @@ test('an explicit ?view= wins over the completed-draft default', async () => {
     })
   );
 
-  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft Board' })).not.toBeInTheDocument();
 });
 
-test('a tab the manager clicked is never overridden afterwards', async () => {
+test('a pane the manager chose is never overridden afterwards', async () => {
   // The second guard clause, and the one the ref exists for: a deliberate
-  // choice outranks the default even before the status is known.
+  // choice outranks the default even before the status is known. On a wide
+  // container the choice is the left pane's Players/Board toggle; a manager
+  // who has switched it back to Players keeps Players when the draft completes.
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsTeam(1);
 
-  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
-  await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Board' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Players' }));
 
   act(() =>
     fakeSocket.trigger('draft:state', {
@@ -580,7 +592,8 @@ test('a tab the manager clicked is never overridden afterwards', async () => {
     })
   );
 
-  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft Board' })).not.toBeInTheDocument();
 });
 
 test('a draft:complete event alone also shows the completion banner', async () => {
@@ -1803,7 +1816,7 @@ test('renders the league’s own 12 starter / 7 bench / 1 IR shape across rail a
   // The draft runs 19 rounds for 12 starters + 7 bench; the IR slot is not
   // drafted, so there is nothing to warn about (#96).
   expect(screen.queryByText(/This draft runs/)).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  await showBoard();
   expect(screen.getByRole('rowheader', { name: '19' })).toBeInTheDocument();
   expect(screen.queryByRole('rowheader', { name: '20' })).not.toBeInTheDocument();
 });
@@ -2026,44 +2039,47 @@ describe('accessible structure', () => {
 });
 
 /**
- * Put the describe that calls this below the medium breakpoint.
- *
- * The matchMedia-mock convention used elsewhere in this codebase (see
- * PlayerQuickView.test.jsx, PowerRankings.test.jsx): jsdom has no real
- * media-query engine, so every query the component asks resolves to this one
- * flag regardless of its breakpoint text. Its absence is how this file says
- * "desktop" - MUI's useMediaQuery falls back to false without it.
+ * Put the describe that calls this on a NARROW container (#444 acceptance
+ * criterion 3). The Draft room chooses panes vs tabs from its own measured
+ * CONTAINER width (useContainerWidth), not a window media query. jsdom has no
+ * layout engine and reports width 0 for every element, which the room reads as
+ * wide (the default), so stubbing getBoundingClientRect to a narrow width is
+ * how this file now says "narrow" - the room then collapses its three panes
+ * into the Chat/Players/Board/Draft tabs. jsdom defines no ResizeObserver, so
+ * the width measured once on attach is all these tests need.
  */
-const mockMobileViewport = () => {
+const mockNarrowContainer = () => {
+  let originalGetBoundingClientRect;
   beforeEach(() => {
-    window.matchMedia = jest.fn().mockImplementation((query) => ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-      dispatchEvent: jest.fn(),
-    }));
+    originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      return {
+        width: 500, height: 0, top: 0, left: 0, right: 500, bottom: 0, x: 0, y: 0, toJSON() {},
+      };
+    };
   });
   afterEach(() => {
-    delete window.matchMedia;
+    Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
   });
 };
 
 // ---------------------------------------------------------------------------
-// Mobile tab-card layout (issue #122): below the medium breakpoint, three
-// persistent tabs (Players/Board/Draft) replace desktop's dual-pane
-// workspace, each its own single scroll region.
+// Narrow-container tab layout (#444 acceptance criterion 2): below the pane
+// threshold, four persistent tabs (Chat/Players/Board/Draft) replace the
+// three-pane workspace, each its own single scroll region, and Chat is the tab
+// the room opens on. Supersedes the #122/#123 Players-first three-tab layout.
 // ---------------------------------------------------------------------------
 
-describe('mobile layout (issue #122)', () => {
-  mockMobileViewport();
+describe('narrow container layout (#444)', () => {
+  mockNarrowContainer();
 
-  const showMobileActiveDraft = async () => {
+  const showNarrowActiveDraft = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
-    await screen.findByText('Patrick Mahomes');
+    // The tabs exist only once the room is narrow and loaded; the Chat tab is
+    // the settled signal, and is also the tab the room opens on.
+    await screen.findByRole('tab', { name: 'Chat' });
+    // No connectAsTeam: leaving the viewer team-less keeps the banner phrased
+    // as "Team A is on the clock" rather than "Your pick!".
     act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
       teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
@@ -2071,19 +2087,29 @@ describe('mobile layout (issue #122)', () => {
     })));
   };
 
-  test('exposes persistent Players, Board, and Draft tabs, in that order, landing on Players', async () => {
-    await showMobileActiveDraft();
+  test('exposes persistent Chat, Players, Board, and Draft tabs, in that order, landing on Chat', async () => {
+    await showNarrowActiveDraft();
 
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['Players', 'Board', 'Draft']);
-    expect(screen.getByRole('tab', { name: 'Players' })).toHaveAttribute('aria-selected', 'true');
-    // The player pool renders by default - no tab switch needed.
+    expect(tabs).toEqual(['Chat', 'Players', 'Board', 'Draft']);
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    // The Chat feed is the centerpiece the room opens on; the pool is not
+    // mounted until its own tab is chosen (a single region at a time).
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.queryByText('Patrick Mahomes')).not.toBeInTheDocument();
+  });
+
+  test('the Players tab shows the pool and not the rail - a single region at a time', async () => {
+    await showNarrowActiveDraft();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
     expect(screen.queryByText('My Queue')).not.toBeInTheDocument();
   });
 
   test('the Draft tab shows the rail and not the player pool - a single region at a time', async () => {
-    await showMobileActiveDraft();
+    await showNarrowActiveDraft();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
 
@@ -2092,7 +2118,7 @@ describe('mobile layout (issue #122)', () => {
   });
 
   test('the Board tab shows the matrix and not the player pool or the rail', async () => {
-    await showMobileActiveDraft();
+    await showNarrowActiveDraft();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
 
@@ -2101,8 +2127,11 @@ describe('mobile layout (issue #122)', () => {
     expect(screen.queryByText('My Queue')).not.toBeInTheDocument();
   });
 
-  test('on-the-clock information (LiveDraftBanner) stays visible across every mobile tab', async () => {
-    await showMobileActiveDraft();
+  test('on-the-clock information (LiveDraftBanner) stays visible across every tab', async () => {
+    await showNarrowActiveDraft();
+    expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
     expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
@@ -2113,10 +2142,31 @@ describe('mobile layout (issue #122)', () => {
   });
 
   test('renders player cards, not a table, on the Players tab', async () => {
-    await showMobileActiveDraft();
+    await showNarrowActiveDraft();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
+  });
+
+  test('a completed draft opens on the Board tab, the one exception to Chat-first', async () => {
+    // A finished draft is a record, so it opens on the Board on both layouts
+    // (issue #123 criterion 4). This is the single intentional exception to
+    // #444's Chat-first default: Chat is still a tab away, just not the landing.
+    renderBoard(1);
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    }));
+
+    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
   });
 });
 
@@ -2134,11 +2184,11 @@ describe('mobile layout (issue #122)', () => {
 // ---------------------------------------------------------------------------
 
 describe('readiness live region (issue #164)', () => {
-  // The mobile/tablet layout is the one that mounts a single region per tab
-  // (issue #122 / PR #158), so it is the layout that unmounted the rail - and
-  // the live region inside it - on every switch. The one desktop test below
-  // opts back out.
-  mockMobileViewport();
+  // The narrow tab layout is the one that mounts a single region per tab, so
+  // it is the layout that unmounts the rail - and would have unmounted a live
+  // region inside it - on every switch. The wide-container case is its own
+  // describe below.
+  mockNarrowContainer();
 
   /** A pending lobby whose viewer holds Team A, with Team B ready: Readiness
    * composes into `pending` alone (railComposition.js) and the panel renders
@@ -2146,7 +2196,7 @@ describe('readiness live region (issue #164)', () => {
    * speaks in. */
   const showPendingLobby = async (leagueOverrides = {}) => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
-    await screen.findByText('Patrick Mahomes');
+    await screen.findByRole('tab', { name: 'Chat' });
     connectAsTeam(1);
     act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', ...leagueOverrides }), {
       teams: [
@@ -2157,7 +2207,7 @@ describe('readiness live region (issue #164)', () => {
     })));
   };
 
-  test('is the same DOM node before and after switching mobile tabs away and back', async () => {
+  test('is the same DOM node before and after switching narrow tabs away and back', async () => {
     await showPendingLobby();
 
     const before = readinessAnnouncer();
@@ -2171,9 +2221,9 @@ describe('readiness live region (issue #164)', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
     expect(readinessAnnouncer()).toBe(before);
 
-    // And back to the tab the room opened on, which is the switch the issue
-    // describes: "the rail is rendered only while the players tab is active".
-    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+    // And back to the tab the room opened on (Chat, #444), the switch the
+    // issue describes: the rail is rendered only while the Draft tab is active.
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
     expect(readinessAnnouncer()).toBe(before);
     expect(before).toHaveTextContent('1 of 2 managers ready');
   });
@@ -2217,32 +2267,106 @@ describe('readiness live region (issue #164)', () => {
     expect(visibleCount).not.toHaveAttribute('aria-live');
     expect(visibleCount).not.toHaveAttribute('role', 'status');
   });
+});
 
-  test('persists across the desktop Board tab too, where the rail is also unmounted', async () => {
-    // The issue records desktop as unaffected because the rail is always
-    // mounted there. It is not: `desktopRailColumn` appears only in the
-    // isComplete branch, so the Board tab of a draft that is not yet complete
-    // renders the matrix alone, with no rail column beside it, and desktop
-    // lost the region on that switch exactly as mobile did. Removing
-    // matchMedia is how this file says "desktop" - MUI's useMediaQuery falls
-    // back to false without it.
-    delete window.matchMedia;
-    await showPendingLobby();
+// ---------------------------------------------------------------------------
+// Wide-container three-pane layout (#444 acceptance criterion 1): Players or
+// Board on the left, the largest Chat/activity feed in the centre, and the
+// status-dependent rail on the right, all visible at once (no tabs). The unit
+// tests' default zero-width measurement reads as wide.
+// ---------------------------------------------------------------------------
 
-    // Proof this test ran where it says it ran. Desktop composes two tabs,
-    // Draft and Board; Players is mobile's alone. Without this the whole test
-    // passes under the mobile mock as well - every other assertion in it is
-    // true at both breakpoints, since mobile's Board tab also drops the rail
-    // and a tab named Board exists either way. That would leave the one test
-    // pinning this correction to the issue unable to tell which layout it was
-    // exercising.
-    expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
+describe('wide container three-pane layout (#444)', () => {
+  const showWideActiveDraft = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [{ teamId: 1, teamName: 'Team A' }, { teamId: 2, teamName: 'Team B' }],
+      picks: [],
+      onTheClock: { teamId: 1, teamName: 'Team A' },
+    })));
+    // The feed rides the room's session, so its heading is the settled signal.
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('shows Players (left), the Chat feed (centre) and the rail (right) at once, each a named region, with no tabs', async () => {
+    await showWideActiveDraft();
+
+    // All three panes are present simultaneously: the centerpiece Chat is not
+    // hidden behind a tab, and the pool and rail sit beside it.
+    expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Chat and Draft activity' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Draft rail' })).toBeInTheDocument();
+    expect(screen.getByText('My Queue')).toBeInTheDocument();
+    expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
+
+    // A wide container has no tab bar; the left pane is chosen by a toggle, and
+    // Players is the pane the room opens on.
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Players' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('the left-pane toggle swaps Players for the Board while Chat and the rail stay put', async () => {
+    await showWideActiveDraft();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Board' }));
+
+    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Available Players' })).not.toBeInTheDocument();
+    // The centerpiece and the rail are unaffected by the left-pane choice.
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Draft rail' })).toBeInTheDocument();
+  });
+
+  test('the combined feed is the centre pane, no longer tucked inside the rail', async () => {
+    await showWideActiveDraft();
+
+    const rail = screen.getByRole('region', { name: 'Draft rail' });
+    const chat = screen.getByRole('region', { name: 'League Chat' });
+    // Chat is its own pane beside the rail, not a descendant of it (#444): the
+    // feed was promoted out of the rail to be the centerpiece.
+    expect(rail).not.toContainElement(chat);
+  });
+});
+
+describe('readiness live region on a wide container (issue #164)', () => {
+  // No narrow stub, so the default zero-width jsdom measurement reads as wide:
+  // the three panes are all mounted at once. On a wide container the rail is
+  // always the right pane and never unmounts, so nothing depends on the
+  // announcer surviving a rail unmount here - but the announcer must still be
+  // the chrome one (a single stable node), never the rail's Readiness panel.
+  const showPendingLobbyWide = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    // The pool is the left pane on a wide container, so its content is the
+    // loaded signal.
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending' }), {
+      teams: [
+        { teamId: 1, teamName: 'Team A', draft_ready: false },
+        { teamId: 2, teamName: 'Team B', draft_ready: true },
+      ],
+      onTheClock: null,
+    })));
+  };
+
+  test('is one stable chrome node across a left-pane switch, with the rail always present', async () => {
+    await showPendingLobbyWide();
+    // Proof this ran wide: a wide container has no tab bar, only the left-pane
+    // Players/Board toggle.
+    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
 
     const before = readinessAnnouncer();
-    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(before).toHaveTextContent('1 of 2 managers ready');
 
-    expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
+    // The rail (and its Readiness panel) is the right pane and stays mounted
+    // when the left pane toggles to the Board, so the panel is present
+    // throughout - and the announcer is still the chrome one, the same node.
+    await userEvent.click(screen.getByRole('button', { name: 'Board' }));
     expect(readinessAnnouncer()).toBe(before);
+    expect(screen.getByRole('region', { name: 'Readiness' })).toBeInTheDocument();
   });
 });
 

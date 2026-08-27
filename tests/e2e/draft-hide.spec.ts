@@ -57,8 +57,9 @@ async function openDraftRoom(page: Page, over: Partial<DraftSocketState>) {
   await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
   await gotoDraft(page);
   await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
-  // The desktop rail shows League Chat directly (no tab change); its listeners
-  // are registered by the time the region is on screen.
+  // On a wide container League Chat is the always-visible centre pane (#444),
+  // so no navigation is needed; its listeners are registered by the time the
+  // region is on screen.
   await expect(page.getByRole('region', { name: 'League Chat' })).toBeVisible();
 }
 

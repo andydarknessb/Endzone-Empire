@@ -63,12 +63,13 @@ test.describe('accessible emoji composition (#443)', () => {
     await expect(input).toHaveValue('');
   });
 
-  test('mobile: a composed emoji survives a Draft tab change, as ordinary preserved text', async ({ page }) => {
+  test('mobile: a composed emoji survives a tab change, as ordinary preserved text', async ({ page }) => {
     await page.setViewportSize(VIEWPORTS.mobile);
     await openDraftRoom(page);
 
-    // On mobile the room is tabbed; League Chat rides under the Draft tab.
-    await page.getByRole('tab', { name: 'Draft' }).click();
+    // On a narrow container the room is tabbed and League Chat is the
+    // centerpiece Chat tab, selected first (#444).
+    await page.getByRole('tab', { name: 'Chat' }).click();
     const chat = page.getByRole('region', { name: 'League Chat' });
     const input = chat.getByLabel('Message');
     await input.fill('brb ');
@@ -78,10 +79,10 @@ test.describe('accessible emoji composition (#443)', () => {
     await page.getByRole('menuitem', { name: 'thumbs up' }).click();
     await expect(input).toHaveValue(`brb \u{1F44D}`);
 
-    // Leave the Draft tab (the composer unmounts) and come back.
+    // Leave the Chat tab (the composer unmounts) and come back.
     await page.getByRole('tab', { name: 'Players' }).click();
     await expect(page.getByRole('region', { name: 'League Chat' })).toHaveCount(0);
-    await page.getByRole('tab', { name: 'Draft' }).click();
+    await page.getByRole('tab', { name: 'Chat' }).click();
 
     // The composed emoji text is restored from the per-league session draft.
     await expect(page.getByRole('region', { name: 'League Chat' }).getByLabel('Message'))

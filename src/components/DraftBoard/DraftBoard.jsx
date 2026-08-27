@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab, IconButton, Tooltip } from '@mui/material';
+import {
+  Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab,
+  ToggleButton, ToggleButtonGroup, IconButton, Tooltip,
+} from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import Grid from '@mui/material/Unstable_Grid2';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -25,6 +28,7 @@ import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
 import DraftRoomChat from './DraftRoomChat';
+import useContainerWidth, { draftPaneLayout } from './useContainerWidth';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { upcomingTeamsFor } from './upcomingTeams';
 import { viewerPicksFor } from './viewerPicks';
@@ -42,6 +46,11 @@ import { teamNameLabel } from '../../lib/teamIdentity';
 // so the skip link's destination exists throughout the page's lifecycle.
 const DRAFT_MAIN_ID = 'draft-main-content';
 const DRAFT_H1_ID = 'draft-league-name';
+
+// The Draft room's four views, in the order the narrow tab bar shows them (Chat
+// first, the centerpiece the room opens on). One list, so the valid-view guard,
+// the default and the tab bar all read the same set and cannot drift.
+const DRAFT_VIEWS = ['chat', 'players', 'board', 'draft'];
 
 /**
  * Everything the roster panel needs, derived from live draft state. A plain
@@ -158,28 +167,32 @@ function DraftBoard() {
   const notify = useSnackbar();
   const theme = useTheme();
   const isXs = useMediaQuery(theme.breakpoints.down('sm'));
-  // The medium breakpoint already established by this route's own Grid
-  // (players/rail switch order there at `md`) - issue #122 reuses it as the
-  // one place desktop's dual-scroll shell and mobile's single-scroll tabs
-  // diverge. Defaults to false when matchMedia is unavailable (jsdom unit
-  // tests), so every existing desktop-shaped assertion is unaffected unless a
-  // test explicitly opts into mobile via the matchMedia mock convention.
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  // The wide-vs-narrow arrangement is chosen from the Draft room's own
+  // available CONTAINER width, not a window media query (#444 acceptance
+  // criterion 3): wide shows three side-by-side panes (Players/Board, Chat,
+  // rail), narrow collapses them to tabs. This supersedes the #122/#123
+  // `useMediaQuery(down('md'))` split. Unknown/zero width (a first paint, or a
+  // layout-free unit-test environment) reads as `panes` - the three-pane
+  // arrangement is the default until a real measurement proves the container
+  // narrow, so nothing flashes and desktop-shaped tests need no width mock.
+  const [layoutRef, containerWidth] = useContainerWidth();
+  const isNarrow = draftPaneLayout(containerWidth) === 'tabs';
 
   const [error, setError] = useState(null);
   // Draft/Board view tab, mirrored into the URL (view=board) alongside the
   // pool-state params usePlayerPool owns. Built off the previous params so
   // switching tabs doesn't clobber filters, and vice versa (see usePlayerPool).
   const [searchParams, setSearchParams] = useSearchParams();
-  // Three logical views: 'players' (the default), 'draft' (the rail) and
-  // 'board'. Desktop collapses 'players'/'draft' into one dual-pane workspace
-  // (issue #122 acceptance criterion 1) - only 'board' swaps out the whole
-  // region there. Below the medium breakpoint each is its own tab/single
-  // scroll region, in the persistent Players/Board/Draft order the
-  // acceptance criteria name.
+  // Four logical views: 'chat' (the default centerpiece), 'players', 'board'
+  // and 'draft' (the rail). On a wide container Chat is always the centre pane
+  // and the rail is always the right pane, so `view` there only chooses the
+  // LEFT pane (Players unless it is 'board'); on a narrow container `view` is
+  // the selected tab among Chat/Players/Board/Draft, with Chat the default the
+  // room opens on (#444 acceptance criteria 1-2). 'chat' is the default so the
+  // conversation is the centerpiece a manager lands on.
   const [view, setView] = useState(() => {
     const requested = searchParams.get('view');
-    return requested === 'board' || requested === 'draft' ? requested : 'players';
+    return DRAFT_VIEWS.includes(requested) ? requested : 'chat';
   });
   // Whether the manager has chosen a view themselves - an explicit ?view= in
   // the URL when the page opened, or a tab click since. Only while they have
@@ -188,7 +201,7 @@ function DraftBoard() {
   useEffect(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (view === 'players') next.delete('view');
+      if (view === 'chat') next.delete('view');
       else next.set('view', view);
       return next;
     }, { replace: true });
@@ -273,6 +286,12 @@ function DraftBoard() {
   // the chronological Pick history inside it. draft_status is unknown until
   // the first draft:state frame lands, which is why this is an effect rather
   // than part of `view`'s initial state.
+  //
+  // This is the ONE intentional exception to #444's "the room opens on Chat"
+  // default, and it is narrow-tab and wide-pane alike: a finished draft's point
+  // is its record, so a narrow room lands on the Board tab and a wide room
+  // shows the Board in the left pane. Chat is still one tab / one toggle away.
+  // A live (pending/active) draft is unaffected and opens on Chat as usual.
   //
   // ONLY on the first frame, which is the whole of the rule. Keying this on
   // draft_status alone made it fire mid-session too, because useDraftSocket
@@ -528,19 +547,22 @@ function DraftBoard() {
     viewerPicks: viewerPicksFor({
       league, teams, picks, rounds, viewerTeamId,
     }),
-    // League chat, wired to the room's own session (#433). Rendered only once
-    // the socket exists; before draft:join lands there is nothing for it to
-    // ride. It lives in the rail, so it appears wherever the rail does and
-    // travels with the manager across the Draft and Board views.
-    chatPanel: socket ? (
-      <DraftRoomChat
-        socket={socket}
-        leagueId={Number(leagueId)}
-        viewerTeamId={viewerTeamId}
-        canModerate={isCommissioner}
-      />
-    ) : null,
   };
+
+  // The combined League chat + Draft activity feed (#435/#437/#442), wired to
+  // the room's own session (#433). It is the Draft room's centerpiece (#444):
+  // its own centre pane on a wide container and its own Chat tab, selected
+  // first, on a narrow one - no longer a panel tucked at the bottom of the
+  // rail. Rendered only once the socket exists; before draft:join lands there
+  // is nothing for it to ride.
+  const chatFeed = socket ? (
+    <DraftRoomChat
+      socket={socket}
+      leagueId={Number(leagueId)}
+      viewerTeamId={viewerTeamId}
+      canModerate={isCommissioner}
+    />
+  ) : null;
 
   // Board is the team-by-round matrix; Pick history is the chronological view
   // of the same committed Picks, collapsible inside it rather than a second
@@ -567,90 +589,129 @@ function DraftBoard() {
     </>
   );
 
-  // The rail as the desktop shell wants it: its own named, focusable, bounded
-  // scrolling region beside whatever fills the other two thirds (issue #122
-  // acceptance criterion 1). One definition, because the workspace and a
-  // completed draft's Board both put the rail in exactly this column, and a
-  // second copy is how the two would drift apart. Below the medium breakpoint
-  // the rail is just content in the page's single scroll region - a bounded
-  // one there is the thing #122 forbids.
-  const desktopRailColumn = isMobile ? (
-    <DraftRail {...draftRailProps} />
-  ) : (
-    <Box
-      component="section"
-      aria-label="Draft rail"
-      tabIndex={0}
-      sx={{ flexBasis: '33.333%', minWidth: 0, height: '100%', overflowY: 'auto' }}
-    >
-      <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
-    </Box>
-  );
+  // On a wide container the LEFT pane holds Players or Board; `view` chooses
+  // which, and anything that is not the Board is Players (the working pool a
+  // manager drafts from is the sensible default the room opens on). Chat and
+  // the rail have panes of their own on a wide container, so a 'chat' or
+  // 'draft' `view` inherited from a narrow session still leaves the Players
+  // pool on the left here rather than an empty column.
+  const leftPane = view === 'board' ? 'board' : 'players';
 
-  // A completed draft centers My Roster AND the Board (acceptance criterion
-  // 4), so the Board view carries the rail beside it: two bounded scrolling
-  // regions on desktop, exactly as the workspace does, and one stacked
-  // page-scrolling column below the medium breakpoint.
-  const boardView = isComplete ? (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: { xs: 'column', md: 'row' },
-        gap: 3,
-        flex: { md: '1 1 auto' },
-        minHeight: { md: 0 },
-      }}
-    >
-      <Box sx={{ flexBasis: { md: '66.666%' }, minWidth: 0, height: { md: '100%' }, overflowY: { md: 'auto' } }}>
-        {boardWithHistory}
+  // The one place a manager's own view choice is recorded, shared by the wide
+  // left-pane toggle and the narrow tab bar so the two controls cannot drift.
+  // Marking the choice is what stops the completed-draft default (above) from
+  // relocating them afterwards.
+  const chooseView = (next) => {
+    viewChosenRef.current = true;
+    setView(next);
+  };
+
+  // The four narrow tabs, in the Chat/Players/Board/Draft order acceptance
+  // criterion 2 names, with Chat first so it is the tab the room opens on.
+  // Built from DRAFT_VIEWS so their order and the valid-view guard cannot drift;
+  // every view's label is just its capitalized name.
+  const tabDefs = DRAFT_VIEWS.map((value) => ({
+    value,
+    label: value[0].toUpperCase() + value.slice(1),
+  }));
+
+  // The three side-by-side panes of a wide container (#444 acceptance
+  // criterion 1): Players/Board on the left, the largest Chat/activity feed in
+  // the centre, and the status-dependent rail on the right. Each is its own
+  // named, focusable, bounded scrolling region so the panes scroll
+  // independently and the shell itself never scrolls (the On the clock banner
+  // and chrome above them stay put). The left pane's name follows its current
+  // content; the pool and the board matrix each carry their own inner region
+  // (Available Players / Draft Board), so the left column is a plain scroll box
+  // rather than a second landmark around them.
+  const panesLayout = (
+    <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2, flex: '1 1 auto', minHeight: 0 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flexBasis: '37%', minWidth: 0, height: '100%' }}>
+        <Box sx={{ flexShrink: 0, mb: 1 }}>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={leftPane}
+            onChange={(e, next) => {
+              // null is a click on the already-selected button; keep the pane
+              // rather than clearing it.
+              if (!next) return;
+              chooseView(next);
+            }}
+            aria-label="Left pane"
+          >
+            <ToggleButton value="players" sx={MIN_TOUCH_TARGET_SX}>Players</ToggleButton>
+            <ToggleButton value="board" sx={MIN_TOUCH_TARGET_SX}>Board</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+        <Box sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {leftPane === 'board' ? (
+            <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>{boardWithHistory}</Box>
+          ) : (
+            <PlayerPoolTable {...playerPoolProps} />
+          )}
+        </Box>
       </Box>
-      {desktopRailColumn}
-    </Box>
-  ) : (
-    <Box sx={{ flex: { md: '1 1 auto' }, minHeight: { md: 0 }, overflow: { md: 'auto' } }}>
-      {boardWithHistory}
+      <Box
+        component="section"
+        // "Chat", not "League chat", on purpose: this pane wraps the League
+        // Chat region that ChatConversation names, and a name containing
+        // "League chat" would collide with it under substring accessible-name
+        // matching, leaving two regions a "League Chat" query cannot tell apart.
+        aria-label="Chat and Draft activity"
+        sx={{ flexBasis: '41%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+      >
+        {chatFeed}
+      </Box>
+      <Box
+        component="section"
+        aria-label="Draft rail"
+        tabIndex={0}
+        sx={{ flexBasis: '22%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+      >
+        <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
+      </Box>
     </Box>
   );
 
-  // Desktop only ever shows two tabs (Draft = the dual-pane workspace,
-  // Board); mobile's three swap the Draft/Players split for its own single-
-  // region tabs, in the Players/Board/Draft order the acceptance criteria
-  // name. One shared list (rather than a differently-ordered Tab JSX per
-  // breakpoint) keeps that ordering the single source of truth.
-  const tabDefs = isMobile
-    ? [
-        { value: 'players', label: 'Players' },
-        { value: 'board', label: 'Board' },
-        { value: 'draft', label: 'Draft' },
-      ]
-    : [
-        { value: 'draft', label: 'Draft' },
-        { value: 'board', label: 'Board' },
-      ];
+  // A narrow container shows one region at a time behind the tabs. Chat is a
+  // tab of its own here (selected first), the pool switches to its card list,
+  // and the rail is plain page-scrolling content rather than a bounded region.
+  const narrowRegion = view === 'chat'
+    ? chatFeed
+    : view === 'players'
+      ? <PlayerPoolTable {...playerPoolProps} isMobile />
+      : view === 'board'
+        ? boardWithHistory
+        : <DraftRail {...draftRailProps} />;
 
   return (
     <Container
       component="main"
       id={DRAFT_MAIN_ID}
+      ref={layoutRef}
       tabIndex={-1}
       aria-labelledby={DRAFT_H1_ID}
       maxWidth="xl"
       sx={{
-        py: { xs: 4, md: 2 },
-        // Desktop viewport-height shell (issue #122 acceptance criterion 1):
-        // the chrome below keeps its natural size (flexShrink: 0) and only
-        // the final board/workspace region grows to fill what's left, so
-        // nothing here needs the page itself to scroll. Below the medium
-        // breakpoint this is a plain block - the page scrolls as the single
-        // region acceptance criterion 3 asks for.
-        display: { md: 'flex' },
-        flexDirection: { md: 'column' },
-        height: { md: '100%' },
-        minHeight: { md: 0 },
-        overflow: { md: 'hidden' },
+        py: isNarrow ? 4 : 2,
+        // Wide-container viewport-height shell (#444 acceptance criterion 1,
+        // carried over from #122): the chrome keeps its natural size
+        // (flexShrink: 0) and only the pane region grows to fill what's left,
+        // so the three panes scroll independently and nothing here scrolls the
+        // page. On a narrow container this is a plain block and the page
+        // scrolls as the single-region acceptance criterion asks. The switch
+        // is the measured container width, not a window breakpoint.
+        ...(isNarrow ? {} : {
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          minHeight: 0,
+          overflow: 'hidden',
+        }),
       }}
     >
-      <Box sx={{ flexShrink: { md: 0 } }}>
+      <Box sx={{ flexShrink: 0 }}>
         {/* The Draft room's one readiness announcement (issue #164). It lives
             here, in the chrome every tab renders, rather than in the rail:
             below the medium breakpoint only the active tab's region is
@@ -758,48 +819,26 @@ function DraftBoard() {
           desktop. */}
       <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
 
-      <Box sx={{ flexShrink: { md: 0 } }}>
-        <Tabs
-          // Desktop only ever shows two tabs (Draft = the dual-pane
-          // workspace, Board); a 'players'-tagged URL/state still resolves
-          // to the same Draft tab there since desktop never mounts 'players'
-          // on its own. Mobile's three tabs use `view` directly - it only
-          // ever holds one of their three values.
-          value={isMobile ? view : (view === 'board' ? 'board' : 'draft')}
-          onChange={(e, next) => {
-            // A deliberate choice, which the completed-draft default above
-            // must never override afterwards.
-            viewChosenRef.current = true;
-            setView(next);
-          }}
-          aria-label="Draft view"
-          sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
-        >
-          {tabDefs.map((tab) => (
-            <Tab key={tab.value} label={tab.label} value={tab.value} sx={MIN_TOUCH_TARGET_SX} />
-          ))}
-        </Tabs>
-      </Box>
-
-      {view === 'board' ? (
-        boardView
-      ) : isMobile ? (
-        view === 'players' ? (
-          <PlayerPoolTable {...playerPoolProps} isMobile />
-        ) : (
-          <DraftRail {...draftRailProps} />
-        )
-      ) : (
-        // Desktop dual-scroll workspace (issue #122 acceptance criterion 1):
-        // players and the Draft rail each get their own bounded, scrollable
-        // region instead of the whole page scrolling underneath them.
-        <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, flex: '1 1 auto', minHeight: 0 }}>
-          <Box sx={{ flexBasis: '66.666%', minWidth: 0, height: '100%' }}>
-            <PlayerPoolTable {...playerPoolProps} />
-          </Box>
-          {desktopRailColumn}
+      {/* Tabs are a narrow-container affordance only: a wide container shows the
+          three panes at once, so it needs no tab bar (and #444 forbids a
+          permanent old-layout switch). The tabs drive `view` directly across
+          all four values Chat/Players/Board/Draft. */}
+      {isNarrow && (
+        <Box sx={{ flexShrink: 0 }}>
+          <Tabs
+            value={view}
+            onChange={(e, next) => chooseView(next)}
+            aria-label="Draft view"
+            sx={{ mb: 3, borderBottom: '1px solid', borderColor: 'divider' }}
+          >
+            {tabDefs.map((tab) => (
+              <Tab key={tab.value} label={tab.label} value={tab.value} sx={MIN_TOUCH_TARGET_SX} />
+            ))}
+          </Tabs>
         </Box>
       )}
+
+      {isNarrow ? narrowRegion : panesLayout}
 
       <PlayerQuickView
         open={quickViewId != null}

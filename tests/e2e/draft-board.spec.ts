@@ -35,8 +35,26 @@ async function setupActiveDraft(page: Page): Promise<DraftApiHandle> {
   await installDraftSocketHarness(page, ACTIVE_STATE);
   const api = await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
   await gotoDraft(page);
-  await expect(page.getByText('Bijan Robinson')).toBeVisible();
+  // Layout-agnostic loaded signal (#444): the league H1 is present in both the
+  // wide three-pane layout and the narrow tab layout. The player pool is the
+  // left pane on a wide container but behind the Players tab on a narrow one -
+  // where the room now opens on Chat - so it is no longer a reliable signal.
+  await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
   return api;
+}
+
+// The Board/Players view is chosen by the left-pane Players/Board toggle on a
+// wide container and by a tab on a narrow one (#444). These helpers click
+// whichever the current layout exposes.
+async function showBoard(page: Page) {
+  const tab = page.getByRole('tab', { name: 'Board' });
+  if (await tab.count()) { await tab.click(); return; }
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+}
+async function showPlayers(page: Page) {
+  const tab = page.getByRole('tab', { name: 'Players' });
+  if (await tab.count()) { await tab.click(); return; }
+  await page.getByRole('button', { name: 'Players', exact: true }).click();
 }
 
 // --- Acceptance criterion (1): pending / active / complete fixtures load ---
@@ -84,10 +102,11 @@ test.describe('draft status fixtures', () => {
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
     await expect(page.getByText('Draft complete', { exact: true })).toBeVisible();
     await expect(page.getByText('complete', { exact: true })).toHaveCount(0);
-    // A completed draft opens on the Board rather than the workspace (issue
-    // #123 acceptance criterion 4), so the pool is one tab away.
+    // A completed draft opens on the Board rather than the pool (issue #123
+    // criterion 4; #444 puts the Board in the left pane on a wide container),
+    // so the pool is one toggle away.
     await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
-    await page.getByRole('tab', { name: 'Draft' }).click();
+    await showPlayers(page);
     // Every fixture player was drafted; the pool is empty with the default
     // hide-drafted filter on.
     await expect(page.getByText('No available players')).toBeVisible();
@@ -103,14 +122,20 @@ test.describe('viewport and theme selection', () => {
     await setupActiveDraft(page);
 
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
-    // Below the medium breakpoint (issue #122), the Grid `order` swap is gone
-    // - Players/Board/Draft are three persistent tabs, one region at a time,
-    // landing on Players by default.
+    // On a narrow container (#444) the three panes collapse to four persistent
+    // tabs, one region at a time, in Chat/Players/Board/Draft order, landing on
+    // Chat - the centerpiece the room opens on.
+    await expect(page.getByRole('tab', { name: 'Chat' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Players' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Board' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Draft' })).toBeVisible();
-    await expect(page.getByText('Bijan Robinson')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    // The pool and the queue are behind their own tabs, not on Chat.
+    await expect(page.getByText('Bijan Robinson')).toHaveCount(0);
     await expect(page.getByText('My Queue')).toHaveCount(0);
+    // The pool is one tab away.
+    await showPlayers(page);
+    await expect(page.getByText('Bijan Robinson')).toBeVisible();
   });
 
   test('renders the draft route under the dark theme', async ({ page }) => {
@@ -137,7 +162,7 @@ test('never issues a request to a host other than the mocked app origin', async 
 
   await setTheme(page, 'light');
   await setupActiveDraft(page);
-  await page.getByRole('tab', { name: 'Board' }).click();
+  await showBoard(page);
   await expect(page.getByRole('columnheader', { name: 'Rd' })).toBeVisible();
 
   expect(foreignRequests).toEqual([]);
@@ -279,10 +304,10 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await expect(dialog).toBeHidden();
   });
 
-  test('switches to the Board tab and shows the team-by-round matrix', async ({ page }) => {
+  test('shows the team-by-round matrix when the Board is selected', async ({ page }) => {
     await setupActiveDraft(page);
 
-    await page.getByRole('tab', { name: 'Board' }).click();
+    await showBoard(page);
 
     await expect(page.getByRole('columnheader', { name: 'Ridge Runners' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Harbor Hawks' })).toBeVisible();
@@ -301,6 +326,9 @@ test.describe('schedule-aware player pool (issue #119)', () => {
 
   test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace/Actions', async ({ page }) => {
     await setupActiveDraft(page);
+    // The pool is the left pane on this wide viewport; wait for it before the
+    // non-retrying allTextContents() read below.
+    await expect(page.getByRole('columnheader', { name: 'Name' })).toBeVisible();
 
     // allTextContents() reads raw DOM text, which also picks up the
     // visually-hidden "sorted ascending"/"sorted descending" span #212 added
@@ -543,9 +571,9 @@ test.describe('pick-safe player actions across draft state (issue #120)', () => 
     await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks: [], onTheClock: null });
     await installDraftRestApi(page, { league, picks: [], players });
     await gotoDraft(page);
-    // A completed draft opens on the Board (issue #123 acceptance criterion
-    // 4); the player pool lives in the Draft tab's workspace beside it.
-    await page.getByRole('tab', { name: 'Draft' }).click();
+    // A completed draft opens on the Board (issue #123 criterion 4); the pool
+    // is the other left-pane option, one toggle away (#444).
+    await showPlayers(page);
     await expect(page.getByRole('button', { name: 'Leftover Waiver Guy' })).toBeVisible();
 
     await expect(page.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
@@ -720,14 +748,19 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     await expect(main).toBeVisible();
     expect(await main.getAttribute('aria-labelledby')).toBe('draft-league-name');
 
+    // The three wide panes are each a named region, all present at once (#444):
+    // Players on the left, the Chat/activity feed in the centre, the rail on
+    // the right.
     await expect(page.getByRole('region', { name: 'Available Players' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Chat and Draft activity', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'League Chat' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'My Queue' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Upcoming' })).toBeVisible();
 
-    // The Board tab swaps in different named regions - the panel set is not
-    // a fixed count, and whichever ones are showing are still correctly
-    // named. Pick history is one of them now (issue #123 criterion 5).
-    await page.getByRole('tab', { name: 'Board' }).click();
+    // Selecting the Board swaps the left pane's region for the Board's, still
+    // named. Pick history lives inside Board (issue #123 criterion 5).
+    await showBoard(page);
     await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
     await page.getByRole('button', { name: 'Pick history' }).click();
     await expect(page.getByRole('region', { name: 'Pick history' })).toBeVisible();
@@ -846,7 +879,9 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
 
     await expectAtLeast44(page.getByRole('button', { name: 'Toggle theme' }), { widthToo: true });
     await expectAtLeast44(page.getByRole('button', { name: /notifications/i }), { widthToo: true });
-    await expectAtLeast44(page.getByRole('tab', { name: 'Draft' }));
+    // A wide container has no tab bar; the left-pane Players/Board toggle is
+    // its equivalent selection control (#444).
+    await expectAtLeast44(page.getByRole('button', { name: 'Board', exact: true }));
     await expectAtLeast44(page.getByRole('button', { name: /^Bye:/ }));
     await expectAtLeast44(page.getByRole('button', { name: 'Draft', exact: true }).first());
     await expectAtLeast44(page.locator('tr', { hasText: 'Bijan Robinson' }).getByRole('button', { name: 'Queue' }), { widthToo: true });
@@ -864,9 +899,10 @@ test.describe('accessible structure: 44x44 minimum interactive targets', () => {
     await page.keyboard.press('Escape');
 
     await expectAtLeast44(page.getByRole('tab', { name: 'Board' }));
-    // Mobile renders cards, not table rows (issue #122) - find the Queue
-    // button inside Bijan Robinson's own card the same way the queue panel
-    // is scoped elsewhere in this file.
+    // Mobile renders cards, not table rows (issue #122) - find the Queue button
+    // inside Bijan Robinson's own card. The pool is behind the Players tab now
+    // that the room opens on Chat (#444).
+    await showPlayers(page);
     const card = page.getByRole('button', { name: 'Bijan Robinson' }).locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
     await expectAtLeast44(card.getByRole('button', { name: 'Queue' }), { widthToo: true });
   });
@@ -922,7 +958,9 @@ async function setupOverflowingDraft(page: Page) {
   await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks, onTheClock: FIXTURE_TEAMS[0] });
   await installDraftRestApi(page, { league, picks, players });
   await gotoDraft(page);
-  await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
+  // Layout-agnostic loaded signal (#444): the pool is behind the Players tab on
+  // a narrow container, so wait on the always-present H1 instead of a player.
+  await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 }
 
 test.describe('desktop dual-scroll shell (issue #122 acceptance criteria 1-2)', () => {
@@ -1002,6 +1040,10 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
     test(`${label}: no horizontal body overflow, and the page itself is the one scroll region`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await setupOverflowingDraft(page);
+      // The room opens on Chat (#444); the long pool that makes the page scroll
+      // is behind the Players tab.
+      await showPlayers(page);
+      await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
 
       const horizontalOverflow = await page.evaluate(() => (
         document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
@@ -1021,14 +1063,19 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       expect(pageScrolls).toBe(true);
     });
 
-    test(`${label}: persistent Players, Board, and Draft tabs; on-the-clock stays visible across all three`, async ({ page }) => {
+    test(`${label}: persistent Chat, Players, Board, and Draft tabs; on-the-clock stays visible across all of them`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await setupOverflowingDraft(page);
 
       const tabs = await page.getByRole('tab').allTextContents();
-      expect(tabs).toEqual(['Players', 'Board', 'Draft']);
+      expect(tabs).toEqual(['Chat', 'Players', 'Board', 'Draft']);
 
       const onClockChip = page.getByText('On the clock: Ridge Runners');
+      // The room opens on Chat, so the pool is not shown until its tab.
+      await expect(onClockChip).toBeVisible();
+      await expect(page.getByText('Depth Player 1', { exact: true })).toHaveCount(0);
+
+      await page.getByRole('tab', { name: 'Players' }).click();
       await expect(onClockChip).toBeVisible();
       await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
 
@@ -1040,15 +1087,12 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       await expect(onClockChip).toBeVisible();
       await expect(page.getByRole('heading', { name: 'My Queue', level: 2 })).toBeVisible();
       await expect(page.getByText('Depth Player 1', { exact: true })).toHaveCount(0);
-
-      await page.getByRole('tab', { name: 'Players' }).click();
-      await expect(onClockChip).toBeVisible();
-      await expect(page.getByText('Depth Player 1', { exact: true })).toBeVisible();
     });
 
     test(`${label}: player cards carry the approved columns and state-valid Draft/Queue actions`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await setupOverflowingDraft(page);
+      await showPlayers(page);
 
       const card = page.getByRole('button', { name: 'Depth Player 1', exact: true })
         .locator('xpath=ancestor::*[contains(@class, "MuiPaper-root")][1]');
@@ -1070,6 +1114,7 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
     test(`${label}: the sort-direction toggle's visible tooltip and accessible name agree`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await setupOverflowingDraft(page);
+      await showPlayers(page);
 
       const toggle = page.getByRole('button', { name: 'Sort direction: ascending. Activate to sort descending.' });
       await expect(toggle).toBeVisible();
@@ -1091,6 +1136,9 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
       await installDraftSocketHarness(page, { league, teams: FIXTURE_TEAMS, picks: [], onTheClock: FIXTURE_TEAMS[0] });
       await installDraftRestApi(page, { league, picks: [], players });
       await gotoDraft(page);
+      // The room opens on Chat (#444); the pool card is behind the Players tab.
+      await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+      await showPlayers(page);
       await expect(page.getByText('No Pace Guy', { exact: true })).toBeVisible();
 
       // Plain, always-visible text (not a hover-only Tooltip) - reachable
@@ -1104,6 +1152,7 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
     test(`${label}: a "Sort by" control changes the player order, same as the desktop table headers`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await setupOverflowingDraft(page);
+      await showPlayers(page);
 
       await page.getByRole('combobox', { name: 'Sort by' }).click();
       await page.getByRole('option', { name: 'Name' }).click();
@@ -1122,6 +1171,8 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
     test(`${label}: on-the-clock information (LiveDraftBanner) stays pinned after scrolling well past the header`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await setupOverflowingDraft(page);
+      // The long pool that makes the page scroll is behind the Players tab.
+      await showPlayers(page);
 
       const banner = page.getByRole('status');
       await expect(banner).toBeVisible();
@@ -1142,9 +1193,9 @@ test.describe('mobile/tablet single-scroll tab layout (issue #122 acceptance cri
     await page.setViewportSize(VIEWPORTS.mobile);
     await setupOverflowingDraft(page);
 
-    // DOM tab order matches the visible Players/Board/Draft order.
+    // DOM tab order matches the visible Chat/Players/Board/Draft order (#444).
     const tabOrder = await page.getByRole('tab').evaluateAll((els) => els.map((el) => el.textContent?.trim()));
-    expect(tabOrder).toEqual(['Players', 'Board', 'Draft']);
+    expect(tabOrder).toEqual(['Chat', 'Players', 'Board', 'Draft']);
 
     // Activated purely by keyboard (focus, then Enter) - proves the tabs are
     // ordinary operable controls, not a swipe-only surface.
@@ -1169,12 +1220,16 @@ test.describe('browser evidence: every required width in both themes', () => {
 
         await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
         const tabs = await page.getByRole('tab').allTextContents();
-        // Desktop/wide collapse Players+Draft into one workspace tab;
-        // mobile/tablet expose all three separately (issue #122).
-        if (viewport.width >= 900) {
-          expect(tabs).toEqual(['Draft', 'Board']);
+        // A wide container shows the three panes at once and has no tab bar; a
+        // narrow one exposes the four Chat/Players/Board/Draft tabs (#444). The
+        // pane threshold (960) sits between the tablet (768) and desktop (1280)
+        // widths, so this split is unambiguous at every evidenced width.
+        if (viewport.width >= 960) {
+          expect(tabs).toEqual([]);
+          await expect(page.getByRole('region', { name: 'Chat and Draft activity', exact: true })).toBeVisible();
+          await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
         } else {
-          expect(tabs).toEqual(['Players', 'Board', 'Draft']);
+          expect(tabs).toEqual(['Chat', 'Players', 'Board', 'Draft']);
         }
 
         const horizontalOverflow = await page.evaluate(() => (
@@ -1196,11 +1251,11 @@ test.describe('browser evidence: every required width in both themes', () => {
 test.describe('state-dependent rail composition (issue #123)', () => {
   test.use({ viewport: VIEWPORTS.desktop });
 
-  /** The rail's panels in the order a manager meets them, top to bottom.
-   *  League Chat (issue #433) is the one panel every status carries: it is the
-   *  same conversation managers see on the Dashboard, brought into the room over
-   *  its own session, appended after the status-driven composition (#123). So it
-   *  is the last entry in each list below, whatever the draft's status. */
+  /** The rail's panels in the order a manager meets them, top to bottom. The
+   *  combined League chat / Draft activity feed is NO LONGER a rail panel
+   *  (#444): it was promoted out of the rail to be the Draft room's centerpiece
+   *  - its own centre pane on a wide container, its own Chat tab on a narrow one
+   *  - so it never appears among these status-driven rail headings. */
   const railPanels = (page: Page) =>
     page.getByRole('region', { name: 'Draft rail' }).getByRole('heading', { level: 2 }).allTextContents();
 
@@ -1214,7 +1269,7 @@ test.describe('state-dependent rail composition (issue #123)', () => {
     await gotoDraft(page);
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 
-    expect(await railPanels(page)).toEqual(['Readiness', 'Draft order', 'My Queue', 'League Chat']);
+    expect(await railPanels(page)).toEqual(['Readiness', 'Draft order', 'My Queue']);
     // Readiness composes a count sentence, not a per-Team list (issue #124).
     // At 0 of 2 ready, readinessSummary's exception list is empty - nobody
     // has declared yet, so nothing is worth naming (CONTEXT.md: Readiness)
@@ -1227,7 +1282,7 @@ test.describe('state-dependent rail composition (issue #123)', () => {
   test('active composes My Queue, My Roster, Upcoming, under a persistent On the clock', async ({ page }) => {
     await setupActiveDraft(page);
 
-    expect(await railPanels(page)).toEqual(['My Queue', 'My Roster', 'Upcoming', 'League Chat']);
+    expect(await railPanels(page)).toEqual(['My Queue', 'My Roster', 'Upcoming']);
     // On the clock is the fourth member of the active composition and is
     // deliberately not a rail panel: it is the banner ABOVE the rail's own
     // scrolling region, which is what keeps it persistent (issue #122).
@@ -1271,9 +1326,9 @@ test.describe('state-dependent rail composition (issue #123)', () => {
     await gotoDraft(page);
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 
-    // Both at once, without changing tabs: the record is what the page is for.
+    // Both at once, without changing panes: the record is what the page is for.
     await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
-    expect(await railPanels(page)).toEqual(['My Roster', 'League Chat']);
+    expect(await railPanels(page)).toEqual(['My Roster']);
     await expect(page.getByRole('region', { name: 'My Queue' })).toHaveCount(0);
   });
 });
@@ -1322,7 +1377,7 @@ test.describe('the Board keeps its matrix and adds Pick history (issue #123)', (
 
   test('a live draft keeps Pick history folded away behind the matrix', async ({ page }) => {
     await setupActiveDraft(page);
-    await page.getByRole('tab', { name: 'Board' }).click();
+    await showBoard(page);
 
     const trigger = page.getByRole('button', { name: 'Pick history' });
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
