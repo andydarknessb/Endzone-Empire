@@ -1408,10 +1408,34 @@ test.describe('product language in the status readout and pool filter (issue #12
 
     // A per-manager sound setting used to sit in the same flex row as "Draft
     // Paused", reading as one more fact about the draft's state.
-    const mute = page.getByRole('button', { name: /mute pick sound/i });
+    const mute = page.getByRole('button', { name: /mute on-the-clock sound/i });
     await expect(mute).toBeVisible();
     expect(await mute.evaluate((el) => !!el.closest('[aria-label="Draft controls"]'))).toBe(true);
     expect(await mute.evaluate((el) => !!el.closest('[aria-label="Draft status"]'))).toBe(false);
+  });
+
+  // Issue #508: the toggle's name describes the on-the-clock alert it
+  // actually controls, not a pick sound, and it flips after toggling too -
+  // not just at first render.
+  test('the sound toggle name is the approved on-the-clock wording, and flips after a click', async ({ page }) => {
+    await setupActiveDraft(page);
+
+    const toggle = page.getByRole('button', { name: /^(mute|unmute) on-the-clock sound$/i });
+    await expect(toggle).toBeVisible();
+
+    const initialName = (await toggle.getAttribute('aria-label')) ?? '';
+    expect(['Mute on-the-clock sound', 'Unmute on-the-clock sound']).toContain(initialName);
+
+    await toggle.click();
+
+    // exact: true, not a plain string - Playwright's getByRole matches a
+    // plain string as a case-insensitive substring, and "Mute on-the-clock
+    // sound" is a substring of "Unmute on-the-clock sound". An un-anchored
+    // match here would pass whether or not the click changed anything, and
+    // in the Mute-to-Unmute direction would even fail on the correct state.
+    const otherName = initialName === 'Mute on-the-clock sound' ? 'Unmute on-the-clock sound' : 'Mute on-the-clock sound';
+    await expect(page.getByRole('button', { name: otherName, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: initialName, exact: true })).toHaveCount(0);
   });
 
   test('the pool filter is Filter available, distinct from the global player search', async ({ page }) => {
