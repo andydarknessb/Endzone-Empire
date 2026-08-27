@@ -371,6 +371,23 @@ receives, so it carries Team identity and no account identifier.
 _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
+**Presenter**:
+An anonymous viewer of a league's Draft through its share link (the presenter
+link), holding no account and belonging to no league. A presenter is whoever
+holds the link, authorized by the opaque draft share token alone and scoped to
+exactly that one league. A presenter sees the read-only Draft board and the
+Draft-activity feed (On the clock, the committed Picks and the Draft lifecycle)
+and nothing else: never League chat, unread state, a message composer, a
+commissioner-hidden tombstone, or any account identity. Team identity is the
+only actor identity a presenter is shown. Because a presenter carries no session,
+it cannot reach a member route or the Draft socket, so it can neither join the
+chat send path nor hold commissioner controls; that refusal is structural, not a
+hidden affordance. A commissioner-hidden chat message never sits in a presenter's
+feed at all, so a presenter sees no tombstone and no gap where one would be: chat,
+hidden or not, is simply absent from the Draft-activity feed the presenter reads.
+_Avoid_: spectator, guest, viewer account (a presenter has no account), broadcast
+link
+
 **Legacy feed entry**:
 A chat message or Pick that existed before the Draft room's combined feed and
 was backfilled into it as an observable fact, keeping its original source id and

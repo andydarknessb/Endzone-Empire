@@ -27,7 +27,13 @@ const {
   teamIdentityColumns,
   teamIdentityJoin,
 } = require('./teamIdentity');
-const { activityEntryOf, DRAFT_ACTIVITY } = require('./draftActivity');
+const {
+  activityEntryOf,
+  DRAFT_ACTIVITY,
+  PICK,
+  CORRECTION,
+  LIFECYCLE_KINDS,
+} = require('./draftActivity');
 
 /**
  * The typed feed-entry kinds that share one per-league chronology. League chat
@@ -361,6 +367,98 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
   return result.rows.map(combinedEntryOf);
 }
 
+/**
+ * The PRESENTER-safe Draft-activity feed (#438): the Draft-activity half of the
+ * combined feed with NO chat arm, read for an anonymous presenter-link viewer.
+ *
+ * The SEPARATION from listCombinedDraftFeed IS the privacy boundary, not a
+ * convenience. This reader queries `draft_activity` and nothing else, so League
+ * chat, the unread relation, commissioner moderation (`hidden_at`) and
+ * per-viewer blocking (`user_blocks`) are absent BY CONSTRUCTION - there is no
+ * filter for a later edit to weaken and no chat table to accidentally re-join
+ * (#438 AC2). There is no `viewerId`, because a presenter is not a member with a
+ * block list; the feed is scoped by `leagueId` alone, resolved from the presenter
+ * token by the route.
+ *
+ * draft_activity is inherently account-free: it carries Team identity and Pick /
+ * lifecycle snapshots, never a `user_id` (draftActivity.js), so every entry is
+ * Team-only (#438 AC4) without a serializer having to strip anything. The one
+ * column deliberately NOT projected is `reason`: a Commissioner correction's
+ * free-text (#439) is authored for league members, not vetted for an anonymous
+ * public link, so a presenter reads a correction as its Team-only Pick snapshot
+ * with `reason` null (#438 AC3, "approved public facts"). Every projected field
+ * shapes through the SAME activityEntryOf a member reads, so the presenter and
+ * the Draft room agree on the authoritative record.
+ *
+ * The KINDS a presenter may see are an explicit ALLOWLIST (#438 AC3, "approved
+ * public Pick and lifecycle facts"), not everything in draft_activity. A Pick,
+ * the five lifecycle transitions and a Commissioner correction are approved
+ * public facts; the CUTOVER boundary marker (#436) is an internal backfill
+ * artifact that carries no Team or Pick fact and reads as noise, so it is left
+ * out. Because this is a positive list, a NEW kind added upstream does not reach
+ * an anonymous board until it is added here on purpose - publication by
+ * decision, the same stance the board's field allowlist takes.
+ *
+ * Cursors mirror the sibling readers: the default/`before` window takes the
+ * newest page descending then flips to ascending display order; `after` resumes
+ * forward (feed_seq > cursor) ascending. `after` takes precedence; a caller
+ * pages one direction at a time.
+ */
+const PRESENTER_ACTIVITY_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
+
+async function listPresenterDraftActivity(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
+  const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
+  const resumeFrom = Number.isInteger(after) ? after : null;
+  const cursor = resumeFrom !== null ? resumeFrom : (Number.isInteger(before) ? before : null);
+  const cmp = resumeFrom !== null ? '>' : '<';
+  const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
+
+  // $1 league, $2 the kind allowlist. The cursor (if any) and the page cap are
+  // appended after, so their placeholder numbers follow.
+  const params = [leagueId, PRESENTER_ACTIVITY_KINDS];
+  let cursorClause = '';
+  if (cursor !== null) {
+    params.push(cursor);
+    cursorClause = `AND "draft_activity"."feed_seq" ${cmp} $${params.length}`;
+  }
+  params.push(capped);
+  const limitClause = `LIMIT $${params.length}`;
+
+  // No `reason` column: the correction free-text never rides a presenter payload
+  // (see the doc above). Aliases match activityEntryOf's frozen keys so the read
+  // shapes identically to the member combined feed's Draft-activity arm.
+  const result = await db.query(
+    `SELECT * FROM (
+       SELECT "draft_activity"."id" AS id,
+              "draft_activity"."feed_seq" AS feed_seq,
+              "draft_activity"."created_at" AS created_at,
+              "draft_activity"."kind" AS kind,
+              "draft_activity"."team_id" AS "teamId",
+              "draft_activity"."team_name" AS "teamName",
+              "draft_activity"."player_id" AS player_id,
+              "draft_activity"."player_name" AS player_name,
+              "draft_activity"."player_position" AS player_position,
+              "draft_activity"."player_nfl_team" AS player_nfl_team,
+              "draft_activity"."round" AS round,
+              "draft_activity"."pick_number" AS pick_number,
+              "draft_activity"."is_autopick" AS is_autopick,
+              "draft_activity"."is_legacy" AS is_legacy
+         FROM "draft_activity"
+        WHERE "draft_activity"."league_id" = $1
+          AND "draft_activity"."kind" = ANY($2)
+          ${cursorClause}
+        ORDER BY "draft_activity"."feed_seq" ${windowOrder}
+        ${limitClause}
+     ) page ORDER BY feed_seq ASC`,
+    params
+  );
+  // activityEntryOf shapes a CORRECTION with a `reason` key (null here, since
+  // the column is unselected). Drop it so the presenter payload carries no
+  // correction free-text SURFACE at all - not even a null placeholder for a
+  // member-moderation field an anonymous board has no business showing (#438).
+  return result.rows.map(activityEntryOf).map(({ reason, ...entry }) => entry);
+}
+
 module.exports = {
   LEAGUE_CHAT,
   BLOCKABLE_FEED_TYPES,
@@ -373,4 +471,6 @@ module.exports = {
   listLeagueChatFeed,
   combinedEntryOf,
   listCombinedDraftFeed,
+  listPresenterDraftActivity,
+  PRESENTER_ACTIVITY_KINDS,
 };

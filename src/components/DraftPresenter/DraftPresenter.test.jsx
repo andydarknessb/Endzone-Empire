@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, screen } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import axios from 'axios';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import DraftPresenter from './DraftPresenter';
@@ -28,9 +28,41 @@ const draftState = {
   onTheClock: { teamId: 2, teamName: 'South Stars' },
 };
 
+// The presenter-safe activity feed (#438): Team-only Pick and lifecycle entries,
+// oldest-first, exactly as leagueFeed.activityEntryOf shapes them. No chat, no
+// account identity, no moderation surface.
+const activityEntries = [
+  {
+    type: 'draft_activity', kind: 'draft_start', id: 1, seq: 1,
+    teamId: 1, teamName: 'North Stars', isLegacy: false,
+    created_at: '2099-09-01T12:00:00.000Z',
+  },
+  {
+    type: 'draft_activity', kind: 'pick', id: 2, seq: 2,
+    teamId: 1, teamName: 'North Stars',
+    player: { id: 10, name: 'Josh Allen', position: 'QB', nflTeam: 'BUF' },
+    round: 1, pickNumber: 1, isAutopick: false, isLegacy: false,
+    created_at: '2099-09-01T12:00:30.000Z',
+  },
+];
+
+const isActivityUrl = (url) => url.endsWith('/activity');
+
+function routeGet({ activity = activityEntries, activityError = null } = {}) {
+  mockPresenterGet.mockImplementation((url) => {
+    if (isActivityUrl(url)) {
+      return activityError ? Promise.reject(activityError) : Promise.resolve({ data: activity });
+    }
+    return Promise.resolve({ data: draftState });
+  });
+}
+
+const boardCalls = () => mockPresenterGet.mock.calls.filter(([url]) => !isActivityUrl(url));
+const activityCalls = () => mockPresenterGet.mock.calls.filter(([url]) => isActivityUrl(url));
+
 beforeEach(() => {
   mockPresenterGet.mockReset();
-  mockPresenterGet.mockResolvedValue({ data: draftState });
+  routeGet();
 });
 
 afterEach(() => {
@@ -44,7 +76,7 @@ test('renders a public draft board from the presenter token route', async () => 
   expect(screen.getByText('South Stars is on the clock')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Recent picks' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Round 1 pick 1, North Stars: Josh Allen' })).not.toBeInTheDocument();
-  expect(mockPresenterGet).toHaveBeenCalledWith('/api/draft/board/share-token');
+  expect(boardCalls()[0][0]).toBe('/api/draft/board/share-token');
 });
 
 test('the shared DraftBoardMatrix keeps this page\'s own (pre-#121) heading level, not the Draft route\'s default H2', async () => {
@@ -58,18 +90,53 @@ test('the shared DraftBoardMatrix keeps this page\'s own (pre-#121) heading leve
   expect(screen.queryByRole('heading', { name: 'Draft Board', level: 2 })).not.toBeInTheDocument();
 });
 
-test('polls the public board every five seconds', async () => {
+test('polls both the board and the activity feed every five seconds', async () => {
   jest.useFakeTimers();
   renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
 
   await act(async () => {
     await Promise.resolve();
   });
-  expect(mockPresenterGet).toHaveBeenCalledTimes(1);
+  expect(boardCalls()).toHaveLength(1);
+  expect(activityCalls()).toHaveLength(1);
 
   await act(async () => {
     jest.advanceTimersByTime(5000);
     await Promise.resolve();
   });
-  expect(mockPresenterGet).toHaveBeenCalledTimes(2);
+  expect(boardCalls()).toHaveLength(2);
+  expect(activityCalls()).toHaveLength(2);
+});
+
+test('renders the presenter-safe Draft activity feed (Pick and lifecycle lines)', async () => {
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  const feed = await screen.findByRole('region', { name: /draft activity/i });
+  const lines = within(feed).getAllByTestId('draft-activity');
+  expect(lines).toHaveLength(2);
+  // Newest-first for a live glance board.
+  expect(lines[0]).toHaveTextContent('drafted Josh Allen');
+  // draft_start carries the acting Team here, so it reads as an attributed line.
+  expect(lines[1]).toHaveTextContent('North Stars started the draft');
+  // Team-only: the account behind North Stars is never named.
+  expect(within(feed).queryByText(/@/)).not.toBeInTheDocument();
+  expect(activityCalls()[0][0]).toBe('/api/draft/board/share-token/activity');
+});
+
+test('a failing activity fetch never blanks the board: the feed is best-effort', async () => {
+  routeGet({ activityError: new Error('activity unavailable') });
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  // The board still renders even though the activity feed request rejected.
+  expect(await screen.findByRole('heading', { name: 'Sunday Ballers' })).toBeInTheDocument();
+  expect(screen.getByText('South Stars is on the clock')).toBeInTheDocument();
+  expect(screen.getByText(/No draft activity yet/i)).toBeInTheDocument();
+});
+
+test('an empty activity feed reads as an explicit empty state', async () => {
+  routeGet({ activity: [] });
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  await screen.findByRole('heading', { name: 'Sunday Ballers' });
+  expect(screen.getByText(/No draft activity yet/i)).toBeInTheDocument();
 });

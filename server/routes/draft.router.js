@@ -14,6 +14,7 @@ const { requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
 const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
+const { listPresenterDraftActivity } = require('../services/leagueFeed');
 const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
 
 const router = express.Router();
@@ -94,6 +95,22 @@ function allowlisted(source, fields) {
   return published;
 }
 
+/**
+ * Resolve a presenter share token to its league id, or null if the token is
+ * unknown. The share token is the presenter's ONLY credential - there is no
+ * account behind a presenter link - so this single lookup is the whole of a
+ * presenter's authorization: it maps the opaque token to exactly one league and
+ * grants nothing else. Both presenter routes go through it, so "a presenter is
+ * whoever holds the link, scoped to that one league" lives in one place.
+ */
+async function presenterLeagueId(token) {
+  const result = await pool.query(
+    `SELECT "id" FROM "leagues" WHERE "draft_share_token" = $1`,
+    [token]
+  );
+  return result.rows[0] ? result.rows[0].id : null;
+}
+
 // GET /api/draft/board/:token — PUBLIC presenter-mode board (no auth). Must
 // stay registered before router.use(requireAuth) below.
 router.get('/board/:token', async (req, res) => {
@@ -102,13 +119,9 @@ router.get('/board/:token', async (req, res) => {
     return res.status(400).json({ error: 'token is required' });
   }
   try {
-    const leagueResult = await pool.query(
-      `SELECT "id" FROM "leagues" WHERE "draft_share_token" = $1`,
-      [token]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) return res.status(404).json({ error: 'invalid presenter link' });
-    const state = await getDraftState(league.id);
+    const leagueId = await presenterLeagueId(token);
+    if (leagueId == null) return res.status(404).json({ error: 'invalid presenter link' });
+    const state = await getDraftState(leagueId);
     if (!state) return res.status(404).json({ error: 'invalid presenter link' });
     // Anonymous viewers get the allowlist above and nothing else, including
     // nothing the snapshot grows later. Built as a fresh object rather than
@@ -122,6 +135,39 @@ router.get('/board/:token', async (req, res) => {
   } catch (error) {
     console.error('Error fetching presenter board', error);
     res.status(500).json({ error: 'failed to fetch draft board' });
+  }
+});
+
+// GET /api/draft/board/:token/activity — PUBLIC presenter-safe Draft activity
+// feed (#438), the anonymous companion to the presenter board above. It exposes
+// the Draft-activity half of the combined feed ALONE: leagueFeed's
+// listPresenterDraftActivity reads draft_activity and never chat_messages, so
+// League chat, unread state, the composer and commissioner-hidden tombstones
+// cannot enter a presenter payload (AC2). Entries are Team-only Pick and
+// lifecycle facts (AC3, AC4); `?before=<seq>` pages older and `?after=<seq>`
+// resumes newer, the same cursor contract as the member feed. Like the board,
+// it must stay registered before router.use(requireAuth) below so a presenter
+// link needs no credentials, and it is read-only: a presenter has no send path
+// and no commissioner control here (AC5).
+router.get('/board/:token/activity', async (req, res) => {
+  const { token } = req.params;
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: 'token is required' });
+  }
+  const before = intOrNull(req.query.before);
+  const after = intOrNull(req.query.after);
+  try {
+    const leagueId = await presenterLeagueId(token);
+    if (leagueId == null) return res.status(404).json({ error: 'invalid presenter link' });
+    const entries = await listPresenterDraftActivity(pool, {
+      leagueId,
+      before,
+      after,
+    });
+    res.json(entries);
+  } catch (error) {
+    console.error('Error fetching presenter activity', error);
+    res.status(500).json({ error: 'failed to fetch draft activity' });
   }
 });
 
