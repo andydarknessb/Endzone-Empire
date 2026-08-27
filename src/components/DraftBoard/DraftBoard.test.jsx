@@ -2520,7 +2520,7 @@ describe('on-the-clock chime (#445 AC5/AC7)', () => {
     connectAsTeam(1);
 
     // Enabling the preference is the user gesture browsers require for audio.
-    await userEvent.click(screen.getByRole('button', { name: 'Unmute on-the-clock sound' }));
+    await userEvent.click(screen.getByRole('button', { name: 'On-the-clock sound' }));
 
     goOnTheClock(TEAM_A);
 
@@ -2531,7 +2531,7 @@ describe('on-the-clock chime (#445 AC5/AC7)', () => {
     renderBoard(1);
     await screen.findByText('Patrick Mahomes');
     connectAsTeam(1);
-    await userEvent.click(screen.getByRole('button', { name: 'Unmute on-the-clock sound' }));
+    await userEvent.click(screen.getByRole('button', { name: 'On-the-clock sound' }));
 
     goOnTheClock(TEAM_B); // someone else's turn
 

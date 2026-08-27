@@ -57,16 +57,22 @@ test('mute is a control, not part of the status readout', () => {
 
   const status = screen.getByRole('group', { name: 'Draft status' });
   const controls = screen.getByRole('group', { name: 'Draft controls' });
-  const mute = screen.getByRole('button', { name: 'Mute on-the-clock sound' });
+  const mute = screen.getByRole('button', { name: 'On-the-clock sound' });
 
   expect(controls).toContainElement(mute);
   expect(status).not.toContainElement(mute);
 });
 
-// Issue #508: the toggle's Tooltip and accessible name both describe the
-// on-the-clock alert it actually controls, not a pick sound, and the two
-// must never diverge from each other (WCAG 2.5.3, Label in Name).
-test('the sound toggle exposes the approved name for each state, in both the Tooltip and the aria-label', async () => {
+// Issue #512: a stable name with aria-pressed alone carrying the state,
+// matching every other toggle in this codebase (Board, Players, Standard
+// format, Superflex format, Full PPR, Adds, All, team-code chips). The
+// Tooltip and accessible name must be byte-identical in both states, and
+// aria-pressed must be the only thing that changes (WCAG 2.5.3, Label in
+// Name). #508/#510 gave this control a name that flipped between "Mute" and
+// "Unmute"; that combination read as contradictory to assistive tech,
+// because a changing name plus aria-pressed exposes the same state twice by
+// two mechanisms that disagreed.
+test('the sound toggle keeps a stable Tooltip and accessible name in both states', async () => {
   // getByRole({ name }) and queryByLabelText both resolve off aria-label
   // alone - MUI's Tooltip spreads the child's own props (including our
   // aria-label) after the props it would otherwise derive from `title`, so
@@ -76,18 +82,18 @@ test('the sound toggle exposes the approved name for each state, in both the Too
   const user = userEvent.setup();
   const { rerender } = render(<DraftStatusBar {...baseProps} soundOn={false} />);
 
-  const unmuteButton = screen.getByRole('button', { name: 'Unmute on-the-clock sound' });
-  await user.hover(unmuteButton);
-  expect(await screen.findByRole('tooltip')).toHaveTextContent('Unmute on-the-clock sound');
-  await user.unhover(unmuteButton);
+  const offButton = screen.getByRole('button', { name: 'On-the-clock sound' });
+  await user.hover(offButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('On-the-clock sound');
+  await user.unhover(offButton);
 
   rerender(<DraftStatusBar {...baseProps} soundOn />);
-  const muteButton = screen.getByRole('button', { name: 'Mute on-the-clock sound' });
-  await user.hover(muteButton);
-  expect(await screen.findByRole('tooltip')).toHaveTextContent('Mute on-the-clock sound');
+  const onButton = screen.getByRole('button', { name: 'On-the-clock sound' });
+  await user.hover(onButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('On-the-clock sound');
 });
 
-test('the sound toggle name flips from Unmute to Mute after toggling, not just at first render', async () => {
+test('activating the toggle changes aria-pressed without changing its accessible name', async () => {
   const user = userEvent.setup();
   function Wrapper() {
     const [soundOn, setSoundOn] = React.useState(false);
@@ -101,15 +107,20 @@ test('the sound toggle name flips from Unmute to Mute after toggling, not just a
   }
   render(<Wrapper />);
 
-  const toggle = screen.getByRole('button', { name: 'Unmute on-the-clock sound' });
-  await user.click(toggle);
+  // Same query, same name, both before and after - if a regression ever
+  // reintroduces a flipping name, this getByRole call itself starts failing
+  // to find the button by its (now-stale) name.
+  const toggle = () => screen.getByRole('button', { name: 'On-the-clock sound' });
 
-  expect(screen.getByRole('button', { name: 'Mute on-the-clock sound' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Unmute on-the-clock sound' })).not.toBeInTheDocument();
+  expect(toggle()).toHaveAttribute('aria-pressed', 'false');
 
-  await user.click(screen.getByRole('button', { name: 'Mute on-the-clock sound' }));
+  await user.click(toggle());
+  expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+  expect(toggle()).toHaveAccessibleName('On-the-clock sound');
 
-  expect(screen.getByRole('button', { name: 'Unmute on-the-clock sound' })).toBeInTheDocument();
+  await user.click(toggle());
+  expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+  expect(toggle()).toHaveAccessibleName('On-the-clock sound');
 });
 
 test("the commissioner's draft actions sit with mute in the controls group", () => {
