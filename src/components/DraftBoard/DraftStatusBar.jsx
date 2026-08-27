@@ -88,10 +88,10 @@ function DraftStatusBar({
             borderColor: 'divider',
           }}
         >
-          <Tooltip title={soundOn ? 'Mute pick sound' : 'Unmute pick sound'}>
+          <Tooltip title={soundOn ? 'Mute on-the-clock sound' : 'Unmute on-the-clock sound'}>
             <IconButton
               size="small"
-              aria-label={soundOn ? 'Mute pick sound' : 'Unmute pick sound'}
+              aria-label={soundOn ? 'Mute on-the-clock sound' : 'Unmute on-the-clock sound'}
               aria-pressed={soundOn}
               onClick={toggleSound}
               sx={MIN_TOUCH_TARGET_SX}
