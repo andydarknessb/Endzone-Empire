@@ -33,7 +33,7 @@ function PickActivityLine({ entry }) {
     .join(' · ');
   return (
     <>
-      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+      <Typography component="div" variant="body2" sx={{ color: 'text.secondary' }}>
         <strong>{teamNameLabel(entry.teamName)}</strong> drafted {player.name}
         {entry.isAutopick && (
           <Chip label="AUTO" size="small" sx={{ ml: 1 }} />
