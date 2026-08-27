@@ -281,6 +281,123 @@ test('a non-commissioner sees no Hide control at all', async () => {
   expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
 });
 
+// --------------------------------------------------------------------------
+// #516: the Draft room offers the GIF composer, gated on the server capability,
+// and its send rides the SAME shared session as text - end to end through the
+// real useDraftRoomFeed and ChatConversation, against the deterministic fake
+// provider with no network surface (AC9).
+// --------------------------------------------------------------------------
+
+const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
+const { FAKE_PROVIDER_ID, fakeGifResolver } = require('../../lib/gifProviderFake');
+
+// The entry the server persists, rides back on the ack, and re-broadcasts to the
+// whole room (the sender included). A GIF entry carries structured `media`; its
+// shared `seq` is the identity feedEntryKey dedups on.
+const gifEntry = (over = {}) => ({
+  type: 'league_chat', id: 40, seq: 40, teamId: 11, teamName: 'Anvils',
+  media: { provider: FAKE_PROVIDER_ID, assetId: 'abc123', description: 'a cat knocking a cup off a table' },
+  message: null, created_at: '2026-01-01T12:00:00Z', ...over,
+});
+
+afterEach(() => clearGifProviders());
+
+test('with the capability OFF the GIF trigger is absent while text composition still works (AC1)', async () => {
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} gifEnabled={false} />);
+  await screen.findByText('No messages yet');
+  expect(screen.queryByTestId('gif-picker-trigger')).not.toBeInTheDocument();
+  // Text composition is untouched: the Message field and Send are still here.
+  expect(screen.getByLabelText('Message')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+});
+
+test('with the capability ON the GIF trigger and composer are available (AC2)', async () => {
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} gifEnabled />);
+  await screen.findByText('No messages yet');
+  expect(screen.getByTestId('gif-picker-trigger')).toBeInTheDocument();
+});
+
+test('composing a GIF sends one chat:send with the structured payload over the shared session (AC3)', async () => {
+  registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true, entry: gifEntry() });
+  });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={7} viewerTeamId={11} gifEnabled />);
+  await screen.findByText('No messages yet');
+
+  await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+  await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+  await userEvent.type(screen.getByLabelText(/description/i), 'a cat knocking a cup off a table');
+  await userEvent.click(screen.getByTestId('gif-send'));
+
+  await waitFor(() =>
+    expect(socket.emit).toHaveBeenCalledWith(
+      'chat:send',
+      expect.objectContaining({
+        leagueId: 7,
+        gif: { provider: FAKE_PROVIDER_ID, assetId: 'abc123', description: 'a cat knocking a cup off a table', caption: null },
+        clientMsgId: expect.any(String),
+      }),
+      expect.any(Function)
+    )
+  );
+  // It never opens a second connection (#433): chat rides the draft session.
+  expect(createDraftSocket).not.toHaveBeenCalled();
+});
+
+test('a sender does not see their own GIF twice: the ack reconcile and the broadcast echo collapse to ONE (AC4)', async () => {
+  // The specific #516 risk. Prove the COUNT of rendered GIFs is one - a presence
+  // check cannot tell one from two, and duplication is the risk.
+  registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+  const entry = gifEntry({ id: 41, seq: 41 });
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true, entry });
+  });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={7} viewerTeamId={11} gifEnabled />);
+  await screen.findByText('No messages yet');
+
+  await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+  await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+  await userEvent.type(screen.getByLabelText(/description/i), 'a cat knocking a cup off a table');
+  await userEvent.click(screen.getByTestId('gif-send'));
+
+  // The ack reconciled it: exactly one GIF rendered.
+  await waitFor(() => expect(screen.getAllByTestId('gif-animated')).toHaveLength(1));
+
+  // The server now broadcasts that same send back to the whole room; the sender
+  // receives its own echo (same seq). It must NOT render a second GIF.
+  act(() => socket.trigger('chat:message', entry));
+
+  expect(screen.getAllByTestId('gif-animated')).toHaveLength(1);
+});
+
+test('a refused GIF surfaces the error and PRESERVES the unsent description and caption (AC5)', async () => {
+  // The forgotten half of the refusal criterion: a rate-limited manager must not
+  // lose what they typed. sendGif resolves false, the GifComposer resets only on
+  // a truthy return, so the panel stays open with the fields intact.
+  registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ code: 'RATE_LIMITED', error: 'Too many messages', retryAfterSeconds: 12 });
+  });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={7} viewerTeamId={11} gifEnabled />);
+  await screen.findByText('No messages yet');
+
+  await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+  await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+  await userEvent.type(screen.getByLabelText(/description/i), 'a cat knocking a cup off a table');
+  await userEvent.type(screen.getByLabelText(/caption/i), 'lol');
+  await userEvent.click(screen.getByTestId('gif-send'));
+
+  // The refusal surfaced through the one composer error channel...
+  expect(await screen.findByText(/Too many messages\. Try again in 12s\./)).toBeInTheDocument();
+  // ...and nothing was lost: the composer is still open with the typed values.
+  expect(screen.getByLabelText(/description/i)).toHaveValue('a cat knocking a cup off a table');
+  expect(screen.getByLabelText(/caption/i)).toHaveValue('lol');
+  expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+  // Nothing was appended to the feed.
+  expect(screen.queryByTestId('gif-animated')).not.toBeInTheDocument();
+});
+
 test('a commissioner hiding from the room posts through the shared hide route', async () => {
   apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 55, seq: 9, teamName: 'Anvils', message: 'targeted harassment' })] });
   renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} canModerate />);

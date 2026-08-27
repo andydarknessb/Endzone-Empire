@@ -276,6 +276,11 @@ function DraftBoard() {
     // comparing against an absent field just goes quiet - every viewer, the
     // owner included, would lose the controls with nothing failing to say so.
     isCommissioner,
+    // The Draft-room GIF-message capability (#516), decided by the server on the
+    // same per-viewer draft:join ack as isCommissioner (#446 AC7). The board only
+    // threads it through to the chat composer below; it reads nothing else from
+    // it and never infers it client-side.
+    gifMessagesEnabled,
     secondsLeft,
     reconnecting,
     isMyTurn,
@@ -582,6 +587,7 @@ function DraftBoard() {
       leagueId={Number(leagueId)}
       viewerTeamId={viewerTeamId}
       canModerate={isCommissioner}
+      gifEnabled={gifMessagesEnabled}
     />
   ) : null;
 
