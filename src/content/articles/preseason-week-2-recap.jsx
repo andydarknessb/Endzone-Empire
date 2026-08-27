@@ -212,7 +212,7 @@ const Body = () => (
       for 46 yards in just 14 snaps. That is 11 receptions and 109 yards across two games, but the
       repeatability matters more than the sum. He is earning targets quickly while San Francisco
       sorts through receiver availability. That makes the second-round rookie a legitimate
-      late-round watch—not proof of a regular-season target share. <Link to={NFL_THURSDAY}>NFL
+      late-round watch, not proof of a regular-season target share. <Link to={NFL_THURSDAY}>NFL
       Week 2 report</Link>.
     </P>
 
@@ -252,8 +252,8 @@ const Body = () => (
     <P>
       Marks ran four times for 39 yards, scored from 20 yards out and was praised in Houston&apos;s
       protection review. David Montgomery remains the lead back. Marks&apos; arrow is up because he
-      supplied the two things that keep a reserve runner active—explosiveness and pass protection—not
-      because four carries erased the depth chart. <Link to="https://www.nfl.com/news/texans-depth-shines-narrow-preseason-loss-raiders">
+      supplied the two things that keep a reserve runner active: explosiveness and pass protection,
+      not because four carries erased the depth chart. <Link to="https://www.nfl.com/news/texans-depth-shines-narrow-preseason-loss-raiders">
       NFL Texans-Raiders report</Link>.
     </P>
 
@@ -376,7 +376,7 @@ const Body = () => (
 
     <H2>The Injury Board</H2>
     <P>
-      Injury reporting remained fluid Monday. These are the official statuses—not guesses about
+      Injury reporting remained fluid Monday. These are the official statuses, not guesses about
       diagnoses or recovery dates.
     </P>
     <UL>

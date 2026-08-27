@@ -223,11 +223,12 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         throw new DraftError(409, 'it is not your turn to pick');
       }
       pickNumber = league.current_pick + 1;
-      await client.query(
+      const pickInsert = await client.query(
         `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number")
-         VALUES ($1, $2, $3, $4)`,
+         VALUES ($1, $2, $3, $4) RETURNING "id"`,
         [leagueId, myTeam.id, playerId, pickNumber]
       );
+      const sourcePickId = pickInsert.rows[0].id;
 
       // Append the immutable Draft activity for this Pick in the SAME
       // transaction as the Pick (#435 AC1), snapshotting the facts the feed must
@@ -245,6 +246,10 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         round,
         pickNumber,
         auto,
+        // The draft_picks row this entry represents (#436): coverage and
+        // reconciliation match a Pick to its feed entry by this identity, not by
+        // pick_number, which undo + re-pick reuses.
+        sourcePickId,
       });
 
       // Rounds are draftRounds(league): fixed once when the draft went active

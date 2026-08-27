@@ -300,7 +300,7 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
-    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('draft_picks'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
     // The Pick's Draft activity, appended in the same transaction (#435).
     [insert('draft_activity'), () => ({ rows: [{ id: 3, feed_seq: '2', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
@@ -476,6 +476,8 @@ test('chat:message attributes the message by Team and nothing about the author a
       message: 'good luck everyone',
       // #441: a live send is never hidden; the flag rides on every entry.
       hidden: false,
+      // #436: a live send is never legacy; the flag rides on every entry.
+      isLegacy: false,
       created_at: '2026-09-01T00:00:00.000Z',
     }
   );

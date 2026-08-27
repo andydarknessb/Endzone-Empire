@@ -19,11 +19,12 @@
  * 3. BLOCKING. A blocked author's CHAT drops from a viewer's combined read, but
  *    that author's authoritative Draft ACTIVITY stays visible (user story 83).
  * 4. OWN-TABLE GUARD (#471). The allocator RAISES on an explicitly-supplied
- *    feed_seq, so draft_activity positions are always counter-allocated - an
- *    enforced per-table invariant. This is NOT the cross-table enforcement of
- *    #471 (chat can still explicit-write); it is the tripwire that makes #436
- *    lift the guard deliberately rather than introduce an explicit position by
- *    accident.
+ *    feed_seq, so draft_activity positions are always counter-allocated for a
+ *    runtime writer - an enforced per-table invariant. This is NOT the
+ *    cross-table enforcement of #471 (chat can still explicit-write). #436 needed
+ *    explicit positions for its one-time legacy/cutover backfill and DISABLED
+ *    this trigger by name around its own inserts rather than lifting it, so the
+ *    RAISE still protects every runtime insert.
  * 5. CONCURRENCY. N concurrent inserts across BOTH kinds for one league take a
  *    unique, contiguous run - the counter row lock serializing them is the real
  *    mechanism behind the deterministic order (#435 AC4).
@@ -220,13 +221,16 @@ if (!ENABLED) {
 
   test('the allocator refuses an explicitly-supplied feed_seq (own-table guard, #471)', async () => {
     // An explicit feed_seq is refused outright by fn_allocate_draft_activity_feed_seq,
-    // so draft_activity positions are ALWAYS counter-allocated - an enforced
-    // per-table invariant, not a convention the caller is trusted to keep.
+    // so draft_activity positions are ALWAYS counter-allocated for any RUNTIME
+    // writer - an enforced per-table invariant, not a convention the caller is
+    // trusted to keep.
     //
     // This guard is NOT the cross-table enforcement of #471: chat still has its
     // own index and could hold the same position; the counter is what keeps the
-    // two apart in practice. The guard's job is to make #436 lift it DELIBERATELY
-    // (and confront #471) rather than introduce an explicit position by accident.
+    // two apart in practice. #436 needed explicit positions for its one-time
+    // legacy/cutover backfill and DISABLED this trigger by name around its own
+    // inserts rather than lifting the guard, so the RAISE still protects every
+    // runtime insert - which this test pins.
     await assert.rejects(
       () =>
         pool.query(

@@ -120,6 +120,7 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     // #441: chat feed entries carry `hidden` everywhere, the combined feed
     // included; a normal message is not hidden.
     hidden: false,
+    isLegacy: false,
     created_at: '2026-09-01T00:00:00.000Z',
   });
   assert.deepEqual(res.body[1], {
@@ -133,6 +134,7 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     round: 1,
     pickNumber: 1,
     isAutopick: false,
+    isLegacy: false,
     created_at: '2026-09-01T00:01:00.000Z',
   });
   // The lifecycle entry shapes to the base entry: Team identity and the instant,
@@ -144,6 +146,7 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     seq: 9,
     teamId: 11,
     teamName: 'Gridiron Ghosts',
+    isLegacy: false,
     created_at: '2026-09-01T00:02:00.000Z',
   });
 });

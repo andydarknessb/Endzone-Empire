@@ -151,7 +151,7 @@ function completingPickWorld(t) {
     // 4 picks = 2 teams x 2 rounds: this pick completes the draft.
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 4 }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
-    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('draft_picks'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
     [insert('draft_activity'), (() => { let s = 20; return () => ({ rows: [{ id: s, feed_seq: String(s++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }], rowCount: 1 })],
