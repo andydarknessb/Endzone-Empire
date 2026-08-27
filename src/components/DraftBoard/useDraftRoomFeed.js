@@ -3,6 +3,7 @@ import apiClient from '../../api/apiClient';
 import { onReconnect } from '../../api/socket';
 import { feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
+import { applyHiddenEntry, hidePost } from '../../lib/chatModeration';
 
 /**
  * The Draft room's combined feed: League chat and Draft activity in one order
@@ -105,6 +106,17 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
       markRead();
     };
 
+    // A commissioner hid a message: rewrite the held chat entry with its neutral
+    // tombstone in place (#482), through the one rewrite the Dashboard drawer
+    // shares (chatModeration.applyHiddenEntry). Same seq, so the combined feed's
+    // order and pagination are untouched; a Pick that shares the chat id is left
+    // alone, and an id the feed never held is ignored. The unread badge is not
+    // re-derived here - the draft room carries none, and a hide is not new
+    // correspondence in any case.
+    const onChatHidden = (data) => {
+      setEntries((prev) => applyHiddenEntry(prev, data));
+    };
+
     // A committed Pick rides on draft:picked as a typed activity entry beside
     // the board update; the feed appends it (the board consumer ignores it).
     const onPicked = (data) => {
@@ -120,6 +132,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
     };
 
     socket.on('chat:message', onChatMessage);
+    socket.on('chat:hidden', onChatHidden);
     socket.on('draft:picked', onPicked);
     socket.on('draft:activity', onActivity);
 
@@ -159,6 +172,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
     return () => {
       offReconnect?.();
       socket.off?.('chat:message', onChatMessage);
+      socket.off?.('chat:hidden', onChatHidden);
       socket.off?.('draft:picked', onPicked);
       socket.off?.('draft:activity', onActivity);
     };
@@ -202,5 +216,23 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
     [socket, leagueId]
   );
 
-  return { entries, error, sendMessage, loadOlder, hasMore };
+  // Commissioner-only: hide one abusive message league-wide with a reason
+  // (#482), through the one hide REST call the Dashboard drawer shares
+  // (chatModeration.hidePost) so the audit row and the `chat:hidden` broadcast
+  // are identical whichever surface acted. The live tombstone every member sees,
+  // this actor included, arrives back on the broadcast above, so a success here
+  // does not optimistically rewrite state. Resolves false on a rejected hide so
+  // the presenter can keep its reason form open.
+  const hideMessage = useCallback(
+    (messageId, reason) => {
+      setError(null);
+      return hidePost({ leagueId, messageId, reason }).then((res) => {
+        if (!res.ok) setError(res.error);
+        return res.ok;
+      });
+    },
+    [leagueId]
+  );
+
+  return { entries, error, sendMessage, loadOlder, hasMore, hideMessage };
 }

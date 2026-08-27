@@ -533,7 +533,12 @@ function DraftBoard() {
     // ride. It lives in the rail, so it appears wherever the rail does and
     // travels with the manager across the Draft and Board views.
     chatPanel: socket ? (
-      <DraftRoomChat socket={socket} leagueId={Number(leagueId)} viewerTeamId={viewerTeamId} />
+      <DraftRoomChat
+        socket={socket}
+        leagueId={Number(leagueId)}
+        viewerTeamId={viewerTeamId}
+        canModerate={isCommissioner}
+      />
     ) : null,
   };
 
@@ -693,7 +698,6 @@ function DraftBoard() {
             toggleSound={toggleSound}
             isCommissioner={isCommissioner}
             onRandomizeOrder={admin.handleRandomizeOrder}
-            onTogglePause={admin.handleTogglePause}
             onClockAlertOpen={onClockAlertOpen}
             onCloseOnClockAlert={dismissOnClockAlert}
           />
@@ -701,7 +705,8 @@ function DraftBoard() {
             <DraftDayControls
               league={league}
               picks={picks}
-              onUndo={admin.handleUndoPick}
+              onTogglePause={admin.handleTogglePause}
+              onCorrect={admin.handleCorrectPick}
               onReset={admin.handleResetDraft}
               onGetShareLink={admin.handleGetShareLink}
             />

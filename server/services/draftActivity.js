@@ -38,9 +38,16 @@ const DRAFT_ACTIVITY = 'draft_activity';
  *
  * A lifecycle kind is NOT a Pick: it snapshots only the acting Team's identity
  * and the instant, never a player / round / Pick number, so the feed cannot
- * fabricate Pick facts an event never had (#437 AC5). Correction is deliberately
- * NOT here - it is a separate ticket, and #437's completion contract carries no
- * post-completion correction affordance.
+ * fabricate Pick facts an event never had (#437 AC5).
+ *
+ * CORRECTION (#439) is a third shape: neither a plain Pick nor a bare lifecycle
+ * event. A Commissioner correction reverses the latest non-keeper Pick, so its
+ * entry SNAPSHOTS that reversed Pick's facts (the corrected Team, player, round
+ * and Pick number) and carries the commissioner's reason. The snapshot lets the
+ * append-only feed self-describe what was corrected without rewriting the
+ * original Pick entry (CONTEXT.md: Draft activity is append-only through
+ * correction). It goes through appendCorrectionActivity, not the lifecycle path,
+ * and is excluded from LIFECYCLE_KINDS for the same reason PICK is.
  */
 const PICK = 'pick';
 const DRAFT_START = 'draft_start';
@@ -48,6 +55,7 @@ const PAUSE = 'pause';
 const RESUME = 'resume';
 const RESET = 'reset';
 const COMPLETE = 'complete';
+const CORRECTION = 'correction';
 
 /**
  * The non-Pick lifecycle kinds appendLifecycleActivity accepts. PICK is
@@ -83,14 +91,18 @@ function activityEntryOf(row) {
     [nameField]: row[nameField] ?? null,
     created_at: row.created_at,
   };
-  // A lifecycle event (#437) is not a Pick: it has no player, round, Pick number
-  // or autopick fact, so it carries ONLY the base shape. Adding null Pick fields
-  // here would fabricate a Pick shape for an event that never was one (#437 AC5)
-  // and read as a broken Pick on the client.
-  if (row.kind !== PICK) return base;
-  return {
+  // A bare lifecycle event (#437) is not a Pick: it has no player, round, Pick
+  // number or autopick fact, so it carries ONLY the base shape. Adding null Pick
+  // fields here would fabricate a Pick shape for an event that never was one
+  // (#437 AC5) and read as a broken Pick on the client. A CORRECTION (#439) is
+  // the exception: it snapshots the reversed Pick's facts and carries a reason,
+  // so it is shaped like a Pick below.
+  if (row.kind !== PICK && row.kind !== CORRECTION) return base;
+  const shaped = {
     ...base,
-    // The snapshot the Pick entry must show without leaving the feed (#435 AC2).
+    // The snapshot the Pick / correction entry must show without leaving the
+    // feed (#435 AC2, #439): for a Pick, the Pick made; for a correction, the
+    // Pick that was reversed.
     player: {
       id: row.player_id ?? null,
       name: row.player_name ?? null,
@@ -99,8 +111,12 @@ function activityEntryOf(row) {
     },
     round: row.round,
     pickNumber: row.pick_number,
-    isAutopick: row.is_autopick,
   };
+  // Only a Pick can be an autopick; a correction is a deliberate administrative
+  // act, so it carries the reason the commissioner recorded instead.
+  if (row.kind === PICK) shaped.isAutopick = row.is_autopick;
+  else shaped.reason = row.reason ?? null;
+  return shaped;
 }
 
 /**
@@ -208,6 +224,66 @@ async function appendLifecycleActivity(client, { leagueId, kind, team = null }) 
   });
 }
 
+/**
+ * Append a Commissioner correction (#439) to the Draft-activity feed, INSIDE
+ * the caller's transaction `client`, and return the typed feed entry for the
+ * live broadcast.
+ *
+ * Called from draft.service.correctLatestPick in the SAME transaction that
+ * pauses the Draft and reverses the latest non-keeper Pick, so the correction
+ * record and the reversal are one atomic act (#439): a rolled-back correction
+ * leaves no orphan activity, and a committed one always has its entry.
+ *
+ * Unlike a lifecycle append, this SNAPSHOTS the reversed Pick's facts - the
+ * corrected Team, player, round and Pick number - so the append-only feed shows
+ * exactly what was reversed without ever rewriting the original Pick entry
+ * (CONTEXT.md: Draft activity is append-only through correction). `reason` is
+ * the commissioner's recorded justification; the migration's CHECK holds it to
+ * 10-200 characters for a correction, and the service validates it before the
+ * transaction reaches here. The row names no `feed_seq`; the trigger allocates
+ * it from the shared per-league sequence and it rides back on RETURNING.
+ */
+async function appendCorrectionActivity(client, { leagueId, team, player, round, pickNumber, reason }) {
+  const result = await client.query(
+    `INSERT INTO "draft_activity"
+       ("league_id", "kind", "team_id", "team_name",
+        "player_id", "player_name", "player_position", "player_nfl_team",
+        "round", "pick_number", "reason")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING "id", "feed_seq", "created_at"`,
+    [
+      leagueId,
+      CORRECTION,
+      team.id,
+      team.name,
+      player.id,
+      player.name,
+      player.position,
+      player.nfl_team,
+      round,
+      pickNumber,
+      reason,
+    ]
+  );
+  const inserted = result.rows[0];
+  const [idField, nameField] = TEAM_IDENTITY_FIELDS;
+  return activityEntryOf({
+    kind: CORRECTION,
+    id: inserted.id,
+    feed_seq: inserted.feed_seq,
+    created_at: inserted.created_at,
+    [idField]: team.id,
+    [nameField]: team.name,
+    player_id: player.id,
+    player_name: player.name,
+    player_position: player.position,
+    player_nfl_team: player.nfl_team,
+    round,
+    pick_number: pickNumber,
+    reason,
+  });
+}
+
 module.exports = {
   DRAFT_ACTIVITY,
   PICK,
@@ -216,8 +292,10 @@ module.exports = {
   RESUME,
   RESET,
   COMPLETE,
+  CORRECTION,
   LIFECYCLE_KINDS,
   activityEntryOf,
   appendPickActivity,
   appendLifecycleActivity,
+  appendCorrectionActivity,
 };

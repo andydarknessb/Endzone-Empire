@@ -5,7 +5,7 @@ const { requireAuth } = require('../modules/auth');
 const { getIo } = require('../modules/io');
 const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
-const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
+const { draftPlayer, correctLatestPick, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { draftRosterSize } = require('../services/rosterShape');
 const { removeLineupEntries } = require('../services/lineup.service');
@@ -508,6 +508,44 @@ router.post('/league/:id/undo', async (req, res) => {
     res.status(500).json({ error: 'failed to undo the pick' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/draft/league/:id/correct-pick — commissioner correction (#439):
+// pause the active draft and reverse ONLY its latest non-keeper pick as one
+// atomic act, recording a 10-200 character reason, and leave the draft paused.
+// This is the safe, reasoned administrative act (CONTEXT.md: Commissioner
+// correction), distinct from the destructive Reset below and the general undo
+// above. Every refusal carries a stable SCREAMING_SNAKE code (ADR 0008).
+// { pickNumber: int (the pick the commissioner confirmed), reason: string }
+router.post('/league/:id/correct-pick', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer', code: 'INVALID_REQUEST' });
+  const { pickNumber, reason } = req.body || {};
+  if (pickNumber !== undefined && pickNumber !== null && !Number.isInteger(pickNumber)) {
+    return res.status(400).json({ error: 'pickNumber must be an integer', code: 'INVALID_REQUEST' });
+  }
+  try {
+    const outcome = await correctLatestPick({
+      leagueId,
+      userId: req.user.id,
+      // The pick the commissioner is looking at when they confirm; the service
+      // rejects the request as stale if a newer pick has since landed.
+      expectedPickNumber: pickNumber ?? null,
+      reason,
+    });
+    const io = getIo();
+    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    // The correction rides the combined feed on draft:activity beside the paused
+    // draft:state, the same path the pause/resume/reset lifecycle entries use.
+    broadcastDraftActivity(leagueId, outcome.activity);
+    res.json(outcome);
+  } catch (error) {
+    if (error instanceof DraftError) {
+      return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    }
+    console.error('Error correcting draft pick', error);
+    res.status(500).json({ error: 'failed to correct the pick' });
   }
 });
 

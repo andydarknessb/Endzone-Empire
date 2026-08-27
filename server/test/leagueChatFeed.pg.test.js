@@ -61,6 +61,14 @@ if (!ENABLED) {
   });
 
   const MIGRATION_NAME = '20260826000002_league_chat_feed_sequence.js';
+  // The shared feed-position registry (#471) installs AFTER INSERT triggers that
+  // read chat_messages.feed_seq and bump league_feed_sequences - both of which
+  // this suite's targeted rollback of MIGRATION_NAME removes. The registry is a
+  // dependent of the chat migration, so it must roll back FIRST and re-apply
+  // LAST around that window, or its trigger fires on a legacy insert against a
+  // dropped feed_seq column. In CI migration-smoke it is applied; locally it may
+  // not be, so both hooks guard on whether it is present.
+  const REGISTRY_MIGRATION_NAME = '20260827000001_shared_feed_position_registry.js';
 
   // Two shared timestamps: TIE is used twice in league A so the (created_at, id)
   // tiebreak is actually exercised, not assumed.
@@ -136,6 +144,11 @@ if (!ENABLED) {
   }
 
   test.before(async () => {
+    // Roll back the registry FIRST: it depends on the chat migration's column
+    // and counter, so downing chat while the registry's triggers are live would
+    // orphan them (#471).
+    const registryApplied = await knex('knex_migrations').where({ name: REGISTRY_MIGRATION_NAME }).first();
+    if (registryApplied) await knex.migrate.down({ name: REGISTRY_MIGRATION_NAME });
     const applied = await knex('knex_migrations').where({ name: MIGRATION_NAME }).first();
     if (applied) await knex.migrate.down({ name: MIGRATION_NAME });
 
@@ -155,11 +168,18 @@ if (!ENABLED) {
     legacyB = await seedLegacyChat(leagueB, ownerB, 'b-only', T1);
 
     await knex.migrate.up({ name: MIGRATION_NAME });
+    // Re-apply the registry LAST (only if it was applied before we rolled it
+    // back), so its backfill re-derives positions for the freshly numbered
+    // legacy rows and the files after this one still see it (#471).
+    if (registryApplied) await knex.migrate.up({ name: REGISTRY_MIGRATION_NAME });
   });
 
   test.after(async () => {
     const applied = await knex('knex_migrations').where({ name: MIGRATION_NAME }).first();
     if (!applied) await knex.migrate.up({ name: MIGRATION_NAME });
+    // Leave the registry applied for the files that run after this one (#471).
+    const registryApplied = await knex('knex_migrations').where({ name: REGISTRY_MIGRATION_NAME }).first();
+    if (!registryApplied) await knex.migrate.up({ name: REGISTRY_MIGRATION_NAME });
     if (leagueA) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [leagueA]);
     if (leagueB) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [leagueB]);
     if (ownerA) await pool.query('DELETE FROM "users" WHERE "id" = $1', [ownerA]);

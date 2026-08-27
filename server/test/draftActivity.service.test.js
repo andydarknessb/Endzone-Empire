@@ -8,10 +8,12 @@ const {
   RESUME,
   RESET,
   COMPLETE,
+  CORRECTION,
   LIFECYCLE_KINDS,
   activityEntryOf,
   appendPickActivity,
   appendLifecycleActivity,
+  appendCorrectionActivity,
 } = require('../services/draftActivity');
 const { TEAM_IDENTITY_FIELDS } = require('../services/teamIdentity');
 
@@ -258,4 +260,95 @@ test('appendLifecycleActivity refuses an unknown kind', async () => {
     () => appendLifecycleActivity(client, { leagueId: 1, kind: 'nonsense', team: null }),
     /lifecycle/i
   );
+});
+
+/**
+ * Commissioner correction activity (#439). A correction is neither a plain
+ * Pick nor a bare lifecycle event: it appends its OWN entry that snapshots the
+ * reversed Pick's facts (Team, player, round, Pick number) so the append-only
+ * feed self-describes what was corrected without rewriting the original Pick
+ * entry (CONTEXT.md: Draft activity is append-only through correction), and it
+ * carries the commissioner's reason. It is excluded from LIFECYCLE_KINDS for the
+ * same reason PICK is: it writes Pick-snapshot columns appendLifecycleActivity
+ * would silently drop.
+ */
+const CORRECTION_ROW = {
+  source: DRAFT_ACTIVITY,
+  kind: CORRECTION,
+  id: 30,
+  feed_seq: '18',
+  [TEAM_ID]: 11,
+  [TEAM_NAME]: 'Gridiron Ghosts',
+  player_id: 500,
+  player_name: 'Wrong Guy',
+  player_position: 'RB',
+  player_nfl_team: 'KC',
+  round: 2,
+  pick_number: 13,
+  is_autopick: false,
+  reason: 'entered against the wrong team; correcting before we resume',
+  created_at: '2026-09-01T00:00:00.000Z',
+};
+
+test('CORRECTION is not a lifecycle kind (it carries Pick-snapshot columns)', () => {
+  assert.equal(LIFECYCLE_KINDS.includes(CORRECTION), false);
+});
+
+test('activityEntryOf shapes a correction entry with the reversed Pick snapshot and the reason', () => {
+  const entry = activityEntryOf(CORRECTION_ROW);
+  assert.equal(entry.type, DRAFT_ACTIVITY);
+  assert.equal(entry.kind, CORRECTION);
+  assert.equal(entry.seq, 18);
+  assert.equal(entry[TEAM_ID], 11);
+  assert.equal(entry[TEAM_NAME], 'Gridiron Ghosts');
+  assert.deepEqual(entry.player, { id: 500, name: 'Wrong Guy', position: 'RB', nflTeam: 'KC' });
+  assert.equal(entry.round, 2);
+  assert.equal(entry.pickNumber, 13);
+  assert.equal(entry.reason, 'entered against the wrong team; correcting before we resume');
+  // A correction is not an autopick; the field is meaningless for it.
+  assert.equal('isAutopick' in entry, false);
+});
+
+test('activityEntryOf never leaks an account identifier from a correction row', () => {
+  const entry = activityEntryOf({ ...CORRECTION_ROW, user_id: 42, owner_id: 42, username: 'u42' });
+  for (const leak of ['user_id', 'userId', 'owner_id', 'username']) {
+    assert.equal(leak in entry, false, `${leak} must not appear on a correction entry`);
+  }
+});
+
+test('appendCorrectionActivity inserts one correction row with the snapshot and reason and returns its entry', async () => {
+  const calls = [];
+  const client = {
+    query: async (text, params) => {
+      calls.push({ text, params });
+      return { rows: [{ id: 30, feed_seq: '18', created_at: '2026-09-01T00:00:00.000Z' }] };
+    },
+  };
+
+  const entry = await appendCorrectionActivity(client, {
+    leagueId: 1,
+    team: { id: 11, name: 'Gridiron Ghosts' },
+    player: { id: 500, name: 'Wrong Guy', position: 'RB', nfl_team: 'KC' },
+    round: 2,
+    pickNumber: 13,
+    reason: 'entered against the wrong team; correcting before we resume',
+  });
+
+  assert.equal(calls.length, 1, 'exactly one INSERT');
+  assert.match(calls[0].text, /INSERT INTO "draft_activity"/);
+  const [columnList] = calls[0].text.split('RETURNING');
+  // The kind is 'correction', the reason is stored, and the trigger still owns
+  // the feed sequence (never named in the column list).
+  assert.match(columnList, /"reason"/, 'the correction stores the commissioner reason');
+  assert.doesNotMatch(columnList, /feed_seq/i, 'the app never allocates the sequence itself');
+  assert.match(calls[0].text, /RETURNING[\s\S]*"feed_seq"/);
+  assert.equal(calls[0].params[1], CORRECTION);
+  assert.ok(calls[0].params.includes('entered against the wrong team; correcting before we resume'));
+
+  assert.equal(entry.kind, CORRECTION);
+  assert.equal(entry.seq, 18);
+  assert.equal(entry[TEAM_ID], 11);
+  assert.deepEqual(entry.player, { id: 500, name: 'Wrong Guy', position: 'RB', nflTeam: 'KC' });
+  assert.equal(entry.pickNumber, 13);
+  assert.equal(entry.reason, 'entered against the wrong team; correcting before we resume');
 });
