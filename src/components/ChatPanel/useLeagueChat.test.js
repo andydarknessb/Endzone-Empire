@@ -171,6 +171,24 @@ test('a rate-limited ack surfaces the error with its explicit retry time', async
   await waitFor(() => expect(result.current.error).toBe('you are sending too quickly. Try again in 5s.'));
 });
 
+test('a MESSAGE_TOO_LONG ack surfaces copy carrying both numbers and resolves false (#502)', async () => {
+  mockGets();
+  const { socket, result } = render();
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) {
+      ack({ error: 'x', code: 'MESSAGE_TOO_LONG', limit: 500, length: 620 });
+    }
+  });
+
+  let resolved;
+  await act(async () => { resolved = await result.current.sendMessage('a'.repeat(620)); });
+
+  expect(resolved).toBe(false);
+  await waitFor(() => expect(result.current.error).toContain('620'));
+  expect(result.current.error).toContain('500');
+});
+
 test('a duplicate ack carrying the original entry shows it once, never twice', async () => {
   mockGets();
   const { socket, result } = render();

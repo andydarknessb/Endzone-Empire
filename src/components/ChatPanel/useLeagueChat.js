@@ -271,6 +271,16 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
         const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
         socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed, clientMsgId: key }, (ack) => {
           if (ack && ack.error) {
+            // An over-length refusal (#502) is never shortened server-side, so
+            // the sender's own numbers - not the ack's generic error text - are
+            // what tells them how far over they are. The text stays in the
+            // composer under the same idempotency key either way (send resolves
+            // false; the presenter clears only on success), so nothing is lost.
+            if (ack.code === 'MESSAGE_TOO_LONG') {
+              setError(`Your message is ${ack.length} characters. The limit is ${ack.limit}. Shorten it and send again.`);
+              resolve(false);
+              return;
+            }
             // A rate-limited refusal carries an explicit retry time (#440 AC5);
             // surface it so the sender knows to wait rather than assuming their
             // message vanished. The text stays in the composer either way -
