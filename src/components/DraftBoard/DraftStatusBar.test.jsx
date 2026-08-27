@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import DraftStatusBar from './DraftStatusBar';
 
 // Issue #123 acceptance criterion 6, the copy criterion. DraftStatusBar is
@@ -56,10 +57,45 @@ test('mute is a control, not part of the status readout', () => {
 
   const status = screen.getByRole('group', { name: 'Draft status' });
   const controls = screen.getByRole('group', { name: 'Draft controls' });
-  const mute = screen.getByRole('button', { name: 'Mute pick sound' });
+  const mute = screen.getByRole('button', { name: 'Mute on-the-clock sound' });
 
   expect(controls).toContainElement(mute);
   expect(status).not.toContainElement(mute);
+});
+
+// Issue #508: the toggle's Tooltip and accessible name both describe the
+// on-the-clock alert it actually controls, not a pick sound, and the two
+// must never diverge from each other (WCAG 2.5.3, Label in Name).
+test('the sound toggle exposes the approved name for each state, in both the Tooltip and the aria-label', () => {
+  render(<DraftStatusBar {...baseProps} soundOn={false} />);
+
+  expect(screen.getByRole('button', { name: 'Unmute on-the-clock sound' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('Mute on-the-clock sound')).not.toBeInTheDocument();
+});
+
+test('the sound toggle name flips from Unmute to Mute after toggling, not just at first render', async () => {
+  const user = userEvent.setup();
+  function Wrapper() {
+    const [soundOn, setSoundOn] = React.useState(false);
+    return (
+      <DraftStatusBar
+        {...baseProps}
+        soundOn={soundOn}
+        toggleSound={() => setSoundOn((prev) => !prev)}
+      />
+    );
+  }
+  render(<Wrapper />);
+
+  const toggle = screen.getByRole('button', { name: 'Unmute on-the-clock sound' });
+  await user.click(toggle);
+
+  expect(screen.getByRole('button', { name: 'Mute on-the-clock sound' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Unmute on-the-clock sound' })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: 'Mute on-the-clock sound' }));
+
+  expect(screen.getByRole('button', { name: 'Unmute on-the-clock sound' })).toBeInTheDocument();
 });
 
 test("the commissioner's draft actions sit with mute in the controls group", () => {
