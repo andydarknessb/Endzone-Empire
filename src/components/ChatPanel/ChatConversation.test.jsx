@@ -247,6 +247,46 @@ test('opening the hide form moves focus to the reason field; cancelling returns 
   expect(screen.getByRole('button', { name: 'Hide message from Anvils' })).toHaveFocus();
 });
 
+test('a committed hide returns focus to the feed log, not the document body (#445 AC4)', async () => {
+  // The regression: after a committed hide the Hide button is removed, so
+  // returning focus to it strands focus on the body. Focus must land in the feed
+  // log (which holds the now-tombstoned message), never on the body.
+  const onHide = jest.fn().mockResolvedValue(true);
+  const msg = message({ id: 55, message: 'you are worthless', teamName: 'Anvils' });
+  const { rerender } = renderWithProviders(
+    <ChatConversation messages={[msg]} onSend={noop} canModerate onHide={onHide} />
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Hide message from Anvils' }));
+  await userEvent.type(screen.getByLabelText('Reason for hiding'), 'targeted harassment');
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm hide' }));
+
+  // A committed hide moves focus into the feed log, never the document body
+  // (the regression). waitFor lets confirmHide's async path settle - onHide is
+  // called before its await resolves, so waiting on the call alone would race the
+  // focus move. (The full broadcast path - the chat:hidden event removing the
+  // Hide button while focus is held - is driven in a real browser in
+  // draft-accessibility.spec.ts, where focus preservation across a re-render is
+  // faithful; jsdom's rerender does not model it.)
+  const log = screen.getByRole('log', { name: 'League Chat' });
+  await waitFor(() => expect(log).toHaveFocus());
+  expect(onHide).toHaveBeenCalledWith(55, 'targeted harassment');
+  expect(document.body).not.toHaveFocus();
+
+  // The message still shows the hide affordance is gone once the parent supplies
+  // the tombstone; the focus is what this test pins.
+  rerender(
+    <ChatConversation
+      messages={[{ ...msg, message: null, hidden: true }]}
+      onSend={noop}
+      canModerate
+      onHide={onHide}
+    />
+  );
+  expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
+  expect(screen.getByText('Message hidden by commissioner')).toBeInTheDocument();
+});
+
 test('a commissioner sees no Hide control on an already-hidden message', () => {
   renderWithProviders(
     <ChatConversation

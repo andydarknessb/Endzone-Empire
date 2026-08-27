@@ -78,44 +78,61 @@ function ChatConversation({
   // cancel it, or confirm the hide. These read and write only hidingId /
   // hideReason - never the composer's `text` - so they sit beside the emoji
   // helpers below without contending for the composer draft state.
+  //
   // Focus management for the inline hide form (#445 AC4). Opening the form moves
-  // focus into the reason field (its autoFocus); closing it - Cancel, or a
-  // committed hide - returns focus to the Hide button that opened it, so a
-  // keyboard or screen-reader user is never dropped back onto the document body.
-  // The Hide button is remounted when the form closes (it is not rendered while
-  // the form is open for that message), so a stored node reference would be
-  // stale; instead a pending id is recorded and the button focuses itself as it
-  // remounts, through this ref callback.
-  const pendingHideFocusRef = useRef(null);
-  const registerHideButton = (id) => (node) => {
-    if (node && pendingHideFocusRef.current === id) {
-      pendingHideFocusRef.current = null;
+  // focus into the reason field (its autoFocus). Closing it must never drop
+  // focus onto the document body, and the two close paths need DIFFERENT targets:
+  //  - CANCEL: the message is not hidden, so its Hide button remounts; return
+  //    focus there.
+  //  - A COMMITTED HIDE: the `chat:hidden` broadcast sets m.hidden and the Hide
+  //    button is no longer rendered (see the render guard below), so returning to
+  //    it would strand focus on a removed node - the original defect. Return
+  //    focus to the message ROW instead, which is always rendered (it shows the
+  //    tombstone once hidden) and so always exists.
+  // CANCEL returns focus to the Hide button as it remounts (the message is not
+  // hidden), through an inline ref callback that focuses itself when it matches a
+  // pending id - the button is a fresh node on remount, so the callback fires.
+  const pendingHideButtonRef = useRef(null);
+  const hideButtonRef = (id) => (node) => {
+    if (node && pendingHideButtonRef.current === id) {
+      pendingHideButtonRef.current = null;
       node.focus();
     }
   };
 
+  // A COMMITTED hide cannot return focus to the Hide button - the chat:hidden
+  // broadcast sets m.hidden and the button is no longer rendered, so aiming there
+  // strands focus on the document body (the original defect). Return focus to the
+  // feed LOG region instead, which is always mounted and holds the now-tombstoned
+  // message, so a keyboard or screen-reader user lands back in the conversation
+  // rather than on the body. A committed hide bumps this nonce; the layout effect
+  // moves focus once the form has closed and the DOM has settled (a plain focus
+  // call in confirmHide would land before the reason field unmounts and be undone
+  // when the browser moves focus to the body on that unmount).
+  const [committedHideNonce, setCommittedHideNonce] = useState(0);
+
+  const closeHideForm = () => {
+    setHidingId(null);
+    setHideReason('');
+  };
   const startHiding = (id) => {
     setHidingId(id);
     setHideReason('');
   };
   const cancelHiding = () => {
-    // Return focus to the Hide button of the message we were hiding as it
-    // remounts (registerHideButton). setHidingId reads its own previous value so
-    // this is correct whether called from Cancel or from a committed hide.
-    setHidingId((current) => {
-      pendingHideFocusRef.current = current;
-      return null;
-    });
-    setHideReason('');
+    // Message stays visible: return focus to its Hide button as it remounts.
+    pendingHideButtonRef.current = hidingId;
+    closeHideForm();
   };
   const confirmHide = async (id) => {
     const reason = hideReason.trim();
     if (reason.length < HIDE_REASON_MIN) return;
     const ok = onHide ? await onHide(id, reason) : false;
-    // Clear the form whether or not the hide succeeded; a failure surfaces
-    // through the shared error Alert, and the message stays visible until the
-    // tombstone broadcast replaces it.
-    if (ok !== false) cancelHiding();
+    // On a rejected hide the form stays open (below), so leave focus where it is.
+    if (ok !== false) {
+      setCommittedHideNonce((n) => n + 1);
+      closeHideForm();
+    }
   };
   const moderating = canModerate && typeof onHide === 'function';
 
@@ -198,6 +215,19 @@ function ChatConversation({
   const prevScrollHeightRef = useRef(0);
   const prevFirstKeyRef = useRef(null);
   const [newCount, setNewCount] = useState(0);
+
+  // A committed hide moves focus to the feed log (#445 AC4): defined here, after
+  // scrollRef, and keyed on the nonce confirmHide bumps so it runs once the form
+  // has closed and the DOM has settled. The nonce starts at 0 and this effect
+  // no-ops on mount, so it never steals focus except right after a hide.
+  const committedHideFirstRunRef = useRef(true);
+  useLayoutEffect(() => {
+    if (committedHideFirstRunRef.current) {
+      committedHideFirstRunRef.current = false;
+      return;
+    }
+    if (scrollRef.current) scrollRef.current.focus();
+  }, [committedHideNonce]);
 
   const lastKey = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
 
@@ -365,7 +395,7 @@ function ChatConversation({
                     <Button
                       size="small"
                       color="warning"
-                      ref={registerHideButton(m.id)}
+                      ref={hideButtonRef(m.id)}
                       onClick={() => startHiding(m.id)}
                       aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
                     >
@@ -380,7 +410,8 @@ function ChatConversation({
                       size="small"
                       fullWidth
                       // Focus moves into the reason field as the form opens
-                      // (#445 AC4); focus returns to the Hide button on close.
+                      // (#445 AC4); on close it returns to the Hide button
+                      // (Cancel) or the message row (a committed hide).
                       autoFocus
                       value={hideReason}
                       onChange={(e) => setHideReason(e.target.value)}
