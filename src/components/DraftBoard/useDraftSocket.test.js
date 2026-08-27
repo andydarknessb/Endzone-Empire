@@ -355,6 +355,86 @@ test('drops the commissioner flag when the league changes, rather than carrying 
   expect(result.current.isCommissioner).toBe(false);
 });
 
+// --- the room's GIF-message capability (#516, from the #446 contract) ---
+//
+// gifMessagesEnabled rides the SAME per-viewer draft:join ack as isCommissioner
+// and viewerTeamId (draftSocket.joinAck), and is read the same way: the ack is
+// the sole authority, a missing flag is "off", every join re-reads it, and it is
+// torn down with the league. The composer only appears when it is true (AC7), so
+// anything that reads it truthy on a partial ack would surface a picker the
+// server has not enabled.
+
+test('surfaces the gif-message capability the acknowledgement carries', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { gifMessagesEnabled: true });
+
+  expect(result.current.gifMessagesEnabled).toBe(true);
+});
+
+test('an acknowledgement with no gif capability flag reads as false, never as undefined', () => {
+  // Only the server may turn the picker on. A missing field is an older or a
+  // partial ack, and the safe reading of it is "off" - not a value that could
+  // render the composer by being truthy downstream (AC7, AC9).
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1);
+
+  expect(result.current.gifMessagesEnabled).toBe(false);
+});
+
+test('a non-boolean-true gif flag is not a grant of the capability', () => {
+  // Strictly === true, as isCommissioner is: a truthy-but-not-true value (a
+  // string, a 1) from a skewed server must not open the picker.
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { gifMessagesEnabled: 'yes' });
+
+  expect(result.current.gifMessagesEnabled).toBe(false);
+});
+
+test('a reconnect re-asks for the gif capability and takes the new answer', () => {
+  // Every join re-reads it, exactly as isCommissioner does, so the capability
+  // being turned on (or off) while offline is honoured on the way back in.
+  let reconnectHandler;
+  onReconnect.mockImplementation((socket, handler) => {
+    reconnectHandler = handler;
+    return () => {};
+  });
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { gifMessagesEnabled: true });
+  expect(result.current.gifMessagesEnabled).toBe(true);
+
+  act(() => reconnectHandler());
+  const joins = fakeSocket.emit.mock.calls.filter(([event]) => event === 'draft:join');
+  expect(joins).toHaveLength(2);
+  act(() => joins[1][2]({ ok: true, viewerTeamId: 1, gifMessagesEnabled: false }));
+  expect(result.current.gifMessagesEnabled).toBe(false);
+});
+
+test('drops the gif capability when the league changes, rather than carrying it across', () => {
+  const { result, rerender } = renderHook(({ leagueId }) => useDraftSocket(leagueId), {
+    initialProps: { leagueId: 1 },
+  });
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { gifMessagesEnabled: true });
+  expect(result.current.gifMessagesEnabled).toBe(true);
+
+  // The capability is a fact about the league config just left; a new league
+  // room answers its own ack before the picker may reappear.
+  fakeSocket = makeFakeSocket();
+  createDraftSocket.mockReturnValue(fakeSocket);
+  rerender({ leagueId: 2 });
+
+  expect(result.current.gifMessagesEnabled).toBe(false);
+});
+
 // --- a refused re-join, and what it is allowed to take away (#230) ---
 //
 // The room re-joins on every reconnect, so a refusal is the only news it

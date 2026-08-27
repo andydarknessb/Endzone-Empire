@@ -151,6 +151,12 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   const [error, setError] = useState(null);
   const [viewerTeamId, setViewerTeamId] = useState(null);
   const [isCommissioner, setIsCommissioner] = useState(false);
+  // Whether GIF messages are enabled in this league room (#516), decided by the
+  // server on the SAME per-viewer draft:join ack that carries isCommissioner
+  // (#446, AC7) - the composer's sole authority, never inferred client-side, so
+  // the picker stays absent in production until external approval turns the
+  // capability on (AC9). Off by default and read strictly === true below.
+  const [gifMessagesEnabled, setGifMessagesEnabled] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   // The live session, exposed so another concern in the room can ride it. The
@@ -181,6 +187,9 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     // over from the league just left would offer this viewer controls on a
     // league where they may hold none.
     setIsCommissioner(false);
+    // Same tear-down: the GIF capability is a fact about the league config just
+    // left, so the picker must not linger into a room that has not answered yet.
+    setGifMessagesEnabled(false);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
     setSocket(newSocket);
@@ -212,6 +221,10 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
           if (resp.code === 'NOT_A_MEMBER') {
             setViewerTeamId(null);
             setIsCommissioner(false);
+            // A viewer with no Team here has no composer to gate; clear the
+            // capability alongside the other viewer-relative values so a picker
+            // cannot outlive the membership it was answered for.
+            setGifMessagesEnabled(false);
           }
           return;
         }
@@ -221,6 +234,11 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
         // ack that says nothing about the role is not a grant of it.
         setViewerTeamId(resp?.viewerTeamId ?? null);
         setIsCommissioner(resp?.isCommissioner === true);
+        // Re-read on every join, the same as isCommissioner: the ack is the sole
+        // authority on the GIF picker (#516). Strictly `=== true` - an ack that
+        // says nothing about the capability, or a truthy-but-not-true value from
+        // a skewed server, is not a grant of it.
+        setGifMessagesEnabled(resp?.gifMessagesEnabled === true);
       });
     };
 
@@ -306,6 +324,7 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     onTheClock: state.onTheClock,
     viewerTeamId,
     isCommissioner,
+    gifMessagesEnabled,
     secondsLeft: state.secondsLeft,
     reconnecting,
     isMyTurn,

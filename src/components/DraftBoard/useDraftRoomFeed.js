@@ -216,6 +216,82 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
     [socket, leagueId]
   );
 
+  // Send a GIF message from the Draft room (#516). It mirrors useLeagueChat's
+  // sendGif exactly - the same chat:send event, the same structured gif payload
+  // (a provider + assetId + accessible description + optional caption, never a
+  // URL, upload or bytes), the same #440 idempotency key, and the same refusal
+  // codes surfaced through the ONE error channel this hook already owns. Only the
+  // reconciliation differs by surface: the combined feed dedups by the shared
+  // `seq` through mergeEntry (feedEntryKey), exactly as sendMessage above does,
+  // so the ack's returned entry and the server's broadcast echo of that same send
+  // collapse to ONE entry - the sender never sees their own GIF twice.
+  //
+  // The description-required, media-not-allowed and disabled-provider rules are
+  // enforced SERVER-side (DESCRIPTION_REQUIRED, MEDIA_NOT_ALLOWED,
+  // GIF_PROVIDER_DISABLED); a client that never rendered the picker can still
+  // emit, so this client mirror is a convenience, not the guarantee. On every
+  // refusal the send resolves false and rewrites nothing, so the composer keeps
+  // the unsent description and caption (the GifComposer resets only on success).
+  const sendGif = useCallback(
+    (gif, clientMsgId) => {
+      if (!gif || !gif.provider || !gif.assetId) return Promise.resolve(false);
+      setError(null);
+      return new Promise((resolve) => {
+        if (!socket) {
+          resolve(false);
+          return;
+        }
+        const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
+        socket.emit('chat:send', { leagueId: Number(leagueId), gif, clientMsgId: key }, (ack) => {
+          if (ack && ack.error) {
+            // An over-length caption is never shortened server-side, so the
+            // sender's own numbers - not the ack's generic text - say how far
+            // over they are. The composition stays put either way (resolve
+            // false; the composer clears only on success), so nothing is lost.
+            if (ack.code === 'MESSAGE_TOO_LONG') {
+              const { length, limit } = ack;
+              setError(Number.isFinite(length) && Number.isFinite(limit)
+                ? `Your caption is ${length} characters. The limit is ${limit}. Shorten it and send again.`
+                : ack.error);
+              resolve(false);
+              return;
+            }
+            if (ack.code === 'DESCRIPTION_REQUIRED') {
+              setError('A GIF needs an accessible description before it can be sent.');
+              resolve(false);
+              return;
+            }
+            if (ack.code === 'MEDIA_NOT_ALLOWED') {
+              setError('That GIF could not be sent: only a provider GIF is allowed, not a link or an upload.');
+              resolve(false);
+              return;
+            }
+            if (ack.code === 'GIF_PROVIDER_DISABLED') {
+              setError('GIF messages are not available right now.');
+              resolve(false);
+              return;
+            }
+            // A rate-limited refusal carries an explicit retry time (#440 AC5);
+            // surface it so the sender knows to wait. The composition stays.
+            const seconds = Number(ack.retryAfterSeconds);
+            setError(Number.isFinite(seconds) && seconds > 0
+              ? `${ack.error}. Try again in ${seconds}s.`
+              : ack.error);
+            resolve(false);
+            return;
+          }
+          // On success (or a duplicate ack that rides the original entry back),
+          // merge the entry into its seq position; mergeEntry dedups on
+          // feedEntryKey, so the broadcast echo of this same send - which shares
+          // the entry's seq - is never appended a second time.
+          if (ack && ack.entry) setEntries((prev) => mergeEntry(prev, ack.entry));
+          resolve(true);
+        });
+      });
+    },
+    [socket, leagueId]
+  );
+
   // Commissioner-only: hide one abusive message league-wide with a reason
   // (#482), through the one hide REST call the Dashboard drawer shares
   // (chatModeration.hidePost) so the audit row and the `chat:hidden` broadcast
@@ -234,5 +310,5 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
     [leagueId]
   );
 
-  return { entries, error, sendMessage, loadOlder, hasMore, hideMessage };
+  return { entries, error, sendMessage, sendGif, loadOlder, hasMore, hideMessage };
 }
