@@ -104,4 +104,3 @@ function DraftActivityEntry({ entry }) {
 }
 
 export default DraftActivityEntry;
-export { LIFECYCLE_VERB, PickActivityLine, LifecycleActivityLine };
