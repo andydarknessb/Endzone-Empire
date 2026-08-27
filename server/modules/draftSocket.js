@@ -12,7 +12,7 @@ const {
 } = require('../services/teamIdentity');
 const { feedEntryOf, isBlockableFeedType, listBlockersOf } = require('../services/leagueFeed');
 const { checkChatSend } = require('./chatFlood');
-const { MAX_CHAT_CHARS, clampToCharacters } = require('./chatLimits');
+const { MAX_CHAT_CHARS } = require('./chatLimits');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
@@ -111,6 +111,15 @@ function attachDraftSocket(httpServer) {
     //   AC6/AC7 the live broadcast is delivered per recipient, skipping viewers
     //        who blocked the author - but only for a BLOCKABLE feed kind, so
     //        Draft activity involving a blocked Team is never hidden.
+    //
+    // A message over MAX_CHAT_CHARS is refused with code MESSAGE_TOO_LONG (#502),
+    // on the same footing as the malformed-key INVALID_REQUEST below: it is a
+    // request-shape check, decided before any query, and it never shortens an
+    // accepted message to fit - the handler used to clamp the text here and no
+    // longer does, so what a client sends is exactly what a client gets. Length
+    // is counted in Unicode code points (Array.from(text).length), the same
+    // unit MAX_CHAT_CHARS, the chat_messages.message column and the client's
+    // composer counter all agree on (#443).
     socket.on('chat:send', async ({ leagueId, message, clientMsgId } = {}, ack) => {
       if (!Number.isInteger(leagueId) || typeof message !== 'string' || !message.trim()) {
         return ack && ack({ error: 'leagueId (integer) and message (string) required' });
@@ -125,7 +134,18 @@ function attachDraftSocket(httpServer) {
         // the message's content.
         return ack && ack({ error: 'clientMsgId must be a string of at most 64 characters', code: 'INVALID_REQUEST' });
       }
-      const text = clampToCharacters(message.trim());
+      const text = message.trim();
+      const length = Array.from(text).length;
+      if (length > MAX_CHAT_CHARS) {
+        // MESSAGE_TOO_LONG (#502): refused, never shortened. `limit` and `length`
+        // let the client render exact copy without re-deriving either number.
+        return ack && ack({
+          error: `message must be at most ${MAX_CHAT_CHARS} characters`,
+          code: 'MESSAGE_TOO_LONG',
+          limit: MAX_CHAT_CHARS,
+          length,
+        });
+      }
       try {
         // AC1. The sender's CURRENT Team is their membership (ADR 0002): a
         // manager removed after joining holds none and may no longer speak,
@@ -510,6 +530,5 @@ module.exports = {
   chatMessagePayload,
   deliverFeedEntry,
   normalizeClientMsgId,
-  clampToCharacters,
   MAX_CHAT_CHARS,
 };

@@ -76,7 +76,7 @@ Draft-only channel: a message sent from the League Dashboard and one sent from
 the Draft room belong to the same League chat. Every message carries Team
 identity and no account identifier. League chat is for members only and is
 never exposed through a public presenter link, which receives Draft activity
-alone.
+alone. A message over the character limit is refused, never shortened (#502).
 _Avoid_: Draft chat (not a separate conversation), public chat, system message
 (that is Draft activity)
 
