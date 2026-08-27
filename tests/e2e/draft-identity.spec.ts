@@ -86,8 +86,9 @@ test.describe('Team identity', () => {
     // landed, a snapshot Pick carried no attribution at all, because a Pick's
     // own `name` is the PLAYER's. Pick history left the active rail for the
     // Board (issue #123 acceptance criteria 3 and 5), so this is where the
-    // attribution is now read.
-    await page.getByRole('tab', { name: 'Board' }).click();
+    // attribution is now read. On a wide container the Board is the left pane,
+    // selected by its Players/Board toggle rather than a tab (#444).
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
     await page.getByRole('button', { name: 'Pick history' }).click();
     await expect(page.getByText('by Harbor Hawks')).toBeVisible();
 
@@ -122,8 +123,9 @@ test.describe('Team identity', () => {
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 
     // The board's columns are the Teams, and every filled cell names its
-    // round, its Team and its player.
-    await page.getByRole('tab', { name: 'Board' }).click();
+    // round, its Team and its player. On a wide container the Board is the
+    // left pane, selected by its Players/Board toggle (#444).
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
     const board = page.getByRole('region', { name: 'Draft Board' });
     await expect(board.getByRole('columnheader', { name: /Ridge Runners/ })).toBeVisible();
     await expect(board.getByRole('columnheader', { name: /Harbor Hawks/ })).toBeVisible();
