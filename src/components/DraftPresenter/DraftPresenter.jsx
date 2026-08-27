@@ -4,8 +4,9 @@ import { useParams } from 'react-router-dom';
 import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
 import Countdown from '../Countdown/Countdown';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
+import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 import { draftRounds } from '../../lib/rosterShape';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 
 // Presenter links are intentionally anonymous: do not use apiClient here,
 // because its 401 interceptor can attempt an authenticated token refresh.
@@ -18,6 +19,7 @@ function presenterError(error) {
 function DraftPresenter() {
   const { token } = useParams();
   const [draftState, setDraftState] = useState(null);
+  const [activity, setActivity] = useState([]);
   const [error, setError] = useState(null);
 
   const loadBoard = useCallback(async () => {
@@ -30,11 +32,32 @@ function DraftPresenter() {
     }
   }, [token]);
 
+  // The presenter-safe Draft activity feed (#438) is a SEPARATE, best-effort
+  // request: a hiccup fetching it must never blank the board, which is the
+  // primary surface. The endpoint reads Draft activity alone (never chat), so
+  // what lands here is already Team-only Pick and lifecycle facts.
+  const loadActivity = useCallback(async () => {
+    try {
+      const response = await presenterClient.get(`/api/draft/board/${encodeURIComponent(token)}/activity`);
+      setActivity(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      // Leave the last good feed in place; the board stands on its own.
+    }
+  }, [token]);
+
   useEffect(() => {
     loadBoard();
-    const poll = window.setInterval(loadBoard, 5000);
+    loadActivity();
+    const poll = window.setInterval(() => {
+      loadBoard();
+      loadActivity();
+    }, 5000);
     return () => window.clearInterval(poll);
-  }, [loadBoard]);
+  }, [loadBoard, loadActivity]);
+
+  // Newest-first for a live glance board: the endpoint returns oldest-first
+  // (the same ascending chronology the Draft room reads), so reverse a copy.
+  const activityNewestFirst = useMemo(() => [...activity].reverse(), [activity]);
 
   const picksNewestFirst = useMemo(
     () => [...(draftState?.picks || [])].sort((a, b) => b.pick_number - a.pick_number),
@@ -142,6 +165,25 @@ function DraftPresenter() {
                   </Box>
                 ))}
               </Stack>
+            )}
+          </Paper>
+
+          <Paper component="section" aria-labelledby="draft-activity-heading" sx={{ p: { xs: 2, md: 3 } }}>
+            <Typography id="draft-activity-heading" variant="h4" sx={{ fontSize: { xs: '1.4rem', md: '2rem' }, mb: 2 }}>
+              Draft activity
+            </Typography>
+            {activityNewestFirst.length === 0 ? (
+              <Typography sx={{ color: 'text.secondary' }}>No draft activity yet.</Typography>
+            ) : (
+              // A live, scrollable log of the authoritative Draft events (#438),
+              // rendered with the SAME event line the Draft room uses so a
+              // presenter and a member read a Pick or a lifecycle change the
+              // same way. It carries no chat, no composer and no moderation.
+              <Box aria-live="polite" sx={{ maxHeight: 420, overflowY: 'auto' }}>
+                {activityNewestFirst.map((entry) => (
+                  <DraftActivityEntry key={feedEntryKey(entry)} entry={entry} />
+                ))}
+              </Box>
             )}
           </Paper>
         </Stack>
