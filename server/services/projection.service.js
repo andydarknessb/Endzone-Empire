@@ -220,7 +220,10 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
  * together and double-count here where the raw comparison matched at most
  * one. Both writers coerce to Tank01 codes before insert, so it takes a
  * third-party or hand-inserted row to arise, and losing every DEF unit
- * entirely is the worse of the two failures by a distance.
+ * entirely is the worse of the two failures by a distance. Since #421 that
+ * exposure is closed at the database: `nfl_games_season_week_team_code_unique`
+ * enforces uniqueness on the Team code beside the raw constraint (ADR 0011),
+ * so the aliased row is rejected at insert and this fold cannot double-count.
  */
 async function getPositionDefense({ season, uptoWeek }) {
   const result = await pool.query(
