@@ -27,7 +27,13 @@ const {
   teamIdentityColumns,
   teamIdentityJoin,
 } = require('./teamIdentity');
-const { activityEntryOf, DRAFT_ACTIVITY } = require('./draftActivity');
+const {
+  activityEntryOf,
+  DRAFT_ACTIVITY,
+  PICK,
+  CORRECTION,
+  LIFECYCLE_KINDS,
+} = require('./draftActivity');
 
 /**
  * The typed feed-entry kinds that share one per-league chronology. League chat
@@ -384,11 +390,22 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  * shapes through the SAME activityEntryOf a member reads, so the presenter and
  * the Draft room agree on the authoritative record.
  *
+ * The KINDS a presenter may see are an explicit ALLOWLIST (#438 AC3, "approved
+ * public Pick and lifecycle facts"), not everything in draft_activity. A Pick,
+ * the five lifecycle transitions and a Commissioner correction are approved
+ * public facts; the CUTOVER boundary marker (#436) is an internal backfill
+ * artifact that carries no Team or Pick fact and reads as noise, so it is left
+ * out. Because this is a positive list, a NEW kind added upstream does not reach
+ * an anonymous board until it is added here on purpose - publication by
+ * decision, the same stance the board's field allowlist takes.
+ *
  * Cursors mirror the sibling readers: the default/`before` window takes the
  * newest page descending then flips to ascending display order; `after` resumes
  * forward (feed_seq > cursor) ascending. `after` takes precedence; a caller
  * pages one direction at a time.
  */
+const PRESENTER_ACTIVITY_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
+
 async function listPresenterDraftActivity(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
   const resumeFrom = Number.isInteger(after) ? after : null;
@@ -396,7 +413,9 @@ async function listPresenterDraftActivity(db, { leagueId, before = null, after =
   const cmp = resumeFrom !== null ? '>' : '<';
   const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
-  const params = [leagueId];
+  // $1 league, $2 the kind allowlist. The cursor (if any) and the page cap are
+  // appended after, so their placeholder numbers follow.
+  const params = [leagueId, PRESENTER_ACTIVITY_KINDS];
   let cursorClause = '';
   if (cursor !== null) {
     params.push(cursor);
@@ -426,6 +445,7 @@ async function listPresenterDraftActivity(db, { leagueId, before = null, after =
               "draft_activity"."is_legacy" AS is_legacy
          FROM "draft_activity"
         WHERE "draft_activity"."league_id" = $1
+          AND "draft_activity"."kind" = ANY($2)
           ${cursorClause}
         ORDER BY "draft_activity"."feed_seq" ${windowOrder}
         ${limitClause}
@@ -452,4 +472,5 @@ module.exports = {
   combinedEntryOf,
   listCombinedDraftFeed,
   listPresenterDraftActivity,
+  PRESENTER_ACTIVITY_KINDS,
 };

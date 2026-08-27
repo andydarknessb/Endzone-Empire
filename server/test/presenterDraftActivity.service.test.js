@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
-const { listPresenterDraftActivity } = require('../services/leagueFeed');
+const { listPresenterDraftActivity, PRESENTER_ACTIVITY_KINDS } = require('../services/leagueFeed');
 
 /**
  * listPresenterDraftActivity - the PRESENTER-safe Draft-activity reader (#438).
@@ -68,7 +68,26 @@ test('reads draft_activity ONLY - never chat_messages, user_blocks or a viewer',
   assert.ok(!/"chat_reads"/.test(query.text), 'never consults the unread marker');
   // Scoped to the league behind the presenter token, and by that alone.
   assert.ok(/"draft_activity"\."league_id" = \$1/.test(query.text));
-  assert.deepEqual(query.params.slice(0, 1), [12]);
+  assert.equal(query.params[0], 12);
+});
+
+test('the presenter kinds are a positive ALLOWLIST that excludes the cutover boundary', async () => {
+  // AC3 is "approved public Pick and lifecycle facts": the SQL restricts kind
+  // to an allowlist bound as $2, and the allowlist is the approved set - a Pick,
+  // the five lifecycle transitions and a correction - and NOT the internal
+  // cutover marker (#436) nor any future kind added upstream.
+  const fake = activityPool([pickRow()]);
+  await listPresenterDraftActivity(fake, { leagueId: 12 });
+
+  const query = fake.calls.find((c) => /"draft_activity"/.test(c.text));
+  assert.match(query.text, /"draft_activity"\."kind" = ANY\(\$2\)/);
+  assert.deepEqual(
+    [...PRESENTER_ACTIVITY_KINDS].sort(),
+    ['complete', 'correction', 'draft_start', 'pause', 'pick', 'reset', 'resume'],
+    'the approved presenter kinds are exactly these seven'
+  );
+  assert.ok(!PRESENTER_ACTIVITY_KINDS.includes('cutover'), 'the cutover boundary is never a presenter kind');
+  assert.deepEqual(query.params[1], PRESENTER_ACTIVITY_KINDS, 'the allowlist rides as the $2 bound param');
 });
 
 test('never projects the commissioner correction reason (un-vetted free-text)', async () => {
@@ -141,11 +160,12 @@ test('the default window takes the newest page descending, then flips to ascendi
   assert.equal(query.params[query.params.length - 1], 100);
 });
 
-test('?before=<seq> pages older: compares < and binds the cursor', async () => {
+test('?before=<seq> pages older: compares < and binds the cursor after the allowlist', async () => {
   const fake = activityPool([pickRow()]);
   await listPresenterDraftActivity(fake, { leagueId: 12, before: 8 });
   const query = fake.calls.find((c) => /"draft_activity"/.test(c.text));
-  assert.match(query.text, /"draft_activity"\."feed_seq" < \$2/);
+  // $1 league, $2 allowlist, $3 cursor.
+  assert.match(query.text, /"draft_activity"\."feed_seq" < \$3/);
   assert.ok(query.params.includes(8), 'the cursor rode into the params');
 });
 
@@ -153,7 +173,7 @@ test('?after=<seq> resumes newer: compares > and reads ascending', async () => {
   const fake = activityPool([pickRow()]);
   await listPresenterDraftActivity(fake, { leagueId: 12, after: 8 });
   const query = fake.calls.find((c) => /"draft_activity"/.test(c.text));
-  assert.match(query.text, /"draft_activity"\."feed_seq" > \$2/);
+  assert.match(query.text, /"draft_activity"\."feed_seq" > \$3/);
   assert.match(query.text, /ORDER BY "draft_activity"\."feed_seq" ASC/);
   assert.ok(query.params.includes(8));
 });
