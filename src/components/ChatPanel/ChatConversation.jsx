@@ -1,5 +1,5 @@
 import React, { useId, useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
+import { Paper, Typography, Box, TextField, Button, Alert, Chip, InputAdornment } from '@mui/material';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
@@ -443,35 +443,44 @@ function ChatConversation({
         </Box>
       )}
 
-      <Box>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <TextField
-            id="chat-message-input"
-            label="Message"
-            size="small"
-            fullWidth
-            value={text}
-            inputRef={inputRef}
-            // Describe the input with the visible counter (#486) rather than set
-            // maxLength: the server is the single enforcement point, so typing
-            // and sending past the limit stay possible.
-            inputProps={{ 'aria-describedby': countId }}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-          />
-          <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
-          <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
-            Send
-          </Button>
-        </Box>
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
-          <ComposerCharacterCount text={text} indicatorId={countId} />
-        </Box>
+      {/* The counter rides INSIDE the input as an end adornment, not on a row of
+          its own (#486). The desktop Draft room sizes this shell to exactly the
+          viewport with zero slack (draft-board.spec #122 AC1), and the message
+          list above is empty here, so a second composer row - or any element
+          that grows the composer's height - tips the shell past the viewport and
+          makes the page scroll. An end adornment sits within the input's own
+          height, so the composer adds no height at all. */}
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+        <TextField
+          id="chat-message-input"
+          label="Message"
+          size="small"
+          fullWidth
+          value={text}
+          inputRef={inputRef}
+          // Describe the input with the visible counter (#486) rather than set
+          // maxLength: the server is the single enforcement point, so typing
+          // and sending past the limit stay possible.
+          inputProps={{ 'aria-describedby': countId }}
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <ComposerCharacterCount text={text} indicatorId={countId} />
+              </InputAdornment>
+            ),
+          }}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
+        />
+        <EmojiPicker onSelect={insertEmoji} onChoiceClosed={returnFocusToComposer} />
+        <Button variant="contained" onClick={handleSend} disabled={!text.trim()}>
+          Send
+        </Button>
       </Box>
     </Paper>
   );
