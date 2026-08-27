@@ -325,6 +325,8 @@ test('the guard the classifier looks for is the one that actually refuses a requ
  *                    the monitor with no credentials.
  *   /api/public/*  - the no-login top-of-funnel pages, league-free NFL data.
  *   /api/draft/board/:token - the presenter board, held by a share link (#173).
+ *   /api/draft/board/:token/activity - the presenter-safe Draft activity feed,
+ *                    the same share link, Draft activity alone and no chat (#438).
  */
 const PUBLIC_ROUTES = [
   'POST /api/auth/forgot-password',
@@ -335,6 +337,7 @@ const PUBLIC_ROUTES = [
   'POST /api/auth/reset-password',
   'POST /api/auth/verify-email',
   'GET /api/draft/board/:token',
+  'GET /api/draft/board/:token/activity',
   'GET /api/health/',
   'GET /api/health/holdout',
   'GET /api/health/livez',
