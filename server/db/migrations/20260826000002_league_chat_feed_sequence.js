@@ -50,9 +50,11 @@
  * exist, or this ordering becomes the race it looks like.
  *
  * APPLYING IT: that same ACCESS EXCLUSIVE lock blocks every chat insert for the
- * duration of `up()` (the backfill is a single UPDATE over one small table, so
- * milliseconds - but not zero). Apply this when no draft is live, so no
- * manager's `chat:send` is blocked mid-draft.
+ * duration of `up()`, and that duration is set by the backfill: one UPDATE that
+ * touches EVERY existing row of `chat_messages`, so the lock scales with row
+ * count - a table scan, not a metadata-only change. Measured at 7 rows on
+ * 2026-08-27 (#520). Check the current row count before applying, and apply
+ * when no draft is live, so no manager's `chat:send` is blocked mid-draft.
  */
 
 const CHAT = 'chat_messages';

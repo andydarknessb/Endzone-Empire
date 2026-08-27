@@ -87,9 +87,13 @@
  *
  * MIGRATIONS ARE A CARVE-OUT (fleet policy): written here, applied and verified
  * by the maintainer against `knex_migrations`. An IC does not run it. Apply it
- * when no draft is live: creating the two triggers takes a brief
- * SHARE ROW EXCLUSIVE lock on `chat_messages` and `draft_activity`, blocking
- * inserts for the (millisecond) duration of `up()`.
+ * when no draft is live: creating the two triggers takes a SHARE ROW EXCLUSIVE
+ * lock on `chat_messages` and `draft_activity` that is held for the rest of
+ * `up()`, blocking inserts, and the rest of `up()` is the collision scan and the
+ * registry backfill, which each read EVERY existing row of BOTH tables - so the
+ * lock scales with their combined row count. Measured at 7 chat_messages rows
+ * and 2 draft_activity rows on 2026-08-27 (#520). Check the current row counts
+ * before applying.
  */
 
 const REGISTRY = 'league_feed_positions';

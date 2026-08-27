@@ -36,8 +36,12 @@
  * ADD COLUMN takes an ACCESS EXCLUSIVE lock, and the CREATE UNIQUE INDEX (plain,
  * not CONCURRENTLY) takes a SHARE lock that conflicts with the ROW EXCLUSIVE a
  * chat insert holds - so the index BUILD blocks chat writes for its duration
- * too, not just the ADD COLUMN. "Safe to apply while chat is live" rests on
- * chat_messages being SMALL: at its current size both locks are milliseconds. On
+ * too, not just the ADD COLUMN. The ADD COLUMN (nullable, no default) is
+ * metadata-only, cheap regardless of row count; the index BUILD is not: it reads
+ * every existing row of `chat_messages`, so that lock scales with row count.
+ * Whether this is safe to apply while chat is live is therefore a question about
+ * the table's size on the day it runs, not a property of this file. Measured at
+ * 7 rows on 2026-08-27 (#520). Check the current row count before applying: on
  * a large table the same two statements would block writes long enough to be an
  * outage, and this note is what stops someone applying it there believing they
  * were told there was no lock.

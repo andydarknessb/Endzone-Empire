@@ -41,14 +41,17 @@
  * hide columns here and the hide path is scoped to `chat_messages` by id, so a
  * Draft event is structurally unreachable by a hide.
  *
- * EXPAND-ONLY, LOCKS BRIEFLY. Adds three nullable columns and one partial
- * index; no backfill, no table rewrite. The ADD COLUMN takes a brief ACCESS
- * EXCLUSIVE lock and the CREATE INDEX (plain, not CONCURRENTLY, because knex
- * runs migrations transactionally in this repo) a SHARE lock that conflicts
- * with a chat insert's ROW EXCLUSIVE - both milliseconds while `chat_messages`
- * is small (see the same note in 20260826000003). The partial index backs the
- * one read that scans by hidden state, the reviewer's moderation history, and
- * indexes only the few hidden rows.
+ * EXPAND-ONLY, AND THE INDEX BUILD SCALES WITH THE TABLE. Adds three nullable
+ * columns and one partial index; no backfill, no table rewrite. The ADD COLUMN
+ * takes an ACCESS EXCLUSIVE lock but is metadata-only (nullable, no default),
+ * cheap regardless of row count. The CREATE INDEX (plain, not CONCURRENTLY,
+ * because knex runs migrations transactionally in this repo) takes a SHARE lock
+ * that conflicts with a chat insert's ROW EXCLUSIVE, and it reads every existing
+ * row of `chat_messages` to find the few hidden ones, so that lock scales with
+ * row count (the same relationship 20260826000003 states). Measured at 7 rows
+ * on 2026-08-27 (#520). Check the current row count before applying. The
+ * partial index backs the one read that scans by hidden state, the reviewer's
+ * moderation history, and indexes only the few hidden rows.
  *
  * A schema rollback is safe: `down` drops the index and the columns, which is
  * only lossy for hides that exist, exactly the ADR-0012 "rollback while empty"
