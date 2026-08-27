@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../api/apiClient';
 import { onReconnect } from '../../api/socket';
 import { newClientMsgId } from '../../lib/clientMessageId';
-import { applyHiddenEntry, hidePost } from '../../lib/chatModeration';
+import { applyHiddenEntry, hidePost, LEAGUE_CHAT_TYPE } from '../../lib/chatModeration';
 
 /**
  * The League chat conversation over a socket the caller already owns.
@@ -30,11 +30,13 @@ import { applyHiddenEntry, hidePost } from '../../lib/chatModeration';
 // value, the way the client Team-identity fields mirror the server's.
 const CHAT_PAGE = 100;
 
-// The one feed kind that is human correspondence. Mirrors the server's
-// leagueFeed.LEAGUE_CHAT by value (a client module cannot import server code),
-// and useLeagueChat.humanType.parity.test.js pins the two equal so a rename on
-// either side is a test failure rather than a silent miscount.
-export const HUMAN_MESSAGE_TYPE = 'league_chat';
+// The one feed kind that is human correspondence. Re-exported from the single
+// client source (lib/chatModeration.LEAGUE_CHAT_TYPE), which both feed hooks
+// import, so there is no second copy of the literal to drift; the parity test
+// below still pins THIS name equal to the server's leagueFeed.LEAGUE_CHAT, so a
+// rename on either side is a test failure rather than a silent miscount, and
+// that guard now covers the tombstone-eligibility predicate too.
+export const HUMAN_MESSAGE_TYPE = LEAGUE_CHAT_TYPE;
 
 // Whether a feed entry is a HUMAN League-chat message, the only kind the unread
 // badge counts (#442; spec #429: "Count unread human messages only"). The live

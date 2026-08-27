@@ -1,12 +1,15 @@
 import apiClient from '../api/apiClient';
 
-// The one League-chat kind that is human correspondence, tagged on the wire by
-// leagueFeed.feedEntryOf. Mirrors HUMAN_MESSAGE_TYPE in useLeagueChat by value
-// (a client module cannot import server code); Draft activity carries its own
-// `draft_activity` type. Kept here so the tombstone rewrite below can tell a
-// chat entry from a Pick that happens to share its id (the two come from
-// separate stores and their ids can collide, feedEntryKey's docstring).
-const LEAGUE_CHAT_TYPE = 'league_chat';
+// The one League-chat feed type, tagged on the wire by leagueFeed.feedEntryOf
+// (a client module cannot import server code, so it mirrors the value). This is
+// the single client source of the literal: useLeagueChat re-exports it as
+// HUMAN_MESSAGE_TYPE, and useLeagueChat.humanType.parity.test.js pins THAT equal
+// to the server's leagueFeed.LEAGUE_CHAT, so a rename on either side fails a test
+// rather than silently mis-gating either the unread badge or this tombstone.
+// Draft activity carries its own `draft_activity` type, which is how the rewrite
+// below tells a chat entry from a Pick that happens to share its id (the two
+// come from separate stores and their ids can collide, feedEntryKey's docstring).
+export const LEAGUE_CHAT_TYPE = 'league_chat';
 
 // Whether a combined-feed entry is a League-chat message (the only kind a
 // chat:hidden broadcast may tombstone). A legacy entry with no type predates the
