@@ -18,7 +18,7 @@ const baseLeague = {
   autodraft_delay_seconds: 10,
 };
 
-const DEFAULT_TEAMS = [{ id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false }];
+const DEFAULT_TEAMS = [{ id: 11, name: 'Team Eleven', owner_id: 7, draft_position: 1, autodraft: false, locked: false }];
 
 const KEEPER_FILLED_LEAGUE = {
   ...baseLeague,
@@ -31,8 +31,8 @@ const KEEPER_FILLED_LEAGUE = {
 };
 
 const TWO_TEAMS = [
-  { id: 11, owner_id: 7, draft_position: 1, autodraft: false, locked: false },
-  { id: 12, owner_id: 8, draft_position: 2, autodraft: false, locked: false },
+  { id: 11, name: 'Team Eleven', owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+  { id: 12, name: 'Team Twelve', owner_id: 8, draft_position: 2, autodraft: false, locked: false },
 ];
 
 const TWO_KEEPERS = [
@@ -66,6 +66,9 @@ function draftStartPool({ league = baseLeague, keepers = [], teams = DEFAULT_TEA
     [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    // The lifecycle Draft activity (#437). Stateful feed_seq so a draft_start
+    // and (on an all-keeper start) a following complete take distinct positions.
+    [insert('draft_activity'), (() => { let seq = 100; return () => ({ rows: [{ id: seq, feed_seq: String(seq++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],
   ]);
 }
 
@@ -169,5 +172,59 @@ test('startDraft marks the draft complete BEFORE it generates the season schedul
   assert.equal(fake.matching(insert('matchups')).length, 1);
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
   assert.equal(fake.matching(/^ROLLBACK$/).length, 0);
+  fake.assertClean();
+});
+
+/**
+ * Lifecycle activity on start (#437). Starting the draft appends a draft_start
+ * Draft-activity entry from the SAME transaction as the status change (#437
+ * AC1), attributed to the acting commissioner's Team. When every slot is
+ * pre-filled by keepers the draft completes in the same transaction, so a
+ * completion entry follows the start.
+ */
+test('startDraft appends a draft_start activity with the acting commissioner Team (#437 AC1)', async (t) => {
+  const fake = draftStartPool().install(t);
+
+  await startDraft({ leagueId: 1, userId: 7 });
+
+  const appended = fake.matching(insert('draft_activity'));
+  assert.equal(appended.length, 1, 'exactly one lifecycle entry on a live-picking start');
+  // INSERT ("league_id","kind","team_id","team_name") VALUES ($1,$2,$3,$4)
+  assert.deepEqual(appended[0].params, [1, 'draft_start', 11, 'Team Eleven']);
+  assert.equal(fake.matching(/^COMMIT$/).length, 1);
+  fake.assertClean();
+});
+
+test('startDraft by the scheduler (no acting user) records draft_start with a null actor, not a fabricated one (#437 AC5)', async (t) => {
+  const fake = draftStartPool().install(t);
+
+  await startDraft({ leagueId: 1, userId: null });
+
+  const appended = fake.matching(insert('draft_activity'));
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].params[1], 'draft_start');
+  assert.equal(appended[0].params[2], null, 'no actor team id');
+  assert.equal(appended[0].params[3], null, 'no actor team name');
+  fake.assertClean();
+});
+
+test('startDraft that completes on keeper pre-fill appends draft_start then complete (#437 AC1, AC4)', async (t) => {
+  const fake = draftStartPool({
+    league: { ...KEEPER_FILLED_LEAGUE, regular_season_weeks: 0 },
+    keepers: TWO_KEEPERS,
+    teams: TWO_TEAMS,
+  }).install(t);
+
+  await startDraft({ leagueId: 1, userId: 7 });
+
+  const appended = fake.matching(insert('draft_activity'));
+  assert.equal(appended.length, 2, 'a start and a completion');
+  assert.equal(appended[0].params[1], 'draft_start');
+  assert.deepEqual([appended[0].params[2], appended[0].params[3]], [11, 'Team Eleven']);
+  // The completion is an actor-less state transition (#437 AC5).
+  assert.equal(appended[1].params[1], 'complete');
+  assert.equal(appended[1].params[2], null);
+  assert.equal(appended[1].params[3], null);
+  assert.equal(fake.matching(/^COMMIT$/).length, 1);
   fake.assertClean();
 });

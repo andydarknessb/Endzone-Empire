@@ -90,6 +90,43 @@ test('a draft:picked without an activity entry appends nothing', async () => {
   expect(result.current.entries).toEqual([]);
 });
 
+const lifecycleEntry = (overrides = {}) => ({
+  type: 'draft_activity', kind: 'draft_start', id: 20, seq: 3, teamId: 30, teamName: 'Commish FC',
+  created_at: '2026-01-01T12:02:00Z', ...overrides,
+});
+
+test('a draft:activity lifecycle entry is merged into its shared-seq position (#437)', async () => {
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  // A start (seq 1) then a chat (seq 2) then a completion (seq 4), out of order.
+  act(() => socket.trigger('chat:message', chatEntry({ seq: 2, message: 'go' })));
+  act(() => socket.trigger('draft:activity', lifecycleEntry({ kind: 'draft_start', seq: 1 })));
+  act(() => socket.trigger('draft:activity', lifecycleEntry({ kind: 'complete', id: 21, seq: 4, teamId: null, teamName: null })));
+
+  expect(result.current.entries.map((e) => e.seq)).toEqual([1, 2, 4]);
+  expect(result.current.entries.map((e) => e.kind)).toEqual(['draft_start', undefined, 'complete']);
+});
+
+test('a lifecycle entry never marks chat read (only human messages do)', async () => {
+  renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(socket.hasHandler('draft:activity')).toBe(true));
+
+  act(() => socket.trigger('draft:activity', lifecycleEntry({ kind: 'pause', seq: 5 })));
+  expect(apiClient.post).not.toHaveBeenCalledWith('/api/league/3/chat/read');
+});
+
+test('a lifecycle echo delivered twice is not doubled (dedup by seq)', async () => {
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  const entry = lifecycleEntry({ kind: 'reset', seq: 7 });
+  act(() => socket.trigger('draft:activity', entry));
+  act(() => socket.trigger('draft:activity', entry));
+
+  expect(result.current.entries).toHaveLength(1);
+});
+
 test('marks chat read when a human message arrives, so the badge stays honest', async () => {
   renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
   await waitFor(() => expect(socket.hasHandler('chat:message')).toBe(true));
@@ -165,6 +202,7 @@ test('takes back both listeners on unmount and never ends the shared session', a
   unmount();
   expect(socket.off).toHaveBeenCalledWith('chat:message', expect.any(Function));
   expect(socket.off).toHaveBeenCalledWith('draft:picked', expect.any(Function));
+  expect(socket.off).toHaveBeenCalledWith('draft:activity', expect.any(Function));
   expect(socket).not.toHaveProperty('disconnect');
 });
 

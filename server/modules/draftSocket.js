@@ -1,6 +1,7 @@
 const { Server } = require('socket.io');
 const pool = require('./pool');
 const { setIo } = require('./io');
+const { broadcastDraftActivity } = require('./draftActivityBroadcast');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
@@ -216,6 +217,11 @@ function attachDraftSocket(httpServer) {
         // site; socketPayloadShape.test.js pins both to one key set.
         io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: false });
         if (outcome.draftComplete) {
+          // The Pick that ended the draft also appended a completion lifecycle
+          // entry (#437); deliver it to the room's combined feed on draft:activity
+          // through the one shared helper (null-safe), beside the draft:complete
+          // board signal.
+          broadcastDraftActivity(leagueId, outcome.completion);
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
         ack && ack({ ok: true, outcome });

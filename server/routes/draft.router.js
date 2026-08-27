@@ -12,6 +12,9 @@ const { removeLineupEntries } = require('../services/lineup.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
+const { lookupTeam } = require('../services/teamIdentity');
+const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
+const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
 
 const router = express.Router();
 
@@ -259,8 +262,15 @@ router.post('/league/:id/pause', async (req, res) => {
   if (typeof paused !== 'boolean') {
     return res.status(400).json({ error: 'paused (boolean) is required' });
   }
+  // A transaction now, not a bare UPDATE: the pause/resume must append its
+  // Draft-activity entry from the SAME transaction that flips draft_paused
+  // (#437 AC2), so a rolled-back toggle leaves no orphan activity and a
+  // committed one always has its entry. The clock CASE is unchanged - resuming
+  // re-arms the established pick clock, pausing clears it.
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+    const result = await client.query(
       `UPDATE "leagues"
        SET "draft_paused" = $1,
            "pick_deadline_at" = CASE
@@ -274,17 +284,31 @@ router.post('/league/:id/pause', async (req, res) => {
       [paused, leagueId, req.user.id]
     );
     if (!result.rows[0]) {
+      await client.query('ROLLBACK');
       return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
+    // The acting commissioner's Team, or null when they hold none - recorded as
+    // null, never fabricated (#437 AC5). Team identity only, no account field.
+    const actorTeam = await lookupTeam(client, { leagueId, userId: req.user.id });
+    const entry = await appendLifecycleActivity(client, {
+      leagueId,
+      kind: paused ? PAUSE : RESUME,
+      team: actorTeam,
+    });
+    await client.query('COMMIT');
     const io = getIo();
     if (io) {
       const state = await getDraftState(leagueId);
       io.to(`league:${leagueId}`).emit('draft:state', state);
     }
+    broadcastDraftActivity(leagueId, entry);
     res.json(result.rows[0]);
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error pausing draft', error);
     res.status(500).json({ error: 'failed to pause draft' });
+  } finally {
+    client.release();
   }
 });
 
@@ -547,9 +571,17 @@ router.post('/league/:id/reset', async (req, res) => {
        WHERE "id" = $1`,
       [leagueId]
     );
+    // Record the reset as append-only Draft activity, in the SAME transaction
+    // (#437 AC3). Every DELETE above wiped picks, rosters and lineup rows, but
+    // NOT draft_activity: it has no FK to draft_picks and this route issues no
+    // delete against it, so earlier Pick and lifecycle entries survive the
+    // reset - the reset is an appended fact, not erased history.
+    const actorTeam = await lookupTeam(client, { leagueId, userId: req.user.id });
+    const entry = await appendLifecycleActivity(client, { leagueId, kind: RESET, team: actorTeam });
     await client.query('COMMIT');
     const io = getIo();
     if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    broadcastDraftActivity(leagueId, entry);
     res.json({ leagueId, reset: true });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

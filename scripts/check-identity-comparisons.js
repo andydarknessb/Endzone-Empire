@@ -186,6 +186,11 @@ const ALLOWLIST = [
     rule: 'caller: the drafting manager\'s own team, by the caller\'s own id',
   },
   {
+    file: 'server/services/draftStart.service.js',
+    code: 't.owner_id === userId',
+    rule: 'caller: the acting commissioner\'s OWN team, resolved from the loaded teams by the caller\'s own id to attribute the draft_start Draft-activity entry (#437). Not an authorization check - the commissioner gate is isLeagueCommissioner above; a null (scheduler, or a commissioner with no team) records a null actor',
+  },
+  {
     file: 'server/services/teamIdentity.js',
     code: 'team.owner_id === userId',
     rule: 'caller: viewerTeamIdOf picks the viewer\'s own Team out of rows the caller already holds - this is the function every per-viewer response uses INSTEAD of shipping account ids',
