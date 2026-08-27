@@ -280,7 +280,9 @@ class FakeDraftDatabase {
       );
       if (duplicate) throw Object.assign(new Error('unique violation'), { code: '23505' });
       state.draftPicks.push({ leagueId, teamId, playerId, pickNumber });
-      return { rows: [], rowCount: 1 };
+      // RETURNING "id": draftPlayer reads it to pass source_pick_id to the Pick
+      // activity (#436). A monotonic id mirrors the serial column.
+      return { rows: [{ id: state.draftPicks.length }], rowCount: 1 };
     }
     if (sql.includes('INSERT INTO "draft_activity"')) {
       // The Pick's Draft activity, appended in the same transaction (#435). The

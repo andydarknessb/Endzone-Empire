@@ -295,9 +295,9 @@ if (!ENABLED) {
     // Build a pre-existing cross-kind collision while the registry is DOWN, then
     // prove up() names it and refuses rather than enforcing over it. The
     // collision is forced by rewinding the counter between two allocations - the
-    // only way to make both kinds land on one position, since the guard the
-    // registry front-runs (draft_activity's own explicit-position RAISE) is what
-    // otherwise keeps them apart.
+    // only way to make both kinds land on one position, since draft_activity's
+    // own explicit-position RAISE (which #436 disables only around its migration
+    // inserts, never for runtime) otherwise keeps them apart.
     await knex.migrate.down({ name: MIGRATION_NAME });
     const league = await seedLeague('Shared Feed Reconcile', ownerA, 'sharedfeedr');
     const team = await seedTeam(league, ownerA, 'Alpha');
