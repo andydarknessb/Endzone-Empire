@@ -155,6 +155,17 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
       };
 
       setTimeout(() => fire('connect'), 0);
+
+      // Injection hook (#482): a spec can deliver a server-pushed event into
+      // THIS page's fake socket, the way a real broadcast would arrive. The
+      // harness simulates no live feed of its own, so a multi-client test drives
+      // the fan-out itself - hiding on one page, then delivering `chat:hidden`
+      // to every page's socket to prove each live-tombstones without navigating.
+      // The latest draft socket wins (the room mints one per league); that is
+      // the connection a test acts on.
+      (window as unknown as { __ENDZONE_DRAFT_DELIVER__: (event: string, payload?: unknown) => void })
+        .__ENDZONE_DRAFT_DELIVER__ = (event: string, payload?: unknown) => fire(event, payload);
+
       return socket;
     }
 
