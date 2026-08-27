@@ -533,7 +533,12 @@ function DraftBoard() {
     // ride. It lives in the rail, so it appears wherever the rail does and
     // travels with the manager across the Draft and Board views.
     chatPanel: socket ? (
-      <DraftRoomChat socket={socket} leagueId={Number(leagueId)} viewerTeamId={viewerTeamId} />
+      <DraftRoomChat
+        socket={socket}
+        leagueId={Number(leagueId)}
+        viewerTeamId={viewerTeamId}
+        canModerate={isCommissioner}
+      />
     ) : null,
   };
 

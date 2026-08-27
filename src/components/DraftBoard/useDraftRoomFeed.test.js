@@ -223,3 +223,69 @@ test('sends chat over the handed-in session', async () => {
     expect.any(Function)
   );
 });
+
+// --------------------------------------------------------------------------
+// #482: the Draft room live-tombstones a hidden message and can hide from here
+// --------------------------------------------------------------------------
+
+test('a chat:hidden broadcast tombstones the held chat entry in place, leaving Picks untouched', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatEntry({ id: 7, seq: 9, message: 'you are worthless' }), pickEntry({ id: 3, seq: 10 })] });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toHaveLength(2));
+  expect(socket.hasHandler('chat:hidden')).toBe(true);
+
+  act(() => socket.trigger('chat:hidden', { id: 7, type: 'league_chat', seq: 9, hidden: true, message: null, teamId: 11, teamName: 'Anvils' }));
+
+  // Same count, same seq order: the chat entry is tombstoned in place.
+  expect(result.current.entries).toHaveLength(2);
+  expect(result.current.entries.map((e) => e.seq)).toEqual([9, 10]);
+  const chat = result.current.entries.find((e) => e.type === 'league_chat');
+  expect(chat.hidden).toBe(true);
+  expect(chat.message).toBeNull();
+  // The Pick is never a chat message and is left as it was.
+  const pick = result.current.entries.find((e) => e.type === 'draft_activity');
+  expect(pick.hidden).toBeUndefined();
+});
+
+test('a chat:hidden for an id the feed never held changes nothing', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatEntry({ id: 7, seq: 9 })] });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toHaveLength(1));
+
+  act(() => socket.trigger('chat:hidden', { id: 999, hidden: true, message: null }));
+
+  expect(result.current.entries).toHaveLength(1);
+  expect(result.current.entries[0].hidden).toBeUndefined();
+});
+
+test('takes back its chat:hidden listener on unmount', async () => {
+  const { unmount } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(socket.hasHandler('chat:hidden')).toBe(true));
+  unmount();
+  expect(socket.off).toHaveBeenCalledWith('chat:hidden', expect.any(Function));
+});
+
+test('hideMessage posts the hide to the moderation surface and resolves true', async () => {
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  let outcome;
+  await act(async () => { outcome = await result.current.hideMessage(55, '  targeted harassment  '); });
+
+  expect(outcome).toBe(true);
+  expect(apiClient.post).toHaveBeenCalledWith('/api/safety/hide', {
+    leagueId: 3, messageId: 55, reason: 'targeted harassment',
+  });
+});
+
+test('hideMessage surfaces a rejection and resolves false', async () => {
+  apiClient.post.mockImplementation((url) =>
+    url === '/api/safety/hide'
+      ? Promise.reject({ response: { data: { error: 'moderator access required' } } })
+      : Promise.resolve({ data: { ok: true } })
+  );
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+
+  let outcome;
+  await act(async () => { outcome = await result.current.hideMessage(55, 'targeted harassment'); });
+  expect(outcome).toBe(false);
+  await waitFor(() => expect(result.current.error).toBe('moderator access required'));
+});

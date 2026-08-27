@@ -18,11 +18,20 @@ import ChatConversation from '../ChatPanel/ChatConversation';
  * the one place the draft:join acknowledgement is read - and never creates,
  * joins or disconnects a socket itself.
  *
+ * `canModerate` is the room's commissioner status, answered on the same
+ * draft:join ack useDraftSocket already reads (#482): a commissioner in the
+ * Draft room may hide a message from here, with the same reason prompt and the
+ * same audit path as the Dashboard drawer. It defaults off, so a member (or any
+ * caller that does not pass it) sees no hide affordance. The hide itself rides
+ * useDraftRoomFeed.hideMessage, which posts through the one shared moderation
+ * route; Draft activity is never a manager message and the presenter never
+ * offers a hide control on it.
+ *
  * Full Pick history still lives in the Draft board; this feed shows recent Pick
  * activity, it does not replace the board (#435 AC5, CONTEXT.md: Draft board).
  */
-function DraftRoomChat({ socket, leagueId, viewerTeamId = null }) {
-  const { entries, error, sendMessage, loadOlder, hasMore } = useDraftRoomFeed({
+function DraftRoomChat({ socket, leagueId, viewerTeamId = null, canModerate = false }) {
+  const { entries, error, sendMessage, loadOlder, hasMore, hideMessage } = useDraftRoomFeed({
     socket,
     leagueId,
     viewerTeamId,
@@ -38,6 +47,8 @@ function DraftRoomChat({ socket, leagueId, viewerTeamId = null }) {
       onSend={sendMessage}
       hasMore={hasMore}
       onLoadOlder={loadOlder}
+      canModerate={canModerate}
+      onHide={hideMessage}
       leagueId={leagueId}
       viewerUserId={viewerUserId}
     />
