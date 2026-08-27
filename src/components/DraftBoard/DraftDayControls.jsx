@@ -12,6 +12,7 @@ import {
   TextField,
 } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { teamNameLabel } from '../../lib/teamIdentity';
 
 const REASON_MIN = 10;
 const REASON_MAX = 200;
@@ -84,7 +85,10 @@ export default function DraftDayControls({ league, picks, onTogglePause, onCorre
               This pauses the draft and reverses{' '}
               <strong>{`Pick ${lastReachedPick.pick_number}`}</strong>
               {' · '}
-              <strong>{lastReachedPick.teamName || 'this team'}</strong>
+              {/* Attribute by Team through the shared identity helper, the same
+                  way PickHistory and the feed render a Team (a departed team
+                  reads as a former manager, never blank). */}
+              <strong>{teamNameLabel(lastReachedPick.teamName)}</strong>
               {' · '}
               <strong>{lastReachedPick.name || 'this player'}</strong>
               . The draft stays paused until you resume it, and the correction is recorded with your reason.

@@ -122,6 +122,25 @@ test('POST correct-pick: pauses, reverses the latest non-keeper Pick, appends a 
   fake.assertClean();
 });
 
+test('POST correct-pick: locks the league FOR UPDATE before any mutation, serializing against a concurrent pick', async (t) => {
+  // The concurrency defence (#439: cannot race a manager or autopick) is the
+  // SAME row lock draftPlayer takes: both do SELECT ... FOR UPDATE on the league
+  // before touching draft_picks, so a correction and a concurrent pick serialize
+  // on it. This proves the mechanism is wired - the lock is acquired, and before
+  // any DELETE/UPDATE. (A true two-transaction race is proven against a real
+  // Postgres in the migration-smoke pg suite, which a matcher fake cannot honor.)
+  const fake = correctionPool().install(t);
+
+  const res = await correct({ pickNumber: 3, reason: REASON });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  const order = fake.calls.map((c) => c.text);
+  const lockIdx = order.findIndex((t2) => /FROM "leagues"[\s\S]*FOR UPDATE/.test(t2));
+  const firstMutationIdx = order.findIndex((t2) => /^DELETE|^UPDATE/.test(t2));
+  assert.ok(lockIdx >= 0, 'the league is locked FOR UPDATE');
+  assert.ok(firstMutationIdx > lockIdx, 'the lock is taken before any DELETE/UPDATE');
+});
+
 test('POST correct-pick: a reason shorter than 10 characters is rejected before any DB write', async (t) => {
   const fake = correctionPool().install(t);
 
