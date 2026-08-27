@@ -821,3 +821,184 @@ describe('ChatConversation - GIF messages (#446)', () => {
     expect(screen.getByTestId('gif-picker-trigger')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// #524: an unsent GIF composition is preserved across an unmount, on the same
+// per-league, account-stamped scope and clearing rules as the text draft.
+// These are the RESTORE-MECHANISM tests, driven through ChatConversation (the
+// component the room and the dashboard both mount). The Draft-room test that
+// crosses the real narrow-tab / breakpoint trigger lives in DraftBoard.test.jsx.
+// Every existing composer test above lives inside a SINGLE mount and is
+// structurally blind to a state-loss-on-unmount defect; these mount, fill,
+// unmount and remount.
+// ---------------------------------------------------------------------------
+describe('ChatConversation - GIF composition persistence (#524)', () => {
+  // eslint-disable-next-line global-require
+  const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID, fakeGifResolver } = require('../../lib/gifProviderFake');
+
+  beforeEach(() => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: false, media: query, onchange: null,
+      addListener: jest.fn(), removeListener: jest.fn(),
+      addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => clearGifProviders());
+
+  // Open the picker and fill the composition. Leaves the panel open.
+  const fillGif = async ({ assetId = 'abc123', description = 'a cat knocking a cup', caption } = {}) => {
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    if (assetId) await userEvent.type(screen.getByLabelText('GIF asset id'), assetId);
+    if (description) await userEvent.type(screen.getByLabelText(/description/i), description);
+    if (caption) await userEvent.type(screen.getByLabelText(/caption/i), caption);
+  };
+
+  test('restores BOTH the message text and the GIF composition on remount (AC1, the load-bearing test)', async () => {
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'and also this gif');
+    await fillGif({ assetId: 'abc123', description: 'a cat knocking a cup', caption: 'me at 3pm' });
+
+    // The everyday trigger: the chat subtree unmounts (a narrow tab switch) and
+    // comes back for the same league and account.
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+
+    // The message text is back...
+    expect(screen.getByLabelText('Message')).toHaveValue('and also this gif');
+    // ...and so is the whole GIF composition, with the panel already open because
+    // the stored composition is non-empty (no click needed to reveal the fields).
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a cat knocking a cup');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('me at 3pm');
+  });
+
+  test('a restored composition does not come back already showing a validation error (touched flag not persisted)', async () => {
+    // Fill only the asset id, leaving the required description empty, then remount.
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await fillGif({ assetId: 'abc123', description: '' });
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+
+    // The panel is open (asset id makes the composition non-empty) but the empty
+    // description is NOT marked invalid: touched did not survive the remount.
+    const description = screen.getByLabelText(/description/i);
+    expect(description).not.toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText(/description is required/i)).not.toBeInTheDocument();
+  });
+
+  test('a different account finds an empty GIF composition and a closed panel', async () => {
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await fillGif();
+    unmount();
+
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={8} />
+    );
+    // Nothing restored, so the panel stays closed for the new account.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
+  test('a logged-out (null) account finds an empty GIF composition', async () => {
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await fillGif();
+    unmount();
+
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={null} />
+    );
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
+  test('a successful GIF send clears the GIF composition but leaves the text draft untouched', async () => {
+    const onSendGif = jest.fn().mockResolvedValue(true);
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={onSendGif} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'keep my message');
+    await fillGif({ assetId: 'abc123', description: 'a waving hand' });
+    await userEvent.click(screen.getByTestId('gif-send'));
+
+    // The send fired and the panel closed / fields cleared...
+    expect(onSendGif).toHaveBeenCalled();
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    // ...but the typed message is untouched, here and after a remount.
+    expect(screen.getByLabelText('Message')).toHaveValue('keep my message');
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    expect(screen.getByLabelText('Message')).toHaveValue('keep my message');
+    // The GIF slice is gone: reopening the picker shows empty fields.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
+  test('a successful TEXT send clears the text draft but leaves the GIF composition untouched', async () => {
+    const onSend = jest.fn().mockResolvedValue(true);
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={onSend} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'send this text');
+    await fillGif({ assetId: 'abc123', description: 'a waving hand', caption: 'hi' });
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    // The text send fired and cleared the message box...
+    expect(onSend).toHaveBeenCalledWith('send this text', expect.any(String));
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    // ...but the GIF composition is intact, still open with its fields, and it
+    // survives a remount.
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a waving hand');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('hi');
+  });
+
+  test('when sessionStorage throws, composing and sending a GIF still work', async () => {
+    jest.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    jest.spyOn(window.sessionStorage.__proto__, 'getItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    const onSendGif = jest.fn().mockResolvedValue(true);
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={onSendGif} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+
+    await fillGif({ assetId: 'abc123', description: 'a waving hand' });
+    await userEvent.click(screen.getByTestId('gif-send'));
+
+    // Persistence failed on every access, but the composition still reached the
+    // send: a composer that cannot save a draft must still let the manager send.
+    expect(onSendGif).toHaveBeenCalledWith(expect.objectContaining({
+      provider: FAKE_PROVIDER_ID,
+      assetId: 'abc123',
+      description: 'a waving hand',
+    }));
+    jest.restoreAllMocks();
+  });
+});

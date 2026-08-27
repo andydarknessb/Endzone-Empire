@@ -68,10 +68,13 @@ function ChatConversation({
   gifEnabled = false,
   onSendGif = null,
 }) {
-  // The composer text is a preserved draft (#442 AC5/AC6): scoped per league and
-  // account, cleared on send, logout or account change. clearDraft empties both
-  // the box and the stored draft on a successful send.
-  const [text, setText, clearDraft] = useComposerDraft({ leagueId, userId: viewerUserId });
+  // The composer draft is preserved (#442 AC5/AC6, extended by #524): scoped per
+  // league and account, cleared on send, logout or account change. The hook owns
+  // BOTH the message text and the GIF composition so the two composers behave
+  // alike across an unmount; they clear independently, so clearDraft (a text
+  // send) leaves a half-composed GIF in place and clearGif (a GIF send) leaves
+  // the typed message in place.
+  const [text, setText, clearDraft, gif, setGif] = useComposerDraft({ leagueId, userId: viewerUserId });
   // The message currently being hidden (its id), and the reason being typed for
   // it. Only one hide form is open at a time; opening another replaces it.
   const [hidingId, setHidingId] = useState(null);
@@ -528,8 +531,18 @@ function ChatConversation({
         </Button>
       </Box>
       {/* The GIF compose affordance (#446), absent unless the capability is
-          enabled (AC7); emoji and text above are unaffected. */}
-      <GifComposer enabled={gifEnabled} onSendGif={onSendGif} />
+          enabled (AC7); emoji and text above are unaffected. Its compose fields
+          are the hook-owned, per-league preserved GIF composition (#524), so a
+          half-composed GIF survives an unmount exactly as the text draft does
+          and the panel reopens when a restored composition is non-empty. A
+          successful GIF send (or a Cancel) clears only this slice through
+          setGif, leaving the message draft above untouched. */}
+      <GifComposer
+        enabled={gifEnabled}
+        onSendGif={onSendGif}
+        composition={gif}
+        onCompositionChange={setGif}
+      />
     </Paper>
   );
 }

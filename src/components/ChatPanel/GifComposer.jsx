@@ -34,12 +34,35 @@ import { firstGifProviderId } from '../../lib/gifProvider';
  * field submits, matching the text composer; and both close paths (Cancel and a
  * successful send) return focus to the trigger rather than stranding it on the
  * document body. All copy uses hyphens (ADR 0016).
+ *
+ * PRESERVED COMPOSITION (#524). The three compose fields (assetId, description,
+ * caption) can be OWNED by the caller so an unsent composition survives an
+ * unmount exactly as the text draft does: ChatConversation holds them in
+ * useComposerDraft, keyed per league and stamped with the account, and hands
+ * them in as `composition` with an `onCompositionChange` writer. When those two
+ * are absent the component keeps the fields in local state instead (the
+ * standalone, unpreserved mode its own unit tests exercise), so nothing about
+ * its accessible names, gating or focus behaviour depends on which mode it is
+ * in. The touched/validation flag and the open/closed disclosure are always
+ * local: a restored composition must not come back already showing an error, and
+ * the panel simply opens on mount when the restored composition is non-empty.
  */
-function GifComposer({ enabled = false, onSendGif }) {
-  const [open, setOpen] = useState(false);
-  const [assetId, setAssetId] = useState('');
-  const [description, setDescription] = useState('');
-  const [caption, setCaption] = useState('');
+const EMPTY_COMPOSITION = { assetId: '', description: '', caption: '' };
+const compositionIsEmpty = (c) => !c || (!c.assetId && !c.description && !c.caption);
+
+function GifComposer({ enabled = false, onSendGif, composition, onCompositionChange }) {
+  // Controlled when the caller both supplies a composition and a writer for it
+  // (#524, the preserved-draft path); otherwise the fields live locally.
+  const controlled = composition != null && typeof onCompositionChange === 'function';
+  const [localComposition, setLocalComposition] = useState(EMPTY_COMPOSITION);
+  const current = controlled ? composition : localComposition;
+  const assetId = current.assetId ?? '';
+  const description = current.description ?? '';
+  const caption = current.caption ?? '';
+
+  // Open on mount when a restored composition is already non-empty (#524); a
+  // fresh, empty composition opens only when the manager clicks the trigger.
+  const [open, setOpen] = useState(() => !compositionIsEmpty(controlled ? composition : EMPTY_COMPOSITION));
   const [descriptionTouched, setDescriptionTouched] = useState(false);
   const triggerRef = useRef(null);
   const panelId = useId();
@@ -51,10 +74,20 @@ function GifComposer({ enabled = false, onSendGif }) {
   const descriptionError = descriptionTouched && descriptionMissing;
   const canSend = Boolean(providerId) && assetId.trim() !== '' && !descriptionMissing;
 
+  // Update one or more compose fields, routing to the caller's writer in
+  // controlled mode and to local state otherwise.
+  const updateComposition = (patch) => {
+    const next = { assetId, description, caption, ...patch };
+    if (controlled) onCompositionChange(next);
+    else setLocalComposition(next);
+  };
+
   const reset = () => {
-    setAssetId('');
-    setDescription('');
-    setCaption('');
+    // Clearing the composition IS how a Cancel or a successful send discards the
+    // preserved draft in controlled mode (it clears the stored gif slice while
+    // leaving the text draft in place); in local mode it just empties the fields.
+    if (controlled) onCompositionChange(EMPTY_COMPOSITION);
+    else setLocalComposition(EMPTY_COMPOSITION);
     setDescriptionTouched(false);
     setOpen(false);
     // Never strand focus on the document body: the panel unmounts, so return
@@ -115,7 +148,7 @@ function GifComposer({ enabled = false, onSendGif }) {
             label="GIF asset id"
             size="small"
             value={assetId}
-            onChange={(e) => setAssetId(e.target.value)}
+            onChange={(e) => updateComposition({ assetId: e.target.value })}
             onKeyDown={onFieldKeyDown}
           />
           <TextField
@@ -123,7 +156,7 @@ function GifComposer({ enabled = false, onSendGif }) {
             size="small"
             required
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => updateComposition({ description: e.target.value })}
             onBlur={() => setDescriptionTouched(true)}
             onKeyDown={onFieldKeyDown}
             error={descriptionError}
@@ -135,7 +168,7 @@ function GifComposer({ enabled = false, onSendGif }) {
             label="Caption (optional)"
             size="small"
             value={caption}
-            onChange={(e) => setCaption(e.target.value)}
+            onChange={(e) => updateComposition({ caption: e.target.value })}
             onKeyDown={onFieldKeyDown}
           />
           <Box sx={{ display: 'flex', gap: 1 }}>
