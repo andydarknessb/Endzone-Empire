@@ -80,12 +80,18 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  *
  * PickAnnouncer.jsx (#513) now uses the identical repeat idiom - compare the new
  * text against the rendered value and append a zero-width space on an exact
- * repeat. After #518 the two no longer diverge on the repeat handling. Only that
- * two-line idiom coincides, though: this announcer is Chat-scoped and seq-gated
- * over a feed, while PickAnnouncer is room-level and keyed on a single pick prop,
- * so the components as a whole remain substantially different. Whether the shared
- * two-line idiom should be factored into a common helper or left duplicated is a
- * design call for the leads, not something to fold in silently here.
+ * repeat. After #518 the two no longer diverge on the repeat handling. That
+ * duplication is DELIBERATE, not a pending cleanup: it is a two-line idiom, not a
+ * mechanism, so a shared hook buys no reduction in logic and costs an import, an
+ * indirection and a file. And the two components have genuinely different
+ * lifecycles - this one is seq-gated over a feed with a clear path and an
+ * initialisation guard; PickAnnouncer is keyed on a single pick prop with
+ * neither - so a shared hook would have to reconcile a clear path that only one of
+ * them has, which is exactly the reset-semantics hazard #513 identified. The two
+ * did drift once (the fourth-repeat silence #518 fixed), but only because one was
+ * fixed hours before the other; the cross-references now written in both docblocks
+ * are the cheap guard against that. REOPEN THIS ONLY IF A THIRD ANNOUNCER NEEDS
+ * THE SAME IDIOM: at three copies, extract a shared helper then.
  */
 function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
   const [announcement, setAnnouncement] = useState('');
