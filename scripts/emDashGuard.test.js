@@ -80,7 +80,14 @@ test('findEmDashes: an em dash in a JSX {/* */} comment is not reported', () => 
   assert.deepEqual(findEmDashes(source), []);
 });
 
-// --- findEmDashes: the three hit forms --------------------------------
+// --- findEmDashes: the hit forms ---------------------------------------
+//
+// Per PR #504 review: an HTML numeric character reference is a generative
+// space, not a fixed list of spellings -- &#8212;, &#08212;, &#x2014; and
+// &#X2014; all render as the same em dash. The pattern matches the whole
+// reference SHAPE (optional leading zeros, either case of a hex `x`), so
+// this covers named + decimal + hex, with and without padding, not just
+// the two example spellings a first pass matched literally.
 
 test('findEmDashes: the raw U+2014 character is reported', () => {
   const hits = findEmDashes("const a = 'x—y';\n");
@@ -94,15 +101,70 @@ test('findEmDashes: the &mdash; entity is reported', () => {
   assert.equal(hits[0].match, '&mdash;');
 });
 
-test('findEmDashes: the &#8212; numeric entity is reported', () => {
+test('findEmDashes: the &#8212; decimal numeric entity is reported', () => {
   const hits = findEmDashes("const title = 'x&#8212;y';\n");
   assert.equal(hits.length, 1);
   assert.equal(hits[0].match, '&#8212;');
 });
 
+test('findEmDashes: a zero-padded decimal entity (&#08212;) is reported', () => {
+  const hits = findEmDashes("const title = 'x&#08212;y';\n");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].match, '&#08212;');
+});
+
+test('findEmDashes: a many-zero-padded decimal entity (&#0008212;) is reported', () => {
+  const hits = findEmDashes("const title = 'x&#0008212;y';\n");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].match, '&#0008212;');
+});
+
+test('findEmDashes: the lowercase hex entity (&#x2014;) is reported', () => {
+  const hits = findEmDashes("const title = 'x&#x2014;y';\n");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].match, '&#x2014;');
+});
+
+test('findEmDashes: the uppercase-X hex entity (&#X2014;) is reported', () => {
+  const hits = findEmDashes("const title = 'x&#X2014;y';\n");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].match, '&#X2014;');
+});
+
+test('findEmDashes: a zero-padded hex entity (&#x02014;) is reported', () => {
+  const hits = findEmDashes("const title = 'x&#x02014;y';\n");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].match, '&#x02014;');
+});
+
+// A decimal or hex reference for a DIFFERENT codepoint that merely shares a
+// prefix or suffix with the em dash's must not match -- the trailing `;`
+// anchors the reference so &#88212; (a different, larger number) and
+// &#82128; (a different codepoint entirely) are correctly ignored, even
+// though both contain the substring "8212".
+test('findEmDashes: a decimal entity that only shares digits with 8212 is not reported', () => {
+  assert.deepEqual(findEmDashes("const x = 'a&#88212;b';\n"), []);
+  assert.deepEqual(findEmDashes("const x = 'a&#82128;b';\n"), []);
+});
+
+// The en dash's own numeric entities (U+2013 = 8211 decimal, x2013 hex)
+// must not be swept in by a pattern broadened to catch em-dash padding --
+// ADR 0016 is explicit that en dashes are a different, untouched convention.
+test('findEmDashes: the en dash\'s own numeric entities are not reported', () => {
+  assert.deepEqual(findEmDashes("const x = 'a&#8211;b';\n"), []);
+  assert.deepEqual(findEmDashes("const x = 'a&#x2013;b';\n"), []);
+});
+
+// Deliberately out of scope, per the guard's docblock: an unterminated
+// numeric reference (no trailing `;`) is not a well-formed HTML character
+// reference and is not matched.
+test('findEmDashes: an unterminated numeric reference (no trailing ;) is not reported', () => {
+  assert.deepEqual(findEmDashes("const x = 'a&#8212b';\n"), []);
+});
+
 // --- findEmDashes: the string-vs-comment stripper trap ----------------
 
-// This is the case #501 named explicitly: a `//` inside a string literal
+// This is the case the triage-brief comment on #501 named explicitly: a `//` inside a string literal
 // (a URL) must not be misread as the start of a line comment, which would
 // silently swallow the rest of the line -- including a real em dash later
 // on it. Changing stripComments to treat every `//` as a comment start

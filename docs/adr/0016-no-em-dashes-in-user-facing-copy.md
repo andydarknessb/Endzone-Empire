@@ -10,7 +10,7 @@ reader is unaudited): it lived in a few per-string tests, in code comments
 that said "house style", and in the gitignored per-checkout `CLAUDE.md`. Its
 observed health was produced by hand, a reviewer byte-checking a diff, and
 that method missed live defects: the evidence a guard was needed
-(issue #501): four em dashes in the preseason Week 2 recap article
+(found while picking up issue #501): four em dashes in the preseason Week 2 recap article
 (`src/content/articles/preseason-week-2-recap.jsx`), shipped in the last
 client release, and one in a thrown `Error` message in
 `server/services/correction.service.js`.
@@ -23,10 +23,17 @@ The rule applies to rendered, user-facing text only:
   content that reaches a component)
 - strings a user reads indirectly, such as a thrown error message shown in
   a toast or logged to a user-visible surface
-- HTML-entity escapes of the character (`&mdash;`, `&#8212;`) are exactly as
-  in scope as the literal character, since they render identically once the
-  browser decodes them: one of the original sweep's misses hid as an
-  escaped entity in an SEO title
+- HTML-entity escapes of the character are exactly as in scope as the
+  literal character, since they render identically once the browser decodes
+  them: one of the original sweep's misses hid as an escaped entity in an
+  SEO title. An HTML numeric character reference is a generative space, not
+  two fixed spellings: `&#8212;`, `&#08212;`, `&#x2014;` and `&#X2014;` all
+  render as the same character (any number of leading zeros, either case of
+  a hex `x`), and a guard that matched only the two literal example
+  spellings would let the rest straight through with a green check on top,
+  which is a stronger, false claim of safety than no guard at all (found on
+  PR #504's review). The named form `&mdash;` and the whole decimal/hex
+  numeric-reference shape are all in scope
 
 The rule does **not** apply to, and this ADR's guard does not scan:
 
@@ -40,6 +47,16 @@ The rule does **not** apply to, and this ADR's guard does not scan:
   recap LLM prompts (the prompts already instruct "no em dashes" directly).
   If one of these turns out to need coverage, that is a follow-up, not a
   silent widening of this guard's scan
+- `public/` (including `public/service-worker.js`, whose
+  `self.registration.showNotification()` calls CAN carry user-facing
+  notification text). This is a recorded decision, not an oversight: the
+  guard's scope was set to `src/` and `server/` because that is where this
+  repo's rendered copy and thrown-error copy live; `public/` was not
+  reconsidered when #501 was scoped and picked up. At the time of this ADR
+  every em dash in `public/service-worker.js` is inside a `//` comment, so
+  nothing is live-broken today, but the file is a real, if narrow, gap in
+  coverage. Widening the scan into `public/` is left as a follow-up rather
+  than folded in here silently
 - en dashes (`–`), which mark a range (`Week 15-17`, `A-F`) and are a
   different convention entirely, untouched by this rule
 
@@ -66,9 +83,11 @@ a `node:test` file whose assertions read the tree, with no `check:`
 wrapper and no workflow edit, since `npm run guards` is already a
 CI-required job. It scans `.js`/`.jsx`/`.ts`/`.tsx` under `src/` and
 `server/`, excluding test/spec files and `server/db/migrations/`, stripping
-comments before matching so a comment is never a hit. A per-path allowlist
-with a reason per entry exists for a legitimate future exception; it is
-empty as of this ADR.
+comments before matching so a comment is never a hit. It matches the raw
+character, `&mdash;`, and the full decimal/hex numeric-character-reference
+shape (leading zeros, either case of hex `x`), not a fixed list of example
+spellings. A per-path allowlist with a reason per entry exists for a
+legitimate future exception; it is empty as of this ADR.
 
 ## Rejected shapes
 

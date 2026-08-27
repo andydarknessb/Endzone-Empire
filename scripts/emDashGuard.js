@@ -48,11 +48,30 @@ const ALLOWLIST = [];
 
 const TEST_FILE_PATTERN = /\.(test|spec)\.(js|jsx|ts|tsx)$/;
 
-// The three forms #501 asked this guard to catch: the raw U+2014 character,
-// and its two HTML-entity escapes. (One of the original sweep's misses hid
-// as `&mdash;` in an SEO title -- an entity is exactly as user-facing as
-// the character it stands for once it's rendered.)
-const EM_DASH_PATTERN = /—|&mdash;|&#8212;/g;
+// What counts as a hit, per the triage brief posted as a comment on #501
+// (github.com/andydarknessb/Endzone-Empire/issues/501#issuecomment, posted
+// 2026-08-27T13:59:14Z): the raw U+2014 character, and its HTML-entity
+// escapes. (One of the original sweep's misses hid as `&mdash;` in an SEO
+// title -- an entity is exactly as user-facing as the character it stands
+// for once it's rendered.) That comment names two escape forms as examples
+// (`&mdash;`, the decimal numeric reference `&#8212;`) -- but per PR #504
+// review, an HTML numeric character reference is a GENERATIVE space, not a
+// fixed list: any number of leading zeros, and a hex form (`&#x2014;`)
+// spelled with either case of `x`, all render identically to the same
+// character. A pattern that only matched the two literal example spellings
+// would pass `&#x2014;`, `&#X2014;`, `&#08212;` or `&#x02014;` straight
+// through -- the exact gap this guard exists to close, with a green check
+// on top making it look closed. So this matches the whole reference SHAPE
+// (`&#`, optional leading zeros, the decimal or hex codepoint, `;`), not
+// just the two spellings the brief happened to write down.
+//
+// Deliberately NOT matched: a numeric character reference missing its
+// trailing `;`. Real HTML requires it for `&#...;` to be a character
+// reference at all (an unterminated `&#8212` is, strictly, not one); every
+// example seen in this repo and in the review that found this gap was
+// well-formed. If an unterminated form ever turns up live, that is a
+// narrower, separate follow-up, not silently folded in here.
+const EM_DASH_PATTERN = /—|&mdash;|&#0*8212;|&#[xX]0*2014;/g;
 
 const REPLACEMENT_RULE =
   'No em dashes in user-facing copy: use real prose punctuation (comma, colon, ' +
