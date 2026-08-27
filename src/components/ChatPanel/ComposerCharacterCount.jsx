@@ -28,25 +28,43 @@ import { MAX_CHAT_CHARS, CHAT_CHARS_WARNING, characterCount } from './chatLimits
  * limit is reached, but the server stays the single enforcement point.
  */
 
-// The announcement for a given remaining count, derived from its BAND alone so
-// it is identical across keystrokes within one band. The limit band (<= 0) is
-// also <= the warning threshold, so it is tested first. The clear band returns
-// the empty string: there is nothing to announce, and an empty text node keeps
-// the region mounted and silent rather than unmounting it.
-function announcementFor(remaining) {
-  if (remaining <= 0) return `You have reached the ${MAX_CHAT_CHARS} character message limit.`;
-  if (remaining <= CHAT_CHARS_WARNING) return `Approaching the ${MAX_CHAT_CHARS} character message limit.`;
-  return '';
+// Which band a remaining count falls in - the SINGLE source of truth both the
+// visible color and the spoken announcement read, so the two can never cross at
+// different counts (e.g. the color still saying "near" while the announcer says
+// "reached"). 'limit' is remaining <= 0, so reaching exactly the limit counts as
+// the limit, matching the AC ("when the limit is reached or exceeded"); it is
+// tested first because it is also <= the warning threshold.
+function bandFor(remaining) {
+  if (remaining <= 0) return 'limit';
+  if (remaining <= CHAT_CHARS_WARNING) return 'warning';
+  return 'clear';
 }
+
+// The polite announcement for a band, identical across keystrokes within one
+// band so a screen reader hears it once per crossing, not once per keystroke.
+// The clear band returns the empty string: nothing to announce, and an empty
+// text node keeps the region mounted and silent rather than unmounting it.
+const ANNOUNCEMENT = {
+  limit: `You have reached the ${MAX_CHAT_CHARS} character message limit.`,
+  warning: `Approaching the ${MAX_CHAT_CHARS} character message limit.`,
+  clear: '',
+};
+
+// The indicator color for a band. Error at or over the limit, warning as it is
+// approached; both derived from the same band as the announcement above.
+const BAND_COLOR = {
+  limit: 'error.main',
+  warning: 'warning.main',
+  clear: 'text.secondary',
+};
 
 function ComposerCharacterCount({ text = '', indicatorId }) {
   const count = characterCount(text);
   const remaining = MAX_CHAT_CHARS - count;
-  const over = remaining < 0;
-  const warning = !over && remaining <= CHAT_CHARS_WARNING;
-  // House style keeps this brief and numeric; the color carries the state a
-  // sighted manager reads at a glance, the announcer carries it for others.
-  const color = over ? 'error.main' : warning ? 'warning.main' : 'text.secondary';
+  const band = bandFor(remaining);
+  // The color carries the state a sighted manager reads at a glance; the
+  // announcer carries the same band for others.
+  const color = BAND_COLOR[band];
 
   return (
     <>
@@ -60,7 +78,7 @@ function ComposerCharacterCount({ text = '', indicatorId }) {
         {count} / {MAX_CHAT_CHARS}
       </Typography>
       <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
-        {announcementFor(remaining)}
+        {ANNOUNCEMENT[band]}
       </Box>
     </>
   );
