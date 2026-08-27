@@ -87,7 +87,7 @@ test('a correction entry reads back with no reason, so no free-text can leak', a
   ]);
   const [entry] = await listPresenterDraftActivity(fake, { leagueId: 12 });
   assert.equal(entry.kind, 'correction');
-  assert.equal(entry.reason, null);
+  assert.ok(!('reason' in entry), 'the presenter entry carries no reason surface at all');
 });
 
 test('shapes each row as the same Team-only entry a member reads', async () => {

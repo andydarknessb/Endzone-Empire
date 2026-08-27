@@ -432,7 +432,11 @@ async function listPresenterDraftActivity(db, { leagueId, before = null, after =
      ) page ORDER BY feed_seq ASC`,
     params
   );
-  return result.rows.map(activityEntryOf);
+  // activityEntryOf shapes a CORRECTION with a `reason` key (null here, since
+  // the column is unselected). Drop it so the presenter payload carries no
+  // correction free-text SURFACE at all - not even a null placeholder for a
+  // member-moderation field an anonymous board has no business showing (#438).
+  return result.rows.map(activityEntryOf).map(({ reason, ...entry }) => entry);
 }
 
 module.exports = {
