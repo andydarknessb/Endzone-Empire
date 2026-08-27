@@ -2800,6 +2800,26 @@ describe('the final Pick and Draft completion (#519)', () => {
         },
       })
     );
+    // The real wire on completion emits THREE things, not one (draftSocket.js:
+    // 287-293, identically in autopick.service.js): the pick, a completion
+    // lifecycle entry on draft:activity (#437), and draft:complete. Fire all
+    // three so "exactly one live update on the final Pick" is proven against the
+    // wire, not against a simplification. The other two are silent today - the
+    // feed announcer returns empty for every draft_activity, and draft:complete
+    // only re-sets an already-true flag - which is exactly what the count below
+    // must confirm.
+    act(() =>
+      fakeSocket.trigger('draft:activity', {
+        type: 'draft_activity',
+        kind: 'complete',
+        id: 21,
+        seq: 201,
+        teamId: null,
+        teamName: null,
+        created_at: '2026-01-01T12:05:00Z',
+      })
+    );
+    act(() => fakeSocket.trigger('draft:complete', { leagueId: 1 }));
   };
 
   test('a final manual Pick produces exactly one live update, ordered Team then completion', async () => {
@@ -2820,10 +2840,11 @@ describe('the final Pick and Draft completion (#519)', () => {
     // AC4: the visible success Alert is still rendered...
     const completionAlert = screen.getByTestId('draft-complete-alert');
     expect(completionAlert).toHaveTextContent('Draft complete!');
-    // AC5: ...but it is not a live region - neither assertive alert nor a
-    // competing polite status. (Counted zero above; asserted directly here.)
-    expect(completionAlert).not.toHaveAttribute('role', 'alert');
-    expect(completionAlert).not.toHaveAttribute('role', 'status');
+    // AC5: ...but it is not a live region. Pin the actual role shipped rather
+    // than "not alert/status" - log, marquee and timer are all live-region roles
+    // that a bare negative would let through. The count assertion at the top of
+    // this test is the real guard; this is belt-and-braces on what silenced it.
+    expect(completionAlert).toHaveAttribute('role', 'presentation');
   });
 
   test('a final automatic Pick announces autodrafted, once', async () => {

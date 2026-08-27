@@ -76,6 +76,29 @@ describe('pickAnnouncementFor', () => {
     ).toBe('Gridiron Giants autodrafted Bijan Robinson. Draft complete.');
   });
 
+  it('reuses a name-final period instead of doubling the full stop (#519)', () => {
+    // A final Pick landing on a suffixed name is an ordinary way for a draft to
+    // end. "Jr.. Draft complete." would render a double stop in braille output,
+    // so the name's own period is reused rather than a second one added.
+    expect(
+      pickAnnouncementFor({
+        teamName: 'Gridiron Giants',
+        player: { name: 'Marvin Harrison Jr.' },
+        auto: false,
+        draftComplete: true,
+      })
+    ).toBe('Gridiron Giants drafted Marvin Harrison Jr. Draft complete.');
+    // ...and for a final autopick of a suffixed name.
+    expect(
+      pickAnnouncementFor({
+        teamName: 'Gridiron Giants',
+        player: { name: 'Michael Pittman Jr.' },
+        auto: true,
+        draftComplete: true,
+      })
+    ).toBe('Gridiron Giants autodrafted Michael Pittman Jr. Draft complete.');
+  });
+
   it('adds no completion sentence to a non-final Pick (#519)', () => {
     // Every Pick before the last leaves the wording exactly as it was: a
     // draftComplete that is false, or absent entirely, means no completion
@@ -101,6 +124,10 @@ describe('pickAnnouncementFor', () => {
     const samples = [
       pickAnnouncementFor({ teamName: 'A', player: { name: 'P' }, auto: false }),
       pickAnnouncementFor({ teamName: 'A', player: { name: 'P' }, auto: true }),
+      // The module now produces four outputs; the completion variants are
+      // user-facing copy too, so guard them as well (#519).
+      pickAnnouncementFor({ teamName: 'A', player: { name: 'P' }, auto: false, draftComplete: true }),
+      pickAnnouncementFor({ teamName: 'A', player: { name: 'P' }, auto: true, draftComplete: true }),
     ];
     for (const text of samples) {
       // The literal em dash (U+2014, bytes e2 80 94) the guards chain forbids in

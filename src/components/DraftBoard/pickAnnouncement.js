@@ -46,9 +46,14 @@ export function pickAnnouncementFor(pick) {
   const name = player.name || 'a player';
   const team = teamNameLabel(pick.teamName);
   const base = pick.auto ? `${team} autodrafted ${name}` : `${team} drafted ${name}`;
+  if (!pick.draftComplete) return base;
   // The Pick that completes the draft carries draftComplete:true on this same
   // payload (#519): append the completion sentence so the final Pick and the
-  // completion are one ordered polite update, Team and player first. Full stop
-  // plus space, never an em dash (guarded copy).
-  return pick.draftComplete ? `${base}. Draft complete.` : base;
+  // completion are one ordered polite update, Team and player first. A full stop
+  // plus a space joins the two facts, never an em dash (guarded copy). When the
+  // player's name already ends in a period (a suffix such as "Jr."), reuse that
+  // stop rather than adding a second: "Jr.. Draft complete." renders as a double
+  // stop in braille output, and suffixed names (Marvin Harrison Jr., Tyrone
+  // Tracy Jr.) are an ordinary way for a late final Pick to land.
+  return base.endsWith('.') ? `${base} Draft complete.` : `${base}. Draft complete.`;
 }
