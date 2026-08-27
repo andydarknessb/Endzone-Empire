@@ -8,10 +8,11 @@
 // asks for automated checks plus MANUAL keyboard and screen-reader evidence. A
 // background agent cannot run NVDA, JAWS or VoiceOver, so:
 //   - the KEYBOARD half is delivered here in full: Playwright is a real browser
-//     and drives real Tab, Shift+Tab, Enter, Escape and arrow keys, so AC4's
-//     focus predictability across tabs, a moderation dialog and new-entry
-//     navigation is asserted, not described. Emoji selection focus is covered in
-//     draft-emoji.spec.ts and not repeated here.
+//     and drives real Tab, Shift+Tab, Enter and arrow keys, so AC4's focus
+//     predictability across tabs, the moderation hide form and new-entry
+//     navigation is asserted, not described. Emoji selection focus (open, choose,
+//     Escape-to-dismiss) is covered in draft-emoji.spec.ts and EmojiPicker.test
+//     and not repeated here.
 //   - the SCREEN-READER half is SUBSTITUTED with DOM-level evidence: the roles
 //     and accessible names a reader computes from, and a live region's text at
 //     the moment it changes. That is a STRICTLY WEAKER claim than a reader
@@ -73,7 +74,7 @@ test.describe('Draft room accessibility (#445)', () => {
     await testInfo.attach('desktop-draft-room', { body: await page.screenshot(), contentType: 'image/png' });
   });
 
-  test('desktop: a live message and a live Pick each speak once in a polite region (AC2 DOM evidence)', async ({ page }) => {
+  test('desktop: a live message speaks once in a polite region (AC2 DOM evidence)', async ({ page }) => {
     await page.setViewportSize(VIEWPORTS.desktop);
     await openDraftRoom(page);
 
@@ -91,7 +92,10 @@ test.describe('Draft room accessibility (#445)', () => {
     // this announcement.
   });
 
-  test('desktop: the moderation hide dialog keeps focus predictable (AC4)', async ({ page }) => {
+  test('desktop: the moderation hide FORM keeps focus predictable, including a committed hide (AC4)', async ({ page }) => {
+    // It is an inline form, not a role="dialog" (no focus trap, no Escape
+    // handler) - named accordingly. Both close paths are driven: Cancel, and a
+    // committed hide whose chat:hidden broadcast removes the Hide button.
     await page.setViewportSize(VIEWPORTS.desktop);
     await openDraftRoom(page, { isCommissioner: true });
 
@@ -108,9 +112,26 @@ test.describe('Draft room accessibility (#445)', () => {
     // Focus moves into the reason field.
     await expect(chat.getByLabel('Reason for hiding')).toBeFocused();
 
-    // Cancelling returns focus to the Hide button that opened the form.
+    // CANCEL returns focus to the Hide button that opened the form.
     await chat.getByRole('button', { name: 'Cancel' }).click();
     await expect(chat.getByRole('button', { name: 'Hide message from Harbor Hawks' })).toBeFocused();
+
+    // COMMITTED hide: reopen, give a reason, confirm. The server would answer
+    // with chat:hidden; the harness plays that role, removing the Hide button.
+    await chat.getByRole('button', { name: 'Hide message from Harbor Hawks' }).click();
+    await chat.getByLabel('Reason for hiding').fill('targeted harassment of a member');
+    await chat.getByRole('button', { name: 'Confirm hide' }).click();
+    await deliver(page, 'chat:hidden', {
+      type: 'league_chat', id: 2, seq: 2, hidden: true, message: null, teamId: 2, teamName: 'Harbor Hawks',
+      created_at: '2026-01-01T12:00:00Z',
+    });
+
+    // The tombstone replaces the content and THIS message's Hide button is gone
+    // (the seed message keeps its own); focus is in the feed log, never on the
+    // document body (the BLOCKER-2 regression).
+    await expect(chat.getByText('Message hidden by commissioner')).toBeVisible();
+    await expect(chat.getByRole('button', { name: 'Hide message from Harbor Hawks' })).toHaveCount(0);
+    await expect(page.getByRole('log', { name: 'League Chat' })).toBeFocused();
   });
 
   test('desktop: the N-new jump lands focus on the live log (AC4 new-entry navigation)', async ({ page }) => {
@@ -140,7 +161,7 @@ test.describe('Draft room accessibility (#445)', () => {
     await expect(log).toBeFocused();
   });
 
-  test('mobile: tab keyboard flow - arrow keys move selection, Tab reaches the panel (AC1/AC4)', async ({ page }, testInfo) => {
+  test('mobile: tab keyboard flow - arrow moves focus (manual activation), Enter selects, Tab and Shift+Tab cross the panel boundary (AC1/AC4)', async ({ page }, testInfo) => {
     await page.setViewportSize(VIEWPORTS.mobile);
     await openDraftRoom(page);
 
@@ -165,9 +186,14 @@ test.describe('Draft room accessibility (#445)', () => {
     await expect(page.getByRole('tabpanel', { name: 'Players' })).toBeVisible();
     await testInfo.attach('mobile-players-tab', { body: await page.screenshot(), contentType: 'image/png' });
 
-    // Focus stays on the selected tab; one Tab press moves into its panel.
+    // Focus stays on the selected tab; one Tab press moves into its panel...
     await expect(playersTab).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('tabpanel', { name: 'Players' })).toBeFocused();
+
+    // ...and Shift+Tab returns from the panel to its tab, so the boundary is
+    // crossable in both directions.
+    await page.keyboard.press('Shift+Tab');
+    await expect(playersTab).toBeFocused();
   });
 });
