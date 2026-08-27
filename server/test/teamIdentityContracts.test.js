@@ -474,6 +474,8 @@ test('chat:message attributes the message by Team and nothing about the author a
       teamId: OTHER.teamId,
       teamName: OTHER.teamName,
       message: 'good luck everyone',
+      // #441: a live send is never hidden; the flag rides on every entry.
+      hidden: false,
       created_at: '2026-09-01T00:00:00.000Z',
     }
   );

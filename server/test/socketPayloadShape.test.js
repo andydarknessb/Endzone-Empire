@@ -131,7 +131,10 @@ const chat = () => chatMessagePayload({
   message: 'good luck everyone',
   createdAt: '2026-09-01T00:00:00.000Z',
 });
-const CHAT_CLEAN = ['created_at', 'id', 'leagueId', 'message', 'seq', TEAM_ID, TEAM_NAME, 'type'];
+// `hidden` (#441) rides on every chat feed entry: false on a live send, true
+// on a commissioner-hidden tombstone. It is a property of the entry, not of the
+// viewer, so it belongs on the broadcast.
+const CHAT_CLEAN = ['created_at', 'hidden', 'id', 'leagueId', 'message', 'seq', TEAM_ID, TEAM_NAME, 'type'];
 // `user_id` is the raw chat_messages column; it must never leak onto the
 // broadcast in either the raw or the `userId` spelling.
 const CHAT_FORBIDDEN_ALWAYS = ['user_id', 'userId', 'username', ...VIEWER_RELATIVE];

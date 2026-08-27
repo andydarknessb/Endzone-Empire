@@ -5,6 +5,17 @@ import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
 import EmojiPicker from './EmojiPicker';
 
+// A hide reason is required and bounded the same as the server enforces
+// (safety.router: 10..500 chars), so the Confirm control is disabled until the
+// reason is long enough and the server never has to reject a well-formed click.
+const HIDE_REASON_MIN = 10;
+const HIDE_REASON_MAX = 500;
+
+// The neutral tombstone a member sees in place of hidden content (#441, AC3).
+// It names neither the reason nor the moderator - those reach authorized
+// reviewers alone (AC4) and never ride on the feed entry.
+const HIDDEN_TOMBSTONE = 'Message hidden by commissioner';
+
 // The past-tense verb each Draft LIFECYCLE kind reads as (#437). A lifecycle
 // event is attributed to the acting commissioner's Team ("<Team> started the
 // draft") when one is present, or phrased as a plain state transition ("The
@@ -124,11 +135,46 @@ function ChatConversation({
   onSend,
   hasMore = false,
   onLoadOlder = null,
+  // A commissioner (or co-commissioner / platform admin) may hide human
+  // messages; a member may not. Both default off so the surfaces that do not
+  // pass them (and any older caller) render no moderation affordance at all.
+  canModerate = false,
+  onHide = null,
   leagueId = null,
   viewerUserId = null,
 }) {
+  // The composer text is a preserved draft (#442 AC5/AC6): scoped per league and
+  // account, cleared on send, logout or account change. clearDraft empties both
+  // the box and the stored draft on a successful send.
   const [text, setText, clearDraft] = useComposerDraft({ leagueId, userId: viewerUserId });
+  // The message currently being hidden (its id), and the reason being typed for
+  // it. Only one hide form is open at a time; opening another replaces it.
+  const [hidingId, setHidingId] = useState(null);
+  const [hideReason, setHideReason] = useState('');
   const headingId = useId();
+
+  // Moderation controls (#441): open a hide form for one message at a time,
+  // cancel it, or confirm the hide. These read and write only hidingId /
+  // hideReason - never the composer's `text` - so they sit beside the emoji
+  // helpers below without contending for the composer draft state.
+  const startHiding = (id) => {
+    setHidingId(id);
+    setHideReason('');
+  };
+  const cancelHiding = () => {
+    setHidingId(null);
+    setHideReason('');
+  };
+  const confirmHide = async (id) => {
+    const reason = hideReason.trim();
+    if (reason.length < HIDE_REASON_MIN) return;
+    const ok = onHide ? await onHide(id, reason) : false;
+    // Clear the form whether or not the hide succeeded; a failure surfaces
+    // through the shared error Alert, and the message stays visible until the
+    // tombstone broadcast replaces it.
+    if (ok !== false) cancelHiding();
+  };
+  const moderating = canModerate && typeof onHide === 'function';
 
   // The composer input, so an emoji can be inserted at the caret (#443) rather
   // than only appended, and focus can be returned here after a choice.
@@ -139,8 +185,10 @@ function ChatConversation({
 
   // Insert a chosen emoji as ordinary Unicode at the current selection (#443).
   // It becomes part of `text` and rides every existing path from there: send,
-  // the preserved draft, history, reconnect and the character limit all treat
-  // it as the plain text it is. Choosing never sends.
+  // the preserved draft (owned by useComposerDraft, #442), history, reconnect
+  // and the character limit all treat it as the plain text it is. It uses the
+  // same `text`/`setText` as every other edit, so there is no second text path.
+  // Choosing never sends.
   const insertEmoji = (emoji) => {
     const el = inputRef.current;
     const start = el && el.selectionStart != null ? el.selectionStart : text.length;
@@ -316,14 +364,64 @@ function ChatConversation({
         {messages.length === 0 ? (
           <Typography sx={{ color: 'text.secondary' }}>No messages yet</Typography>
         ) : (
+          // Draft activity (#435) is server-authored and never a manager
+          // message: it renders as an event line and is NEVER hideable (AC6) -
+          // the hide affordance lives only on the chat branch below. Both kinds
+          // share one combined-feed key (feedEntryKey), since chat ids and
+          // Draft-activity ids can collide across the two stores.
           messages.map((m) =>
             m.type === 'draft_activity' ? (
               <DraftActivityEntry key={feedEntryKey(m)} entry={m} />
             ) : (
               <Box key={feedEntryKey(m)} sx={{ mb: 1 }}>
-                <Typography variant="body2">
-                  <strong>{teamNameLabel(m.teamName)}</strong> {m.message}
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                  <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                    <strong>{teamNameLabel(m.teamName)}</strong>{' '}
+                    {m.hidden ? (
+                      <em style={{ color: 'inherit', opacity: 0.7 }}>{HIDDEN_TOMBSTONE}</em>
+                    ) : (
+                      m.message
+                    )}
+                  </Typography>
+                  {/* A commissioner may hide a human message that is not already
+                      hidden. Draft activity takes the branch above and never
+                      reaches here, so nothing on this surface can hide it (AC6). */}
+                  {moderating && !m.hidden && hidingId !== m.id && (
+                    <Button
+                      size="small"
+                      color="warning"
+                      onClick={() => startHiding(m.id)}
+                      aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
+                    >
+                      Hide
+                    </Button>
+                  )}
+                </Box>
+                {moderating && hidingId === m.id && (
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, mb: 0.5 }}>
+                    <TextField
+                      label="Reason for hiding"
+                      size="small"
+                      fullWidth
+                      value={hideReason}
+                      onChange={(e) => setHideReason(e.target.value)}
+                      inputProps={{ maxLength: HIDE_REASON_MAX }}
+                      helperText={`${HIDE_REASON_MIN}-${HIDE_REASON_MAX} characters, kept for review`}
+                    />
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="warning"
+                      disabled={hideReason.trim().length < HIDE_REASON_MIN}
+                      onClick={() => confirmHide(m.id)}
+                    >
+                      Confirm hide
+                    </Button>
+                    <Button size="small" onClick={cancelHiding}>
+                      Cancel
+                    </Button>
+                  </Box>
+                )}
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {new Date(m.created_at).toLocaleTimeString()}
                 </Typography>
