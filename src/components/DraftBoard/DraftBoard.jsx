@@ -761,7 +761,20 @@ function DraftBoard() {
           </Alert>
         )}
         {draftComplete && (
-          <Alert severity="success" sx={{ mb: 2 }} data-testid="draft-complete-alert">
+          // role="presentation" strips MUI Alert's default role="alert" (an
+          // ASSERTIVE live region) so this success banner stays VISIBLE and in
+          // document order but never speaks (#519). The final Pick is announced
+          // once, politely, by PickAnnouncer above - its text now carries
+          // ". Draft complete." on the completing Pick (pickAnnouncement.js) -
+          // so this Alert must not compete with it, as an assertive OR a polite
+          // live region. Scope is this completion Alert ALONE: the error Alert
+          // just above keeps its assertive default, which is correct for errors.
+          <Alert
+            severity="success"
+            sx={{ mb: 2 }}
+            role="presentation"
+            data-testid="draft-complete-alert"
+          >
             Draft complete!
           </Alert>
         )}
