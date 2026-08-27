@@ -105,6 +105,11 @@ function EmojiPicker({ onSelect, onChoiceClosed = null }) {
   // the consumer's onChoiceClosed moves focus to the composer; with no such
   // callback (#488) we fall back to the trigger rather than stranding focus on
   // the body, since disableRestoreFocus means MUI will not restore it for us.
+  //
+  // Known limitation, left as-is on purpose (#488 out of scope): on iOS, moving
+  // focus programmatically does not raise the soft keyboard, so a composer that
+  // regains focus here will not reopen the keyboard until the user taps. We do
+  // not work around it; it is not observable in the e2e runner.
   const handleExited = () => {
     const reason = closeReasonRef.current;
     closeReasonRef.current = null;
@@ -119,9 +124,12 @@ function EmojiPicker({ onSelect, onChoiceClosed = null }) {
   // #488: our TransitionProps.onExited replaces Popover's own onExited, whose
   // job was to reset the internal "isPositioned" flag so a reopened menu is
   // hidden until it has been placed against its anchor. Without that reset a
-  // reopen can paint one frame at the previous position. Repositioning here in
-  // a layout effect (before the browser paints) closes that gap: the menu is
-  // placed at the correct anchor on every open, whatever the stale flag says.
+  // reopen can paint one frame at the previous position. The review asked to
+  // "chain rather than replace", but Popover's onExited is a private internal
+  // handler with no public hook to chain onto, so we take the equivalent path
+  // that MUI does expose: reposition through Popover's `action` ref in a layout
+  // effect (before the browser paints) on every open. That places the menu at
+  // the correct anchor whatever the stale flag says, closing the same gap.
   useLayoutEffect(() => {
     if (open) popoverActionRef.current?.updatePosition();
   }, [open]);

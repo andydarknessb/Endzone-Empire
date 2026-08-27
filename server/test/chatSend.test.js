@@ -328,11 +328,9 @@ test('clampToCharacters truncates by code point and never bisects an emoji into 
 // emoji variation selector. Clamped at the limit it keeps U+2764 and drops
 // U+FE0F, storing a monochrome text heart. That is acceptable (still valid
 // text), and this pins the EXACT stored string so the doc comment cannot drift
-// back to overclaiming.
-// The red heart the picker offers, spelled out in code points so this test does
-// not depend on invisible characters surviving in the file: base heart U+2764
-// then the emoji variation selector U+FE0F.
-const RED_HEART = '❤️';
+// back to overclaiming. The heart is spelled out in escapes so the test does
+// not depend on an invisible variation selector surviving in the file.
+const RED_HEART = '\u2764\uFE0F';
 
 test('clampToCharacters bisects a multi-code-point emoji at the boundary but stays valid UTF-8 (#488)', () => {
   // 499 filler then the heart: its base (U+2764) is the 500th code point and
@@ -344,9 +342,9 @@ test('clampToCharacters bisects a multi-code-point emoji at the boundary but sta
   // The exact stored string: the base heart survives, the variation selector is
   // dropped. This is a bisected emoji (it renders as a text heart, not the red
   // emoji), which is why "kept whole or dropped whole" was false.
-  assert.equal(clamped, `${'a'.repeat(499)}❤`, 'kept the base heart, dropped the VS16');
+  assert.equal(clamped, `${'a'.repeat(499)}\u2764`, 'kept the base heart, dropped the VS16');
   assert.equal(Array.from(clamped).length, 500, 'capped at the character limit');
-  assert.ok(!clamped.includes('️'), 'the trailing variation selector was dropped');
+  assert.ok(!clamped.includes('\uFE0F'), 'the trailing variation selector was dropped');
   // The guarantee that DOES hold: every code point kept is whole, so valid UTF-8.
   assert.ok(isValidUtf8(clamped), 'no lone surrogate; storable as ordinary text');
 });
