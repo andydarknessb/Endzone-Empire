@@ -4,10 +4,15 @@ const { createFakePool } = require('./helpers/fakePool');
 const {
   LEAGUE_CHAT,
   FEED_PAGE_SIZE,
+  BLOCKABLE_FEED_TYPES,
+  MODERATABLE_FEED_TYPES,
+  isModeratableFeedType,
   feedEntryOf,
   listLeagueChatFeed,
+  combinedEntryOf,
   listCombinedDraftFeed,
 } = require('../services/leagueFeed');
+const { DRAFT_ACTIVITY } = require('../services/draftActivity');
 
 // A chat_messages row as the feed SELECT projects it: the Team identity join
 // has already aliased owner -> teamId/teamName, and feed_seq is the row's
@@ -25,7 +30,7 @@ const row = (over = {}) => ({
 test('feedEntryOf is a typed League-chat entry attributed by Team alone', () => {
   const entry = feedEntryOf(row());
   assert.deepEqual(Object.keys(entry).sort(), [
-    'created_at', 'id', 'message', 'seq', 'teamId', 'teamName', 'type',
+    'created_at', 'hidden', 'id', 'message', 'seq', 'teamId', 'teamName', 'type',
   ]);
   assert.equal(entry.type, LEAGUE_CHAT);
   assert.equal(entry.type, 'league_chat');
@@ -35,6 +40,45 @@ test('feedEntryOf is a typed League-chat entry attributed by Team alone', () => 
   assert.equal(entry.teamId, 12);
   assert.equal(entry.teamName, 'Sunday Scaries');
   assert.equal(entry.message, 'good luck everyone');
+  // A message nobody hid carries hidden:false and its real content.
+  assert.equal(entry.hidden, false);
+});
+
+test('feedEntryOf tombstones a hidden message: neutral, no content, no moderator or reason', () => {
+  // hidden_at set (the moderator, reason and instant live on the row too), as
+  // the feed SELECT projects it.
+  const entry = feedEntryOf(row({
+    hidden_at: '2026-09-01T01:00:00.000Z',
+    hidden_by: 99,
+    hidden_reason: 'targeted harassment',
+  }));
+  // The content is gone from the member feed (AC3); the entry keeps its place
+  // (seq) and its Team identity so ordering and "is this mine" still hold.
+  assert.equal(entry.hidden, true);
+  assert.equal(entry.message, null);
+  assert.equal(entry.seq, 7);
+  assert.equal(entry.teamId, 12);
+  assert.equal(entry.type, LEAGUE_CHAT);
+  // The reason and moderator NEVER reach a member: they are not even keys on
+  // the entry, so no client can render them (AC4 keeps them to the reviewer
+  // history alone).
+  assert.equal('hidden_reason' in entry, false);
+  assert.equal('hidden_by' in entry, false);
+  assert.equal('hidden_at' in entry, false);
+  assert.deepEqual(Object.keys(entry).sort(), [
+    'created_at', 'hidden', 'id', 'message', 'seq', 'teamId', 'teamName', 'type',
+  ]);
+});
+
+test('MODERATABLE_FEED_TYPES is human League chat only, never Draft activity (AC6)', () => {
+  // Only human-authored League chat may be hidden. This mirrors the blockable
+  // set exactly for the same reason (#440): a Draft event is a shared fact, not
+  // a manager talking, so it can be neither blocked nor moderated.
+  assert.deepEqual([...MODERATABLE_FEED_TYPES], [LEAGUE_CHAT]);
+  assert.deepEqual([...MODERATABLE_FEED_TYPES], [...BLOCKABLE_FEED_TYPES]);
+  assert.equal(isModeratableFeedType(LEAGUE_CHAT), true);
+  assert.equal(isModeratableFeedType('draft_activity'), false);
+  assert.equal(isModeratableFeedType('draft_pick'), false);
 });
 
 test('feedEntryOf coerces a bigint feed_seq string to a number cursor', () => {
@@ -80,6 +124,84 @@ test('listLeagueChatFeed reads the latest page ordered by feed_seq, no cursor', 
   assert.equal(entries.length, 2);
   assert.equal(entries[0].type, LEAGUE_CHAT);
   assert.equal(entries[0].seq, 7);
+});
+
+test('listLeagueChatFeed projects hidden_at and keeps hidden rows in place as tombstones', async () => {
+  let seenSql = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text) => {
+      seenSql = text;
+      return {
+        rows: [
+          row({ id: 5, feed_seq: 7 }),
+          row({ id: 6, feed_seq: 8, message: 'abuse', hidden_at: '2026-09-01T01:00:00.000Z', hidden_reason: 'r' }),
+        ],
+      };
+    }],
+  ]);
+
+  const entries = await listLeagueChatFeed(fake, { leagueId: 12, viewerId: 9 });
+
+  // The read must SELECT hidden_at so feedEntryOf can tombstone.
+  assert.match(seenSql, /"chat_messages"\."hidden_at"/);
+  // Hidden rows are NOT filtered out - the tombstone stays so ordering and
+  // pagination are coherent (unlike a deleted row, which is a gap).
+  assert.doesNotMatch(seenSql, /hidden_at" IS NULL/);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].hidden, false);
+  assert.equal(entries[1].hidden, true);
+  assert.equal(entries[1].message, null);
+});
+
+// The combined Draft-room feed (#435) meets moderation (#441) in one union.
+// combinedEntryOf must tombstone a hidden CHAT row the same way the chat-only
+// feed does, and must never turn Draft activity into a tombstone (AC6).
+test('combinedEntryOf tombstones a hidden chat row and never a Draft-activity row', () => {
+  const chat = combinedEntryOf({
+    source: LEAGUE_CHAT,
+    id: 5, feed_seq: 7, message: 'abuse', created_at: 'x',
+    teamId: 12, teamName: 'Scaries', hidden_at: '2026-09-01T01:00:00.000Z',
+  });
+  assert.equal(chat.type, LEAGUE_CHAT);
+  assert.equal(chat.hidden, true);
+  assert.equal(chat.message, null);
+
+  // A Pick reaches activityEntryOf, which has no `hidden` concept at all: a
+  // Draft event is not moderatable and can never read back as a tombstone.
+  const activity = combinedEntryOf({
+    source: DRAFT_ACTIVITY,
+    id: 9, feed_seq: 8, kind: 'pick', created_at: 'x',
+    teamId: 12, teamName: 'Scaries', player_id: 1, player_name: 'QB1',
+    round: 1, pick_number: 1, is_autopick: false, hidden_at: null,
+  });
+  assert.equal(activity.type, DRAFT_ACTIVITY);
+  assert.equal('hidden' in activity, false, 'Draft activity is never a tombstone');
+});
+
+test('listCombinedDraftFeed projects hidden_at in the CHAT arm only, and blocks chat only', async () => {
+  let seenSql = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text) => { seenSql = text; return { rows: [] }; }],
+  ]);
+  await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9 });
+
+  // The chat arm carries the real hidden_at so a hidden message tombstones here
+  // too; the activity arm carries a NULL placeholder for column alignment.
+  assert.match(seenSql, /"chat_messages"\."hidden_at" AS hidden_at/);
+  assert.match(seenSql, /NULL::timestamptz AS hidden_at/);
+  // The block filter is on the CHAT arm and NOT on the draft_activity arm - a
+  // Pick by a blocked Team stays visible (AC7 / ADR 0012).
+  // Everything from UNION ALL onward is the activity arm (its SELECT list, FROM
+  // and WHERE) - the chat arm and its block filter sit before it.
+  const activityArm = seenSql.slice(seenSql.indexOf('UNION ALL'));
+  assert.doesNotMatch(activityArm, /"user_blocks"/, 'the activity arm never filters on blocks');
+  assert.match(seenSql, /NOT EXISTS \(\s*SELECT 1 FROM "user_blocks"/);
+  // By CONSTRUCTION the tombstone path cannot reach a Pick: the activity arm
+  // never projects a hidden_at FROM chat_messages, only the aligned NULL
+  // placeholder. So moderation is unreachable for Draft activity in the SQL
+  // itself, not merely because activityEntryOf chooses to ignore the column.
+  assert.doesNotMatch(activityArm, /"chat_messages"\."hidden_at"/, 'the activity arm carries no chat hidden_at');
+  assert.match(activityArm, /NULL::timestamptz AS hidden_at/, 'the activity arm hidden_at is the aligned NULL');
 });
 
 test('listLeagueChatFeed pages older than a cursor with feed_seq < before', async () => {

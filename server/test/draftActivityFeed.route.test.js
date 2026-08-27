@@ -117,6 +117,9 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     teamId: 12,
     teamName: 'Sunday Scaries',
     message: 'good luck everyone',
+    // #441: chat feed entries carry `hidden` everywhere, the combined feed
+    // included; a normal message is not hidden.
+    hidden: false,
     created_at: '2026-09-01T00:00:00.000Z',
   });
   assert.deepEqual(res.body[1], {

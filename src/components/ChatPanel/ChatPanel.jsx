@@ -26,6 +26,10 @@ import ChatConversation from './ChatConversation';
 function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
   const [socket, setSocket] = useState(null);
   const [viewerTeamId, setViewerTeamId] = useState(null);
+  // Whether this viewer may moderate, decided by the server on the same
+  // per-viewer join ack that carries viewerTeamId (#178) - never inferred on
+  // the client. A member gets false and so no hide affordance.
+  const [isCommissioner, setIsCommissioner] = useState(false);
   // The account scopes the composer draft (#442 AC5/AC6): a preserved draft
   // belongs to one account and is dropped on logout or account change. Team
   // identity stays the actor on the wire; the account id never leaves the client.
@@ -35,15 +39,18 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
     // A fresh Team ID per league room: nothing can match a stale one, but
     // leaving it standing would briefly claim a Team for a league just left.
     setViewerTeamId(null);
+    setIsCommissioner(false);
     const newSocket = createDraftSocket();
     setSocket(newSocket);
 
     // The ack is the panel's only per-viewer channel, so it is where the
-    // viewer's own Team ID arrives. Re-answered on every join, including the
-    // reconnect one, so a rejoin cannot leave a stale answer behind.
+    // viewer's own Team ID and commissioner status arrive. Re-answered on every
+    // join, including the reconnect one, so a rejoin cannot leave a stale answer
+    // behind.
     const joinLeagueRoom = () => {
       newSocket.emit('league:join', { leagueId: Number(leagueId) }, (ack) => {
         setViewerTeamId(ack && ack.viewerTeamId != null ? ack.viewerTeamId : null);
+        setIsCommissioner(!!(ack && ack.isCommissioner));
       });
     };
 
@@ -62,7 +69,7 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
-  const { messages, unread, error, sendMessage, loadOlder, hasMore } = useLeagueChat({
+  const { messages, unread, error, sendMessage, hideMessage, loadOlder, hasMore } = useLeagueChat({
     socket,
     leagueId,
     open,
@@ -80,6 +87,8 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
       onSend={sendMessage}
       hasMore={hasMore}
       onLoadOlder={loadOlder}
+      canModerate={isCommissioner}
+      onHide={hideMessage}
       leagueId={leagueId}
       viewerUserId={viewerUserId}
     />

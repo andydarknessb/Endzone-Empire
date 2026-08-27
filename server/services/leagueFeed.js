@@ -59,6 +59,40 @@ function isBlockableFeedType(type) {
 }
 
 /**
+ * The set of feed kinds a commissioner may HIDE league-wide (#441, AC6). It is
+ * the EXPLICIT, machine-checked form of the AC6 invariant "Draft activity
+ * cannot be hidden through moderation": hiding is a tool for moderating another
+ * MANAGER's human message, and a Pick is a shared fact of the draft, not that
+ * manager talking, so only human-authored kinds are moderatable.
+ *
+ * WHY THIS EXISTS ALONGSIDE A STRUCTURAL GUARD. Today the hide path
+ * (safety.router POST /hide) also enforces AC6 structurally - its UPDATE is
+ * scoped to `chat_messages` by id, so a Draft-activity id reaches nothing. This
+ * set is the second, explicit barrier: it states the invariant where the feed
+ * kinds are defined, so "Draft activity is not moderatable" lives in the
+ * repository as a checked fact rather than only as the shape of a WHERE clause -
+ * the same two-barrier philosophy as the #378 allowlist (SQL AND JS). It stops
+ * being merely explanatory the moment Draft activity gains its own feed kind
+ * (ADR 0012, its filed sibling #435 appends Picks to this same feed): a
+ * hide-by-feed-entry path added then MUST consult this set and leave that kind
+ * out, and `isModeratableFeedType` is the one line it calls. If a Draft-activity
+ * kind is ever ADDED to this set, AC6 breaks.
+ *
+ * It mirrors BLOCKABLE_FEED_TYPES because both answer "human-authored only", and
+ * the service test pins them equal so the parallel cannot silently diverge; they
+ * are named apart because they answer different questions (what may I mute for
+ * myself vs. what may a commissioner hide for everyone) and a future kind could
+ * be one but not the other.
+ */
+const MODERATABLE_FEED_TYPES = new Set([LEAGUE_CHAT]);
+
+/** Whether a commissioner may hide entries of this kind league-wide. Only
+ *  human-authored League chat; Draft activity never is (AC6). */
+function isModeratableFeedType(type) {
+  return MODERATABLE_FEED_TYPES.has(type);
+}
+
+/**
  * The set of user ids who have blocked `authorId`, for filtering a LIVE
  * broadcast per recipient (#440, AC6). History and the unread badge filter with
  * the same `user_blocks` relation from the viewer's side; live delivery has to
@@ -93,6 +127,13 @@ const FEED_PAGE_SIZE = 100;
  */
 function feedEntryOf(row) {
   const [idField, nameField] = TEAM_IDENTITY_FIELDS;
+  // A commissioner-hidden message reads back as a neutral tombstone (#441,
+  // AC3): its content never rides on the member feed, and the reason and the
+  // moderator who acted are not projected here AT ALL - only the
+  // authorized-reviewer history (safety.router) exposes those (AC4). The entry
+  // keeps its seq and Team identity so ordering, pagination and "is this mine"
+  // are unchanged; only the content becomes a tombstone.
+  const hidden = row.hidden_at != null;
   return {
     type: LEAGUE_CHAT,
     id: row.id,
@@ -103,7 +144,8 @@ function feedEntryOf(row) {
     // value reads as null so the keys are always present.
     [idField]: row[idField] ?? null,
     [nameField]: row[nameField] ?? null,
-    message: row.message,
+    message: hidden ? null : row.message,
+    hidden,
     created_at: row.created_at,
   };
 }
@@ -151,7 +193,7 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after
   const result = await db.query(
     `SELECT * FROM (
        SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-              "chat_messages"."feed_seq",
+              "chat_messages"."feed_seq", "chat_messages"."hidden_at",
               ${teamIdentityColumns()}
        FROM "chat_messages"
        ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
@@ -212,6 +254,12 @@ function combinedEntryOf(row) {
  * hidden (the same predicate the unread badge and the chat feed use), but their
  * authoritative Draft activity stays visible, because blocking must never hide
  * shared Draft state (CONTEXT.md; ADR 0012; spec user story 83).
+ *
+ * Commissioner moderation is CHAT ONLY for the same reason (#441, AC6): the chat
+ * arm projects `hidden_at` so a hidden message reads back here as the same
+ * neutral tombstone the chat-only feed produces (combinedEntryOf -> feedEntryOf),
+ * while the Draft-activity arm carries a NULL `hidden_at` placeholder and routes
+ * to activityEntryOf - a Pick is never moderatable and never a tombstone.
  */
 async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
@@ -254,6 +302,7 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "chat_messages"."feed_seq" AS feed_seq,
                  "chat_messages"."created_at" AS created_at,
                  "chat_messages"."message" AS message,
+                 "chat_messages"."hidden_at" AS hidden_at,
                  ${teamIdentityColumns()},
                  NULL::text AS kind,
                  NULL::int AS player_id,
@@ -280,6 +329,7 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "draft_activity"."feed_seq" AS feed_seq,
                  "draft_activity"."created_at" AS created_at,
                  NULL::text AS message,
+                 NULL::timestamptz AS hidden_at,
                  "draft_activity"."team_id" AS "teamId",
                  "draft_activity"."team_name" AS "teamName",
                  "draft_activity"."kind" AS kind,
@@ -309,6 +359,8 @@ module.exports = {
   LEAGUE_CHAT,
   BLOCKABLE_FEED_TYPES,
   isBlockableFeedType,
+  MODERATABLE_FEED_TYPES,
+  isModeratableFeedType,
   listBlockersOf,
   FEED_PAGE_SIZE,
   feedEntryOf,
