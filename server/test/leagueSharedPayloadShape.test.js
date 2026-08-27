@@ -220,7 +220,7 @@ async function getChat(t) {
 // `hidden` (#441) rides on every feed entry: false normally, true on a
 // commissioner-hidden tombstone (whose `message` is then null). Still no
 // account field.
-const CHAT_ENTRY_CLEAN = ['created_at', 'hidden', 'id', 'isLegacy', 'message', 'seq', 'teamId', 'teamName', 'type'];
+const CHAT_ENTRY_CLEAN = ['created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type'];
 
 test('chat history: a message is attributed by Team, not by the author account', async (t) => {
   for (const message of await getChat(t)) assertExactKeys(message, CHAT_ENTRY_CLEAN);

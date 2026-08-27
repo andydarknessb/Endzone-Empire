@@ -327,11 +327,13 @@ test('league:join and draft:join both acknowledge the viewer with their own Team
     ok: true,
     viewerTeamId: VIEWER.teamId,
     isCommissioner: false,
+    gifMessagesEnabled: false,
   });
   assert.deepEqual(joinAck({ viewerTeam: null, isCommissioner: false }), {
     ok: true,
     viewerTeamId: null,
     isCommissioner: false,
+    gifMessagesEnabled: false,
   });
 });
 

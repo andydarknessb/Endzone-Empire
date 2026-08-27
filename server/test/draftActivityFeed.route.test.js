@@ -117,6 +117,9 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     teamId: 12,
     teamName: 'Sunday Scaries',
     message: 'good luck everyone',
+    // #446: chat feed entries carry `media` everywhere, the combined feed
+    // included; a text message carries null.
+    media: null,
     // #441: chat feed entries carry `hidden` everywhere, the combined feed
     // included; a normal message is not hidden.
     hidden: false,
