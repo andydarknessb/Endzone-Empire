@@ -72,26 +72,40 @@ function GifMessage({ media, caption = null }) {
     );
   }
 
+  const hasAnimated = Boolean(rendition.animated);
   // The still-versus-animated default is the SHARED reduced-motion decision
-  // (reducedMotionMedia.shouldShowStillFrame, also used by TeamAvatar). On top
-  // of it, GifMessage lets the viewer press Play to override to the animation -
-  // a GifMessage-only concern applied here, not inside the shared helper. A
-  // missing still (a provider that returned only the animation) falls back to
-  // the animation, since there is nothing to hold on.
-  const showStill = shouldShowStillFrame(prefersReducedMotion, rendition.still) && !playing;
-  const showAnimation = !showStill;
-  const src = showStill ? rendition.still : (rendition.animated || rendition.still);
+  // (reducedMotionMedia.shouldShowStillFrame, also used by TeamAvatar): prefer
+  // the still when the viewer wants reduced motion and a still exists.
+  const preferStill = shouldShowStillFrame(prefersReducedMotion, rendition.still) && !playing;
+  // AC4 edge: a reduced-motion viewer must not receive motion unasked EVEN IF a
+  // provider returned an animation with no still. In that case there is no still
+  // to hold on, so the animation is held behind Play too rather than autoplaying.
+  const holdAnimationNoStill = prefersReducedMotion && !playing && !rendition.still && hasAnimated;
+  const showStill = preferStill; // the helper is false without a still, so this implies one exists
+  const showAnimation = hasAnimated && !preferStill && !holdAnimationNoStill;
+  const showPlay = hasAnimated && !showAnimation; // an animation exists but is being held for Play
+  const imgSrc = showAnimation ? rendition.animated : (showStill ? rendition.still : null);
 
   return (
     <Box data-testid="gif-message" sx={{ mt: 0.5 }}>
-      <Box
-        component="img"
-        src={src}
-        alt={description}
-        data-testid={showAnimation ? 'gif-animated' : 'gif-still'}
-        sx={{ maxWidth: '100%', borderRadius: 'var(--radius-sm)', display: 'block' }}
-      />
-      {prefersReducedMotion && !showAnimation && (
+      {imgSrc && (
+        <Box
+          component="img"
+          src={imgSrc}
+          alt={description}
+          data-testid={showAnimation ? 'gif-animated' : 'gif-still'}
+          sx={{ maxWidth: '100%', borderRadius: 'var(--radius-sm)', display: 'block' }}
+        />
+      )}
+      {!imgSrc && description && (
+        // Held for reduced motion with no still to show: surface the description
+        // as visible text so the bubble is never empty and a screen-reader user
+        // still learns what the GIF is before choosing to play it.
+        <Typography variant="body2" data-testid="gif-held-description" sx={{ color: 'var(--text-muted)' }}>
+          {description}
+        </Typography>
+      )}
+      {showPlay && (
         <Button
           size="small"
           data-testid="gif-play"

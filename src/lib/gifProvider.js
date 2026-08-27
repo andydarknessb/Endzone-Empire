@@ -38,11 +38,6 @@ export function clearGifProviders(id) {
   else providers.delete(id);
 }
 
-/** Whether a provider is registered for this id (production: always false). */
-export function hasGifProvider(id) {
-  return providers.has(id);
-}
-
 /**
  * The id of the first registered provider, or null when none is registered
  * (the production default, AC9). The composer uses this to stamp a GIF send

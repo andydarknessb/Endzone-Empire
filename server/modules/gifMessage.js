@@ -62,22 +62,6 @@ const ASSET_ID_PATTERN = /^[A-Za-z0-9_.-]{1,255}$/;
 // hand the message path a URL or an upload, which it does not accept (AC2).
 const FORBIDDEN_MEDIA_KEYS = ['url', 'uri', 'dataUri', 'src', 'file', 'upload', 'bytes', 'blob'];
 
-/**
- * Whether a value reads as a URL or an upload rather than an opaque asset id.
- * A convenience for callers and tests; the actual send guard uses the positive
- * ASSET_ID_PATTERN, of which this is the negative shadow for the common shapes.
- */
-function looksLikeUrlOrUpload(value) {
-  if (typeof value !== 'string') return false;
-  const v = value.trim();
-  if (v === '') return false;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return true; // scheme: http:, data:, blob:, ftp:, file:
-  if (v.startsWith('//')) return true; // protocol-relative
-  if (v.includes('://')) return true;
-  if (/[\s<>]/.test(v)) return true;
-  return false;
-}
-
 function fail(code, error, extra = {}) {
   return { ok: false, code, error, ...extra };
 }
@@ -160,6 +144,5 @@ module.exports = {
   PROVIDER_PATTERN,
   ASSET_ID_PATTERN,
   FORBIDDEN_MEDIA_KEYS,
-  looksLikeUrlOrUpload,
   validateGifSend,
 };

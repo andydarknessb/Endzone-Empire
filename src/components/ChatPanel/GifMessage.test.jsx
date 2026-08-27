@@ -88,6 +88,21 @@ describe('GifMessage - available (a provider resolves the asset, AC4/AC6/AC8)', 
     expect(screen.queryByRole('button', { name: /play gif/i })).not.toBeInTheDocument();
   });
 
+  test('reduced-motion with an animation but NO still holds the motion behind Play, not autoplay (AC4 edge)', async () => {
+    // A provider that returns only an animation (no still). A reduced-motion
+    // viewer must still not receive motion unasked: the animation is held behind
+    // Play and the description is surfaced as text so the bubble is not empty.
+    clearGifProviders();
+    registerGifProvider(FAKE_PROVIDER_ID, (m) => ({ animated: `anim:${m.assetId}`, still: null, attribution: null }));
+    reducedMotion = true;
+    render(<GifMessage media={media()} caption="hi" />);
+
+    expect(screen.queryByTestId('gif-animated')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-held-description')).toHaveTextContent('a cat knocking a cup off a table');
+    await userEvent.click(screen.getByRole('button', { name: /play gif/i }));
+    expect(screen.getByTestId('gif-animated')).toBeInTheDocument();
+  });
+
   test('surfaces attribution derived from the asset, behind the provider boundary (AC6)', () => {
     render(<GifMessage media={media()} caption="hi" />);
     const attribution = screen.getByTestId('gif-attribution');

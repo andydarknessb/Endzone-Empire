@@ -5,7 +5,6 @@ const {
   GIF,
   GIF_CODES,
   GIF_DESCRIPTION_MAX,
-  looksLikeUrlOrUpload,
   validateGifSend,
 } = require('../modules/gifMessage');
 
@@ -99,12 +98,4 @@ test('a malformed provider is rejected with MEDIA_NOT_ALLOWED', () => {
     assert.equal(result.ok, false, `provider=${JSON.stringify(provider)}`);
     assert.equal(result.code, 'MEDIA_NOT_ALLOWED');
   }
-});
-
-test('looksLikeUrlOrUpload flags schemes, protocol-relative and data/blob, not a plain id', () => {
-  assert.equal(looksLikeUrlOrUpload('https://x'), true);
-  assert.equal(looksLikeUrlOrUpload('//x'), true);
-  assert.equal(looksLikeUrlOrUpload('data:x'), true);
-  assert.equal(looksLikeUrlOrUpload('blob:x'), true);
-  assert.equal(looksLikeUrlOrUpload('abc123_XY-9'), false);
 });

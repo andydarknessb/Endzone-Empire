@@ -13,7 +13,7 @@ const {
 const { feedEntryOf, isBlockableFeedType, listBlockersOf } = require('../services/leagueFeed');
 const { checkChatSend } = require('./chatFlood');
 const { MAX_CHAT_CHARS } = require('./chatLimits');
-const { GIF, validateGifSend } = require('./gifMessage');
+const { TEXT, GIF, validateGifSend } = require('./gifMessage');
 const { isGifMessagesEnabled } = require('./gifCapability');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
@@ -149,7 +149,7 @@ function attachDraftSocket(httpServer) {
       // event) with a SCREAMING_SNAKE code (ADR 0008): GIF_PROVIDER_DISABLED
       // when the capability is off (AC7/AC9), MEDIA_NOT_ALLOWED for a url/upload
       // asset (AC2), DESCRIPTION_REQUIRED for a missing description (AC3).
-      let contentKind = 'text';
+      let contentKind = TEXT;
       let caption = null; // the text body, or the GIF's optional caption
       let gifValue = null;
       if (isGif) {
