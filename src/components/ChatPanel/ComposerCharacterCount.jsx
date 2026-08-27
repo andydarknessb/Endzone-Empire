@@ -8,7 +8,7 @@ import { MAX_CHAT_CHARS, CHAT_CHARS_WARNING, characterCount } from './chatLimits
  *
  * Two nodes, one purpose. A VISIBLE indicator shows the live count against the
  * limit, counted in Unicode code points so the number a manager sees is the
- * number the server clamp and the varchar(500) column enforce (see chatLimits).
+ * number the server's limit and the varchar(500) column enforce (see chatLimits).
  * It is associated with the input via `aria-describedby` (the caller wires the
  * `indicatorId`), so a screen reader hears the count on focus and on demand
  * without it being a live region that speaks on every keystroke.

@@ -276,8 +276,15 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
             // what tells them how far over they are. The text stays in the
             // composer under the same idempotency key either way (send resolves
             // false; the presenter clears only on success), so nothing is lost.
+            // A server ahead of this client always sends both numbers (see
+            // server/test/chatSend.test.js for the wire contract); the finite
+            // check only guards a server BEHIND this client during a rolling
+            // deploy, the same skew ADR 0008 has every code branch tolerate.
             if (ack.code === 'MESSAGE_TOO_LONG') {
-              setError(`Your message is ${ack.length} characters. The limit is ${ack.limit}. Shorten it and send again.`);
+              const { length, limit } = ack;
+              setError(Number.isFinite(length) && Number.isFinite(limit)
+                ? `Your message is ${length} characters. The limit is ${limit}. Shorten it and send again.`
+                : ack.error);
               resolve(false);
               return;
             }
