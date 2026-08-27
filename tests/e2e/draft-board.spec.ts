@@ -1413,10 +1413,10 @@ test.describe('product language in the status readout and pool filter (issue #12
     // case-insensitive substring, and "On-the-clock sound" is a substring of
     // both the old "Mute on-the-clock sound" and "Unmute on-the-clock sound"
     // strings. A loose match here would pass even if the rename regressed.
-    const mute = page.getByRole('button', { name: 'On-the-clock sound', exact: true });
-    await expect(mute).toBeVisible();
-    expect(await mute.evaluate((el) => !!el.closest('[aria-label="Draft controls"]'))).toBe(true);
-    expect(await mute.evaluate((el) => !!el.closest('[aria-label="Draft status"]'))).toBe(false);
+    const toggle = page.getByRole('button', { name: 'On-the-clock sound', exact: true });
+    await expect(toggle).toBeVisible();
+    expect(await toggle.evaluate((el) => !!el.closest('[aria-label="Draft controls"]'))).toBe(true);
+    expect(await toggle.evaluate((el) => !!el.closest('[aria-label="Draft status"]'))).toBe(false);
   });
 
   // Issue #512: a stable name with aria-pressed alone carrying the state,

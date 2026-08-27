@@ -5,6 +5,12 @@ import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { draftStatusLabel, draftStatusChipColor } from './draftStatusCopy';
 
+// Issue #512: a stable name in both states, with aria-pressed alone carrying
+// on/off (WCAG 2.5.3, Label in Name). One constant so the Tooltip and the
+// aria-label can never drift apart from each other again - that drift is
+// exactly what #508/#510 got wrong the first time.
+const SOUND_TOGGLE_LABEL = 'On-the-clock sound';
+
 /** Status chip row (reconnecting/on-the-clock/timer) and the "you're on the
  * clock" snackbar, plus the controls that used to sit inside that same row.
  * The prominent pick-clock display lives in LiveDraftBanner, rendered
@@ -88,10 +94,10 @@ function DraftStatusBar({
             borderColor: 'divider',
           }}
         >
-          <Tooltip title="On-the-clock sound">
+          <Tooltip title={SOUND_TOGGLE_LABEL}>
             <IconButton
               size="small"
-              aria-label="On-the-clock sound"
+              aria-label={SOUND_TOGGLE_LABEL}
               aria-pressed={soundOn}
               onClick={toggleSound}
               sx={MIN_TOUCH_TARGET_SX}

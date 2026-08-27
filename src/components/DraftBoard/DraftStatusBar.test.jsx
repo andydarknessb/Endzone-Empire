@@ -57,10 +57,18 @@ test('mute is a control, not part of the status readout', () => {
 
   const status = screen.getByRole('group', { name: 'Draft status' });
   const controls = screen.getByRole('group', { name: 'Draft controls' });
-  const mute = screen.getByRole('button', { name: 'On-the-clock sound' });
+  const toggle = screen.getByRole('button', { name: 'On-the-clock sound' });
 
-  expect(controls).toContainElement(mute);
-  expect(status).not.toContainElement(mute);
+  expect(controls).toContainElement(toggle);
+  expect(status).not.toContainElement(toggle);
+});
+
+test('aria-pressed reflects a directly-mounted soundOn prop, not just a click-driven toggle', () => {
+  const { rerender } = render(<DraftStatusBar {...baseProps} soundOn={false} />);
+  expect(screen.getByRole('button', { name: 'On-the-clock sound' })).toHaveAttribute('aria-pressed', 'false');
+
+  rerender(<DraftStatusBar {...baseProps} soundOn />);
+  expect(screen.getByRole('button', { name: 'On-the-clock sound' })).toHaveAttribute('aria-pressed', 'true');
 });
 
 // Issue #512: a stable name with aria-pressed alone carrying the state,
@@ -107,12 +115,16 @@ test('activating the toggle changes aria-pressed without changing its accessible
   }
   render(<Wrapper />);
 
-  // Same query, same name, both before and after - if a regression ever
-  // reintroduces a flipping name, this getByRole call itself starts failing
-  // to find the button by its (now-stale) name.
-  const toggle = () => screen.getByRole('button', { name: 'On-the-clock sound' });
+  // Queried by role alone, not by name - baseProps.isCommissioner is false,
+  // so this is the only button DraftStatusBar ever renders here. A query
+  // that doesn't presuppose the name keeps the toHaveAccessibleName checks
+  // below meaningful: an exact-match `{ name: ... }` query would already
+  // throw on a diverged name before either assertion ran, making them
+  // unable to fail on their own.
+  const toggle = () => screen.getByRole('button');
 
   expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+  expect(toggle()).toHaveAccessibleName('On-the-clock sound');
 
   await user.click(toggle());
   expect(toggle()).toHaveAttribute('aria-pressed', 'true');
