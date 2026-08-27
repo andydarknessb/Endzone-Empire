@@ -51,9 +51,14 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * setState `prev`), not a separate last-text ref or a parity counter, is what
  * makes this hold for ANY interleaving: a different Pick landing between two
  * repeats (A, A, B, B) cannot desync a counter from what is on screen, because
- * there is no counter. FeedAnnouncer.jsx still uses the older parity-counter
- * flip, which has exactly that desync defect (#518); the two have DIVERGED and
- * must not be merged back together.
+ * there is no counter. FeedAnnouncer.jsx (the Chat-scoped feed announcer) now
+ * uses this same rendered-value comparison too: #518 replaced its older
+ * parity-counter flip, which had exactly that desync defect, so the two no longer
+ * diverge on the repeat handling. Only this two-line idiom coincides - the two
+ * components otherwise differ (this one is room-level and keyed on a single pick
+ * prop; the feed announcer is seq-gated over a chat feed) - so whether to factor
+ * the shared idiom into a common helper is a design call for the leads, not a
+ * merge to make silently.
  */
 function PickAnnouncer({ pick = null }) {
   const [announcement, setAnnouncement] = useState('');
@@ -66,8 +71,8 @@ function PickAnnouncer({ pick = null }) {
     // zero-width space so the node value still changes and the repeat is
     // announced; otherwise set it clean. Comparing against `prev` (not a parity
     // counter) is what keeps this correct across any interleaving such as
-    // A, A, B, B - see the docblock, and #518 for the counter's desync defect
-    // that FeedAnnouncer still carries.
+    // A, A, B, B - see the docblock. FeedAnnouncer.jsx now uses the same idiom
+    // (#518 replaced its old parity-counter flip that had the desync defect).
     setAnnouncement((prev) => (prev === text ? text + ZERO_WIDTH_SPACE : text));
   }, [pick]);
 

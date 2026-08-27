@@ -80,7 +80,8 @@ describe('PickAnnouncer', () => {
     // tracks parity flips on the second A and again on the second B, landing the
     // fourth B on the un-flipped value equal to the third - silent. Comparing
     // against the CURRENTLY RENDERED text instead cannot desync this way. This is
-    // the shape #518 leaves broken in FeedAnnouncer; here it must hold.
+    // the shape #518 fixed in FeedAnnouncer (which now uses the same idiom); here
+    // it must hold.
     const { rerender } = render(<PickAnnouncer pick={null} />);
     const region = screen.getByRole('status');
 

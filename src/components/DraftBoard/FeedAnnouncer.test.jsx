@@ -138,6 +138,77 @@ describe('FeedAnnouncer', () => {
     expect(region.textContent).not.toBe(afterFirst);
   });
 
+  it('re-announces the FOURTH of A, A, B, B - a different message between two repeat-pairs', () => {
+    // The interleaving a global parity counter gets wrong. After A, A, B the
+    // counter has flipped on the second A and stayed put through the first B; the
+    // fourth event (a second B) lands on the un-flipped value, byte-identical to
+    // the third, so the region's node does not change and the second B is silent.
+    // Comparing against the CURRENTLY RENDERED text instead cannot desync, so
+    // each of the four events must change the raw text node.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    const region = screen.getByRole('status');
+
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Harbor Hawks', 'a')]} />); // A
+    expect(region).toHaveTextContent('New message from Harbor Hawks');
+    const afterA1 = region.textContent;
+
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Harbor Hawks', 'a'), chat(3, 'Harbor Hawks', 'b')]} />); // A repeat
+    expect(region).toHaveTextContent('New message from Harbor Hawks');
+    const afterA2 = region.textContent;
+    expect(afterA2).not.toBe(afterA1);
+
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'seed'), chat(2, 'Harbor Hawks', 'a'), chat(3, 'Harbor Hawks', 'b'), chat(4, 'Gridiron Giants', 'c')]}
+      />
+    ); // B
+    expect(region).toHaveTextContent('New message from Gridiron Giants');
+    const afterB1 = region.textContent;
+    expect(afterB1).not.toBe(afterA2);
+
+    rerender(
+      <FeedAnnouncer
+        entries={[
+          chat(1, 'A', 'seed'),
+          chat(2, 'Harbor Hawks', 'a'),
+          chat(3, 'Harbor Hawks', 'b'),
+          chat(4, 'Gridiron Giants', 'c'),
+          chat(5, 'Gridiron Giants', 'd'),
+        ]}
+      />
+    ); // B repeat - the event the broken counter leaves silent
+    expect(region).toHaveTextContent('New message from Gridiron Giants');
+    // The fourth event's node value must differ from the third's, or the second
+    // Gridiron Giants message is never spoken.
+    expect(region.textContent).not.toBe(afterB1);
+  });
+
+  it('re-announces three or more consecutive byte-identical messages, each changing the node', () => {
+    // Cory's second criterion: a run of three-plus identical spoken strings must
+    // each change the rendered text node. Capture the raw textContent after each
+    // and assert every step differs from the one before it.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    const region = screen.getByRole('status');
+
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Rivals', 'one')]} />);
+    expect(region).toHaveTextContent('New message from Rivals');
+    const after1 = region.textContent;
+
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Rivals', 'one'), chat(3, 'Rivals', 'two')]} />);
+    expect(region).toHaveTextContent('New message from Rivals');
+    const after2 = region.textContent;
+    expect(after2).not.toBe(after1);
+
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'seed'), chat(2, 'Rivals', 'one'), chat(3, 'Rivals', 'two'), chat(4, 'Rivals', 'three')]}
+      />
+    );
+    expect(region).toHaveTextContent('New message from Rivals');
+    const after3 = region.textContent;
+    expect(after3).not.toBe(after2);
+  });
+
   it('does NOT announce a backlog history replace that resolves after a live seed (#4)', () => {
     // A live message (seq 50) seeds the announcer, then a wholesale /draft-feed
     // history replace lands older rows and the tail drops to seq 40. That is not
