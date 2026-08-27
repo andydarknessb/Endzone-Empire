@@ -1,6 +1,9 @@
 import React, { useId, useRef, useState } from 'react';
 import { Box, Button, TextField, Typography } from '@mui/material';
 import { firstGifProviderId } from '../../lib/gifProvider';
+// One shape and one definition of "empty" for the GIF composition, shared with
+// the hook that stores it (#524), so the composer and the store never drift.
+import { emptyGif, gifIsEmpty } from './useComposerDraft';
 
 /**
  * The GIF compose affordance for League chat (#446).
@@ -47,14 +50,11 @@ import { firstGifProviderId } from '../../lib/gifProvider';
  * local: a restored composition must not come back already showing an error, and
  * the panel simply opens on mount when the restored composition is non-empty.
  */
-const EMPTY_COMPOSITION = { assetId: '', description: '', caption: '' };
-const compositionIsEmpty = (c) => !c || (!c.assetId && !c.description && !c.caption);
-
 function GifComposer({ enabled = false, onSendGif, composition, onCompositionChange }) {
   // Controlled when the caller both supplies a composition and a writer for it
   // (#524, the preserved-draft path); otherwise the fields live locally.
   const controlled = composition != null && typeof onCompositionChange === 'function';
-  const [localComposition, setLocalComposition] = useState(EMPTY_COMPOSITION);
+  const [localComposition, setLocalComposition] = useState(emptyGif);
   const current = controlled ? composition : localComposition;
   const assetId = current.assetId ?? '';
   const description = current.description ?? '';
@@ -62,7 +62,7 @@ function GifComposer({ enabled = false, onSendGif, composition, onCompositionCha
 
   // Open on mount when a restored composition is already non-empty (#524); a
   // fresh, empty composition opens only when the manager clicks the trigger.
-  const [open, setOpen] = useState(() => !compositionIsEmpty(controlled ? composition : EMPTY_COMPOSITION));
+  const [open, setOpen] = useState(() => controlled && !gifIsEmpty(composition));
   const [descriptionTouched, setDescriptionTouched] = useState(false);
   const triggerRef = useRef(null);
   const panelId = useId();
@@ -86,8 +86,8 @@ function GifComposer({ enabled = false, onSendGif, composition, onCompositionCha
     // Clearing the composition IS how a Cancel or a successful send discards the
     // preserved draft in controlled mode (it clears the stored gif slice while
     // leaving the text draft in place); in local mode it just empties the fields.
-    if (controlled) onCompositionChange(EMPTY_COMPOSITION);
-    else setLocalComposition(EMPTY_COMPOSITION);
+    if (controlled) onCompositionChange(emptyGif());
+    else setLocalComposition(emptyGif());
     setDescriptionTouched(false);
     setOpen(false);
     // Never strand focus on the document body: the panel unmounts, so return

@@ -40,7 +40,12 @@ const KEY_PREFIX = 'endzone:composerDraft:';
 
 const keyFor = (leagueId) => `${KEY_PREFIX}${leagueId}`;
 
-const emptyGif = () => ({ assetId: '', description: '', caption: '' });
+// The empty GIF composition and the emptiness predicate are exported so the
+// GifComposer that renders the slice shares one shape and one definition of
+// "empty" with the hook that stores it (#524), rather than restating either.
+export const emptyGif = () => ({ assetId: '', description: '', caption: '' });
+
+export const gifIsEmpty = (gif) => !gif || (!gif.assetId && !gif.description && !gif.caption);
 
 // A stored gif slice keeps only string fields; anything else reads back as an
 // empty string so a malformed record can never crash the composer.
@@ -52,8 +57,6 @@ function normalizeGif(gif) {
     caption: typeof gif.caption === 'string' ? gif.caption : '',
   };
 }
-
-const gifIsEmpty = (gif) => !gif || (!gif.assetId && !gif.description && !gif.caption);
 
 // Read the whole account-stamped record for this league. Only the account that
 // wrote the draft may read it back; anyone else (a switched account, a logout)
@@ -160,7 +163,13 @@ export default function useComposerDraft({ leagueId = null, userId = null } = {}
   }, [leagueId, userId]);
 
   // Every gif edit persists (or clears when both parts empty) for this league and
-  // account, alongside whatever message text is currently held.
+  // account, alongside whatever message text is currently held. Passing an empty
+  // composition is how a successful GIF send (or a Cancel) discards ONLY the gif
+  // slice: the text draft rides through textRef untouched (#524 independence),
+  // and writeRecord removes the record entirely if the text is empty too. There
+  // is deliberately no separate clearGif twin of clearDraft: the GIF composer
+  // owns its own send and cancel, so it discards through this one writer rather
+  // than a second method that would do exactly the same thing.
   const setGif = useCallback(
     (next) => {
       const normalized = normalizeGif(next);
@@ -171,15 +180,5 @@ export default function useComposerDraft({ leagueId = null, userId = null } = {}
     [leagueId, userId]
   );
 
-  // A successful GIF send discards only the gif composition; the text draft is
-  // left untouched (#524 independence). If the text is also empty, writeRecord
-  // removes the record entirely.
-  const clearGif = useCallback(() => {
-    const cleared = emptyGif();
-    setGifState(cleared);
-    gifRef.current = cleared;
-    writeRecord(leagueId, userId, textRef.current, cleared);
-  }, [leagueId, userId]);
-
-  return [text, setText, clearDraft, gif, setGif, clearGif];
+  return [text, setText, clearDraft, gif, setGif];
 }

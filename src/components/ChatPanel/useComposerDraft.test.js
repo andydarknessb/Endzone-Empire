@@ -74,13 +74,17 @@ test('the composer still works when sessionStorage throws', () => {
 // --------------------------------------------------------------------------
 // #524: the reserved `gif` slice beside `text`, on the same scope and account
 // stamp, with clearing that keeps the two composers independent.
-// The return is [text, setText, clearDraft, gif, setGif, clearGif]; gif is an
-// object { assetId, description, caption } that defaults to empty strings.
+// The return is [text, setText, clearDraft, gif, setGif]; gif is an object
+// { assetId, description, caption } that defaults to empty strings. A GIF send
+// discards the slice by writing an empty composition through setGif (there is no
+// separate clearGif: the composer owns its own send, so it clears through the
+// one writer), which is exactly what discardGif does below.
 // --------------------------------------------------------------------------
 
+const EMPTY_GIF = { assetId: '', description: '', caption: '' };
 const gifOf = (result) => result.current[3];
 const setGif = (result, next) => act(() => result.current[4](next));
-const clearGif = (result) => act(() => result.current[5]());
+const discardGif = (result) => setGif(result, EMPTY_GIF);
 
 test('a fresh mount with no stored record starts with an empty gif composition', () => {
   const { result } = renderHook(() => useComposerDraft({ leagueId: 5, userId: 7 }));
@@ -128,12 +132,12 @@ test('a logout (no account) finds no gif composition', () => {
   expect(gifOf(result)).toEqual({ assetId: '', description: '', caption: '' });
 });
 
-test('clearGif empties the gif slice but leaves the text draft untouched (independence)', () => {
+test('discarding the gif slice empties it but leaves the text draft untouched (independence)', () => {
   const { result } = renderHook(() => useComposerDraft({ leagueId: 5, userId: 7 }));
   act(() => result.current[1]('keep me'));
   setGif(result, { assetId: 'abc123', description: 'a waving hand', caption: 'hi' });
 
-  clearGif(result);
+  discardGif(result);
   expect(gifOf(result)).toEqual({ assetId: '', description: '', caption: '' });
   // The text draft survives a gif clear.
   expect(result.current[0]).toBe('keep me');
@@ -163,7 +167,7 @@ test('clearing both text and gif removes the stored record entirely', () => {
   setGif(result, { assetId: 'abc123', description: 'a waving hand', caption: '' });
 
   act(() => result.current[2]());
-  clearGif(result);
+  discardGif(result);
   expect(window.sessionStorage.getItem('endzone:composerDraft:5')).toBe(null);
 });
 

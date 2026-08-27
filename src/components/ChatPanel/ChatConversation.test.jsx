@@ -977,6 +977,32 @@ describe('ChatConversation - GIF composition persistence (#524)', () => {
     expect(screen.getByLabelText(/caption/i)).toHaveValue('hi');
   });
 
+  test('Cancel discards the preserved GIF composition (it never returns on remount) but leaves the text draft', async () => {
+    // Cancel and Escape have always discarded the in-progress GIF (they clear the
+    // fields and close the panel); with the composition now preserved, discarding
+    // it means clearing the stored slice too, so a cancelled GIF does not silently
+    // come back on the next mount. The text draft is a separate slice and stays.
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'keep my message');
+    await fillGif({ assetId: 'abc123', description: 'a waving hand' });
+
+    // Cancel GIF: distinct from the moderation form's bare Cancel.
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel GIF' }));
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+
+    // Remount: the cancelled GIF stays gone, the message draft is still there.
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    expect(screen.getByLabelText('Message')).toHaveValue('keep my message');
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
   test('when sessionStorage throws, composing and sending a GIF still work', async () => {
     jest.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
       throw new Error('storage disabled');
