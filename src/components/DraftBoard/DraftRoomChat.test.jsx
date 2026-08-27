@@ -81,6 +81,31 @@ test('appends a message broadcast over the shared draft session', async () => {
   expect(screen.getByText('Bulldogs')).toBeInTheDocument();
 });
 
+test('announces a live message and a live Pick in a polite region, but not the opening backlog (#445 AC2)', async () => {
+  // Opening backlog: a message already in history is not "new" and must not be
+  // announced.
+  apiClient.get.mockResolvedValue({ data: [chatMessage({ message: 'welcome', teamName: 'Anvils', seq: 1 })] });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  await screen.findByText('welcome');
+  expect(screen.queryByText(/New message from/)).not.toBeInTheDocument();
+
+  // A live human message announces its arrival by Team. That the announcer is a
+  // persistent polite status region is pinned in FeedAnnouncer.test.jsx; here we
+  // prove the live socket entry reaches it.
+  act(() => socket.trigger('chat:message', chatMessage({ id: 2, seq: 5, teamName: 'Bulldogs', message: 'good luck all' })));
+  expect(await screen.findByText('New message from Bulldogs')).toBeInTheDocument();
+
+  // A live Pick announces the Team and the player.
+  act(() => socket.trigger('draft:picked', {
+    auto: false,
+    activity: {
+      type: 'draft_activity', kind: 'pick', id: 1, seq: 6, teamName: 'Bulldogs',
+      player: { name: 'Pat Mahomes' }, round: 1, pickNumber: 1, created_at: '2026-01-01T12:05:00Z',
+    },
+  }));
+  expect(await screen.findByText('Bulldogs drafted Pat Mahomes')).toBeInTheDocument();
+});
+
 const pickActivity = (overrides = {}) => ({
   type: 'draft_activity',
   kind: 'pick',

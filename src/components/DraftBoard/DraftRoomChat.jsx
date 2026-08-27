@@ -2,6 +2,7 @@ import React from 'react';
 import { useSelector } from 'react-redux';
 import useDraftRoomFeed from './useDraftRoomFeed';
 import ChatConversation from '../ChatPanel/ChatConversation';
+import FeedAnnouncer from './FeedAnnouncer';
 
 /**
  * The Draft room's combined feed (issue #435, ADR 0012): the SAME League chat
@@ -41,17 +42,29 @@ function DraftRoomChat({ socket, leagueId, viewerTeamId = null, canModerate = fa
   const viewerUserId = useSelector((store) => (store.user && store.user.id != null ? store.user.id : null));
 
   return (
-    <ChatConversation
-      messages={entries}
-      error={error}
-      onSend={sendMessage}
-      hasMore={hasMore}
-      onLoadOlder={loadOlder}
-      canModerate={canModerate}
-      onHide={hideMessage}
-      leagueId={leagueId}
-      viewerUserId={viewerUserId}
-    />
+    <>
+      {/* The combined-feed announcer (#445 AC2) lives here, beside the feed it
+          describes, because this is where the entries are. It is scoped to the
+          Draft room on purpose: the League Dashboard drawer draws the same
+          ChatConversation but is chat-only and adds no announcer, so only the
+          Draft room's combined feed speaks its arrivals. On a narrow container
+          only the selected tab is mounted, so when the manager is not on the
+          Chat tab this (and the feed hook) unmount; that matches what a sighted
+          manager sees (chat is not on screen), and on return the backlog is
+          re-seeded silently rather than replayed. */}
+      <FeedAnnouncer entries={entries} />
+      <ChatConversation
+        messages={entries}
+        error={error}
+        onSend={sendMessage}
+        hasMore={hasMore}
+        onLoadOlder={loadOlder}
+        canModerate={canModerate}
+        onHide={hideMessage}
+        leagueId={leagueId}
+        viewerUserId={viewerUserId}
+      />
+    </>
   );
 }
 
