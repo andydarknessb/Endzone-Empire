@@ -35,10 +35,23 @@ describe('FeedAnnouncer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('New message from Team Rocket');
   });
 
-  it('announces a Pick that arrives live', () => {
+  it('stays silent when a Pick arrives live - the room-level PickAnnouncer speaks it (#513)', () => {
+    // Picks moved to a room-level announcer (PickAnnouncer, #513) so they are
+    // heard on every tab. The feed announcer must NOT also speak a Pick, or a
+    // reader with Chat mounted would hear it twice. It still advances its own
+    // high-water seq past the Pick (below) so a later message is not mistaken
+    // for backlog.
     const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'hi')]} />);
     rerender(<FeedAnnouncer entries={[chat(1, 'A', 'hi'), pick(2, 'Gridiron Giants', 'Justin Jefferson')]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('Gridiron Giants drafted Justin Jefferson');
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    // A human message arriving AFTER the (silent) Pick still announces: the Pick
+    // advanced the seq high-water mark but did not leave the announcer stuck.
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'hi'), pick(2, 'Gridiron Giants', 'Justin Jefferson'), chat(3, 'Team Rocket', 'gg')]}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Team Rocket');
   });
 
   it('stays silent when older entries are prepended (Load older)', () => {

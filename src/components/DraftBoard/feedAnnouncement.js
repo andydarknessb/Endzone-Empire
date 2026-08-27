@@ -13,17 +13,21 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  *    already-hidden or abusive content, and would compete badly with the room's
  *    other polite regions. A message that arrived already hidden is a tombstone,
  *    not new correspondence, so it is silent.
- *  - a committed Pick announces the Team and the player ("<Team> drafted
- *    <player>", or "autodrafted" when the pick is authoritatively automatic),
- *    the same facts the visible Pick line leads with.
+ * Picks are NO LONGER announced here (#513). They moved to a room-level
+ * announcer (PickAnnouncer) mounted in the Draft room's chrome, above the tabs
+ * and present in both layouts, so a Pick is heard on every tab - not only while
+ * Chat is mounted. If this feed announcer also spoke Picks, a screen-reader user
+ * with Chat mounted beside the board would hear each Pick TWICE; leaving Picks to
+ * the room-level announcer is what keeps it exactly once. Human messages stay
+ * scoped here on purpose: chat a manager cannot see should not be announced or
+ * marked read from another tab, and a Pick is different because a sighted manager
+ * on any tab is watching Picks land.
  *
- * Everything else - Draft lifecycle activity (start, pause, resume, reset,
- * complete) and any unknown entry - returns the empty string. AC2 names
- * messages and Picks; live draft-state already has three deliberately-scoped
- * regions (on-the-clock in LiveDraftBanner, the countdown #117, readiness #164),
- * and adding a fourth voice for it here would only add contention. An empty
- * string is a real return, not a gap: the announcer keeps its region mounted and
- * silent rather than unmounting it (the ReadinessAnnouncer #164 lesson).
+ * So EVERY Draft activity entry - Picks and lifecycle (start, pause, resume,
+ * reset, complete) alike - and any unknown entry returns the empty string here.
+ * An empty string is a real return, not a gap: the announcer keeps its region
+ * mounted and silent rather than unmounting it (the ReadinessAnnouncer #164
+ * lesson).
  *
  * The identity is rendered through teamNameLabel, the one shared helper, so a
  * departed author reads as a former manager rather than blank or "null", exactly
@@ -38,15 +42,9 @@ import { teamNameLabel } from '../../lib/teamIdentity';
 export function feedAnnouncementFor(entry, viewerTeamId = null) {
   if (!entry) return '';
 
-  if (entry.type === 'draft_activity') {
-    if (entry.kind === 'pick') {
-      const player = entry.player || {};
-      const name = player.name || 'a player';
-      const team = teamNameLabel(entry.teamName);
-      return entry.isAutopick ? `${team} autodrafted ${name}` : `${team} drafted ${name}`;
-    }
-    return '';
-  }
+  // Draft activity - Picks (#513, now the room-level PickAnnouncer's job) and
+  // lifecycle alike - is not announced by the Chat-scoped feed.
+  if (entry.type === 'draft_activity') return '';
 
   // A human League chat message (type 'league_chat' or an older untyped shape).
   if (entry.hidden) return '';

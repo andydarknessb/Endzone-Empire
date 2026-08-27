@@ -2538,3 +2538,171 @@ describe('on-the-clock chime (#445 AC5/AC7)', () => {
     expect(startSpy).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Room-level Pick announcement (#513): every live committed Pick is announced
+// once, on EVERY tab and in BOTH layouts, by a room-level announcer in the
+// chrome - not by the Chat-scoped feed announcer, which no longer speaks Picks.
+// The whole risk is DOUBLE SPEECH, not silence: when Chat is mounted the feed
+// announcer used to speak the Pick and the room-level one would too, so a reader
+// would hear it twice. So every assertion COUNTS the status regions carrying the
+// Pick text and asserts exactly one - a presence check cannot tell one from two.
+// ---------------------------------------------------------------------------
+
+const PICK_TEXT = 'Team A drafted Patrick Mahomes';
+
+// The status regions currently carrying a given announcement. Counting, not
+// presence: the readiness/countdown/composer regions never carry this text, so
+// exactly-one here means exactly one Pick announcement.
+const announcementsSaying = (text) =>
+  screen.getAllByRole('status').filter((region) => region.textContent.includes(text));
+
+// Fire one live committed Pick, carrying BOTH the top-level fields the board and
+// the room-level announcer read AND the `activity` feed entry the combined feed
+// appends (server sends both on draft:picked). Including `activity` is what makes
+// the Chat-scoped feed announcer genuinely see the Pick, so a regression to
+// double speech shows up here as a count of two rather than hiding.
+const landPick = ({ auto = false, seq = 100 } = {}) => {
+  act(() =>
+    fakeSocket.trigger('draft:picked', {
+      pickNumber: 1,
+      teamId: 1,
+      teamName: 'Team A',
+      player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+      nextTeamId: 2,
+      draftComplete: false,
+      auto,
+      activity: {
+        type: 'draft_activity',
+        kind: 'pick',
+        seq,
+        id: `act-${seq}`,
+        teamName: 'Team A',
+        player: { name: 'Patrick Mahomes' },
+        isAutopick: auto,
+      },
+    })
+  );
+};
+
+// A prior human message so the feed announcer is past its silent first-seed:
+// without it, the Pick's own activity entry would be the FIRST feed entry and
+// the feed announcer would seed it silently - hiding a double-speech regression
+// instead of exposing it. Only meaningful where the feed (Chat) is mounted.
+const seedFeed = () => {
+  act(() =>
+    fakeSocket.trigger('chat:message', {
+      type: 'league_chat',
+      seq: 50,
+      id: 'c50',
+      teamId: 99,
+      teamName: 'Rivals',
+      message: 'hi',
+    })
+  );
+};
+
+describe('room-level Pick announcement, wide layout (#513)', () => {
+  // Default zero-width jsdom measurement reads as wide, so all three panes -
+  // including the Chat feed and its announcer - are mounted at once. This is the
+  // "exactly once when Chat is mounted" acceptance criterion.
+  const showWideActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1); // viewer holds Team A, so a Team A Pick is the viewer's own
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('announces a live Pick exactly once with Chat mounted beside the board', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landPick();
+
+    // Exactly one region speaks the Pick, even though the Chat feed announcer is
+    // mounted right beside the room-level one. This also covers "a viewer's own
+    // committed Pick is announced": the viewer holds Team A.
+    await waitFor(() => expect(announcementsSaying(PICK_TEXT)).toHaveLength(1));
+  });
+
+  test('announces an autopick as autodrafted, exactly once', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landPick({ auto: true });
+
+    await waitFor(() =>
+      expect(announcementsSaying('Team A autodrafted Patrick Mahomes')).toHaveLength(1)
+    );
+    // And never the manual wording as well.
+    expect(announcementsSaying(PICK_TEXT)).toHaveLength(0);
+  });
+
+  test('does not announce Picks already in the initial draft:state history', async () => {
+    // Initial history arrives on draft:state, never draft:picked, so the
+    // room-level announcer (fed only by the live onPickLanded seam) is silent.
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() =>
+      fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+        onTheClock: TEAM_B,
+        picks: [{
+          pick_number: 1, teamId: 1, teamName: 'Team A',
+          player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC',
+        }],
+      }))
+    );
+
+    expect(announcementsSaying(PICK_TEXT)).toHaveLength(0);
+  });
+
+  test('a human chat message is still announced while Chat is mounted (scope preserved)', async () => {
+    // The message/Pick distinction is not flattened: the room-level announcer
+    // speaks Picks only, and the Chat-scoped feed announcer still speaks human
+    // messages, exactly once, where Chat is mounted.
+    await showWideActiveDraft();
+    seedFeed(); // seq 50, seeds silently
+    act(() =>
+      fakeSocket.trigger('chat:message', {
+        type: 'league_chat', seq: 60, id: 'c60', teamId: 99, teamName: 'Rivals', message: 'gg',
+      })
+    );
+
+    await waitFor(() =>
+      expect(announcementsSaying('New message from Rivals')).toHaveLength(1)
+    );
+  });
+});
+
+describe('room-level Pick announcement across narrow tabs (#513)', () => {
+  mockNarrowContainer();
+
+  const showNarrowActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1);
+    act(() =>
+      fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+        teams: [TEAM_A, TEAM_B],
+        onTheClock: TEAM_A,
+      }))
+    );
+  };
+
+  // Every narrow tab must hear a live Pick, including the three that do NOT mount
+  // the Chat feed at all - the exact gap #513 closes. On the Chat tab the feed
+  // announcer IS mounted, so that tab also proves no double speech there.
+  test.each(['Chat', 'Players', 'Board', 'Draft'])(
+    'announces a live Pick exactly once while the %s tab is selected',
+    async (tab) => {
+      await showNarrowActiveDraft();
+      await userEvent.click(screen.getByRole('tab', { name: tab }));
+      // Seed the feed only where it is mounted (the Chat tab); elsewhere the feed
+      // announcer is unmounted and the room-level announcer is the only voice.
+      if (tab === 'Chat') seedFeed();
+      landPick();
+
+      await waitFor(() => expect(announcementsSaying(PICK_TEXT)).toHaveLength(1));
+    }
+  );
+});

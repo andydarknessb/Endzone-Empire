@@ -23,6 +23,7 @@ import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
 import ReadinessAnnouncer from './ReadinessAnnouncer';
+import PickAnnouncer from './PickAnnouncer';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
@@ -251,6 +252,12 @@ function DraftBoard() {
   // holds the actual logic, refreshed every render below, while the function
   // passed into the hook itself never changes.
   const pickLandedRef = useRef(() => {});
+  // The newest live committed Pick, for the room-level Pick announcer (#513).
+  // Set from the live-only onPickLanded seam below, never from draft:state, so
+  // initial Pick history and reconnect snapshots are not spoken as new Picks.
+  // Each landed Pick is a fresh payload object, so its identity changes and the
+  // announcer's effect fires exactly once per Pick.
+  const [lastPick, setLastPick] = useState(null);
   const {
     // The room's one authenticated session, so league chat can ride it here
     // rather than opening a second connection (#433). draft:join has already
@@ -283,6 +290,11 @@ function DraftBoard() {
   useEffect(() => {
     pickLandedRef.current = (data) => {
       pool.refetch();
+      // Announce every live committed Pick at ROOM level (#513): the payload is
+      // a fresh object per Pick, so handing it to state advances the announcer
+      // by one Pick and no more. This fires for every team's Pick, the viewer's
+      // own included - a committed Pick is worth confirming.
+      setLastPick(data);
       // Only refetch the caller's own roster when THIS pick actually landed
       // on it - every other team's pick in the draft leaves it unchanged, and
       // a full snake draft can be 150+ picks. Both sides are Team IDs, so the
@@ -734,6 +746,14 @@ function DraftBoard() {
           viewerTeamId={viewerTeamId}
           draftStatus={league?.draft_status}
         />
+        {/* The Draft room's room-level Pick announcer (#513). It lives here, in
+            the chrome every tab renders, so a committed Pick is announced on the
+            Players, Board and Draft tabs too - not only while Chat is mounted -
+            and once, since the Chat-scoped feed announcer no longer speaks Picks
+            (feedAnnouncement.js). Fed by the live-only onPickLanded seam, so
+            initial history and reconnect snapshots are never replayed. Visually
+            hidden; the visible board already shows the Pick to sighted managers. */}
+        <PickAnnouncer pick={lastPick} />
         <LeagueBreadcrumb />
         {(error || socketError) && (
           <Alert severity="error" sx={{ mb: 2 }}>

@@ -85,11 +85,14 @@ test.describe('Draft room accessibility (#445)', () => {
     // The announcement names WHO spoke, not the message body.
     await expect(page.getByText('New message from Ridge Runners')).toBeAttached();
     await expect(page.getByText('good luck all')).toBeVisible();
-    // The Pick announcement path (draft:picked -> feed activity -> concise text)
-    // is pinned end-to-end at the component level in DraftRoomChat.test.jsx and
-    // feedAnnouncement.test.js; it is not re-driven here because draft:picked
-    // also feeds the board reducer, which needs a full pick fixture unrelated to
-    // this announcement.
+    // Picks are announced by a SEPARATE room-level region (PickAnnouncer, #513),
+    // not by this Chat-scoped feed announcer, so that a committed Pick is heard on
+    // every tab and exactly once. The Pick announcement path (draft:picked ->
+    // onPickLanded -> concise text) is pinned at the component level in
+    // PickAnnouncer.test.jsx, pickAnnouncement.test.js and DraftBoard.test.jsx
+    // (wide plus all four narrow tabs, counting to prove no duplicate); it is not
+    // re-driven here because draft:picked also feeds the board reducer, which
+    // needs a full pick fixture unrelated to this message announcement.
   });
 
   test('desktop: the moderation hide FORM keeps focus predictable, including a committed hide (AC4)', async ({ page }) => {
