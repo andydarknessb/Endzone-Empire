@@ -68,20 +68,28 @@ function ComposerCharacterCount({ text = '', indicatorId }) {
 
   return (
     <>
+      {/* The glyph "{count} / 500" is a fine glanceable indicator, but this
+          element is also the input's aria-describedby target, and read bare a
+          screen reader says "0 slash 500" with no unit. Name the unit in the
+          element's TEXT CONTENT (not an aria-label): a bare span maps to the
+          generic role, on which ARIA 1.2 prohibits aria-label and browsers
+          increasingly prune it, which would silently drop the unit and leave the
+          description at "0 / 500". Visually hidden text content works
+          unconditionally and is the same idiom ReadinessAnnouncer and
+          CountdownAnnouncer use for "terse visible, verbose spoken". The visible
+          glyph lives in its own inner span so it stays exactly "{count} / 500",
+          while the whole element's text content - the accessible description - is
+          "{count} / 500 characters". */}
       <Typography
         id={indicatorId}
-        data-testid="composer-char-count"
         component="span"
         variant="caption"
-        // The glyph "{count} / 500" is a fine glanceable indicator, but it is
-        // also the input's aria-describedby target, and read bare a screen
-        // reader says "0 slash 500" with no unit. Give it an accessible name
-        // that spells out the unit, so the description read on focus is
-        // "N of 500 characters" while the visible text stays terse (#486).
-        aria-label={`${count} of ${MAX_CHAT_CHARS} characters`}
         sx={{ color, whiteSpace: 'nowrap' }}
       >
-        {count} / {MAX_CHAT_CHARS}
+        <Box component="span" data-testid="composer-char-count">
+          {count} / {MAX_CHAT_CHARS}
+        </Box>
+        <Box component="span" sx={visuallyHidden}> characters</Box>
       </Typography>
       <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
         {ANNOUNCEMENT[band]}

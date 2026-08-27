@@ -630,20 +630,27 @@ test('the status region announces by band: silent above the warning, then at the
 test('the input is described by the visible counter and sets no maxLength', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
   const input = screen.getByLabelText('Message');
-  const indicator = screen.getByTestId('composer-char-count');
+  const describedById = input.getAttribute('aria-describedby');
 
-  expect(indicator.id).toBeTruthy();
-  expect(input.getAttribute('aria-describedby') || '').toContain(indicator.id);
+  // The describedby target exists and contains the visible glyph, so the count
+  // the manager sees is what a screen reader hears on focus.
+  expect(describedById).toBeTruthy();
+  const described = document.getElementById(describedById);
+  expect(described).not.toBeNull();
+  expect(described).toContainElement(screen.getByTestId('composer-char-count'));
   expect(input).not.toHaveAttribute('maxlength');
 });
 
 test('the counter description names the unit, so it does not read as a bare "N slash 500"', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
-  const indicator = screen.getByTestId('composer-char-count');
-  // The visible glyph stays terse, but its accessible name (what aria-describedby
-  // announces on focus) spells out the unit and the count against the limit.
-  expect(indicator).toHaveTextContent('0 / 500');
-  expect(indicator.getAttribute('aria-label')).toBe('0 of 500 characters');
+  const input = screen.getByLabelText('Message');
+  // Assert the ACCESSIBLE DESCRIPTION the input actually resolves - the text
+  // content of its aria-describedby target - not a raw attribute that a browser
+  // might prune. The visible glyph stays terse; the described text names the unit.
+  const described = document.getElementById(input.getAttribute('aria-describedby'));
+  expect(described).not.toBeNull();
+  expect(screen.getByTestId('composer-char-count')).toHaveTextContent('0 / 500');
+  expect(described.textContent.replace(/\s+/g, ' ').trim()).toBe('0 / 500 characters');
 });
 
 test('a click on the counter falls through to focus the input, not a dead strip', () => {
