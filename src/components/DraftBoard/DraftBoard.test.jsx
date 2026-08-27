@@ -43,6 +43,11 @@ function makeFakeSocket() {
   const socket = {
     viewerTeamId: null,
     isCommissioner: false,
+    // The GIF-message capability the server answers on the same per-viewer join
+    // ack (#516, #446 AC7). A test that wants the Draft-room composer sets this
+    // and connects, exactly as it does for isCommissioner; off by default so the
+    // picker stays absent unless a test asks for it.
+    gifMessagesEnabled: false,
     // A socket is an EventEmitter: more than one consumer can listen for the
     // same event on one session. Since #435 the draft board (advance the clock,
     // land the pick) and the combined feed (append the Pick activity) both
@@ -71,7 +76,12 @@ function makeFakeSocket() {
     },
     emit: jest.fn((event, payload, ack) => {
       if (event === 'draft:join' && typeof ack === 'function') {
-        ack({ ok: true, viewerTeamId: socket.viewerTeamId, isCommissioner: socket.isCommissioner });
+        ack({
+          ok: true,
+          viewerTeamId: socket.viewerTeamId,
+          isCommissioner: socket.isCommissioner,
+          gifMessagesEnabled: socket.gifMessagesEnabled,
+        });
       }
     }),
     disconnect: jest.fn(),
@@ -91,12 +101,14 @@ function makeFakeSocket() {
  * acknowledgement before it sends the first snapshot, so this always runs
  * before a `draft:state` trigger.
  */
-const connectAsTeam = (teamId, { isCommissioner = false } = {}) => {
+const connectAsTeam = (teamId, { isCommissioner = false, gifMessagesEnabled = false } = {}) => {
   fakeSocket.viewerTeamId = teamId;
   // Set on every connect, never left standing from an earlier one: one test
   // can render the room twice off the same fake socket, and a role that
   // leaked from the first render would answer for the second.
   fakeSocket.isCommissioner = isCommissioner;
+  // The capability travels the same way, re-answered on every connect (#516).
+  fakeSocket.gifMessagesEnabled = gifMessagesEnabled;
   act(() => fakeSocket.trigger('connect'));
 };
 
@@ -2369,6 +2381,34 @@ describe('wide container three-pane layout (#444)', () => {
     // Chat is its own pane beside the rail, not a descendant of it (#444): the
     // feed was promoted out of the rail to be the centerpiece.
     expect(rail).not.toContainElement(chat);
+  });
+
+  // #516: the Draft-room GIF composer is gated on the SAME draft:join ack
+  // gifMessagesEnabled the board already reads for isCommissioner. The board's
+  // only job is to thread that capability through to DraftRoomChat, so these two
+  // prove the wire end to end: the ack decides, the composer appears (or not).
+  const showWideActiveDraftWithGif = async (gifMessagesEnabled) => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1, { gifMessagesEnabled });
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [{ teamId: 1, teamName: 'Team A' }, { teamId: 2, teamName: 'Team B' }],
+      picks: [],
+      onTheClock: { teamId: 1, teamName: 'Team A' },
+    })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('with the ack capability OFF, the Draft-room GIF composer is absent (AC1)', async () => {
+    await showWideActiveDraftWithGif(false);
+    expect(screen.queryByTestId('gif-picker-trigger')).not.toBeInTheDocument();
+    // Text composition is unaffected.
+    expect(screen.getByLabelText('Message')).toBeInTheDocument();
+  });
+
+  test('with the ack capability ON, the board threads it through and the GIF composer appears (AC2)', async () => {
+    await showWideActiveDraftWithGif(true);
+    expect(screen.getByTestId('gif-picker-trigger')).toBeInTheDocument();
   });
 });
 

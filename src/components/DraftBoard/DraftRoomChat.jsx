@@ -28,11 +28,21 @@ import FeedAnnouncer from './FeedAnnouncer';
  * route; Draft activity is never a manager message and the presenter never
  * offers a hide control on it.
  *
+ * `gifEnabled` is the room's GIF-message capability (#516), answered on the same
+ * draft:join ack useDraftSocket already reads (gifMessagesEnabled) and threaded
+ * through DraftBoard. It defaults off, so a room whose server has not enabled the
+ * capability (the production state) shows no GIF picker while text and emoji
+ * composition stay complete (AC1). When on, the composer sends through
+ * useDraftRoomFeed.sendGif, which mirrors useLeagueChat.sendGif over this same
+ * shared session (payload, idempotency key, acknowledgement and reconciliation).
+ * The picker itself (GifComposer, inside ChatConversation) is unchanged by this
+ * surface; only the two props reach it.
+ *
  * Full Pick history still lives in the Draft board; this feed shows recent Pick
  * activity, it does not replace the board (#435 AC5, CONTEXT.md: Draft board).
  */
-function DraftRoomChat({ socket, leagueId, viewerTeamId = null, canModerate = false }) {
-  const { entries, error, sendMessage, loadOlder, hasMore, hideMessage } = useDraftRoomFeed({
+function DraftRoomChat({ socket, leagueId, viewerTeamId = null, canModerate = false, gifEnabled = false }) {
+  const { entries, error, sendMessage, sendGif, loadOlder, hasMore, hideMessage } = useDraftRoomFeed({
     socket,
     leagueId,
     viewerTeamId,
@@ -63,6 +73,8 @@ function DraftRoomChat({ socket, leagueId, viewerTeamId = null, canModerate = fa
         onHide={hideMessage}
         leagueId={leagueId}
         viewerUserId={viewerUserId}
+        gifEnabled={gifEnabled}
+        onSendGif={sendGif}
       />
     </>
   );
