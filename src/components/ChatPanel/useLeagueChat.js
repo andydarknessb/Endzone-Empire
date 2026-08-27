@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../api/apiClient';
 import { onReconnect } from '../../api/socket';
 import { newClientMsgId } from '../../lib/clientMessageId';
+import { applyHiddenEntry, hidePost } from '../../lib/chatModeration';
 
 /**
  * The League chat conversation over a socket the caller already owns.
@@ -171,16 +172,12 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
     };
 
     // A commissioner hid a message: replace the held entry with its neutral
-    // tombstone in place (#441). Same id, so ordering and pagination are
-    // untouched; the content is dropped and `hidden` flips true, which is what
-    // the surface renders as "Message hidden by commissioner". An entry the
-    // client never held is ignored - there is nothing on screen to tombstone,
-    // and a later history read returns it already tombstoned.
+    // tombstone in place (#441), through the one rewrite the Draft room feed
+    // shares (#482). Same id, so ordering and pagination are untouched; an entry
+    // the client never held is ignored, and a later history read returns it
+    // already tombstoned.
     const onChatHidden = (data) => {
-      if (!data || data.id == null) return;
-      setMessages((prev) =>
-        prev.map((m) => (m.id === data.id ? { ...m, ...data, hidden: true, message: null } : m))
-      );
+      setMessages((prev) => applyHiddenEntry(prev, data));
     };
 
     socket.on('chat:message', onChatMessage);
@@ -238,25 +235,19 @@ export default function useLeagueChat({ socket, leagueId, open = true, viewerTea
   }, [socket, leagueId, fetchHistory, fetchUnread, markRead]);
 
   // Commissioner-only: hide one abusive message league-wide with a reason
-  // (#441, AC2). REST over the moderation surface (safety.router), not the
-  // socket: the live tombstone every member sees, this actor included, arrives
-  // back on the `chat:hidden` broadcast above, so a success here does not
-  // optimistically rewrite state - the broadcast is the single source of the
-  // tombstone. Resolves false on a rejected hide (a member calling it, a bad
-  // reason) so the caller can keep the reason form open.
+  // (#441, AC2), through the one hide REST call the Draft room shares (#482) so
+  // the audit row and the `chat:hidden` broadcast are identical whichever
+  // surface acted. The live tombstone every member sees, this actor included,
+  // arrives back on the broadcast above, so a success here does not
+  // optimistically rewrite state. Resolves false on a rejected hide (a member
+  // calling it, a bad reason) so the caller can keep the reason form open.
   const hideMessage = useCallback(
     (messageId, reason) => {
-      const trimmed = typeof reason === 'string' ? reason.trim() : '';
       setError(null);
-      return Promise.resolve(
-        apiClient.post('/api/safety/hide', { leagueId: Number(leagueId), messageId, reason: trimmed })
-      )
-        .then(() => true)
-        .catch((err) => {
-          const serverError = err?.response?.data?.error;
-          setError(serverError || 'failed to hide message');
-          return false;
-        });
+      return hidePost({ leagueId, messageId, reason }).then((res) => {
+        if (!res.ok) setError(res.error);
+        return res.ok;
+      });
     },
     [leagueId]
   );
