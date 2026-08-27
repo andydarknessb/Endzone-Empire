@@ -294,10 +294,10 @@ if (!ENABLED) {
   test('up() refuses to enforce over a feed where a position is owned by both kinds (AC3)', async () => {
     // Build a pre-existing cross-kind collision while the registry is DOWN, then
     // prove up() names it and refuses rather than enforcing over it. The
-    // collision is forced by rewinding the counter between two allocations, which
-    // makes both kinds land on one position through the ordinary counter path
-    // (the same path #436 must keep safe now that it has lifted draft_activity's
-    // explicit-position RAISE; the registry, not that guard, is the backstop).
+    // collision is forced by rewinding the counter between two allocations - the
+    // only way to make both kinds land on one position, since draft_activity's
+    // own explicit-position RAISE (which #436 disables only around its migration
+    // inserts, never for runtime) otherwise keeps them apart.
     await knex.migrate.down({ name: MIGRATION_NAME });
     const league = await seedLeague('Shared Feed Reconcile', ownerA, 'sharedfeedr');
     const team = await seedTeam(league, ownerA, 'Alpha');

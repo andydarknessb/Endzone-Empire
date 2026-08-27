@@ -378,7 +378,11 @@ timestamp and marked legacy. Legacy entries are ordered among each other by one
 synthetic per-league chronology: by timestamp, and at an equal instant a Pick
 before a chat message, then by source id. What was never recorded (a historical
 pause, resume, correction, reset, or whether a Pick was an autopick) is left
-unstated, never fabricated.
+unstated, never fabricated. A keeper is NOT a legacy Pick entry: keepers are
+pre-filled at draft start rather than committed through the live Pick path, which
+writes no Draft activity for them, so the legacy backfill omits them too and a
+keeper league's combined feed shows no keeper Picks (they remain in the Draft
+board's Pick history).
 _Avoid_: imported message, migrated pick (they are legacy facts, not re-authored
 ones), backfilled draft (a draft is not an entry)
 

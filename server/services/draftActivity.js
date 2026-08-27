@@ -150,13 +150,13 @@ function activityEntryOf(row) {
  * expired and the server made the Pick - so the entry can label an autopick
  * only when that is actually true (#435 AC3), never inferred later.
  */
-async function appendPickActivity(client, { leagueId, team, player, round, pickNumber, auto = false }) {
+async function appendPickActivity(client, { leagueId, team, player, round, pickNumber, auto = false, sourcePickId = null }) {
   const result = await client.query(
     `INSERT INTO "draft_activity"
        ("league_id", "kind", "team_id", "team_name",
         "player_id", "player_name", "player_position", "player_nfl_team",
-        "round", "pick_number", "is_autopick")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        "round", "pick_number", "is_autopick", "source_pick_id")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING "id", "feed_seq", "created_at"`,
     [
       leagueId,
@@ -170,6 +170,11 @@ async function appendPickActivity(client, { leagueId, team, player, round, pickN
       round,
       pickNumber,
       auto,
+      // The draft_picks row this entry represents (#436), so coverage and
+      // reconciliation match a Pick to its feed entry by identity rather than by
+      // a pick_number that undo + re-pick reuses. Null only for callers (older
+      // tests) that do not supply it.
+      sourcePickId,
     ]
   );
   const inserted = result.rows[0];

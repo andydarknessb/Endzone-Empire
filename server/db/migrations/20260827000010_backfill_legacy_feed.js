@@ -14,87 +14,89 @@
  * WHAT ALREADY EXISTS, AND WHAT THIS ADDS.
  *   #434 (20260826000002) gave chat_messages a `feed_seq`, numbered legacy chat
  *        1..N per league by (created_at, id), and a per-league counter.
- *   #435 (20260826000004) added the empty `draft_activity` store on the SAME
- *        counter and a BEFORE INSERT allocator that RAISES on an explicit
- *        feed_seq - a deliberate tripwire whose header says lifting it is #436's
- *        job.
+ *   #435 (20260826000004) added the `draft_activity` store on the SAME counter
+ *        and a BEFORE INSERT allocator that RAISES on an explicit feed_seq - a
+ *        deliberate tripwire so no runtime writer ever names a position.
  *   #471 (20260827000001) made the per-league position namespace structural: a
  *        `league_feed_positions` registry with PK (league_id, feed_seq) across
  *        BOTH kinds, claimed by an AFTER INSERT trigger that also holds the
  *        counter at or above every reserved position. ADR 0015 states the
- *        reservation contract this migration uses: an explicit legacy or cutover
- *        position reserves through that one namespace and fails atomically on
- *        conflict.
+ *        reservation contract this migration uses.
  *
  * This migration:
- *   1. LIFTS the draft_activity explicit-feed_seq tripwire (per #435's header
- *      and ADR 0015) so legacy Picks and the boundary can name their positions;
- *      the registry PK is now the structural protection the tripwire stood in
- *      for.
- *   2. Marks legacy rows: `chat_messages.is_legacy`, `draft_activity.is_legacy`,
- *      and records each legacy Pick's ORIGINAL source id in
- *      `draft_activity.legacy_pick_id` (AC1: preserve source identifiers).
- *   3. RE-DERIVES one combined per-league legacy order over chat AND Picks by
- *      (created_at, record-type tie-breaker, source id), so a Pick sorts
- *      chronologically among the chat around it - not in a block after all chat.
- *      #434's chat-only 1..N is refined into that interleaving; a chat-only
- *      league is unchanged (the tie-breaker never fires without Picks).
- *   4. Inserts one `kind = 'cutover'` BOUNDARY entry per league that had legacy
+ *   1. Marks legacy rows (`chat_messages.is_legacy`, `draft_activity.is_legacy`)
+ *      and records the SOURCE draft_pick id of every Pick entry, legacy or live,
+ *      in `draft_activity.source_pick_id` (AC1). That id is the ONE thing
+ *      coverage and reconciliation match a Pick to its feed entry by - never the
+ *      pick_number, which an undo + re-pick reuses.
+ *   2. RE-DERIVES one combined per-league legacy order over chat AND non-keeper
+ *      Picks by (created_at, record-type tie-breaker, source id), so a Pick sorts
+ *      chronologically among the chat around it. #434's chat-only 1..N is refined
+ *      into that interleaving; a chat-only league is unchanged.
+ *   3. Inserts one `kind = 'cutover'` BOUNDARY per league that had legacy
  *      content, at the position just after its legacy high-water (AC3), and
  *      seeds the counter to it so live entries continue strictly past it.
+ *
+ * WHY KEEPERS ARE EXCLUDED. A keeper is pre-inserted into `draft_picks` at draft
+ * start, NOT through the live Pick path (draft.service.draftPlayer), so the live
+ * feed writes no Draft activity for a keeper. Backfilling keepers as legacy Pick
+ * entries would show, in the legacy feed, events the live feed omits, and would
+ * make reconciliation flag every keeper as an uncovered Pick forever. So the
+ * backfill, capture and reconciliation all skip `is_keeper` rows - the feed's
+ * "Picks" are the ones a manager committed live, exactly as #435 records them.
  *
  * WHY RE-DERIVE CHAT RATHER THAN APPEND PICKS AFTER IT. feed_seq is a dense
  * integer chronology; #434 packed chat 1..N with no room between neighbours, so
  * a Pick committed BETWEEN two messages has no position to take without moving
  * chat. ADR 0012 requires "one chronological position" with "equal timestamps
  * ordered by record-type tie-breaker" - a cross-kind tie-breaker only has
- * meaning if the two kinds are sorted TOGETHER. Appending Picks after chat would
- * put every legacy Pick after every legacy message regardless of when it
- * happened, which is not one chronology. So chat is re-sequenced. It is safe:
- * nothing is live yet (draft_activity is empty of authoritative events until the
- * rollout flag flips, #447), so no client holds a mid-draft cursor, and the
- * #434 positions were themselves synthetic legacy positions this refines.
+ * meaning if the two kinds are sorted TOGETHER. So chat is re-sequenced. It is
+ * safe: nothing is live yet (up() REFUSES if it is; see the precondition below),
+ * so no client holds a mid-draft cursor, and the #434 positions were themselves
+ * synthetic legacy positions this refines.
  *
- * THE TIE-BREAKER (AC2), documented so it is a rule, not an accident. Within a
- * league the legacy order is:
- *     (created_at ASC, record kind [Pick before chat], source id ASC)
- * At an equal instant a Pick precedes a chat message (a Pick is the
- * authoritative event; chat is commentary around it), and within one kind the
- * source id breaks the remaining tie. Kind is compared BEFORE source id because
- * chat ids and draft_pick ids come from different sequences and could coincide;
- * ordering by kind first makes the whole order total and deterministic. This
- * matches the glossary's "Cutover boundary" / "Legacy feed entry" terms.
+ * THE TIE-BREAKER (AC2). Within a league the legacy order is
+ *     (created_at ASC, record kind [Pick before chat], source id ASC).
+ * At an equal instant a Pick precedes a chat message; kind is compared BEFORE
+ * source id because chat ids and draft_pick ids come from different sequences and
+ * could coincide, so ordering by kind first makes the whole order total.
  *
  * WHY is_autopick IS false AND pause/resume/correction ARE ABSENT. ADR 0012
  * leaves absent historical facts unstated rather than fabricated. draft_picks
- * stores no autopick flag (only the live #435 path knows `auto`), so a legacy
- * Pick is `is_autopick = false` - "not known to be an autopick", never a claim
- * that a manager made it. Historical pause/resume/reset/correction events were
- * never recorded, so no legacy lifecycle rows are invented; only surviving Picks
- * and messages become facts.
+ * stores no autopick flag, so a legacy Pick is `is_autopick = false` - "not known
+ * to be an autopick", never a claim. No legacy lifecycle rows are invented.
  *
- * THE REGISTRY, DURING THE BACKFILL. The re-sequence UPDATEs chat_messages,
- * which fires NO trigger (the allocator and the registrar are both INSERT-only),
- * so the registry's chat rows would go stale. Rather than fight the triggers,
- * this migration clears the registry for every affected league, then lets the
- * registrar trigger claim each legacy Pick and the boundary as they INSERT, and
- * re-inserts the chat positions itself. Chat and Pick positions partition a
- * contiguous 1..M run, so no cross-kind PK conflict is possible. The whole of
- * up() runs in one knex transaction under the table locks the ADD COLUMNs take,
- * so no concurrent insert interleaves (the same runner property #434 relies on).
+ * WHY THE ALLOCATE TRIGGER IS DISABLED, NOT REDEFINED. The legacy Picks and the
+ * boundary name explicit positions, which #435's allocator RAISES on. That guard
+ * is still worth keeping for RUNTIME (no live writer supplies an explicit
+ * feed_seq - both appendPickActivity and captureLegacyPicks insert NULL and let
+ * the counter allocate), so rather than lift it globally, up() DISABLES the
+ * BEFORE INSERT allocate trigger around its own explicit-position inserts and
+ * re-enables it before commit. The registrar AFTER INSERT trigger stays enabled,
+ * so each explicit position is still claimed in the shared registry and advances
+ * the counter (ADR 0015). The whole of up() is one knex transaction under the
+ * table locks the ADD COLUMNs take, so no concurrent insert sees the trigger
+ * disabled.
+ *
+ * PRECONDITION (checked in SQL). The backfill's premise is that no authoritative
+ * live ordering exists yet - it re-sequences chat and reserves explicit
+ * positions, which is only safe on a feed that has not gone live. up() RAISES if
+ * any `draft_activity` row is a live event (not legacy, not the boundary),
+ * mirroring 20260827000001's reconciliation precondition, so the safety rests on
+ * a checked fact rather than an assumption a reader of the diff cannot verify.
  *
  * ROLLBACK (AC7). down() is LOSSLESS while activity is only legacy + boundary
- * (all re-derivable) and REFUSES once any authoritative live event exists (a
- * non-legacy row that is not the boundary - a real post-cutover Pick, lifecycle
- * or correction), because dropping those would erase append-only history
- * (ADR 0012's guarded rollback). On a fresh CI database (the migrate ->
- * rollback -> migrate smoke) there is no legacy content, so both up() and down()
- * are near no-ops and the smoke stays clean.
+ * (all re-derivable) and REFUSES once any authoritative live event exists,
+ * because dropping those would erase append-only history (ADR 0012). On a fresh
+ * CI database the guards pass and up()/down() are near no-ops.
  *
  * MIGRATIONS ARE A CARVE-OUT (fleet policy): written here, applied and verified
  * by the maintainer against `knex_migrations`. An IC does not run it. Apply it
- * when no draft is live: up() briefly holds locks on chat_messages and
- * draft_activity while it re-sequences and backfills.
+ * when NO draft is live and ideally at low traffic: `ALTER TABLE ... ADD COLUMN`
+ * takes an ACCESS EXCLUSIVE lock on chat_messages and draft_activity - which
+ * blocks reads as well as writes - and that lock is held for the WHOLE of up()
+ * (the re-sequence and backfill run inside the same transaction), on every
+ * league at once.
  */
 
 const CHAT = 'chat_messages';
@@ -106,61 +108,67 @@ const PICKS = 'draft_picks';
 const CHAT_KIND = 'league_chat';
 const PICK = 'pick';
 const CUTOVER = 'cutover';
+const ALLOCATE_TRIGGER = 'draft_activity_allocate_feed_seq';
 
 exports.up = async function (knex) {
-  // 1. LIFT THE TRIPWIRE. draft_activity's allocator raised on any explicit
-  //    feed_seq (20260826000004) so an accidental explicit position could not
-  //    slip in before #471 made the namespace structural. #471 shipped; the
-  //    registry PK now rejects a cross-kind collision atomically, so the
-  //    explicit legacy/cutover path this migration needs is safe. The function
-  //    keeps allocating from the counter for the ordinary (feed_seq IS NULL)
-  //    path every live Pick still uses, and now passes an explicit position
-  //    through instead of raising - matching chat's allocator (#434).
-  await knex.raw(`
-    CREATE OR REPLACE FUNCTION fn_allocate_draft_activity_feed_seq() RETURNS trigger AS $$
-    BEGIN
-      IF NEW."feed_seq" IS NULL THEN
-        INSERT INTO "${SEQUENCES}" AS s ("league_id", "last_seq")
-        VALUES (NEW."league_id", 1)
-        ON CONFLICT ("league_id") DO UPDATE SET "last_seq" = s."last_seq" + 1
-        RETURNING s."last_seq" INTO NEW."feed_seq";
-      END IF;
-      RETURN NEW;
-    END $$ LANGUAGE plpgsql;
-  `);
-
-  // 2. LEGACY MARKERS. is_legacy defaults false so future live rows are not
-  //    legacy; the backfill sets the existing rows true. legacy_pick_id records
-  //    the ORIGINAL draft_picks id a legacy activity row came from (AC1) and,
-  //    through a partial unique index, makes the Pick backfill idempotent - a
-  //    Pick cannot be backfilled twice. It carries no FK: the source Pick is
-  //    hard-deleted by a later correction or reset, and the append-only legacy
-  //    row must keep the id as a historical fact rather than have it nulled.
+  // 1. LEGACY MARKERS + SOURCE IDENTITY. is_legacy defaults false so future live
+  //    rows are not legacy; the backfill sets the existing rows true.
+  //    source_pick_id records the draft_picks id a Pick entry represents - set by
+  //    this backfill for a legacy Pick and by appendPickActivity for a live one -
+  //    so "is this Pick in the feed" is answered by identity, not by a reused
+  //    pick_number. It carries no FK: the source Pick is hard-deleted by a later
+  //    correction, undo or reset, and the append-only entry must keep the id.
+  //    This composes with the precondition (step 2): because up() REFUSES over
+  //    any live draft_activity, there are NO pre-existing live Pick entries at
+  //    cutover, so no live row's source_pick_id needs backfilling here - only the
+  //    legacy Picks below set it, and every later live Pick sets its own through
+  //    appendPickActivity. The two guarantees are linked, not coincidental.
   await knex.schema.alterTable(CHAT, (t) => {
     t.boolean('is_legacy').notNullable().defaultTo(false);
   });
   await knex.schema.alterTable(ACTIVITY, (t) => {
     t.boolean('is_legacy').notNullable().defaultTo(false);
-    t.integer('legacy_pick_id');
+    t.integer('source_pick_id');
   });
-  // legacy_pick_id belongs only to a legacy Pick: never on the boundary, a live
-  // Pick or a lifecycle/correction row. Stating it as a CHECK keeps the marker
-  // honest the same way draft_activity's other kind-scoped CHECKs do.
+  // A source_pick_id belongs only to a Pick (legacy or live); never on the
+  // boundary, a lifecycle event or a correction. Stating it as a CHECK keeps the
+  // marker honest the same way draft_activity's other kind-scoped CHECKs do.
   await knex.raw(`ALTER TABLE "${ACTIVITY}"
-    ADD CONSTRAINT "draft_activity_legacy_pick_id_shape" CHECK (
-      "legacy_pick_id" IS NULL OR ("is_legacy" = true AND "kind" = '${PICK}')
+    ADD CONSTRAINT "draft_activity_source_pick_id_shape" CHECK (
+      "source_pick_id" IS NULL OR "kind" = '${PICK}'
     )`);
+  // One feed entry per source Pick. A re-pick after an undo is a NEW draft_picks
+  // row with a new id, so it does not collide with the reversed Pick's entry.
   await knex.raw(
-    `CREATE UNIQUE INDEX "draft_activity_legacy_pick_id"
-     ON "${ACTIVITY}" ("legacy_pick_id")
-     WHERE "legacy_pick_id" IS NOT NULL`
+    `CREATE UNIQUE INDEX "draft_activity_source_pick_id"
+     ON "${ACTIVITY}" ("source_pick_id")
+     WHERE "source_pick_id" IS NOT NULL`
   );
 
+  // 2. PRECONDITION (Blocker 2 / ADR 0015 posture): refuse to run over a feed
+  //    that already holds authoritative live activity. The backfill re-sequences
+  //    chat and reserves explicit positions, which is only safe before go-live.
+  //    A boundary (kind='cutover') and legacy Picks (is_legacy=true) are this
+  //    migration's own rows, so a re-run does not trip it; a genuine live event
+  //    does.
+  await knex.raw(`
+    DO $$
+    DECLARE live_count bigint;
+    BEGIN
+      SELECT count(*) INTO live_count FROM "${ACTIVITY}"
+       WHERE "is_legacy" = false AND "kind" <> '${CUTOVER}';
+      IF live_count > 0 THEN
+        RAISE EXCEPTION
+          'refusing to backfill the legacy feed: draft_activity already holds % authoritative live event(s); the cutover must run before any live Draft ordering exists (#436, ADR 0012)',
+          live_count;
+      END IF;
+    END $$;
+  `);
+
   // 3. THE COMBINED LEGACY ORDER. One row per surviving chat message and per
-  //    surviving Pick, numbered 1..M per league by the documented tie-breaker.
-  //    Built ONLY for leagues that have no cutover boundary yet, so a re-run
-  //    (defensive; knex runs up() once) touches nothing already backfilled.
-  //    ON COMMIT DROP: the temp table lives for this transaction only.
+  //    surviving NON-KEEPER Pick, numbered 1..M per league by the documented
+  //    tie-breaker. Built only for leagues without a cutover boundary yet, so a
+  //    re-run touches nothing already backfilled. ON COMMIT DROP.
   await knex.raw(`
     CREATE TEMP TABLE "_legacy_feed_order" ON COMMIT DROP AS
     WITH combined AS (
@@ -169,6 +177,7 @@ exports.up = async function (knex) {
       UNION ALL
       SELECT "league_id", 'draft_pick'::text AS record_kind, "id" AS source_id, "created_at"
         FROM "${PICKS}"
+       WHERE "is_keeper" = false
     )
     SELECT "league_id", "record_kind", "source_id", "created_at",
            row_number() OVER (
@@ -181,18 +190,15 @@ exports.up = async function (knex) {
      WHERE "league_id" NOT IN (SELECT "league_id" FROM "${ACTIVITY}" WHERE "kind" = '${CUTOVER}')
   `);
 
-  // Nothing to do (fresh CI database, or every league already backfilled): the
-  // remaining steps are all scoped to _legacy_feed_order, so an empty table
-  // makes them no-ops, but returning early keeps the intent obvious.
   const pending = await knex.raw('SELECT count(*)::int AS n FROM "_legacy_feed_order"');
   if (pending.rows[0].n === 0) return;
 
   // 4. CLEAR THE REGISTRY for every affected league. Its chat rows are about to
   //    be re-positioned (an UPDATE the registrar trigger does not see) and its
-  //    Pick rows do not exist yet; the trigger repopulates Picks and the
-  //    boundary as they INSERT below, and this migration re-inserts chat. This
-  //    is why no cross-kind PK conflict can arise: the namespace is emptied,
-  //    then refilled with one contiguous partition per league.
+  //    Pick rows do not exist yet; the trigger repopulates Picks and the boundary
+  //    as they INSERT below, and this migration re-inserts chat. The namespace is
+  //    emptied, then refilled with one contiguous partition per league, so no
+  //    cross-kind PK conflict can arise.
   await knex.raw(`
     DELETE FROM "${REGISTRY}"
      WHERE "league_id" IN (SELECT DISTINCT "league_id" FROM "_legacy_feed_order")
@@ -200,9 +206,7 @@ exports.up = async function (knex) {
 
   // 5. VACATE chat positions out of the target range so the re-number cannot
   //    transiently collide on the (league_id, feed_seq) unique index. Negating
-  //    moves every position to a value the new 1..M targets never reuse; the
-  //    map back to final positions in step 7 then meets no occupied slot. All
-  //    within one transaction, so these negatives are never read by anyone.
+  //    moves every position to a value the new 1..M targets never reuse.
   await knex.raw(`
     UPDATE "${CHAT}"
        SET "feed_seq" = -"feed_seq"
@@ -210,20 +214,22 @@ exports.up = async function (knex) {
        AND "feed_seq" > 0
   `);
 
-  // 6. BACKFILL LEGACY PICKS as draft_activity 'pick' rows at their combined
-  //    position, snapshotting the facts the append-only entry must keep (Team,
-  //    player, position, NFL team, round, overall Pick number) and preserving
-  //    the ORIGINAL timestamp and source id (AC1). round is derived from the
-  //    league's team count exactly as the live path does
-  //    (floor((pick_number - 1) / teams) + 1). is_autopick is false: the fact
-  //    was never stored, so it is left unstated, not fabricated (ADR 0012). The
-  //    explicit feed_seq is now accepted by the lifted allocator, and the
-  //    registrar trigger claims each position and advances the counter.
+  // Disable the BEFORE INSERT allocator so the explicit legacy/boundary positions
+  // pass through untouched; the registrar AFTER INSERT trigger stays on and claims
+  // each. Re-enabled before commit (step 9a), so runtime keeps the RAISE guard.
+  await knex.raw(`ALTER TABLE "${ACTIVITY}" DISABLE TRIGGER "${ALLOCATE_TRIGGER}"`);
+
+  // 6. BACKFILL LEGACY PICKS (non-keeper) as draft_activity 'pick' rows at their
+  //    combined position, snapshotting the facts the append-only entry must keep
+  //    and preserving the ORIGINAL timestamp and source id (AC1). round is derived
+  //    from the league's team count exactly as the live path does. is_autopick is
+  //    false: the fact was never stored, so it is left unstated (ADR 0012). The
+  //    NOT EXISTS on source_pick_id makes a re-run insert nothing already present.
   await knex.raw(`
     INSERT INTO "${ACTIVITY}"
       ("league_id", "kind", "team_id", "team_name",
        "player_id", "player_name", "player_position", "player_nfl_team",
-       "round", "pick_number", "is_autopick", "is_legacy", "legacy_pick_id",
+       "round", "pick_number", "is_autopick", "is_legacy", "source_pick_id",
        "feed_seq", "created_at")
     SELECT dp."league_id", '${PICK}', dp."team_id", t."name",
            dp."player_id", p."name", p."position", p."nfl_team",
@@ -242,7 +248,7 @@ exports.up = async function (knex) {
       JOIN (SELECT "league_id", count(*) AS "team_count" FROM "teams" GROUP BY "league_id") tc
         ON tc."league_id" = dp."league_id"
      WHERE NOT EXISTS (
-       SELECT 1 FROM "${ACTIVITY}" a WHERE a."legacy_pick_id" = dp."id"
+       SELECT 1 FROM "${ACTIVITY}" a WHERE a."source_pick_id" = dp."id"
      )
   `);
 
@@ -257,10 +263,8 @@ exports.up = async function (knex) {
      WHERE m."record_kind" = '${CHAT_KIND}' AND m."source_id" = c."id" AND m."league_id" = c."league_id"
   `);
 
-  // 8. RE-REGISTER CHAT positions. Picks (step 6) and the boundary (step 9)
-  //    register through the trigger; chat moved by UPDATE, so its registry rows
-  //    are inserted here. Positions are disjoint from the Pick positions in the
-  //    same league (one contiguous partition), so no PK conflict.
+  // 8. RE-REGISTER CHAT positions. Positions are disjoint from the Pick positions
+  //    in the same league (one contiguous partition), so no PK conflict.
   await knex.raw(`
     INSERT INTO "${REGISTRY}" ("league_id", "feed_seq", "record_kind", "source_id")
     SELECT c."league_id", c."feed_seq", '${CHAT_KIND}', c."id"
@@ -269,13 +273,9 @@ exports.up = async function (knex) {
   `);
 
   // 9. THE CUTOVER BOUNDARY (AC3): one 'cutover' row per affected league at the
-  //    position just past its legacy high-water. is_legacy is false - the
-  //    boundary is where authoritative live ordering begins, not part of the
-  //    legacy set it separates. It carries no Team or Pick facts (it is not a
-  //    Draft event); the pick-fields CHECK requires them only for a 'pick', and
-  //    the reason CHECK requires reason null for every non-correction kind. Its
-  //    created_at is the cutover instant. The registrar trigger claims it and
-  //    advances the counter to it.
+  //    position just past its legacy high-water. is_legacy is false - the boundary
+  //    is where authoritative live ordering begins. It carries no Team or Pick
+  //    facts. The registrar trigger claims it and advances the counter to it.
   await knex.raw(`
     INSERT INTO "${ACTIVITY}" ("league_id", "kind", "is_legacy", "feed_seq", "created_at")
     SELECT "league_id", '${CUTOVER}', false, max("new_seq") + 1, now()
@@ -283,11 +283,11 @@ exports.up = async function (knex) {
      GROUP BY "league_id"
   `);
 
-  // 10. SEED THE COUNTER to each affected league's registry high-water (the
-  //     boundary position). The registrar trigger already advanced it on every
-  //     claim; this is the belt-and-braces guarantee #471 AC5 states - the
-  //     counter never sits behind a reserved position, so the next live
-  //     allocation continues strictly past the boundary.
+  // 9a. Re-enable the allocator so runtime inserts keep the explicit-feed_seq
+  //     RAISE guard. (Enabled at commit; the disable never escaped this txn.)
+  await knex.raw(`ALTER TABLE "${ACTIVITY}" ENABLE TRIGGER "${ALLOCATE_TRIGGER}"`);
+
+  // 10. SEED THE COUNTER to each affected league's registry high-water (#471 AC5).
   await knex.raw(`
     INSERT INTO "${SEQUENCES}" AS s ("league_id", "last_seq")
     SELECT "league_id", max("feed_seq") FROM "${REGISTRY}"
@@ -299,10 +299,7 @@ exports.up = async function (knex) {
 
 exports.down = async function (knex) {
   // AC7 guarded rollback: refuse once authoritative live activity exists. A live
-  // event is any draft_activity row that is neither legacy nor the boundary - a
-  // real post-cutover Pick, lifecycle transition or correction. Dropping those
-  // would erase append-only history (ADR 0012), so recovery after go-live is a
-  // forward migration or the rollout flag, never this down().
+  // event is any draft_activity row that is neither legacy nor the boundary.
   const live = await knex.raw(
     `SELECT EXISTS (
        SELECT 1 FROM "${ACTIVITY}" WHERE "is_legacy" = false AND "kind" <> '${CUTOVER}'
@@ -316,28 +313,29 @@ exports.down = async function (knex) {
     );
   }
 
-  // Only legacy + boundary remain, all re-derivable. Undo the backfill so the
-  // schema and data return to the pre-#436 state (chat back to #434's chat-only
-  // 1..N, draft_activity empty, registry mirroring chat only, counter at chat's
-  // high-water). The affected leagues are exactly those that carry a boundary;
-  // capture them into a temp table before deleting the boundary rows, and drive
-  // every step off it (no array bindings, so the whole reverse is set-based SQL).
+  // Only legacy + boundary remain. They are synthetic: re-derived from the CURRENT
+  // chat_messages and draft_picks by the next up(). So the reverse is faithful to
+  // the SOURCES, not to a snapshot - a Pick undone or reset between the backfill
+  // and this rollback (its draft_picks row hard-deleted) is correctly absent after
+  // the next up() re-derives, rather than resurrected. The append-only contract
+  // that must never be lost is LIVE activity, and the guard above refuses the
+  // rollback while any exists; legacy rows are always reproducible from the
+  // sources that remain.
+  //
+  // Capture the affected leagues (those carrying a boundary) before deleting the
+  // boundary rows, and drive every step off it (no array bindings, so the whole
+  // reverse is set-based SQL).
   await knex.raw(`
     CREATE TEMP TABLE "_affected_leagues" ON COMMIT DROP AS
     SELECT DISTINCT "league_id" FROM "${ACTIVITY}" WHERE "kind" = '${CUTOVER}'
   `);
   const affected = await knex.raw('SELECT count(*)::int AS n FROM "_affected_leagues"');
 
-  // Remove the legacy Picks and the boundary. draft_activity is now empty of
-  // everything this migration wrote (and the live guard proved nothing else is
-  // there), so its own guarded down() will pass in a full reverse rollback.
+  // Remove the legacy Picks and the boundary; draft_activity is now empty of
+  // everything this migration wrote, so its own guarded down() passes.
   await knex.raw(`DELETE FROM "${ACTIVITY}" WHERE "is_legacy" = true OR "kind" = '${CUTOVER}'`);
 
   if (affected.rows[0].n > 0) {
-    // Rebuild the registry and chat positions for the affected leagues from the
-    // #434 chat-only order. Clear the namespace, restore chat to (created_at,
-    // id) 1..N with the same vacate-then-map the up() used, re-register chat,
-    // and reset the counter to chat's high-water.
     await knex.raw(`DELETE FROM "${REGISTRY}" WHERE "league_id" IN (SELECT "league_id" FROM "_affected_leagues")`);
 
     await knex.raw(`
@@ -369,28 +367,15 @@ exports.down = async function (knex) {
     `);
   }
 
-  // Drop the markers and restore the explicit-feed_seq tripwire on
-  // draft_activity, so the schema matches the pre-#436 shape exactly.
-  await knex.raw(`DROP INDEX IF EXISTS "draft_activity_legacy_pick_id"`);
-  await knex.raw(`ALTER TABLE "${ACTIVITY}" DROP CONSTRAINT IF EXISTS "draft_activity_legacy_pick_id_shape"`);
+  // Drop the markers. The allocate trigger's function was never modified (up()
+  // only disabled and re-enabled the trigger), so there is nothing to restore.
+  await knex.raw(`DROP INDEX IF EXISTS "draft_activity_source_pick_id"`);
+  await knex.raw(`ALTER TABLE "${ACTIVITY}" DROP CONSTRAINT IF EXISTS "draft_activity_source_pick_id_shape"`);
   await knex.schema.alterTable(ACTIVITY, (t) => {
     t.dropColumn('is_legacy');
-    t.dropColumn('legacy_pick_id');
+    t.dropColumn('source_pick_id');
   });
   await knex.schema.alterTable(CHAT, (t) => {
     t.dropColumn('is_legacy');
   });
-  await knex.raw(`
-    CREATE OR REPLACE FUNCTION fn_allocate_draft_activity_feed_seq() RETURNS trigger AS $$
-    BEGIN
-      IF NEW."feed_seq" IS NOT NULL THEN
-        RAISE EXCEPTION 'draft_activity.feed_seq is trigger-allocated from league_feed_sequences and must not be supplied explicitly (see #471 before lifting this guard)';
-      END IF;
-      INSERT INTO "${SEQUENCES}" AS s ("league_id", "last_seq")
-      VALUES (NEW."league_id", 1)
-      ON CONFLICT ("league_id") DO UPDATE SET "last_seq" = s."last_seq" + 1
-      RETURNING s."last_seq" INTO NEW."feed_seq";
-      RETURN NEW;
-    END $$ LANGUAGE plpgsql;
-  `);
 };
