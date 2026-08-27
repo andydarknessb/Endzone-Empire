@@ -58,6 +58,11 @@ function PickAnnouncer({ pick = null }) {
     // Only when the new text WOULD repeat the last announcement, append a
     // zero-width space that flips, so the node value changes and the repeat is
     // announced; the marker is invisible and unspoken. Distinct Picks stay clean.
+    // These six lines are duplicated in FeedAnnouncer.jsx ON PURPOSE, not shared:
+    // that announcer's empty-clear path resets the same lastTextRef this flip
+    // reads, so the two callers have divergent reset semantics and a shared hook
+    // would need a reset parameter or would change #445's empty-path silence.
+    // Merge them and you break a behaviour neither announcer's tests ask you to.
     let out = text;
     if (text === lastTextRef.current) {
       nonceRef.current += 1;

@@ -125,6 +125,11 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
     // announced; the marker is invisible and unspoken. Distinct messages stay
     // clean. This is not the identical-tail case above - that returns before here
     // and stays deliberately silent.
+    // These six lines are duplicated in PickAnnouncer.jsx (#513) ON PURPOSE, not
+    // shared: the empty-clear path above resets lastTextRef, which that announcer
+    // has no equivalent of, so the two callers have divergent reset semantics. A
+    // shared hook would need a reset parameter or would change this announcer's
+    // empty-path silence - merging the six lines breaks a behaviour untested for.
     let out = text;
     if (text === lastTextRef.current) {
       nonceRef.current += 1;
