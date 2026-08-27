@@ -161,12 +161,34 @@ function ChatConversation({
   // cancel it, or confirm the hide. These read and write only hidingId /
   // hideReason - never the composer's `text` - so they sit beside the emoji
   // helpers below without contending for the composer draft state.
+  // Focus management for the inline hide form (#445 AC4). Opening the form moves
+  // focus into the reason field (its autoFocus); closing it - Cancel, or a
+  // committed hide - returns focus to the Hide button that opened it, so a
+  // keyboard or screen-reader user is never dropped back onto the document body.
+  // The Hide button is remounted when the form closes (it is not rendered while
+  // the form is open for that message), so a stored node reference would be
+  // stale; instead a pending id is recorded and the button focuses itself as it
+  // remounts, through this ref callback.
+  const pendingHideFocusRef = useRef(null);
+  const registerHideButton = (id) => (node) => {
+    if (node && pendingHideFocusRef.current === id) {
+      pendingHideFocusRef.current = null;
+      node.focus();
+    }
+  };
+
   const startHiding = (id) => {
     setHidingId(id);
     setHideReason('');
   };
   const cancelHiding = () => {
-    setHidingId(null);
+    // Return focus to the Hide button of the message we were hiding as it
+    // remounts (registerHideButton). setHidingId reads its own previous value so
+    // this is correct whether called from Cancel or from a committed hide.
+    setHidingId((current) => {
+      pendingHideFocusRef.current = current;
+      return null;
+    });
     setHideReason('');
   };
   const confirmHide = async (id) => {
@@ -274,6 +296,17 @@ function ChatConversation({
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // The "N new" affordance (#445 AC4 new-entry navigation): jumping to the
+  // latest also moves focus into the log region, so a keyboard or screen-reader
+  // user who activates it lands on the live content rather than staying on a
+  // button that has just vanished. The plain auto-follow path (anchorToLatest,
+  // above) must NOT move focus - it fires on every feed change while the reader
+  // is already at the bottom - so this is a separate, gesture-only handler.
+  const handleJumpToLatest = useCallback(() => {
+    anchorToLatest();
+    scrollRef.current?.focus();
+  }, [anchorToLatest]);
+
   const unseenAfterSeen = useCallback(() => {
     const seen = seenKeyRef.current;
     if (seen == null) return 0;
@@ -352,10 +385,31 @@ function ChatConversation({
         </Alert>
       )}
 
+      {/* The feed is a named accessible log (#445 AC1): role="log" names the
+          scrollback as a log for structure and navigation, and it is named by
+          the visible "League Chat" heading (aria-labelledby, a real visible
+          label rather than an aria-label on a generic box).
+
+          aria-live is set to "off" DELIBERATELY. A log role's implicit live
+          value is "polite", which would make assistive tech read every new
+          entry's full rendered text (Team, message body, timestamp). That is
+          both verbose and a SECOND voice competing with the Draft room's concise
+          FeedAnnouncer (#445 AC2), which already summarises new arrivals from
+          derived state. Announcement duty belongs to that one region, so the log
+          itself stays silent and is read on demand. On the League Dashboard,
+          which mounts this same conversation without a FeedAnnouncer, new
+          messages were never announced before either, so nothing regresses.
+
+          tabIndex=-1 lets the "N new" jump move focus here programmatically
+          (handleJumpToLatest, AC4) without adding the log to the Tab order. */}
       <Box
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="chat-scroll"
+        role="log"
+        aria-labelledby={headingId}
+        aria-live="off"
+        tabIndex={-1}
         sx={{ maxHeight: 320, overflowY: 'auto', mb: 1 }}
       >
         {hasMore && onLoadOlder && (
@@ -394,6 +448,7 @@ function ChatConversation({
                     <Button
                       size="small"
                       color="warning"
+                      ref={registerHideButton(m.id)}
                       onClick={() => startHiding(m.id)}
                       aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
                     >
@@ -407,6 +462,9 @@ function ChatConversation({
                       label="Reason for hiding"
                       size="small"
                       fullWidth
+                      // Focus moves into the reason field as the form opens
+                      // (#445 AC4); focus returns to the Hide button on close.
+                      autoFocus
                       value={hideReason}
                       onChange={(e) => setHideReason(e.target.value)}
                       inputProps={{ maxLength: HIDE_REASON_MAX }}
@@ -437,7 +495,7 @@ function ChatConversation({
 
       {newCount > 0 && (
         <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <Button size="small" variant="outlined" onClick={anchorToLatest}>
+          <Button size="small" variant="outlined" onClick={handleJumpToLatest}>
             {newCount} new message{newCount === 1 ? '' : 's'}
           </Button>
         </Box>
@@ -450,7 +508,11 @@ function ChatConversation({
           that grows the composer's height - tips the shell past the viewport and
           makes the page scroll. An end adornment sits within the input's own
           height, so the composer adds no height at all. */}
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+      {/* The composer is a named group (#445 AC1): its three controls - the
+          message field, Insert emoji and Send - read as one labelled unit. A
+          group role takes an accessible name, unlike the generic role a bare box
+          maps to, so aria-label is valid here. */}
+      <Box role="group" aria-label="Message composer" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <TextField
           id="chat-message-input"
           label="Message"
