@@ -73,7 +73,7 @@ test('the feed is a named accessible log, named by the visible heading (#445 AC1
 
 test('the composer is a named group (#445 AC1)', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
-  const composer = screen.getByRole('group', { name: 'Message composer' });
+  const composer = screen.getByRole('group', { name: 'Chat composer' });
   // Its three controls read as one labelled unit.
   expect(within(composer).getByLabelText('Message')).toBeInTheDocument();
   expect(within(composer).getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument();

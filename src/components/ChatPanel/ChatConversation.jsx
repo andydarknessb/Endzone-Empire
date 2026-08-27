@@ -428,8 +428,11 @@ function ChatConversation({
       {/* The composer is a named group (#445 AC1): its three controls - the
           message field, Insert emoji and Send - read as one labelled unit. A
           group role takes an accessible name, unlike the generic role a bare box
-          maps to, so aria-label is valid here. */}
-      <Box role="group" aria-label="Message composer" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          maps to, so aria-label is valid here. The name deliberately avoids the
+          word "Message": Playwright's getByLabel is a substring match, so a group
+          named "Message composer" would be a second match for the existing
+          specs' getByLabel('Message') alongside the message input itself. */}
+      <Box role="group" aria-label="Chat composer" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <TextField
           id="chat-message-input"
           label="Message"

@@ -67,7 +67,7 @@ test.describe('Draft room accessibility (#445)', () => {
     // The feed is a named accessible log, and the composer and commissioner
     // toolbar are named (AC1).
     await expect(page.getByRole('log', { name: 'League Chat' })).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Message composer' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Chat composer' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Commissioner draft controls' })).toBeVisible();
 
     await testInfo.attach('desktop-draft-room', { body: await page.screenshot(), contentType: 'image/png' });
