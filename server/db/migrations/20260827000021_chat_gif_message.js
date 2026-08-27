@@ -88,12 +88,19 @@
  * when no draft is live so no manager's chat:send is blocked mid-draft.
  *
  * ROLLBACK is safe while no GIF message exists - which is the disabled-by-default
- * state, and the state CI's migrate/rollback/migrate runs in. `down` drops the
- * constraint and the gif columns and restores `message` NOT NULL; that restore
- * is only lossy for a GIF row with a null caption, of which there are none until
- * the capability is enabled. Once GIF messages exist, recovery is a forward
- * migration, not this down - the same ADR-0012 "rollback while empty" shape the
- * moderation migration documents. This down is NOT append-only-guarded because
+ * state, and the state CI's migrate/rollback/migrate runs in. Restoring `message`
+ * NOT NULL is impossible while a GIF row carries a null caption, so `down` RAISES
+ * FIRST with a readable message naming the offending count, BEFORE it drops
+ * anything - the house pattern (20260827000001, 20260827000010): the count must
+ * be taken while `content_kind` still exists, because after the drop the question
+ * "which rows are GIFs" can no longer be asked, and an operator would otherwise
+ * watch a raw "column message contains null values" error land after the
+ * discriminator and the GIF content were already gone. Only once that check
+ * passes (the empty-table CI rollback, and the disabled-by-default state) does
+ * `down` drop the constraint and the gif columns and restore `message` NOT NULL.
+ * Once GIF messages with null captions exist, recovery is a forward migration,
+ * not this down - the same ADR-0012 "rollback while empty" shape the moderation
+ * migration documents. This down is NOT append-only-guarded because
  * `chat_messages` is not the append-only Draft-activity store; it carries no
  * authoritative history that a drop would erase.
  *
@@ -143,6 +150,27 @@ exports.up = async function (knex) {
 };
 
 exports.down = async function (knex) {
+  // RAISE FIRST, before dropping anything (20260827000001, 20260827000010).
+  // Restoring message NOT NULL below is impossible while any GIF row has a null
+  // caption; count them WHILE content_kind still exists (after the drop the
+  // question cannot be asked) and refuse readably, so the operator sees a clear
+  // "changed nothing" refusal naming the count rather than a raw Postgres
+  // "column message contains null values" after the discriminator and the GIF
+  // content are already gone.
+  const blocking = await knex.raw(
+    `SELECT count(*)::int AS n
+       FROM "${CHAT}"
+      WHERE "content_kind" = 'gif' AND "message" IS NULL`
+  );
+  const count = blocking.rows[0].n;
+  if (count > 0) {
+    throw new Error(
+      `Refusing to roll back 20260827000021: ${count} GIF message(s) have a null caption, so `
+      + 'restoring chat_messages.message NOT NULL would fail. Recovery from this point is a '
+      + 'forward migration, not this down.'
+    );
+  }
+
   await knex.raw(`ALTER TABLE "${CHAT}" DROP CONSTRAINT IF EXISTS "${SHAPE_CONSTRAINT}"`);
   await knex.schema.alterTable(CHAT, (t) => {
     t.dropColumn('gif_description');
@@ -150,9 +178,8 @@ exports.down = async function (knex) {
     t.dropColumn('gif_provider');
     t.dropColumn('content_kind');
   });
-  // Restore the original NOT NULL. Safe while no gif row carries a null caption
-  // (the disabled-by-default state and CI's empty-table rollback); once gif
-  // messages exist, recovery is a forward migration, not this down.
+  // Restore the original NOT NULL. The guard above proved no GIF row would
+  // violate it (the disabled-by-default state and CI's empty-table rollback).
   await knex.schema.alterTable(CHAT, (t) => {
     t.string('message', 500).notNullable().alter();
   });
