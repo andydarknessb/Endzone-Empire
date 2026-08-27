@@ -606,7 +606,7 @@ function DraftBoard() {
   // rather than a second landmark around them.
   const panesLayout = (
     <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2, flex: '1 1 auto', minHeight: 0 }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexBasis: '32%', minWidth: 0, height: '100%' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flexBasis: '37%', minWidth: 0, height: '100%' }}>
         <Box sx={{ flexShrink: 0, mb: 1 }}>
           <ToggleButtonGroup
             size="small"
@@ -637,7 +637,7 @@ function DraftBoard() {
       <Box
         component="section"
         aria-label="Chat and Draft activity"
-        sx={{ flexBasis: '40%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+        sx={{ flexBasis: '41%', minWidth: 0, height: '100%', overflowY: 'auto' }}
       >
         {chatFeed}
       </Box>
@@ -645,7 +645,7 @@ function DraftBoard() {
         component="section"
         aria-label="Draft rail"
         tabIndex={0}
-        sx={{ flexBasis: '28%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+        sx={{ flexBasis: '22%', minWidth: 0, height: '100%', overflowY: 'auto' }}
       >
         <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
       </Box>
