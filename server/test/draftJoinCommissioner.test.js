@@ -58,6 +58,7 @@ test('the join ack tells the league owner they are a commissioner', async () => 
     ok: true,
     viewerTeamId: OWNER.teamId,
     isCommissioner: true,
+    gifMessagesEnabled: false,
   });
 });
 
@@ -70,6 +71,7 @@ test('the join ack tells a co-commissioner they are a commissioner', async () =>
     ok: true,
     viewerTeamId: CO_COMMISSIONER.teamId,
     isCommissioner: true,
+    gifMessagesEnabled: false,
   });
 });
 
@@ -82,6 +84,7 @@ test('the join ack tells an ordinary manager they are not a commissioner', async
     ok: true,
     viewerTeamId: MEMBER.teamId,
     isCommissioner: false,
+    gifMessagesEnabled: false,
   });
 });
 

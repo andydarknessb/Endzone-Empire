@@ -30,10 +30,12 @@ const row = (over = {}) => ({
 test('feedEntryOf is a typed League-chat entry attributed by Team alone', () => {
   const entry = feedEntryOf(row());
   assert.deepEqual(Object.keys(entry).sort(), [
-    'created_at', 'hidden', 'id', 'isLegacy', 'message', 'seq', 'teamId', 'teamName', 'type',
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
   ]);
   assert.equal(entry.type, LEAGUE_CHAT);
   assert.equal(entry.type, 'league_chat');
+  // A plain text message carries no media (AC1: media is the GIF shape).
+  assert.equal(entry.media, null);
   assert.equal(entry.seq, 7);
   assert.equal(typeof entry.seq, 'number');
   assert.equal(entry.id, 5);
@@ -66,7 +68,62 @@ test('feedEntryOf tombstones a hidden message: neutral, no content, no moderator
   assert.equal('hidden_by' in entry, false);
   assert.equal('hidden_at' in entry, false);
   assert.deepEqual(Object.keys(entry).sort(), [
-    'created_at', 'hidden', 'id', 'isLegacy', 'message', 'seq', 'teamId', 'teamName', 'type',
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
+  ]);
+});
+
+// A chat_messages row for a GIF message, as the feed SELECT projects it: the
+// content_kind discriminator plus the three gif_* columns the migration added.
+const gifRow = (over = {}) => ({
+  id: 8,
+  message: 'this is me at 3pm', // the OPTIONAL caption (AC1)
+  created_at: '2026-09-01T02:00:00.000Z',
+  feed_seq: 9,
+  teamId: 12,
+  teamName: 'Sunday Scaries',
+  content_kind: 'gif',
+  gif_provider: 'fake',
+  gif_asset_id: 'abc123',
+  gif_description: 'a cat knocking a cup off a table',
+  ...over,
+});
+
+test('feedEntryOf shapes a GIF message with one provider asset, caption and description (AC1)', () => {
+  const entry = feedEntryOf(gifRow());
+  assert.equal(entry.type, LEAGUE_CHAT);
+  assert.equal(entry.hidden, false);
+  // The caption rides on `message`, the same key text uses, so one wire shape
+  // carries both kinds.
+  assert.equal(entry.message, 'this is me at 3pm');
+  assert.deepEqual(entry.media, {
+    provider: 'fake',
+    assetId: 'abc123',
+    description: 'a cat knocking a cup off a table',
+  });
+  assert.deepEqual(Object.keys(entry).sort(), [
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
+  ]);
+});
+
+test('feedEntryOf: a GIF with no caption carries message:null and still carries its media (AC1)', () => {
+  const entry = feedEntryOf(gifRow({ message: null }));
+  assert.equal(entry.message, null);
+  assert.equal(entry.media.description, 'a cat knocking a cup off a table');
+});
+
+test('feedEntryOf tombstones a hidden GIF: caption AND media both suppressed (AC3, moderation decision)', () => {
+  // The commissioner-hidden GIF reads back as the SAME neutral tombstone as a
+  // hidden text message: the asset, the caption and the description are all
+  // author-authored content and are all suppressed on the member feed. The
+  // authorized-reviewer history (safety.router) is the only place the original
+  // content survives.
+  const entry = feedEntryOf(gifRow({ hidden_at: '2026-09-01T03:00:00.000Z', hidden_reason: 'slur in alt text' }));
+  assert.equal(entry.hidden, true);
+  assert.equal(entry.message, null);
+  assert.equal(entry.media, null);
+  // Indistinguishable from a hidden text tombstone: same keys, same null content.
+  assert.deepEqual(Object.keys(entry).sort(), [
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
   ]);
 });
 

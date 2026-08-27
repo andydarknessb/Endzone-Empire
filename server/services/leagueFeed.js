@@ -34,6 +34,10 @@ const {
   CORRECTION,
   LIFECYCLE_KINDS,
 } = require('./draftActivity');
+// The content_kind discriminator value for a GIF message (#446). A GIF message
+// is a chat_messages row like any other, so it flows through this same feed;
+// feedEntryOf reads its content_kind to decide whether to project `media`.
+const { GIF } = require('../modules/gifMessage');
 
 /**
  * The typed feed-entry kinds that share one per-league chronology. League chat
@@ -140,6 +144,19 @@ function feedEntryOf(row) {
   // keeps its seq and Team identity so ordering, pagination and "is this mine"
   // are unchanged; only the content becomes a tombstone.
   const hidden = row.hidden_at != null;
+  // A GIF message (content_kind='gif', #446) carries a structured `media` object
+  // alongside its optional caption (which rides on `message`, the same key text
+  // uses). A text message carries media:null. On a hide, `media` is suppressed
+  // to null exactly as the caption is: the asset, the caption and the
+  // description are all author-authored content, so a hidden GIF reads back as
+  // the SAME neutral tombstone as a hidden text message (the moderation
+  // decision, #446 AC3). The reviewer history (safety.router) is the only place
+  // the original GIF content survives. This is DISTINCT from AC5 unavailable
+  // media, which is not hidden and keeps its caption and description in the tile.
+  const isGif = row.content_kind === GIF;
+  const media = hidden || !isGif
+    ? null
+    : { provider: row.gif_provider, assetId: row.gif_asset_id, description: row.gif_description };
   return {
     type: LEAGUE_CHAT,
     id: row.id,
@@ -150,7 +167,8 @@ function feedEntryOf(row) {
     // value reads as null so the keys are always present.
     [idField]: row[idField] ?? null,
     [nameField]: row[nameField] ?? null,
-    message: hidden ? null : row.message,
+    message: hidden ? null : (row.message ?? null),
+    media,
     hidden,
     // Whether this message predates the cutover boundary and was backfilled as a
     // legacy fact (#436). Live messages read false; a message from before the
@@ -204,6 +222,8 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after
     `SELECT * FROM (
        SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
               "chat_messages"."feed_seq", "chat_messages"."hidden_at", "chat_messages"."is_legacy",
+              "chat_messages"."content_kind", "chat_messages"."gif_provider",
+              "chat_messages"."gif_asset_id", "chat_messages"."gif_description",
               ${teamIdentityColumns()}
        FROM "chat_messages"
        ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
@@ -313,6 +333,10 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "chat_messages"."created_at" AS created_at,
                  "chat_messages"."message" AS message,
                  "chat_messages"."hidden_at" AS hidden_at,
+                 "chat_messages"."content_kind" AS content_kind,
+                 "chat_messages"."gif_provider" AS gif_provider,
+                 "chat_messages"."gif_asset_id" AS gif_asset_id,
+                 "chat_messages"."gif_description" AS gif_description,
                  ${teamIdentityColumns()},
                  NULL::text AS kind,
                  NULL::int AS player_id,
@@ -341,6 +365,10 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "draft_activity"."created_at" AS created_at,
                  NULL::text AS message,
                  NULL::timestamptz AS hidden_at,
+                 NULL::text AS content_kind,
+                 NULL::text AS gif_provider,
+                 NULL::text AS gif_asset_id,
+                 NULL::text AS gif_description,
                  "draft_activity"."team_id" AS "teamId",
                  "draft_activity"."team_name" AS "teamName",
                  "draft_activity"."kind" AS kind,

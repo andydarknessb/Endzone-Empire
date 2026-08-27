@@ -59,6 +59,7 @@ test('GET chat returns the latest 100 typed entries, oldest-first', async (t) =>
     teamId: 12,
     teamName: 'Sunday Scaries',
     message: 'good luck everyone',
+    media: null,
     hidden: false,
     isLegacy: false,
     created_at: '2026-09-01T00:00:00.000Z',

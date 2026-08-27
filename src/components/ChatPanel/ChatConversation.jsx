@@ -5,6 +5,8 @@ import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
 import EmojiPicker from './EmojiPicker';
 import ComposerCharacterCount from './ComposerCharacterCount';
+import GifMessage from './GifMessage';
+import GifComposer from './GifComposer';
 // The Draft-activity event line is shared with the anonymous presenter feed
 // (DraftBoard/DraftActivityEntry, #438), so a member and a presenter render the
 // same entry the same way; it lives outside this chat component on purpose.
@@ -60,6 +62,11 @@ function ChatConversation({
   onHide = null,
   leagueId = null,
   viewerUserId = null,
+  // The GIF-message capability (#446), off by default so any surface that does
+  // not pass it renders no GIF picker at all (AC7). `gifEnabled` comes from the
+  // server via the league-join ack; `onSendGif` sends the composed GIF payload.
+  gifEnabled = false,
+  onSendGif = null,
 }) {
   // The composer text is a preserved draft (#442 AC5/AC6): scoped per league and
   // account, cleared on send, logout or account change. clearDraft empties both
@@ -385,7 +392,13 @@ function ChatConversation({
                     {m.hidden ? (
                       <em style={{ color: 'inherit', opacity: 0.7 }}>{HIDDEN_TOMBSTONE}</em>
                     ) : (
-                      m.message
+                      // A GIF message (#446) carries a structured `media` object;
+                      // its caption (m.message) renders inside the GifMessage
+                      // bubble below, so the inline slot holds only a plain text
+                      // message's body. A hidden GIF took the branch above:
+                      // feedEntryOf suppresses media AND caption to the same
+                      // tombstone as hidden text, so nothing GIF-shaped renders.
+                      m.media ? null : m.message
                     )}
                   </Typography>
                   {/* A commissioner may hide a human message that is not already
@@ -403,6 +416,12 @@ function ChatConversation({
                     </Button>
                   )}
                 </Box>
+                {/* A GIF message renders its asset (or the unavailable tile)
+                    below the Team-name line. A hidden GIF has media suppressed to
+                    null (feedEntryOf), so this never renders for a tombstone. */}
+                {!m.hidden && m.media && (
+                  <GifMessage media={m.media} caption={m.message} />
+                )}
                 {moderating && hidingId === m.id && (
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, mb: 0.5 }}>
                     <TextField
@@ -508,6 +527,9 @@ function ChatConversation({
           Send
         </Button>
       </Box>
+      {/* The GIF compose affordance (#446), absent unless the capability is
+          enabled (AC7); emoji and text above are unaffected. */}
+      <GifComposer enabled={gifEnabled} onSendGif={onSendGif} />
     </Paper>
   );
 }

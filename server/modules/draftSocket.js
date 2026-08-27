@@ -13,6 +13,8 @@ const {
 const { feedEntryOf, isBlockableFeedType, listBlockersOf } = require('../services/leagueFeed');
 const { checkChatSend } = require('./chatFlood');
 const { MAX_CHAT_CHARS } = require('./chatLimits');
+const { TEXT, GIF, validateGifSend } = require('./gifMessage');
+const { isGifMessagesEnabled } = require('./gifCapability');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
@@ -120,8 +122,13 @@ function attachDraftSocket(httpServer) {
     // is counted in Unicode code points (Array.from(text).length), the same
     // unit MAX_CHAT_CHARS, the chat_messages.message column and the client's
     // composer counter all agree on (#443).
-    socket.on('chat:send', async ({ leagueId, message, clientMsgId } = {}, ack) => {
-      if (!Number.isInteger(leagueId) || typeof message !== 'string' || !message.trim()) {
+    socket.on('chat:send', async ({ leagueId, message, clientMsgId, gif } = {}, ack) => {
+      // A GIF message (#446) is a chat_messages row like any other; it differs
+      // only in what it carries. A text send still requires a non-empty message;
+      // a GIF send does not, because its `message` is only the OPTIONAL caption
+      // (AC1), so the non-empty rule applies to the text branch alone.
+      const isGif = gif !== undefined && gif !== null;
+      if (!Number.isInteger(leagueId) || (!isGif && (typeof message !== 'string' || !message.trim()))) {
         return ack && ack({ error: 'leagueId (integer) and message (string) required' });
       }
       if (!socket.rooms.has(`league:${leagueId}`)) {
@@ -134,8 +141,36 @@ function attachDraftSocket(httpServer) {
         // the message's content.
         return ack && ack({ error: 'clientMsgId must be a string of at most 64 characters', code: 'INVALID_REQUEST' });
       }
-      const text = message.trim();
-      const length = Array.from(text).length;
+
+      // Resolve the stored shape. A text message stores its trimmed body in
+      // `message`; a GIF message stores a validated (provider, assetId,
+      // description) and an OPTIONAL caption in `message`. A GIF send is refused
+      // SERVER-SIDE (a client that never rendered the picker can still emit the
+      // event) with a SCREAMING_SNAKE code (ADR 0008): GIF_PROVIDER_DISABLED
+      // when the capability is off (AC7/AC9), MEDIA_NOT_ALLOWED for a url/upload
+      // asset (AC2), DESCRIPTION_REQUIRED for a missing description (AC3).
+      let contentKind = TEXT;
+      let caption = null; // the text body, or the GIF's optional caption
+      let gifValue = null;
+      if (isGif) {
+        const validated = validateGifSend(gif, { enabled: isGifMessagesEnabled() });
+        if (!validated.ok) {
+          const { ok, value, ...refusal } = validated; // eslint-disable-line no-unused-vars
+          return ack && ack(refusal);
+        }
+        contentKind = GIF;
+        gifValue = validated.value;
+        caption = validated.value.caption; // trimmed, or null for a captionless GIF
+      } else {
+        caption = message.trim();
+      }
+
+      // #502: length is counted in Unicode CODE POINTS and refused, never
+      // shortened. A captionless GIF has length 0 and cannot trip this; a GIF
+      // WITH a caption is length-checked on exactly the same footing as a text
+      // message, so there is one length rule, not two, and a null caption never
+      // throws here.
+      const length = caption == null ? 0 : Array.from(caption).length;
       if (length > MAX_CHAT_CHARS) {
         // MESSAGE_TOO_LONG (#502): refused, never shortened. `limit` and `length`
         // let the client render exact copy without re-deriving either number.
@@ -173,7 +208,7 @@ function attachDraftSocket(httpServer) {
         const decision = checkChatSend(chatFloodStore, {
           leagueId,
           userId: socket.user.id,
-          kind: 'text',
+          kind: contentKind,
           now: Date.now(),
         });
         if (!decision.allowed) {
@@ -191,11 +226,23 @@ function attachDraftSocket(httpServer) {
         // trigger allocates feed_seq (#434), so the winner's chronological
         // position returns straight back.
         const inserted = await pool.query(
-          `INSERT INTO "chat_messages" ("league_id", "user_id", "message", "client_msg_id")
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO "chat_messages"
+             ("league_id", "user_id", "message", "client_msg_id",
+              "content_kind", "gif_provider", "gif_asset_id", "gif_description")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT ("user_id", "client_msg_id") WHERE "client_msg_id" IS NOT NULL DO NOTHING
-           RETURNING "id", "created_at", "feed_seq"`,
-          [leagueId, socket.user.id, text, key]
+           RETURNING "id", "created_at", "feed_seq",
+                     "content_kind", "gif_provider", "gif_asset_id", "gif_description"`,
+          [
+            leagueId,
+            socket.user.id,
+            caption, // text body, or the GIF's optional caption (null when absent)
+            key,
+            contentKind,
+            gifValue ? gifValue.provider : null,
+            gifValue ? gifValue.assetId : null,
+            gifValue ? gifValue.description : null,
+          ]
         );
         if (inserted.rows.length === 0) {
           // The concurrent duplicate that lost the unique-index race. It already
@@ -207,7 +254,7 @@ function attachDraftSocket(httpServer) {
           return ack && ack(duplicateAck(prior ? chatEntryFrom({ row: prior, leagueId, team: authorTeam }) : undefined));
         }
 
-        const entry = chatEntryFrom({ row: inserted.rows[0], leagueId, team: authorTeam, message: text });
+        const entry = chatEntryFrom({ row: inserted.rows[0], leagueId, team: authorTeam, message: caption });
         // AC6/AC7. Blockable kind -> deliver per recipient; skip only viewers
         // who blocked THIS author. Draft activity is not a blockable kind, so
         // this path never withholds it.
@@ -303,6 +350,10 @@ function joinAck({ viewerTeam, isCommissioner }) {
     ok: true,
     viewerTeamId: teamIdentityOf(viewerTeam).teamId,
     isCommissioner: !!isCommissioner,
+    // The GIF-message capability (#446, AC7): server-authoritative, off by
+    // default (AC9), delivered on the same per-viewer ack as isCommissioner so
+    // the client renders the picker only when it is on and never infers it.
+    gifMessagesEnabled: isGifMessagesEnabled(),
   };
 }
 
@@ -387,13 +438,25 @@ function presencePayload(user, team) {
 // stable cursor; a reconnecting client compares it against what it last saw.
 // The `team` is a teams row ({ id, name }); feedEntryOf reads Team identity
 // off the aliased teamId/teamName, so it is normalised here first.
-function chatMessagePayload({ id, seq, leagueId, team, message, createdAt }) {
+function chatMessagePayload({
+  id, seq, leagueId, team, message, createdAt,
+  contentKind, gifProvider, gifAssetId, gifDescription,
+}) {
   return {
     ...feedEntryOf({
       id,
       feed_seq: seq,
       message,
       created_at: createdAt,
+      // A GIF message (#446) carries its shape through the same feed entry: a
+      // text broadcast passes content_kind undefined/'text' and yields
+      // media:null, a GIF broadcast passes 'gif' plus the three gif_* fields and
+      // yields the structured media object. Absent for legacy callers, which
+      // then read as text with no media.
+      content_kind: contentKind,
+      gif_provider: gifProvider,
+      gif_asset_id: gifAssetId,
+      gif_description: gifDescription,
       ...teamIdentityOf(team),
     }),
     leagueId,
@@ -420,8 +483,10 @@ function normalizeClientMsgId(value) {
  *  the live per-send membership read, never re-derived here. */
 async function selectChatByKey(db, { userId, key }) {
   const result = await db.query(
-    `SELECT "id", "message", "created_at", "feed_seq" FROM "chat_messages"
-     WHERE "user_id" = $1 AND "client_msg_id" = $2`,
+    `SELECT "id", "message", "created_at", "feed_seq",
+            "content_kind", "gif_provider", "gif_asset_id", "gif_description"
+       FROM "chat_messages"
+      WHERE "user_id" = $1 AND "client_msg_id" = $2`,
     [userId, key]
   );
   return result.rows[0] || null;
@@ -446,6 +511,14 @@ function chatEntryFrom({ row, leagueId, team, message }) {
     team,
     message: message !== undefined ? message : row.message,
     createdAt: row.created_at,
+    // Carried straight off the row (the INSERT ... RETURNING and selectChatByKey
+    // both project them), so a GIF broadcast and a GIF idempotent-retry re-read
+    // reproduce the same media and description - which is what lets a GIF
+    // message survive a reconnect without losing its description (#446 AC8).
+    contentKind: row.content_kind,
+    gifProvider: row.gif_provider,
+    gifAssetId: row.gif_asset_id,
+    gifDescription: row.gif_description,
   });
 }
 

@@ -268,7 +268,11 @@ router.get('/moderations/:leagueId', async (req, res) => {
   // rather than dropping the record out of the history.
   const result = await pool.query(
     `SELECT "cm"."id",
+            "cm"."content_kind" AS "contentKind",
             "cm"."message" AS "originalMessage",
+            "cm"."gif_provider" AS "originalGifProvider",
+            "cm"."gif_asset_id" AS "originalGifAssetId",
+            "cm"."gif_description" AS "originalGifDescription",
             "cm"."hidden_reason" AS "reason",
             "cm"."hidden_at" AS "hiddenAt",
             "cm"."created_at" AS "createdAt",
@@ -282,9 +286,22 @@ router.get('/moderations/:leagueId', async (req, res) => {
   // Explicit projection (the #378 pattern): named fields only, so no raw column
   // - author user_id, hidden_by - can reach the wire through a spread. The actor
   // is deliberately absent (see the note above).
+  //
+  // #446: a hidden GIF message must not blind the audit. For a GIF, the caption
+  // (originalMessage) is optional and often null, so the asset id and the
+  // description - what was actually removed - are projected too, added
+  // DELIBERATELY to this allowlist (never via a spread). The member feed still
+  // tombstones all three (leagueFeed.feedEntryOf); this reviewer-only history is
+  // the single place the original GIF content survives, so a commissioner's hide
+  // stays reviewable for the content type least reconstructable from memory. A
+  // text row carries null in all three gif fields and reads exactly as before.
   return res.json(result.rows.map((row) => ({
     id: row.id,
+    contentKind: row.contentKind,
     originalMessage: row.originalMessage,
+    originalGifProvider: row.originalGifProvider ?? null,
+    originalGifAssetId: row.originalGifAssetId ?? null,
+    originalGifDescription: row.originalGifDescription ?? null,
     reason: row.reason,
     hiddenAt: row.hiddenAt,
     createdAt: row.createdAt,

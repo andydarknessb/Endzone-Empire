@@ -30,6 +30,10 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
   // per-viewer join ack that carries viewerTeamId (#178) - never inferred on
   // the client. A member gets false and so no hide affordance.
   const [isCommissioner, setIsCommissioner] = useState(false);
+  // Whether GIF messages are enabled, decided by the server on the same join ack
+  // (#446, AC7) - never inferred client-side, so the picker is absent until
+  // external approval turns the capability on. Off by default.
+  const [gifEnabled, setGifEnabled] = useState(false);
   // The account scopes the composer draft (#442 AC5/AC6): a preserved draft
   // belongs to one account and is dropped on logout or account change. Team
   // identity stays the actor on the wire; the account id never leaves the client.
@@ -40,6 +44,7 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
     // leaving it standing would briefly claim a Team for a league just left.
     setViewerTeamId(null);
     setIsCommissioner(false);
+    setGifEnabled(false);
     const newSocket = createDraftSocket();
     setSocket(newSocket);
 
@@ -51,6 +56,7 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
       newSocket.emit('league:join', { leagueId: Number(leagueId) }, (ack) => {
         setViewerTeamId(ack && ack.viewerTeamId != null ? ack.viewerTeamId : null);
         setIsCommissioner(!!(ack && ack.isCommissioner));
+        setGifEnabled(!!(ack && ack.gifMessagesEnabled));
       });
     };
 
@@ -69,7 +75,7 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
 
-  const { messages, unread, error, sendMessage, hideMessage, loadOlder, hasMore } = useLeagueChat({
+  const { messages, unread, error, sendMessage, sendGif, hideMessage, loadOlder, hasMore } = useLeagueChat({
     socket,
     leagueId,
     open,
@@ -91,6 +97,8 @@ function ChatPanel({ leagueId, open = true, onUnreadChange = null }) {
       onHide={hideMessage}
       leagueId={leagueId}
       viewerUserId={viewerUserId}
+      gifEnabled={gifEnabled}
+      onSendGif={sendGif}
     />
   );
 }
