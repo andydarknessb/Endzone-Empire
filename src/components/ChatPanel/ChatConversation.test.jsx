@@ -637,6 +637,27 @@ test('the input is described by the visible counter and sets no maxLength', () =
   expect(input).not.toHaveAttribute('maxlength');
 });
 
+test('the counter description names the unit, so it does not read as a bare "N slash 500"', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const indicator = screen.getByTestId('composer-char-count');
+  // The visible glyph stays terse, but its accessible name (what aria-describedby
+  // announces on focus) spells out the unit and the count against the limit.
+  expect(indicator).toHaveTextContent('0 / 500');
+  expect(indicator.getAttribute('aria-label')).toBe('0 of 500 characters');
+});
+
+test('a click on the counter falls through to focus the input, not a dead strip', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const indicator = screen.getByTestId('composer-char-count');
+  // The counter rides in the input as an end adornment; disablePointerEvents lets
+  // a click there reach the input and place the caret rather than being eaten by
+  // the adornment. jsdom does no hit-testing, so pin the mechanism: the adornment
+  // wrapper carries MUI's disablePointerEvents class.
+  const adornment = indicator.closest('.MuiInputAdornment-root');
+  expect(adornment).not.toBeNull();
+  expect(adornment.className).toMatch(/disablePointerEvents/);
+});
+
 test('Send stays enabled past the limit: the server is the single enforcement point', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
   setComposer('a'.repeat(501));

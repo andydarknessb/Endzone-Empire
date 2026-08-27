@@ -73,6 +73,12 @@ function ComposerCharacterCount({ text = '', indicatorId }) {
         data-testid="composer-char-count"
         component="span"
         variant="caption"
+        // The glyph "{count} / 500" is a fine glanceable indicator, but it is
+        // also the input's aria-describedby target, and read bare a screen
+        // reader says "0 slash 500" with no unit. Give it an accessible name
+        // that spells out the unit, so the description read on focus is
+        // "N of 500 characters" while the visible text stays terse (#486).
+        aria-label={`${count} of ${MAX_CHAT_CHARS} characters`}
         sx={{ color, whiteSpace: 'nowrap' }}
       >
         {count} / {MAX_CHAT_CHARS}

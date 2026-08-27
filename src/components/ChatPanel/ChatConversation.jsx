@@ -461,10 +461,23 @@ function ChatConversation({
           // Describe the input with the visible counter (#486) rather than set
           // maxLength: the server is the single enforcement point, so typing
           // and sending past the limit stay possible.
+          //
+          // NOTE: setting aria-describedby through inputProps overrides MUI's own
+          // describedby channel, because InputBase spreads inputProps AFTER the
+          // aria-describedby it would compute from helperText/error. That is
+          // latent, not live, here: this field has neither, so there is nothing
+          // for MUI to describe and nothing is lost. If a helperText or error is
+          // ever added, merge its id in rather than letting this clobber it.
           inputProps={{ 'aria-describedby': countId }}
+          // disablePointerEvents so a click on the counter strip falls through to
+          // the input and places the caret (#486). Without it the adornment eats
+          // the click - InputBase focuses only when the click target IS the input
+          // root, and the adornment's spans are descendants - so the right edge
+          // that used to be the input's own padding became a dead strip inside
+          // the field's outline. The counter has no interactivity to lose.
           InputProps={{
             endAdornment: (
-              <InputAdornment position="end">
+              <InputAdornment position="end" disablePointerEvents>
                 <ComposerCharacterCount text={text} indicatorId={countId} />
               </InputAdornment>
             ),
