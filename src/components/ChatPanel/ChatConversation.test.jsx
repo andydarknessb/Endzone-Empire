@@ -553,7 +553,7 @@ test('an emoji-bearing draft is preserved per league across a remount, like any 
 });
 
 // #486: the composer's character counter. It counts Unicode code points, the
-// unit the server clamp and the varchar(500) column count, shows the live count
+// unit the server's limit and the varchar(500) column count, shows the live count
 // against the limit, blocks nothing over the limit, and announces at thresholds
 // only. Set the input value directly (fireEvent.change) so a case can jump to a
 // precise code-point count without typing hundreds of keystrokes.

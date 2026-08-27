@@ -1,6 +1,6 @@
 import { MAX_CHAT_CHARS, CHAT_CHARS_WARNING, characterCount } from './chatLimits';
 
-// The counter must count the same units the server clamp and the varchar(500)
+// The counter must count the same units the server's limit and the varchar(500)
 // column count: Unicode code points, NOT UTF-16 code units and NOT grapheme
 // clusters (#486). These cases pin that choice so a switch to `text.length`
 // (code units) or to Intl.Segmenter (graphemes) fails here.
