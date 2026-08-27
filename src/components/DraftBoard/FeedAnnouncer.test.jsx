@@ -136,6 +136,13 @@ describe('FeedAnnouncer', () => {
     // The raw text node value changed, so assistive tech re-announces rather than
     // seeing an unchanged node and staying silent.
     expect(region.textContent).not.toBe(afterFirst);
+    // ...and the discriminator is specifically the zero-width space, nothing
+    // visible or spoken. not.toBe above proves only that SOMETHING changed - a
+    // visible char (even String.fromCharCode(0x2014), which leaves no em-dash byte
+    // for the guard) would satisfy it and the substring toHaveTextContent both,
+    // while a screen reader began speaking it. Pin U+200B exactly, built from its
+    // code point so no invisible literal sits in this file either.
+    expect(region.textContent).toBe('New message from Harbor Hawks' + String.fromCharCode(0x200b));
   });
 
   it('re-announces the FOURTH of A, A, B, B - a different message between two repeat-pairs', () => {
