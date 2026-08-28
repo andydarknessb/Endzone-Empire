@@ -42,12 +42,14 @@ const LIFECYCLE_VERB = {
   reset: 'reset',
 };
 
-// The lifecycle kinds LifecycleActivityLine knows how to draw (#437): the four
-// verbed transitions plus the actor-less completion. This is the renderer's
-// KNOWN set for the lifecycle branch - a kind outside it (a Pick, a correction,
-// the cutover boundary, or a kind not yet invented) is NOT a lifecycle line and
-// must be routed elsewhere or refused, never coerced into "updated the draft".
-const LIFECYCLE_RENDER_KINDS = new Set(['draft_start', 'pause', 'resume', 'reset', 'complete']);
+// The lifecycle kinds LifecycleActivityLine knows how to draw (#437): the verbed
+// transitions in LIFECYCLE_VERB plus the actor-less completion (which has no verb
+// - it reads as a plain "The draft is complete"). Derived from LIFECYCLE_VERB so
+// the verbed kinds are listed in exactly one place. This is the renderer's KNOWN
+// set for the lifecycle branch - a kind outside it (a Pick, a correction, the
+// cutover boundary, or a kind not yet invented) is NOT a lifecycle line and must
+// be routed elsewhere or refused, never coerced into "updated the draft".
+const LIFECYCLE_RENDER_KINDS = new Set([...Object.keys(LIFECYCLE_VERB), 'complete']);
 
 // One committed Pick as Draft activity in the combined feed (#435). It is NOT
 // drawn as a chat bubble: Draft activity is server-authored, never a manager
