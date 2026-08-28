@@ -33,6 +33,7 @@ const {
   PICK,
   CORRECTION,
   LIFECYCLE_KINDS,
+  USER_VISIBLE_KINDS,
 } = require('./draftActivity');
 // The content_kind discriminator value for a GIF message (#446). A GIF message
 // is a chat_messages row like any other, so it flows through this same feed;
@@ -290,6 +291,17 @@ function combinedEntryOf(row) {
  * neutral tombstone the chat-only feed produces (combinedEntryOf -> feedEntryOf),
  * while the Draft-activity arm carries a NULL `hidden_at` placeholder and routes
  * to activityEntryOf - a Pick is never moderatable and never a tombstone.
+ *
+ * The Draft-activity arm restricts `kind` to USER_VISIBLE_KINDS - the positive
+ * allowlist shared with the presenter reader - INSIDE its WHERE, so the internal
+ * CUTOVER boundary (#436) is excluded BEFORE the per-arm LIMIT and can never
+ * consume a visible page slot (#540 AC4). Filtering after the limit would let a
+ * page that happened to hold a cutover row come back short, an intermittent gap
+ * with no error; filtering before it cannot. Unlike the presenter reader, the
+ * activity arm DOES project `reason`: a Commissioner correction's recorded
+ * justification is authored FOR league members (#540 AC1), so combinedEntryOf ->
+ * activityEntryOf shapes a member correction with its reason. The chat arm
+ * carries the aligned NULL::text reason placeholder for the union.
  */
 async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
@@ -306,7 +318,13 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
   // ascending, the default/before window takes the newest page descending.
   const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
-  const params = [leagueId, viewerId];
+  // $1 league, $2 viewer, $3 the positive user-visible kind allowlist. The
+  // allowlist is bound BEFORE any cursor so its placeholder is stable ($3)
+  // whether or not a cursor is present; the activity arm filters on it INSIDE
+  // its WHERE, so an internal kind (the CUTOVER boundary, #436) is excluded
+  // before the per-arm LIMIT and never consumes a visible page slot (#540 AC4).
+  const params = [leagueId, viewerId, USER_VISIBLE_KINDS];
+  const visible = `$${params.length}`;
   let chatCursor = '';
   let activityCursor = '';
   if (cursor !== null) {
@@ -346,6 +364,7 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  NULL::int AS round,
                  NULL::int AS pick_number,
                  NULL::boolean AS is_autopick,
+                 NULL::text AS reason,
                  "chat_messages"."is_legacy" AS is_legacy
             FROM "chat_messages"
             ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
@@ -379,9 +398,11 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "draft_activity"."round" AS round,
                  "draft_activity"."pick_number" AS pick_number,
                  "draft_activity"."is_autopick" AS is_autopick,
+                 "draft_activity"."reason" AS reason,
                  "draft_activity"."is_legacy" AS is_legacy
             FROM "draft_activity"
            WHERE "draft_activity"."league_id" = $1
+             AND "draft_activity"."kind" = ANY(${visible})
              ${activityCursor}
            ORDER BY "draft_activity"."feed_seq" ${windowOrder}
            LIMIT ${lim})
@@ -426,6 +447,17 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  * out. Because this is a positive list, a NEW kind added upstream does not reach
  * an anonymous board until it is added here on purpose - publication by
  * decision, the same stance the board's field allowlist takes.
+ *
+ * It is spelled IDENTICALLY to the member feed's USER_VISIBLE_KINDS today, but is
+ * declared INDEPENDENTLY on purpose (#540), NOT aliased to it. The presenter link
+ * is anonymous and shareable; if this list were `= USER_VISIBLE_KINDS`, any kind
+ * later made visible to MEMBERS would become visible on the open-internet
+ * presenter surface automatically, with no review - the exact "a kind reached a
+ * surface nobody thought about" class this ticket exists to close. Declaring it
+ * apart makes exposing a kind to the anonymous board a DELIBERATE edit here, not
+ * an inherited default. The #540 contract test pins the two equal TODAY so a
+ * divergence is a conscious change, caught rather than silent. (The reason FIELD
+ * is protected structurally - a member sees it, a presenter never does, below.)
  *
  * Cursors mirror the sibling readers: the default/`before` window takes the
  * newest page descending then flips to ascending display order; `after` resumes

@@ -27,6 +27,15 @@
  *            copy and no orphan registry position.
  *   AC7      down() REFUSES while a live event exists and is lossless otherwise.
  *
+ * #540 NOTE. The backfill's ORDERING claims (the boundary sits contiguously at
+ * its position) were originally observed through the combined feed, which then
+ * showed every kind. #540 makes the user-visible feed EXCLUDE the internal
+ * cutover boundary, so ordering is now asserted against the tables directly
+ * (positionsOf, boundary included) and a separate assertion proves the feed omits
+ * the boundary. What the backfill produces is unchanged; only the instrument for
+ * the ordering half moved, so the reader's visibility change cannot masquerade as
+ * an ordering regression.
+ *
  * Gated twice, exactly like the sibling pg suites: LEGACY_FEED_BACKFILL_PG_TESTS=1
  * (or the umbrella PG_TESTS=1) must be set, and every DATABASE_URL* variable must
  * be ABSENT, so a stray local run can never touch the shared production database.
@@ -147,6 +156,26 @@ if (!ENABLED) {
     const res = await pool.query('SELECT count(*)::int AS n FROM "league_feed_positions" WHERE "league_id" = $1', [leagueId]);
     return res.rows[0].n;
   }
+  // The combined ordering AS WRITTEN IN THE TABLES, the cutover boundary INCLUDED.
+  // #540 makes the user-visible feed (feedOf -> listCombinedDraftFeed) exclude the
+  // internal cutover boundary, so the feed can no longer stand in for the
+  // backfill's ORDERING claim (the boundary sits contiguously at its position).
+  // This reads the raw chat + draft_activity positions by feed_seq so an ordering
+  // assertion sees the boundary where the backfill actually wrote it, while a
+  // separate feedOf assertion proves the boundary is not user-visible (#540 AC4).
+  async function positionsOf(leagueId) {
+    const res = await pool.query(
+      `SELECT feed_seq, source, kind, is_legacy FROM (
+         SELECT "feed_seq" AS feed_seq, 'league_chat' AS source, NULL::text AS kind, "is_legacy" AS is_legacy
+           FROM "chat_messages" WHERE "league_id" = $1
+         UNION ALL
+         SELECT "feed_seq" AS feed_seq, 'draft_activity' AS source, "kind" AS kind, "is_legacy" AS is_legacy
+           FROM "draft_activity" WHERE "league_id" = $1
+       ) p ORDER BY feed_seq`,
+      [leagueId]
+    );
+    return res.rows.map((r) => ({ seq: Number(r.feed_seq), type: r.source, kind: r.kind, isLegacy: r.is_legacy }));
+  }
 
   let keeperPlayerId = null; // league A's keeper player, to prove it is excluded
 
@@ -228,12 +257,14 @@ if (!ENABLED) {
   });
 
   test('chat and non-keeper Picks interleave into one legacy order, Pick before chat at a tie (AC1, AC2)', async () => {
-    const feed = await feedOf(L.A, owner.A);
-    // c1(T1), p1(T2), c2(T2), p2(T3), c3(T4), then the boundary. The keeper is
-    // absent, so there are two Pick entries, not three.
-    assert.deepEqual(feed.map((e) => e.seq), [1, 2, 3, 4, 5, 6], 'contiguous 1..6 including the boundary');
+    // The ORDERING is a claim about the table: c1(T1), p1(T2), c2(T2), p2(T3),
+    // c3(T4), then the boundary, contiguous 1..6. The keeper is absent, so there
+    // are two Pick entries, not three. Read the positions directly so the boundary
+    // is observed where the backfill wrote it (#540 excludes it from the feed).
+    const positions = await positionsOf(L.A);
+    assert.deepEqual(positions.map((e) => e.seq), [1, 2, 3, 4, 5, 6], 'contiguous 1..6 including the boundary');
     assert.deepEqual(
-      feed.map((e) => [e.type, e.kind ?? null]),
+      positions.map((e) => [e.type, e.kind]),
       [
         ['league_chat', null],
         ['draft_activity', 'pick'],
@@ -244,6 +275,11 @@ if (!ENABLED) {
       ],
       'a Pick at the shared instant sorts before the message at that instant'
     );
+    // The user-visible feed shows the SAME order but omits the internal boundary
+    // at seq 6 (#540 AC4); the chat content is unchanged.
+    const feed = await feedOf(L.A, owner.A);
+    assert.deepEqual(feed.map((e) => e.seq), [1, 2, 3, 4, 5], 'the member feed omits the cutover boundary at seq 6');
+    assert.ok(!feed.some((e) => e.kind === 'cutover'), 'no cutover boundary in the member feed');
     assert.equal(feed[0].message, 'good luck all');
     assert.equal(feed[2].message, 'nice pick');
   });
@@ -260,13 +296,20 @@ if (!ENABLED) {
   });
 
   test('every legacy row is marked legacy, the boundary is not; round derives from team count (AC1, AC2, AC3)', async () => {
-    const feed = await feedOf(L.A, owner.A);
+    // The is_legacy marking is a claim about the rows, boundary included, so read
+    // the positions directly (the boundary is not in the user feed, #540 AC4).
+    const positions = await positionsOf(L.A);
     assert.deepEqual(
-      feed.map((e) => e.isLegacy),
+      positions.map((e) => e.isLegacy),
       [true, true, true, true, true, false],
       'the five legacy rows read legacy; the cutover boundary does not'
     );
-    assert.equal(feed[5].kind, 'cutover');
+    assert.equal(positions[5].kind, 'cutover');
+    // Round derivation and the Pick snapshot read from the member feed. The two
+    // Pick entries stay at feed indices 1 and 3 - the excluded boundary was last,
+    // so dropping it does not shift them.
+    const feed = await feedOf(L.A, owner.A);
+    assert.ok(!feed.some((e) => e.kind === 'cutover'), 'the boundary is not in the member feed');
     assert.equal(feed[1].round, 1, 'pick_number 2 of 2 teams is round 1');
     assert.equal(feed[1].isAutopick, false, 'an unstored autopick fact reads false, not fabricated');
     assert.equal(feed[3].round, 2, 'pick_number 3 of 2 teams rolls over to round 2');
@@ -288,13 +331,20 @@ if (!ENABLED) {
   });
 
   test('a chat-only league keeps its order and still gets a boundary (AC3)', async () => {
-    const feed = await feedOf(L.B, owner.B);
-    assert.deepEqual(feed.map((e) => [e.type, e.kind ?? null, e.seq]), [
+    // The boundary is written to the table at seq 3, contiguous after the two chats.
+    const positions = await positionsOf(L.B);
+    assert.deepEqual(positions.map((e) => [e.type, e.kind, e.seq]), [
       ['league_chat', null, 1],
       ['league_chat', null, 2],
       ['draft_activity', 'cutover', 3],
     ]);
     assert.equal(await counterOf(L.B), 3);
+    // The member feed shows the two chats and omits the boundary (#540 AC4).
+    const feed = await feedOf(L.B, owner.B);
+    assert.deepEqual(feed.map((e) => [e.type, e.kind ?? null, e.seq]), [
+      ['league_chat', null, 1],
+      ['league_chat', null, 2],
+    ], 'the boundary at seq 3 is not user-visible');
   });
 
   test('a completed Draft reconciles clean: every non-keeper Pick covered, keeper never uncovered (AC5, AC8)', async () => {
@@ -318,8 +368,11 @@ if (!ENABLED) {
     assert.equal(last.kind, 'pick');
     assert.equal(last.pickNumber, 2);
     assert.equal(last.isLegacy, false, 'a straggler committed after cutover is a live entry, not legacy');
-    const boundary = feed.find((e) => e.kind === 'cutover');
+    // The boundary is not in the user feed (#540 AC4), so read its position from
+    // the table to prove the captured live Pick sits strictly past it.
+    const boundary = (await positionsOf(L.C)).find((e) => e.kind === 'cutover');
     assert.ok(last.seq > boundary.seq, 'the captured Pick sits past the boundary');
+    assert.ok(!feed.some((e) => e.kind === 'cutover'), 'the boundary itself is not user-visible');
 
     assert.equal(await captureLegacyPicks(pool, { leagueId: L.C }), 0, 're-capture is a no-op');
     assert.deepEqual(await reconcileLegacyFeed(pool, { leagueId: L.C }), { ok: true, failures: [] });
@@ -371,22 +424,30 @@ if (!ENABLED) {
   });
 
   test('retention removes a chat message with no retained copy and no orphan position (AC6)', async () => {
-    const before = await feedOf(L.E, owner.E);
+    // Backfill: three messages plus the boundary, contiguous 1..4 in the table.
+    const before = await positionsOf(L.E);
     assert.deepEqual(before.map((e) => e.seq), [1, 2, 3, 4], 'three messages plus a boundary');
+    assert.equal(before[3].kind, 'cutover', 'the boundary is the fourth position');
 
     const removed = await deleteChatMessagesBatch(`"league_id" = ${Number(L.E)} AND "message" = 'e-two'`, [], pool);
     assert.equal(removed, 1);
 
+    // The table shows seq 2 gone with nothing renumbered (boundary still at 4).
+    const positions = await positionsOf(L.E);
+    assert.deepEqual(positions.map((e) => e.seq), [1, 3, 4], 'seq 2 is a gap; nothing renumbered');
+    // The member feed shows the two surviving messages and never the boundary.
     const feed = await feedOf(L.E, owner.E);
-    assert.deepEqual(feed.map((e) => e.seq), [1, 3, 4], 'seq 2 is a gap; nothing renumbered');
+    assert.deepEqual(feed.map((e) => e.seq), [1, 3], 'the surviving messages; the boundary is not user-visible');
     assert.equal(feed.some((e) => e.message === 'e-two'), false, 'the removed content is gone, not retained');
     assert.equal(await registryCount(L.E), 3, 'the deleted message took its registry position with it');
     assert.equal((await reconcileLegacyFeed(pool, { leagueId: L.E })).ok, true);
   });
 
   test('account deletion removes a member\'s chat and its feed positions, leaving a gap and no orphan (AC6)', async () => {
-    const before = await feedOf(L.H, owner.H);
+    // Backfill: two messages plus the boundary, contiguous 1..3 in the table.
+    const before = await positionsOf(L.H);
     assert.deepEqual(before.map((e) => e.seq), [1, 2, 3], 'two messages plus a boundary');
+    assert.equal(before[2].kind, 'cutover', 'the boundary is the third position');
 
     // The privacy.service.deleteUserAccount path: purge the account's feed
     // positions, then delete its chat, in one transaction.
@@ -408,8 +469,13 @@ if (!ENABLED) {
       client.release();
     }
 
+    // The table shows the deleted member's seq 1 as a gap (boundary still at 3).
+    const positions = await positionsOf(L.H);
+    assert.deepEqual(positions.map((e) => e.seq), [2, 3], 'the deleted member\'s seq 1 is a gap');
+    // The member feed shows only the other member's surviving message; the
+    // boundary at seq 3 is not user-visible (#540 AC4).
     const feed = await feedOf(L.H, owner.H);
-    assert.deepEqual(feed.map((e) => e.seq), [2, 3], 'the deleted member\'s seq 1 is a gap');
+    assert.deepEqual(feed.map((e) => e.seq), [2], 'only the surviving member message is visible; the boundary is not');
     assert.equal(feed.some((e) => e.message === 'h-owner'), false, 'the deleted content is gone, not retained');
     assert.equal(await registryCount(L.H), 2, 'the deleted message took its registry position with it');
     assert.equal((await reconcileLegacyFeed(pool, { leagueId: L.H })).ok, true, 'no orphan position remains');
@@ -450,8 +516,9 @@ if (!ENABLED) {
     assert.equal(act.rows[0].n, 0, 'the legacy Pick and boundary rows are gone');
 
     await knex.migrate.up({ name: MIGRATION_NAME });
-    const feed = await feedOf(L.A, owner.A);
-    assert.deepEqual(feed.map((e) => [e.type, e.kind ?? null, e.seq]), [
+    // up() re-derives the identical combined order in the tables, boundary at 6.
+    const positions = await positionsOf(L.A);
+    assert.deepEqual(positions.map((e) => [e.type, e.kind, e.seq]), [
       ['league_chat', null, 1],
       ['draft_activity', 'pick', 2],
       ['league_chat', null, 3],
@@ -460,5 +527,9 @@ if (!ENABLED) {
       ['draft_activity', 'cutover', 6],
     ], 'up() re-derives the identical combined order');
     assert.equal(await counterOf(L.A), 6);
+    // The member feed re-derives the same order minus the internal boundary.
+    const feed = await feedOf(L.A, owner.A);
+    assert.deepEqual(feed.map((e) => e.seq), [1, 2, 3, 4, 5], 'the member feed re-derives the same order minus the boundary');
+    assert.ok(!feed.some((e) => e.kind === 'cutover'), 'the boundary is not user-visible');
   });
 }
