@@ -183,22 +183,32 @@ test('MUI touch ripple is suppressed under reduce, animated in ordinary (#533 AC
   const button = page.getByRole('button', { name: 'On-the-clock sound' });
   await expect(button).toBeVisible();
 
-  // POSITIVE CONTROL: a click in ordinary mode paints a ripple whose enter
-  // animation has a real duration. The ripple child is transient, so measure it
-  // immediately after the press.
-  await button.click();
-  const ripple = button.locator('.MuiTouchRipple-child').first();
-  await expect(ripple).toHaveCount(1);
-  const ordinary = await motion(ripple);
+  // The visible touch-ripple ENTER animation lives on the ripple span
+  // (.MuiTouchRipple-rippleVisible), not the inner child (whose animation only
+  // runs on leave/pulsate). Pressing and HOLDING the pointer paints the ripple
+  // and leaves it in its enter state until release, so the measurement is
+  // deterministic rather than racing the exit.
+  async function pressAndMeasureRipple() {
+    const box = await button.boundingBox();
+    if (!box) throw new Error('sound-toggle button has no bounding box');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    const ripple = button.locator('.MuiTouchRipple-rippleVisible').first();
+    await expect(ripple).toHaveCount(1);
+    const m = await motion(ripple);
+    await page.mouse.up();
+    return m;
+  }
+
+  // POSITIVE CONTROL: in ordinary mode the ripple enter animation has a real
+  // duration.
+  const ordinary = await pressAndMeasureRipple();
   expect(ordinary.animation, 'ordinary-mode control for touch ripple').toBeGreaterThan(0);
 
   // Under reduced motion the ripple still appears (feedback is not removed) but
   // its animation is instantaneous.
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await button.click();
-  const rippleReduced = button.locator('.MuiTouchRipple-child').first();
-  await expect(rippleReduced).toHaveCount(1);
-  const reduced = await motion(rippleReduced);
+  const reduced = await pressAndMeasureRipple();
   expect(reduced.animation, 'reduced-motion animation for touch ripple').toBe(0);
 });
 
