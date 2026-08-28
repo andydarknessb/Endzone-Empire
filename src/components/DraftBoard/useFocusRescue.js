@@ -45,22 +45,22 @@ import { useRef, useEffect, useLayoutEffect } from 'react';
 // to add a resizable split, you must give the tear-down its own signal that does
 // not depend on pointer intent, and cover it with a test - do not rediscover
 // this by a bug report.
+//
+// ONE KNOWN, ACCEPTED EDGE: if a pointerdown never gets its pointerup/pointercancel
+// (pointer capture lost, a drag that leaves the window), the flag stays true
+// until the next gesture, and a tear-down blur in that window would be read as a
+// click-away and its rescue suppressed. It only costs an assistive-technology
+// rescue (never data), and it needs an orphaned gesture to coincide with a
+// tear-down while focus is held in a region, so it is left unchased.
 let pointerGestureActive = false;
 let pointerListenerInstalled = false;
 
 function ensurePointerListener() {
   if (pointerListenerInstalled || typeof document === 'undefined') return;
   pointerListenerInstalled = true;
-  // The flag is true for the span of ONE pointer gesture: set on pointerdown,
-  // cleared when that gesture ends (pointerup/pointercancel). A click-away's
-  // focus move - and the null-relatedTarget blur it produces - happens on
-  // pointerdown, BEFORE pointerup, so onBlur reads the flag true; a tear-down
-  // blur has no gesture in flight and reads it false. This is a gesture window,
-  // not a timer: no setTimeout/rAF, so there is nothing whose firing could race
-  // the synchronous flip commit (a microtask reset was tried and drains BEFORE
-  // the blur in real browsers, which would have made the fix silently inert -
-  // #532 measured this). Capture phase so a child that stops propagation is
-  // still seen; passive since we only observe the gesture.
+  // Bound the flag to the span of one gesture (see the module note above for
+  // why a gesture window and not a timer). Capture phase so a child that stops
+  // propagation is still seen; passive since we only observe the gesture.
   const clear = () => { pointerGestureActive = false; };
   document.addEventListener('pointerdown', () => { pointerGestureActive = true; }, { capture: true, passive: true });
   document.addEventListener('pointerup', clear, { capture: true, passive: true });
@@ -125,7 +125,7 @@ export default function useFocusRescue(signal, resolveTarget) {
   const heldEl = useRef(null);
   const prevSignal = useRef(signal);
 
-  // One shared document pointerdown listener for every hook instance - pointer
+  // Install the one shared document gesture listener (idempotent) - pointer
   // intent is a property of the gesture, not of an instance (issue #532).
   useEffect(() => { ensurePointerListener(); }, []);
 

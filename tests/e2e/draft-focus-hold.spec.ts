@@ -37,17 +37,24 @@ test.describe('Draft room focus hold across click-away and flip (#532)', () => {
     await page.setViewportSize(VIEWPORTS.desktop);
     await openDraftRoom(page);
 
-    // Focus the composer (the tracked region's control), then click empty,
-    // non-focusable room content so focus falls to <body> with no relatedTarget -
+    // Focus the composer (the tracked region's control), then click away to
+    // empty, non-focusable space so focus falls to <body> with NO relatedTarget -
     // the exact click-away shape that used to leave a stale hold.
+    //
+    // The null-relatedTarget shape is the load-bearing detail. The room's own
+    // <main> is `tabIndex={-1}` (DRAFT_MAIN_ID), so a mouse click on
+    // non-focusable content INSIDE the room focuses that main - a TRUTHY
+    // relatedTarget, which the hook already cleared and which is not this bug.
+    // The stale-hold bug needs a click whose nearest focusable ancestor is
+    // <body> itself: dead space outside the room's focusable main. The top-left
+    // corner is such dead space; the assertion below proves the click actually
+    // produced body focus, so the test cannot pass vacuously if that ever stops
+    // holding.
     const composer = page.getByRole('textbox', { name: 'Message' });
     await composer.focus();
     await expect(composer).toBeFocused();
     await page.mouse.click(2, 2);
 
-    // Assert the precondition actually happened: focus is on <body>, not on any
-    // focusable control. Without this the test could pass vacuously if the click
-    // landed somewhere focusable.
     await expect
       .poll(() => page.evaluate(() => document.activeElement?.tagName))
       .toBe('BODY');
