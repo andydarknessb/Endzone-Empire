@@ -39,6 +39,18 @@ const {
 
 const REDUCE_MEDIA = /prefers-reduced-motion\s*:\s*reduce/i;
 
+// A CSS identifier token (a keyframes name is one): starts with a letter,
+// underscore, or hyphen, then word characters or hyphens. A fixed literal used
+// with String#match to TOKENISE a value, never a regexp built from a name - so
+// there is no dynamic-regexp construction, and no `\b` corner (a name beginning
+// with `-` is matched exactly, where a `\b`-anchored search would miss it at the
+// start of a value). Names are compared case-sensitively, as CSS idents are.
+const IDENT_TOKEN = /[A-Za-z_-][\w-]*/g;
+
+function identTokens(value) {
+  return new Set(value.match(IDENT_TOKEN) || []);
+}
+
 function normalizeSelector(sel) {
   return sel.replace(/\s+/g, ' ').trim();
 }
@@ -73,21 +85,21 @@ function keyframesBody(atRule) {
 // `animation-name` / `animation-fill-mode`.
 function animationInfo(rule) {
   let forwards = false;
-  const nameValues = [];
+  let hasNamedValue = false;
+  const names = new Set();
   rule.each((node) => {
     if (node.type !== 'decl') return;
     const prop = node.prop.toLowerCase();
     const value = stripImportant(node.value);
-    if (prop === 'animation') {
-      if (FORWARDS_FILL.test(value)) forwards = true;
-      nameValues.push(value);
-    } else if (prop === 'animation-name') {
-      nameValues.push(value);
+    if (prop === 'animation' || prop === 'animation-name') {
+      if (prop === 'animation' && FORWARDS_FILL.test(value)) forwards = true;
+      for (const token of identTokens(value)) names.add(token);
+      if (value && value.toLowerCase() !== 'none') hasNamedValue = true;
     } else if (prop === 'animation-fill-mode') {
       if (FORWARDS_FILL.test(value)) forwards = true;
     }
   });
-  return { forwards, nameValues };
+  return { forwards, names, hasNamedValue };
 }
 
 // Does this rule (inside a reduce media block) neutralize the animation or
@@ -159,12 +171,13 @@ function scanCss(source) {
   root.walkRules((rule) => {
     if (isInsideKeyframes(rule)) return;
     if (isInsideReduceMedia(rule)) return;
-    const { forwards, nameValues } = animationInfo(rule);
+    const { forwards, names, hasNamedValue } = animationInfo(rule);
     if (!forwards) return;
 
+    let referencesKnown = false;
     for (const name of allKeyframeNames) {
-      const referenced = nameValues.some((v) => new RegExp(`\\b${escapeRegExp(name)}\\b`).test(v));
-      if (!referenced) continue;
+      if (!names.has(name)) continue; // exact ident-token match, no regexp
+      referencesKnown = true;
       forwardsUsageCount += 1;
       if (!hiddenKeyframes.has(name)) continue;
       const exempt = selectorList(rule).some((sel) => neutralizedSelectors.has(sel));
@@ -179,10 +192,7 @@ function scanCss(source) {
 
     // A forwards animation naming something NOT defined in this file is
     // unresolved (declared boundary), counted but not flagged.
-    const referencesKnown = [...allKeyframeNames].some((name) =>
-      nameValues.some((v) => new RegExp(`\\b${escapeRegExp(name)}\\b`).test(v))
-    );
-    if (!referencesKnown && nameValues.some((v) => v && v.toLowerCase() !== 'none')) {
+    if (!referencesKnown && hasNamedValue) {
       unresolvedCount += 1;
     }
   });
@@ -193,10 +203,6 @@ function scanCss(source) {
     forwardsUsageCount,
     unresolvedCount,
   };
-}
-
-function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 module.exports = { scanCss };

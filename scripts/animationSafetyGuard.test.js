@@ -206,6 +206,21 @@ test('scanCss: hidden final state via display none is flagged', () => {
   assert.equal(violations[0].reason, 'display: none');
 });
 
+// A keyframes NAME that begins with a hyphen (a legal CSS custom ident) must
+// still be caught. A `\b`-anchored regex silently misses it at the start of a
+// value (no word boundary before `-`) - a false negative in a guard that must
+// not have them; exact ident-token matching has no such corner.
+test('scanCss: a hidden-ending keyframes whose name starts with a hyphen is flagged', () => {
+  const css = `
+    @keyframes -vanish { to { opacity: 0; } }
+    .x { animation: -vanish 1s forwards; }
+  `;
+  const { violations } = scanCss(css);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].animationName, '-vanish');
+  assert.equal(violations[0].reason, 'opacity: 0');
+});
+
 // A forwards animation ending VISIBLE is not flagged (do not ban forwards fill).
 test('scanCss: a forwards animation ending on a visible transform is not flagged', () => {
   const css = `
