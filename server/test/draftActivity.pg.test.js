@@ -233,7 +233,9 @@ if (!ENABLED) {
     // exactly how #436 seeds its own cutover boundary - and re-enabled in finally
     // so every later test keeps its runtime allocator.
     const owner = await seedUser('draft_activity_pg_cut');
-    const league = await seedLeague('Draft Activity PG Cutover', owner, 'draftactpgcut');
+    // invite_code is varchar(12): keep this at 12 or fewer characters or seedLeague
+    // dies in setup with "value too long for type character varying(12)".
+    const league = await seedLeague('Draft Activity PG Cutover', owner, 'draftcutpg');
     const team = await seedTeam(league, owner, 'Cutters');
     try {
       await pool.query('ALTER TABLE "draft_activity" DISABLE TRIGGER "draft_activity_allocate_feed_seq"');

@@ -30,6 +30,9 @@ const {
 const {
   activityEntryOf,
   DRAFT_ACTIVITY,
+  PICK,
+  CORRECTION,
+  LIFECYCLE_KINDS,
   USER_VISIBLE_KINDS,
 } = require('./draftActivity');
 // The content_kind discriminator value for a GIF message (#446). A GIF message
@@ -445,19 +448,23 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  * an anonymous board until it is added here on purpose - publication by
  * decision, the same stance the board's field allowlist takes.
  *
- * It IS the shared USER_VISIBLE_KINDS allowlist (draftActivity.js, #540): the
- * member combined feed and this presenter feed admit exactly the same kinds, so
- * the two surfaces cannot silently diverge on what is user-visible. They differ
- * only in the reason FIELD - a member sees it, a presenter never does (below) -
- * not in the SET of kinds. Kept under this name because the presenter reader is
- * where the "positive allowlist, publication by decision" stance is documented.
+ * It is spelled IDENTICALLY to the member feed's USER_VISIBLE_KINDS today, but is
+ * declared INDEPENDENTLY on purpose (#540), NOT aliased to it. The presenter link
+ * is anonymous and shareable; if this list were `= USER_VISIBLE_KINDS`, any kind
+ * later made visible to MEMBERS would become visible on the open-internet
+ * presenter surface automatically, with no review - the exact "a kind reached a
+ * surface nobody thought about" class this ticket exists to close. Declaring it
+ * apart makes exposing a kind to the anonymous board a DELIBERATE edit here, not
+ * an inherited default. The #540 contract test pins the two equal TODAY so a
+ * divergence is a conscious change, caught rather than silent. (The reason FIELD
+ * is protected structurally - a member sees it, a presenter never does, below.)
  *
  * Cursors mirror the sibling readers: the default/`before` window takes the
  * newest page descending then flips to ascending display order; `after` resumes
  * forward (feed_seq > cursor) ascending. `after` takes precedence; a caller
  * pages one direction at a time.
  */
-const PRESENTER_ACTIVITY_KINDS = USER_VISIBLE_KINDS;
+const PRESENTER_ACTIVITY_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
 
 async function listPresenterDraftActivity(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);

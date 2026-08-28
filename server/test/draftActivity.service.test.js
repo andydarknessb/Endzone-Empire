@@ -404,10 +404,13 @@ test('the concrete classification: cutover is internal, everything else is user-
   assert.deepEqual([...ALL_KINDS].sort(), [...USER_VISIBLE_KINDS, ...INTERNAL_KINDS].sort());
 });
 
-test('the member and presenter surfaces share ONE visible-kind allowlist, so they cannot diverge (#540 AC5)', () => {
-  // listCombinedDraftFeed (member) and listPresenterDraftActivity (presenter)
-  // both admit exactly USER_VISIBLE_KINDS. The presenter reader re-exports it as
-  // PRESENTER_ACTIVITY_KINDS; pinning them equal means a kind cannot become
-  // visible on one surface but not the other.
-  assert.deepEqual([...PRESENTER_ACTIVITY_KINDS], [...USER_VISIBLE_KINDS]);
+test('the presenter allowlist is declared independently but pinned equal to the member set today (#540 AC5)', () => {
+  // The presenter allowlist (PRESENTER_ACTIVITY_KINDS) is its OWN array, NOT an
+  // alias of the member set (USER_VISIBLE_KINDS), so a kind later made visible to
+  // members does not silently reach the anonymous presenter surface. They are the
+  // same today; pinning them equal here means any future divergence is a
+  // DELIBERATE, reviewed change - this assertion goes red the moment one list
+  // gains a kind the other does not.
+  assert.notStrictEqual(PRESENTER_ACTIVITY_KINDS, USER_VISIBLE_KINDS, 'the two allowlists are independent arrays, not one alias');
+  assert.deepEqual([...PRESENTER_ACTIVITY_KINDS], [...USER_VISIBLE_KINDS], 'they are spelled identically today');
 });
