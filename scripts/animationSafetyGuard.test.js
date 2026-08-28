@@ -3,6 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   parseDeclarations,
   hiddenReasonFromDecls,
@@ -10,6 +12,9 @@ const {
   parseKeyframeBlocks,
   finalKeyframeHiddenReason,
 } = require('./animationSafetyGuard');
+const { scanCss } = require('./animationSafetyCss');
+
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 // ============================================================================
 // SHARED LEXICAL CORE: does a keyframes body end in a hidden state?
@@ -144,4 +149,155 @@ test('finalKeyframeHiddenReason: a comment holding opacity 0 does not count', ()
     to { /* opacity: 0; */ opacity: 1; }
   `;
   assert.equal(finalKeyframeHiddenReason(body).hidden, false);
+});
+
+// ============================================================================
+// CSS SCANNER (scanCss): stylesheet keyframes + selector-correlated exemption
+// ============================================================================
+
+// Criterion 2: unsafe stylesheet keyframes with a forwards-filled hidden final
+// state fail the check.
+test('scanCss: a forwards animation naming a hidden-ending @keyframes is flagged', () => {
+  const css = `
+    @keyframes vanish {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
+    .callout { animation: vanish 1.8s ease-in-out forwards; }
+  `;
+  const { violations } = scanCss(css);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].selector, '.callout');
+  assert.equal(violations[0].animationName, 'vanish');
+  assert.equal(violations[0].reason, 'opacity: 0');
+});
+
+// Criterion 3 (CSS): hidden final states via visibility and display are covered.
+test('scanCss: hidden final state via visibility hidden is flagged', () => {
+  const css = `
+    @keyframes hide { to { visibility: hidden; } }
+    .x { animation: hide 1s forwards; }
+  `;
+  const { violations } = scanCss(css);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].reason, 'visibility: hidden');
+});
+
+test('scanCss: hidden final state via display none is flagged', () => {
+  const css = `
+    @keyframes collapse { to { display: none; } }
+    .x { animation: collapse 1s forwards; }
+  `;
+  const { violations } = scanCss(css);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].reason, 'display: none');
+});
+
+// A forwards animation ending VISIBLE is not flagged (do not ban forwards fill).
+test('scanCss: a forwards animation ending on a visible transform is not flagged', () => {
+  const css = `
+    @keyframes run { from { transform: translateX(0); } to { transform: translateX(560px); } }
+    .runner { animation: run 2s steps(20) forwards; }
+  `;
+  assert.deepEqual(scanCss(css).violations, []);
+});
+
+// A hidden-ending keyframes used WITHOUT forwards is not flagged: the element
+// reverts to its base (visible) state when the animation ends.
+test('scanCss: a hidden-ending keyframes without forwards fill is not flagged', () => {
+  const css = `
+    @keyframes vanish { to { opacity: 0; } }
+    .x { animation: vanish 1s ease-in-out; }
+  `;
+  assert.deepEqual(scanCss(css).violations, []);
+});
+
+// Longhand: animation-name + animation-fill-mode: forwards is treated the same
+// as the shorthand.
+test('scanCss: longhand animation-name + animation-fill-mode forwards is flagged', () => {
+  const css = `
+    @keyframes vanish { to { opacity: 0; } }
+    .x { animation-name: vanish; animation-duration: 1s; animation-fill-mode: forwards; }
+  `;
+  const { violations } = scanCss(css);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].animationName, 'vanish');
+});
+
+// THE EXEMPTION, and that it is SELECTOR-correlated, not file-level. A reduce
+// block that neutralizes the SAME selector exempts it...
+test('scanCss: a reduce block neutralizing the SAME selector exempts the animation', () => {
+  const css = `
+    @keyframes vanish { to { opacity: 0; } }
+    .callout { animation: vanish 1.8s forwards; }
+    @media (prefers-reduced-motion: reduce) {
+      .callout { animation: none; }
+    }
+  `;
+  assert.deepEqual(scanCss(css).violations, []);
+});
+
+// ...but a reduce block on a DIFFERENT selector does NOT (this is exactly the
+// loose file-level rule Cory rejected: the file contains a reduce block, but it
+// does not cover the affected surface).
+test('scanCss: a reduce block on a DIFFERENT selector does NOT exempt (not file-level)', () => {
+  const css = `
+    @keyframes vanish { to { opacity: 0; } }
+    .callout { animation: vanish 1.8s forwards; }
+    @media (prefers-reduced-motion: reduce) {
+      .something-else { animation: none; }
+    }
+  `;
+  const { violations } = scanCss(css);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].selector, '.callout');
+});
+
+// A reduce block that RESTORES the hidden property (opacity: 1) also exempts.
+test('scanCss: a reduce block restoring opacity on the same selector exempts', () => {
+  const css = `
+    @keyframes vanish { to { opacity: 0; } }
+    .callout { animation: vanish 1.8s forwards; }
+    @media (prefers-reduced-motion: reduce) {
+      .callout { opacity: 1; }
+    }
+  `;
+  assert.deepEqual(scanCss(css).violations, []);
+});
+
+// Reduce block covers one of a comma-separated selector list.
+test('scanCss: a reduce block covering one selector of a list exempts that rule', () => {
+  const css = `
+    @keyframes vanish { to { opacity: 0; } }
+    .callout { animation: vanish 1.8s forwards; }
+    @media (prefers-reduced-motion: reduce) {
+      .callout, .other { animation: none !important; }
+    }
+  `;
+  assert.deepEqual(scanCss(css).violations, []);
+});
+
+// Resolution boundary: an animation naming a keyframes NOT defined in this file
+// is unresolved (declared limit), counted but not flagged.
+test('scanCss: a forwards animation naming an unknown (cross-file) keyframes is unresolved, not flagged', () => {
+  const css = `.cta { animation: landing-cta-pulse 2.4s forwards; }`;
+  const result = scanCss(css);
+  assert.deepEqual(result.violations, []);
+  assert.equal(result.unresolvedCount, 1);
+});
+
+// Criterion 4 (CSS positive control): the real cutscene stylesheet passes AND
+// the scan actually examined it (non-zero keyframes + forwards usages).
+test('scanCss: the real TecmoCutscene.css has zero violations but is non-empty (positive control)', () => {
+  const css = fs.readFileSync(
+    path.join(REPO_ROOT, 'src/components/MatchupDetail/TecmoCutscene.css'),
+    'utf8'
+  );
+  const result = scanCss(css);
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.keyframesCount >= 3, `expected >=3 keyframes, got ${result.keyframesCount}`);
+  assert.ok(
+    result.forwardsUsageCount >= 3,
+    `expected >=3 forwards usages examined, got ${result.forwardsUsageCount}`
+  );
 });
