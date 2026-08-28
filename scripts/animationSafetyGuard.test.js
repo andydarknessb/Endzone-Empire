@@ -413,6 +413,30 @@ test('scanJs: an in-object @media (prefers-reduced-motion: reduce) override exem
   assert.deepEqual(scanJs(src).violations, []);
 });
 
+// Exemption (b) must be MEANINGFUL, not mere presence of an animation key: a
+// reduce override that re-asserts a forwards fill neutralizes nothing, so it
+// must NOT exempt (the false-negative the spec review caught).
+test('scanJs: an in-object reduce override that does NOT neutralize (animationFillMode forwards) is still flagged', () => {
+  const src =
+    HIDDEN_KF +
+    'const sx = {\n' +
+    '  animation: `${flashIn} 1800ms forwards`,\n' +
+    "  '@media (prefers-reduced-motion: reduce)': { animationFillMode: 'forwards' },\n" +
+    '};\n';
+  assert.equal(scanJs(src).violations.length, 1);
+});
+
+// ...while a reduce override that restores opacity does neutralize, so it exempts.
+test('scanJs: an in-object reduce override restoring opacity exempts', () => {
+  const src =
+    HIDDEN_KF +
+    'const sx = {\n' +
+    '  animation: `${flashIn} 1800ms forwards`,\n' +
+    "  '@media (prefers-reduced-motion: reduce)': { opacity: 1 },\n" +
+    '};\n';
+  assert.deepEqual(scanJs(src).violations, []);
+});
+
 // A forwards animation ending VISIBLE is not flagged (dash shape).
 test('scanJs: a forwards animation naming a visible-ending keyframes is not flagged', () => {
   const src = VISIBLE_KF + 'const sx = { animation: `${dash} 0.7s ease-out forwards` };\n';

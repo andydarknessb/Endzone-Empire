@@ -31,11 +31,13 @@
  */
 
 const postcss = require('postcss');
-const { finalKeyframeHiddenReason } = require('./animationSafetyGuard');
+const {
+  finalKeyframeHiddenReason,
+  FORWARDS_FILL,
+  isNeutralizingDeclaration,
+} = require('./animationSafetyGuard');
 
 const REDUCE_MEDIA = /prefers-reduced-motion\s*:\s*reduce/i;
-const FORWARDS_FILL = /\b(forwards|both)\b/i;
-const { HIDDEN_OPACITY } = require('./animationSafetyGuard');
 
 function normalizeSelector(sel) {
   return sel.replace(/\s+/g, ' ').trim();
@@ -99,11 +101,7 @@ function neutralizesAnimation(rule) {
     if (node.type !== 'decl') return;
     const prop = node.prop.toLowerCase();
     const value = stripImportant(node.value).toLowerCase();
-    if ((prop === 'animation' || prop === 'animation-name') && value === 'none') neutralizes = true;
-    if (prop === 'animation-fill-mode' && !FORWARDS_FILL.test(value)) neutralizes = true;
-    if (prop === 'opacity' && !HIDDEN_OPACITY.test(value)) neutralizes = true;
-    if (prop === 'visibility' && value === 'visible') neutralizes = true;
-    if (prop === 'display' && value !== 'none') neutralizes = true;
+    if (isNeutralizingDeclaration(prop, value)) neutralizes = true;
   });
   return neutralizes;
 }

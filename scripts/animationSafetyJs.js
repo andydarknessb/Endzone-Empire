@@ -40,9 +40,12 @@
  */
 
 const babelParser = require('@babel/parser');
-const { finalKeyframeHiddenReason } = require('./animationSafetyGuard');
+const {
+  finalKeyframeHiddenReason,
+  FORWARDS_FILL,
+  isNeutralizingDeclaration,
+} = require('./animationSafetyGuard');
 
-const FORWARDS_FILL = /\b(forwards|both)\b/i;
 const REDUCED_MOTION_IDENT = /reduced?motion/i;
 const REDUCE_MEDIA_KEY = /@media[^{}]*prefers-reduced-motion\s*:\s*reduce/i;
 
@@ -157,8 +160,30 @@ function hasTernaryOffRamp(chain, prop) {
   return false;
 }
 
+// A literal (string/number) value of an sx property, lower-cased, or null when
+// the value is a variable or expression this static check cannot resolve. An
+// unresolvable value is treated by callers as NON-neutralizing (fail loud).
+function literalValue(node) {
+  if (!node) return null;
+  if (node.type === 'StringLiteral') return node.value.toLowerCase();
+  if (node.type === 'NumericLiteral') return String(node.value);
+  return null;
+}
+
+// camelCase sx property (animationFillMode) -> kebab CSS property
+// (animation-fill-mode), so the shared neutralization predicate sees the same
+// property names on both sides.
+function camelToKebab(name) {
+  return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+}
+
 // (b) Does the style object immediately containing the animation property also
-// carry a reduce-media key that neutralizes an animation?
+// carry a reduce-media key that MEANINGFULLY neutralizes the animation? It is
+// not enough for the reduce override to merely mention `animation` - its value
+// must actually neutralize (animation: none, a non-forwards fill mode, or a
+// restored opacity/visibility/display), matching the CSS side and Cory's
+// "meaningful alternative" ruling. A reduce override that re-asserts
+// `animationFillMode: 'forwards'` does not exempt.
 function hasInObjectReduceOverride(parentObject) {
   if (!parentObject || parentObject.type !== 'ObjectExpression') return false;
   for (const p of parentObject.properties) {
@@ -167,9 +192,10 @@ function hasInObjectReduceOverride(parentObject) {
     if (!p.value || p.value.type !== 'ObjectExpression') continue;
     for (const inner of p.value.properties) {
       const innerKey = propKeyName(inner);
-      if (innerKey === 'animation' || innerKey === 'animationName' || innerKey === 'animationFillMode') {
-        return true;
-      }
+      if (!innerKey) continue;
+      const value = literalValue(inner.value);
+      if (value === null) continue; // unresolvable: cannot prove it neutralizes
+      if (isNeutralizingDeclaration(camelToKebab(innerKey), value)) return true;
     }
   }
   return false;

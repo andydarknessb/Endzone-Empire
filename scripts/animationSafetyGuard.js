@@ -51,6 +51,11 @@
 // laid out and its text still renders), so those must NOT be swept in.
 const HIDDEN_OPACITY = /^0(\.0+)?$/;
 
+// Forwards fill is the precondition for the whole defect class: only `forwards`
+// (and `both`) hold an animation on its final keyframe after it finishes. Both
+// scanners test for it, so it lives here in the shared core with HIDDEN_OPACITY.
+const FORWARDS_FILL = /\b(forwards|both)\b/i;
+
 // Strip CSS block comments before parsing a keyframes body, so a `{`/`}` or a
 // stray `opacity: 0` inside a comment cannot be mistaken for a real
 // declaration. Keyframes bodies do not contain strings, so there is no
@@ -139,6 +144,27 @@ function parseKeyframeBlocks(body) {
  * Returns { hidden, reason, finalOffset }. `hidden` is false with a null reason
  * when there is no recognizable final keyframe or it declares nothing hiding.
  */
+// Given a normalized (kebab-case, lower-cased) property and its lower-cased
+// value, does this declaration NEUTRALIZE a forwards-hidden animation or restore
+// the element to visible? This is the single definition of a "meaningful"
+// reduced-motion alternative (Cory's #542 ruling), shared by the CSS reduce
+// block exemption and the JS in-object @media override so both sides agree on
+// what actually covers a surface. A reduce block that merely re-declares the
+// animation without changing it (e.g. `animation-fill-mode: forwards` again)
+// does NOT neutralize, so it does not exempt.
+//
+// Callers must pass a KNOWN value: an unknown value (a variable this static
+// check cannot resolve) should be treated by the caller as non-neutralizing
+// (fail loud), not passed here as an empty string.
+function isNeutralizingDeclaration(prop, value) {
+  if ((prop === 'animation' || prop === 'animation-name') && value === 'none') return true;
+  if (prop === 'animation-fill-mode' && !FORWARDS_FILL.test(value)) return true;
+  if (prop === 'opacity' && !HIDDEN_OPACITY.test(value)) return true;
+  if (prop === 'visibility' && value === 'visible') return true;
+  if (prop === 'display' && value !== 'none') return true;
+  return false;
+}
+
 function finalKeyframeHiddenReason(body) {
   const blocks = parseKeyframeBlocks(body);
   if (blocks.length === 0) return { hidden: false, reason: null, finalOffset: null };
@@ -268,24 +294,25 @@ function findViolations({ root = REPO_ROOT, roots = SCAN_ROOTS } = {}) {
 // A clear, single-line report of one violation: the declaration it named and
 // the reason it printed (criterion 7).
 function formatViolation(v) {
-  const where = v.source === 'css' ? `selector \`${v.selector}\`` : `animation \`${v.animationName}\``;
-  const named = v.source === 'css' ? `animation \`${v.animationName}\`` : where;
+  const surface = v.source === 'css' ? `selector \`${v.selector}\`` : 'declaration';
   return (
-    `${v.file}:${v.line ?? '?'}: [animation-safety] ${named} is forwards-filled and its ` +
-    `final keyframe hides the element (${v.reason}); under reduced motion the ` +
-    `global 0s policy pins it hidden with no reduced-motion alternative for this ` +
-    (v.source === 'css' ? `selector.` : `declaration.`)
+    `${v.file}:${v.line ?? '?'}: [animation-safety] animation \`${v.animationName}\` is ` +
+    `forwards-filled and its final keyframe hides the element (${v.reason}); under reduced ` +
+    `motion the global 0s policy pins it hidden with no reduced-motion alternative for ` +
+    `this ${surface}.`
   );
 }
 
 module.exports = {
   HIDDEN_OPACITY,
+  FORWARDS_FILL,
   stripCssComments,
   parseDeclarations,
   hiddenReasonFromDecls,
   offsetForToken,
   parseKeyframeBlocks,
   finalKeyframeHiddenReason,
+  isNeutralizingDeclaration,
   REPO_ROOT,
   SCAN_ROOTS,
   ALLOWLIST,
