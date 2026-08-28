@@ -22,6 +22,17 @@ import { json } from './jsonRoute';
 // dispatches from the same route table the static coverage guard imports, so
 // the description and the behaviour cannot drift apart.
 import { routeTable, findRoute } from './draftRouteTable';
+// The expected-console-error contract (issue #541). Its pure core lives in its
+// own module so it is unit-testable without a page; the teardown below is a
+// thin caller over it.
+import {
+  reconcileConsoleErrors,
+  formatReconciliation,
+  resourceError,
+  appError,
+  type CapturedConsoleError,
+  type ConsoleErrorDeclaration,
+} from './consoleErrorContract';
 
 export { expect };
 
@@ -242,6 +253,17 @@ export type DraftApiOptions = {
   // fixture team list puts it first (FIXTURE_TEAMS[0], "Ridge Runners"), so
   // VIEWER_TEAM_ID is the default; override for a fixture that varies it.
   myTeamId?: number;
+  /**
+   * Drives the member-only combined-feed read (GET /api/league/:id/draft-feed)
+   * to fail with this HTTP status instead of the empty-200 default, so a spec
+   * can prove the feed's authoritative revocation IN THE BROWSER: a 403 there is
+   * a confirmed member removed mid-draft, and the room collapses chat to the
+   * non-member surface (#534 AC4). This is the scenario that could not be tested
+   * before #541, because the browser logs the 4xx as a console error the shared
+   * teardown treated as fatal; the spec now declares it through the
+   * expected-console-error contract (#541 AC7). Absent: the feed answers 200 [].
+   */
+  draftFeedError?: { status: number; body?: unknown };
 };
 
 export type DraftApiHandle = {
@@ -291,6 +313,9 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
     picks: opts.picks,
     draftedIds,
     queue: [...(opts.initialQueue || [])] as FixturePlayer[],
+    // Read by the /api/league/:id/draft-feed responder to drive the member-feed
+    // revocation path (#541 AC7); absent means the feed answers its 200 default.
+    draftFeedError: opts.draftFeedError,
     handle,
   };
 
@@ -327,27 +352,71 @@ export async function installDraftRestApi(page: Page, opts: DraftApiOptions): Pr
   return handle;
 }
 
+// Per-page expected-console-error declarations, populated by the
+// `expectConsoleError` fixture during the test body and read in teardown. Held
+// in a WeakMap keyed by the page, exactly like unmockedByPage above, so a
+// declaration made in one test can never bleed into another.
+const declarationsByPage = new WeakMap<Page, ConsoleErrorDeclaration[]>();
+
+/**
+ * The per-test handle a spec uses to declare console errors it intends to
+ * provoke (issue #541). Both forms are narrow by construction: `resourceError`
+ * demands a status AND an endpoint, and `appError` never matches a resource
+ * load. A spec that declares nothing keeps the exact empty-console contract.
+ */
+export type ExpectConsoleError = {
+  /** Allow one intentional HTTP failure's console error, named by status + endpoint. */
+  resourceError: (spec: { status: number; url: string | RegExp; because: string }) => void;
+  /** Allow one app-emitted console.error (never a resource load), by exact text or RegExp. */
+  appError: (spec: { text: string | RegExp; because: string }) => void;
+};
+
 /**
  * Playwright's `test`, extended so every test using it automatically fails if
- * the page logs a console error or throws an uncaught page error, OR if the
- * Draft room called an endpoint the harness route table does not answer
- * (issue #474). No test needs to opt in; both assertions run in this fixture's
- * teardown after the test body returns. The unmocked-endpoint assertion runs
- * first because it names the exact `METHOD /path`, where a fallthrough 500
- * otherwise reaches the console only as a bare "Failed to load resource: 500".
+ * the Draft room called an endpoint the harness route table does not answer
+ * (issue #474), if the page throws an uncaught page error, OR if the page logs
+ * a console error the test did not declare (issue #541). No test needs to opt
+ * in; all three run in this fixture's teardown after the test body returns.
+ *
+ * The two error channels are kept SEPARATE at the point of capture, not merely
+ * at reporting (issue #541 AC4): console errors are reconciled against the
+ * per-test declarations, but uncaught page errors are NEVER reconciled and stay
+ * unconditionally fatal, so a console-error declaration can never - even by an
+ * identical string - discharge an uncaught exception.
+ *
+ * A spec declares an expected console error through the `expectConsoleError`
+ * fixture; with no declarations the reconciliation is exactly the old
+ * empty-console contract (any console error is undeclared and fails; zero
+ * console errors passes), which is the general rule's natural zero case rather
+ * than a special case (issue #541 AC5).
  */
-export const test = base.extend<{}>({
+export const test = base.extend<{ expectConsoleError: ExpectConsoleError }>({
   page: async ({ page }, use) => {
-    const errors: string[] = [];
+    // Two lists, captured from two events, never merged.
+    const consoleErrors: CapturedConsoleError[] = [];
+    const pageErrors: string[] = [];
+    declarationsByPage.set(page, []);
+
     page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(`console.error: ${msg.text()}`);
+      if (msg.type() === 'error') {
+        // Chromium reports the failed resource's URL on the message location,
+        // not in its text, so both are captured: a declaration can name the
+        // endpoint even though the text only names the status.
+        consoleErrors.push({ text: msg.text(), url: msg.location()?.url ?? '' });
+      }
     });
     page.on('pageerror', (err) => {
-      errors.push(`pageerror: ${err && err.stack ? err.stack : String(err)}`);
+      pageErrors.push(`pageerror: ${err && err.stack ? err.stack : String(err)}`);
     });
 
     await use(page);
 
+    const declarations = declarationsByPage.get(page) || [];
+    declarationsByPage.delete(page);
+
+    // (1) Unmocked endpoints first: this names the exact `METHOD /path`, where a
+    // fallthrough 500 otherwise reaches the console only as a bare
+    // "Failed to load resource: 500".
     const unmocked = unmockedByPage.get(page) || [];
     unmockedByPage.delete(page);
     expect(
@@ -356,7 +425,30 @@ export const test = base.extend<{}>({
         `(issue #474). Add an entry to tests/e2e/fixtures/draftRouteTable.js with a ` +
         `driven fixture, or declare it in \`unstubbed\`:\n${unmocked.join('\n')}`
     ).toEqual([]);
-    expect(errors, `browser console/page errors were logged:\n${errors.join('\n')}`).toEqual([]);
+
+    // (2) Uncaught page errors, unconditionally. These never see a declaration.
+    expect(
+      pageErrors,
+      `uncaught page errors were thrown (these are never suppressible through the ` +
+        `console-error contract):\n${pageErrors.join('\n')}`
+    ).toEqual([]);
+
+    // (3) Console errors reconciled against the per-test contract (#541).
+    const reconciliation = reconcileConsoleErrors(consoleErrors, declarations);
+    expect(reconciliation.ok, formatReconciliation(reconciliation)).toBe(true);
+  },
+  expectConsoleError: async ({ page }, use) => {
+    const push = (declaration: ConsoleErrorDeclaration) => {
+      const list = declarationsByPage.get(page);
+      // The page fixture seeds the list before any dependent fixture or the
+      // test body runs, so this is only ever missing if the fixture is misused.
+      if (!list) throw new Error('expectConsoleError was used outside the harness page lifecycle');
+      list.push(declaration);
+    };
+    await use({
+      resourceError: (spec) => push(resourceError(spec)),
+      appError: (spec) => push(appError(spec)),
+    });
   },
 });
 
