@@ -79,7 +79,7 @@ function GameLogSparkline({ games, format }) {
   );
 }
 
-function PeerLinks({ player, profileSearch = '', profileState }) {
+function PeerLinks({ player, navigation }) {
   const { loading, error, data, retry } = usePublicResource(
     () => publicApiClient.get('/api/public/rankings', { params: { position: player.position, limit: 20 } }).then((response) => response.data),
     [player.position]
@@ -98,8 +98,8 @@ function PeerLinks({ player, profileSearch = '', profileState }) {
             <Chip
               key={peer.playerId}
               component={RouterLink}
-              to={`/players/${peer.playerId}${profileSearch}`}
-              state={profileState}
+              to={`/players/${peer.playerId}${navigation?.search || ''}`}
+              state={navigation?.state}
               clickable
               avatar={<Avatar src={peer.photoUrl || undefined} alt="" />}
               label={`${peer.name} · ${peer.projectedPoints ?? '-'} proj`}
@@ -191,11 +191,8 @@ export function ProfileBody({
   initialFormat = DEFAULT_FORMAT,
   breadcrumbLabel = 'Rankings',
   breadcrumbTo = '/rankings',
-  breadcrumbState,
-  breadcrumbReplace = false,
   showBreadcrumb = true,
-  relatedPlayerSearch,
-  relatedPlayerState,
+  relatedPlayerNavigation,
 }) {
   const [format, setFormat] = useState(initialFormat);
   useEffect(() => {
@@ -221,8 +218,6 @@ export function ProfileBody({
           label={breadcrumbLabel}
           to={breadcrumbTo}
           currentLabel={player.name}
-          state={breadcrumbState}
-          replace={breadcrumbReplace}
         />
       )}
       {/* Hero band */}
@@ -348,8 +343,7 @@ export function ProfileBody({
       )}
       <PeerLinks
         player={player}
-        profileSearch={relatedPlayerSearch}
-        profileState={relatedPlayerState}
+        navigation={relatedPlayerNavigation}
       />
     </>
   );

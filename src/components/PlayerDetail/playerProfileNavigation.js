@@ -1,6 +1,7 @@
 import { matchPath } from 'react-router-dom';
 
 export const DRAFT_ROOM_RETURN_STATE = Object.freeze({ draftRoomReturn: true });
+const DRAFT_PROFILE_RUNTIME_KEY = `${Date.now()}:${Math.random()}`;
 
 export function createDraftRoomProfileOrigin({ leagueId, pathname, search }) {
   return {
@@ -8,12 +9,14 @@ export function createDraftRoomProfileOrigin({ leagueId, pathname, search }) {
     leagueId: String(leagueId),
     pathname,
     search,
+    runtimeKey: DRAFT_PROFILE_RUNTIME_KEY,
   };
 }
 
 export function readDraftRoomProfileOrigin(state, profileLeagueId) {
   const origin = state?.playerProfileOrigin;
   if (!origin || origin.kind !== 'draft-room') return null;
+  if (origin.runtimeKey !== DRAFT_PROFILE_RUNTIME_KEY) return null;
   if (profileLeagueId == null || String(profileLeagueId) !== String(origin.leagueId)) return null;
   if (typeof origin.pathname !== 'string' || typeof origin.search !== 'string') return null;
   if (origin.search !== '' && (!origin.search.startsWith('?') || origin.search.includes('#'))) return null;

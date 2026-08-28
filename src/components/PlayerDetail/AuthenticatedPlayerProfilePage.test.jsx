@@ -10,6 +10,7 @@ import apiClient from '../../api/apiClient';
 import publicApiClient from '../../api/publicApiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import AuthenticatedPlayerProfilePage from './AuthenticatedPlayerProfilePage';
+import { createDraftRoomProfileOrigin } from './playerProfileNavigation';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -78,10 +79,11 @@ const draftProfileEntry = (originOverrides = {}) => ({
   search: '?leagueId=10',
   state: {
     playerProfileOrigin: {
-      kind: 'draft-room',
-      leagueId: '10',
-      pathname: '/league/10/draft',
-      search: '?view=players&pos=WR',
+      ...createDraftRoomProfileOrigin({
+        leagueId: 10,
+        pathname: '/league/10/draft',
+        search: '?view=players&pos=WR',
+      }),
       ...originOverrides,
     },
   },
@@ -276,6 +278,7 @@ test.each([
   ['a cross-league origin', draftProfileEntry({ leagueId: '11', pathname: '/league/11/draft' })],
   ['an arbitrary origin path', draftProfileEntry({ pathname: '/admin' })],
   ['a malformed origin query', draftProfileEntry({ search: 'view=players' })],
+  ['a profile reloaded from an earlier page runtime', draftProfileEntry({ runtimeKey: 'previous-runtime' })],
 ])('uses the Players fallback for %s', async (_case, entry) => {
   renderPage(entry);
 
@@ -334,14 +337,12 @@ test('preserves Draft origin and league context while changing profile seasons',
 
 test('returns a Draft-room profile to its exact filtered Draft URL without a history loop', async () => {
   const draftSearch = '?view=players&pos=WR&q=deep&sort=proj&dir=desc&showDrafted=1&byes=6%2C10';
-  const profileState = {
-    playerProfileOrigin: {
-      kind: 'draft-room',
-      leagueId: '10',
-      pathname: '/league/10/draft',
-      search: draftSearch,
-    },
-  };
+  const profileOrigin = createDraftRoomProfileOrigin({
+    leagueId: 10,
+    pathname: '/league/10/draft',
+    search: draftSearch,
+  });
+  const profileState = { playerProfileOrigin: profileOrigin };
 
   function DraftLocation() {
     const location = useLocation();

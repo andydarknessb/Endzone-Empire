@@ -125,8 +125,10 @@ function AuthenticatedPlayerProfilePage() {
           onSeasonChange={changeSeason}
           initialFormat={format}
           showBreadcrumb={false}
-          relatedPlayerSearch={draftRoomOrigin ? `?leagueId=${leagueId}` : undefined}
-          relatedPlayerState={profileNavigationState}
+          relatedPlayerNavigation={draftRoomOrigin ? {
+            search: `?leagueId=${leagueId}`,
+            state: profileNavigationState,
+          } : undefined}
         />
       )}
     </Container>
