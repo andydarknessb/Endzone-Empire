@@ -145,7 +145,17 @@ function StatCardList({ label, rows }) {
  *                   reachable by keyboard, with activation suppressed and
  *                   its text shown as the explanation (issue #120).
  */
-function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerIds, onNavigate, actions }) {
+function PlayerQuickView({
+  open,
+  onClose,
+  playerId,
+  leagueId,
+  profileOrigin,
+  draftedBy,
+  playerIds,
+  onNavigate,
+  actions,
+}) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -622,6 +632,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               <Link
                 component={RouterLink}
                 to={`/players/${playerId}${leagueId ? `?leagueId=${leagueId}` : ''}`}
+                state={profileOrigin ? { playerProfileOrigin: profileOrigin } : undefined}
                 onClick={onClose}
                 sx={{ display: 'inline-flex', alignItems: 'center', ...MIN_TOUCH_TARGET_SX }}
               >

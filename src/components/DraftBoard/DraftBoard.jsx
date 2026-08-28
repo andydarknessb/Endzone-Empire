@@ -1,7 +1,7 @@
 import React, {
   useState, useEffect, useRef, useCallback,
 } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 import {
   Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab,
   ToggleButton, ToggleButtonGroup, IconButton, Tooltip,
@@ -48,6 +48,7 @@ import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
 import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
+import { createDraftRoomProfileOrigin } from '../PlayerDetail/playerProfileNavigation';
 
 // The Draft page's one landmark structure: a single <main>, named by the
 // league-name H1 inside it, that the App-level skip link (see App.jsx)
@@ -173,6 +174,7 @@ function playBeep() {
 
 function DraftBoard() {
   const { leagueId } = useParams();
+  const location = useLocation();
   // No `useSelector((store) => store.user)` here any more, and that absence is
   // the point (#178, ahead of #115): with the commissioner flag arriving on
   // the join acknowledgement, the Draft room reads the signed-in account for
@@ -1019,6 +1021,11 @@ function DraftBoard() {
         onClose={() => setQuickViewId(null)}
         playerId={quickViewId}
         leagueId={Number(leagueId)}
+        profileOrigin={createDraftRoomProfileOrigin({
+          leagueId,
+          pathname: location.pathname,
+          search: location.search,
+        })}
         draftedBy={quickViewDraftedBy}
         playerIds={displayPlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}

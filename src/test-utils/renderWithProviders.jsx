@@ -15,7 +15,9 @@ const mockStore = configureMockStore([]);
  */
 export function renderWithProviders(
   ui,
-  { route = '/', path = '/', state = {}, store } = {}
+  {
+    route = '/', path = '/', state = {}, store, routes,
+  } = {}
 ) {
   const defaultState = {
     user: {},
@@ -32,6 +34,7 @@ export function renderWithProviders(
       >
         <Routes>
           <Route path={path} element={ui} />
+          {routes}
         </Routes>
       </MemoryRouter>
     </Provider>

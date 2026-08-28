@@ -1,11 +1,17 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, {
+  useCallback, useEffect, useMemo, useState,
+} from 'react';
 import { Container } from '@mui/material';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
 import { DEFAULT_FORMAT } from '../public/kit/scoringFormat';
 import { ErrorState, LoadingRows } from '../public/kit/DataState';
-import { ProfileBody } from '../public/pages/PlayerProfilePage';
+import { ProfileBody, ProfileBreadcrumb } from '../public/pages/PlayerProfilePage';
+import {
+  DRAFT_ROOM_RETURN_STATE,
+  readDraftRoomProfileOrigin,
+} from './playerProfileNavigation';
 
 const FORMAT_BY_PRESET = {
   standard: 'standard',
@@ -26,11 +32,25 @@ export function formatForLeague(league) {
 
 function AuthenticatedPlayerProfilePage() {
   const { playerId } = useParams();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const seasonParam = searchParams.get('season');
   const leagueParam = searchParams.get('leagueId');
   const season = seasonParam != null && /^\d+$/.test(seasonParam) ? Number(seasonParam) : null;
   const leagueId = leagueParam != null && /^\d+$/.test(leagueParam) ? Number(leagueParam) : null;
+  const draftRoomOrigin = readDraftRoomProfileOrigin(location.state, leagueId);
+  const profileNavigationState = useMemo(
+    () => (draftRoomOrigin ? { playerProfileOrigin: draftRoomOrigin } : undefined),
+    [draftRoomOrigin]
+  );
+  const breadcrumb = draftRoomOrigin
+    ? {
+      label: 'Draft room',
+      to: `${draftRoomOrigin.pathname}${draftRoomOrigin.search}`,
+      state: DRAFT_ROOM_RETURN_STATE,
+      replace: true,
+    }
+    : { label: 'Players', to: '/player' };
   const [state, setState] = useState({ loading: true, error: false, player: null });
   const [retryKey, setRetryKey] = useState(0);
   // The shared league entry every other league page reads, so arriving here
@@ -83,11 +103,15 @@ function AuthenticatedPlayerProfilePage() {
       if (next == null) params.delete('season');
       else params.set('season', String(next));
       return params;
-    }, { replace: true });
-  }, [setSearchParams]);
+    }, { replace: true, state: profileNavigationState });
+  }, [profileNavigationState, setSearchParams]);
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      <ProfileBreadcrumb
+        {...breadcrumb}
+        currentLabel={state.player?.name}
+      />
       {loading && <LoadingRows rows={6} height={60} />}
       {!loading && state.error && (
         <ErrorState message="We couldn't load this player." onRetry={retry} />
@@ -100,8 +124,11 @@ function AuthenticatedPlayerProfilePage() {
           player={state.player}
           onSeasonChange={changeSeason}
           initialFormat={format}
-          breadcrumbLabel="Players"
-          breadcrumbTo="/player"
+          showBreadcrumb={false}
+          relatedPlayerNavigation={draftRoomOrigin ? {
+            search: `?leagueId=${leagueId}`,
+            state: profileNavigationState,
+          } : undefined}
         />
       )}
     </Container>
