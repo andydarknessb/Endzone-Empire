@@ -380,7 +380,15 @@ test('indeterminate progress keeps animating under reduce, while a non-exempt an
   const spinner = page.locator('.MuiCircularProgress-indeterminate').first();
   await expect(spinner).toBeVisible();
   const spinnerMotion = await motion(spinner);
-  expect(spinnerMotion.animation, 'indeterminate spinner keeps animating under reduce').toBeGreaterThan(0);
+  expect(spinnerMotion.animation, 'indeterminate spinner keeps a non-zero duration under reduce').toBeGreaterThan(0);
+  // A non-zero duration alone does NOT prove the spinner is alive: the global
+  // rule also forces animation-iteration-count to 1, so an exemption that
+  // restored only the duration would let the spinner rotate exactly once and
+  // then stop - which reads as a hang and passes a duration-only check. Assert
+  // the loop itself survives, so this test fails for that specific way of being
+  // wrong.
+  const spinnerIterations = await spinner.evaluate((el) => getComputedStyle(el).animationIterationCount);
+  expect(spinnerIterations, 'indeterminate spinner keeps looping (not once-then-freeze) under reduce').toBe('infinite');
 
   // NARROW: a non-exempt animation in the same DOM under the same emulation is
   // instantaneous. The sound-toggle ripple enter animation, held down for a
