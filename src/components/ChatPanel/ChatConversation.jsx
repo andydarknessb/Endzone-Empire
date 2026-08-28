@@ -228,14 +228,26 @@ function ChatConversation({
 
   // A committed hide moves focus to the feed log (#445 AC4): defined here, after
   // scrollRef, and keyed on the nonce confirmHide bumps so it runs once the form
-  // has closed and the DOM has settled. The nonce starts at 0 and this effect
-  // no-ops on mount, so it never steals focus except right after a hide.
-  const committedHideFirstRunRef = useRef(true);
+  // has closed and the DOM has settled.
+  //
+  // The guard keys on the NONCE VALUE, not a first-run boolean (#528). A boolean
+  // consumed on the first invoke cannot tell "this is the mount" from "this is a
+  // re-invoke of the mount": under React.StrictMode, development double-invokes
+  // every mount effect, so a consumed-once boolean falls through on the second
+  // invoke and focuses the log on a PLAIN mount - stealing focus with no hide at
+  // all, and (until #528) masking the Draft room's layout-flip focus rescue,
+  // because focus then landed on the log with or without it. Re-arming such a
+  // boolean in this effect's cleanup would be worse: a [committedHideNonce]
+  // cleanup runs before EVERY re-execution, so it would re-arm on a real hide too
+  // and cancel the very focus move AC4 needs. A ref holding the last handled
+  // nonce is the shape that works both ways: it is unchanged across the
+  // double-invoke (so mount and any spurious re-invoke no-op) yet differs across
+  // a real hide (so focus fires exactly once per hide). Do not simplify this back
+  // to a first-run flag.
+  const lastHandledHideNonceRef = useRef(committedHideNonce);
   useLayoutEffect(() => {
-    if (committedHideFirstRunRef.current) {
-      committedHideFirstRunRef.current = false;
-      return;
-    }
+    if (lastHandledHideNonceRef.current === committedHideNonce) return;
+    lastHandledHideNonceRef.current = committedHideNonce;
     if (scrollRef.current) scrollRef.current.focus();
   }, [committedHideNonce]);
 

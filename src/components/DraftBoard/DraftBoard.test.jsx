@@ -2483,6 +2483,151 @@ describe('wide container three-pane layout (#444)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Layout-flip focus rescue (#525): crossing the pane threshold remounts the
+// whole region subtree, so a manager focused inside it lost focus to <body>.
+// These are the ONLY room tests that FLIP a single mount across the threshold;
+// every other room/composer test lives inside one arrangement and is
+// structurally blind to a focus-loss-on-remount defect.
+//
+// jsdom has no layout engine or ResizeObserver, so flip525* stubs a mutable
+// container width behind getBoundingClientRect and a controllable
+// ResizeObserver; flip525Resize(width) sets the width and fires the observer,
+// re-measuring useContainerWidth inside act() exactly as a real resize would.
+// Named distinctively (flip525*) so nothing added at module scope here can
+// collide with a concurrently-merged helper (the DraftBoard.test.jsx sharing
+// hazard: two same-named module consts merge clean, then fail the build).
+const flip525State = { width: 1200, observers: new Set() };
+const FLIP525_NARROW = 500; // < DRAFT_PANE_MIN_WIDTH (960) -> tabs
+const FLIP525_WIDE = 1200; //  >= 960 -> three panes
+const flip525InstallResizableContainer = () => {
+  let originalGetBoundingClientRect;
+  let originalResizeObserver;
+  beforeEach(() => {
+    flip525State.width = FLIP525_WIDE; // every flip test mounts WIDE first
+    flip525State.observers = new Set();
+    originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function flip525Rect() {
+      const w = flip525State.width;
+      return {
+        width: w, height: 0, top: 0, left: 0, right: w, bottom: 0, x: 0, y: 0, toJSON() {},
+      };
+    };
+    originalResizeObserver = global.ResizeObserver;
+    global.ResizeObserver = class Flip525ResizeObserver {
+      constructor(cb) { this.cb = cb; flip525State.observers.add(cb); }
+
+      observe() {}
+
+      disconnect() { flip525State.observers.delete(this.cb); }
+    };
+  });
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+    global.ResizeObserver = originalResizeObserver;
+  });
+};
+const flip525Resize = (width) => {
+  flip525State.width = width;
+  act(() => { flip525State.observers.forEach((cb) => cb()); });
+};
+
+describe('layout flip hands focus somewhere deliberate, never to the body (#525)', () => {
+  flip525InstallResizableContainer();
+
+  // Mount WIDE (three panes) and wait for the centre Chat pane to settle, as the
+  // wide-container suite does; the composer lives in that centre pane.
+  const showWideActiveDraftForFlip = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [TEAM_A, TEAM_B],
+      picks: [],
+      onTheClock: TEAM_A,
+    })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('the chat composer keeps focus across a panes -> tabs flip (AC1)', async () => {
+    await showWideActiveDraftForFlip();
+
+    const composer = screen.getByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Cross the threshold: the three panes collapse to the Chat tab, remounting
+    // the whole region subtree (and the composer as a fresh node).
+    flip525Resize(FLIP525_NARROW);
+
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByLabelText('Message')).toHaveFocus();
+  });
+
+  test('and the other way, tabs -> panes, in either direction (AC1)', async () => {
+    await showWideActiveDraftForFlip();
+
+    // Narrow first, focus the composer on its Chat tab...
+    flip525Resize(FLIP525_NARROW);
+    const composerNarrow = screen.getByLabelText('Message');
+    act(() => composerNarrow.focus());
+    expect(composerNarrow).toHaveFocus();
+
+    // ...then widen back to three panes.
+    flip525Resize(FLIP525_WIDE);
+
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByLabelText('Message')).toHaveFocus();
+  });
+
+  test('focus in the Players pool, Chat current, lands on the main content container after the flip (AC2)', async () => {
+    await showWideActiveDraftForFlip();
+
+    // Wide + Chat current: the Players pool is the left pane. Focus its filter,
+    // which carries no stable id, so it cannot be found again after the remount.
+    const filter = screen.getByLabelText('Filter available');
+    act(() => filter.focus());
+    expect(filter).toHaveFocus();
+
+    // Flip narrow: the room is on the Chat tab, so the Players pool unmounts.
+    flip525Resize(FLIP525_NARROW);
+
+    expect(screen.queryByLabelText('Filter available')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveFocus();
+    // The main content container is the room's single <main> (id
+    // draft-main-content), the skip-link target, reached here by its role.
+    expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  test('focus moved OUT of the region is not yanked back into it by a flip (AC3)', async () => {
+    await showWideActiveDraftForFlip();
+
+    // Set the tracker for real by focusing a control INSIDE the region first.
+    // (The earlier version of this test focused ONLY an outside control, so the
+    // tracker was never set and it passed against any heldEl-gated rescue -
+    // including one with no relatedTarget clearing at all - green for the wrong
+    // reason, and structurally unable to see whether a focus move OUT of the
+    // region clears the hold.)
+    const composer = screen.getByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Focus then moves OUT to a chrome control that belongs to no region wrapper
+    // and survives the flip (the on-the-clock sound toggle). That is a real focus
+    // move - a truthy relatedTarget - so it MUST clear the tracker...
+    const outside = screen.getByRole('button', { name: 'On-the-clock sound' });
+    act(() => outside.focus());
+    expect(outside).toHaveFocus();
+
+    // ...and the flip must then leave this focus entirely alone: no stale hold
+    // from the composer may yank focus back into the region.
+    flip525Resize(FLIP525_NARROW);
+
+    expect(outside).toHaveFocus();
+  });
+});
+
 describe('readiness live region on a wide container (issue #164)', () => {
   // No narrow stub, so the default zero-width jsdom measurement reads as wide:
   // the three panes are all mounted at once. On a wide container the rail is

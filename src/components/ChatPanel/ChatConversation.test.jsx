@@ -287,6 +287,26 @@ test('a committed hide returns focus to the feed log, not the document body (#44
   expect(screen.getByText('Message hidden by commissioner')).toBeInTheDocument();
 });
 
+test('under StrictMode the feed log is NOT focused on mount - only a real hide moves focus (#528)', () => {
+  // The committed-hide focus move (#445 AC4, above) must fire on a HIDE and never
+  // on mount. A first-run boolean guard cannot hold that under React.StrictMode:
+  // its development double-invoke of mount effects consumes the boolean on the
+  // first invoke and falls through on the second, focusing the log with no hide
+  // at all - which also masked the Draft-room layout-flip focus rescue (#525),
+  // since focus then landed on the log with or without it. Every other test in
+  // this suite renders WITHOUT StrictMode, which is exactly why a non-idempotent
+  // effect passed them; this one renders WITH it, so it goes red on the old
+  // first-run flag and green on the nonce-value guard.
+  renderWithProviders(
+    <React.StrictMode>
+      <ChatConversation messages={[message({ id: 55, teamName: 'Anvils' })]} onSend={noop} />
+    </React.StrictMode>
+  );
+  const log = screen.getByRole('log', { name: 'League Chat' });
+  expect(log).not.toHaveFocus();
+  expect(document.body).toHaveFocus();
+});
+
 test('a commissioner sees no Hide control on an already-hidden message', () => {
   renderWithProviders(
     <ChatConversation
