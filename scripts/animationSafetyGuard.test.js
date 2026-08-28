@@ -1,5 +1,11 @@
 'use strict';
 
+// This test builds JS and CSS SOURCE TEXT as fixture data. The `${ident}`
+// sequences inside ordinary strings are the Emotion keyframes interpolations
+// under test (e.g. `animation: `${flashIn} ...``), not mistaken template
+// literals, so no-template-curly-in-string is a false positive for this file.
+/* eslint-disable no-template-curly-in-string */
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
