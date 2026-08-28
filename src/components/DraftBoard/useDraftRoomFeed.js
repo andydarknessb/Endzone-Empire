@@ -4,6 +4,7 @@ import { onReconnect } from '../../api/socket';
 import { feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import { applyHiddenEntry, hidePost } from '../../lib/chatModeration';
+import { chatSendAckRevokesMembership, feedErrorRevokesMembership } from './draftMembership';
 
 /**
  * The Draft room's combined feed: League chat and Draft activity in one order
@@ -46,20 +47,43 @@ function mergeEntry(entries, incoming) {
   return next;
 }
 
-export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null }) {
+export default function useDraftRoomFeed({
+  socket, leagueId, viewerTeamId = null, onMembershipRevoked = null,
+}) {
   const [entries, setEntries] = useState([]);
   const [error, setError] = useState(null);
   const [hasMore, setHasMore] = useState(false);
 
   const entriesRef = useRef([]);
   const viewerTeamIdRef = useRef(viewerTeamId);
+  // The room owns the membership state; this hook only reports the two channels
+  // that can end it (#534 AC4). Held in a ref so the long-lived socket listeners
+  // and the memoised callbacks below call the current one without re-subscribing.
+  const onMembershipRevokedRef = useRef(onMembershipRevoked);
 
   useEffect(() => {
     viewerTeamIdRef.current = viewerTeamId;
   }, [viewerTeamId]);
   useEffect(() => {
+    onMembershipRevokedRef.current = onMembershipRevoked;
+  }, [onMembershipRevoked]);
+  useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
+
+  // One place every combined-feed read routes its failure through (#534). A 403
+  // from the member-only feed is authoritative: membership ended, so tell the
+  // room, which collapses chat to the non-member surface without a reload (AC4).
+  // Anything else - a drop, a 500, a timeout - is transient: PRESERVE membership
+  // and surface a neutral error so the reader knows the feed is momentarily
+  // unavailable (AC5). Matched on the status code, never on message text.
+  const handleFeedError = useCallback((err) => {
+    if (feedErrorRevokesMembership(err)) {
+      onMembershipRevokedRef.current?.();
+      return;
+    }
+    setError('League chat could not be loaded right now.');
+  }, []);
 
   const fetchHistory = useCallback(() => {
     Promise.resolve(apiClient.get(`/api/league/${leagueId}/draft-feed`))
@@ -68,8 +92,8 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
         setEntries(rows);
         setHasMore(rows.length >= FEED_PAGE);
       })
-      .catch(() => {});
-  }, [leagueId]);
+      .catch(handleFeedError);
+  }, [leagueId, handleFeedError]);
 
   // Page back through the combined feed by the oldest held `seq`, prepend deduped.
   const loadOlder = useCallback(() => {
@@ -86,8 +110,8 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
         });
         setHasMore(older.length >= FEED_PAGE);
       })
-      .catch(() => {});
-  }, [leagueId]);
+      .catch(handleFeedError);
+  }, [leagueId, handleFeedError]);
 
   const markRead = useCallback(() => {
     Promise.resolve(apiClient.post(`/api/league/${leagueId}/chat/read`)).catch(() => {});
@@ -166,7 +190,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
           // unread badge honest, the same as a live arrival.
           markRead();
         })
-        .catch(() => {});
+        .catch(handleFeedError);
     });
 
     return () => {
@@ -176,7 +200,7 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
       socket.off?.('draft:picked', onPicked);
       socket.off?.('draft:activity', onActivity);
     };
-  }, [socket, leagueId, fetchHistory, markRead]);
+  }, [socket, leagueId, fetchHistory, markRead, handleFeedError]);
 
   const sendMessage = useCallback(
     (raw, clientMsgId) => {
@@ -195,6 +219,16 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
         const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
         socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed, clientMsgId: key }, (ack) => {
           if (ack && ack.error) {
+            // AC4: the server re-validates the author's Team on every send, and a
+            // NOT_A_MEMBER refusal means a confirmed member was removed mid-draft.
+            // It is authoritative (matched on the code, never the text), so hand
+            // it to the room, which collapses chat to the non-member surface - no
+            // composer error to show, because the composer is going away.
+            if (chatSendAckRevokesMembership(ack)) {
+              onMembershipRevokedRef.current?.();
+              resolve(false);
+              return;
+            }
             // A rate-limited refusal carries an explicit retry time (#440 AC5);
             // surface it so the sender knows to wait. The text stays in the
             // composer (cleared only on success), so nothing is dropped.
@@ -244,6 +278,14 @@ export default function useDraftRoomFeed({ socket, leagueId, viewerTeamId = null
         const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
         socket.emit('chat:send', { leagueId: Number(leagueId), gif, clientMsgId: key }, (ack) => {
           if (ack && ack.error) {
+            // AC4, the same as sendMessage: a NOT_A_MEMBER refusal is the author
+            // being removed mid-draft, authoritative and matched on the code. Hand
+            // it to the room to collapse chat, ahead of any composer-error copy.
+            if (chatSendAckRevokesMembership(ack)) {
+              onMembershipRevokedRef.current?.();
+              resolve(false);
+              return;
+            }
             // An over-length caption is never shortened server-side, so the
             // sender's own numbers - not the ack's generic text - say how far
             // over they are. The composition stays put either way (resolve
