@@ -164,8 +164,11 @@ test('GET draft-feed?after=<seq> resumes newer than the cursor on both kinds (#4
   const captured = mockFeed(t);
   await request(app).get('/api/league/12/draft-feed?after=8').set('Authorization', authed());
   assert.ok(captured.params.includes(8), 'the resume cursor rode into the query params');
-  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$3/);
-  assert.match(captured.sql, /"draft_activity"\."feed_seq" > \$3/);
+  // #540 inserts the visible-kind allowlist as the stable $3 param, so the resume
+  // cursor is now $4 (was $3) - a deliberate param-number shift, not a change to
+  // the resume predicate itself.
+  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$4/);
+  assert.match(captured.sql, /"draft_activity"\."feed_seq" > \$4/);
 });
 
 test('GET draft-feed refuses a non-member', async (t) => {
