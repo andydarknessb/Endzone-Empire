@@ -1,0 +1,29 @@
+/*
+ * DELIBERATELY UNSAFE fixture for the #542 animation-safety guard.
+ *
+ * This file is NOT part of the app. It lives under tests/fixtures/ so no scan
+ * path reaches it - not the guard's own src/ scan, not lint (src/server/scripts
+ * only), not jest (src only). Its ONLY consumer is scripts/animationSafetyGuard
+ * .test.js, which points the scanner at it explicitly and asserts it IS flagged.
+ *
+ * Why it exists: the real tree has zero violations, so a passing guards run
+ * proves nothing permanent - a broken glob or a swallowed exception looks
+ * identical to a clean tree. This fixture is the standing proof that the check
+ * still fires tomorrow, after a refactor, in someone else's PR. If a change to
+ * the guard ever stops flagging this, the fixture test goes red.
+ *
+ * The defect shape: a forwards-filled animation whose final keyframe hides the
+ * element, with NO reduced-motion alternative for this surface.
+ */
+@keyframes fixture-vanish {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.fixture-callout {
+  animation: fixture-vanish 1800ms ease-in-out forwards;
+}
