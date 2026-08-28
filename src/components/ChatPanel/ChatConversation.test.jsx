@@ -1104,3 +1104,244 @@ describe('ChatConversation - GIF composition persistence (#524)', () => {
     jest.restoreAllMocks();
   });
 });
+
+// ---------------------------------------------------------------------------
+// #529: an in-place composer-draft scope change (a direct league-to-league
+// navigation whose target is already warm, so ChatConversation never unmounts)
+// must expose the incoming scope's stored composition on the SAME render that
+// remounts the keyed GifComposer. The persistence tests above all cross the
+// scope through an UNMOUNT/remount, where the hook seeds its state at mount and
+// there is no stale outgoing frame; these cross it IN PLACE, the one path where
+// an effect-lagged re-seed leaves the freshly-keyed composer initialised from
+// the outgoing scope. Cory reproduced the closed-panel defect against
+// origin/integration at 57ccbef9 on exactly this path.
+// ---------------------------------------------------------------------------
+describe('ChatConversation - in-place composer-draft scope change (#529)', () => {
+  // eslint-disable-next-line global-require
+  const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID, fakeGifResolver } = require('../../lib/gifProviderFake');
+
+  beforeEach(() => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: false, media: query, onchange: null,
+      addListener: jest.fn(), removeListener: jest.fn(),
+      addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => clearGifProviders());
+
+  // Seed a stored account-stamped record for a league, exactly as the hook
+  // would have written one in a prior turn of the session.
+  const seedRecord = (leagueId, record) =>
+    window.sessionStorage.setItem(`endzone:composerDraft:${leagueId}`, JSON.stringify(record));
+
+  // ChatConversation stays MOUNTED while leagueId/viewerUserId change under it:
+  // the warm-cache league-to-league navigation the fix is about. A single button
+  // performs the in-place switch from `from` to `to`.
+  function InPlaceScopeHarness({ from, to }) {
+    const [scope, setScope] = React.useState(from);
+    return (
+      <>
+        <button type="button" onClick={() => setScope(to)}>switch-scope</button>
+        <ChatConversation
+          messages={[]}
+          onSend={noop}
+          onSendGif={noop}
+          gifEnabled
+          leagueId={scope.leagueId}
+          viewerUserId={scope.userId}
+        />
+      </>
+    );
+  }
+
+  test('switching in place to a league holding a non-empty GIF composition opens the panel on that composition (AC1, load-bearing)', async () => {
+    // Cory's repro: begin in an empty league, switch in place to a league whose
+    // account-stamped record already holds a GIF asset and description. Because
+    // the composer is keyed on league+account it remounts on the switch, and it
+    // computes its open state once from the composition it mounts with. Unless
+    // the hook exposes the incoming scope's composition on the same render that
+    // changes that key, the composer mounts against the outgoing empty frame,
+    // initialises CLOSED, and then sits closed over the fields the lagging
+    // re-seed restores a tick later - the aria-expanded=false defect.
+    seedRecord(5, {
+      acct: 7,
+      text: 'incoming league note',
+      gif: { assetId: 'incoming-1', description: 'a dog on a skateboard', caption: 'friday' },
+    });
+
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 9, userId: 7 }} to={{ leagueId: 5, userId: 7 }} />
+    );
+
+    // The empty starting scope shows a closed panel.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // The incoming composition is open and visible with no click needed.
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('incoming-1');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a dog on a skateboard');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('friday');
+    // The incoming league's text draft is exposed on the same render.
+    expect(screen.getByLabelText('Message')).toHaveValue('incoming league note');
+  });
+
+  test('the same in-place switch survives React.StrictMode, so the guard cannot be a ref (AC2, StrictMode)', async () => {
+    // The app runs under React.StrictMode (src/index.js), whose development
+    // double-invoke re-runs the whole render pass. A render-phase state update
+    // from the first pass does not survive into the second (React discards the
+    // render-phase queue), so the re-seed must be re-derived by the second pass
+    // or it never commits. That only holds when the "previous scope" guard is
+    // STATE: the second pass re-clones it from the committed hook (the old scope)
+    // and the guard fires again, self-healing. A ref survives the double-invoke
+    // by reference, so a ref guard reads "already seeded", skips the re-seed, and
+    // commits the outgoing scope - reintroducing the exact defect. Every other
+    // test in this block renders WITHOUT StrictMode (renderWithProviders wraps
+    // only Provider/Router/Routes), so they are blind to a ref-vs-state guard;
+    // this one renders WITH it and is the test that tells them apart.
+    seedRecord(5, {
+      acct: 7,
+      text: 'incoming league note',
+      gif: { assetId: 'incoming-1', description: 'a dog on a skateboard', caption: 'friday' },
+    });
+
+    renderWithProviders(
+      <React.StrictMode>
+        <InPlaceScopeHarness from={{ leagueId: 9, userId: 7 }} to={{ leagueId: 5, userId: 7 }} />
+      </React.StrictMode>
+    );
+
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('incoming-1');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a dog on a skateboard');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('friday');
+    expect(screen.getByLabelText('Message')).toHaveValue('incoming league note');
+  });
+
+  test('switching in place from a loaded scope to an empty one closes the panel and carries no outgoing text or GIF across (AC3, empty-closes + no crossing)', async () => {
+    seedRecord(5, {
+      acct: 7,
+      text: 'outgoing note',
+      gif: { assetId: 'outgoing-1', description: 'a cat knocking a cup', caption: 'mine' },
+    });
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 9, userId: 7 }} />
+    );
+
+    // The loaded scope opens with its composition.
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('outgoing-1');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // Symmetric fix: an incoming empty scope initialises the panel CLOSED rather
+    // than sitting open over cleared fields.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+    // No outgoing TEXT crosses the boundary.
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    // No outgoing GIF content crosses: the fresh panel opens on empty fields.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+    expect(screen.queryByDisplayValue('outgoing-1')).not.toBeInTheDocument();
+  });
+
+  test('switching accounts in place exposes no prior account text or GIF composition (AC4, account boundary)', async () => {
+    // Account 7 has a stored draft for league 5; account 8 has none. This path
+    // cannot occur in production (ProtectedRoute unmounts the subtree when the
+    // account clears), but the boundary must hold at the component contract: no
+    // account 7 text or GIF may leak to account 8 across an in-place change.
+    seedRecord(5, {
+      acct: 7,
+      text: 'account seven secret',
+      gif: { assetId: 'acct7-asset', description: 'a private clip', caption: '' },
+    });
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 5, userId: 8 }} />
+    );
+
+    // Account 7 sees its own composition.
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('acct7-asset');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // Account 8 inherits nothing: closed panel, empty message, empty fields.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+    expect(screen.queryByDisplayValue('account seven secret')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('acct7-asset')).not.toBeInTheDocument();
+  });
+
+  test('switching in place to a logged-out (null) identity exposes no prior account text or GIF composition (AC4, logged-out arm)', async () => {
+    // AC4 names accounts OR a logged-out identity. Same in-place path, userId
+    // going null: the stored league-5 record is stamped for account 7, so a
+    // null-account scope reads nothing back and inherits neither text nor GIF.
+    seedRecord(5, {
+      acct: 7,
+      text: 'account seven secret',
+      gif: { assetId: 'acct7-asset', description: 'a private clip', caption: '' },
+    });
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 5, userId: null }} />
+    );
+
+    // Account 7 sees its own composition.
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('acct7-asset');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // The logged-out identity inherits nothing: closed panel, empty message, empty fields.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+    expect(screen.queryByDisplayValue('account seven secret')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('acct7-asset')).not.toBeInTheDocument();
+  });
+
+  test('a touched-empty Description does not carry its error across an in-place switch, and the incoming empty Description still errors on touch (AC5, touched flag boundary)', async () => {
+    // The touched/validation flag is local UI state, not hook-owned; it already
+    // caused a spurious-error defect in this component family, so it must not
+    // ride a scope change. Nor may fixing the timing break validation in the new
+    // scope: touching the incoming empty Description must still error normally.
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 9, userId: 7 }} />
+    );
+
+    // Touch an empty Description in the outgoing scope so its error is on screen.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.click(screen.getByLabelText(/description/i));
+    await userEvent.tab();
+    expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+
+    // Switch scope in place: the touched flag does not cross, and the incoming
+    // empty scope initialises closed, so no stale error shows.
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+    expect(screen.queryByText(/description is required/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+
+    // Validation is not merely silenced: opening the fresh panel and touching its
+    // empty Description surfaces the required-description error normally.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.click(screen.getByLabelText(/description/i));
+    await userEvent.tab();
+    expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+  });
+});

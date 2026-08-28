@@ -127,19 +127,47 @@ export default function useComposerDraft({ leagueId = null, userId = null } = {}
   textRef.current = text;
   gifRef.current = gif;
 
-  // Re-seed both composers whenever the league or the account changes: restore
-  // this account's draft for the new league, or empty it. An account change
-  // (including a logout, userId null) that leaves a mismatched stamp behind also
-  // drops that stale record so the next account cannot inherit it.
-  const seededRef = useRef(`${leagueId}:${userId}`);
-  useEffect(() => {
+  // Re-seed both composers DURING RENDER whenever the league or the account
+  // changes: restore this account's draft for the new league, or empty it. The
+  // text and gif exposed for a scope must belong to that scope on the very render
+  // that changes it, because the GifComposer is keyed on this same identity and
+  // therefore REMOUNTS on the change, computing its initial disclosure once from
+  // the composition it mounts with. Re-seeding in an effect instead runs a render
+  // too late: the freshly keyed composer would mount against the outgoing scope's
+  // stale frame, initialise closed, and then sit closed over the fields the
+  // lagging re-seed restores a tick later (#529, the aria-expanded=false defect).
+  //
+  // This is React's documented "adjust state when a prop changes" pattern, and
+  // the previous-scope guard MUST be state, not a ref. The app runs under
+  // React.StrictMode (src/index.js), whose development double-invoke re-runs the
+  // whole render pass; a render-phase update from the first pass does not survive
+  // into the second (React discards the render-phase queue), so the SECOND pass
+  // is the one that commits and must re-derive the re-seed. A useState guard does:
+  // the second pass re-clones it from the committed hook (the outgoing scope), so
+  // `seededScope !== scopeKey` is true again and the block fires again, and the
+  // pass self-heals. A useRef guard would NOT: refs are copied by reference and
+  // survive the double-invoke, so the second pass reads "already seeded", skips
+  // the re-seed, and commits the outgoing scope - reintroducing the very defect
+  // (and leaking the outgoing league's next keystroke under the incoming key).
+  const scopeKey = `${leagueId}:${userId}`;
+  const [seededScope, setSeededScope] = useState(scopeKey);
+  if (seededScope !== scopeKey) {
+    setSeededScope(scopeKey);
     const restored = readRecord(leagueId, userId);
     setTextState(restored.text);
     setGifState(restored.gif);
-    textRef.current = restored.text;
-    gifRef.current = restored.gif;
+  }
+
+  // Dropping a mismatched stamp left in storage (a switched account, a logout
+  // with userId null) is a storage side effect, not part of what this render
+  // exposes to children, so it stays in an effect: what moved to render is WHEN
+  // the correct value is exposed, not WHEN anything is stored or cleared. This
+  // runs on mount and on every scope change, exactly as the combined re-seed did
+  // before; readRecord returns empty for a mismatched or absent record, and only
+  // then is the stale key removed so the next account cannot inherit it.
+  useEffect(() => {
+    const restored = readRecord(leagueId, userId);
     if (!restored.text && gifIsEmpty(restored.gif)) removeRecord(leagueId);
-    seededRef.current = `${leagueId}:${userId}`;
   }, [leagueId, userId]);
 
   // Every text edit persists (or clears when both parts empty) for this league
