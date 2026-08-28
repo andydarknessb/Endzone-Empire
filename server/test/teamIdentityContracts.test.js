@@ -300,7 +300,7 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
-    [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
+    [insert('draft_picks'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
     // The Pick's Draft activity, appended in the same transaction (#435).
     [insert('draft_activity'), () => ({ rows: [{ id: 3, feed_seq: '2', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
@@ -327,11 +327,13 @@ test('league:join and draft:join both acknowledge the viewer with their own Team
     ok: true,
     viewerTeamId: VIEWER.teamId,
     isCommissioner: false,
+    gifMessagesEnabled: false,
   });
   assert.deepEqual(joinAck({ viewerTeam: null, isCommissioner: false }), {
     ok: true,
     viewerTeamId: null,
     isCommissioner: false,
+    gifMessagesEnabled: false,
   });
 });
 
@@ -474,8 +476,13 @@ test('chat:message attributes the message by Team and nothing about the author a
       teamId: OTHER.teamId,
       teamName: OTHER.teamName,
       message: 'good luck everyone',
+      // #446: a text message carries no media; the key rides on every entry so
+      // a GIF message can carry its structured asset under it.
+      media: null,
       // #441: a live send is never hidden; the flag rides on every entry.
       hidden: false,
+      // #436: a live send is never legacy; the flag rides on every entry.
+      isLegacy: false,
       created_at: '2026-09-01T00:00:00.000Z',
     }
   );

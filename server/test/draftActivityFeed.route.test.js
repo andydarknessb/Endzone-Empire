@@ -117,9 +117,13 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     teamId: 12,
     teamName: 'Sunday Scaries',
     message: 'good luck everyone',
+    // #446: chat feed entries carry `media` everywhere, the combined feed
+    // included; a text message carries null.
+    media: null,
     // #441: chat feed entries carry `hidden` everywhere, the combined feed
     // included; a normal message is not hidden.
     hidden: false,
+    isLegacy: false,
     created_at: '2026-09-01T00:00:00.000Z',
   });
   assert.deepEqual(res.body[1], {
@@ -133,6 +137,7 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     round: 1,
     pickNumber: 1,
     isAutopick: false,
+    isLegacy: false,
     created_at: '2026-09-01T00:01:00.000Z',
   });
   // The lifecycle entry shapes to the base entry: Team identity and the instant,
@@ -144,6 +149,7 @@ test('GET draft-feed interleaves chat and Pick activity, oldest-first, as typed 
     seq: 9,
     teamId: 11,
     teamName: 'Gridiron Ghosts',
+    isLegacy: false,
     created_at: '2026-09-01T00:02:00.000Z',
   });
 });
@@ -158,8 +164,11 @@ test('GET draft-feed?after=<seq> resumes newer than the cursor on both kinds (#4
   const captured = mockFeed(t);
   await request(app).get('/api/league/12/draft-feed?after=8').set('Authorization', authed());
   assert.ok(captured.params.includes(8), 'the resume cursor rode into the query params');
-  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$3/);
-  assert.match(captured.sql, /"draft_activity"\."feed_seq" > \$3/);
+  // #540 inserts the visible-kind allowlist as the stable $3 param, so the resume
+  // cursor is now $4 (was $3) - a deliberate param-number shift, not a change to
+  // the resume predicate itself.
+  assert.match(captured.sql, /"chat_messages"\."feed_seq" > \$4/);
+  assert.match(captured.sql, /"draft_activity"\."feed_seq" > \$4/);
 });
 
 test('GET draft-feed refuses a non-member', async (t) => {

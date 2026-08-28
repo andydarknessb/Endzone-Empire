@@ -11,8 +11,9 @@ const {
   listLeagueChatFeed,
   combinedEntryOf,
   listCombinedDraftFeed,
+  listPresenterDraftActivity,
 } = require('../services/leagueFeed');
-const { DRAFT_ACTIVITY } = require('../services/draftActivity');
+const { DRAFT_ACTIVITY, USER_VISIBLE_KINDS } = require('../services/draftActivity');
 
 // A chat_messages row as the feed SELECT projects it: the Team identity join
 // has already aliased owner -> teamId/teamName, and feed_seq is the row's
@@ -30,10 +31,12 @@ const row = (over = {}) => ({
 test('feedEntryOf is a typed League-chat entry attributed by Team alone', () => {
   const entry = feedEntryOf(row());
   assert.deepEqual(Object.keys(entry).sort(), [
-    'created_at', 'hidden', 'id', 'message', 'seq', 'teamId', 'teamName', 'type',
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
   ]);
   assert.equal(entry.type, LEAGUE_CHAT);
   assert.equal(entry.type, 'league_chat');
+  // A plain text message carries no media (AC1: media is the GIF shape).
+  assert.equal(entry.media, null);
   assert.equal(entry.seq, 7);
   assert.equal(typeof entry.seq, 'number');
   assert.equal(entry.id, 5);
@@ -66,7 +69,62 @@ test('feedEntryOf tombstones a hidden message: neutral, no content, no moderator
   assert.equal('hidden_by' in entry, false);
   assert.equal('hidden_at' in entry, false);
   assert.deepEqual(Object.keys(entry).sort(), [
-    'created_at', 'hidden', 'id', 'message', 'seq', 'teamId', 'teamName', 'type',
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
+  ]);
+});
+
+// A chat_messages row for a GIF message, as the feed SELECT projects it: the
+// content_kind discriminator plus the three gif_* columns the migration added.
+const gifRow = (over = {}) => ({
+  id: 8,
+  message: 'this is me at 3pm', // the OPTIONAL caption (AC1)
+  created_at: '2026-09-01T02:00:00.000Z',
+  feed_seq: 9,
+  teamId: 12,
+  teamName: 'Sunday Scaries',
+  content_kind: 'gif',
+  gif_provider: 'fake',
+  gif_asset_id: 'abc123',
+  gif_description: 'a cat knocking a cup off a table',
+  ...over,
+});
+
+test('feedEntryOf shapes a GIF message with one provider asset, caption and description (AC1)', () => {
+  const entry = feedEntryOf(gifRow());
+  assert.equal(entry.type, LEAGUE_CHAT);
+  assert.equal(entry.hidden, false);
+  // The caption rides on `message`, the same key text uses, so one wire shape
+  // carries both kinds.
+  assert.equal(entry.message, 'this is me at 3pm');
+  assert.deepEqual(entry.media, {
+    provider: 'fake',
+    assetId: 'abc123',
+    description: 'a cat knocking a cup off a table',
+  });
+  assert.deepEqual(Object.keys(entry).sort(), [
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
+  ]);
+});
+
+test('feedEntryOf: a GIF with no caption carries message:null and still carries its media (AC1)', () => {
+  const entry = feedEntryOf(gifRow({ message: null }));
+  assert.equal(entry.message, null);
+  assert.equal(entry.media.description, 'a cat knocking a cup off a table');
+});
+
+test('feedEntryOf tombstones a hidden GIF: caption AND media both suppressed (AC3, moderation decision)', () => {
+  // The commissioner-hidden GIF reads back as the SAME neutral tombstone as a
+  // hidden text message: the asset, the caption and the description are all
+  // author-authored content and are all suppressed on the member feed. The
+  // authorized-reviewer history (safety.router) is the only place the original
+  // content survives.
+  const entry = feedEntryOf(gifRow({ hidden_at: '2026-09-01T03:00:00.000Z', hidden_reason: 'slur in alt text' }));
+  assert.equal(entry.hidden, true);
+  assert.equal(entry.message, null);
+  assert.equal(entry.media, null);
+  // Indistinguishable from a hidden text tombstone: same keys, same null content.
+  assert.deepEqual(Object.keys(entry).sort(), [
+    'created_at', 'hidden', 'id', 'isLegacy', 'media', 'message', 'seq', 'teamId', 'teamName', 'type',
   ]);
 });
 
@@ -204,6 +262,124 @@ test('listCombinedDraftFeed projects hidden_at in the CHAT arm only, and blocks 
   assert.match(activityArm, /NULL::timestamptz AS hidden_at/, 'the activity arm hidden_at is the aligned NULL');
 });
 
+// #447 AC5, the combined-feed half of an old client's cursorless read. The Draft
+// room reads the COMBINED feed (useDraftRoomFeed.fetchHistory -> GET /draft-feed
+// -> listCombinedDraftFeed), so a pre-cursor client that pages without a cursor
+// must get the latest page with NO cursor predicate on either arm. This mirrors
+// the chat-feed proof above (listLeagueChatFeed ... no cursor) for the combined
+// feed, and it is falsifiable: the same function DOES emit `"..."."feed_seq" > $`
+// when given an `after` cursor (the resume test below), so a cursorless read that
+// wrongly added a predicate would turn this red.
+test('listCombinedDraftFeed reads the latest page with no cursor predicate on either arm (#447 AC5)', async () => {
+  let seenSql = null;
+  let seenParams = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text, params) => { seenSql = text; seenParams = params; return { rows: [] }; }],
+  ]);
+
+  await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9 });
+
+  // No older-page predicate and no resume predicate: this is the latest window.
+  assert.doesNotMatch(seenSql, /"feed_seq" < \$/, 'no older-page cursor predicate on a cursorless read');
+  assert.doesNotMatch(seenSql, /"feed_seq" > \$/, 'no resume cursor predicate on a cursorless read');
+  // Exactly the no-cursor params. #540 adds the user-visible kind allowlist as a
+  // stable $3 bound param (the activity arm filters the internal CUTOVER boundary
+  // out before pagination); the shape is now league, viewer, allowlist, page size
+  // - still NO cursor value. This is the DELIBERATE update to the #447 pin: the
+  // only change is the inserted $3 allowlist, and the "no cursor predicate on a
+  // cursorless read" invariant it guards is unchanged.
+  assert.deepEqual(seenParams, [12, 9, USER_VISIBLE_KINDS, FEED_PAGE_SIZE]);
+});
+
+// #540 AC4. The internal CUTOVER boundary must be excluded from the member feed
+// BEFORE pagination, so an internal row can never consume a visible page slot.
+// Proven here at the SQL level: the activity arm restricts kind to the positive
+// USER_VISIBLE_KINDS allowlist INSIDE its own WHERE, ahead of its ORDER BY and
+// LIMIT. Falsifiable by construction - move the filter to the outer merge (after
+// the per-arm LIMIT) or drop it and these ordering assertions go red. The
+// behavioral proof that a full visible page still returns with a cutover row
+// seeded inside the first-page window lives in draftActivity.pg.test.js, where a
+// real Postgres actually executes the WHERE and LIMIT.
+test('listCombinedDraftFeed filters the activity arm to visible kinds BEFORE pagination (#540 AC4)', async () => {
+  let seenSql = null;
+  let seenParams = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text, params) => { seenSql = text; seenParams = params; return { rows: [] }; }],
+  ]);
+
+  await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9 });
+
+  // The allowlist is the positive user-visible set, bound as $3, and it EXCLUDES
+  // the internal cutover boundary.
+  assert.deepEqual(seenParams[2], USER_VISIBLE_KINDS, 'the visible-kind allowlist rides as $3');
+  assert.ok(!USER_VISIBLE_KINDS.includes('cutover'), 'the cutover boundary is not a visible kind');
+
+  // Everything from UNION ALL onward is the activity arm.
+  const activityArm = seenSql.slice(seenSql.indexOf('UNION ALL'));
+  const kindIdx = activityArm.search(/"draft_activity"\."kind" = ANY\(\$3\)/);
+  const orderIdx = activityArm.search(/ORDER BY "draft_activity"\."feed_seq"/);
+  const limitIdx = activityArm.search(/LIMIT \$/);
+  assert.ok(kindIdx > -1, 'the activity arm restricts kind to the visible allowlist');
+  assert.ok(orderIdx > kindIdx, 'the kind filter precedes the arm ORDER BY');
+  assert.ok(limitIdx > kindIdx, 'the kind filter precedes the arm LIMIT - filtered before pagination');
+});
+
+// #540 AC1 / AC3, the privacy asymmetry proven as a PAIR in one run. The member
+// combined feed MUST carry a correction's recorded reason; the anonymous
+// presenter feed MUST NOT, and the presenter negative is proven AT THE SOURCE
+// (the SQL omits the column, the entry has no reason key), not merely in a DOM.
+// The member positive control is what gives the presenter negative meaning: it
+// rules out "no reason in the presenter payload" being an artifact of a fixture
+// that never had a reason, or of the correction being absent entirely.
+test('a member sees the correction reason; a presenter payload carries none (#540 AC1/AC3)', async () => {
+  const REASON = 'entered against the wrong team; correcting before we resume';
+  const correctionRow = (over = {}) => ({
+    source: DRAFT_ACTIVITY,
+    kind: 'correction',
+    id: 30,
+    feed_seq: '18',
+    teamId: 11,
+    teamName: 'Gridiron Ghosts',
+    player_id: 500,
+    player_name: 'Wrong Guy',
+    player_position: 'RB',
+    player_nfl_team: 'KC',
+    round: 2,
+    pick_number: 13,
+    is_autopick: null,
+    reason: REASON,
+    is_legacy: false,
+    created_at: '2026-09-01T00:00:00.000Z',
+    ...over,
+  });
+
+  // MEMBER (positive control): the reason reaches the member payload, and the
+  // member SQL actually projects the reason column.
+  let memberSql = null;
+  const memberPool = createFakePool([
+    [/FROM "chat_messages"/, (text) => { memberSql = text; return { rows: [correctionRow()] }; }],
+  ]);
+  const [memberEntry] = await listCombinedDraftFeed(memberPool, { leagueId: 12, viewerId: 9 });
+  assert.equal(memberEntry.kind, 'correction');
+  assert.equal(memberEntry.reason, REASON, 'the member correction carries the recorded reason');
+  assert.match(memberSql, /"draft_activity"\."reason" AS reason/, 'the member activity arm projects reason');
+
+  // PRESENTER (the negative, at the source): the reader queries draft_activity
+  // WITHOUT the reason column, so no free-text can ride the payload, and the
+  // shaped entry has no reason key at all - not even a null placeholder.
+  let presenterSql = null;
+  const presenterPool = createFakePool([
+    [/FROM "draft_activity"/, (text) => { presenterSql = text; return { rows: [correctionRow()] }; }],
+  ]);
+  const [presenterEntry] = await listPresenterDraftActivity(presenterPool, { leagueId: 12 });
+  assert.equal(presenterEntry.kind, 'correction', 'the correction IS present on the presenter payload');
+  assert.ok(!/reason/i.test(presenterSql), 'the presenter SELECT omits the reason column entirely');
+  assert.ok(!('reason' in presenterEntry), 'the presenter payload carries no reason field');
+  // The corrected Pick facts a presenter MAY see are still there (#540 AC3).
+  assert.deepEqual(presenterEntry.player, { id: 500, name: 'Wrong Guy', position: 'RB', nflTeam: 'KC' });
+  assert.equal(presenterEntry.pickNumber, 13);
+});
+
 test('listLeagueChatFeed pages older than a cursor with feed_seq < before', async () => {
   let seenSql = null;
   let seenParams = null;
@@ -303,10 +479,12 @@ test('listCombinedDraftFeed resumes AFTER a cursor on both kinds with feed_seq >
 
   await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9, after: 7 });
 
-  // Both arms of the union advance past the cursor...
-  assert.match(seenSql, /"chat_messages"\."feed_seq" > \$3/);
-  assert.match(seenSql, /"draft_activity"\."feed_seq" > \$3/);
+  // Both arms of the union advance past the cursor. #540 inserts the visible-kind
+  // allowlist as the stable $3 param, so the cursor is now $4 (was $3) - a
+  // DELIBERATE param-number shift, not a change to the resume predicate itself.
+  assert.match(seenSql, /"chat_messages"\."feed_seq" > \$4/);
+  assert.match(seenSql, /"draft_activity"\."feed_seq" > \$4/);
   // ...and the resume read is ascending, not the newest-first-then-flip window.
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
-  assert.deepEqual(seenParams, [12, 9, 7, 100]);
+  assert.deepEqual(seenParams, [12, 9, USER_VISIBLE_KINDS, 7, 100]);
 });

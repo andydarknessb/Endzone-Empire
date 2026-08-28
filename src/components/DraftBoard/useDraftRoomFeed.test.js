@@ -223,3 +223,344 @@ test('sends chat over the handed-in session', async () => {
     expect.any(Function)
   );
 });
+
+// --------------------------------------------------------------------------
+// #516: the Draft room composes a GIF, mirroring useLeagueChat.sendGif exactly
+// (payload / idempotency key / acknowledgement / reconciliation). The send goes
+// over the SAME chat:send the text path uses; only the payload differs (a `gif`
+// object instead of `message`). The whole thing runs against the deterministic
+// fake provider with no network surface (AC7: proven absence of any provider
+// network request).
+// --------------------------------------------------------------------------
+
+const gifPayload = (over = {}) => ({
+  provider: 'fake', assetId: 'abc123', description: 'a cat knocking a cup off a table', caption: null, ...over,
+});
+// The entry the server persists and rides back on the ack, and re-broadcasts to
+// the whole room (the sender included). A GIF entry carries structured `media`;
+// its shared `seq` is the identity feedEntryKey dedups on.
+const gifEntry = (over = {}) => chatEntry({
+  media: { provider: 'fake', assetId: 'abc123', description: 'a cat knocking a cup off a table' },
+  message: null, ...over,
+});
+
+test('sends a GIF over the same chat:send session, with the gif payload and an idempotency key', async () => {
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true, entry: gifEntry({ id: 40, seq: 40 }) });
+  });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 7, viewerTeamId: 11 }));
+
+  let ok;
+  await act(async () => { ok = await result.current.sendGif(gifPayload()); });
+  expect(ok).toBe(true);
+  // Same contract as useLeagueChat.sendGif: leagueId + a structured gif object
+  // (never a URL or upload) + the #440 idempotency key, on chat:send.
+  expect(socket.emit).toHaveBeenCalledWith(
+    'chat:send',
+    expect.objectContaining({ leagueId: 7, gif: gifPayload(), clientMsgId: expect.any(String) }),
+    expect.any(Function)
+  );
+  // The send never carries a text `message`: the caption rides inside the gif.
+  const [, sent] = socket.emit.mock.calls.find(([e]) => e === 'chat:send');
+  expect(sent).not.toHaveProperty('message');
+});
+
+test('a rejected GIF (no provider or no assetId) never touches the socket', async () => {
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 7, viewerTeamId: 11 }));
+
+  let a; let b;
+  await act(async () => { a = await result.current.sendGif({ assetId: 'x', description: 'd' }); });
+  await act(async () => { b = await result.current.sendGif(gifPayload({ assetId: '' })); });
+  expect(a).toBe(false);
+  expect(b).toBe(false);
+  expect(socket.emit).not.toHaveBeenCalledWith('chat:send', expect.anything(), expect.anything());
+});
+
+test('a successful GIF ack reconciles the returned entry WITHOUT DUPLICATING its broadcast echo', async () => {
+  // The specific risk (#516): the server echoes every send to the whole room,
+  // the sender included. The ack reconciles the entry AND the echo arrives on
+  // chat:message; both share the entry's seq, so feedEntryKey dedups them and
+  // the sender sees exactly ONE GIF - never two. Prove the COUNT is one; a
+  // presence check cannot tell one message from two.
+  const entry = gifEntry({ id: 41, seq: 41 });
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true, entry });
+  });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 7, viewerTeamId: 11 }));
+  await waitFor(() => expect(socket.hasHandler('chat:message')).toBe(true));
+
+  await act(async () => { await result.current.sendGif(gifPayload()); });
+  // The ack reconciled the entry.
+  expect(result.current.entries.filter((e) => e.media)).toHaveLength(1);
+
+  // The server now broadcasts that same entry back to the whole room; the sender
+  // receives its own echo with the same seq.
+  act(() => socket.trigger('chat:message', entry));
+
+  // Still exactly one: the echo was deduped, not appended a second time.
+  expect(result.current.entries.filter((e) => e.media)).toHaveLength(1);
+  expect(result.current.entries).toHaveLength(1);
+});
+
+test('a GIF echo that arrives BEFORE its ack is still not doubled by the ack reconcile', async () => {
+  // Order independence: on a fast room the chat:message echo can land before the
+  // ack callback runs. The ack reconcile must still not double it.
+  const entry = gifEntry({ id: 42, seq: 42 });
+  let ackFn;
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ackFn = ack; // hold the ack, fire it after the echo
+  });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 7, viewerTeamId: 11 }));
+  await waitFor(() => expect(socket.hasHandler('chat:message')).toBe(true));
+
+  let pending;
+  await act(async () => { pending = result.current.sendGif(gifPayload()); });
+  // Echo first...
+  act(() => socket.trigger('chat:message', entry));
+  expect(result.current.entries.filter((e) => e.media)).toHaveLength(1);
+  // ...then the ack lands.
+  await act(async () => { ackFn({ ok: true, entry }); await pending; });
+
+  expect(result.current.entries.filter((e) => e.media)).toHaveLength(1);
+});
+
+// Each named refusal surfaces through the ONE existing composer error channel
+// (result.current.error) and, critically, preserves the unsent composition -
+// sendGif never clears anything, so the composer keeps the description and
+// caption the manager typed (the GifComposer only resets on a truthy return).
+// Each case resolves FALSE, which is what keeps the composer open (#516).
+const refusalCases = [
+  ['MESSAGE_TOO_LONG', { code: 'MESSAGE_TOO_LONG', length: 320, limit: 300, error: 'too long' }, /320 characters/],
+  ['MESSAGE_TOO_LONG without numbers falls back to the ack text', { code: 'MESSAGE_TOO_LONG', error: 'caption too long' }, /caption too long/],
+  ['DESCRIPTION_REQUIRED', { code: 'DESCRIPTION_REQUIRED', error: 'needs a description' }, /accessible description/],
+  ['MEDIA_NOT_ALLOWED', { code: 'MEDIA_NOT_ALLOWED', error: 'not allowed' }, /only a provider GIF is allowed/],
+  ['GIF_PROVIDER_DISABLED', { code: 'GIF_PROVIDER_DISABLED', error: 'disabled' }, /not available right now/],
+  ['RATE_LIMITED with a retry time', { code: 'RATE_LIMITED', error: 'slow down', retryAfterSeconds: 12 }, /slow down\. Try again in 12s\./],
+  ['a bare refusal with no code surfaces its text', { error: 'nope' }, /nope/],
+];
+
+describe.each(refusalCases)('a %s refusal', (_name, ackBody, expectedError) => {
+  test('resolves false, surfaces the error, and leaves the composition to the caller', async () => {
+    socket.emit.mockImplementation((event, payload, ack) => {
+      if (event === 'chat:send' && ack) ack(ackBody);
+    });
+    const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 7, viewerTeamId: 11 }));
+
+    let ok;
+    await act(async () => { ok = await result.current.sendGif(gifPayload()); });
+
+    // False is what keeps the composer open with the description/caption intact.
+    expect(ok).toBe(false);
+    await waitFor(() => expect(result.current.error).toMatch(expectedError));
+    // A refusal never appends anything to the feed.
+    expect(result.current.entries).toHaveLength(0);
+  });
+});
+
+test('a duplicate GIF ack (retry the server already stored) reconciles once, no double', async () => {
+  // A retry under the same key acks with the original entry; merge it so a client
+  // that missed the first broadcast still shows it, deduped like any entry.
+  const entry = gifEntry({ id: 43, seq: 43 });
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true, entry });
+  });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 7, viewerTeamId: 11 }));
+
+  await act(async () => { await result.current.sendGif(gifPayload()); });
+  await act(async () => { await result.current.sendGif(gifPayload()); });
+
+  expect(result.current.entries.filter((e) => e.media)).toHaveLength(1);
+});
+
+test('sendGif issues no provider network request - the send is the only wire traffic (AC7)', async () => {
+  // The whole path runs against the fake provider and a socket the test owns;
+  // there is no fetch/provider client anywhere in it. Prove it by the absence of
+  // any REST call on send: apiClient.get is history/reconnect only, apiClient.post
+  // is read-marker only, and neither is a provider request.
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ ok: true, entry: gifEntry({ id: 44, seq: 44 }) });
+  });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 7, viewerTeamId: 11 }));
+  apiClient.get.mockClear();
+
+  await act(async () => { await result.current.sendGif(gifPayload()); });
+
+  // The send rode the socket alone; it made no outbound HTTP request at all.
+  expect(apiClient.get).not.toHaveBeenCalled();
+  expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringMatching(/gif|giphy|tenor|provider/i), expect.anything());
+});
+
+// --------------------------------------------------------------------------
+// #482: the Draft room live-tombstones a hidden message and can hide from here
+// --------------------------------------------------------------------------
+
+test('a chat:hidden broadcast tombstones the held chat entry in place, leaving Picks untouched', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatEntry({ id: 7, seq: 9, message: 'you are worthless' }), pickEntry({ id: 3, seq: 10 })] });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toHaveLength(2));
+  expect(socket.hasHandler('chat:hidden')).toBe(true);
+
+  act(() => socket.trigger('chat:hidden', { id: 7, type: 'league_chat', seq: 9, hidden: true, message: null, teamId: 11, teamName: 'Anvils' }));
+
+  // Same count, same seq order: the chat entry is tombstoned in place.
+  expect(result.current.entries).toHaveLength(2);
+  expect(result.current.entries.map((e) => e.seq)).toEqual([9, 10]);
+  const chat = result.current.entries.find((e) => e.type === 'league_chat');
+  expect(chat.hidden).toBe(true);
+  expect(chat.message).toBeNull();
+  // The Pick is never a chat message and is left as it was.
+  const pick = result.current.entries.find((e) => e.type === 'draft_activity');
+  expect(pick.hidden).toBeUndefined();
+});
+
+test('a chat:hidden for an id the feed never held changes nothing', async () => {
+  apiClient.get.mockResolvedValue({ data: [chatEntry({ id: 7, seq: 9 })] });
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(result.current.entries).toHaveLength(1));
+
+  act(() => socket.trigger('chat:hidden', { id: 999, hidden: true, message: null }));
+
+  expect(result.current.entries).toHaveLength(1);
+  expect(result.current.entries[0].hidden).toBeUndefined();
+});
+
+test('takes back its chat:hidden listener on unmount', async () => {
+  const { unmount } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  await waitFor(() => expect(socket.hasHandler('chat:hidden')).toBe(true));
+  unmount();
+  expect(socket.off).toHaveBeenCalledWith('chat:hidden', expect.any(Function));
+});
+
+test('hideMessage posts the hide to the moderation surface and resolves true', async () => {
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+  let outcome;
+  await act(async () => { outcome = await result.current.hideMessage(55, '  targeted harassment  '); });
+
+  expect(outcome).toBe(true);
+  expect(apiClient.post).toHaveBeenCalledWith('/api/safety/hide', {
+    leagueId: 3, messageId: 55, reason: 'targeted harassment',
+  });
+});
+
+test('hideMessage surfaces a rejection and resolves false', async () => {
+  apiClient.post.mockImplementation((url) =>
+    url === '/api/safety/hide'
+      ? Promise.reject({ response: { data: { error: 'moderator access required' } } })
+      : Promise.resolve({ data: { ok: true } })
+  );
+  const { result } = renderHook(() => useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11 }));
+
+  let outcome;
+  await act(async () => { outcome = await result.current.hideMessage(55, 'targeted harassment'); });
+  expect(outcome).toBe(false);
+  await waitFor(() => expect(result.current.error).toBe('moderator access required'));
+});
+
+// --------------------------------------------------------------------------
+// #534: the two channels that revoke a confirmed member mid-draft (AC4), and
+// the transient failures that must NOT (AC5). The member-only feed answers 403
+// to a non-member; chat:send answers NOT_A_MEMBER when the author's Team is
+// gone. Both are authoritative and matched on their status/code, never text.
+// Everything else preserves membership and only surfaces an error.
+// --------------------------------------------------------------------------
+
+test('a 403 from the member-only feed reports membership revoked and shows no load error (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  apiClient.get.mockRejectedValue({ response: { status: 403 } });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+
+  await waitFor(() => expect(onMembershipRevoked).toHaveBeenCalledTimes(1));
+  // A revocation replaces the whole surface; it is not a transient load error.
+  expect(result.current.error).toBeNull();
+  expect(result.current.entries).toEqual([]);
+});
+
+test.each([
+  ['a 500', { response: { status: 500 } }],
+  ['a network error with no response', { message: 'Network Error' }],
+])('a transient feed failure (%s) preserves membership and surfaces an error (AC5)', async (_label, err) => {
+  const onMembershipRevoked = jest.fn();
+  apiClient.get.mockRejectedValue(err);
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+
+  await waitFor(() => expect(result.current.error).toMatch(/could not be loaded/i));
+  // The direction a careless implementation breaks: a blip must not revoke.
+  expect(onMembershipRevoked).not.toHaveBeenCalled();
+});
+
+test('a 403 while paging older entries also reports membership revoked (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  apiClient.get.mockImplementation((url) =>
+    url.includes('before=')
+      ? Promise.reject({ response: { status: 403 } })
+      : Promise.resolve({ data: [chatEntry({ id: 7, seq: 9 })] })
+  );
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toHaveLength(1));
+
+  await act(async () => { await result.current.loadOlder(); });
+
+  expect(onMembershipRevoked).toHaveBeenCalledTimes(1);
+});
+
+test('a NOT_A_MEMBER chat:send ack revokes membership, appends nothing, and shows no composer error (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are not in this league', code: 'NOT_A_MEMBER' });
+  });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  let ok;
+  await act(async () => { ok = await result.current.sendMessage('hi'); });
+
+  expect(ok).toBe(false);
+  expect(onMembershipRevoked).toHaveBeenCalledTimes(1);
+  // The non-member surface is the message; no composer error, and nothing posts.
+  expect(result.current.error).toBeNull();
+  expect(result.current.entries).toEqual([]);
+});
+
+test('a NON-membership chat:send refusal (rate limited) does NOT revoke membership (AC5)', async () => {
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are sending too quickly', code: 'RATE_LIMITED', retryAfterSeconds: 5 });
+  });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  let ok;
+  await act(async () => { ok = await result.current.sendMessage('hi'); });
+
+  expect(ok).toBe(false);
+  expect(onMembershipRevoked).not.toHaveBeenCalled();
+  // The ordinary refusal still surfaces through the composer error channel.
+  await waitFor(() => expect(result.current.error).toMatch(/too quickly/i));
+});
+
+test('a NOT_A_MEMBER refusal on a GIF send revokes membership too (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are not in this league', code: 'NOT_A_MEMBER' });
+  });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  let ok;
+  await act(async () => { ok = await result.current.sendGif(gifPayload()); });
+
+  expect(ok).toBe(false);
+  expect(onMembershipRevoked).toHaveBeenCalledTimes(1);
+});

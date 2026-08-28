@@ -5,7 +5,7 @@ const { requireAuth } = require('../modules/auth');
 const { getIo } = require('../modules/io');
 const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
-const { draftPlayer, DraftError, nextPickClockSeconds } = require('../services/draft.service');
+const { draftPlayer, correctLatestPick, DraftError, nextPickClockSeconds } = require('../services/draft.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { draftRosterSize } = require('../services/rosterShape');
 const { removeLineupEntries } = require('../services/lineup.service');
@@ -14,6 +14,7 @@ const { requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
 const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
+const { listPresenterDraftActivity } = require('../services/leagueFeed');
 const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
 
 const router = express.Router();
@@ -94,6 +95,22 @@ function allowlisted(source, fields) {
   return published;
 }
 
+/**
+ * Resolve a presenter share token to its league id, or null if the token is
+ * unknown. The share token is the presenter's ONLY credential - there is no
+ * account behind a presenter link - so this single lookup is the whole of a
+ * presenter's authorization: it maps the opaque token to exactly one league and
+ * grants nothing else. Both presenter routes go through it, so "a presenter is
+ * whoever holds the link, scoped to that one league" lives in one place.
+ */
+async function presenterLeagueId(token) {
+  const result = await pool.query(
+    `SELECT "id" FROM "leagues" WHERE "draft_share_token" = $1`,
+    [token]
+  );
+  return result.rows[0] ? result.rows[0].id : null;
+}
+
 // GET /api/draft/board/:token — PUBLIC presenter-mode board (no auth). Must
 // stay registered before router.use(requireAuth) below.
 router.get('/board/:token', async (req, res) => {
@@ -102,13 +119,9 @@ router.get('/board/:token', async (req, res) => {
     return res.status(400).json({ error: 'token is required' });
   }
   try {
-    const leagueResult = await pool.query(
-      `SELECT "id" FROM "leagues" WHERE "draft_share_token" = $1`,
-      [token]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) return res.status(404).json({ error: 'invalid presenter link' });
-    const state = await getDraftState(league.id);
+    const leagueId = await presenterLeagueId(token);
+    if (leagueId == null) return res.status(404).json({ error: 'invalid presenter link' });
+    const state = await getDraftState(leagueId);
     if (!state) return res.status(404).json({ error: 'invalid presenter link' });
     // Anonymous viewers get the allowlist above and nothing else, including
     // nothing the snapshot grows later. Built as a fresh object rather than
@@ -122,6 +135,39 @@ router.get('/board/:token', async (req, res) => {
   } catch (error) {
     console.error('Error fetching presenter board', error);
     res.status(500).json({ error: 'failed to fetch draft board' });
+  }
+});
+
+// GET /api/draft/board/:token/activity — PUBLIC presenter-safe Draft activity
+// feed (#438), the anonymous companion to the presenter board above. It exposes
+// the Draft-activity half of the combined feed ALONE: leagueFeed's
+// listPresenterDraftActivity reads draft_activity and never chat_messages, so
+// League chat, unread state, the composer and commissioner-hidden tombstones
+// cannot enter a presenter payload (AC2). Entries are Team-only Pick and
+// lifecycle facts (AC3, AC4); `?before=<seq>` pages older and `?after=<seq>`
+// resumes newer, the same cursor contract as the member feed. Like the board,
+// it must stay registered before router.use(requireAuth) below so a presenter
+// link needs no credentials, and it is read-only: a presenter has no send path
+// and no commissioner control here (AC5).
+router.get('/board/:token/activity', async (req, res) => {
+  const { token } = req.params;
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: 'token is required' });
+  }
+  const before = intOrNull(req.query.before);
+  const after = intOrNull(req.query.after);
+  try {
+    const leagueId = await presenterLeagueId(token);
+    if (leagueId == null) return res.status(404).json({ error: 'invalid presenter link' });
+    const entries = await listPresenterDraftActivity(pool, {
+      leagueId,
+      before,
+      after,
+    });
+    res.json(entries);
+  } catch (error) {
+    console.error('Error fetching presenter activity', error);
+    res.status(500).json({ error: 'failed to fetch draft activity' });
   }
 });
 
@@ -508,6 +554,44 @@ router.post('/league/:id/undo', async (req, res) => {
     res.status(500).json({ error: 'failed to undo the pick' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/draft/league/:id/correct-pick — commissioner correction (#439):
+// pause the active draft and reverse ONLY its latest non-keeper pick as one
+// atomic act, recording a 10-200 character reason, and leave the draft paused.
+// This is the safe, reasoned administrative act (CONTEXT.md: Commissioner
+// correction), distinct from the destructive Reset below and the general undo
+// above. Every refusal carries a stable SCREAMING_SNAKE code (ADR 0008).
+// { pickNumber: int (the pick the commissioner confirmed), reason: string }
+router.post('/league/:id/correct-pick', async (req, res) => {
+  const leagueId = intOrNull(req.params.id);
+  if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer', code: 'INVALID_REQUEST' });
+  const { pickNumber, reason } = req.body || {};
+  if (pickNumber !== undefined && pickNumber !== null && !Number.isInteger(pickNumber)) {
+    return res.status(400).json({ error: 'pickNumber must be an integer', code: 'INVALID_REQUEST' });
+  }
+  try {
+    const outcome = await correctLatestPick({
+      leagueId,
+      userId: req.user.id,
+      // The pick the commissioner is looking at when they confirm; the service
+      // rejects the request as stale if a newer pick has since landed.
+      expectedPickNumber: pickNumber ?? null,
+      reason,
+    });
+    const io = getIo();
+    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    // The correction rides the combined feed on draft:activity beside the paused
+    // draft:state, the same path the pause/resume/reset lifecycle entries use.
+    broadcastDraftActivity(leagueId, outcome.activity);
+    res.json(outcome);
+  } catch (error) {
+    if (error instanceof DraftError) {
+      return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    }
+    console.error('Error correcting draft pick', error);
+    res.status(500).json({ error: 'failed to correct the pick' });
   }
 });
 

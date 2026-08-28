@@ -7,7 +7,11 @@ const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { teamIdentityOf } = require('./teamIdentity');
-const { appendPickActivity, appendLifecycleActivity, COMPLETE } = require('./draftActivity');
+const { appendPickActivity, appendLifecycleActivity, appendCorrectionActivity, COMPLETE } = require('./draftActivity');
+// correctionTarget is required lazily inside correctLatestPick: draftValidation
+// already requires this module at load time (nextPickClockSeconds), so a
+// top-level require here would close a cycle and hand draftValidation a
+// half-built exports object.
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRounds } = require('./rosterShape');
 const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
@@ -15,11 +19,26 @@ const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
 const { POSITION_GROUPS } = lineupService;
 
 class DraftError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, code = null) {
     super(message);
     this.statusCode = statusCode;
+    // A stable SCREAMING_SNAKE code (ADR 0008) a client branches on, distinct
+    // from the human message. Optional so existing throws keep their behaviour.
+    this.code = code;
   }
 }
+
+/**
+ * The human copy behind each Commissioner-correction refusal code (#439). The
+ * CODE is the contract a client branches on (ADR 0008); this is the message it
+ * shows if it has nothing better. correctionTarget emits the three pick-shaped
+ * codes; the service adds the authority and lifecycle ones.
+ */
+const CORRECTION_MESSAGES = {
+  NO_PICK_TO_CORRECT: 'there is no live pick to correct yet',
+  KEEPER_UNCORRECTABLE: 'a keeper pick cannot be corrected',
+  LATEST_PICK_CHANGED: 'the latest pick changed; refresh the draft and try again',
+};
 
 /** Snake-draft order: which team index picks at pick number n (0-based). */
 function teamIndexForPick(pickNumber, teamCount) {
@@ -204,11 +223,12 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         throw new DraftError(409, 'it is not your turn to pick');
       }
       pickNumber = league.current_pick + 1;
-      await client.query(
+      const pickInsert = await client.query(
         `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number")
-         VALUES ($1, $2, $3, $4)`,
+         VALUES ($1, $2, $3, $4) RETURNING "id"`,
         [leagueId, myTeam.id, playerId, pickNumber]
       );
+      const sourcePickId = pickInsert.rows[0].id;
 
       // Append the immutable Draft activity for this Pick in the SAME
       // transaction as the Pick (#435 AC1), snapshotting the facts the feed must
@@ -226,6 +246,10 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         round,
         pickNumber,
         auto,
+        // The draft_picks row this entry represents (#436): coverage and
+        // reconciliation match a Pick to its feed entry by this identity, not by
+        // pick_number, which undo + re-pick reuses.
+        sourcePickId,
       });
 
       // Rounds are draftRounds(league): fixed once when the draft went active
@@ -549,10 +573,147 @@ async function undoDrop({ leagueId, userId, playerId }) {
   }
 }
 
+/**
+ * Commissioner correction (#439): pause an active Draft and reverse ONLY its
+ * latest non-keeper Pick as one atomic act, recording the commissioner's
+ * reason, and leave the Draft paused (CONTEXT.md: Commissioner correction). It
+ * is the separate administrative act the Pick definition defers to - not a
+ * manager undo, and not the general N-pick undo route.
+ *
+ * The league row is locked FOR UPDATE, exactly as draftPlayer locks it, so a
+ * correction and a concurrent Pick (a manager's or an autopick) serialize on
+ * the same lock and cannot interleave. `expectedPickNumber` is the Pick the
+ * commissioner confirmed; if a newer Pick has landed since, the request is
+ * stale (LATEST_PICK_CHANGED) rather than reversing a different Pick than the
+ * one confirmed - the second half of "cannot race a manager or autopick".
+ *
+ * Every refusal is a DraftError carrying a stable SCREAMING_SNAKE code (ADR
+ * 0008); the transaction rolls back on any of them, so a rejected correction
+ * changes no Draft state.
+ */
+async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, reason }) {
+  // Validate the reason before opening a transaction: an invalid reason never
+  // touches the database (#439 AC4). Trim so whitespace cannot pad the bound.
+  const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+  if (trimmedReason.length < 10 || trimmedReason.length > 200) {
+    throw new DraftError(400, 'a correction reason of 10 to 200 characters is required', 'CORRECTION_REASON_INVALID');
+  }
+
+  const { correctionTarget } = require('./draftValidation.service');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const leagueResult = await client.query(
+      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) throw new DraftError(404, 'league not found', 'LEAGUE_NOT_FOUND');
+
+    // Authority is a distinct question from status, so it gets a distinct code
+    // and predicate (co-commissioners included, #439 AC3), not the combined
+    // "not found, not commissioner, or not active" the older routes share.
+    if (!(await isLeagueCommissioner(client, leagueId, userId))) {
+      throw new DraftError(403, 'only the commissioner can correct a pick', 'NOT_COMMISSIONER');
+    }
+    // A completed Draft's final Pick is not correctable under this feature
+    // (#439 AC6, spec #429); a pending Draft has nothing to correct.
+    if (league.draft_status === 'complete') {
+      throw new DraftError(409, 'the draft is complete; its final pick is not correctable', 'DRAFT_ALREADY_COMPLETE');
+    }
+    if (league.draft_status !== 'active') {
+      throw new DraftError(409, 'the draft is not active', 'DRAFT_NOT_ACTIVE');
+    }
+
+    const teamsResult = await client.query(
+      `SELECT "id", "name", "owner_id", "draft_position", "autodraft" FROM "teams"
+       WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
+      [leagueId]
+    );
+    const teams = teamsResult.rows;
+    const picksResult = await client.query(
+      `SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks" WHERE "league_id" = $1`,
+      [leagueId]
+    );
+
+    const { target, code } = correctionTarget(picksResult.rows, league.current_pick, expectedPickNumber);
+    if (code) {
+      throw new DraftError(409, CORRECTION_MESSAGES[code], code);
+    }
+
+    // The reversed Pick's facts, snapshotted onto the correction activity so the
+    // append-only feed self-describes what was corrected (#439). The player row
+    // may be gone in theory (ON DELETE SET NULL); the snapshot then carries what
+    // is known.
+    const playerResult = await client.query(
+      `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
+      [target.player_id]
+    );
+    const player = playerResult.rows[0] || { id: target.player_id, name: null, position: null, nfl_team: null };
+    const team = teams.find((tm) => tm.id === target.team_id) || { id: target.team_id, name: null };
+
+    // Reverse exactly the latest non-keeper Pick: its draft_picks row, its
+    // roster row, and the lineup rows the Pick benched (the lineup follows the
+    // roster, #197 - through the same removeLineupEntries the undo route uses,
+    // so a settled week is still spared).
+    await client.query(
+      `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
+      [leagueId, target.pick_number]
+    );
+    await client.query(
+      `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3`,
+      [leagueId, target.team_id, target.player_id]
+    );
+    await lineupService.removeLineupEntries(client, { league, teamId: target.team_id, playerId: target.player_id });
+
+    // The corrected slot was itself open before the Pick was made (a live pick,
+    // never a keeper), so rewinding current_pick straight to it reproduces the
+    // pre-pick state - and the Draft is LEFT PAUSED with no armed clock, so the
+    // same team is on the clock again only when a commissioner resumes.
+    const newCurrentPick = target.pick_number - 1;
+    await client.query(
+      `UPDATE "leagues"
+       SET "draft_paused" = true, "current_pick" = $2, "pick_deadline_at" = NULL, "updated_at" = now()
+       WHERE "id" = $1`,
+      [leagueId, newCurrentPick]
+    );
+
+    const round = Math.floor((target.pick_number - 1) / teams.length) + 1;
+    const activity = await appendCorrectionActivity(client, {
+      leagueId,
+      team,
+      player,
+      round,
+      pickNumber: target.pick_number,
+      reason: trimmedReason,
+    });
+
+    await client.query('COMMIT');
+    return {
+      leagueId,
+      pickNumber: target.pick_number,
+      ...teamIdentityOf(team),
+      player,
+      currentPick: newCurrentPick,
+      paused: true,
+      // The typed correction entry for the combined feed, so the route can
+      // broadcast it to the room beside the paused draft:state.
+      activity,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   draftPlayer,
   dropPlayer,
   undoDrop,
+  correctLatestPick,
   teamIndexForPick,
   nextPickClockSeconds,
   shouldAutoEnableAutodraft,

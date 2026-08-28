@@ -8,11 +8,18 @@ const {
   RESUME,
   RESET,
   COMPLETE,
+  CORRECTION,
+  CUTOVER,
   LIFECYCLE_KINDS,
+  ALL_KINDS,
+  USER_VISIBLE_KINDS,
+  INTERNAL_KINDS,
   activityEntryOf,
   appendPickActivity,
   appendLifecycleActivity,
+  appendCorrectionActivity,
 } = require('../services/draftActivity');
+const { PRESENTER_ACTIVITY_KINDS } = require('../services/leagueFeed');
 const { TEAM_IDENTITY_FIELDS } = require('../services/teamIdentity');
 
 const [TEAM_ID, TEAM_NAME] = TEAM_IDENTITY_FIELDS;
@@ -258,4 +265,152 @@ test('appendLifecycleActivity refuses an unknown kind', async () => {
     () => appendLifecycleActivity(client, { leagueId: 1, kind: 'nonsense', team: null }),
     /lifecycle/i
   );
+});
+
+/**
+ * Commissioner correction activity (#439). A correction is neither a plain
+ * Pick nor a bare lifecycle event: it appends its OWN entry that snapshots the
+ * reversed Pick's facts (Team, player, round, Pick number) so the append-only
+ * feed self-describes what was corrected without rewriting the original Pick
+ * entry (CONTEXT.md: Draft activity is append-only through correction), and it
+ * carries the commissioner's reason. It is excluded from LIFECYCLE_KINDS for the
+ * same reason PICK is: it writes Pick-snapshot columns appendLifecycleActivity
+ * would silently drop.
+ */
+const CORRECTION_ROW = {
+  source: DRAFT_ACTIVITY,
+  kind: CORRECTION,
+  id: 30,
+  feed_seq: '18',
+  [TEAM_ID]: 11,
+  [TEAM_NAME]: 'Gridiron Ghosts',
+  player_id: 500,
+  player_name: 'Wrong Guy',
+  player_position: 'RB',
+  player_nfl_team: 'KC',
+  round: 2,
+  pick_number: 13,
+  is_autopick: false,
+  reason: 'entered against the wrong team; correcting before we resume',
+  created_at: '2026-09-01T00:00:00.000Z',
+};
+
+test('CORRECTION is not a lifecycle kind (it carries Pick-snapshot columns)', () => {
+  assert.equal(LIFECYCLE_KINDS.includes(CORRECTION), false);
+});
+
+test('activityEntryOf shapes a correction entry with the reversed Pick snapshot and the reason', () => {
+  const entry = activityEntryOf(CORRECTION_ROW);
+  assert.equal(entry.type, DRAFT_ACTIVITY);
+  assert.equal(entry.kind, CORRECTION);
+  assert.equal(entry.seq, 18);
+  assert.equal(entry[TEAM_ID], 11);
+  assert.equal(entry[TEAM_NAME], 'Gridiron Ghosts');
+  assert.deepEqual(entry.player, { id: 500, name: 'Wrong Guy', position: 'RB', nflTeam: 'KC' });
+  assert.equal(entry.round, 2);
+  assert.equal(entry.pickNumber, 13);
+  assert.equal(entry.reason, 'entered against the wrong team; correcting before we resume');
+  // A correction is not an autopick; the field is meaningless for it.
+  assert.equal('isAutopick' in entry, false);
+});
+
+test('activityEntryOf never leaks an account identifier from a correction row', () => {
+  const entry = activityEntryOf({ ...CORRECTION_ROW, user_id: 42, owner_id: 42, username: 'u42' });
+  for (const leak of ['user_id', 'userId', 'owner_id', 'username']) {
+    assert.equal(leak in entry, false, `${leak} must not appear on a correction entry`);
+  }
+});
+
+test('appendCorrectionActivity inserts one correction row with the snapshot and reason and returns its entry', async () => {
+  const calls = [];
+  const client = {
+    query: async (text, params) => {
+      calls.push({ text, params });
+      return { rows: [{ id: 30, feed_seq: '18', created_at: '2026-09-01T00:00:00.000Z' }] };
+    },
+  };
+
+  const entry = await appendCorrectionActivity(client, {
+    leagueId: 1,
+    team: { id: 11, name: 'Gridiron Ghosts' },
+    player: { id: 500, name: 'Wrong Guy', position: 'RB', nfl_team: 'KC' },
+    round: 2,
+    pickNumber: 13,
+    reason: 'entered against the wrong team; correcting before we resume',
+  });
+
+  assert.equal(calls.length, 1, 'exactly one INSERT');
+  assert.match(calls[0].text, /INSERT INTO "draft_activity"/);
+  const [columnList] = calls[0].text.split('RETURNING');
+  // The kind is 'correction', the reason is stored, and the trigger still owns
+  // the feed sequence (never named in the column list).
+  assert.match(columnList, /"reason"/, 'the correction stores the commissioner reason');
+  assert.doesNotMatch(columnList, /feed_seq/i, 'the app never allocates the sequence itself');
+  assert.match(calls[0].text, /RETURNING[\s\S]*"feed_seq"/);
+  assert.equal(calls[0].params[1], CORRECTION);
+  assert.ok(calls[0].params.includes('entered against the wrong team; correcting before we resume'));
+
+  assert.equal(entry.kind, CORRECTION);
+  assert.equal(entry.seq, 18);
+  assert.equal(entry[TEAM_ID], 11);
+  assert.deepEqual(entry.player, { id: 500, name: 'Wrong Guy', position: 'RB', nflTeam: 'KC' });
+  assert.equal(entry.pickNumber, 13);
+  assert.equal(entry.reason, 'entered against the wrong team; correcting before we resume');
+});
+
+/**
+ * The kind CONTRACT (#540 AC5). Every kind an append path can EMIT must be
+ * classified as exactly one of user-visible or internal, so no future kind can
+ * quietly reach a user surface (or quietly vanish from one) without a deliberate
+ * decision recorded here.
+ *
+ * The enumeration is derived from the server, NOT hand-listed in the test: it
+ * iterates ALL_KINDS - the roster anchored to the writers (PICK,
+ * LIFECYCLE_KINDS, CORRECTION, CUTOVER). Crucially ALL_KINDS is defined
+ * INDEPENDENTLY of the two classification sets (not as their union), so this
+ * partition check CAN fail: add a throwaway kind to the emit roster without
+ * classifying it and the "exactly one" assertion goes red. If it could not fail
+ * that way it would be decorative - the exact blindness (a kind nobody thought
+ * about reaching a surface) that #540 exists to close.
+ */
+test('every emittable kind is classified as exactly one of user-visible or internal (#540 AC5)', () => {
+  assert.ok(ALL_KINDS.length > 0, 'the emit roster is non-empty');
+  for (const kind of ALL_KINDS) {
+    const visible = USER_VISIBLE_KINDS.includes(kind);
+    const internal = INTERNAL_KINDS.includes(kind);
+    assert.ok(
+      visible !== internal,
+      `${kind} must be classified as EXACTLY one of user-visible or internal (visible=${visible}, internal=${internal})`
+    );
+  }
+  // Neither classification may name a kind that is not an emittable kind: a
+  // classification for a kind no append path writes is dead and hides drift.
+  for (const kind of [...USER_VISIBLE_KINDS, ...INTERNAL_KINDS]) {
+    assert.ok(ALL_KINDS.includes(kind), `${kind} is classified but not an emittable kind in ALL_KINDS`);
+  }
+});
+
+test('the concrete classification: cutover is internal, everything else is user-visible (#540 AC5)', () => {
+  // The one internal kind today is the cutover boundary (#436).
+  assert.deepEqual([...INTERNAL_KINDS], [CUTOVER]);
+  assert.ok(!USER_VISIBLE_KINDS.includes(CUTOVER), 'the cutover boundary is never user-visible');
+  // A Pick, a correction and every lifecycle transition ARE user-visible.
+  for (const kind of [PICK, CORRECTION, ...LIFECYCLE_KINDS]) {
+    assert.ok(USER_VISIBLE_KINDS.includes(kind), `${kind} must be user-visible`);
+    assert.ok(!INTERNAL_KINDS.includes(kind), `${kind} must not be internal`);
+  }
+  // And the roster is exactly the visible kinds plus the internal ones - no
+  // emittable kind is left unaccounted for.
+  assert.deepEqual([...ALL_KINDS].sort(), [...USER_VISIBLE_KINDS, ...INTERNAL_KINDS].sort());
+});
+
+test('the presenter allowlist is declared independently but pinned equal to the member set today (#540 AC5)', () => {
+  // The presenter allowlist (PRESENTER_ACTIVITY_KINDS) is its OWN array, NOT an
+  // alias of the member set (USER_VISIBLE_KINDS), so a kind later made visible to
+  // members does not silently reach the anonymous presenter surface. They are the
+  // same today; pinning them equal here means any future divergence is a
+  // DELIBERATE, reviewed change - this assertion goes red the moment one list
+  // gains a kind the other does not.
+  assert.notStrictEqual(PRESENTER_ACTIVITY_KINDS, USER_VISIBLE_KINDS, 'the two allowlists are independent arrays, not one alias');
+  assert.deepEqual([...PRESENTER_ACTIVITY_KINDS], [...USER_VISIBLE_KINDS], 'they are spelled identically today');
 });

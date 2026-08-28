@@ -222,6 +222,10 @@ async function sendLineupReminders() {
         // index `idx_players_nfl_team_normalized` backs the players side.
         // This is a SQL join, so it normalises in SQL; `services/nflTeam.js`
         // is for consumers that have already read a side into memory.
+        // A WAS row beside a WSH row would make this LEFT JOIN fold two Raw
+        // team codes into one Team code; `nfl_games_season_week_team_code_unique`
+        // (ADR 0011, #421) makes that second row a rejected insert, not a case
+        // this query has to survive.
         entriesResult = await lineupClient.query(
           `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
                   "players"."name", "players"."injury_status",

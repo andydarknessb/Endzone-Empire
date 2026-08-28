@@ -31,21 +31,28 @@
  * additive, and a client too old to send a key still sends chat, just without
  * the retry protection.
  *
- * EXPAND-ONLY, AND BOTH STEPS LOCK BRIEFLY. Adds a nullable column and one
- * index; no backfill, no table rewrite. Two locks are taken, not one: the
- * ADD COLUMN takes an ACCESS EXCLUSIVE lock, and the CREATE UNIQUE INDEX (plain,
- * not CONCURRENTLY) takes a SHARE lock that conflicts with the ROW EXCLUSIVE a
- * chat insert holds - so the index BUILD blocks chat writes for its duration
- * too, not just the ADD COLUMN. "Safe to apply while chat is live" rests on
- * chat_messages being SMALL: at its current size both locks are milliseconds. On
- * a large table the same two statements would block writes long enough to be an
+ * EXPAND-ONLY, AND THE INDEX BUILD SCALES WITH THE TABLE. Adds a nullable
+ * column and one index; no backfill, no table rewrite. The ADD COLUMN takes an
+ * ACCESS EXCLUSIVE lock on `chat_messages`, and because both statements run in
+ * one transaction that lock is held until commit: every read and write of the
+ * table is blocked from the ADD COLUMN to the end of `up()`, whatever the CREATE
+ * UNIQUE INDEX (plain, not CONCURRENTLY; on its own it would take SHARE, which
+ * blocks writes) asks for. So the duration of `up()` is the operator's number,
+ * and it is set by the index BUILD: the ADD COLUMN (nullable, no default) is
+ * metadata-only, cheap regardless of row count; the index build reads every
+ * existing row of `chat_messages`, so it scales with row count. Whether this is
+ * safe to apply while chat is live is therefore a question about the table's
+ * size on the day it runs, not a property of this file. Measured at 7 rows on
+ * 2026-08-27 (#520). Check the current row count before applying: on a large
+ * table the same two statements would block the feed long enough to be an
  * outage, and this note is what stops someone applying it there believing they
  * were told there was no lock.
  *
  * NOT CONCURRENTLY. CREATE INDEX CONCURRENTLY would avoid the write lock, but it
- * cannot run inside a transaction, and knex runs every migration in this repo
- * transactionally (no disableTransactions is set anywhere). Making that trade
- * would mean restructuring the migration, not editing a comment; it is a real
+ * cannot run inside a transaction, and knex runs this migration transactionally
+ * (only a file that sets `exports.config = { transaction: false }` opts out, as
+ * 20260720000003 does for exactly this reason). Making that trade here would
+ * mean restructuring the migration, not editing a comment; it is a real
  * decision for when the table is large enough to need it, not before.
  */
 

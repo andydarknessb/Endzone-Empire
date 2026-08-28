@@ -27,7 +27,18 @@ const {
   teamIdentityColumns,
   teamIdentityJoin,
 } = require('./teamIdentity');
-const { activityEntryOf, DRAFT_ACTIVITY } = require('./draftActivity');
+const {
+  activityEntryOf,
+  DRAFT_ACTIVITY,
+  PICK,
+  CORRECTION,
+  LIFECYCLE_KINDS,
+  USER_VISIBLE_KINDS,
+} = require('./draftActivity');
+// The content_kind discriminator value for a GIF message (#446). A GIF message
+// is a chat_messages row like any other, so it flows through this same feed;
+// feedEntryOf reads its content_kind to decide whether to project `media`.
+const { GIF } = require('../modules/gifMessage');
 
 /**
  * The typed feed-entry kinds that share one per-league chronology. League chat
@@ -134,6 +145,19 @@ function feedEntryOf(row) {
   // keeps its seq and Team identity so ordering, pagination and "is this mine"
   // are unchanged; only the content becomes a tombstone.
   const hidden = row.hidden_at != null;
+  // A GIF message (content_kind='gif', #446) carries a structured `media` object
+  // alongside its optional caption (which rides on `message`, the same key text
+  // uses). A text message carries media:null. On a hide, `media` is suppressed
+  // to null exactly as the caption is: the asset, the caption and the
+  // description are all author-authored content, so a hidden GIF reads back as
+  // the SAME neutral tombstone as a hidden text message (the moderation
+  // decision, #446 AC3). The reviewer history (safety.router) is the only place
+  // the original GIF content survives. This is DISTINCT from AC5 unavailable
+  // media, which is not hidden and keeps its caption and description in the tile.
+  const isGif = row.content_kind === GIF;
+  const media = hidden || !isGif
+    ? null
+    : { provider: row.gif_provider, assetId: row.gif_asset_id, description: row.gif_description };
   return {
     type: LEAGUE_CHAT,
     id: row.id,
@@ -144,8 +168,13 @@ function feedEntryOf(row) {
     // value reads as null so the keys are always present.
     [idField]: row[idField] ?? null,
     [nameField]: row[nameField] ?? null,
-    message: hidden ? null : row.message,
+    message: hidden ? null : (row.message ?? null),
+    media,
     hidden,
+    // Whether this message predates the cutover boundary and was backfilled as a
+    // legacy fact (#436). Live messages read false; a message from before the
+    // column existed reads false too, so the key is always present.
+    isLegacy: row.is_legacy ?? false,
     created_at: row.created_at,
   };
 }
@@ -193,7 +222,9 @@ async function listLeagueChatFeed(db, { leagueId, viewerId, before = null, after
   const result = await db.query(
     `SELECT * FROM (
        SELECT "chat_messages"."id", "chat_messages"."message", "chat_messages"."created_at",
-              "chat_messages"."feed_seq", "chat_messages"."hidden_at",
+              "chat_messages"."feed_seq", "chat_messages"."hidden_at", "chat_messages"."is_legacy",
+              "chat_messages"."content_kind", "chat_messages"."gif_provider",
+              "chat_messages"."gif_asset_id", "chat_messages"."gif_description",
               ${teamIdentityColumns()}
        FROM "chat_messages"
        ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
@@ -260,6 +291,17 @@ function combinedEntryOf(row) {
  * neutral tombstone the chat-only feed produces (combinedEntryOf -> feedEntryOf),
  * while the Draft-activity arm carries a NULL `hidden_at` placeholder and routes
  * to activityEntryOf - a Pick is never moderatable and never a tombstone.
+ *
+ * The Draft-activity arm restricts `kind` to USER_VISIBLE_KINDS - the positive
+ * allowlist shared with the presenter reader - INSIDE its WHERE, so the internal
+ * CUTOVER boundary (#436) is excluded BEFORE the per-arm LIMIT and can never
+ * consume a visible page slot (#540 AC4). Filtering after the limit would let a
+ * page that happened to hold a cutover row come back short, an intermittent gap
+ * with no error; filtering before it cannot. Unlike the presenter reader, the
+ * activity arm DOES project `reason`: a Commissioner correction's recorded
+ * justification is authored FOR league members (#540 AC1), so combinedEntryOf ->
+ * activityEntryOf shapes a member correction with its reason. The chat arm
+ * carries the aligned NULL::text reason placeholder for the union.
  */
 async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
@@ -276,7 +318,13 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
   // ascending, the default/before window takes the newest page descending.
   const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
 
-  const params = [leagueId, viewerId];
+  // $1 league, $2 viewer, $3 the positive user-visible kind allowlist. The
+  // allowlist is bound BEFORE any cursor so its placeholder is stable ($3)
+  // whether or not a cursor is present; the activity arm filters on it INSIDE
+  // its WHERE, so an internal kind (the CUTOVER boundary, #436) is excluded
+  // before the per-arm LIMIT and never consumes a visible page slot (#540 AC4).
+  const params = [leagueId, viewerId, USER_VISIBLE_KINDS];
+  const visible = `$${params.length}`;
   let chatCursor = '';
   let activityCursor = '';
   if (cursor !== null) {
@@ -303,6 +351,10 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "chat_messages"."created_at" AS created_at,
                  "chat_messages"."message" AS message,
                  "chat_messages"."hidden_at" AS hidden_at,
+                 "chat_messages"."content_kind" AS content_kind,
+                 "chat_messages"."gif_provider" AS gif_provider,
+                 "chat_messages"."gif_asset_id" AS gif_asset_id,
+                 "chat_messages"."gif_description" AS gif_description,
                  ${teamIdentityColumns()},
                  NULL::text AS kind,
                  NULL::int AS player_id,
@@ -311,7 +363,9 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  NULL::text AS player_nfl_team,
                  NULL::int AS round,
                  NULL::int AS pick_number,
-                 NULL::boolean AS is_autopick
+                 NULL::boolean AS is_autopick,
+                 NULL::text AS reason,
+                 "chat_messages"."is_legacy" AS is_legacy
             FROM "chat_messages"
             ${teamIdentityJoin('"chat_messages"."league_id"', '"chat_messages"."user_id"')}
            WHERE "chat_messages"."league_id" = $1
@@ -330,6 +384,10 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "draft_activity"."created_at" AS created_at,
                  NULL::text AS message,
                  NULL::timestamptz AS hidden_at,
+                 NULL::text AS content_kind,
+                 NULL::text AS gif_provider,
+                 NULL::text AS gif_asset_id,
+                 NULL::text AS gif_description,
                  "draft_activity"."team_id" AS "teamId",
                  "draft_activity"."team_name" AS "teamName",
                  "draft_activity"."kind" AS kind,
@@ -339,9 +397,12 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
                  "draft_activity"."player_nfl_team" AS player_nfl_team,
                  "draft_activity"."round" AS round,
                  "draft_activity"."pick_number" AS pick_number,
-                 "draft_activity"."is_autopick" AS is_autopick
+                 "draft_activity"."is_autopick" AS is_autopick,
+                 "draft_activity"."reason" AS reason,
+                 "draft_activity"."is_legacy" AS is_legacy
             FROM "draft_activity"
            WHERE "draft_activity"."league_id" = $1
+             AND "draft_activity"."kind" = ANY(${visible})
              ${activityCursor}
            ORDER BY "draft_activity"."feed_seq" ${windowOrder}
            LIMIT ${lim})
@@ -353,6 +414,109 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
     params
   );
   return result.rows.map(combinedEntryOf);
+}
+
+/**
+ * The PRESENTER-safe Draft-activity feed (#438): the Draft-activity half of the
+ * combined feed with NO chat arm, read for an anonymous presenter-link viewer.
+ *
+ * The SEPARATION from listCombinedDraftFeed IS the privacy boundary, not a
+ * convenience. This reader queries `draft_activity` and nothing else, so League
+ * chat, the unread relation, commissioner moderation (`hidden_at`) and
+ * per-viewer blocking (`user_blocks`) are absent BY CONSTRUCTION - there is no
+ * filter for a later edit to weaken and no chat table to accidentally re-join
+ * (#438 AC2). There is no `viewerId`, because a presenter is not a member with a
+ * block list; the feed is scoped by `leagueId` alone, resolved from the presenter
+ * token by the route.
+ *
+ * draft_activity is inherently account-free: it carries Team identity and Pick /
+ * lifecycle snapshots, never a `user_id` (draftActivity.js), so every entry is
+ * Team-only (#438 AC4) without a serializer having to strip anything. The one
+ * column deliberately NOT projected is `reason`: a Commissioner correction's
+ * free-text (#439) is authored for league members, not vetted for an anonymous
+ * public link, so a presenter reads a correction as its Team-only Pick snapshot
+ * with `reason` null (#438 AC3, "approved public facts"). Every projected field
+ * shapes through the SAME activityEntryOf a member reads, so the presenter and
+ * the Draft room agree on the authoritative record.
+ *
+ * The KINDS a presenter may see are an explicit ALLOWLIST (#438 AC3, "approved
+ * public Pick and lifecycle facts"), not everything in draft_activity. A Pick,
+ * the five lifecycle transitions and a Commissioner correction are approved
+ * public facts; the CUTOVER boundary marker (#436) is an internal backfill
+ * artifact that carries no Team or Pick fact and reads as noise, so it is left
+ * out. Because this is a positive list, a NEW kind added upstream does not reach
+ * an anonymous board until it is added here on purpose - publication by
+ * decision, the same stance the board's field allowlist takes.
+ *
+ * It is spelled IDENTICALLY to the member feed's USER_VISIBLE_KINDS today, but is
+ * declared INDEPENDENTLY on purpose (#540), NOT aliased to it. The presenter link
+ * is anonymous and shareable; if this list were `= USER_VISIBLE_KINDS`, any kind
+ * later made visible to MEMBERS would become visible on the open-internet
+ * presenter surface automatically, with no review - the exact "a kind reached a
+ * surface nobody thought about" class this ticket exists to close. Declaring it
+ * apart makes exposing a kind to the anonymous board a DELIBERATE edit here, not
+ * an inherited default. The #540 contract test pins the two equal TODAY so a
+ * divergence is a conscious change, caught rather than silent. (The reason FIELD
+ * is protected structurally - a member sees it, a presenter never does, below.)
+ *
+ * Cursors mirror the sibling readers: the default/`before` window takes the
+ * newest page descending then flips to ascending display order; `after` resumes
+ * forward (feed_seq > cursor) ascending. `after` takes precedence; a caller
+ * pages one direction at a time.
+ */
+const PRESENTER_ACTIVITY_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
+
+async function listPresenterDraftActivity(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
+  const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
+  const resumeFrom = Number.isInteger(after) ? after : null;
+  const cursor = resumeFrom !== null ? resumeFrom : (Number.isInteger(before) ? before : null);
+  const cmp = resumeFrom !== null ? '>' : '<';
+  const windowOrder = resumeFrom !== null ? 'ASC' : 'DESC';
+
+  // $1 league, $2 the kind allowlist. The cursor (if any) and the page cap are
+  // appended after, so their placeholder numbers follow.
+  const params = [leagueId, PRESENTER_ACTIVITY_KINDS];
+  let cursorClause = '';
+  if (cursor !== null) {
+    params.push(cursor);
+    cursorClause = `AND "draft_activity"."feed_seq" ${cmp} $${params.length}`;
+  }
+  params.push(capped);
+  const limitClause = `LIMIT $${params.length}`;
+
+  // No `reason` column: the correction free-text never rides a presenter payload
+  // (see the doc above). Aliases match activityEntryOf's frozen keys so the read
+  // shapes identically to the member combined feed's Draft-activity arm.
+  const result = await db.query(
+    `SELECT * FROM (
+       SELECT "draft_activity"."id" AS id,
+              "draft_activity"."feed_seq" AS feed_seq,
+              "draft_activity"."created_at" AS created_at,
+              "draft_activity"."kind" AS kind,
+              "draft_activity"."team_id" AS "teamId",
+              "draft_activity"."team_name" AS "teamName",
+              "draft_activity"."player_id" AS player_id,
+              "draft_activity"."player_name" AS player_name,
+              "draft_activity"."player_position" AS player_position,
+              "draft_activity"."player_nfl_team" AS player_nfl_team,
+              "draft_activity"."round" AS round,
+              "draft_activity"."pick_number" AS pick_number,
+              "draft_activity"."is_autopick" AS is_autopick,
+              "draft_activity"."is_legacy" AS is_legacy
+         FROM "draft_activity"
+        WHERE "draft_activity"."league_id" = $1
+          AND "draft_activity"."kind" = ANY($2)
+          ${cursorClause}
+        ORDER BY "draft_activity"."feed_seq" ${windowOrder}
+        ${limitClause}
+     ) page ORDER BY feed_seq ASC`,
+    params
+  );
+  // activityEntryOf shapes a CORRECTION with a `reason` key (null here, since
+  // the column is unselected). Drop it so the presenter payload carries no
+  // correction free-text SURFACE at all - not even a null placeholder for a
+  // member-moderation field an anonymous board has no business showing (#438).
+  return result.rows.map(activityEntryOf).map(({ reason, ...entry }) => entry);
 }
 
 module.exports = {
@@ -367,4 +531,6 @@ module.exports = {
   listLeagueChatFeed,
   combinedEntryOf,
   listCombinedDraftFeed,
+  listPresenterDraftActivity,
+  PRESENTER_ACTIVITY_KINDS,
 };

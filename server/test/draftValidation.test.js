@@ -6,6 +6,7 @@ const {
   validateKeepers,
   keeperSettingsPlan,
   undoTargets,
+  correctionTarget,
   startPlan,
 } = require('../services/draftValidation.service');
 
@@ -236,6 +237,61 @@ test('undoTargets: refuses to cross a keeper pick', () => {
   const result = undoTargets(picks, 2);
   assert.deepEqual(result.targets, []);
   assert.match(result.error, /keeper selection/);
+});
+
+// --- correctionTarget ---------------------------------------------------
+// The pure decision behind Commissioner correction (#439): which single
+// live-reached Pick a correction reverses, or a stable SCREAMING_SNAKE code
+// (ADR 0008) naming exactly why it cannot. Only Picks at or below the pick on
+// the clock count as reached, so a keeper pre-filled far ahead never masquerades
+// as the latest Pick.
+
+test('correctionTarget: returns the latest live-reached non-keeper pick', () => {
+  const picks = [
+    { pick_number: 1, is_keeper: false },
+    { pick_number: 2, is_keeper: false },
+    { pick_number: 3, is_keeper: false },
+    // pre-filled keeper far ahead: not reached yet, must not be chosen
+    { pick_number: 20, is_keeper: true },
+  ];
+  const result = correctionTarget(picks, 3, 3);
+  assert.equal(result.code, null);
+  assert.equal(result.target.pick_number, 3);
+});
+
+test('correctionTarget: a keeper as the latest reached pick is uncorrectable', () => {
+  const picks = [
+    { pick_number: 1, is_keeper: false },
+    { pick_number: 2, is_keeper: true },
+  ];
+  const result = correctionTarget(picks, 2, 2);
+  assert.equal(result.target, null);
+  assert.equal(result.code, 'KEEPER_UNCORRECTABLE');
+});
+
+test('correctionTarget: no live-reached pick yields NO_PICK_TO_CORRECT', () => {
+  // A keeper pre-filled at pick 20 while nothing has been reached (currentPick 0).
+  const result = correctionTarget([{ pick_number: 20, is_keeper: true }], 0, null);
+  assert.equal(result.target, null);
+  assert.equal(result.code, 'NO_PICK_TO_CORRECT');
+});
+
+test('correctionTarget: a stale expected pick number is rejected as LATEST_PICK_CHANGED', () => {
+  const picks = [
+    { pick_number: 1, is_keeper: false },
+    { pick_number: 2, is_keeper: false },
+  ];
+  // The commissioner opened the dialog on pick 1, but pick 2 has since landed.
+  const result = correctionTarget(picks, 2, 1);
+  assert.equal(result.target, null);
+  assert.equal(result.code, 'LATEST_PICK_CHANGED');
+});
+
+test('correctionTarget: a null expected pick number skips the staleness check', () => {
+  const picks = [{ pick_number: 1, is_keeper: false }];
+  const result = correctionTarget(picks, 1, null);
+  assert.equal(result.code, null);
+  assert.equal(result.target.pick_number, 1);
 });
 
 test('undoTargets: errors when fewer picks exist than requested', () => {

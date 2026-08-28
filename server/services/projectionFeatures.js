@@ -535,7 +535,11 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   // `getPositionDefense` (projection.service.js), whose equivalent opponent
   // key stays a Raw team code instead, because its caller
   // (`decision.service.startSitAdvice`) looks it up with an opponent read
-  // straight out of `nfl_games`, unfolded.
+  // straight out of `nfl_games`, unfolded. Folding `opponent` to a Team code
+  // could double-count a team-week only if `nfl_games` held two Raw team
+  // codes for one team; `nfl_games_season_week_team_code_unique` (ADR 0011,
+  // #421) rejects the second at insert, so the fold is safe by constraint,
+  // not by observation.
   //
   // The ORDER BY is a CORRECTNESS requirement, not a nicety. Postgres gives no
   // row order without one, so an unordered `LIMIT` both picks an arbitrary

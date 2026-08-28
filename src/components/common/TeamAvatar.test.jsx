@@ -62,3 +62,16 @@ test('falls back to the animated URL under prefers-reduced-motion when no static
   const img = screen.getByRole('img', { hidden: true });
   expect(img).toHaveAttribute('src', 'https://example.com/logo.png');
 });
+
+test('a falsy-but-present (empty string) static URL falls through to the animated URL under reduced motion (#446 helper extraction)', () => {
+  // Guards the coercion at the seam: the shared shouldShowStillFrame uses the
+  // TRUTHINESS of the static URL (Boolean(reduced && hasStill)), so an empty
+  // string is falsy and reduced-motion viewers get the animated URL, not a
+  // blank "" src. A `!= null` derivation would have selected "" here - a silent
+  // blank-avatar regression on a path only reduced-motion viewers see. This case
+  // is not otherwise covered, so the refactor's green would not have caught it.
+  matchMediaMatches = true;
+  render(<TeamAvatar name="Sunday Ballers" avatarUrl="https://example.com/logo.png" avatarStaticUrl="" />);
+  const img = screen.getByRole('img', { hidden: true });
+  expect(img).toHaveAttribute('src', 'https://example.com/logo.png');
+});

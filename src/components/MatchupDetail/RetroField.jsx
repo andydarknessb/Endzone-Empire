@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Box, Typography, Button, alpha } from '@mui/material';
 import { useTheme, keyframes } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { Sprite } from './TecmoSprite';
 import { getSpriteColors } from '../../lib/nflTeamColors';
 import { playLabel } from '../../lib/scoringEvents';
@@ -162,6 +163,32 @@ function RetroField({
   const isTouchdownPlay = !!activePlay && activePlay.isTouchdown !== false;
   const momentPlay = !!activePlay && activePlay.isTouchdown === false ? activePlay : null;
 
+  // The big-play callout below reveals AND auto-dismisses itself through
+  // `flashIn`: it fades to opacity 0 at 100% held by `forwards`, and nothing
+  // else ever takes it down. Under reduced motion the global policy
+  // (src/theme/base.css) collapses that animation to 0s, which - with
+  // `forwards` on a keyframe that ends hidden - would pin it at opacity 0 and it
+  // would never be seen. This callout is the ONLY visual channel for a
+  // non-touchdown big play (a sack, FG, INT, fumble, punt return), so it must
+  // not vanish. Rather than animate, show it at once and dismiss it with a timer
+  // over the same window - the JS-timeout fallback the global policy's own
+  // comment prescribes for a lifecycle that would otherwise ride an animation
+  // end. (Determinate opacity fades are not exempted globally, so we handle it
+  // here where the timing carries meaning.)
+  const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const momentKey = momentPlay
+    ? `${momentPlay.side}-${momentPlay.type}-${momentPlay.nflTeam}`
+    : null;
+  const [reducedMomentDismissed, setReducedMomentDismissed] = useState(false);
+  useEffect(() => {
+    if (!prefersReducedMotion || !momentKey) return undefined;
+    // A fresh moment (new key) reveals the callout again, then times out.
+    setReducedMomentDismissed(false);
+    const timer = setTimeout(() => setReducedMomentDismissed(true), MOMENT_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [prefersReducedMotion, momentKey]);
+  const showMomentCallout = !!momentPlay && (!prefersReducedMotion || !reducedMomentDismissed);
+
   const dashSide = isTouchdownPlay ? activePlay.side : null;
   const dashKit = isTouchdownPlay
     ? getSpriteColors(activePlay.nflTeam, activePlay.opponent).runner
@@ -251,9 +278,9 @@ function RetroField({
             <Sprite kit={dashSide === 'away' ? dashKit : awayKit} frame={frame} className="retro-field-sprite" />
           </Box>
 
-          {momentPlay && (
+          {showMomentCallout && (
             <Box
-              key={`${momentPlay.side}-${momentPlay.type}-${momentPlay.nflTeam}`}
+              key={momentKey}
               role="status"
               sx={{
                 position: 'absolute',
@@ -264,7 +291,13 @@ function RetroField({
                 bgcolor: 'common.black',
                 borderRadius: 1,
                 whiteSpace: 'nowrap',
-                animation: `${flashIn} ${MOMENT_FLASH_MS}ms ease-in-out forwards`,
+                // Under reduced motion, the global policy would collapse this to
+                // 0s and `forwards` would leave it hidden; skip the animation and
+                // stay visible (the timer above dismisses it) so the callout is
+                // seen at all. transform keeps it centred without the scale-in.
+                ...(prefersReducedMotion
+                  ? { transform: 'translate(-50%, -50%)' }
+                  : { animation: `${flashIn} ${MOMENT_FLASH_MS}ms ease-in-out forwards` }),
               }}
             >
               <Typography

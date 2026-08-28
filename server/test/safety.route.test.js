@@ -287,7 +287,11 @@ test('POST /hide of an already-hidden message: idempotent 200, no re-hide', asyn
 // so the served-key assertion is non-vacuous.
 const MODERATION_ALLOWED_KEYS = [
   'id',
+  'contentKind',
   'originalMessage',
+  'originalGifProvider',
+  'originalGifAssetId',
+  'originalGifDescription',
   'reason',
   'hiddenAt',
   'createdAt',
@@ -297,7 +301,11 @@ const MODERATION_ALLOWED_KEYS = [
 
 const leakyModerationRow = (over = {}) => ({
   id: 55,
+  contentKind: 'text',
   originalMessage: 'you are worthless',
+  originalGifProvider: null,
+  originalGifAssetId: null,
+  originalGifDescription: null,
   reason: 'targeted harassment',
   hiddenAt: '2026-09-01T01:00:00.000Z',
   createdAt: '2026-09-01T00:00:00.000Z',
@@ -347,15 +355,22 @@ test('GET /moderations as commissioner: original content + reason + timestamp, a
   assert.match(historyQuery.text, /"cm"\."hidden_at" IS NOT NULL/);
 });
 
-test('GET /moderations preserves structured (GIF-shaped) content opaquely (#441 AC1)', async (t) => {
-  // A structured GIF message is stored as its own content shape; the history
-  // must preserve it byte-for-byte, making no text-only assumption. GIF messages
-  // themselves land in #446 (blocked behind this issue); moderation is built to
-  // handle their content shape in advance.
-  const structured = JSON.stringify({ kind: 'gif', assetId: 'abc123', description: 'a spinning football' });
+test('GET /moderations records WHAT was hidden for a GIF: asset id and description, not a null caption (#446)', async (t) => {
+  // A hidden GIF message must not blind the audit. Its caption (originalMessage)
+  // is optional and here null, so the asset id and the description - the content
+  // that was actually removed - are what the reviewer needs. They are projected
+  // deliberately into the #378 allowlist. The MEMBER feed still tombstones all
+  // three (leagueFeed.feedEntryOf); this reviewer-only history is the single
+  // place the original GIF content survives.
   createFakePool([
     commissionerCheckFake({ isCommissioner: true }),
-    [select('chat_messages'), () => ({ rows: [leakyModerationRow({ originalMessage: structured })] })],
+    [select('chat_messages'), () => ({ rows: [leakyModerationRow({
+      contentKind: 'gif',
+      originalMessage: null, // a captionless GIF
+      originalGifProvider: 'fake',
+      originalGifAssetId: 'abc123',
+      originalGifDescription: 'a spinning football',
+    })] })],
   ]).install(t);
 
   const res = await request(app)
@@ -363,7 +378,14 @@ test('GET /moderations preserves structured (GIF-shaped) content opaquely (#441 
     .set('Authorization', authed(COMMISSIONER));
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.equal(res.body[0].originalMessage, structured, 'structured content preserved unchanged');
+  const [row] = res.body;
+  assert.equal(row.contentKind, 'gif');
+  assert.equal(row.originalMessage, null, 'the caption was absent');
+  assert.equal(row.originalGifAssetId, 'abc123', 'the audit records the hidden asset');
+  assert.equal(row.originalGifDescription, 'a spinning football', 'the audit records the hidden description');
+  // Still only the allowlisted keys; the gif fields are added on purpose, no
+  // raw column rode along.
+  assert.deepEqual(Object.keys(row).sort(), MODERATION_ALLOWED_KEYS);
 });
 
 test('GET /moderations reads a departed author back as null Team identity, no crash', async (t) => {

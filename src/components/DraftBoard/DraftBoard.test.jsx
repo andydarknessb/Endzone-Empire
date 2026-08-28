@@ -19,6 +19,15 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
+// The readiness announcer (#164) is no longer the only role=status region in
+// the Draft room: the composer's character counter (#486) mounts its own polite
+// status region, and the countdown (#117) mounts one when a draft date is set.
+// So a bare getByRole('status') is ambiguous - the invariant this file cares
+// about is the readiness region specifically, identified by its text, exactly as
+// the "only readiness announcement" test below already does.
+const readinessAnnouncer = () =>
+  screen.getAllByRole('status').find((region) => /managers? ready/.test(region.textContent));
+
 /**
  * A controllable fake socket: captures .on() handlers so tests can fire them,
  * and answers `draft:join` the way the server does.
@@ -34,6 +43,11 @@ function makeFakeSocket() {
   const socket = {
     viewerTeamId: null,
     isCommissioner: false,
+    // The GIF-message capability the server answers on the same per-viewer join
+    // ack (#516, #446 AC7). A test that wants the Draft-room composer sets this
+    // and connects, exactly as it does for isCommissioner; off by default so the
+    // picker stays absent unless a test asks for it.
+    gifMessagesEnabled: false,
     // A socket is an EventEmitter: more than one consumer can listen for the
     // same event on one session. Since #435 the draft board (advance the clock,
     // land the pick) and the combined feed (append the Pick activity) both
@@ -62,7 +76,12 @@ function makeFakeSocket() {
     },
     emit: jest.fn((event, payload, ack) => {
       if (event === 'draft:join' && typeof ack === 'function') {
-        ack({ ok: true, viewerTeamId: socket.viewerTeamId, isCommissioner: socket.isCommissioner });
+        ack({
+          ok: true,
+          viewerTeamId: socket.viewerTeamId,
+          isCommissioner: socket.isCommissioner,
+          gifMessagesEnabled: socket.gifMessagesEnabled,
+        });
       }
     }),
     disconnect: jest.fn(),
@@ -82,12 +101,14 @@ function makeFakeSocket() {
  * acknowledgement before it sends the first snapshot, so this always runs
  * before a `draft:state` trigger.
  */
-const connectAsTeam = (teamId, { isCommissioner = false } = {}) => {
+const connectAsTeam = (teamId, { isCommissioner = false, gifMessagesEnabled = false } = {}) => {
   fakeSocket.viewerTeamId = teamId;
   // Set on every connect, never left standing from an earlier one: one test
   // can render the room twice off the same fake socket, and a role that
   // leaked from the first render would answer for the second.
   fakeSocket.isCommissioner = isCommissioner;
+  // The capability travels the same way, re-answered on every connect (#516).
+  fakeSocket.gifMessagesEnabled = gifMessagesEnabled;
   act(() => fakeSocket.trigger('connect'));
 };
 
@@ -137,13 +158,17 @@ const renderBoardWithToasts = (leagueId = 1, state) =>
   );
 
 /**
- * Pick history left the rail for the Board (issue #123 acceptance criterion
- * 5), where it is a collapsible chronological view of the same committed
- * Picks the matrix is built from. Anything that asserts on history opens the
- * Board tab and expands it first, exactly as a manager would.
+ * Pick history lives inside the Board (issue #123 acceptance criterion 5),
+ * where it is a collapsible chronological view of the same committed Picks the
+ * matrix is built from. Anything that asserts on history shows the Board first
+ * and expands it, exactly as a manager would. On a wide container (the unit
+ * tests' default) the Board is the left pane, selected by its Players/Board
+ * toggle button rather than a tab (#444).
  */
+const showBoard = () => userEvent.click(screen.getByRole('button', { name: 'Board' }));
+
 const openPickHistory = async () => {
-  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  await showBoard();
   const trigger = screen.getByRole('button', { name: 'Pick history' });
   if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
 };
@@ -505,10 +530,12 @@ test('a draft:picked event with draftComplete shows the completion banner and ma
   // And the manager is NOT relocated. The draft completing in front of
   // someone is the moment they are most engaged with what they are reading,
   // and useDraftSocket flips draft_status in place on this frame - so a
-  // completed-draft default keyed on the status alone would swap the
-  // workspace out from under them here. It opens the Board on arrival only.
-  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  // completed-draft default keyed on the status alone would swap the left pane
+  // to the Board from under them here. It opens the Board on arrival only. On
+  // a wide container the left pane stays on Players (its own region present,
+  // the Board's absent).
   expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft Board' })).not.toBeInTheDocument();
 });
 
 test('a draft that is already complete when the room opens lands on the Board', async () => {
@@ -525,13 +552,17 @@ test('a draft that is already complete when the room opens lands on the Board', 
     })
   );
 
-  expect(screen.getByRole('tab', { name: 'Board', selected: true })).toBeInTheDocument();
+  // On a wide container the completed-draft default puts the Board in the left
+  // pane: its toggle is pressed and the Board's own region is present.
+  expect(screen.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
 });
 
 test('an explicit ?view= wins over the completed-draft default', async () => {
   // The first guard clause. Someone who asked for a view in the URL keeps it,
-  // even on a draft that is already complete when the room opens.
+  // even on a draft that is already complete when the room opens. ?view=draft
+  // is not the Board, so on a wide container the left pane stays on Players
+  // rather than being moved to the Board by the completed-draft default.
   renderWithProviders(<DraftBoard />, {
     path: '/league/:leagueId/draft',
     route: '/league/1/draft?view=draft',
@@ -548,19 +579,21 @@ test('an explicit ?view= wins over the completed-draft default', async () => {
     })
   );
 
-  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft Board' })).not.toBeInTheDocument();
 });
 
-test('a tab the manager clicked is never overridden afterwards', async () => {
+test('a pane the manager chose is never overridden afterwards', async () => {
   // The second guard clause, and the one the ref exists for: a deliberate
-  // choice outranks the default even before the status is known.
+  // choice outranks the default even before the status is known. On a wide
+  // container the choice is the left pane's Players/Board toggle; a manager
+  // who has switched it back to Players keeps Players when the draft completes.
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsTeam(1);
 
-  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
-  await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Board' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Players' }));
 
   act(() =>
     fakeSocket.trigger('draft:state', {
@@ -571,7 +604,8 @@ test('a tab the manager clicked is never overridden afterwards', async () => {
     })
   );
 
-  expect(screen.getByRole('tab', { name: 'Draft', selected: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Draft Board' })).not.toBeInTheDocument();
 });
 
 test('a draft:complete event alone also shows the completion banner', async () => {
@@ -592,6 +626,138 @@ test('an error acknowledgment from draft:join is surfaced as an alert', async ()
   act(() => ack({ error: 'you are not in this league' }));
 
   expect(await screen.findByText('you are not in this league')).toBeInTheDocument();
+});
+
+// ---------------------------------------------------------------------------
+// #534: league chat mounts ONLY for a confirmed member. Three states, not the
+// old "socket exists" boolean: UNKNOWN (before the join ack) mounts nothing and
+// issues no feed request; MEMBER mounts the feed/composer/moderation; NON_MEMBER
+// shows one explicit message. NOT_A_MEMBER is the sole authority (matched on the
+// code), and it can arrive on the join, on chat:send, or as a 403 from the feed.
+// ---------------------------------------------------------------------------
+
+describe('league chat is gated on confirmed membership (#534)', () => {
+  const activeState = {
+    league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
+    teams: [{ teamId: 1, teamName: 'Team A' }],
+    picks: [],
+    onTheClock: { teamId: 1, teamName: 'Team A' },
+  };
+
+  test('AC1: before the join ack decides, no chat mounts and no combined-feed request is issued', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+
+    // The socket is created on mount, so the OLD `socket ?` gate would already
+    // have mounted the log and composer here. Membership is UNKNOWN, so no member
+    // log/composer and no non-member surface are shown...
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Chat composer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+    // ...and, crucially, a request that would 403 for a non-member never left.
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/draft-feed'));
+    // But the pane is not blank (a11y finding 4): a connecting placeholder shows,
+    // so a mobile manager landing on the Chat tab does not see a broken page.
+    expect(screen.getByTestId('draft-chat-connecting')).toBeInTheDocument();
+  });
+
+  test('AC2: a confirmed member gets the chat feed, composer and Send, and the feed read fires', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2); // a member whose Team is not the one on the clock
+    act(() => fakeSocket.trigger('draft:state', activeState));
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+    // The positive half of AC1: a confirmed member DOES issue the feed read.
+    expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/draft-feed');
+  });
+
+  test('AC3: an initial NOT_A_MEMBER refusal shows one explicit message and mounts no log, composer, Send or moderation, and issues no feed request', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    // The join's ONLY acknowledgement is the refusal - an initial non-member,
+    // never a member first. Discriminated on the code, never the message text.
+    fakeSocket.emit = jest.fn((event, payload, ack) => {
+      if (event === 'draft:join' && typeof ack === 'function') {
+        ack({ error: 'you are not in this league', code: 'NOT_A_MEMBER' });
+      }
+    });
+    act(() => fakeSocket.trigger('connect'));
+
+    expect(await screen.findByTestId('draft-chat-non-member'))
+      .toHaveTextContent('League chat is available to league members only.');
+    // The log, composer, Send and moderation are all absent (AC3)...
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Chat composer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+    // ...but the section + h2 "League Chat" shell stays, so a heading-navigation
+    // user still finds chat where it was rather than a gap (a11y finding 2).
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/draft-feed'));
+  });
+
+  test('AC4: a confirmed member who gets a 403 from the member-only feed moves to the non-member surface without a reload', async () => {
+    // The commissioner-removes-a-manager-mid-draft case, feed channel: the feed
+    // route checks membership before it reads anything and answers 403.
+    apiClient.get.mockImplementation((url) =>
+      String(url).includes('/draft-feed')
+        ? Promise.reject({ response: { status: 403 } })
+        : Promise.resolve(playersPage())
+    );
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+
+    expect(await screen.findByTestId('draft-chat-non-member')).toBeInTheDocument();
+    // The member log and composer are gone, but the section + h2 shell stays
+    // (a11y finding 2), so this asserts the controls' absence, not the heading's.
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+  });
+
+  test('AC5: a JOIN_FAILED refusal on a reconnect leaves a confirmed member their chat and only surfaces the error', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+    expect(await screen.findByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+
+    // A transient refusal on the next join must not strip a genuine member of
+    // chat - it fails in the direction that only looks like caution.
+    refuseJoin('failed to join draft room', 'JOIN_FAILED');
+
+    expect(await screen.findByText('failed to join draft room')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+  });
+
+  test('a11y: a mid-session revocation hands focus to the non-member surface, never to the body', async () => {
+    // The same standard the room holds when a commissioner's Hide button is torn
+    // out by a socket broadcast (draft-accessibility.spec.ts): a teardown must
+    // hand focus somewhere deliberate. Here the composer is removed from under a
+    // member; focus must land on the explicit non-member surface, not <body>.
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+
+    const composer = await screen.findByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Removed mid-draft: the next join re-ack is NOT_A_MEMBER. The composer
+    // unmounts and the membership edge fires the rescue (signal is arrangement
+    // AND membership, so a membership change triggers it just like a pane flip).
+    refuseJoin('you are not in this league', 'NOT_A_MEMBER');
+
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toHaveFocus();
+  });
 });
 
 test('an error acknowledgment from draft:pick is surfaced as an alert', async () => {
@@ -1241,32 +1407,44 @@ test('Pause Draft POSTs the toggled paused flag for the commissioner during an a
   );
 });
 
-test('commissioner confirms undo before posting the last-pick rollback', async () => {
+test('commissioner corrects the latest pick with a reason, posting the confirmed pick number (#439)', async () => {
   renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');
   connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
-    picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false }],
+    picks: [{ pick_number: 1, teamId: 5, teamName: "Bob's Team", player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: false }],
   })));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Undo last pick' }));
-  expect(screen.getByText('Undo last pick?')).toBeInTheDocument();
-  expect(apiClient.post).not.toHaveBeenCalledWith('/api/draft/league/1/undo', { count: 1 });
-  await userEvent.click(screen.getByRole('button', { name: 'Undo pick' }));
-  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/undo', { count: 1 }));
-  expect(await screen.findByText('Last pick undone')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Correct latest Pick' }));
+  const dialog = screen.getByRole('dialog');
+  // Names the Pick, Team and player being reversed (#439 AC4).
+  expect(within(dialog).getByText(/Pick 1/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Bob's Team/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Josh Allen/)).toBeInTheDocument();
+
+  // No premature POST while the reason is still missing.
+  expect(apiClient.post).not.toHaveBeenCalledWith('/api/draft/league/1/correct-pick', expect.anything());
+
+  await userEvent.type(within(dialog).getByRole('textbox', { name: /reason/i }), 'wrong team entered, correcting before we resume');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Correct pick' }));
+
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/correct-pick', {
+    pickNumber: 1,
+    reason: 'wrong team entered, correcting before we resume',
+  }));
+  expect(await screen.findByText('Latest pick corrected; draft paused')).toBeInTheDocument();
 });
 
-test('undo is disabled when the most recent reached pick is a keeper', async () => {
+test('Correct latest Pick is disabled when the most recent reached pick is a keeper', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsCommissioner();
   act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99, current_pick: 1 }), {
-    picks: [{ pick_number: 1, player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: true }],
+    picks: [{ pick_number: 1, teamId: 5, teamName: "Bob's Team", player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', is_keeper: true }],
   })));
 
-  expect(screen.getByRole('button', { name: 'Undo last pick' })).toBeDisabled();
-  expect(screen.getByText('Keeper picks cannot be undone.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Correct latest Pick' })).toBeDisabled();
+  expect(screen.getByText('Keeper picks cannot be corrected.')).toBeInTheDocument();
 });
 
 test('reset draft requires the exact league name before calling the destructive endpoint', async () => {
@@ -1310,7 +1488,7 @@ test('a pending-draft member can toggle readiness and sees the league readiness 
     onTheClock: null,
   })));
 
-  expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
+  expect(readinessAnnouncer()).toHaveTextContent('1 of 2 managers ready');
   // One of two is at or below half, so the ready Team is the exception worth
   // naming and it sits behind a disclosure rather than in a chip per Team
   // (issue #124). The whole path is exercised here - league teams through the
@@ -1782,7 +1960,7 @@ test('renders the league’s own 12 starter / 7 bench / 1 IR shape across rail a
   // The draft runs 19 rounds for 12 starters + 7 bench; the IR slot is not
   // drafted, so there is nothing to warn about (#96).
   expect(screen.queryByText(/This draft runs/)).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+  await showBoard();
   expect(screen.getByRole('rowheader', { name: '19' })).toBeInTheDocument();
   expect(screen.queryByRole('rowheader', { name: '20' })).not.toBeInTheDocument();
 });
@@ -1894,7 +2072,7 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
   // keeps working. The element it matches is now the Draft room's
   // ReadinessAnnouncer rather than the rail's own line, which #164 stripped
   // role/aria-live from - same invariant, different element.
-  expect(screen.getByRole('status')).toHaveTextContent('1 of 2 managers ready');
+  expect(readinessAnnouncer()).toHaveTextContent('1 of 2 managers ready');
 });
 
 // ---------------------------------------------------------------------------
@@ -2005,44 +2183,51 @@ describe('accessible structure', () => {
 });
 
 /**
- * Put the describe that calls this below the medium breakpoint.
- *
- * The matchMedia-mock convention used elsewhere in this codebase (see
- * PlayerQuickView.test.jsx, PowerRankings.test.jsx): jsdom has no real
- * media-query engine, so every query the component asks resolves to this one
- * flag regardless of its breakpoint text. Its absence is how this file says
- * "desktop" - MUI's useMediaQuery falls back to false without it.
+ * Put the describe that calls this on a NARROW container (#444 acceptance
+ * criterion 3). The Draft room chooses panes vs tabs from its own measured
+ * CONTAINER width (useContainerWidth), not a window media query. jsdom has no
+ * layout engine and reports width 0 for every element, which the room reads as
+ * wide (the default), so stubbing getBoundingClientRect to a narrow width is
+ * how this file now says "narrow" - the room then collapses its three panes
+ * into the Chat/Players/Board/Draft tabs. jsdom defines no ResizeObserver, so
+ * the width measured once on attach is all these tests need.
  */
-const mockMobileViewport = () => {
+const mockNarrowContainer = () => {
+  let originalGetBoundingClientRect;
   beforeEach(() => {
-    window.matchMedia = jest.fn().mockImplementation((query) => ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-      dispatchEvent: jest.fn(),
-    }));
+    originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      return {
+        width: 500, height: 0, top: 0, left: 0, right: 500, bottom: 0, x: 0, y: 0, toJSON() {},
+      };
+    };
   });
   afterEach(() => {
-    delete window.matchMedia;
+    Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
   });
 };
 
 // ---------------------------------------------------------------------------
-// Mobile tab-card layout (issue #122): below the medium breakpoint, three
-// persistent tabs (Players/Board/Draft) replace desktop's dual-pane
-// workspace, each its own single scroll region.
+// Narrow-container tab layout (#444 acceptance criterion 2): below the pane
+// threshold, four persistent tabs (Chat/Players/Board/Draft) replace the
+// three-pane workspace, each its own single scroll region, and Chat is the tab
+// the room opens on. Supersedes the #122/#123 Players-first three-tab layout.
 // ---------------------------------------------------------------------------
 
-describe('mobile layout (issue #122)', () => {
-  mockMobileViewport();
+describe('narrow container layout (#444)', () => {
+  mockNarrowContainer();
 
-  const showMobileActiveDraft = async () => {
+  const showNarrowActiveDraft = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
-    await screen.findByText('Patrick Mahomes');
+    // The tabs exist only once the room is narrow and loaded; the Chat tab is
+    // the settled signal, and is also the tab the room opens on.
+    await screen.findByRole('tab', { name: 'Chat' });
+    // Connect as a CONFIRMED member (#534): league chat mounts only for one, so
+    // the Chat tab lands on the real feed rather than the non-member surface.
+    // The viewer holds Team 2, which is NOT the Team on the clock (Team A,
+    // teamId 1), so the banner still reads "Team A is on the clock" rather than
+    // "Your pick!" - the phrasing these tests depend on.
+    connectAsTeam(2);
     act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
       teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],
@@ -2050,19 +2235,29 @@ describe('mobile layout (issue #122)', () => {
     })));
   };
 
-  test('exposes persistent Players, Board, and Draft tabs, in that order, landing on Players', async () => {
-    await showMobileActiveDraft();
+  test('exposes persistent Chat, Players, Board, and Draft tabs, in that order, landing on Chat', async () => {
+    await showNarrowActiveDraft();
 
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['Players', 'Board', 'Draft']);
-    expect(screen.getByRole('tab', { name: 'Players' })).toHaveAttribute('aria-selected', 'true');
-    // The player pool renders by default - no tab switch needed.
+    expect(tabs).toEqual(['Chat', 'Players', 'Board', 'Draft']);
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    // The Chat feed is the centerpiece the room opens on; the pool is not
+    // mounted until its own tab is chosen (a single region at a time).
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.queryByText('Patrick Mahomes')).not.toBeInTheDocument();
+  });
+
+  test('the Players tab shows the pool and not the rail - a single region at a time', async () => {
+    await showNarrowActiveDraft();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
     expect(screen.queryByText('My Queue')).not.toBeInTheDocument();
   });
 
   test('the Draft tab shows the rail and not the player pool - a single region at a time', async () => {
-    await showMobileActiveDraft();
+    await showNarrowActiveDraft();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
 
@@ -2071,7 +2266,7 @@ describe('mobile layout (issue #122)', () => {
   });
 
   test('the Board tab shows the matrix and not the player pool or the rail', async () => {
-    await showMobileActiveDraft();
+    await showNarrowActiveDraft();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
 
@@ -2080,8 +2275,11 @@ describe('mobile layout (issue #122)', () => {
     expect(screen.queryByText('My Queue')).not.toBeInTheDocument();
   });
 
-  test('on-the-clock information (LiveDraftBanner) stays visible across every mobile tab', async () => {
-    await showMobileActiveDraft();
+  test('on-the-clock information (LiveDraftBanner) stays visible across every tab', async () => {
+    await showNarrowActiveDraft();
+    expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
     expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
@@ -2092,10 +2290,72 @@ describe('mobile layout (issue #122)', () => {
   });
 
   test('renders player cards, not a table, on the Players tab', async () => {
-    await showMobileActiveDraft();
+    await showNarrowActiveDraft();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
+  });
+
+  test('the selected tab controls a tabpanel named by that tab (#445 AC1)', async () => {
+    await showNarrowActiveDraft();
+
+    // The panel is a tabpanel, named by the selected tab (aria-labelledby), and
+    // the tab points back at it (aria-controls) - so a reader hears "Chat, tab
+    // panel" and can move between the two.
+    const chatTab = screen.getByRole('tab', { name: 'Chat' });
+    const chatPanel = screen.getByRole('tabpanel', { name: 'Chat' });
+    expect(chatTab).toHaveAttribute('aria-controls', chatPanel.getAttribute('id'));
+    expect(chatPanel).toHaveAttribute('aria-labelledby', chatTab.getAttribute('id'));
+
+    // Only the SELECTED tab may carry aria-controls: only its panel is rendered,
+    // so the other three would point at ids that do not exist (a dangling
+    // aria-controls / aria-valid-attr-value violation). Assert they have none.
+    for (const name of ['Players', 'Board', 'Draft']) {
+      expect(screen.getByRole('tab', { name })).not.toHaveAttribute('aria-controls');
+    }
+
+    // Switching tabs renames the panel to the newly selected tab, and moves the
+    // aria-controls with the selection.
+    await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    const boardTab = screen.getByRole('tab', { name: 'Board' });
+    expect(screen.getByRole('tabpanel', { name: 'Board' })).toBeInTheDocument();
+    expect(screen.queryByRole('tabpanel', { name: 'Chat' })).not.toBeInTheDocument();
+    expect(boardTab).toHaveAttribute('aria-controls', 'draft-tabpanel-board');
+    expect(screen.getByRole('tab', { name: 'Chat' })).not.toHaveAttribute('aria-controls');
+  });
+
+  test('selecting a tab keeps focus on the tab, and one Tab press reaches its panel (#445 AC4)', async () => {
+    await showNarrowActiveDraft();
+
+    const boardTab = screen.getByRole('tab', { name: 'Board' });
+    await userEvent.click(boardTab);
+    // The standard tabs pattern: focus stays on the chosen tab...
+    expect(boardTab).toHaveFocus();
+
+    // ...and the panel is the very next thing in the tab order (tabIndex 0).
+    await userEvent.tab();
+    expect(screen.getByRole('tabpanel', { name: 'Board' })).toHaveFocus();
+  });
+
+  test('a completed draft opens on the Board tab, the one exception to Chat-first', async () => {
+    // A finished draft is a record, so it opens on the Board on both layouts
+    // (issue #123 criterion 4). This is the single intentional exception to
+    // #444's Chat-first default: Chat is still a tab away, just not the landing.
+    renderBoard(1);
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'complete' },
+      teams: [{ teamId: 1, teamName: 'Team A', draft_position: 1 }],
+      picks: [],
+      onTheClock: null,
+    }));
+
+    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
   });
 });
 
@@ -2113,11 +2373,11 @@ describe('mobile layout (issue #122)', () => {
 // ---------------------------------------------------------------------------
 
 describe('readiness live region (issue #164)', () => {
-  // The mobile/tablet layout is the one that mounts a single region per tab
-  // (issue #122 / PR #158), so it is the layout that unmounted the rail - and
-  // the live region inside it - on every switch. The one desktop test below
-  // opts back out.
-  mockMobileViewport();
+  // The narrow tab layout is the one that mounts a single region per tab, so
+  // it is the layout that unmounts the rail - and would have unmounted a live
+  // region inside it - on every switch. The wide-container case is its own
+  // describe below.
+  mockNarrowContainer();
 
   /** A pending lobby whose viewer holds Team A, with Team B ready: Readiness
    * composes into `pending` alone (railComposition.js) and the panel renders
@@ -2125,7 +2385,7 @@ describe('readiness live region (issue #164)', () => {
    * speaks in. */
   const showPendingLobby = async (leagueOverrides = {}) => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
-    await screen.findByText('Patrick Mahomes');
+    await screen.findByRole('tab', { name: 'Chat' });
     connectAsTeam(1);
     act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending', ...leagueOverrides }), {
       teams: [
@@ -2136,30 +2396,30 @@ describe('readiness live region (issue #164)', () => {
     })));
   };
 
-  test('is the same DOM node before and after switching mobile tabs away and back', async () => {
+  test('is the same DOM node before and after switching narrow tabs away and back', async () => {
     await showPendingLobby();
 
-    const before = screen.getByRole('status');
+    const before = readinessAnnouncer();
     expect(before).toHaveTextContent('1 of 2 managers ready');
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
     // Present on a tab that does not render the rail at all - which is the
     // point: the region does not belong to the rail any more.
-    expect(screen.getByRole('status')).toBe(before);
+    expect(readinessAnnouncer()).toBe(before);
 
     await userEvent.click(screen.getByRole('tab', { name: 'Draft' }));
-    expect(screen.getByRole('status')).toBe(before);
+    expect(readinessAnnouncer()).toBe(before);
 
-    // And back to the tab the room opened on, which is the switch the issue
-    // describes: "the rail is rendered only while the players tab is active".
-    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
-    expect(screen.getByRole('status')).toBe(before);
+    // And back to the tab the room opened on (Chat, #444), the switch the
+    // issue describes: the rail is rendered only while the Draft tab is active.
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+    expect(readinessAnnouncer()).toBe(before);
     expect(before).toHaveTextContent('1 of 2 managers ready');
   });
 
   test('updates its text in place when readiness changes while the rail is unmounted', async () => {
     await showPendingLobby();
-    const region = screen.getByRole('status');
+    const region = readinessAnnouncer();
 
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
     expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
@@ -2174,7 +2434,7 @@ describe('readiness live region (issue #164)', () => {
 
     // Same node, new text: a change to a region already being observed, which
     // is the shape assistive technology announces.
-    expect(screen.getByRole('status')).toBe(region);
+    expect(readinessAnnouncer()).toBe(region);
     expect(region).toHaveTextContent('2 of 2 managers ready');
   });
 
@@ -2196,32 +2456,350 @@ describe('readiness live region (issue #164)', () => {
     expect(visibleCount).not.toHaveAttribute('aria-live');
     expect(visibleCount).not.toHaveAttribute('role', 'status');
   });
+});
 
-  test('persists across the desktop Board tab too, where the rail is also unmounted', async () => {
-    // The issue records desktop as unaffected because the rail is always
-    // mounted there. It is not: `desktopRailColumn` appears only in the
-    // isComplete branch, so the Board tab of a draft that is not yet complete
-    // renders the matrix alone, with no rail column beside it, and desktop
-    // lost the region on that switch exactly as mobile did. Removing
-    // matchMedia is how this file says "desktop" - MUI's useMediaQuery falls
-    // back to false without it.
-    delete window.matchMedia;
-    await showPendingLobby();
+// ---------------------------------------------------------------------------
+// GIF composition survives the real narrow-tab unmount (#524, acceptance
+// criterion 5). The restore MECHANISM is proven fast and focused at the
+// ChatPanel level (ChatConversation.test.jsx, useComposerDraft.test.js); this
+// proves the Draft ROOM actually exercises it - that the room's own tab switch
+// unmounts the chat subtree and the composition comes back across THAT, not a
+// hand-driven unmount. It follows the readiness-region precedent above (the
+// same-DOM-node-across-a-narrow-tab-switch test) but asserts restoration of
+// state rather than node identity: the whole subtree is deliberately destroyed
+// and rebuilt here, so a node-identity check would be the wrong instrument.
+//
+// Every helper below is block-scoped inside this describe on purpose: nothing is
+// added at module scope, so it cannot collide with a sibling IC editing the same
+// file near the width stub.
+// ---------------------------------------------------------------------------
+describe('GIF composition survives a narrow Chat-tab unmount (#524 AC5)', () => {
+  mockNarrowContainer();
 
-    // Proof this test ran where it says it ran. Desktop composes two tabs,
-    // Draft and Board; Players is mobile's alone. Without this the whole test
-    // passes under the mobile mock as well - every other assertion in it is
-    // true at both breakpoints, since mobile's Board tab also drops the rail
-    // and a tab named Board exists either way. That would leave the one test
-    // pinning this correction to the issue unable to tell which layout it was
-    // exercising.
-    expect(screen.queryByRole('tab', { name: 'Players' })).not.toBeInTheDocument();
+  // eslint-disable-next-line global-require
+  const { registerGifProvider: gifPersist524Register, clearGifProviders: gifPersist524Clear } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID: GIF_PERSIST_524_PROVIDER, fakeGifResolver: gifPersist524Resolver } = require('../../lib/gifProviderFake');
 
-    const before = screen.getByRole('status');
+  beforeEach(() => gifPersist524Register(GIF_PERSIST_524_PROVIDER, gifPersist524Resolver));
+  afterEach(() => {
+    gifPersist524Clear();
+    window.sessionStorage.clear();
+  });
+
+  // The room opens on Chat (#444), narrow, with the GIF capability answered on
+  // the join ack and an account id in the store so the composer draft is scoped
+  // (leagueId 1, account 5).
+  const gifPersist524ShowNarrowChatWithGif = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1, { gifMessagesEnabled: true });
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [{ teamId: 1, teamName: 'Team A' }, { teamId: 2, teamName: 'Team B' }],
+      picks: [],
+      onTheClock: { teamId: 1, teamName: 'Team A' },
+    })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('filling the GIF composer, switching to Board and back, restores the composition', async () => {
+    await gifPersist524ShowNarrowChatWithGif();
+
+    // Fill a partial GIF composition on the Chat tab.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+    await userEvent.type(screen.getByLabelText(/description/i), 'a cat knocking a cup');
+    await userEvent.type(screen.getByLabelText(/caption/i), 'me at 3pm');
+
+    // Switch to the Board tab: on a narrow container only the active tab's region
+    // is mounted, so this genuinely UNMOUNTS the chat subtree (the composer with
+    // it). Prove that, so the restoration below is across a real unmount.
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
+    expect(screen.queryByRole('heading', { level: 2, name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
 
-    expect(screen.queryByRole('region', { name: 'Readiness' })).not.toBeInTheDocument();
-    expect(screen.getByRole('status')).toBe(before);
+    // Back to Chat: the subtree remounts and the composition is restored, with
+    // the panel reopened because the stored composition is non-empty.
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a cat knocking a cup');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('me at 3pm');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wide-container three-pane layout (#444 acceptance criterion 1): Players or
+// Board on the left, the largest Chat/activity feed in the centre, and the
+// status-dependent rail on the right, all visible at once (no tabs). The unit
+// tests' default zero-width measurement reads as wide.
+// ---------------------------------------------------------------------------
+
+describe('wide container three-pane layout (#444)', () => {
+  const showWideActiveDraft = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [{ teamId: 1, teamName: 'Team A' }, { teamId: 2, teamName: 'Team B' }],
+      picks: [],
+      onTheClock: { teamId: 1, teamName: 'Team A' },
+    })));
+    // The feed rides the room's session, so its heading is the settled signal.
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('shows Players (left), the Chat feed (centre) and the rail (right) at once, each a named region, with no tabs', async () => {
+    await showWideActiveDraft();
+
+    // All three panes are present simultaneously: the centerpiece Chat is not
+    // hidden behind a tab, and the pool and rail sit beside it.
+    expect(screen.getByRole('region', { name: 'Available Players' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Chat and Draft activity' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Draft rail' })).toBeInTheDocument();
+    expect(screen.getByText('My Queue')).toBeInTheDocument();
+    expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
+
+    // A wide container has no tab bar; the left pane is chosen by a toggle, and
+    // Players is the pane the room opens on.
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Players' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('the left-pane toggle swaps Players for the Board while Chat and the rail stay put', async () => {
+    await showWideActiveDraft();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Board' }));
+
+    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Available Players' })).not.toBeInTheDocument();
+    // The centerpiece and the rail are unaffected by the left-pane choice.
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Draft rail' })).toBeInTheDocument();
+  });
+
+  test('the combined feed is the centre pane, no longer tucked inside the rail', async () => {
+    await showWideActiveDraft();
+
+    const rail = screen.getByRole('region', { name: 'Draft rail' });
+    const chat = screen.getByRole('region', { name: 'League Chat' });
+    // Chat is its own pane beside the rail, not a descendant of it (#444): the
+    // feed was promoted out of the rail to be the centerpiece.
+    expect(rail).not.toContainElement(chat);
+  });
+
+  // #516: the Draft-room GIF composer is gated on the SAME draft:join ack
+  // gifMessagesEnabled the board already reads for isCommissioner. The board's
+  // only job is to thread that capability through to DraftRoomChat, so these two
+  // prove the wire end to end: the ack decides, the composer appears (or not).
+  const showWideActiveDraftWithGif = async (gifMessagesEnabled) => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1, { gifMessagesEnabled });
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [{ teamId: 1, teamName: 'Team A' }, { teamId: 2, teamName: 'Team B' }],
+      picks: [],
+      onTheClock: { teamId: 1, teamName: 'Team A' },
+    })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('with the ack capability OFF, the Draft-room GIF composer is absent (AC1)', async () => {
+    await showWideActiveDraftWithGif(false);
+    expect(screen.queryByTestId('gif-picker-trigger')).not.toBeInTheDocument();
+    // Text composition is unaffected.
+    expect(screen.getByLabelText('Message')).toBeInTheDocument();
+  });
+
+  test('with the ack capability ON, the board threads it through and the GIF composer appears (AC2)', async () => {
+    await showWideActiveDraftWithGif(true);
+    expect(screen.getByTestId('gif-picker-trigger')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Layout-flip focus rescue (#525): crossing the pane threshold remounts the
+// whole region subtree, so a manager focused inside it lost focus to <body>.
+// These are the ONLY room tests that FLIP a single mount across the threshold;
+// every other room/composer test lives inside one arrangement and is
+// structurally blind to a focus-loss-on-remount defect.
+//
+// jsdom has no layout engine or ResizeObserver, so flip525* stubs a mutable
+// container width behind getBoundingClientRect and a controllable
+// ResizeObserver; flip525Resize(width) sets the width and fires the observer,
+// re-measuring useContainerWidth inside act() exactly as a real resize would.
+// Named distinctively (flip525*) so nothing added at module scope here can
+// collide with a concurrently-merged helper (the DraftBoard.test.jsx sharing
+// hazard: two same-named module consts merge clean, then fail the build).
+const flip525State = { width: 1200, observers: new Set() };
+const FLIP525_NARROW = 500; // < DRAFT_PANE_MIN_WIDTH (960) -> tabs
+const FLIP525_WIDE = 1200; //  >= 960 -> three panes
+const flip525InstallResizableContainer = () => {
+  let originalGetBoundingClientRect;
+  let originalResizeObserver;
+  beforeEach(() => {
+    flip525State.width = FLIP525_WIDE; // every flip test mounts WIDE first
+    flip525State.observers = new Set();
+    originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function flip525Rect() {
+      const w = flip525State.width;
+      return {
+        width: w, height: 0, top: 0, left: 0, right: w, bottom: 0, x: 0, y: 0, toJSON() {},
+      };
+    };
+    originalResizeObserver = global.ResizeObserver;
+    global.ResizeObserver = class Flip525ResizeObserver {
+      constructor(cb) { this.cb = cb; flip525State.observers.add(cb); }
+
+      observe() {}
+
+      disconnect() { flip525State.observers.delete(this.cb); }
+    };
+  });
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+    global.ResizeObserver = originalResizeObserver;
+  });
+};
+const flip525Resize = (width) => {
+  flip525State.width = width;
+  act(() => { flip525State.observers.forEach((cb) => cb()); });
+};
+
+describe('layout flip hands focus somewhere deliberate, never to the body (#525)', () => {
+  flip525InstallResizableContainer();
+
+  // Mount WIDE (three panes) and wait for the centre Chat pane to settle, as the
+  // wide-container suite does; the composer lives in that centre pane.
+  const showWideActiveDraftForFlip = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
+      teams: [TEAM_A, TEAM_B],
+      picks: [],
+      onTheClock: TEAM_A,
+    })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('the chat composer keeps focus across a panes -> tabs flip (AC1)', async () => {
+    await showWideActiveDraftForFlip();
+
+    const composer = screen.getByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Cross the threshold: the three panes collapse to the Chat tab, remounting
+    // the whole region subtree (and the composer as a fresh node).
+    flip525Resize(FLIP525_NARROW);
+
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByLabelText('Message')).toHaveFocus();
+  });
+
+  test('and the other way, tabs -> panes, in either direction (AC1)', async () => {
+    await showWideActiveDraftForFlip();
+
+    // Narrow first, focus the composer on its Chat tab...
+    flip525Resize(FLIP525_NARROW);
+    const composerNarrow = screen.getByLabelText('Message');
+    act(() => composerNarrow.focus());
+    expect(composerNarrow).toHaveFocus();
+
+    // ...then widen back to three panes.
+    flip525Resize(FLIP525_WIDE);
+
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByLabelText('Message')).toHaveFocus();
+  });
+
+  test('focus in the Players pool, Chat current, lands on the main content container after the flip (AC2)', async () => {
+    await showWideActiveDraftForFlip();
+
+    // Wide + Chat current: the Players pool is the left pane. Focus its filter,
+    // which carries no stable id, so it cannot be found again after the remount.
+    const filter = screen.getByLabelText('Filter available');
+    act(() => filter.focus());
+    expect(filter).toHaveFocus();
+
+    // Flip narrow: the room is on the Chat tab, so the Players pool unmounts.
+    flip525Resize(FLIP525_NARROW);
+
+    expect(screen.queryByLabelText('Filter available')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveFocus();
+    // The main content container is the room's single <main> (id
+    // draft-main-content), the skip-link target, reached here by its role.
+    expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  test('focus moved OUT of the region is not yanked back into it by a flip (AC3)', async () => {
+    await showWideActiveDraftForFlip();
+
+    // Set the tracker for real by focusing a control INSIDE the region first.
+    // (The earlier version of this test focused ONLY an outside control, so the
+    // tracker was never set and it passed against any heldEl-gated rescue -
+    // including one with no relatedTarget clearing at all - green for the wrong
+    // reason, and structurally unable to see whether a focus move OUT of the
+    // region clears the hold.)
+    const composer = screen.getByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Focus then moves OUT to a chrome control that belongs to no region wrapper
+    // and survives the flip (the on-the-clock sound toggle). That is a real focus
+    // move - a truthy relatedTarget - so it MUST clear the tracker...
+    const outside = screen.getByRole('button', { name: 'On-the-clock sound' });
+    act(() => outside.focus());
+    expect(outside).toHaveFocus();
+
+    // ...and the flip must then leave this focus entirely alone: no stale hold
+    // from the composer may yank focus back into the region.
+    flip525Resize(FLIP525_NARROW);
+
+    expect(outside).toHaveFocus();
+  });
+});
+
+describe('readiness live region on a wide container (issue #164)', () => {
+  // No narrow stub, so the default zero-width jsdom measurement reads as wide:
+  // the three panes are all mounted at once. On a wide container the rail is
+  // always the right pane and never unmounts, so nothing depends on the
+  // announcer surviving a rail unmount here - but the announcer must still be
+  // the chrome one (a single stable node), never the rail's Readiness panel.
+  const showPendingLobbyWide = async () => {
+    renderBoard(1, { user: { id: 5, username: 'alice' } });
+    // The pool is the left pane on a wide container, so its content is the
+    // loaded signal.
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ draft_status: 'pending' }), {
+      teams: [
+        { teamId: 1, teamName: 'Team A', draft_ready: false },
+        { teamId: 2, teamName: 'Team B', draft_ready: true },
+      ],
+      onTheClock: null,
+    })));
+  };
+
+  test('is one stable chrome node across a left-pane switch, with the rail always present', async () => {
+    await showPendingLobbyWide();
+    // Proof this ran wide: a wide container has no tab bar, only the left-pane
+    // Players/Board toggle.
+    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
+
+    const before = readinessAnnouncer();
+    expect(before).toHaveTextContent('1 of 2 managers ready');
+
+    // The rail (and its Readiness panel) is the right pane and stays mounted
+    // when the left pane toggles to the Board, so the panel is present
+    // throughout - and the announcer is still the chrome one, the same node.
+    await userEvent.click(screen.getByRole('button', { name: 'Board' }));
+    expect(readinessAnnouncer()).toBe(before);
+    expect(screen.getByRole('region', { name: 'Readiness' })).toBeInTheDocument();
   });
 });
 
@@ -2285,5 +2863,417 @@ describe('League chat in the draft room (issue #433)', () => {
     expect(await screen.findByText('nice pick')).toBeInTheDocument();
     // The author is the Team, never the account behind it.
     expect(screen.queryByText('bob')).not.toBeInTheDocument();
+  });
+});
+
+// --- The optional on-the-clock chime (#445 AC5/AC7) ---
+//
+// AC5: ONE sound, and only when the VIEWER's own Team becomes On the clock.
+// AC7: no chat/Pick/timer-tick sounds and no notifications. The once-per-turn,
+// viewer-only edge itself is pinned in useDraftSocket.test.js (onClockAlertOpen);
+// these tests pin the beep that rides it, gated on the sound preference.
+describe('on-the-clock chime (#445 AC5/AC7)', () => {
+  let startSpy;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    startSpy = jest.fn();
+    const makeCtx = () => ({
+      createOscillator: () => ({ type: '', frequency: {}, connect: jest.fn(), start: startSpy, stop: jest.fn() }),
+      createGain: () => ({ gain: {}, connect: jest.fn() }),
+      destination: {},
+      close: jest.fn(),
+    });
+    window.AudioContext = jest.fn().mockImplementation(makeCtx);
+  });
+
+  afterEach(() => {
+    delete window.AudioContext;
+  });
+
+  const goOnTheClock = (onTheClock) =>
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock })));
+
+  test('stays silent when the viewer becomes On the clock but sound is off (the default)', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+
+    goOnTheClock(TEAM_A); // viewer is Team 1 = TEAM_A, so this is their turn
+
+    // Off by default: no AudioContext is ever constructed, so nothing plays.
+    expect(window.AudioContext).not.toHaveBeenCalled();
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  test('plays exactly one beep when the viewer becomes On the clock with sound enabled', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+
+    // Enabling the preference is the user gesture browsers require for audio.
+    await userEvent.click(screen.getByRole('button', { name: 'On-the-clock sound' }));
+
+    goOnTheClock(TEAM_A);
+
+    expect(startSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not beep when a DIFFERENT Team is On the clock, even with sound on', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    await userEvent.click(screen.getByRole('button', { name: 'On-the-clock sound' }));
+
+    goOnTheClock(TEAM_B); // someone else's turn
+
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Room-level Pick announcement (#513): every live committed Pick is announced
+// once, on EVERY tab and in BOTH layouts, by a room-level announcer in the
+// chrome - not by the Chat-scoped feed announcer, which no longer speaks Picks.
+// The whole risk is DOUBLE SPEECH, not silence: when Chat is mounted the feed
+// announcer used to speak the Pick and the room-level one would too, so a reader
+// would hear it twice. So every assertion COUNTS the status regions carrying the
+// Pick text and asserts exactly one - a presence check cannot tell one from two.
+// ---------------------------------------------------------------------------
+
+const PICK_TEXT = 'Team A drafted Patrick Mahomes';
+
+// The status regions currently carrying a given announcement. Counting, not
+// presence: the readiness/countdown/composer regions never carry this text, so
+// exactly-one here means exactly one Pick announcement.
+const announcementsSaying = (text) =>
+  screen.getAllByRole('status').filter((region) => region.textContent.includes(text));
+
+// Fire one live committed Pick, carrying BOTH the top-level fields the board and
+// the room-level announcer read AND the `activity` feed entry the combined feed
+// appends (server sends both on draft:picked). Including `activity` is what makes
+// the Chat-scoped feed announcer genuinely see the Pick, so a regression to
+// double speech shows up here as a count of two rather than hiding.
+const landPick = ({ auto = false, seq = 100 } = {}) => {
+  act(() =>
+    fakeSocket.trigger('draft:picked', {
+      pickNumber: 1,
+      teamId: 1,
+      teamName: 'Team A',
+      player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+      nextTeamId: 2,
+      draftComplete: false,
+      auto,
+      activity: {
+        type: 'draft_activity',
+        kind: 'pick',
+        seq,
+        id: `act-${seq}`,
+        teamName: 'Team A',
+        player: { name: 'Patrick Mahomes' },
+        isAutopick: auto,
+      },
+    })
+  );
+};
+
+// A prior human message so the feed announcer is past its silent first-seed:
+// without it, the Pick's own activity entry would be the FIRST feed entry and
+// the feed announcer would seed it silently - hiding a double-speech regression
+// instead of exposing it. Only meaningful where the feed (Chat) is mounted.
+const seedFeed = () => {
+  act(() =>
+    fakeSocket.trigger('chat:message', {
+      type: 'league_chat',
+      seq: 50,
+      id: 'c50',
+      teamId: 99,
+      teamName: 'Rivals',
+      message: 'hi',
+    })
+  );
+};
+
+describe('room-level Pick announcement, wide layout (#513)', () => {
+  // Default zero-width jsdom measurement reads as wide, so all three panes -
+  // including the Chat feed and its announcer - are mounted at once. This is the
+  // "exactly once when Chat is mounted" acceptance criterion.
+  const showWideActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1); // viewer holds Team A, so a Team A Pick is the viewer's own
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('announces a live Pick exactly once with Chat mounted beside the board', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landPick();
+
+    // Exactly one region speaks the Pick, even though the Chat feed announcer is
+    // mounted right beside the room-level one. This also covers "a viewer's own
+    // committed Pick is announced": the viewer holds Team A.
+    await waitFor(() => expect(announcementsSaying(PICK_TEXT)).toHaveLength(1));
+  });
+
+  test('announces an autopick as autodrafted, exactly once', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landPick({ auto: true });
+
+    await waitFor(() =>
+      expect(announcementsSaying('Team A autodrafted Patrick Mahomes')).toHaveLength(1)
+    );
+    // And never the manual wording as well.
+    expect(announcementsSaying(PICK_TEXT)).toHaveLength(0);
+  });
+
+  test('does not announce Picks already in the initial draft:state history', async () => {
+    // Initial history arrives on draft:state, never draft:picked, so the
+    // room-level announcer (fed only by the live onPickLanded seam) is silent.
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() =>
+      fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+        onTheClock: TEAM_B,
+        picks: [{
+          pick_number: 1, teamId: 1, teamName: 'Team A',
+          player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC',
+        }],
+      }))
+    );
+
+    expect(announcementsSaying(PICK_TEXT)).toHaveLength(0);
+  });
+
+  test('a human chat message is still announced while Chat is mounted (scope preserved)', async () => {
+    // The message/Pick distinction is not flattened: the room-level announcer
+    // speaks Picks only, and the Chat-scoped feed announcer still speaks human
+    // messages, exactly once, where Chat is mounted.
+    await showWideActiveDraft();
+    seedFeed(); // seq 50, seeds silently
+    act(() =>
+      fakeSocket.trigger('chat:message', {
+        type: 'league_chat', seq: 60, id: 'c60', teamId: 99, teamName: 'Rivals', message: 'gg',
+      })
+    );
+
+    await waitFor(() =>
+      expect(announcementsSaying('New message from Rivals')).toHaveLength(1)
+    );
+  });
+});
+
+describe('room-level Pick announcement across narrow tabs (#513)', () => {
+  mockNarrowContainer();
+
+  const showNarrowActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1);
+    act(() =>
+      fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+        teams: [TEAM_A, TEAM_B],
+        onTheClock: TEAM_A,
+      }))
+    );
+  };
+
+  // Every narrow tab must hear a live Pick, including the three that do NOT mount
+  // the Chat feed at all - the exact gap #513 closes. On the Chat tab the feed
+  // announcer IS mounted, so that tab also proves no double speech there.
+  test.each(['Chat', 'Players', 'Board', 'Draft'])(
+    'announces a live Pick exactly once while the %s tab is selected',
+    async (tab) => {
+      await showNarrowActiveDraft();
+      await userEvent.click(screen.getByRole('tab', { name: tab }));
+      // Seed the feed only where it is mounted (the Chat tab); elsewhere the feed
+      // announcer is unmounted and the room-level announcer is the only voice.
+      if (tab === 'Chat') seedFeed();
+      landPick();
+
+      await waitFor(() => expect(announcementsSaying(PICK_TEXT)).toHaveLength(1));
+    }
+  );
+
+  test('does not replay a Pick when a narrow tab is switched away and back', async () => {
+    // The room-level announcer lives in the chrome, which never unmounts on a tab
+    // switch, and lastPick does not change when the tab does - so a Pick is
+    // neither re-announced nor replayed on return. Mirrors the ReadinessAnnouncer
+    // same-node check earlier in this file.
+    await showNarrowActiveDraft(); // opens on Chat
+    landPick();
+    const pickRegion = await waitFor(() => {
+      const region = screen.getAllByRole('status').find((r) => r.textContent.includes(PICK_TEXT));
+      expect(region).toBeTruthy();
+      return region;
+    });
+    const textAfterPick = pickRegion.textContent;
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+
+    // Same DOM node (identity, not mere presence) and unchanged text: no replay.
+    const sameRegion = screen.getAllByRole('status').find((r) => r.textContent.includes(PICK_TEXT));
+    expect(sameRegion).toBe(pickRegion);
+    expect(sameRegion.textContent).toBe(textAfterPick);
+  });
+
+  test('a chat message arriving while a NON-Chat tab is selected is not announced (message scope is not global)', async () => {
+    // The asymmetry the ruling turns on: Picks generalise to every tab, human
+    // messages do NOT. On a non-Chat narrow tab the Chat feed (and its announcer
+    // and socket listener) is unmounted, so a message that arrives is never even
+    // received, let alone announced - exactly the scoping #513 must preserve.
+    await showNarrowActiveDraft();
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+
+    act(() =>
+      fakeSocket.trigger('chat:message', {
+        type: 'league_chat', seq: 70, id: 'c70', teamId: 99, teamName: 'Rivals', message: 'hi',
+      })
+    );
+
+    expect(announcementsSaying('New message from Rivals')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The final Pick and Draft completion (#519). The last live Pick and the
+// completion must be ONE ordered polite update - Team and player first, then
+// "Draft complete." - and the visible "Draft complete!" success Alert must stay
+// on screen WITHOUT speaking. The defect this closes is DOUBLE announcement:
+// the assertive completion Alert (MUI role="alert") firing beside the polite
+// Pick announcement queued in the same commit. So the assertions COUNT the live
+// regions, across BOTH role=status and role=alert, and assert exactly one - a
+// presence check cannot tell one live update from two.
+// ---------------------------------------------------------------------------
+
+// Live regions currently carrying a given text, across BOTH live-region roles.
+// role=status (polite) and role=alert (assertive) are DIFFERENT roles: counting
+// only one would "prove" the polite region is alone while the assertive Alert is
+// still speaking. queryAllByRole never throws when a role is absent.
+const liveRegionsSaying = (text) =>
+  [...screen.queryAllByRole('status'), ...screen.queryAllByRole('alert')].filter((region) =>
+    region.textContent.includes(text)
+  );
+
+describe('the final Pick and Draft completion (#519)', () => {
+  const showWideActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1); // viewer holds Team A
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  // The Pick that completes the draft: draftComplete:true rides the same
+  // draft:picked payload the board and the room-level announcer already read
+  // (server spreads the pick outcome), so no separate draft:complete is needed.
+  const landFinalPick = ({ auto = false } = {}) => {
+    act(() =>
+      fakeSocket.trigger('draft:picked', {
+        pickNumber: 30,
+        teamId: 1,
+        teamName: 'Team A',
+        player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
+        nextTeamId: null,
+        draftComplete: true,
+        auto,
+        activity: {
+          type: 'draft_activity',
+          kind: 'pick',
+          seq: 200,
+          id: 'act-200',
+          teamName: 'Team A',
+          player: { name: 'Patrick Mahomes' },
+          isAutopick: auto,
+        },
+      })
+    );
+    // The real wire on completion emits THREE things, not one (draftSocket.js:
+    // 287-293, identically in autopick.service.js): the pick, a completion
+    // lifecycle entry on draft:activity (#437), and draft:complete. Fire all
+    // three so "exactly one live update on the final Pick" is proven against the
+    // wire, not against a simplification. The other two are silent today - the
+    // feed announcer returns empty for every draft_activity, and draft:complete
+    // only re-sets an already-true flag - which is exactly what the count below
+    // must confirm.
+    act(() =>
+      fakeSocket.trigger('draft:activity', {
+        type: 'draft_activity',
+        kind: 'complete',
+        id: 21,
+        seq: 201,
+        teamId: null,
+        teamName: null,
+        created_at: '2026-01-01T12:05:00Z',
+      })
+    );
+    act(() => fakeSocket.trigger('draft:complete', { leagueId: 1 }));
+  };
+
+  test('a final manual Pick produces exactly one live update, ordered Team then completion', async () => {
+    await showWideActiveDraft();
+    seedFeed(); // so a double-speech regression through the feed announcer shows, not hides
+    landFinalPick();
+
+    // AC1 + AC6: exactly one live region speaks the completion, even with the
+    // Chat feed announcer mounted beside the room-level one. Both roles counted.
+    await waitFor(() => expect(liveRegionsSaying('Draft complete')).toHaveLength(1));
+
+    // That one update is the polite announcer, both facts in order: Team and
+    // player FIRST, then the completion sentence, as a single polite string.
+    const [live] = liveRegionsSaying('Draft complete');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveTextContent('Team A drafted Patrick Mahomes. Draft complete.');
+
+    // AC4: the visible success Alert is still rendered...
+    const completionAlert = screen.getByTestId('draft-complete-alert');
+    expect(completionAlert).toHaveTextContent('Draft complete!');
+    // AC5: ...but it is not a live region. Pin the actual role shipped rather
+    // than "not alert/status" - log, marquee and timer are all live-region roles
+    // that a bare negative would let through. The count assertion at the top of
+    // this test is the real guard; this is belt-and-braces on what silenced it.
+    expect(completionAlert).toHaveAttribute('role', 'presentation');
+  });
+
+  test('a final automatic Pick announces autodrafted, once', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landFinalPick({ auto: true });
+
+    await waitFor(() => expect(liveRegionsSaying('Draft complete')).toHaveLength(1));
+    const [live] = liveRegionsSaying('Draft complete');
+    expect(live).toHaveTextContent('Team A autodrafted Patrick Mahomes. Draft complete.');
+    // Never the manual wording as well.
+    expect(liveRegionsSaying('Team A drafted Patrick Mahomes')).toHaveLength(0);
+  });
+
+  test('a NON-final Pick carries no completion sentence and no completion Alert', async () => {
+    await showWideActiveDraft();
+    seedFeed();
+    landPick(); // draftComplete:false
+
+    await waitFor(() => expect(announcementsSaying(PICK_TEXT)).toHaveLength(1));
+    // AC3: the ordinary wording, with nothing appended.
+    const [live] = announcementsSaying(PICK_TEXT);
+    expect(live).toHaveTextContent('Team A drafted Patrick Mahomes');
+    expect(live.textContent).not.toMatch(/Draft complete/);
+    expect(screen.queryByTestId('draft-complete-alert')).not.toBeInTheDocument();
+  });
+
+  test('an error Alert keeps its assertive role=alert (#519 leaves error Alerts alone)', async () => {
+    // AC7: the completion Alert loses its live-region role, but the error Alert
+    // beside it in DraftBoard keeps role="alert" - an error SHOULD interrupt.
+    // No draftComplete here, so the only alert-role region is the error one.
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    act(() => fakeSocket.trigger('connect'));
+    const [, , ack] = fakeSocket.emit.mock.calls.find(([event]) => event === 'draft:join');
+    act(() => ack({ error: 'you are not in this league' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('you are not in this league');
   });
 });

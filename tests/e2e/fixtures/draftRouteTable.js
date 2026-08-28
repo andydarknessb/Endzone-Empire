@@ -130,7 +130,19 @@ const routeTable = [
   {
     method: 'GET',
     pattern: '/api/league/:id/draft-feed',
-    respond: () => ({ status: 200, body: [] }),
+    // The member-only combined feed. It answers an empty 200 by default, but a
+    // test can drive it to an authoritative failure through `draftFeedError`
+    // (installDraftRestApi) to prove the in-browser revocation path: a 403 here
+    // is a confirmed member removed mid-draft, which collapses chat to the
+    // non-member surface (#534 AC4, #541 AC7). Matched on the status the client
+    // reads; the body is copy only.
+    respond: (ctx) => {
+      const forced = ctx.state.draftFeedError;
+      if (forced) {
+        return { status: forced.status, body: forced.body != null ? forced.body : { error: 'forbidden' } };
+      }
+      return { status: 200, body: [] };
+    },
   },
   {
     method: 'GET',
@@ -145,6 +157,19 @@ const routeTable = [
   {
     method: 'POST',
     pattern: '/api/league/:id/chat/read',
+    respond: () => ({ status: 200, body: { ok: true } }),
+  },
+
+  // Commissioner content moderation from the Draft room (#482): the hide route
+  // both the drawer and the Draft room post to (chatModeration.hidePost). The
+  // durable hide and the live `chat:hidden` tombstone are the server's job; this
+  // harness accepts the request so the room's hide flow is observable, and the
+  // spec delivers `chat:hidden` to each page's fake socket to prove the live
+  // rewrite. The static coverage guard demands this entry because hidePost is in
+  // the Draft room's import closure (ADR 0014).
+  {
+    method: 'POST',
+    pattern: '/api/safety/hide',
     respond: () => ({ status: 200, body: { ok: true } }),
   },
 
@@ -263,7 +288,7 @@ const unstubbed = [
       { method: 'POST', pattern: '/api/draft/league/:id/pause' },
       { method: 'POST', pattern: '/api/draft/league/:id/teams/:teamId/autodraft' },
       { method: 'POST', pattern: '/api/draft/league/:id/clock' },
-      { method: 'POST', pattern: '/api/draft/league/:id/undo' },
+      { method: 'POST', pattern: '/api/draft/league/:id/correct-pick' },
       { method: 'POST', pattern: '/api/draft/league/:id/reset' },
       { method: 'POST', pattern: '/api/draft/league/:id/ready' },
       { method: 'POST', pattern: '/api/draft/league/:id/share-token' },

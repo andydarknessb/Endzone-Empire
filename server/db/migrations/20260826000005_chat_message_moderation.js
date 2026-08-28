@@ -41,14 +41,21 @@
  * hide columns here and the hide path is scoped to `chat_messages` by id, so a
  * Draft event is structurally unreachable by a hide.
  *
- * EXPAND-ONLY, LOCKS BRIEFLY. Adds three nullable columns and one partial
- * index; no backfill, no table rewrite. The ADD COLUMN takes a brief ACCESS
- * EXCLUSIVE lock and the CREATE INDEX (plain, not CONCURRENTLY, because knex
- * runs migrations transactionally in this repo) a SHARE lock that conflicts
- * with a chat insert's ROW EXCLUSIVE - both milliseconds while `chat_messages`
- * is small (see the same note in 20260826000003). The partial index backs the
- * one read that scans by hidden state, the reviewer's moderation history, and
- * indexes only the few hidden rows.
+ * EXPAND-ONLY, AND TWO STEPS SCALE WITH THE TABLE. Adds three nullable columns,
+ * one foreign key and one partial index; no backfill, no table rewrite. The
+ * ADD COLUMNs take an ACCESS EXCLUSIVE lock on `chat_messages` that is held
+ * until `up()` commits (every read and write of the table waits), and the
+ * statements themselves are metadata-only (nullable, no default), cheap
+ * regardless of row count. Two later steps are not: the `hidden_by` foreign key
+ * is validated on creation, which reads every existing row of `chat_messages`
+ * against `users` and holds a SHARE ROW EXCLUSIVE lock on `users` (blocking
+ * every insert, update and delete there, signups included) until commit; and
+ * the CREATE INDEX (plain, not CONCURRENTLY, because this migration runs in a
+ * transaction) reads every existing row to find the few hidden ones. Both scale
+ * with row count (the same relationship 20260826000003 states). Measured at 7
+ * rows on 2026-08-27 (#520). Check the current row count before applying. The
+ * partial index backs the one read that scans by hidden state, the reviewer's
+ * moderation history, and indexes only the few hidden rows.
  *
  * A schema rollback is safe: `down` drops the index and the columns, which is
  * only lossy for hides that exist, exactly the ADR-0012 "rollback while empty"

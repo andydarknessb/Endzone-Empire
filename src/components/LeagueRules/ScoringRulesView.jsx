@@ -13,6 +13,7 @@ import {
   tierRangeLabel,
   formatPoints,
 } from '../../lib/leagueRulesFormat';
+import { prefersReducedMotion } from '../../lib/reducedMotionMedia';
 
 const sectionId = (category) => `scoring-section-${category}`;
 
@@ -122,7 +123,10 @@ export default function ScoringRulesView({ league, defaults }) {
   const categories = RULE_CATEGORIES.filter((c) => c in rules && (c !== 'idp' || league.dp_enabled));
 
   const jumpTo = (category) => {
-    sectionRefs.current[category]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    sectionRefs.current[category]?.scrollIntoView({
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      block: 'start',
+    });
   };
 
   return (

@@ -76,7 +76,7 @@ Draft-only channel: a message sent from the League Dashboard and one sent from
 the Draft room belong to the same League chat. Every message carries Team
 identity and no account identifier. League chat is for members only and is
 never exposed through a public presenter link, which receives Draft activity
-alone.
+alone. A message over the character limit is refused, never shortened (#502).
 _Avoid_: Draft chat (not a separate conversation), public chat, system message
 (that is Draft activity)
 
@@ -370,6 +370,48 @@ original Pick entry. It is the only Draft-room feed a public presenter link
 receives, so it carries Team identity and no account identifier.
 _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
+
+**Presenter**:
+An anonymous viewer of a league's Draft through its share link (the presenter
+link), holding no account and belonging to no league. A presenter is whoever
+holds the link, authorized by the opaque draft share token alone and scoped to
+exactly that one league. A presenter sees the read-only Draft board and the
+Draft-activity feed (On the clock, the committed Picks and the Draft lifecycle)
+and nothing else: never League chat, unread state, a message composer, a
+commissioner-hidden tombstone, or any account identity. Team identity is the
+only actor identity a presenter is shown. Because a presenter carries no session,
+it cannot reach a member route or the Draft socket, so it can neither join the
+chat send path nor hold commissioner controls; that refusal is structural, not a
+hidden affordance. A commissioner-hidden chat message never sits in a presenter's
+feed at all, so a presenter sees no tombstone and no gap where one would be: chat,
+hidden or not, is simply absent from the Draft-activity feed the presenter reads.
+_Avoid_: spectator, guest, viewer account (a presenter has no account), broadcast
+link
+
+**Legacy feed entry**:
+A chat message or Pick that existed before the Draft room's combined feed and
+was backfilled into it as an observable fact, keeping its original source id and
+timestamp and marked legacy. Legacy entries are ordered among each other by one
+synthetic per-league chronology: by timestamp, and at an equal instant a Pick
+before a chat message, then by source id. What was never recorded (a historical
+pause, resume, correction, reset, or whether a Pick was an autopick) is left
+unstated, never fabricated. A keeper is NOT a legacy Pick entry: keepers are
+pre-filled at draft start rather than committed through the live Pick path, which
+writes no Draft activity for them, so the legacy backfill omits them too and a
+keeper league's combined feed shows no keeper Picks (they remain in the Draft
+board's Pick history).
+_Avoid_: imported message, migrated pick (they are legacy facts, not re-authored
+ones), backfilled draft (a draft is not an entry)
+
+**Cutover boundary**:
+The single per-league marker that separates synthetic legacy ordering from
+authoritative live ordering in the combined feed. It sits just after a league's
+legacy set; every entry before it is legacy, and every entry after it is a live
+event ordered by the shared per-league sequence. It is a Draft-activity entry
+but not a Draft event, carries no Team or Pick facts, and is itself never
+legacy.
+_Avoid_: cutover pick, migration marker, divider (a presentation word, not the
+fact)
 
 **Commissioner correction**:
 The administrative act by which a commissioner records a reason, then

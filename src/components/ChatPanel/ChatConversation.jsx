@@ -1,9 +1,16 @@
 import React, { useId, useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Paper, Typography, Box, TextField, Button, Alert, Chip } from '@mui/material';
+import { Paper, Typography, Box, TextField, Button, Alert, InputAdornment } from '@mui/material';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
 import EmojiPicker from './EmojiPicker';
+import ComposerCharacterCount from './ComposerCharacterCount';
+import GifMessage from './GifMessage';
+import GifComposer from './GifComposer';
+// The Draft-activity event line is shared with the anonymous presenter feed
+// (DraftBoard/DraftActivityEntry, #438), so a member and a presenter render the
+// same entry the same way; it lives outside this chat component on purpose.
+import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 
 // A hide reason is required and bounded the same as the server enforces
 // (safety.router: 10..500 chars), so the Confirm control is disabled until the
@@ -15,93 +22,6 @@ const HIDE_REASON_MAX = 500;
 // It names neither the reason nor the moderator - those reach authorized
 // reviewers alone (AC4) and never ride on the feed entry.
 const HIDDEN_TOMBSTONE = 'Message hidden by commissioner';
-
-// The past-tense verb each Draft LIFECYCLE kind reads as (#437). A lifecycle
-// event is attributed to the acting commissioner's Team ("<Team> started the
-// draft") when one is present, or phrased as a plain state transition ("The
-// draft is complete") when there is no actor - a scheduler start or a
-// completion. Kept as data so a new kind is a one-line addition, not a new
-// branch, and so the actor / actor-less split is made in one place.
-const LIFECYCLE_VERB = {
-  draft_start: 'started',
-  pause: 'paused',
-  resume: 'resumed',
-  reset: 'reset',
-};
-
-// One committed Pick as Draft activity in the combined feed (#435). It is NOT
-// drawn as a chat bubble: Draft activity is server-authored, never a manager
-// message (ADR 0012), so it reads as an event line and is attributed by Team
-// without pretending the Team "said" anything. The snapshot shows player,
-// position, NFL team, round and overall Pick number so the event is
-// understandable without leaving the feed; an autopick is labeled AUTO.
-function PickActivityLine({ entry }) {
-  const player = entry.player || {};
-  // House style: middot separators, no em-dashes. Null facts are dropped
-  // rather than printed as "null".
-  const meta = [player.position, player.nflTeam, `Round ${entry.round}`, `Pick ${entry.pickNumber}`]
-    .filter((part) => part != null && part !== '')
-    .join(' · ');
-  return (
-    <>
-      <Typography component="div" variant="body2" sx={{ color: 'text.secondary' }}>
-        <strong>{teamNameLabel(entry.teamName)}</strong> drafted {player.name}
-        {entry.isAutopick && (
-          <Chip label="AUTO" size="small" sx={{ ml: 1 }} />
-        )}
-      </Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        {meta} {'·'} {new Date(entry.created_at).toLocaleTimeString()}
-      </Typography>
-    </>
-  );
-}
-
-// A Draft lifecycle event (start, pause, resume, reset, completion) as an event
-// line (#437). Completion is always actor-less; the others carry the acting
-// Team when one is recorded. A null Team means no actor (a scheduler start),
-// NOT a departed manager - lifecycle actors are never fabricated and teams are
-// only Removable pre-draft - so it reads as a plain transition, not "Former
-// manager". It carries no Pick facts, so none are shown.
-function LifecycleActivityLine({ entry }) {
-  const verb = LIFECYCLE_VERB[entry.kind] || 'updated';
-  const hasActor = entry.teamName != null;
-  let text;
-  if (entry.kind === 'complete') {
-    // Completion is always an actor-less state transition (#437).
-    text = <>The draft is complete</>;
-  } else if (hasActor) {
-    text = <><strong>{teamNameLabel(entry.teamName)}</strong> {verb} the draft</>;
-  } else {
-    // No actor: the scheduler auto-started it (draft_start). Phrase the
-    // transition without a Team rather than as "Former manager".
-    text = entry.kind === 'draft_start'
-      ? <>The draft started</>
-      : <>The draft was {verb}</>;
-  }
-  return (
-    <>
-      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        {text}
-      </Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        {new Date(entry.created_at).toLocaleTimeString()}
-      </Typography>
-    </>
-  );
-}
-
-// Route a Draft-activity entry to the right event-line renderer by kind. A Pick
-// shows its snapshot facts; every other kind is a lifecycle transition (#437).
-function DraftActivityEntry({ entry }) {
-  return (
-    <Box sx={{ mb: 1 }} data-testid="draft-activity">
-      {entry.kind === 'pick'
-        ? <PickActivityLine entry={entry} />
-        : <LifecycleActivityLine entry={entry} />}
-    </Box>
-  );
-}
 
 /**
  * The visible half of League chat: the scrollback and the compose box. It is
@@ -142,37 +62,87 @@ function ChatConversation({
   onHide = null,
   leagueId = null,
   viewerUserId = null,
+  // The GIF-message capability (#446), off by default so any surface that does
+  // not pass it renders no GIF picker at all (AC7). `gifEnabled` comes from the
+  // server via the league-join ack; `onSendGif` sends the composed GIF payload.
+  gifEnabled = false,
+  onSendGif = null,
 }) {
-  // The composer text is a preserved draft (#442 AC5/AC6): scoped per league and
-  // account, cleared on send, logout or account change. clearDraft empties both
-  // the box and the stored draft on a successful send.
-  const [text, setText, clearDraft] = useComposerDraft({ leagueId, userId: viewerUserId });
+  // The composer draft is preserved (#442 AC5/AC6, extended by #524): scoped per
+  // league and account, cleared on send, logout or account change. The hook owns
+  // BOTH the message text and the GIF composition so the two composers behave
+  // alike across an unmount; they clear independently, so clearDraft (a text
+  // send) leaves a half-composed GIF in place and clearGif (a GIF send) leaves
+  // the typed message in place.
+  const [text, setText, clearDraft, gif, setGif] = useComposerDraft({ leagueId, userId: viewerUserId });
   // The message currently being hidden (its id), and the reason being typed for
   // it. Only one hide form is open at a time; opening another replaces it.
   const [hidingId, setHidingId] = useState(null);
   const [hideReason, setHideReason] = useState('');
   const headingId = useId();
+  // Associates the visible character counter with the input (#486), so a screen
+  // reader hears the count on focus without the counter being a live region.
+  const countId = useId();
 
   // Moderation controls (#441): open a hide form for one message at a time,
   // cancel it, or confirm the hide. These read and write only hidingId /
   // hideReason - never the composer's `text` - so they sit beside the emoji
   // helpers below without contending for the composer draft state.
+  //
+  // Focus management for the inline hide form (#445 AC4). Opening the form moves
+  // focus into the reason field (its autoFocus). Closing it must never drop
+  // focus onto the document body, and the two close paths need DIFFERENT targets:
+  //  - CANCEL: the message is not hidden, so its Hide button remounts; return
+  //    focus there.
+  //  - A COMMITTED HIDE: the `chat:hidden` broadcast sets m.hidden and the Hide
+  //    button is no longer rendered (see the render guard below), so returning to
+  //    it would strand focus on a removed node - the original defect. Return
+  //    focus to the message ROW instead, which is always rendered (it shows the
+  //    tombstone once hidden) and so always exists.
+  // CANCEL returns focus to the Hide button as it remounts (the message is not
+  // hidden), through an inline ref callback that focuses itself when it matches a
+  // pending id - the button is a fresh node on remount, so the callback fires.
+  const pendingHideButtonRef = useRef(null);
+  const hideButtonRef = (id) => (node) => {
+    if (node && pendingHideButtonRef.current === id) {
+      pendingHideButtonRef.current = null;
+      node.focus();
+    }
+  };
+
+  // A COMMITTED hide cannot return focus to the Hide button - the chat:hidden
+  // broadcast sets m.hidden and the button is no longer rendered, so aiming there
+  // strands focus on the document body (the original defect). Return focus to the
+  // feed LOG region instead, which is always mounted and holds the now-tombstoned
+  // message, so a keyboard or screen-reader user lands back in the conversation
+  // rather than on the body. A committed hide bumps this nonce; the layout effect
+  // moves focus once the form has closed and the DOM has settled (a plain focus
+  // call in confirmHide would land before the reason field unmounts and be undone
+  // when the browser moves focus to the body on that unmount).
+  const [committedHideNonce, setCommittedHideNonce] = useState(0);
+
+  const closeHideForm = () => {
+    setHidingId(null);
+    setHideReason('');
+  };
   const startHiding = (id) => {
     setHidingId(id);
     setHideReason('');
   };
   const cancelHiding = () => {
-    setHidingId(null);
-    setHideReason('');
+    // Message stays visible: return focus to its Hide button as it remounts.
+    pendingHideButtonRef.current = hidingId;
+    closeHideForm();
   };
   const confirmHide = async (id) => {
     const reason = hideReason.trim();
     if (reason.length < HIDE_REASON_MIN) return;
     const ok = onHide ? await onHide(id, reason) : false;
-    // Clear the form whether or not the hide succeeded; a failure surfaces
-    // through the shared error Alert, and the message stays visible until the
-    // tombstone broadcast replaces it.
-    if (ok !== false) cancelHiding();
+    // On a rejected hide the form stays open (below), so leave focus where it is.
+    if (ok !== false) {
+      setCommittedHideNonce((n) => n + 1);
+      closeHideForm();
+    }
   };
   const moderating = canModerate && typeof onHide === 'function';
 
@@ -256,6 +226,31 @@ function ChatConversation({
   const prevFirstKeyRef = useRef(null);
   const [newCount, setNewCount] = useState(0);
 
+  // A committed hide moves focus to the feed log (#445 AC4): defined here, after
+  // scrollRef, and keyed on the nonce confirmHide bumps so it runs once the form
+  // has closed and the DOM has settled.
+  //
+  // The guard keys on the NONCE VALUE, not a first-run boolean (#528). A boolean
+  // consumed on the first invoke cannot tell "this is the mount" from "this is a
+  // re-invoke of the mount": under React.StrictMode, development double-invokes
+  // every mount effect, so a consumed-once boolean falls through on the second
+  // invoke and focuses the log on a PLAIN mount - stealing focus with no hide at
+  // all, and (until #528) masking the Draft room's layout-flip focus rescue,
+  // because focus then landed on the log with or without it. Re-arming such a
+  // boolean in this effect's cleanup would be worse: a [committedHideNonce]
+  // cleanup runs before EVERY re-execution, so it would re-arm on a real hide too
+  // and cancel the very focus move AC4 needs. A ref holding the last handled
+  // nonce is the shape that works both ways: it is unchanged across the
+  // double-invoke (so mount and any spurious re-invoke no-op) yet differs across
+  // a real hide (so focus fires exactly once per hide). Do not simplify this back
+  // to a first-run flag.
+  const lastHandledHideNonceRef = useRef(committedHideNonce);
+  useLayoutEffect(() => {
+    if (lastHandledHideNonceRef.current === committedHideNonce) return;
+    lastHandledHideNonceRef.current = committedHideNonce;
+    if (scrollRef.current) scrollRef.current.focus();
+  }, [committedHideNonce]);
+
   const lastKey = messages.length ? feedEntryKey(messages[messages.length - 1]) : null;
 
   const scrollToBottom = useCallback(() => {
@@ -269,6 +264,17 @@ function ChatConversation({
     setNewCount(0);
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // The "N new" affordance (#445 AC4 new-entry navigation): jumping to the
+  // latest also moves focus into the log region, so a keyboard or screen-reader
+  // user who activates it lands on the live content rather than staying on a
+  // button that has just vanished. The plain auto-follow path (anchorToLatest,
+  // above) must NOT move focus - it fires on every feed change while the reader
+  // is already at the bottom - so this is a separate, gesture-only handler.
+  const handleJumpToLatest = useCallback(() => {
+    anchorToLatest();
+    scrollRef.current?.focus();
+  }, [anchorToLatest]);
 
   const unseenAfterSeen = useCallback(() => {
     const seen = seenKeyRef.current;
@@ -348,10 +354,31 @@ function ChatConversation({
         </Alert>
       )}
 
+      {/* The feed is a named accessible log (#445 AC1): role="log" names the
+          scrollback as a log for structure and navigation, and it is named by
+          the visible "League Chat" heading (aria-labelledby, a real visible
+          label rather than an aria-label on a generic box).
+
+          aria-live is set to "off" DELIBERATELY. A log role's implicit live
+          value is "polite", which would make assistive tech read every new
+          entry's full rendered text (Team, message body, timestamp). That is
+          both verbose and a SECOND voice competing with the Draft room's concise
+          FeedAnnouncer (#445 AC2), which already summarises new arrivals from
+          derived state. Announcement duty belongs to that one region, so the log
+          itself stays silent and is read on demand. On the League Dashboard,
+          which mounts this same conversation without a FeedAnnouncer, new
+          messages were never announced before either, so nothing regresses.
+
+          tabIndex=-1 lets the "N new" jump move focus here programmatically
+          (handleJumpToLatest, AC4) without adding the log to the Tab order. */}
       <Box
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="chat-scroll"
+        role="log"
+        aria-labelledby={headingId}
+        aria-live="off"
+        tabIndex={-1}
         sx={{ maxHeight: 320, overflowY: 'auto', mb: 1 }}
       >
         {hasMore && onLoadOlder && (
@@ -380,7 +407,13 @@ function ChatConversation({
                     {m.hidden ? (
                       <em style={{ color: 'inherit', opacity: 0.7 }}>{HIDDEN_TOMBSTONE}</em>
                     ) : (
-                      m.message
+                      // A GIF message (#446) carries a structured `media` object;
+                      // its caption (m.message) renders inside the GifMessage
+                      // bubble below, so the inline slot holds only a plain text
+                      // message's body. A hidden GIF took the branch above:
+                      // feedEntryOf suppresses media AND caption to the same
+                      // tombstone as hidden text, so nothing GIF-shaped renders.
+                      m.media ? null : m.message
                     )}
                   </Typography>
                   {/* A commissioner may hide a human message that is not already
@@ -390,6 +423,7 @@ function ChatConversation({
                     <Button
                       size="small"
                       color="warning"
+                      ref={hideButtonRef(m.id)}
                       onClick={() => startHiding(m.id)}
                       aria-label={`Hide message from ${teamNameLabel(m.teamName)}`}
                     >
@@ -397,12 +431,22 @@ function ChatConversation({
                     </Button>
                   )}
                 </Box>
+                {/* A GIF message renders its asset (or the unavailable tile)
+                    below the Team-name line. A hidden GIF has media suppressed to
+                    null (feedEntryOf), so this never renders for a tombstone. */}
+                {!m.hidden && m.media && (
+                  <GifMessage media={m.media} caption={m.message} />
+                )}
                 {moderating && hidingId === m.id && (
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5, mb: 0.5 }}>
                     <TextField
                       label="Reason for hiding"
                       size="small"
                       fullWidth
+                      // Focus moves into the reason field as the form opens
+                      // (#445 AC4); on close it returns to the Hide button
+                      // (Cancel) or the message row (a committed hide).
+                      autoFocus
                       value={hideReason}
                       onChange={(e) => setHideReason(e.target.value)}
                       inputProps={{ maxLength: HIDE_REASON_MAX }}
@@ -433,13 +477,27 @@ function ChatConversation({
 
       {newCount > 0 && (
         <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <Button size="small" variant="outlined" onClick={anchorToLatest}>
+          <Button size="small" variant="outlined" onClick={handleJumpToLatest}>
             {newCount} new message{newCount === 1 ? '' : 's'}
           </Button>
         </Box>
       )}
 
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+      {/* The counter rides INSIDE the input as an end adornment, not on a row of
+          its own (#486). The desktop Draft room sizes this shell to exactly the
+          viewport with zero slack (draft-board.spec #122 AC1), and the message
+          list above is empty here, so a second composer row - or any element
+          that grows the composer's height - tips the shell past the viewport and
+          makes the page scroll. An end adornment sits within the input's own
+          height, so the composer adds no height at all. */}
+      {/* The composer is a named group (#445 AC1): its three controls - the
+          message field, Insert emoji and Send - read as one labelled unit. A
+          group role takes an accessible name, unlike the generic role a bare box
+          maps to, so aria-label is valid here. The name deliberately avoids the
+          word "Message": Playwright's getByLabel is a substring match, so a group
+          named "Message composer" would be a second match for the existing
+          specs' getByLabel('Message') alongside the message input itself. */}
+      <Box role="group" aria-label="Chat composer" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <TextField
           id="chat-message-input"
           label="Message"
@@ -447,6 +505,30 @@ function ChatConversation({
           fullWidth
           value={text}
           inputRef={inputRef}
+          // Describe the input with the visible counter (#486) rather than set
+          // maxLength: the server is the single enforcement point, so typing
+          // and sending past the limit stay possible.
+          //
+          // NOTE: setting aria-describedby through inputProps overrides MUI's own
+          // describedby channel, because InputBase spreads inputProps AFTER the
+          // aria-describedby it would compute from helperText/error. That is
+          // latent, not live, here: this field has neither, so there is nothing
+          // for MUI to describe and nothing is lost. If a helperText or error is
+          // ever added, merge its id in rather than letting this clobber it.
+          inputProps={{ 'aria-describedby': countId }}
+          // disablePointerEvents so a click on the counter strip falls through to
+          // the input and places the caret (#486). Without it the adornment eats
+          // the click - InputBase focuses only when the click target IS the input
+          // root, and the adornment's spans are descendants - so the right edge
+          // that used to be the input's own padding became a dead strip inside
+          // the field's outline. The counter has no interactivity to lose.
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end" disablePointerEvents>
+                <ComposerCharacterCount text={text} indicatorId={countId} />
+              </InputAdornment>
+            ),
+          }}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -460,6 +542,42 @@ function ChatConversation({
           Send
         </Button>
       </Box>
+      {/* The GIF compose affordance (#446), absent unless the capability is
+          enabled (AC7); emoji and text above are unaffected. Its compose fields
+          are the hook-owned, per-league preserved GIF composition (#524), so a
+          half-composed GIF survives an unmount exactly as the text draft does
+          and the panel reopens when a restored composition is non-empty. A
+          successful GIF send (or a Cancel) clears only this slice through
+          setGif, leaving the message draft above untouched.
+
+          The key is the composer-draft identity (league + account). GifComposer
+          keeps two pieces of purely local UI state that the hook does not own -
+          the open/closed disclosure and the description touched flag - and it
+          computes the panel's initial open state once, from the composition it
+          mounts with. When the identity CHANGES IN PLACE (the hook re-seeds the
+          composition to the new scope without an unmount), that local state would
+          otherwise go stale: a previously-touched empty Description could show a
+          validation error for content the new scope never had. Keying on the
+          identity remounts the composer on that transition, so its open state is
+          recomputed from the re-seeded composition and the touched flag resets -
+          the same fresh start a real unmount gives it.
+
+          When is an in-place identity change even reachable? Not on logout or an
+          account switch: ProtectedRoute (App.jsx wraps both the Draft room and
+          the Dashboard) swaps the whole subtree for the login page the instant
+          the account id goes null, so this component unmounts rather than
+          re-rendering with a null viewerUserId. The one path that keeps it
+          mounted is a direct league-to-league navigation whose target league is
+          already warm in the useLeague cache (FantasyOnly then skips its loader).
+          The key covers that path; without it the residual is only cosmetic and
+          capability-gated, but the key is a cheaper guarantee than the analysis. */}
+      <GifComposer
+        key={`${leagueId}:${viewerUserId}`}
+        enabled={gifEnabled}
+        onSendGif={onSendGif}
+        composition={gif}
+        onCompositionChange={setGif}
+      />
     </Paper>
   );
 }

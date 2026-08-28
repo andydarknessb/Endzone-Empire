@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import ChatConversation from './ChatConversation';
@@ -60,6 +60,24 @@ test('the title is a level-2 heading naming the conversation, in its own region'
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
   expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
   expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+});
+
+test('the feed is a named accessible log, named by the visible heading (#445 AC1)', () => {
+  renderWithProviders(<ChatConversation messages={[message({ message: 'hi' })]} onSend={noop} />);
+  const log = screen.getByRole('log', { name: 'League Chat' });
+  expect(log).toBe(screen.getByTestId('chat-scroll'));
+  // Announcement is delegated to the concise FeedAnnouncer (#445 AC2), so the
+  // log itself does not auto-read every entry: aria-live is off, not polite.
+  expect(log).toHaveAttribute('aria-live', 'off');
+});
+
+test('the composer is a named group (#445 AC1)', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const composer = screen.getByRole('group', { name: 'Chat composer' });
+  // Its three controls read as one labelled unit.
+  expect(within(composer).getByLabelText('Message')).toBeInTheDocument();
+  expect(within(composer).getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument();
+  expect(within(composer).getByRole('button', { name: 'Send' })).toBeInTheDocument();
 });
 
 test('Send is disabled while the input is empty', () => {
@@ -206,6 +224,87 @@ test('a commissioner hides a message: reason required, then onHide is called', a
   await userEvent.click(confirm);
 
   expect(onHide).toHaveBeenCalledWith(55, 'targeted harassment');
+});
+
+test('opening the hide form moves focus to the reason field; cancelling returns it to Hide (#445 AC4)', async () => {
+  renderWithProviders(
+    <ChatConversation
+      messages={[message({ id: 55, message: 'be nice', teamName: 'Anvils' })]}
+      onSend={noop}
+      canModerate
+      onHide={jest.fn().mockResolvedValue(true)}
+    />
+  );
+
+  const hideButton = screen.getByRole('button', { name: 'Hide message from Anvils' });
+  await userEvent.click(hideButton);
+
+  // Focus lands in the reason field, not on the document body.
+  expect(screen.getByLabelText('Reason for hiding')).toHaveFocus();
+
+  // Cancelling returns focus to the Hide button that opened the form.
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('button', { name: 'Hide message from Anvils' })).toHaveFocus();
+});
+
+test('a committed hide returns focus to the feed log, not the document body (#445 AC4)', async () => {
+  // The regression: after a committed hide the Hide button is removed, so
+  // returning focus to it strands focus on the body. Focus must land in the feed
+  // log (which holds the now-tombstoned message), never on the body.
+  const onHide = jest.fn().mockResolvedValue(true);
+  const msg = message({ id: 55, message: 'you are worthless', teamName: 'Anvils' });
+  const { rerender } = renderWithProviders(
+    <ChatConversation messages={[msg]} onSend={noop} canModerate onHide={onHide} />
+  );
+
+  await userEvent.click(screen.getByRole('button', { name: 'Hide message from Anvils' }));
+  await userEvent.type(screen.getByLabelText('Reason for hiding'), 'targeted harassment');
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm hide' }));
+
+  // A committed hide moves focus into the feed log, never the document body
+  // (the regression). waitFor lets confirmHide's async path settle - onHide is
+  // called before its await resolves, so waiting on the call alone would race the
+  // focus move. (The full broadcast path - the chat:hidden event removing the
+  // Hide button while focus is held - is driven in a real browser in
+  // draft-accessibility.spec.ts, where focus preservation across a re-render is
+  // faithful; jsdom's rerender does not model it.)
+  const log = screen.getByRole('log', { name: 'League Chat' });
+  await waitFor(() => expect(log).toHaveFocus());
+  expect(onHide).toHaveBeenCalledWith(55, 'targeted harassment');
+  expect(document.body).not.toHaveFocus();
+
+  // The message still shows the hide affordance is gone once the parent supplies
+  // the tombstone; the focus is what this test pins.
+  rerender(
+    <ChatConversation
+      messages={[{ ...msg, message: null, hidden: true }]}
+      onSend={noop}
+      canModerate
+      onHide={onHide}
+    />
+  );
+  expect(screen.queryByRole('button', { name: /Hide message/ })).not.toBeInTheDocument();
+  expect(screen.getByText('Message hidden by commissioner')).toBeInTheDocument();
+});
+
+test('under StrictMode the feed log is NOT focused on mount - only a real hide moves focus (#528)', () => {
+  // The committed-hide focus move (#445 AC4, above) must fire on a HIDE and never
+  // on mount. A first-run boolean guard cannot hold that under React.StrictMode:
+  // its development double-invoke of mount effects consumes the boolean on the
+  // first invoke and falls through on the second, focusing the log with no hide
+  // at all - which also masked the Draft-room layout-flip focus rescue (#525),
+  // since focus then landed on the log with or without it. Every other test in
+  // this suite renders WITHOUT StrictMode, which is exactly why a non-idempotent
+  // effect passed them; this one renders WITH it, so it goes red on the old
+  // first-run flag and green on the nonce-value guard.
+  renderWithProviders(
+    <React.StrictMode>
+      <ChatConversation messages={[message({ id: 55, teamName: 'Anvils' })]} onSend={noop} />
+    </React.StrictMode>
+  );
+  const log = screen.getByRole('log', { name: 'League Chat' });
+  expect(log).not.toHaveFocus();
+  expect(document.body).toHaveFocus();
 });
 
 test('a commissioner sees no Hide control on an already-hidden message', () => {
@@ -361,6 +460,19 @@ test('the N-new affordance jumps to the newest entries and clears', () => {
   expect(box.scrollTop).toBe(1000);
   // ...and the affordance is gone.
   expect(screen.queryByRole('button', { name: /new/i })).not.toBeInTheDocument();
+});
+
+test('the N-new jump moves focus into the log, so a keyboard user lands on live content (#445 AC4)', () => {
+  renderWithProviders(<LiveFeed initial={[seqMsg({ id: 1, seq: 1, message: 'first' })]} />);
+  const box = screen.getByTestId('chat-scroll');
+  atTop(box);
+  fireEvent.scroll(box);
+  setFeed([seqMsg({ id: 1, seq: 1 }), seqMsg({ id: 2, seq: 2, message: 'second' })]);
+
+  fireEvent.click(screen.getByRole('button', { name: /1 new/i }));
+
+  // Focus is now on the log region (the button that had focus has vanished).
+  expect(box).toHaveFocus();
 });
 
 test('the feed auto-follows a new entry while the reader is already at the bottom', () => {
@@ -550,4 +662,686 @@ test('an emoji-bearing draft is preserved per league across a remount, like any 
   unmount();
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} leagueId={5} viewerUserId={7} />);
   expect(screen.getByLabelText('Message')).toHaveValue(`later ${THUMBS_UP}`);
+});
+
+// #486: the composer's character counter. It counts Unicode code points, the
+// unit the server's limit and the varchar(500) column count, shows the live count
+// against the limit, blocks nothing over the limit, and announces at thresholds
+// only. Set the input value directly (fireEvent.change) so a case can jump to a
+// precise code-point count without typing hundreds of keystrokes.
+const setComposer = (value) =>
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value } });
+const countText = () => screen.getByTestId('composer-char-count').textContent;
+const statusText = () => screen.getByRole('status').textContent;
+
+test('the counter reads the code-point count against the limit at 499, 500 and 501', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  setComposer('a'.repeat(499));
+  expect(countText()).toBe('499 / 500');
+  setComposer('a'.repeat(500));
+  expect(countText()).toBe('500 / 500');
+  setComposer('a'.repeat(501));
+  expect(countText()).toBe('501 / 500');
+});
+
+test('a ZWJ family emoji counts as its code points, not 1 and not its UTF-16 length', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  // 👨‍👩‍👧‍👦 is four people joined by three ZWJs: 7 code points, one grapheme,
+  // 11 UTF-16 code units. The count is 7; switching the helper to text.length
+  // (which would read 11) turns this red, and 1 (a grapheme count) also fails.
+  const family = '\u{1F468}‍\u{1F469}‍\u{1F467}‍\u{1F466}';
+  expect(family.length).toBe(11); // guards the premise: code units disagree
+  setComposer(family);
+  expect(countText()).toBe('7 / 500');
+});
+
+test('an emoji inserted through the picker counts the same as typing that emoji', async () => {
+  const { unmount } = renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  await pickEmoji();
+  await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(THUMBS_UP));
+  const viaPicker = countText();
+  unmount();
+
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  setComposer(THUMBS_UP);
+  expect(countText()).toBe(viaPicker);
+  expect(countText()).toBe('1 / 500'); // one code point, though it is two UTF-16 units
+});
+
+test('the status region announces by band: silent above the warning, then at the warning, then at the limit', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+
+  // Well above the warning threshold (50 remaining): two consecutive keystrokes
+  // leave the status text identical, so a screen reader announces nothing.
+  setComposer('a'.repeat(5));
+  const quietA = statusText();
+  setComposer('a'.repeat(6));
+  const quietB = statusText();
+  expect(quietB).toBe(quietA);
+  expect(quietA).toBe('');
+
+  // Crossing to at-or-below the warning threshold changes the text once.
+  setComposer('a'.repeat(450)); // 50 remaining
+  const warn = statusText();
+  expect(warn).not.toBe(quietB);
+  expect(warn).not.toBe('');
+  // Another keystroke still inside the warning band does NOT change it again.
+  setComposer('a'.repeat(470)); // 30 remaining
+  expect(statusText()).toBe(warn);
+
+  // Reaching the limit changes the text again.
+  setComposer('a'.repeat(500)); // 0 remaining
+  const atLimit = statusText();
+  expect(atLimit).not.toBe(warn);
+  expect(atLimit).not.toBe('');
+  // Going further over the limit stays in the same band, so no re-announcement.
+  setComposer('a'.repeat(512));
+  expect(statusText()).toBe(atLimit);
+});
+
+test('the input is described by the visible counter and sets no maxLength', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const input = screen.getByLabelText('Message');
+  const describedById = input.getAttribute('aria-describedby');
+
+  // The describedby target exists and contains the visible glyph, so the count
+  // the manager sees is what a screen reader hears on focus.
+  expect(describedById).toBeTruthy();
+  const described = document.getElementById(describedById);
+  expect(described).not.toBeNull();
+  expect(described).toContainElement(screen.getByTestId('composer-char-count'));
+  expect(input).not.toHaveAttribute('maxlength');
+});
+
+test('the counter description names the unit, so it does not read as a bare "N slash 500"', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const input = screen.getByLabelText('Message');
+  // Assert the ACCESSIBLE DESCRIPTION the input actually resolves - the text
+  // content of its aria-describedby target - not a raw attribute that a browser
+  // might prune. The visible glyph stays terse; the described text names the unit.
+  const described = document.getElementById(input.getAttribute('aria-describedby'));
+  expect(described).not.toBeNull();
+  expect(screen.getByTestId('composer-char-count')).toHaveTextContent('0 / 500');
+  expect(described.textContent.replace(/\s+/g, ' ').trim()).toBe('0 / 500 characters');
+});
+
+test('a click on the counter falls through to focus the input, not a dead strip', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  const indicator = screen.getByTestId('composer-char-count');
+  // The counter rides in the input as an end adornment; disablePointerEvents lets
+  // a click there reach the input and place the caret rather than being eaten by
+  // the adornment. jsdom does no hit-testing, so pin the mechanism: the adornment
+  // wrapper carries MUI's disablePointerEvents class.
+  const adornment = indicator.closest('.MuiInputAdornment-root');
+  expect(adornment).not.toBeNull();
+  expect(adornment.className).toMatch(/disablePointerEvents/);
+});
+
+test('Send stays enabled past the limit: the server is the single enforcement point', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+  setComposer('a'.repeat(501));
+  expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  expect(countText()).toBe('501 / 500');
+});
+
+// ---------------------------------------------------------------------------
+// #446: GIF messages render as their own bubble, and the picker is gated on the
+// capability. The bubble and picker behaviour are proven in isolation in
+// GifMessage/GifComposer tests; these prove the WIRING through ChatConversation.
+// ---------------------------------------------------------------------------
+describe('ChatConversation - GIF messages (#446)', () => {
+  // eslint-disable-next-line global-require
+  const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID, fakeGifResolver } = require('../../lib/gifProviderFake');
+
+  beforeEach(() => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: false, media: query, onchange: null,
+      addListener: jest.fn(), removeListener: jest.fn(),
+      addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => clearGifProviders());
+
+  const gifMessage = (over = {}) => message({
+    id: 42,
+    message: 'this is me at 3pm',
+    media: { provider: FAKE_PROVIDER_ID, assetId: 'abc123', description: 'a cat knocking a cup off a table' },
+    ...over,
+  });
+
+  test('a GIF message with no provider renders the unavailable tile, preserving caption and description (AC5)', () => {
+    renderWithProviders(<ChatConversation messages={[gifMessage()]} onSend={noop} />);
+    expect(screen.getByTestId('gif-unavailable')).toBeInTheDocument();
+    expect(screen.getByText('a cat knocking a cup off a table')).toBeInTheDocument();
+    expect(screen.getByText('this is me at 3pm')).toBeInTheDocument();
+  });
+
+  test('a GIF message with a registered provider renders the animation (AC8)', () => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    renderWithProviders(<ChatConversation messages={[gifMessage()]} onSend={noop} />);
+    expect(screen.getByTestId('gif-animated').getAttribute('src')).toContain('abc123');
+  });
+
+  test('a HIDDEN GIF shows the tombstone, never the media (moderation)', () => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    // A hidden entry arrives with media suppressed to null by the server; assert
+    // the client renders the tombstone and nothing GIF-shaped.
+    renderWithProviders(<ChatConversation messages={[gifMessage({ hidden: true, media: null, message: null })]} onSend={noop} />);
+    expect(screen.getByText(/hidden by commissioner/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('gif-message')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gif-unavailable')).not.toBeInTheDocument();
+  });
+
+  test('the GIF picker is absent unless gifEnabled, and present when it is (AC7, one query both ways)', () => {
+    const { rerender } = renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
+    expect(screen.queryByTestId('gif-picker-trigger')).not.toBeInTheDocument();
+    rerender(<ChatConversation messages={[]} onSend={noop} gifEnabled onSendGif={noop} />);
+    expect(screen.getByTestId('gif-picker-trigger')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #524: an unsent GIF composition is preserved across an unmount, on the same
+// per-league, account-stamped scope and clearing rules as the text draft.
+// These are the RESTORE-MECHANISM tests, driven through ChatConversation (the
+// component the room and the dashboard both mount). The Draft-room test that
+// crosses the real narrow-tab / breakpoint trigger lives in DraftBoard.test.jsx.
+// Every existing composer test above lives inside a SINGLE mount and is
+// structurally blind to a state-loss-on-unmount defect; these mount, fill,
+// unmount and remount.
+// ---------------------------------------------------------------------------
+describe('ChatConversation - GIF composition persistence (#524)', () => {
+  // eslint-disable-next-line global-require
+  const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID, fakeGifResolver } = require('../../lib/gifProviderFake');
+
+  beforeEach(() => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: false, media: query, onchange: null,
+      addListener: jest.fn(), removeListener: jest.fn(),
+      addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => clearGifProviders());
+
+  // Open the picker and fill the composition. Leaves the panel open.
+  const fillGif = async ({ assetId = 'abc123', description = 'a cat knocking a cup', caption } = {}) => {
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    if (assetId) await userEvent.type(screen.getByLabelText('GIF asset id'), assetId);
+    if (description) await userEvent.type(screen.getByLabelText(/description/i), description);
+    if (caption) await userEvent.type(screen.getByLabelText(/caption/i), caption);
+  };
+
+  test('restores BOTH the message text and the GIF composition on remount (AC1, the load-bearing test)', async () => {
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'and also this gif');
+    await fillGif({ assetId: 'abc123', description: 'a cat knocking a cup', caption: 'me at 3pm' });
+
+    // The everyday trigger: the chat subtree unmounts (a narrow tab switch) and
+    // comes back for the same league and account.
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+
+    // The message text is back...
+    expect(screen.getByLabelText('Message')).toHaveValue('and also this gif');
+    // ...and so is the whole GIF composition, with the panel already open because
+    // the stored composition is non-empty (no click needed to reveal the fields).
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a cat knocking a cup');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('me at 3pm');
+  });
+
+  test('the touched/validation flag is not persisted, and validation still works after a restore', async () => {
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    // Compose an asset id but leave the required Description empty, then TOUCH it
+    // (focus and blur) so descriptionTouched genuinely goes true and the first
+    // mount is actually showing the validation error. Without this blur the flag
+    // never flips, and the post-remount assertion below could not fail whether or
+    // not the flag were persisted.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+    const firstDescription = screen.getByLabelText(/description/i);
+    await userEvent.click(firstDescription);
+    await userEvent.tab();
+    // The flag is genuinely true here: the error is on screen before the unmount.
+    expect(firstDescription).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+
+    // The asset id restored (panel open), but the touched flag did NOT survive, so
+    // the restored composition is not already shouting an error.
+    const restored = screen.getByLabelText(/description/i);
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(restored).not.toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText(/description is required/i)).not.toBeInTheDocument();
+
+    // The converse: validation is not merely silenced, it still works after a
+    // restore. Touching the emptied Description now surfaces the error, so a
+    // manager who tries to send an incomplete restored GIF still learns why.
+    await userEvent.click(restored);
+    await userEvent.tab();
+    expect(restored).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+  });
+
+  test('an in-place league change resets the composer, so a touched-empty Description does not carry a stale error into the new scope', async () => {
+    // The one path that re-seeds the composition WITHOUT an unmount: a direct
+    // league-to-league navigation whose target is already warm (FantasyOnly skips
+    // its loader), so ChatConversation stays mounted while leagueId changes.
+    // GifComposer is keyed on the league+account identity precisely so its local
+    // touched/open state does not survive that transition; without the key a
+    // Description touched and left empty in league 5 would show aria-invalid in
+    // league 6 for content league 6 never had. (Logout/account-switch cannot take
+    // this path - ProtectedRoute unmounts the subtree when the account id clears.)
+    function IdentityHarness() {
+      const [lid, setLid] = React.useState(5);
+      return (
+        <>
+          <button type="button" onClick={() => setLid(6)}>switch-league</button>
+          <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={lid} viewerUserId={7} />
+        </>
+      );
+    }
+    renderWithProviders(<IdentityHarness />);
+
+    // Touch an empty Description in league 5: the error is on screen.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+    await userEvent.click(screen.getByLabelText(/description/i));
+    await userEvent.tab();
+    expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-invalid', 'true');
+
+    // Change league in place. The composer resets to the new (empty) scope: the
+    // stale validation error is gone, and league 5's asset id does not bleed into
+    // league 6 (no field anywhere still holds it).
+    await userEvent.click(screen.getByRole('button', { name: 'switch-league' }));
+    expect(screen.queryByText(/description is required/i)).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('abc123')).not.toBeInTheDocument();
+  });
+
+  test('a different account finds an empty GIF composition and a closed panel', async () => {
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await fillGif();
+    unmount();
+
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={8} />
+    );
+    // Nothing restored, so the panel stays closed for the new account.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
+  test('a logged-out (null) account finds an empty GIF composition', async () => {
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await fillGif();
+    unmount();
+
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={null} />
+    );
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
+  test('a successful GIF send clears the GIF composition but leaves the text draft untouched', async () => {
+    const onSendGif = jest.fn().mockResolvedValue(true);
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={onSendGif} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'keep my message');
+    await fillGif({ assetId: 'abc123', description: 'a waving hand' });
+    await userEvent.click(screen.getByTestId('gif-send'));
+
+    // The send fired and the panel closed / fields cleared...
+    expect(onSendGif).toHaveBeenCalled();
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    // ...but the typed message is untouched, here and after a remount.
+    expect(screen.getByLabelText('Message')).toHaveValue('keep my message');
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    expect(screen.getByLabelText('Message')).toHaveValue('keep my message');
+    // The GIF slice is gone: reopening the picker shows empty fields.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
+  test('a successful TEXT send clears the text draft but leaves the GIF composition untouched', async () => {
+    const onSend = jest.fn().mockResolvedValue(true);
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={onSend} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'send this text');
+    await fillGif({ assetId: 'abc123', description: 'a waving hand', caption: 'hi' });
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    // The text send fired and cleared the message box...
+    expect(onSend).toHaveBeenCalledWith('send this text', expect.any(String));
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    // ...but the GIF composition is intact, still open with its fields, and it
+    // survives a remount.
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a waving hand');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('hi');
+  });
+
+  test('Cancel discards the preserved GIF composition (it never returns on remount) but leaves the text draft', async () => {
+    // Cancel and Escape have always discarded the in-progress GIF (they clear the
+    // fields and close the panel); with the composition now preserved, discarding
+    // it means clearing the stored slice too, so a cancelled GIF does not silently
+    // come back on the next mount. The text draft is a separate slice and stays.
+    const { unmount } = renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    await userEvent.type(screen.getByLabelText('Message'), 'keep my message');
+    await fillGif({ assetId: 'abc123', description: 'a waving hand' });
+
+    // Cancel GIF: distinct from the moderation form's bare Cancel.
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel GIF' }));
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+
+    // Remount: the cancelled GIF stays gone, the message draft is still there.
+    unmount();
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={noop} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+    expect(screen.getByLabelText('Message')).toHaveValue('keep my message');
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+  });
+
+  test('when sessionStorage throws, composing and sending a GIF still work', async () => {
+    jest.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    jest.spyOn(window.sessionStorage.__proto__, 'getItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    const onSendGif = jest.fn().mockResolvedValue(true);
+    renderWithProviders(
+      <ChatConversation messages={[]} onSend={noop} onSendGif={onSendGif} gifEnabled leagueId={5} viewerUserId={7} />
+    );
+
+    await fillGif({ assetId: 'abc123', description: 'a waving hand' });
+    await userEvent.click(screen.getByTestId('gif-send'));
+
+    // Persistence failed on every access, but the composition still reached the
+    // send: a composer that cannot save a draft must still let the manager send.
+    expect(onSendGif).toHaveBeenCalledWith(expect.objectContaining({
+      provider: FAKE_PROVIDER_ID,
+      assetId: 'abc123',
+      description: 'a waving hand',
+    }));
+    jest.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #529: an in-place composer-draft scope change (a direct league-to-league
+// navigation whose target is already warm, so ChatConversation never unmounts)
+// must expose the incoming scope's stored composition on the SAME render that
+// remounts the keyed GifComposer. The persistence tests above all cross the
+// scope through an UNMOUNT/remount, where the hook seeds its state at mount and
+// there is no stale outgoing frame; these cross it IN PLACE, the one path where
+// an effect-lagged re-seed leaves the freshly-keyed composer initialised from
+// the outgoing scope. Cory reproduced the closed-panel defect against
+// origin/integration at 57ccbef9 on exactly this path.
+// ---------------------------------------------------------------------------
+describe('ChatConversation - in-place composer-draft scope change (#529)', () => {
+  // eslint-disable-next-line global-require
+  const { registerGifProvider, clearGifProviders } = require('../../lib/gifProvider');
+  // eslint-disable-next-line global-require
+  const { FAKE_PROVIDER_ID, fakeGifResolver } = require('../../lib/gifProviderFake');
+
+  beforeEach(() => {
+    registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: false, media: query, onchange: null,
+      addListener: jest.fn(), removeListener: jest.fn(),
+      addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn(),
+    }));
+  });
+  afterEach(() => clearGifProviders());
+
+  // Seed a stored account-stamped record for a league, exactly as the hook
+  // would have written one in a prior turn of the session.
+  const seedRecord = (leagueId, record) =>
+    window.sessionStorage.setItem(`endzone:composerDraft:${leagueId}`, JSON.stringify(record));
+
+  // ChatConversation stays MOUNTED while leagueId/viewerUserId change under it:
+  // the warm-cache league-to-league navigation the fix is about. A single button
+  // performs the in-place switch from `from` to `to`.
+  function InPlaceScopeHarness({ from, to }) {
+    const [scope, setScope] = React.useState(from);
+    return (
+      <>
+        <button type="button" onClick={() => setScope(to)}>switch-scope</button>
+        <ChatConversation
+          messages={[]}
+          onSend={noop}
+          onSendGif={noop}
+          gifEnabled
+          leagueId={scope.leagueId}
+          viewerUserId={scope.userId}
+        />
+      </>
+    );
+  }
+
+  test('switching in place to a league holding a non-empty GIF composition opens the panel on that composition (AC1, load-bearing)', async () => {
+    // Cory's repro: begin in an empty league, switch in place to a league whose
+    // account-stamped record already holds a GIF asset and description. Because
+    // the composer is keyed on league+account it remounts on the switch, and it
+    // computes its open state once from the composition it mounts with. Unless
+    // the hook exposes the incoming scope's composition on the same render that
+    // changes that key, the composer mounts against the outgoing empty frame,
+    // initialises CLOSED, and then sits closed over the fields the lagging
+    // re-seed restores a tick later - the aria-expanded=false defect.
+    seedRecord(5, {
+      acct: 7,
+      text: 'incoming league note',
+      gif: { assetId: 'incoming-1', description: 'a dog on a skateboard', caption: 'friday' },
+    });
+
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 9, userId: 7 }} to={{ leagueId: 5, userId: 7 }} />
+    );
+
+    // The empty starting scope shows a closed panel.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // The incoming composition is open and visible with no click needed.
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('incoming-1');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a dog on a skateboard');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('friday');
+    // The incoming league's text draft is exposed on the same render.
+    expect(screen.getByLabelText('Message')).toHaveValue('incoming league note');
+  });
+
+  test('the same in-place switch survives React.StrictMode, so the guard cannot be a ref (AC2, StrictMode)', async () => {
+    // The app runs under React.StrictMode (src/index.js), whose development
+    // double-invoke re-runs the whole render pass. A render-phase state update
+    // from the first pass does not survive into the second (React discards the
+    // render-phase queue), so the re-seed must be re-derived by the second pass
+    // or it never commits. That only holds when the "previous scope" guard is
+    // STATE: the second pass re-clones it from the committed hook (the old scope)
+    // and the guard fires again, self-healing. A ref survives the double-invoke
+    // by reference, so a ref guard reads "already seeded", skips the re-seed, and
+    // commits the outgoing scope - reintroducing the exact defect. Every other
+    // test in this block renders WITHOUT StrictMode (renderWithProviders wraps
+    // only Provider/Router/Routes), so they are blind to a ref-vs-state guard;
+    // this one renders WITH it and is the test that tells them apart.
+    seedRecord(5, {
+      acct: 7,
+      text: 'incoming league note',
+      gif: { assetId: 'incoming-1', description: 'a dog on a skateboard', caption: 'friday' },
+    });
+
+    renderWithProviders(
+      <React.StrictMode>
+        <InPlaceScopeHarness from={{ leagueId: 9, userId: 7 }} to={{ leagueId: 5, userId: 7 }} />
+      </React.StrictMode>
+    );
+
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('incoming-1');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a dog on a skateboard');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('friday');
+    expect(screen.getByLabelText('Message')).toHaveValue('incoming league note');
+  });
+
+  test('switching in place from a loaded scope to an empty one closes the panel and carries no outgoing text or GIF across (AC3, empty-closes + no crossing)', async () => {
+    seedRecord(5, {
+      acct: 7,
+      text: 'outgoing note',
+      gif: { assetId: 'outgoing-1', description: 'a cat knocking a cup', caption: 'mine' },
+    });
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 9, userId: 7 }} />
+    );
+
+    // The loaded scope opens with its composition.
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('outgoing-1');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // Symmetric fix: an incoming empty scope initialises the panel CLOSED rather
+    // than sitting open over cleared fields.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+    // No outgoing TEXT crosses the boundary.
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    // No outgoing GIF content crosses: the fresh panel opens on empty fields.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+    expect(screen.queryByDisplayValue('outgoing-1')).not.toBeInTheDocument();
+  });
+
+  test('switching accounts in place exposes no prior account text or GIF composition (AC4, account boundary)', async () => {
+    // Account 7 has a stored draft for league 5; account 8 has none. This path
+    // cannot occur in production (ProtectedRoute unmounts the subtree when the
+    // account clears), but the boundary must hold at the component contract: no
+    // account 7 text or GIF may leak to account 8 across an in-place change.
+    seedRecord(5, {
+      acct: 7,
+      text: 'account seven secret',
+      gif: { assetId: 'acct7-asset', description: 'a private clip', caption: '' },
+    });
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 5, userId: 8 }} />
+    );
+
+    // Account 7 sees its own composition.
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('acct7-asset');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // Account 8 inherits nothing: closed panel, empty message, empty fields.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+    expect(screen.queryByDisplayValue('account seven secret')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('acct7-asset')).not.toBeInTheDocument();
+  });
+
+  test('switching in place to a logged-out (null) identity exposes no prior account text or GIF composition (AC4, logged-out arm)', async () => {
+    // AC4 names accounts OR a logged-out identity. Same in-place path, userId
+    // going null: the stored league-5 record is stamped for account 7, so a
+    // null-account scope reads nothing back and inherits neither text nor GIF.
+    seedRecord(5, {
+      acct: 7,
+      text: 'account seven secret',
+      gif: { assetId: 'acct7-asset', description: 'a private clip', caption: '' },
+    });
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 5, userId: null }} />
+    );
+
+    // Account 7 sees its own composition.
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('acct7-asset');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // The logged-out identity inherits nothing: closed panel, empty message, empty fields.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+    expect(screen.queryByDisplayValue('account seven secret')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('acct7-asset')).not.toBeInTheDocument();
+  });
+
+  test('a touched-empty Description does not carry its error across an in-place switch, and the incoming empty Description still errors on touch (AC5, touched flag boundary)', async () => {
+    // The touched/validation flag is local UI state, not hook-owned; it already
+    // caused a spurious-error defect in this component family, so it must not
+    // ride a scope change. Nor may fixing the timing break validation in the new
+    // scope: touching the incoming empty Description must still error normally.
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 9, userId: 7 }} />
+    );
+
+    // Touch an empty Description in the outgoing scope so its error is on screen.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.click(screen.getByLabelText(/description/i));
+    await userEvent.tab();
+    expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+
+    // Switch scope in place: the touched flag does not cross, and the incoming
+    // empty scope initialises closed, so no stale error shows.
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+    expect(screen.queryByText(/description is required/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+
+    // Validation is not merely silenced: opening the fresh panel and touching its
+    // empty Description surfaces the required-description error normally.
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    await userEvent.click(screen.getByLabelText(/description/i));
+    await userEvent.tab();
+    expect(screen.getByLabelText(/description/i)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/description is required/i)).toBeInTheDocument();
+  });
 });
