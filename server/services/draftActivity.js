@@ -77,6 +77,44 @@ const CUTOVER = 'cutover';
 const LIFECYCLE_KINDS = Object.freeze([DRAFT_START, PAUSE, RESUME, RESET, COMPLETE]);
 
 /**
+ * EVERY Draft-activity kind an append path can WRITE (#540). This is the roster
+ * of emittable kinds, anchored to the writers themselves: appendPickActivity
+ * emits PICK, appendLifecycleActivity emits any of LIFECYCLE_KINDS,
+ * appendCorrectionActivity emits CORRECTION, and the #436 legacy backfill emits
+ * the CUTOVER boundary. A new lifecycle kind added to LIFECYCLE_KINDS flows in
+ * here automatically; a brand-new shape (as CORRECTION once was) is added here
+ * when its append path lands.
+ *
+ * It is defined INDEPENDENTLY of the visible/internal classification below, NOT
+ * as their union: that independence is what lets the #540 contract test FAIL
+ * when a kind reaches this roster without being classified. If ALL_KINDS were
+ * `[...USER_VISIBLE_KINDS, ...INTERNAL_KINDS]` the partition check would pass by
+ * construction and prove nothing.
+ */
+const ALL_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION, CUTOVER]);
+
+/**
+ * The POSITIVE allowlist of kinds a user-visible feed may show (#540): a Pick,
+ * every lifecycle transition and a Commissioner correction. It is the single
+ * source of truth shared by BOTH user surfaces - the member combined feed
+ * (listCombinedDraftFeed) and the anonymous presenter feed
+ * (listPresenterDraftActivity) filter on exactly this set. Being a positive
+ * allowlist, it FAILS CLOSED: a new kind added to ALL_KINDS does not reach any
+ * user surface until it is added here on purpose (publication by decision).
+ */
+const USER_VISIBLE_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
+
+/**
+ * The kinds that are INTERNAL ordering artifacts, never a user-facing event
+ * (#540). Today only the CUTOVER boundary (#436): it carries no Team or Pick
+ * fact and marks where authoritative live ordering begins, so it is excluded
+ * from every user-visible feed rather than rendered. Held explicitly (not as
+ * "everything not visible") so the contract test can assert every emittable kind
+ * is classified as exactly one of visible or internal.
+ */
+const INTERNAL_KINDS = Object.freeze([CUTOVER]);
+
+/**
  * Shape one normalized `draft_activity` row as a typed feed entry. The row is
  * expected to carry the Team identity under the frozen TEAM_IDENTITY_FIELDS
  * keys (both the append path below and the combined read alias it that way) and
@@ -317,6 +355,9 @@ module.exports = {
   CORRECTION,
   CUTOVER,
   LIFECYCLE_KINDS,
+  ALL_KINDS,
+  USER_VISIBLE_KINDS,
+  INTERNAL_KINDS,
   activityEntryOf,
   appendPickActivity,
   appendLifecycleActivity,

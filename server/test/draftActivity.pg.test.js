@@ -18,6 +18,12 @@
  *    round, overall Pick number and its autopick flag (#435 AC2, AC3).
  * 3. BLOCKING. A blocked author's CHAT drops from a viewer's combined read, but
  *    that author's authoritative Draft ACTIVITY stays visible (user story 83).
+ * 3b. CUTOVER EXCLUSION BEFORE PAGINATION (#540). The internal cutover boundary
+ *    is filtered out of the member combined feed INSIDE the activity arm, before
+ *    its LIMIT, so a cutover row sitting inside the newest-page window never
+ *    consumes a visible slot and a full page of visible entries still returns.
+ *    Only a real Postgres actually applies the WHERE and LIMIT, so a matcher fake
+ *    cannot express it.
  * 4. OWN-TABLE GUARD (#471). The allocator RAISES on an explicitly-supplied
  *    feed_seq, so draft_activity positions are always counter-allocated for a
  *    runtime writer - an enforced per-table invariant. This is NOT the
@@ -217,6 +223,58 @@ if (!ENABLED) {
     assert.ok(seqs.includes(4), 'the blocked author\'s authoritative Draft activity stays visible');
     // Cleanup so the block does not leak into later assertions.
     await pool.query('DELETE FROM "user_blocks" WHERE "blocker_id" = $1 AND "blocked_id" = $2', [ownerA, ownerB]);
+  });
+
+  test('the member feed excludes the cutover boundary BEFORE pagination, so a full visible page still returns (#540 AC4)', async () => {
+    // The behavioral proof of filter-before-pagination that a matcher fake cannot
+    // express: a real Postgres must actually apply the activity arm's kind filter
+    // and its LIMIT. A dedicated league makes the newest-page window deterministic.
+    // The allocator trigger is disabled ONLY to seed explicit feed_seq positions -
+    // exactly how #436 seeds its own cutover boundary - and re-enabled in finally
+    // so every later test keeps its runtime allocator.
+    const owner = await seedUser('draft_activity_pg_cut');
+    const league = await seedLeague('Draft Activity PG Cutover', owner, 'draftactpgcut');
+    const team = await seedTeam(league, owner, 'Cutters');
+    try {
+      await pool.query('ALTER TABLE "draft_activity" DISABLE TRIGGER "draft_activity_allocate_feed_seq"');
+      // Visible Picks at feed_seq 1..8 EXCEPT 7; a cutover boundary sits at 7,
+      // INSIDE the newest-page window. The newest six positions by seq are
+      // 8, 7(cutover), 6, 5, 4, 3. If the kind filter ran AFTER the LIMIT, a limit
+      // of 5 would grab seqs 8,7,6,5,4, drop the cutover, and return only FOUR - a
+      // short page with no error. Filtering BEFORE the limit returns a full five.
+      await pool.query(
+        `INSERT INTO "draft_activity"
+           ("league_id", "kind", "team_id", "team_name",
+            "player_id", "player_name", "player_position", "player_nfl_team",
+            "round", "pick_number", "is_autopick", "is_legacy", "feed_seq")
+         SELECT $1, 'pick', $2, 'Cutters', $3, 'Player', 'RB', 'KC', 1, s, false, false, s
+           FROM generate_series(1, 8) s
+          WHERE s <> 7`,
+        [league, team, playerId]
+      );
+      await pool.query(
+        `INSERT INTO "draft_activity" ("league_id", "kind", "is_legacy", "feed_seq")
+         VALUES ($1, 'cutover', false, 7)`,
+        [league]
+      );
+    } finally {
+      await pool.query('ALTER TABLE "draft_activity" ENABLE TRIGGER "draft_activity_allocate_feed_seq"');
+    }
+
+    const page = await listCombinedDraftFeed(pool, { leagueId: league, viewerId: owner, limit: 5 });
+
+    // A FULL page of visible entries came back: the cutover inside the window did
+    // NOT consume a visible slot.
+    assert.equal(page.length, 5, 'a full page of visible entries returns despite a cutover inside the window');
+    assert.ok(!page.some((e) => e.kind === 'cutover'), 'no cutover boundary reaches the member feed');
+    // The newest five VISIBLE positions, oldest-first: 3,4,5,6,8 - seq 7 (the
+    // cutover) is skipped BEFORE the limit, not after.
+    assert.deepEqual(page.map((e) => e.seq), [3, 4, 5, 6, 8]);
+
+    // Leave no trace: CASCADE from the league removes its draft_activity rows so
+    // the append-only rollback smoke still sees only the seeded leagues' rows.
+    await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [league]);
+    await pool.query('DELETE FROM "users" WHERE "id" = $1', [owner]);
   });
 
   test('the allocator refuses an explicitly-supplied feed_seq (own-table guard, #471)', async () => {

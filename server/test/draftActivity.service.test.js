@@ -9,12 +9,17 @@ const {
   RESET,
   COMPLETE,
   CORRECTION,
+  CUTOVER,
   LIFECYCLE_KINDS,
+  ALL_KINDS,
+  USER_VISIBLE_KINDS,
+  INTERNAL_KINDS,
   activityEntryOf,
   appendPickActivity,
   appendLifecycleActivity,
   appendCorrectionActivity,
 } = require('../services/draftActivity');
+const { PRESENTER_ACTIVITY_KINDS } = require('../services/leagueFeed');
 const { TEAM_IDENTITY_FIELDS } = require('../services/teamIdentity');
 
 const [TEAM_ID, TEAM_NAME] = TEAM_IDENTITY_FIELDS;
@@ -351,4 +356,58 @@ test('appendCorrectionActivity inserts one correction row with the snapshot and 
   assert.deepEqual(entry.player, { id: 500, name: 'Wrong Guy', position: 'RB', nflTeam: 'KC' });
   assert.equal(entry.pickNumber, 13);
   assert.equal(entry.reason, 'entered against the wrong team; correcting before we resume');
+});
+
+/**
+ * The kind CONTRACT (#540 AC5). Every kind an append path can EMIT must be
+ * classified as exactly one of user-visible or internal, so no future kind can
+ * quietly reach a user surface (or quietly vanish from one) without a deliberate
+ * decision recorded here.
+ *
+ * The enumeration is derived from the server, NOT hand-listed in the test: it
+ * iterates ALL_KINDS - the roster anchored to the writers (PICK,
+ * LIFECYCLE_KINDS, CORRECTION, CUTOVER). Crucially ALL_KINDS is defined
+ * INDEPENDENTLY of the two classification sets (not as their union), so this
+ * partition check CAN fail: add a throwaway kind to the emit roster without
+ * classifying it and the "exactly one" assertion goes red. If it could not fail
+ * that way it would be decorative - the exact blindness (a kind nobody thought
+ * about reaching a surface) that #540 exists to close.
+ */
+test('every emittable kind is classified as exactly one of user-visible or internal (#540 AC5)', () => {
+  assert.ok(ALL_KINDS.length > 0, 'the emit roster is non-empty');
+  for (const kind of ALL_KINDS) {
+    const visible = USER_VISIBLE_KINDS.includes(kind);
+    const internal = INTERNAL_KINDS.includes(kind);
+    assert.ok(
+      visible !== internal,
+      `${kind} must be classified as EXACTLY one of user-visible or internal (visible=${visible}, internal=${internal})`
+    );
+  }
+  // Neither classification may name a kind that is not an emittable kind: a
+  // classification for a kind no append path writes is dead and hides drift.
+  for (const kind of [...USER_VISIBLE_KINDS, ...INTERNAL_KINDS]) {
+    assert.ok(ALL_KINDS.includes(kind), `${kind} is classified but not an emittable kind in ALL_KINDS`);
+  }
+});
+
+test('the concrete classification: cutover is internal, everything else is user-visible (#540 AC5)', () => {
+  // The one internal kind today is the cutover boundary (#436).
+  assert.deepEqual([...INTERNAL_KINDS], [CUTOVER]);
+  assert.ok(!USER_VISIBLE_KINDS.includes(CUTOVER), 'the cutover boundary is never user-visible');
+  // A Pick, a correction and every lifecycle transition ARE user-visible.
+  for (const kind of [PICK, CORRECTION, ...LIFECYCLE_KINDS]) {
+    assert.ok(USER_VISIBLE_KINDS.includes(kind), `${kind} must be user-visible`);
+    assert.ok(!INTERNAL_KINDS.includes(kind), `${kind} must not be internal`);
+  }
+  // And the roster is exactly the visible kinds plus the internal ones - no
+  // emittable kind is left unaccounted for.
+  assert.deepEqual([...ALL_KINDS].sort(), [...USER_VISIBLE_KINDS, ...INTERNAL_KINDS].sort());
+});
+
+test('the member and presenter surfaces share ONE visible-kind allowlist, so they cannot diverge (#540 AC5)', () => {
+  // listCombinedDraftFeed (member) and listPresenterDraftActivity (presenter)
+  // both admit exactly USER_VISIBLE_KINDS. The presenter reader re-exports it as
+  // PRESENTER_ACTIVITY_KINDS; pinning them equal means a kind cannot become
+  // visible on one surface but not the other.
+  assert.deepEqual([...PRESENTER_ACTIVITY_KINDS], [...USER_VISIBLE_KINDS]);
 });

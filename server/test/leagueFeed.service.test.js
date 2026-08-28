@@ -11,8 +11,9 @@ const {
   listLeagueChatFeed,
   combinedEntryOf,
   listCombinedDraftFeed,
+  listPresenterDraftActivity,
 } = require('../services/leagueFeed');
-const { DRAFT_ACTIVITY } = require('../services/draftActivity');
+const { DRAFT_ACTIVITY, USER_VISIBLE_KINDS } = require('../services/draftActivity');
 
 // A chat_messages row as the feed SELECT projects it: the Team identity join
 // has already aliased owner -> teamId/teamName, and feed_seq is the row's
@@ -281,8 +282,102 @@ test('listCombinedDraftFeed reads the latest page with no cursor predicate on ei
   // No older-page predicate and no resume predicate: this is the latest window.
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/, 'no older-page cursor predicate on a cursorless read');
   assert.doesNotMatch(seenSql, /"feed_seq" > \$/, 'no resume cursor predicate on a cursorless read');
-  // Exactly the no-cursor params: league, viewer, page size - no cursor value.
-  assert.deepEqual(seenParams, [12, 9, FEED_PAGE_SIZE]);
+  // Exactly the no-cursor params. #540 adds the user-visible kind allowlist as a
+  // stable $3 bound param (the activity arm filters the internal CUTOVER boundary
+  // out before pagination); the shape is now league, viewer, allowlist, page size
+  // - still NO cursor value. This is the DELIBERATE update to the #447 pin: the
+  // only change is the inserted $3 allowlist, and the "no cursor predicate on a
+  // cursorless read" invariant it guards is unchanged.
+  assert.deepEqual(seenParams, [12, 9, USER_VISIBLE_KINDS, FEED_PAGE_SIZE]);
+});
+
+// #540 AC4. The internal CUTOVER boundary must be excluded from the member feed
+// BEFORE pagination, so an internal row can never consume a visible page slot.
+// Proven here at the SQL level: the activity arm restricts kind to the positive
+// USER_VISIBLE_KINDS allowlist INSIDE its own WHERE, ahead of its ORDER BY and
+// LIMIT. Falsifiable by construction - move the filter to the outer merge (after
+// the per-arm LIMIT) or drop it and these ordering assertions go red. The
+// behavioral proof that a full visible page still returns with a cutover row
+// seeded inside the first-page window lives in draftActivity.pg.test.js, where a
+// real Postgres actually executes the WHERE and LIMIT.
+test('listCombinedDraftFeed filters the activity arm to visible kinds BEFORE pagination (#540 AC4)', async () => {
+  let seenSql = null;
+  let seenParams = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text, params) => { seenSql = text; seenParams = params; return { rows: [] }; }],
+  ]);
+
+  await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9 });
+
+  // The allowlist is the positive user-visible set, bound as $3, and it EXCLUDES
+  // the internal cutover boundary.
+  assert.deepEqual(seenParams[2], USER_VISIBLE_KINDS, 'the visible-kind allowlist rides as $3');
+  assert.ok(!USER_VISIBLE_KINDS.includes('cutover'), 'the cutover boundary is not a visible kind');
+
+  // Everything from UNION ALL onward is the activity arm.
+  const activityArm = seenSql.slice(seenSql.indexOf('UNION ALL'));
+  const kindIdx = activityArm.search(/"draft_activity"\."kind" = ANY\(\$3\)/);
+  const orderIdx = activityArm.search(/ORDER BY "draft_activity"\."feed_seq"/);
+  const limitIdx = activityArm.search(/LIMIT \$/);
+  assert.ok(kindIdx > -1, 'the activity arm restricts kind to the visible allowlist');
+  assert.ok(orderIdx > kindIdx, 'the kind filter precedes the arm ORDER BY');
+  assert.ok(limitIdx > kindIdx, 'the kind filter precedes the arm LIMIT - filtered before pagination');
+});
+
+// #540 AC1 / AC3, the privacy asymmetry proven as a PAIR in one run. The member
+// combined feed MUST carry a correction's recorded reason; the anonymous
+// presenter feed MUST NOT, and the presenter negative is proven AT THE SOURCE
+// (the SQL omits the column, the entry has no reason key), not merely in a DOM.
+// The member positive control is what gives the presenter negative meaning: it
+// rules out "no reason in the presenter payload" being an artifact of a fixture
+// that never had a reason, or of the correction being absent entirely.
+test('a member sees the correction reason; a presenter payload carries none (#540 AC1/AC3)', async () => {
+  const REASON = 'entered against the wrong team; correcting before we resume';
+  const correctionRow = (over = {}) => ({
+    source: DRAFT_ACTIVITY,
+    kind: 'correction',
+    id: 30,
+    feed_seq: '18',
+    teamId: 11,
+    teamName: 'Gridiron Ghosts',
+    player_id: 500,
+    player_name: 'Wrong Guy',
+    player_position: 'RB',
+    player_nfl_team: 'KC',
+    round: 2,
+    pick_number: 13,
+    is_autopick: null,
+    reason: REASON,
+    is_legacy: false,
+    created_at: '2026-09-01T00:00:00.000Z',
+    ...over,
+  });
+
+  // MEMBER (positive control): the reason reaches the member payload, and the
+  // member SQL actually projects the reason column.
+  let memberSql = null;
+  const memberPool = createFakePool([
+    [/FROM "chat_messages"/, (text) => { memberSql = text; return { rows: [correctionRow()] }; }],
+  ]);
+  const [memberEntry] = await listCombinedDraftFeed(memberPool, { leagueId: 12, viewerId: 9 });
+  assert.equal(memberEntry.kind, 'correction');
+  assert.equal(memberEntry.reason, REASON, 'the member correction carries the recorded reason');
+  assert.match(memberSql, /"draft_activity"\."reason" AS reason/, 'the member activity arm projects reason');
+
+  // PRESENTER (the negative, at the source): the reader queries draft_activity
+  // WITHOUT the reason column, so no free-text can ride the payload, and the
+  // shaped entry has no reason key at all - not even a null placeholder.
+  let presenterSql = null;
+  const presenterPool = createFakePool([
+    [/FROM "draft_activity"/, (text) => { presenterSql = text; return { rows: [correctionRow()] }; }],
+  ]);
+  const [presenterEntry] = await listPresenterDraftActivity(presenterPool, { leagueId: 12 });
+  assert.equal(presenterEntry.kind, 'correction', 'the correction IS present on the presenter payload');
+  assert.ok(!/reason/i.test(presenterSql), 'the presenter SELECT omits the reason column entirely');
+  assert.ok(!('reason' in presenterEntry), 'the presenter payload carries no reason field');
+  // The corrected Pick facts a presenter MAY see are still there (#540 AC3).
+  assert.deepEqual(presenterEntry.player, { id: 500, name: 'Wrong Guy', position: 'RB', nflTeam: 'KC' });
+  assert.equal(presenterEntry.pickNumber, 13);
 });
 
 test('listLeagueChatFeed pages older than a cursor with feed_seq < before', async () => {
@@ -384,10 +479,12 @@ test('listCombinedDraftFeed resumes AFTER a cursor on both kinds with feed_seq >
 
   await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9, after: 7 });
 
-  // Both arms of the union advance past the cursor...
-  assert.match(seenSql, /"chat_messages"\."feed_seq" > \$3/);
-  assert.match(seenSql, /"draft_activity"\."feed_seq" > \$3/);
+  // Both arms of the union advance past the cursor. #540 inserts the visible-kind
+  // allowlist as the stable $3 param, so the cursor is now $4 (was $3) - a
+  // DELIBERATE param-number shift, not a change to the resume predicate itself.
+  assert.match(seenSql, /"chat_messages"\."feed_seq" > \$4/);
+  assert.match(seenSql, /"draft_activity"\."feed_seq" > \$4/);
   // ...and the resume read is ascending, not the newest-first-then-flip window.
   assert.doesNotMatch(seenSql, /"feed_seq" < \$/);
-  assert.deepEqual(seenParams, [12, 9, 7, 100]);
+  assert.deepEqual(seenParams, [12, 9, USER_VISIBLE_KINDS, 7, 100]);
 });
