@@ -79,7 +79,7 @@ function GameLogSparkline({ games, format }) {
   );
 }
 
-function PeerLinks({ player }) {
+function PeerLinks({ player, profileSearch = '', profileState }) {
   const { loading, error, data, retry } = usePublicResource(
     () => publicApiClient.get('/api/public/rankings', { params: { position: player.position, limit: 20 } }).then((response) => response.data),
     [player.position]
@@ -98,7 +98,8 @@ function PeerLinks({ player }) {
             <Chip
               key={peer.playerId}
               component={RouterLink}
-              to={`/players/${peer.playerId}`}
+              to={`/players/${peer.playerId}${profileSearch}`}
+              state={profileState}
               clickable
               avatar={<Avatar src={peer.photoUrl || undefined} alt="" />}
               label={`${peer.name} · ${peer.projectedPoints ?? '-'} proj`}
@@ -161,12 +162,40 @@ function FormatToggle({ value, onChange }) {
   );
 }
 
+export function ProfileBreadcrumb({
+  label,
+  to,
+  currentLabel,
+  state,
+  replace = false,
+}) {
+  return (
+    <Breadcrumbs aria-label="Breadcrumb" sx={{ mb: 2 }}>
+      <Link
+        component={RouterLink}
+        to={to}
+        state={state}
+        replace={replace}
+        underline="hover"
+      >
+        {label}
+      </Link>
+      {currentLabel && <Typography color="text.primary">{currentLabel}</Typography>}
+    </Breadcrumbs>
+  );
+}
+
 export function ProfileBody({
   player,
   onSeasonChange,
   initialFormat = DEFAULT_FORMAT,
   breadcrumbLabel = 'Rankings',
   breadcrumbTo = '/rankings',
+  breadcrumbState,
+  breadcrumbReplace = false,
+  showBreadcrumb = true,
+  relatedPlayerSearch,
+  relatedPlayerState,
 }) {
   const [format, setFormat] = useState(initialFormat);
   useEffect(() => {
@@ -187,10 +216,15 @@ export function ProfileBody({
 
   return (
     <>
-      <Breadcrumbs aria-label="Breadcrumb" sx={{ mb: 2 }}>
-        <Link component={RouterLink} to={breadcrumbTo} underline="hover">{breadcrumbLabel}</Link>
-        <Typography color="text.primary">{player.name}</Typography>
-      </Breadcrumbs>
+      {showBreadcrumb && (
+        <ProfileBreadcrumb
+          label={breadcrumbLabel}
+          to={breadcrumbTo}
+          currentLabel={player.name}
+          state={breadcrumbState}
+          replace={breadcrumbReplace}
+        />
+      )}
       {/* Hero band */}
       <Card variant="outlined" sx={{ mb: 3 }}>
         <CardContent>
@@ -312,7 +346,11 @@ export function ProfileBody({
           )}
         </>
       )}
-      <PeerLinks player={player} />
+      <PeerLinks
+        player={player}
+        profileSearch={relatedPlayerSearch}
+        profileState={relatedPlayerState}
+      />
     </>
   );
 }

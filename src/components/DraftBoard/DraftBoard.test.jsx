@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
@@ -206,6 +207,61 @@ test('creates a socket and joins the league draft room once connected', async ()
   act(() => fakeSocket.trigger('connect'));
 
   expect(fakeSocket.emit).toHaveBeenCalledWith('draft:join', { leagueId: 1 }, expect.any(Function));
+});
+
+test('opens a full profile with the exact current Draft room origin', async () => {
+  const draftSearch = '?view=players&pos=QB&sort=proj&dir=desc&showDrafted=1&byes=6%2C10';
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/players/1/summary') {
+      return Promise.resolve({
+        data: {
+          player: {
+            id: 1,
+            name: 'Patrick Mahomes',
+            position: 'QB',
+            nfl_team: 'Kansas City Chiefs',
+          },
+          fantasy: null,
+          currentSeason: null,
+          previousSeasons: [],
+        },
+      });
+    }
+    return Promise.resolve(playersPage());
+  });
+
+  function ProfileLocation() {
+    const location = useLocation();
+    return (
+      <output aria-label="Profile location">
+        {JSON.stringify({ pathname: location.pathname, search: location.search, state: location.state })}
+      </output>
+    );
+  }
+
+  renderWithProviders(<DraftBoard />, {
+    path: '/league/:leagueId/draft',
+    route: `/league/10/draft${draftSearch}`,
+    routes: <Route path="/players/:playerId" element={<ProfileLocation />} />,
+  });
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Patrick Mahomes' }));
+  await userEvent.click(await screen.findByRole('link', { name: /Full profile/i }));
+
+  expect(screen.getByRole('status', { name: 'Profile location' })).toHaveTextContent(
+    JSON.stringify({
+      pathname: '/players/1',
+      search: '?leagueId=10',
+      state: {
+        playerProfileOrigin: {
+          kind: 'draft-room',
+          leagueId: '10',
+          pathname: '/league/10/draft',
+          search: draftSearch,
+        },
+      },
+    })
+  );
 });
 
 test('renders league state (name, on-the-clock, pick history) from a draft:state event', async () => {
