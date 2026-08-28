@@ -92,7 +92,15 @@ a:hover {
  * does not change what it selects.
  */
 @media (prefers-reduced-motion: reduce) {
-  /* Transitions and scroll animation: instantaneous everywhere. */
+  /*
+   * Transitions: instantaneous everywhere. `scroll-behavior: auto` disables
+   * CSS-declared smooth scrolling; note it does NOT reach a JavaScript
+   * `scrollIntoView({ behavior: 'smooth' })`, whose explicit behavior overrides
+   * the computed value. Those call sites (ScoringRulesView, LineupScreen) read
+   * the preference through lib/reducedMotionMedia's prefersReducedMotion()
+   * instead. There are no CSS `scroll-behavior: smooth` declarations in the app
+   * today, so this clause is a defensive default for any that get added later.
+   */
   *,
   *::before,
   *::after {
