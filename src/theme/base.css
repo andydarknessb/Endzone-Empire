@@ -56,3 +56,86 @@ a:hover {
   outline: 2px solid var(--focus-ring, #1e5bb8);
   outline-offset: 2px;
 }
+
+/*
+ * Global reduced-motion policy (issue #533). Before this, reduced motion was
+ * honoured component by component, so every surface without its own
+ * '@media (prefers-reduced-motion: reduce)' guard (MUI ripples, the Tabs
+ * indicator, Dialog and Snackbar transitions, and more) still animated for a
+ * viewer who asked their OS for none. This single global rule is the policy the
+ * whole app, MUI included, now shares: it collapses every non-essential
+ * transition and animation to instantaneous when the viewer prefers reduced
+ * motion.
+ *
+ * '!important' is required, not decorative: MUI applies its enter/exit
+ * transitions (Fade/Grow/Slide behind Dialog and Snackbar) as INLINE styles,
+ * which no ordinary stylesheet rule can override. A stylesheet '!important'
+ * declaration does outrank a non-important inline style, so this reaches them.
+ *
+ * INSTANTANEOUS, NOT FROZEN AND NOT ABSENT. Functional state still changes:
+ * clocks keep ticking, live Draft state still updates, content stays present.
+ * This rule only removes the motion, never the change or the content.
+ *
+ * WHY 0s IS SAFE FOR OPEN/CLOSE LIFECYCLES. A zero CSS duration can, in some
+ * browsers, stop a transitionend/animationend event from firing, which would
+ * hang any component that finishes an interaction on that event. Verified safe
+ * here: no source file in this app listens for a CSS transitionend/animationend
+ * event, and MUI's transition components advance their enter/exit state machine
+ * with react-transition-group's numeric timeout via setTimeout, not via the CSS
+ * event, so a dialog or snackbar still completes its open and close at 0s. If a
+ * future component ever finishes an interaction on a CSS transition/animation
+ * end event, give it a JS timeout fallback rather than relaxing this rule.
+ *
+ * The still-frame handling for animated media (src/lib/reducedMotionMedia.js,
+ * used by TeamAvatar and GifMessage) is a JavaScript matchMedia decision about
+ * which image source to render, not a CSS transition, so this rule cannot and
+ * does not change what it selects.
+ */
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Transitions: instantaneous everywhere. `scroll-behavior: auto` disables
+   * CSS-declared smooth scrolling; note it does NOT reach a JavaScript
+   * `scrollIntoView({ behavior: 'smooth' })`, whose explicit behavior overrides
+   * the computed value. Those call sites (ScoringRulesView, LineupScreen) read
+   * the preference through lib/reducedMotionMedia's prefersReducedMotion()
+   * instead. There are no CSS `scroll-behavior: smooth` declarations in the app
+   * today, so this clause is a defensive default for any that get added later.
+   */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+
+  /*
+   * Animations: instantaneous everywhere EXCEPT indeterminate progress
+   * indicators. For those, the looping motion is not decoration around the
+   * feedback, it IS the feedback: a spinning CircularProgress or a travelling
+   * indeterminate LinearProgress says "still working", and freezing it leaves a
+   * static arc or bar that a viewer cannot tell apart from a hung control or a
+   * decorative shape. Removing that motion would remove interaction feedback,
+   * which issue #533's out-of-scope list forbids.
+   *
+   * These indicators are EXCLUDED from the override rather than restored with a
+   * duration: MUI owns their keyframe durations (1.4s, 2.1s), and re-declaring a
+   * number here would silently keep forcing an old value across a MUI upgrade
+   * with nothing to catch it. `revert`/`unset`/`initial` cannot restore them
+   * either, because this override is `!important` and those keywords resolve to
+   * the 0s initial value, re-freezing them. So the override simply does not
+   * reach these elements, and MUI's own (author, non-important) animation stands.
+   *
+   * NOT exempted, deliberately: determinate progress (its value is carried by
+   * bar position, and its motion is a transition, handled instantaneously
+   * above), and Skeleton (its placeholder shape and presence carry "content is
+   * coming"; the pulse only decorates, so a static Skeleton still informs).
+   */
+  *:not(.MuiCircularProgress-indeterminate):not(.MuiCircularProgress-circleIndeterminate):not(.MuiLinearProgress-bar1Indeterminate):not(.MuiLinearProgress-bar2Indeterminate),
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

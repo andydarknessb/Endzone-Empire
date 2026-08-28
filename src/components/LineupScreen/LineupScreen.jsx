@@ -34,6 +34,7 @@ import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { prefersReducedMotion } from '../../lib/reducedMotionMedia';
 
 // Mirrors POSITION_GROUPS in server/services/lineup.service.js — group keys
 // (DL/LB/DB) usable in a slot's eligiblePositions expand to every specific
@@ -371,7 +372,10 @@ function LineupScreen() {
 
   const handleExpandAdvice = () => {
     setAdviceExpanded(true);
-    advicePanelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    advicePanelRef.current?.scrollIntoView?.({
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      block: 'start',
+    });
   };
 
   // Applies `moves` to local state immediately so swaps feel instant, fires

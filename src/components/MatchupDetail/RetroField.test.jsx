@@ -1,8 +1,26 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import RetroField from './RetroField';
+
+// prefers-reduced-motion is read through useMediaQuery; mock matchMedia the same
+// way TeamAvatar.test.jsx does, defaulting to "no preference" so the existing
+// tests keep exercising the ordinary (animated) path.
+let matchMediaMatches = false;
+beforeEach(() => {
+  matchMediaMatches = false;
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: matchMediaMatches,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
+});
 
 const bench = (overrides = {}) => ({
   id: 1,
@@ -91,4 +109,34 @@ test('flashes a plain-English banner for a non-touchdown moment play', () => {
 test('no banner renders when there is no active play', () => {
   renderField({ activePlay: null });
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
+});
+
+test('under reduced motion the moment banner is still rendered (not gated out by the preference)', () => {
+  // NOTE: the actual defect is a COMPUTED-OPACITY one - `flashIn` ends at
+  // opacity 0 held by `forwards`, and the global policy collapsing its duration
+  // to 0s pins it there. jsdom cannot resolve emotion-applied computed styles
+  // (animationName reads '' in both modes), so the visible/invisible distinction
+  // can only be asserted in a real browser, and RetroField has no e2e harness.
+  // What jsdom CAN guard is that the reduced-motion path does not simply drop
+  // the banner from the DOM (a tempting but wrong "fix"): the content is present
+  // and announced, and the dismissal test below proves the reduced path is the
+  // one running.
+  matchMediaMatches = true;
+  renderField({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
+  expect(screen.getByRole('status')).toHaveTextContent('BUF · SACK');
+});
+
+test('under reduced motion the moment banner dismisses on its own after the flash window', () => {
+  jest.useFakeTimers();
+  try {
+    matchMediaMatches = true;
+    renderField({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
+    // The animation would normally reveal AND dismiss it; with the animation
+    // gone, a timer takes it down over the same window so it still auto-clears.
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1800); });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });
