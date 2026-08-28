@@ -99,6 +99,44 @@ base.describe('console-error contract: the pure reconciler (#541)', () => {
     expect(r.unmatchedDeclarations).toEqual([broadish]);
   });
 
+  base('AC6/AC3: a single error cannot witness two OVERLAPPING declarations (no double-discharge)', () => {
+    // Both declarations match the one feed403 error: its url contains both
+    // "league" and "draft-feed". A naive independent check would mark both
+    // satisfied; the bipartite matching lets the single error witness only ONE,
+    // so the other is reported as never seen and the run fails. This is the
+    // anti-rot guarantee holding for overlapping matchers.
+    const declFeed = resourceError({ status: 403, url: 'draft-feed', because: 'the feed 403' });
+    const declLeague = resourceError({ status: 403, url: 'league', because: 'a different, never-occurring league 403' });
+    const r = reconcileConsoleErrors([feed403], [declFeed, declLeague]);
+    expect(r.ok).toBe(false);
+    expect(r.unmatchedActual).toEqual([]);
+    expect(r.unmatchedDeclarations).toHaveLength(1);
+    // Two DISTINCT errors witness both.
+    const feed403b: CapturedConsoleError = { ...feed403, url: feed403.url.replace('/1/', '/2/') };
+    expect(reconcileConsoleErrors([feed403, feed403b], [declFeed, declLeague]).ok).toBe(true);
+  });
+
+  base('a status matcher is a bounded token: status 40 does not match "status of 403"', () => {
+    const decl40 = resourceError({ status: 40, url: /draft-feed$/, because: 'typo status' });
+    const r = reconcileConsoleErrors([feed403], [decl40]);
+    // The 403 error is undeclared (40 != 403), and the 40 declaration never fires.
+    expect(r.ok).toBe(false);
+    expect(r.unmatchedActual).toEqual([feed403]);
+    expect(r.unmatchedDeclarations).toEqual([decl40]);
+  });
+
+  base('a declaration is witnessed by one of several identical errors (refresh that 401s twice)', () => {
+    const refreshA: CapturedConsoleError = {
+      text: 'Failed to load resource: the server responded with a status of 401 (Unauthorized)',
+      url: 'http://127.0.0.1:4173/api/auth/refresh',
+    };
+    const refreshB: CapturedConsoleError = { ...refreshA };
+    const decl = resourceError({ status: 401, url: /\/api\/auth\/refresh$/, because: 'anonymous boot refresh' });
+    const r = reconcileConsoleErrors([refreshA, refreshB], [decl]);
+    expect(r.ok).toBe(true);
+    expect(r.matched[0].hits).toHaveLength(2);
+  });
+
   base('appError matches an app console.error exactly and passes', () => {
     const decl = appError({ text: 'BOOM: render failed', because: 'a scenario that intentionally logs this' });
     const r = reconcileConsoleErrors([appBoom], [decl]);
@@ -153,6 +191,17 @@ function xhrGet(page: Page, url: string) {
   );
 }
 
+// The resource-load console error is delivered asynchronously over CDP, after
+// the XHR itself resolves. Wait for the specific console line so reconciliation
+// at teardown sees it deterministically, rather than racing it (no fixed sleep).
+// The listener is attached before the trigger, so a future event is never missed.
+function awaitConsoleError(page: Page, needle: RegExp) {
+  return page.waitForEvent('console', {
+    predicate: (m) => m.type() === 'error' && needle.test(m.text()),
+    timeout: 5000,
+  });
+}
+
 test.describe('console-error contract: end-to-end over the harness fixture (#541)', () => {
   test('AC1 positive: a declared 403 lets teardown pass', async ({ page, expectConsoleError }) => {
     expectConsoleError.resourceError({
@@ -161,7 +210,9 @@ test.describe('console-error contract: end-to-end over the harness fixture (#541
       because: 'contract self-test: an intentional member-feed 403',
     });
     await routeBlank(page);
+    const seen = awaitConsoleError(page, /status of 403/);
     await xhrGet(page, '/api/league/1/draft-feed');
+    await seen;
     // Nothing to assert in the body: the proof is that the fixture teardown
     // reconciles the declared 403 and does not fail this test.
     await expect(page.getByRole('heading', { name: 'contract' })).toBeVisible();
@@ -173,7 +224,9 @@ test.describe('console-error contract: end-to-end over the harness fixture (#541
   test('AC2 negative: an undeclared console error fails teardown', async ({ page }) => {
     test.fail();
     await routeBlank(page);
+    const seen = awaitConsoleError(page, /status of 404/);
     await xhrGet(page, '/api/missing/thing');
+    await seen;
     await expect(page.getByRole('heading', { name: 'contract' })).toBeVisible();
   });
 

@@ -132,10 +132,19 @@ test.describe('the Draft room mounts League chat only for a confirmed member (#5
     // endpoint, so the behaviour is provable here without weakening the guard
     // for anyone else: any OTHER console error, and any uncaught page error,
     // still fails teardown.
+    // The endpoint match tolerates an optional query string ((\?|$)), so the
+    // declaration stays valid even if the feed read ever carries a cursor param.
     expectConsoleError.resourceError({
       status: 403,
-      url: /\/api\/league\/\d+\/draft-feed$/,
+      url: /\/api\/league\/\d+\/draft-feed(\?|$)/,
       because: 'member-only combined-feed read is authoritative: a 403 revokes membership mid-draft (#534 AC4)',
+    });
+
+    // Wait for the specific 403 console line deterministically (attached before
+    // navigation), so teardown never races the CDP delivery of the event.
+    const feed403Seen = page.waitForEvent('console', {
+      predicate: (m) => m.type() === 'error' && /status of 403/.test(m.text()) && /\/draft-feed/.test(m.location()?.url ?? ''),
+      timeout: 10_000,
     });
 
     // A CONFIRMED member (join succeeds, no refusal), whose very first
@@ -143,6 +152,7 @@ test.describe('the Draft room mounts League chat only for a confirmed member (#5
     // the feed read. useDraftRoomFeed routes the 403 through feedErrorRevokesMembership
     // and the room collapses chat to the non-member surface, with no reload.
     await openRoom(page, { isCommissioner: false }, { draftFeedError: { status: 403 } });
+    await feed403Seen;
 
     await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
 

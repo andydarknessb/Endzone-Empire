@@ -69,12 +69,12 @@ const presenterTest = test.extend<{}>({
 function declarePresenterBootErrors(expectConsoleError: ExpectConsoleError) {
   expectConsoleError.resourceError({
     status: 401,
-    url: /\/api\/user$/,
+    url: /\/api\/user(\?|$)/,
     because: 'anonymous presenter boot: no session, GET /api/user answers 401 (#447)',
   });
   expectConsoleError.resourceError({
     status: 401,
-    url: /\/api\/auth\/refresh$/,
+    url: /\/api\/auth\/refresh(\?|$)/,
     because: 'anonymous presenter boot: the 401 interceptor attempts a refresh, also 401 (#447)',
   });
 }

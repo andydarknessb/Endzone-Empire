@@ -96,13 +96,17 @@ export function resourceError(spec: { status: number; url: string | RegExp; beca
     throw new Error('resourceError({ because }) must say why this error is expected');
   }
   const shownUrl = url instanceof RegExp ? String(url) : JSON.stringify(url);
+  // Bound the status to a whole token, so a typo like status 40 does not match
+  // "status of 403" as a substring. The trailing boundary keeps 40 from
+  // matching 403 while 403 still matches "status of 403 (Forbidden)".
+  const statusText = new RegExp(`status of ${status}\\b`);
   return {
     label: because,
     describe: `resourceError { status: ${status}, url: ${shownUrl} }`,
     // A resource-load error whose text carries this status AND whose location
     // url matches the named endpoint. Both are required, so a 404 on some other
     // endpoint is never discharged by a declaration meant for a 403 here.
-    matches: (rec) => isResourceError(rec) && rec.text.includes(`status of ${status}`) && urlMatches(rec.url, url),
+    matches: (rec) => isResourceError(rec) && statusText.test(rec.text) && urlMatches(rec.url, url),
   };
 }
 
@@ -141,24 +145,64 @@ export type Reconciliation = {
 };
 
 /**
- * Reconcile what the browser logged against what the spec declared. The two
- * directions are computed INDEPENDENTLY on purpose, which is exactly what stops
- * declarations from cross-matching (issue #541 AC6): if a spec declares A and B
- * and two A-shaped errors occur, both actuals match A (nothing undeclared), but
- * declaration B still matched nothing, so `ok` is false. One noisy error can
- * never silently discharge a different declaration.
+ * Whether every declaration can be WITNESSED by a DISTINCT captured error, as a
+ * maximum bipartite matching (Kuhn's augmenting-path algorithm over the tiny
+ * per-test lists). Each captured error is owned by at most one declaration, so
+ * one error can never witness two declarations at once. This is what makes the
+ * anti-rot guarantee hold even for overlapping declarations (issue #541 AC6/AC3):
+ * declare A and B whose matchers overlap, get a single error that matches both,
+ * and only one of them is witnessed - the other is reported as never seen.
+ * Returns which declaration owns each captured error (or -1), so the caller can
+ * name the unwitnessed declarations.
+ */
+function matchDeclarationsToDistinctErrors(
+  captured: CapturedConsoleError[],
+  declarations: ConsoleErrorDeclaration[]
+): { witnessed: boolean[] } {
+  const owner = new Array<number>(captured.length).fill(-1);
+  const witnessed = new Array<boolean>(declarations.length).fill(false);
+
+  const augment = (d: number, seen: boolean[]): boolean => {
+    for (let i = 0; i < captured.length; i += 1) {
+      if (seen[i] || !declarations[d].matches(captured[i])) continue;
+      seen[i] = true;
+      if (owner[i] === -1 || augment(owner[i], seen)) {
+        owner[i] = d;
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (let d = 0; d < declarations.length; d += 1) {
+    witnessed[d] = augment(d, new Array<boolean>(captured.length).fill(false));
+  }
+  return { witnessed };
+}
+
+/**
+ * Reconcile what the browser logged against what the spec declared. Both
+ * directions are load-bearing (issue #541):
+ *   - an actual console error is UNDECLARED unless some declaration matches it;
+ *   - a declaration is UNMATCHED unless a DISTINCT actual error witnesses it,
+ *     computed as a bipartite matching so one error cannot discharge two
+ *     overlapping declarations (AC6), and a stale declaration cannot ride on an
+ *     unrelated error (AC3 anti-rot).
+ * A declaration may legitimately be witnessed by one of several identical errors
+ * (e.g. a refresh that 401s twice), so a matched declaration still reports every
+ * error it matched as its hits.
  */
 export function reconcileConsoleErrors(
   captured: CapturedConsoleError[],
   declarations: ConsoleErrorDeclaration[]
 ): Reconciliation {
   const unmatchedActual = captured.filter((rec) => !declarations.some((d) => d.matches(rec)));
-  const withHits = declarations.map((declaration) => ({
-    declaration,
-    hits: captured.filter((rec) => declaration.matches(rec)),
-  }));
-  const matched = withHits.filter((m) => m.hits.length > 0);
-  const unmatchedDeclarations = withHits.filter((m) => m.hits.length === 0).map((m) => m.declaration);
+  const { witnessed } = matchDeclarationsToDistinctErrors(captured, declarations);
+  const matched = declarations
+    .map((declaration, d) => ({ declaration, hits: captured.filter((rec) => declaration.matches(rec)), d }))
+    .filter((m) => witnessed[m.d])
+    .map(({ declaration, hits }) => ({ declaration, hits }));
+  const unmatchedDeclarations = declarations.filter((_, d) => !witnessed[d]);
   const ok = unmatchedActual.length === 0 && unmatchedDeclarations.length === 0;
   return { ok, matched, unmatchedActual, unmatchedDeclarations };
 }
