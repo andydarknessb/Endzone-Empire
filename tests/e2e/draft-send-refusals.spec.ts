@@ -83,3 +83,31 @@ test.describe('Draft-room send refusals keep the message and surface the error (
     await expect(page.getByText('you are not in this league')).toHaveCount(0);
   });
 });
+
+// The OTHER blocked-manager path (#447 AC2): a non-member whose draft:join is
+// refused NOT_A_MEMBER, never a member in this league. The board reads league,
+// teams and the clock ONLY from the draft:state snapshot (useDraftSocket), which
+// never arrives on a refusal, so the room surfaces the refusal and shows no board
+// content. This deliberately does NOT assert the composer: a refused viewer still
+// sees a mounted (dead) composer today, which is the cosmetic defect filed as
+// #534 - asserting it either way would pin questionable behaviour.
+test.describe('a refused join surfaces the error without a board (#447 AC2 blocked manager, join path)', () => {
+  test.use({ viewport: VIEWPORTS.desktop });
+
+  test('a non-member whose draft:join is refused sees the refusal and no board content', async ({ page }) => {
+    await setTheme(page, 'light');
+    await installDraftSocketHarness(page, {
+      ...ACTIVE_STATE,
+      joinRefusal: { error: 'you are not in this league', code: 'NOT_A_MEMBER' },
+    });
+    await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+    await gotoDraft(page);
+
+    // The refusal is surfaced as the room's error.
+    await expect(page.getByText('you are not in this league')).toBeVisible();
+    // No snapshot arrived, so no board content renders: the league name never
+    // lands (the H1 falls back to "Draft Board"), and nobody is shown on the clock.
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toHaveCount(0);
+    await expect(page.getByText('On the clock: Ridge Runners')).toHaveCount(0);
+  });
+});

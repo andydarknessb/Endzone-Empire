@@ -39,10 +39,13 @@ import { ACTIVE_STATE, ACTIVE_PICKS } from './fixtures/draftFixtures';
 // browser network-status logging (a 401 IS the expected behaviour here) while
 // still failing on any REAL app console.error or uncaught page error, and rigour
 // against unexpected endpoints is kept at the route level (see recordedUnexpected).
-const recordedUnexpected: string[] = [];
+// Per-page, not a module global: mirrors the shared harness's own
+// unmockedByPage WeakMap (draftHarness.ts) so nothing bleeds between tests.
+const unexpectedByPage = new WeakMap<Page, string[]>();
 const presenterTest = base.extend<{}>({
   page: async ({ page }, use) => {
-    recordedUnexpected.length = 0;
+    const recordedUnexpected: string[] = [];
+    unexpectedByPage.set(page, recordedUnexpected);
     const errors: string[] = [];
     page.on('console', (msg) => {
       // Browser resource-load status lines (the 401s the anonymous boot expects)
@@ -55,6 +58,7 @@ const presenterTest = base.extend<{}>({
       errors.push(`pageerror: ${err && err.stack ? err.stack : String(err)}`);
     });
     await use(page);
+    unexpectedByPage.delete(page);
     expect(
       recordedUnexpected,
       `the presenter page requested endpoints this spec does not mock:\n${recordedUnexpected.join('\n')}`
@@ -143,9 +147,9 @@ async function installPresenterRoutes(
     }
 
     // Nothing else should be requested on the presenter route (no Nav is
-    // mounted). Record it so the teardown fails by name, and fail the request
-    // loudly rather than reaching a real network.
-    recordedUnexpected.push(`${method} ${path}`);
+    // mounted). Record it against this page so the teardown fails by name, and
+    // fail the request loudly rather than reaching a real network.
+    (unexpectedByPage.get(page) || []).push(`${method} ${path}`);
     return reply(route, 500, { error: `unexpected presenter request: ${method} ${path}` });
   });
 }
