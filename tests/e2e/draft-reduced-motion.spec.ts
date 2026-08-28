@@ -1,5 +1,5 @@
-// Reduced-motion browser evidence (issue #447 AC4 - PARTIAL; see the filed
-// reduced-motion gap issue referenced in the PR body).
+// Reduced-motion browser evidence (issue #447 AC4 - PARTIAL; the global gap is
+// filed as #533).
 //
 // AC4 as written asks that under emulateMedia({ reducedMotion: 'reduce' }) "no
 // Draft-room element animates". That is NOT satisfiable as written: the app has
