@@ -1248,6 +1248,33 @@ describe('ChatConversation - in-place composer-draft scope change (#529)', () =>
     expect(screen.queryByDisplayValue('acct7-asset')).not.toBeInTheDocument();
   });
 
+  test('switching in place to a logged-out (null) identity exposes no prior account text or GIF composition (AC4, logged-out arm)', async () => {
+    // AC4 names accounts OR a logged-out identity. Same in-place path, userId
+    // going null: the stored league-5 record is stamped for account 7, so a
+    // null-account scope reads nothing back and inherits neither text nor GIF.
+    seedRecord(5, {
+      acct: 7,
+      text: 'account seven secret',
+      gif: { assetId: 'acct7-asset', description: 'a private clip', caption: '' },
+    });
+    renderWithProviders(
+      <InPlaceScopeHarness from={{ leagueId: 5, userId: 7 }} to={{ leagueId: 5, userId: null }} />
+    );
+
+    // Account 7 sees its own composition.
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('acct7-asset');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    // The logged-out identity inherits nothing: closed panel, empty message, empty fields.
+    expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
+    expect(screen.queryByDisplayValue('account seven secret')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('acct7-asset')).not.toBeInTheDocument();
+  });
+
   test('a touched-empty Description does not carry its error across an in-place switch, and the incoming empty Description still errors on touch (AC5, touched flag boundary)', async () => {
     // The touched/validation flag is local UI state, not hook-owned; it already
     // caused a spurious-error defect in this component family, so it must not
