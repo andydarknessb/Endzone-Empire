@@ -1,4 +1,71 @@
-import { useRef, useLayoutEffect } from 'react';
+import { useRef, useEffect, useLayoutEffect } from 'react';
+
+// ---------------------------------------------------------------------------
+// Pointer intent (issue #532).
+//
+// The null-relatedTarget blur below has TWO producers that are indistinguishable
+// by DOM state at the instant it fires, and #532 established that empirically
+// rather than by assumption (a probe against Chromium and WebKit, both the raw
+// DOM primitive and the real Draft room):
+//   - CHROMIUM fires the blur BEFORE it detaches the removed node, so
+//     `event.target.isConnected` reads TRUE for a real tear-down - identical to
+//     a click-away. The obvious "the torn-down element is already detached"
+//     distinguisher does NOT hold here.
+//   - WEBKIT delivers no focusout to a stable ancestor on removal at all, so
+//     there is nothing to read in the first place.
+// So isConnected cannot separate the cases in either engine. What DOES differ,
+// synchronously, is INTENT: a user click-away to non-focusable content is always
+// preceded - in the SAME synchronous event turn - by a pointerdown; a tear-down
+// (the room's ResizeObserver-driven pane flip, or a rail control removed by
+// another manager's socket event) has no pointerdown behind it.
+//
+// `pointerGestureActive` is true for the span of ONE pointer gesture (set on
+// pointerdown, cleared on pointerup/pointercancel - see ensurePointerListener):
+// the click-away's focus move and its null-relatedTarget blur happen on
+// pointerdown, so onBlur reads it true; a tear-down blur has no gesture in
+// flight and reads it false. The rescue itself stays fully synchronous in the
+// layout effect above - there is no timer, microtask or rAF whose firing could
+// race the flip commit, so no async race and no painted body-focus frame
+// (issue #525 AC3). (A microtask reset was measured and drains BEFORE the blur
+// in real browsers, which would have left the fix silently inert - #532.)
+//
+// WHY THIS IS CORRECT FOR THIS APP, AND NOT UNIVERSALLY: pointer intent is a
+// safe distinguisher here only because no user pointerdown can itself tear down a
+// tracked subtree. Today that holds because (a) the arrangement is chosen from a
+// ResizeObserver measurement - a rotation, resize, window snap or zoom - never
+// from an in-app click; (b) the rail's two signals (hasExceptionList,
+// hasViewerPicks) are driven by socket state, not by the viewer's pointer; and
+// (c) a pointer that moves focus to a real control takes the truthy-relatedTarget
+// path below and clears the hold before this branch is ever reached.
+//
+// WHAT WOULD BREAK IT: add a draggable pane divider / splitter / resizer, or any
+// other control whose own pointerdown tears down a subtree a manager is focused
+// inside, and this branch will read that tear-down as a click-away, clear the
+// hold, and SILENTLY turn the rescue into a no-op for that path. If you are here
+// to add a resizable split, you must give the tear-down its own signal that does
+// not depend on pointer intent, and cover it with a test - do not rediscover
+// this by a bug report.
+//
+// ONE KNOWN, ACCEPTED EDGE: if a pointerdown never gets its pointerup/pointercancel
+// (pointer capture lost, a drag that leaves the window), the flag stays true
+// until the next gesture, and a tear-down blur in that window would be read as a
+// click-away and its rescue suppressed. It only costs an assistive-technology
+// rescue (never data), and it needs an orphaned gesture to coincide with a
+// tear-down while focus is held in a region, so it is left unchased.
+let pointerGestureActive = false;
+let pointerListenerInstalled = false;
+
+function ensurePointerListener() {
+  if (pointerListenerInstalled || typeof document === 'undefined') return;
+  pointerListenerInstalled = true;
+  // Bound the flag to the span of one gesture (see the module note above for
+  // why a gesture window and not a timer). Capture phase so a child that stops
+  // propagation is still seen; passive since we only observe the gesture.
+  const clear = () => { pointerGestureActive = false; };
+  document.addEventListener('pointerdown', () => { pointerGestureActive = true; }, { capture: true, passive: true });
+  document.addEventListener('pointerup', clear, { capture: true, passive: true });
+  document.addEventListener('pointercancel', clear, { capture: true, passive: true });
+}
 
 /**
  * Hand focus somewhere deliberate when the subtree a person is focused inside is
@@ -58,6 +125,10 @@ export default function useFocusRescue(signal, resolveTarget) {
   const heldEl = useRef(null);
   const prevSignal = useRef(signal);
 
+  // Install the one shared document gesture listener (idempotent) - pointer
+  // intent is a property of the gesture, not of an instance (issue #532).
+  useEffect(() => { ensurePointerListener(); }, []);
+
   useLayoutEffect(() => {
     const changed = !Object.is(prevSignal.current, signal);
     prevSignal.current = signal;
@@ -82,26 +153,28 @@ export default function useFocusRescue(signal, resolveTarget) {
   return {
     onFocus: (event) => { heldEl.current = event.target; },
     // A blur that carries a `relatedTarget` is the person moving focus to
-    // another real element - they navigated away, so stop tracking. A blur with
-    // no relatedTarget is focus lost to `<body>`, which is exactly what a real
-    // browser does when the focused control is REMOVED by the tear-down this
-    // hook exists to rescue: keep the held element so the layout effect above,
-    // running in that same commit, can still hand focus somewhere deliberate.
-    // (jsdom fires no blur on unmount at all, so this branch only bites in a
-    // real browser; the unit tests exercise the kept-element path directly.)
+    // another real element - they navigated away, so stop tracking. This leaves
+    // outside chrome, dialogs and tabs untouched by any later flip.
     //
-    // KNOWN, DELIBERATE OVER-TRIGGER: focus lost to nothing is not only an
-    // unmount - a click on empty space also blurs with a null relatedTarget - so
-    // if the person focuses inside the subtree, clicks away to `<body>`, and only
-    // THEN the signal changes, this keeps the held element and the rescue pulls
-    // focus back to where they just were rather than leaving it on `<body>`. That
-    // is benign (it returns them to the control they were last in) and it is left
-    // unchased on purpose: every clean way to tell an unmount from a click-away
-    // either cannot separate them at rescue time (the held element is gone in
-    // both cases, `document.activeElement` is `<body>` in both) or adds a
-    // microtask/rAF that races the synchronous flip commit this hook is built to
-    // land inside. Simple and correct for the real cases beats complex for this
-    // one. Do not "fix" it into an async check.
-    onBlur: (event) => { if (event.relatedTarget) heldEl.current = null; },
+    // A blur with NO relatedTarget is focus lost to `<body>`, and it has two
+    // producers that the DOM cannot tell apart at this instant (see the pointer
+    // intent note at the top of this file for the two-engine probe that
+    // established it):
+    //   - the tear-down this hook exists to rescue - a real browser drops focus
+    //     to `<body>` when the focused control is REMOVED - where the held
+    //     element must SURVIVE so the layout effect above, running in that same
+    //     commit, can hand focus somewhere deliberate; and
+    //   - a user CLICK-AWAY to non-focusable content (a pane background, dead
+    //     space, a text selection), where the held element must be INVALIDATED so
+    //     a later flip does not yank focus back to where the user deliberately
+    //     left it (issue #532).
+    // The one thing that separates them synchronously is pointer intent: the
+    // click-away's blur fires in the same turn as its pointerdown, so
+    // `pointerGestureActive` is true; the tear-down has no pointer behind it, so
+    // it is false and the hold survives. jsdom fires no blur on unmount, so the
+    // unit tests drive both edges of this branch directly.
+    onBlur: (event) => {
+      if (event.relatedTarget || pointerGestureActive) heldEl.current = null;
+    },
   };
 }
