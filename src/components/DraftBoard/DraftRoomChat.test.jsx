@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, act, waitFor } from '@testing-library/react';
+import { screen, act, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -414,6 +414,41 @@ test('the GIF composer Cancel is distinct from the moderation Cancel in the same
   // Exactly one bare "Cancel" (the moderation form), and exactly one "Cancel GIF".
   expect(screen.getAllByRole('button', { name: 'Cancel', exact: true })).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Cancel GIF' })).toBeInTheDocument();
+});
+
+test('preserves an unsent GIF composition across an unmount and remount, scoped by league and account (#524)', async () => {
+  // The Draft-room mechanism check for #524: DraftRoomChat reads the account from
+  // the store and threads leagueId through, so a half-composed GIF survives the
+  // component being unmounted and remounted (the shape of a narrow-tab switch,
+  // proven against the real room trigger in DraftBoard.test.jsx). Here we prove
+  // the composition round-trips when the account is present and is dropped when
+  // it is not.
+  registerGifProvider(FAKE_PROVIDER_ID, fakeGifResolver);
+  const view = (
+    <DraftRoomChat socket={socket} leagueId={9} viewerTeamId={11} gifEnabled />
+  );
+  const { unmount } = renderWithProviders(view, { state: { user: { id: 5 } } });
+  await screen.findByText('No messages yet');
+
+  await userEvent.click(screen.getByTestId('gif-picker-trigger'));
+  await userEvent.type(screen.getByLabelText('GIF asset id'), 'abc123');
+  await userEvent.type(screen.getByLabelText(/description/i), 'a waving hand');
+  unmount();
+
+  // Remount for the SAME account: the composition and its open panel return.
+  renderWithProviders(view, { state: { user: { id: 5 } } });
+  await screen.findByText('No messages yet');
+  expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+  expect(screen.getByLabelText('GIF asset id')).toHaveValue('abc123');
+  expect(screen.getByLabelText(/description/i)).toHaveValue('a waving hand');
+
+  // A different account finds nothing: the draft is stamped, not shared.
+  cleanup();
+  renderWithProviders(view, { state: { user: { id: 6 } } });
+  await screen.findByText('No messages yet');
+  expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+
+  window.sessionStorage.clear();
 });
 
 test('a commissioner hiding from the room posts through the shared hide route', async () => {

@@ -68,10 +68,13 @@ function ChatConversation({
   gifEnabled = false,
   onSendGif = null,
 }) {
-  // The composer text is a preserved draft (#442 AC5/AC6): scoped per league and
-  // account, cleared on send, logout or account change. clearDraft empties both
-  // the box and the stored draft on a successful send.
-  const [text, setText, clearDraft] = useComposerDraft({ leagueId, userId: viewerUserId });
+  // The composer draft is preserved (#442 AC5/AC6, extended by #524): scoped per
+  // league and account, cleared on send, logout or account change. The hook owns
+  // BOTH the message text and the GIF composition so the two composers behave
+  // alike across an unmount; they clear independently, so clearDraft (a text
+  // send) leaves a half-composed GIF in place and clearGif (a GIF send) leaves
+  // the typed message in place.
+  const [text, setText, clearDraft, gif, setGif] = useComposerDraft({ leagueId, userId: viewerUserId });
   // The message currently being hidden (its id), and the reason being typed for
   // it. Only one hide form is open at a time; opening another replaces it.
   const [hidingId, setHidingId] = useState(null);
@@ -528,8 +531,41 @@ function ChatConversation({
         </Button>
       </Box>
       {/* The GIF compose affordance (#446), absent unless the capability is
-          enabled (AC7); emoji and text above are unaffected. */}
-      <GifComposer enabled={gifEnabled} onSendGif={onSendGif} />
+          enabled (AC7); emoji and text above are unaffected. Its compose fields
+          are the hook-owned, per-league preserved GIF composition (#524), so a
+          half-composed GIF survives an unmount exactly as the text draft does
+          and the panel reopens when a restored composition is non-empty. A
+          successful GIF send (or a Cancel) clears only this slice through
+          setGif, leaving the message draft above untouched.
+
+          The key is the composer-draft identity (league + account). GifComposer
+          keeps two pieces of purely local UI state that the hook does not own -
+          the open/closed disclosure and the description touched flag - and it
+          computes the panel's initial open state once, from the composition it
+          mounts with. When the identity CHANGES IN PLACE (the hook re-seeds the
+          composition to the new scope without an unmount), that local state would
+          otherwise go stale: a previously-touched empty Description could show a
+          validation error for content the new scope never had. Keying on the
+          identity remounts the composer on that transition, so its open state is
+          recomputed from the re-seeded composition and the touched flag resets -
+          the same fresh start a real unmount gives it.
+
+          When is an in-place identity change even reachable? Not on logout or an
+          account switch: ProtectedRoute (App.jsx wraps both the Draft room and
+          the Dashboard) swaps the whole subtree for the login page the instant
+          the account id goes null, so this component unmounts rather than
+          re-rendering with a null viewerUserId. The one path that keeps it
+          mounted is a direct league-to-league navigation whose target league is
+          already warm in the useLeague cache (FantasyOnly then skips its loader).
+          The key covers that path; without it the residual is only cosmetic and
+          capability-gated, but the key is a cheaper guarantee than the analysis. */}
+      <GifComposer
+        key={`${leagueId}:${viewerUserId}`}
+        enabled={gifEnabled}
+        onSendGif={onSendGif}
+        composition={gif}
+        onCompositionChange={setGif}
+      />
     </Paper>
   );
 }
