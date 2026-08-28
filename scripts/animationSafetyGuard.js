@@ -152,6 +152,132 @@ function finalKeyframeHiddenReason(body) {
   return { hidden: reason !== null, reason, finalOffset: maxOffset };
 }
 
+// ============================================================================
+// THE WHOLE CHECK: walk the app source and report unsafe animations.
+// ============================================================================
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+const SCAN_ROOTS = ['src'];
+const CSS_EXTENSIONS = new Set(['.css']);
+const JS_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx']);
+const TEST_FILE_PATTERN = /\.(test|spec)\.(js|jsx|ts|tsx)$/;
+
+// Paths allowed to keep an unsafe animation, each with a reason a reader can
+// check, in the shape emDashGuard/check-color-literals use (a flat array of
+// posix paths; a trailing '/' marks a directory prefix). Expected EMPTY at
+// merge - this is the escape hatch for a real false positive (a valid
+// reduced-motion guard written in a shape the scanners do not yet recognize),
+// so the fix for a wrong flag is one reasoned line here, not deleting the gate.
+const ALLOWLIST = [];
+
+function isTestFile(relPosix) {
+  return TEST_FILE_PATTERN.test(relPosix);
+}
+
+function isAllowlisted(relPosix) {
+  return ALLOWLIST.some((entry) =>
+    entry.endsWith('/') ? relPosix.startsWith(entry) : relPosix === entry
+  );
+}
+
+function toPosix(rel) {
+  return rel.split(path.sep).join('/');
+}
+
+function walkFiles(dir, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    // `entry.name` comes from fs.readdirSync of a fixed repo directory, not
+    // from user or network input.
+    const full = path.join(dir, entry.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules') continue;
+      walkFiles(full, out);
+    } else {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+// Lazy-require the scanners so the shared core (this file) has no hard runtime
+// dependency on @babel/parser or postcss until an actual scan runs.
+function loadScanners() {
+  const { scanCss } = require('./animationSafetyCss');
+  const { scanJs } = require('./animationSafetyJs');
+  return { scanCss, scanJs };
+}
+
+/**
+ * Scan the app source tree (default `src/`) for unsafe animations. Returns
+ * { violations, stats } where each violation is
+ * { file, line, source, animationName, reason } and stats carries the counts
+ * that prove the scan actually looked: filesScanned, keyframes, forwardsUsages,
+ * unresolved, parseErrors.
+ *
+ * `roots` is injectable so a test can point the same walker at the
+ * deliberately-unsafe fixture directory and prove the check still fires.
+ */
+function findViolations({ root = REPO_ROOT, roots = SCAN_ROOTS } = {}) {
+  const { scanCss, scanJs } = loadScanners();
+  const violations = [];
+  const stats = {
+    filesScanned: 0,
+    keyframes: 0,
+    forwardsUsages: 0,
+    unresolved: 0,
+    parseErrors: 0,
+  };
+
+  for (const scanRoot of roots) {
+    const dir = path.join(root, scanRoot);
+    if (!fs.existsSync(dir)) continue;
+    for (const file of walkFiles(dir)) {
+      const ext = path.extname(file);
+      const relPosix = toPosix(path.relative(root, file));
+      const isCss = CSS_EXTENSIONS.has(ext);
+      const isJs = JS_EXTENSIONS.has(ext);
+      if (!isCss && !isJs) continue;
+      if (isTestFile(relPosix) || isAllowlisted(relPosix)) continue;
+
+      const source = fs.readFileSync(file, 'utf8');
+      const result = isCss ? scanCss(source) : scanJs(source);
+      stats.filesScanned += 1;
+      stats.keyframes += result.keyframesCount || 0;
+      stats.forwardsUsages += result.forwardsUsageCount || 0;
+      stats.unresolved += result.unresolvedCount || 0;
+      if (result.parseError) stats.parseErrors += 1;
+      for (const v of result.violations) {
+        violations.push({
+          file: relPosix,
+          line: v.line,
+          source: isCss ? 'css' : 'js',
+          animationName: v.animationName,
+          reason: v.reason,
+          selector: v.selector,
+        });
+      }
+    }
+  }
+
+  return { violations, stats };
+}
+
+// A clear, single-line report of one violation: the declaration it named and
+// the reason it printed (criterion 7).
+function formatViolation(v) {
+  const where = v.source === 'css' ? `selector \`${v.selector}\`` : `animation \`${v.animationName}\``;
+  const named = v.source === 'css' ? `animation \`${v.animationName}\`` : where;
+  return (
+    `${v.file}:${v.line ?? '?'}: [animation-safety] ${named} is forwards-filled and its ` +
+    `final keyframe hides the element (${v.reason}); under reduced motion the ` +
+    `global 0s policy pins it hidden with no reduced-motion alternative for this ` +
+    (v.source === 'css' ? `selector.` : `declaration.`)
+  );
+}
+
 module.exports = {
   HIDDEN_OPACITY,
   stripCssComments,
@@ -160,4 +286,11 @@ module.exports = {
   offsetForToken,
   parseKeyframeBlocks,
   finalKeyframeHiddenReason,
+  REPO_ROOT,
+  SCAN_ROOTS,
+  ALLOWLIST,
+  isTestFile,
+  isAllowlisted,
+  findViolations,
+  formatViolation,
 };

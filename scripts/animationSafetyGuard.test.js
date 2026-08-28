@@ -14,6 +14,7 @@ const {
 } = require('./animationSafetyGuard');
 const { scanCss } = require('./animationSafetyCss');
 const { scanJs } = require('./animationSafetyJs');
+const { findViolations, formatViolation, ALLOWLIST } = require('./animationSafetyGuard');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -446,5 +447,107 @@ test('scanJs: the real RetroField.jsx has zero violations but is non-empty (posi
   assert.ok(
     result.forwardsUsageCount >= 3,
     `expected >=3 forwards usages examined (2 dash + 1 flashIn), got ${result.forwardsUsageCount}`
+  );
+});
+
+// ============================================================================
+// DELIBERATELY-UNSAFE FIXTURE: the standing proof the check still fires when
+// the real tree is clean (pl-endzone's condition on #542). The fixtures live
+// under tests/fixtures/, outside every scan path, and are read explicitly here.
+// ============================================================================
+
+const FIXTURE_DIR = 'tests/fixtures/animation-safety';
+
+test('fixture: the unsafe CSS fixture IS flagged by scanCss with the reason', () => {
+  const css = fs.readFileSync(path.join(REPO_ROOT, FIXTURE_DIR, 'unsafe.css'), 'utf8');
+  const { violations } = scanCss(css);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].selector, '.fixture-callout');
+  assert.equal(violations[0].animationName, 'fixture-vanish');
+  assert.equal(violations[0].reason, 'opacity: 0');
+});
+
+test('fixture: the unsafe JS fixture IS flagged by scanJs with the reason', () => {
+  const js = fs.readFileSync(path.join(REPO_ROOT, FIXTURE_DIR, 'unsafe.jsx'), 'utf8');
+  const { violations } = scanJs(js);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].animationName, 'fixtureFlashOut');
+  assert.equal(violations[0].reason, 'opacity: 0');
+});
+
+// End-to-end: the WHOLE walker (not just the pure scanners) finds both planted
+// violations when pointed at the fixture directory. This proves the glob, the
+// file routing, and the aggregation are load-bearing - the exact things a clean
+// tree cannot exercise.
+test('fixture: findViolations pointed at the fixture dir finds both planted violations', () => {
+  const { violations, stats } = findViolations({ roots: [FIXTURE_DIR] });
+  assert.equal(violations.length, 2, formatEach(violations));
+  const byName = violations.map((v) => v.animationName).sort();
+  assert.deepEqual(byName, ['fixture-vanish', 'fixtureFlashOut']);
+  assert.equal(stats.parseErrors, 0);
+  // Every violation formats to a clear, single line naming declaration + reason.
+  for (const v of violations) {
+    const line = formatViolation(v);
+    assert.match(line, /animation-safety/);
+    assert.match(line, /opacity: 0/);
+  }
+});
+
+function formatEach(violations) {
+  return '\n' + violations.map(formatViolation).join('\n') + '\n';
+}
+
+// ============================================================================
+// THE GUARD ITSELF: the real app tree must carry no unsafe animation, AND the
+// scan must be shown to have actually looked (non-zero examined counts, zero
+// parse errors). The console line below is the guard's own output in a real
+// `npm run guards` run - the artefact that proves the check examined something.
+// ============================================================================
+
+test('the real app tree (src/) carries no unsafe forwards-hidden animation', () => {
+  const { violations, stats } = findViolations();
+
+  // The guard's own output line: a non-zero examined count is the artefact that
+  // proves the scan looked at real code rather than silently finding nothing.
+  console.log(
+    `[animation-safety] scanned ${stats.filesScanned} files, examined ${stats.keyframes} ` +
+      `keyframes and ${stats.forwardsUsages} forwards-filled animation declarations ` +
+      `(${stats.unresolved} unresolved, ${stats.parseErrors} parse errors); ` +
+      `${violations.length} violation(s).`
+  );
+
+  // Positive control: the enumeration that returns zero must also be shown to
+  // find the known safe cases (dash, flashIn, the three tecmo animations), or a
+  // zero result is indistinguishable from a scan that looked at nothing.
+  assert.ok(stats.keyframes > 0, 'expected the scan to examine at least one keyframes definition');
+  assert.ok(
+    stats.forwardsUsages > 0,
+    'expected the scan to examine at least one forwards-filled animation'
+  );
+  assert.equal(
+    stats.parseErrors,
+    0,
+    'every scanned JS file must parse; a parse error means the guard silently skipped a file'
+  );
+
+  assert.deepEqual(
+    violations.map(formatViolation),
+    [],
+    violations.length > 0
+      ? '\nForwards-filled animations that end hidden are permanently hidden under ' +
+          'reduced motion (the global 0s policy in src/theme/base.css does not reset ' +
+          'animation-fill-mode). Give the affected declaration or surface a real ' +
+          'reduced-motion alternative (a prefersReducedMotion off-ramp, or a @media ' +
+          '(prefers-reduced-motion: reduce) override on the same selector), end the ' +
+          'animation on a visible keyframe, or drop forwards fill. See issue #542.\n'
+      : undefined
+  );
+});
+
+test('the animation-safety allowlist is empty at merge', () => {
+  assert.deepEqual(
+    ALLOWLIST,
+    [],
+    'ALLOWLIST is expected to be empty; every entry needs a reason a reader can check'
   );
 });
