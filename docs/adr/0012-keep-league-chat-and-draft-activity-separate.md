@@ -81,3 +81,21 @@ set of rules onto data that needs the other.
   initialization this decision implies land as migrations that the maintainer
   merges, applies and verifies against `knex_migrations`; an IC writes them
   but does not run them.
+
+## Amendment (2026-08-27): there is no rollout flag; enablement is the release
+
+The "Guarded rollback" consequence above offers "disabling the new interface
+through the short-lived rollout flag" as a recovery path. No such flag was
+ever built: the centerpiece Draft room shipped unflagged through #444 and
+#445 and is on `integration` unconditionally, and the only capability flag in
+the tree, `GIF_MESSAGES_ENABLED`, is #446's provider gate, not a switch for
+the interface. No staging environment exists either
+(docs/production/deployment-rollback.md), so #447's criterion to enable the
+flag in staging was struck at its 2026-08-27 ruling.
+
+The recovery paths are therefore the two that remain: a forward migration,
+or the platform rollback of the deployed commit described in
+docs/production/deployment-rollback.md. Production enablement of the new
+interface is the next `integration` to `main` release and Promote, the
+maintainer's act. The rest of this ADR, including the refusal of a
+destructive down-migration once Draft activity exists, is unchanged.
