@@ -40,10 +40,14 @@ const HELD_MESSAGE = {
   created_at: '2026-01-01T12:00:00Z',
 };
 
-async function openRoom(page: Page, over: Partial<DraftSocketState> = {}) {
+async function openRoom(
+  page: Page,
+  over: Partial<DraftSocketState> = {},
+  apiOver: { draftFeedError?: { status: number; body?: unknown } } = {}
+) {
   await setTheme(page, 'light');
   await installDraftSocketHarness(page, { ...ACTIVE_STATE, ...over });
-  await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+  await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS, ...apiOver });
   await gotoDraft(page);
 }
 
@@ -118,6 +122,44 @@ test.describe('the Draft room mounts League chat only for a confirmed member (#5
     // AC1: no combined-feed request was ever issued.
     expect(requestPaths.filter((p) => p.includes('/draft-feed'))).toEqual([]);
   });
+
+  test('a confirmed member whose member-only feed answers 403 is revoked IN THE BROWSER: chat collapses, no reload (#534 AC4, #541 AC7)', async ({ page, expectConsoleError }) => {
+    // The mid-draft revocation this file's footer used to say could only be
+    // jsdom-proven. It could not be driven in a browser because the intentional
+    // 403 is logged by Chromium as a "Failed to load resource" console error,
+    // which the shared harness treated as a fatal unexpected error. The #541
+    // contract lets this spec DECLARE that one error, named by status AND
+    // endpoint, so the behaviour is provable here without weakening the guard
+    // for anyone else: any OTHER console error, and any uncaught page error,
+    // still fails teardown.
+    expectConsoleError.resourceError({
+      status: 403,
+      url: /\/api\/league\/\d+\/draft-feed$/,
+      because: 'member-only combined-feed read is authoritative: a 403 revokes membership mid-draft (#534 AC4)',
+    });
+
+    // A CONFIRMED member (join succeeds, no refusal), whose very first
+    // combined-feed read then answers 403 - a manager removed between join and
+    // the feed read. useDraftRoomFeed routes the 403 through feedErrorRevokesMembership
+    // and the room collapses chat to the non-member surface, with no reload.
+    await openRoom(page, { isCommissioner: false }, { draftFeedError: { status: 403 } });
+
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+
+    // The room swapped in the single explicit non-member surface, inside the
+    // same section + h2 "League Chat" shell (a heading-navigation user still
+    // finds chat). Scoped to the region so the chrome's polite membership
+    // announcer copy is not mistaken for the surface.
+    const chat = page.getByRole('region', { name: 'League Chat' });
+    await expect(chat).toBeVisible();
+    await expect(chat.getByText('League chat is available to league members only.')).toBeVisible();
+
+    // The member controls the feed hook had mounted are gone: no log, no
+    // composer, no Send. The revocation actually tore them out (#534 AC4).
+    await expect(page.getByRole('log', { name: 'League Chat' })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send' })).toHaveCount(0);
+  });
 });
 
 // The two mid-session revocation channels (AC4) and the AC5 survival case are
@@ -127,7 +169,10 @@ test.describe('the Draft room mounts League chat only for a confirmed member (#5
 //    the non-member surface). tests/e2e/draft-send-refusals.spec.ts still asserts
 //    the pre-#534 behaviour for that send, so the e2e for this channel is being
 //    reconciled with its owner rather than duplicated here.
-//  - a 403 from the member-only feed: a raw HTTP 403 in-browser trips the shared
-//    harness's console-error teardown, so this channel stays jsdom-proven.
+//  - a 403 from the member-only feed: now proven IN THE BROWSER by the test
+//    above, using the #541 expected-console-error contract to declare the
+//    intentional 403 (by status and endpoint) that Chromium logs as a console
+//    error. Before #541 that console error tripped the shared harness teardown,
+//    so this channel could only be jsdom-proven.
 //  - AC5 (a confirmed member survives JOIN_FAILED and an unknown code) needs a
 //    member-then-refused-reconnect the harness does not yet express.

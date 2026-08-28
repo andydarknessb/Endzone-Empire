@@ -28,44 +28,56 @@ import {
   setTheme,
   gotoDraft,
   VIEWPORTS,
+  type ExpectConsoleError,
 } from './fixtures/draftHarness';
-import { test as base, type Page, type Route } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 import { ACTIVE_STATE, ACTIVE_PICKS } from './fixtures/draftFixtures';
 
 // The presenter surface is DELIBERATELY anonymous, so /api/user and the token
 // refresh answer 401 - the correct response for a logged-out share-link visitor.
-// The browser logs each 401 as a "Failed to load resource" console error, which
-// the shared harness `test` treats as a failure. This variant instead ignores
-// browser network-status logging (a 401 IS the expected behaviour here) while
-// still failing on any REAL app console.error or uncaught page error, and rigour
-// against unexpected endpoints is kept at the route level (see recordedUnexpected).
-// Per-page, not a module global: mirrors the shared harness's own
+// The browser logs each 401 as a "Failed to load resource" console error.
+//
+// This fixture USED to carry a broad `/Failed to load resource/` ignore. That is
+// exactly the per-test blanket ignore #541 exists to remove: it also swallowed
+// any UNINTENDED failed resource (a 404, a broken asset, a CDN timeout), so the
+// presenter had no way to tell an expected 401 from a real regression. It now
+// extends the shared harness `test`, so each presenter test DECLARES its expected
+// 401s by status AND endpoint through `expectConsoleError` (see
+// declarePresenterBootErrors below), and every other console error - and every
+// uncaught page error - still fails teardown. Route-level rigour against
+// unexpected endpoints is kept here per page, mirroring the shared harness's own
 // unmockedByPage WeakMap (draftHarness.ts) so nothing bleeds between tests.
 const unexpectedByPage = new WeakMap<Page, string[]>();
-const presenterTest = base.extend<{}>({
+const presenterTest = test.extend<{}>({
   page: async ({ page }, use) => {
     const recordedUnexpected: string[] = [];
     unexpectedByPage.set(page, recordedUnexpected);
-    const errors: string[] = [];
-    page.on('console', (msg) => {
-      // Browser resource-load status lines (the 401s the anonymous boot expects)
-      // are network logging, not an app error; every OTHER console.error is real.
-      if (msg.type() === 'error' && !/Failed to load resource/i.test(msg.text())) {
-        errors.push(`console.error: ${msg.text()}`);
-      }
-    });
-    page.on('pageerror', (err) => {
-      errors.push(`pageerror: ${err && err.stack ? err.stack : String(err)}`);
-    });
     await use(page);
     unexpectedByPage.delete(page);
     expect(
       recordedUnexpected,
       `the presenter page requested endpoints this spec does not mock:\n${recordedUnexpected.join('\n')}`
     ).toEqual([]);
-    expect(errors, `unexpected browser console/page errors:\n${errors.join('\n')}`).toEqual([]);
   },
 });
+
+// The anonymous shell boot, declared on the shared contract: apiClient dispatches
+// GET /api/user (401, no session), and its 401 interceptor then attempts
+// POST /api/auth/refresh (also 401, retried once). Both are the correct
+// logged-out response, so each is declared by its status and endpoint - never a
+// blanket "Failed to load resource" - and each MUST fire or teardown fails.
+function declarePresenterBootErrors(expectConsoleError: ExpectConsoleError) {
+  expectConsoleError.resourceError({
+    status: 401,
+    url: /\/api\/user$/,
+    because: 'anonymous presenter boot: no session, GET /api/user answers 401 (#447)',
+  });
+  expectConsoleError.resourceError({
+    status: 401,
+    url: /\/api\/auth\/refresh$/,
+    because: 'anonymous presenter boot: the 401 interceptor attempts a refresh, also 401 (#447)',
+  });
+}
 
 // The presenter board payload, shaped exactly as draft.router.js's allowlist
 // serialises it (PUBLIC_LEAGUE_FIELDS / PUBLIC_TEAM_FIELDS / PUBLIC_PICK_FIELDS):
@@ -169,7 +181,8 @@ async function gotoPresenter(page: Page, token: string) {
 presenterTest.describe('presenter session: member surfaces are absent by role query (#447 AC2)', () => {
   presenterTest.use({ viewport: VIEWPORTS.desktop });
 
-  presenterTest('chat, composer and commissioner controls are absent on the presenter board', async ({ page }) => {
+  presenterTest('chat, composer and commissioner controls are absent on the presenter board', async ({ page, expectConsoleError }) => {
+    declarePresenterBootErrors(expectConsoleError);
     await setTheme(page, 'light');
     await installPresenterRoutes(page, { board: PRESENTER_BOARD, activity: PRESENTER_ACTIVITY });
     await gotoPresenter(page, 'share-token-abc');
@@ -190,7 +203,8 @@ presenterTest.describe('presenter session: member surfaces are absent by role qu
     await expect(page.getByRole('region', { name: 'Commissioner draft controls' })).toHaveCount(0);
   });
 
-  presenterTest('the presenter board renders Team identity only, no account identifier (AC3 privacy seam)', async ({ page }) => {
+  presenterTest('the presenter board renders Team identity only, no account identifier (AC3 privacy seam)', async ({ page, expectConsoleError }) => {
+    declarePresenterBootErrors(expectConsoleError);
     await setTheme(page, 'light');
     await installPresenterRoutes(page, { board: PRESENTER_BOARD, activity: PRESENTER_ACTIVITY });
     await gotoPresenter(page, 'share-token-abc');
