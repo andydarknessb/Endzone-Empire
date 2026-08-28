@@ -649,12 +649,17 @@ describe('league chat is gated on confirmed membership (#534)', () => {
     await screen.findByText('Patrick Mahomes');
 
     // The socket is created on mount, so the OLD `socket ?` gate would already
-    // have mounted the log and composer here. Membership is UNKNOWN, so neither
-    // the member surface nor the non-member surface is shown...
-    expect(screen.queryByRole('heading', { level: 2, name: 'League Chat' })).not.toBeInTheDocument();
+    // have mounted the log and composer here. Membership is UNKNOWN, so no member
+    // log/composer and no non-member surface are shown...
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Chat composer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
     // ...and, crucially, a request that would 403 for a non-member never left.
     expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/draft-feed'));
+    // But the pane is not blank (a11y finding 4): a connecting placeholder shows,
+    // so a mobile manager landing on the Chat tab does not see a broken page.
+    expect(screen.getByTestId('draft-chat-connecting')).toBeInTheDocument();
   });
 
   test('AC2: a confirmed member gets the chat feed, composer and Send, and the feed read fires', async () => {
@@ -684,10 +689,14 @@ describe('league chat is gated on confirmed membership (#534)', () => {
 
     expect(await screen.findByTestId('draft-chat-non-member'))
       .toHaveTextContent('League chat is available to league members only.');
-    expect(screen.queryByRole('heading', { level: 2, name: 'League Chat' })).not.toBeInTheDocument();
+    // The log, composer, Send and moderation are all absent (AC3)...
     expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Chat composer' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+    // ...but the section + h2 "League Chat" shell stays, so a heading-navigation
+    // user still finds chat where it was rather than a gap (a11y finding 2).
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
     expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/draft-feed'));
   });
 
@@ -705,7 +714,9 @@ describe('league chat is gated on confirmed membership (#534)', () => {
     act(() => fakeSocket.trigger('draft:state', activeState));
 
     expect(await screen.findByTestId('draft-chat-non-member')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 2, name: 'League Chat' })).not.toBeInTheDocument();
+    // The member log and composer are gone, but the section + h2 shell stays
+    // (a11y finding 2), so this asserts the controls' absence, not the heading's.
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
   });
 
@@ -723,6 +734,29 @@ describe('league chat is gated on confirmed membership (#534)', () => {
     expect(await screen.findByText('failed to join draft room')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
     expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+  });
+
+  test('a11y: a mid-session revocation hands focus to the non-member surface, never to the body', async () => {
+    // The same standard the room holds when a commissioner's Hide button is torn
+    // out by a socket broadcast (draft-accessibility.spec.ts): a teardown must
+    // hand focus somewhere deliberate. Here the composer is removed from under a
+    // member; focus must land on the explicit non-member surface, not <body>.
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+
+    const composer = await screen.findByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Removed mid-draft: the next join re-ack is NOT_A_MEMBER. The composer
+    // unmounts and the membership edge fires the rescue (signal is arrangement
+    // AND membership, so a membership change triggers it just like a pane flip).
+    refuseJoin('you are not in this league', 'NOT_A_MEMBER');
+
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toHaveFocus();
   });
 });
 
