@@ -86,7 +86,7 @@ describe('DraftActivityEntry refuses to guess unknown or internal kinds (#540 AC
       <DraftActivityEntry entry={{ kind: 'a_kind_from_the_future', teamName: 'Gridiron Ghosts', created_at: '2026-09-01T00:00:00.000Z' }} />
     );
     // No container, no line at all.
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
     expect(screen.queryByTestId('draft-activity')).not.toBeInTheDocument();
     // Specifically not the generic Team action, and no Team named as an actor.
     expect(screen.queryByText(/updated the draft/i)).not.toBeInTheDocument();
@@ -99,7 +99,7 @@ describe('DraftActivityEntry refuses to guess unknown or internal kinds (#540 AC
     const { container } = render(
       <DraftActivityEntry entry={{ kind: 'cutover', teamName: null, created_at: '2026-09-01T00:00:00.000Z' }} />
     );
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
     expect(screen.queryByTestId('draft-activity')).not.toBeInTheDocument();
   });
 });
