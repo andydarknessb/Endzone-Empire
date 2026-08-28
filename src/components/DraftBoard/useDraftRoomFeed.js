@@ -85,6 +85,16 @@ export default function useDraftRoomFeed({
     setError('League chat could not be loaded right now.');
   }, []);
 
+  // Shared by both chat:send callbacks (text and GIF): a NOT_A_MEMBER ack is the
+  // author removed mid-draft (#534 AC4), authoritative and matched on the code.
+  // Returns true when it took the revocation, so the caller resolves false and
+  // stops before its ordinary refusal copy - the composer is going away.
+  const revokedBySendAck = useCallback((ack) => {
+    if (!chatSendAckRevokesMembership(ack)) return false;
+    onMembershipRevokedRef.current?.();
+    return true;
+  }, []);
+
   const fetchHistory = useCallback(() => {
     Promise.resolve(apiClient.get(`/api/league/${leagueId}/draft-feed`))
       .then((res) => {
@@ -219,13 +229,10 @@ export default function useDraftRoomFeed({
         const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
         socket.emit('chat:send', { leagueId: Number(leagueId), message: trimmed, clientMsgId: key }, (ack) => {
           if (ack && ack.error) {
-            // AC4: the server re-validates the author's Team on every send, and a
-            // NOT_A_MEMBER refusal means a confirmed member was removed mid-draft.
-            // It is authoritative (matched on the code, never the text), so hand
-            // it to the room, which collapses chat to the non-member surface - no
-            // composer error to show, because the composer is going away.
-            if (chatSendAckRevokesMembership(ack)) {
-              onMembershipRevokedRef.current?.();
+            // AC4: the server re-validates the author's Team on every send; a
+            // NOT_A_MEMBER refusal is a confirmed member removed mid-draft, and
+            // the room collapses chat rather than showing a composer error.
+            if (revokedBySendAck(ack)) {
               resolve(false);
               return;
             }
@@ -247,7 +254,7 @@ export default function useDraftRoomFeed({
         });
       });
     },
-    [socket, leagueId]
+    [socket, leagueId, revokedBySendAck]
   );
 
   // Send a GIF message from the Draft room (#516). It mirrors useLeagueChat's
@@ -278,11 +285,9 @@ export default function useDraftRoomFeed({
         const key = typeof clientMsgId === 'string' && clientMsgId ? clientMsgId : newClientMsgId();
         socket.emit('chat:send', { leagueId: Number(leagueId), gif, clientMsgId: key }, (ack) => {
           if (ack && ack.error) {
-            // AC4, the same as sendMessage: a NOT_A_MEMBER refusal is the author
-            // being removed mid-draft, authoritative and matched on the code. Hand
-            // it to the room to collapse chat, ahead of any composer-error copy.
-            if (chatSendAckRevokesMembership(ack)) {
-              onMembershipRevokedRef.current?.();
+            // AC4, the same as sendMessage: a NOT_A_MEMBER refusal collapses chat
+            // ahead of any composer-error copy.
+            if (revokedBySendAck(ack)) {
               resolve(false);
               return;
             }
@@ -331,7 +336,7 @@ export default function useDraftRoomFeed({
         });
       });
     },
-    [socket, leagueId]
+    [socket, leagueId, revokedBySendAck]
   );
 
   // Commissioner-only: hide one abusive message league-wide with a reason

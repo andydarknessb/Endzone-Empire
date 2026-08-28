@@ -50,14 +50,19 @@ export const NOT_A_MEMBER_CODE = 'NOT_A_MEMBER';
  * is asked repeatedly against a standing state - which is why the preserve
  * branch is load-bearing, not defensive.
  *
- *   - a SUCCESS ack (no `error`) confirms a member.
+ *   - a SUCCESS ack (present, with no `error`) confirms a member.
  *   - a refusal whose `code` is exactly `NOT_A_MEMBER` is authoritative: the
  *     viewer holds no Team here, so they are a non-member.
  *   - any other refusal - `JOIN_FAILED`, an unknown code, a missing code -
  *     preserves the state we already had.
+ *   - a wholly ABSENT acknowledgement (no payload at all) decides nothing and
+ *     preserves state too: it is not a positive confirmation, and confirming a
+ *     member on it would issue the feed request AC1 says must not leave the
+ *     client until membership is actually known.
  */
 export function membershipAfterJoinAck(current, ack) {
-  if (!ack || !ack.error) return MEMBERSHIP_MEMBER;
+  if (!ack) return current;
+  if (!ack.error) return MEMBERSHIP_MEMBER;
   if (ack.code === NOT_A_MEMBER_CODE) return MEMBERSHIP_NON_MEMBER;
   return current;
 }

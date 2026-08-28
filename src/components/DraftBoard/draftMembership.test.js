@@ -60,6 +60,14 @@ describe('membershipAfterJoinAck', () => {
       membershipAfterJoinAck(MEMBERSHIP_UNKNOWN, { error: 'failed to join draft room', code: 'JOIN_FAILED' })
     ).toBe(MEMBERSHIP_UNKNOWN);
   });
+
+  test('a wholly absent acknowledgement decides nothing and preserves state', () => {
+    // Not a positive confirmation: an ambiguous no-payload ack must not confirm a
+    // member, or the feed request AC1 forbids would leave the client. From
+    // UNKNOWN it stays UNKNOWN (mount nothing); from MEMBER it stays MEMBER.
+    expect(membershipAfterJoinAck(MEMBERSHIP_UNKNOWN, undefined)).toBe(MEMBERSHIP_UNKNOWN);
+    expect(membershipAfterJoinAck(MEMBERSHIP_MEMBER, null)).toBe(MEMBERSHIP_MEMBER);
+  });
 });
 
 describe('chatSendAckRevokesMembership', () => {
