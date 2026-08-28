@@ -116,6 +116,28 @@ base.describe('console-error contract: the pure reconciler (#541)', () => {
     expect(reconcileConsoleErrors([feed403, feed403b], [declFeed, declLeague]).ok).toBe(true);
   });
 
+  base('the matching is MAXIMUM, not greedy: an asymmetric overlap still finds the perfect assignment', () => {
+    // This is the case a greedy matcher gets wrong. E2 matches BOTH declarations,
+    // E1 matches ONLY declA. A greedy pass that assigns E2 to declA first strands
+    // E1 as undeclared and leaves declB never-seen - a run that fails on a
+    // perfectly legitimate declaration set. Kuhn's augmenting-path matching finds
+    // declA<-E1, declB<-E2 and passes. The symmetric test above cannot tell the
+    // two apart (any assignment works there); this one pins WHY maximum matching
+    // is required, so a later simplification to a greedy loop turns red here.
+    const declA = resourceError({ status: 403, url: 'alpha', because: 'A: matched by both errors' });
+    const declB = resourceError({ status: 403, url: 'beta', because: 'B: matched only by E2' });
+    const only403 = 'Failed to load resource: the server responded with a status of 403 (Forbidden)';
+    const e1: CapturedConsoleError = { text: only403, url: 'http://x/alpha' }; // matches declA only
+    const e2: CapturedConsoleError = { text: only403, url: 'http://x/alpha/beta' }; // matches declA and declB
+    // e2 (the ambiguous one) is FIRST on purpose: a greedy pass would bind it to
+    // declA and strand e1, failing declB. Kuhn's re-routes it to declB via an
+    // augmenting path. Order matters here, so it is deliberate.
+    const r = reconcileConsoleErrors([e2, e1], [declA, declB]);
+    expect(r.unmatchedActual).toEqual([]);
+    expect(r.unmatchedDeclarations).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+
   base('a status matcher is a bounded token: status 40 does not match "status of 403"', () => {
     const decl40 = resourceError({ status: 40, url: /draft-feed$/, because: 'typo status' });
     const r = reconcileConsoleErrors([feed403], [decl40]);
