@@ -13,8 +13,14 @@ const {
   finalKeyframeHiddenReason,
 } = require('./animationSafetyGuard');
 const { scanCss } = require('./animationSafetyCss');
+const { scanJs } = require('./animationSafetyJs');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+
+// A hidden-ending Emotion keyframes (the flashIn shape) as a source prelude.
+const HIDDEN_KF = "const flashIn = keyframes`\n  0% { opacity: 0; }\n  15% { opacity: 1; }\n  100% { opacity: 0; }\n`;\n";
+// A visible-ending Emotion keyframes (the dash shape).
+const VISIBLE_KF = "const dash = keyframes`\n  from { transform: translateX(0); }\n  to { transform: translateX(var(--d)); }\n`;\n";
 
 // ============================================================================
 // SHARED LEXICAL CORE: does a keyframes body end in a hidden state?
@@ -299,5 +305,146 @@ test('scanCss: the real TecmoCutscene.css has zero violations but is non-empty (
   assert.ok(
     result.forwardsUsageCount >= 3,
     `expected >=3 forwards usages examined, got ${result.forwardsUsageCount}`
+  );
+});
+
+// ============================================================================
+// JS/EMOTION SCANNER (scanJs): identifier resolution + structural exemption
+// ============================================================================
+
+// Criterion 1: unsafe Emotion keyframes with a forwards-filled hidden final
+// state, applied UNGUARDED, fail the check.
+test('scanJs: an unguarded forwards animation naming a hidden-ending keyframes is flagged', () => {
+  const src = HIDDEN_KF + "const sx = { animation: `${flashIn} 1800ms ease-in-out forwards` };\n";
+  const { violations } = scanJs(src);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].animationName, 'flashIn');
+  assert.equal(violations[0].reason, 'opacity: 0');
+});
+
+// Criterion 5 / exemption (a): the guarded RetroField shape passes - the
+// animation is the ALTERNATE of a prefersReducedMotion ternary.
+test('scanJs: the guarded ternary shape (prefersReducedMotion ? static : animation) passes', () => {
+  const src =
+    HIDDEN_KF +
+    'const sx = {\n' +
+    '  ...(prefersReducedMotion\n' +
+    "    ? { transform: 'translate(-50%, -50%)' }\n" +
+    '    : { animation: `${flashIn} 1800ms ease-in-out forwards` }),\n' +
+    '};\n';
+  assert.deepEqual(scanJs(src).violations, []);
+});
+
+// Mutation 1 shape: reintroduce the former unconditional animation -> flagged.
+test('scanJs: MUTATION 1 - the animation applied unconditionally is flagged', () => {
+  const src = HIDDEN_KF + 'const sx = { animation: `${flashIn} 1800ms ease-in-out forwards` };\n';
+  assert.equal(scanJs(src).violations.length, 1);
+});
+
+// Mutation 2 shape: remove the reduced-motion safety branch -> flagged. The
+// four OTHER prefersReducedMotion references in the real file must not rescue
+// it: the token appears in the file, but not as this animation's off-ramp.
+test('scanJs: MUTATION 2 - safety branch removed, unrelated prefersReducedMotion nearby, still flagged', () => {
+  const src =
+    HIDDEN_KF +
+    'const prefersReducedMotion = usePref();\n' +
+    'const dismissed = prefersReducedMotion ? true : false;\n' +
+    'const show = !prefersReducedMotion || dismissed;\n' +
+    'const sx = { animation: `${flashIn} 1800ms ease-in-out forwards` };\n';
+  const { violations } = scanJs(src);
+  assert.equal(violations.length, 1, 'unrelated prefersReducedMotion tokens must not exempt it');
+});
+
+// Mutation 3 shape (JS): a SAFE keyframes turned hidden, used forwards but
+// gated by a NON-reduced-motion condition (dashSide === 'home' && {...}) -> the
+// check reads the keyframe and flags it.
+test('scanJs: MUTATION 3 - a keyframes changed to end hidden, gated by a non-reduced condition, is flagged', () => {
+  const dashHidden = "const dash = keyframes`\n  from { transform: translateX(0); }\n  to { opacity: 0; }\n`;\n";
+  const src =
+    dashHidden +
+    "const sx = { ...(dashSide === 'home' && { animation: `${dash} 0.7s ease-out forwards` }) };\n";
+  const { violations } = scanJs(src);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].animationName, 'dash');
+  assert.equal(violations[0].reason, 'opacity: 0');
+});
+
+// Exemption (a), negated polarity: !prefersReducedMotion ? {animation} : {} ->
+// animation runs when reduced motion is OFF -> exempt.
+test('scanJs: a negated reduced-motion test with the animation on the consequent is exempt', () => {
+  const src =
+    HIDDEN_KF +
+    'const sx = { ...(!prefersReducedMotion ? { animation: `${flashIn} 1800ms forwards` } : {}) };\n';
+  assert.deepEqual(scanJs(src).violations, []);
+});
+
+// The WRONG branch must still fail: prefersReducedMotion ? {animation} : {}
+// applies the animation UNDER reduced motion - the exact defect.
+test('scanJs: the animation on the reduced-motion branch (runs under reduced motion) is flagged', () => {
+  const src =
+    HIDDEN_KF +
+    'const sx = { ...(prefersReducedMotion ? { animation: `${flashIn} 1800ms forwards` } : {}) };\n';
+  assert.equal(scanJs(src).violations.length, 1);
+});
+
+// A non-reduced-motion condition is not an off-ramp.
+test('scanJs: a ternary keyed on a non-reduced-motion condition does not exempt', () => {
+  const src =
+    HIDDEN_KF +
+    'const sx = { ...(isTouchdown ? { animation: `${flashIn} 1800ms forwards` } : {}) };\n';
+  assert.equal(scanJs(src).violations.length, 1);
+});
+
+// Exemption (b): in-object @media reduce override (the DraftBoardMatrix shape).
+test('scanJs: an in-object @media (prefers-reduced-motion: reduce) override exempts', () => {
+  const src =
+    HIDDEN_KF +
+    'const sx = {\n' +
+    '  animation: `${flashIn} 1800ms forwards`,\n' +
+    "  '@media (prefers-reduced-motion: reduce)': { animation: 'none' },\n" +
+    '};\n';
+  assert.deepEqual(scanJs(src).violations, []);
+});
+
+// A forwards animation ending VISIBLE is not flagged (dash shape).
+test('scanJs: a forwards animation naming a visible-ending keyframes is not flagged', () => {
+  const src = VISIBLE_KF + 'const sx = { animation: `${dash} 0.7s ease-out forwards` };\n';
+  const result = scanJs(src);
+  assert.deepEqual(result.violations, []);
+  assert.equal(result.forwardsUsageCount, 1);
+});
+
+// A hidden-ending keyframes used WITHOUT forwards is not flagged.
+test('scanJs: a hidden-ending keyframes used without forwards fill is not flagged', () => {
+  const src = HIDDEN_KF + 'const sx = { animation: `${flashIn} 1800ms ease-in-out` };\n';
+  assert.deepEqual(scanJs(src).violations, []);
+});
+
+// Resolution boundary: an IMPORTED (not same-file) keyframes is unresolved and
+// not flagged - the declared v1 false-negative, counted so it is visible.
+test('scanJs: an imported keyframes used forwards is unresolved (declared boundary), not flagged', () => {
+  const src =
+    "import { fadeOut } from './shared';\n" +
+    'const sx = { animation: `${fadeOut} 1s forwards` };\n';
+  const result = scanJs(src);
+  assert.deepEqual(result.violations, []);
+  assert.equal(result.unresolvedCount, 1);
+  assert.equal(result.keyframesCount, 0);
+});
+
+// Criterion 5 (positive control): the real RetroField.jsx passes AND the scan
+// examined it - flashIn (hidden, but guarded) and dash (visible) both resolved.
+test('scanJs: the real RetroField.jsx has zero violations but is non-empty (positive control)', () => {
+  const src = fs.readFileSync(
+    path.join(REPO_ROOT, 'src/components/MatchupDetail/RetroField.jsx'),
+    'utf8'
+  );
+  const result = scanJs(src);
+  assert.equal(result.parseError, null);
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.keyframesCount >= 2, `expected >=2 keyframes (dash, flashIn), got ${result.keyframesCount}`);
+  assert.ok(
+    result.forwardsUsageCount >= 3,
+    `expected >=3 forwards usages examined (2 dash + 1 flashIn), got ${result.forwardsUsageCount}`
   );
 });
