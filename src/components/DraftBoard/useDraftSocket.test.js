@@ -599,3 +599,106 @@ test('swaps the exposed socket when the league changes, never handing back the o
   expect(fakeSocket.disconnect).toHaveBeenCalled();
   expect(result.current.socket).toBe(nextSocket);
 });
+
+// --- the viewer-relative membership tri-state that gates league chat (#534) ---
+//
+// Chat mounts (and issues its combined-feed request) only for a CONFIRMED
+// member. The three states exist so "not yet known" is told apart from "known
+// non-member": before the join ack both would read as a null Team, and mounting
+// on the first is the whole bug. The authority rule is the join handler's, read
+// off the code and never the message: only NOT_A_MEMBER is a non-member.
+
+test('membership is UNKNOWN before any join acknowledgement, so nothing mounts yet', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+  act(() => fakeSocket.trigger('connect'));
+  // The socket exists and the join is in flight, but membership is undecided.
+  expect(result.current.socket).toBe(fakeSocket);
+  expect(result.current.membership).toBe('unknown');
+});
+
+test('a successful join acknowledgement confirms membership', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: false });
+  expect(result.current.membership).toBe('member');
+});
+
+test('a NOT_A_MEMBER refusal makes the viewer an authoritative non-member', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+  act(() => fakeSocket.trigger('connect'));
+  refuseJoin('you are not in this league', 'NOT_A_MEMBER');
+  expect(result.current.membership).toBe('non_member');
+});
+
+test.each([
+  ['JOIN_FAILED', 'failed to join draft room', 'JOIN_FAILED'],
+  ['an unknown code', 'closed for maintenance', 'ROOM_CLOSED'],
+  ['no code (older server)', 'you are not in this league', undefined],
+  ['the pre-#265 lowercase spelling', 'you are not in this league', 'not_a_member'],
+])('a refusal with %s preserves a confirmed member and still surfaces the error (#534 AC5)', (_label, message, code) => {
+  const { result } = renderHook(() => useDraftSocket(1));
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+  expect(result.current.membership).toBe('member');
+
+  refuseJoin(message, code);
+
+  // The direction a careless implementation breaks: a blip must not strip a
+  // genuine member of chat. The error still surfaces.
+  expect(result.current.membership).toBe('member');
+  expect(result.current.error).toBe(message);
+});
+
+test('a reconnect refused with NOT_A_MEMBER revokes a member confirmed on the first join', () => {
+  // The removed-mid-draft case learned on the re-join a dropped socket forces.
+  let reconnectHandler;
+  onReconnect.mockImplementation((socket, handler) => {
+    reconnectHandler = handler;
+    return () => {};
+  });
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+  expect(result.current.membership).toBe('member');
+
+  act(() => fakeSocket.trigger('disconnect'));
+  expect(result.current.membership).toBe('member'); // a blip is not a removal
+
+  act(() => reconnectHandler());
+  refuseJoin('you are not in this league', 'NOT_A_MEMBER');
+  expect(result.current.membership).toBe('non_member');
+});
+
+test('revokeMembership records a mid-session non-member result without a reload (#534 AC4)', () => {
+  // The seam chat:send and the member-only feed call when the server tells a
+  // confirmed member their Team is gone. Stable identity so feed listeners never
+  // re-subscribe on it.
+  const { result, rerender } = renderHook(() => useDraftSocket(1));
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: true });
+  expect(result.current.membership).toBe('member');
+
+  const firstRevoke = result.current.revokeMembership;
+  act(() => result.current.revokeMembership());
+  expect(result.current.membership).toBe('non_member');
+
+  rerender();
+  expect(result.current.revokeMembership).toBe(firstRevoke);
+});
+
+test('membership resets to UNKNOWN when the league changes', () => {
+  const { result, rerender } = renderHook(({ leagueId }) => useDraftSocket(leagueId), {
+    initialProps: { leagueId: 1 },
+  });
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1, { isCommissioner: false });
+  expect(result.current.membership).toBe('member');
+
+  const nextSocket = makeFakeSocket();
+  createDraftSocket.mockReturnValue(nextSocket);
+  rerender({ leagueId: 2 });
+
+  // The new room has answered nothing yet; a member's chat must not carry over.
+  expect(result.current.membership).toBe('unknown');
+});

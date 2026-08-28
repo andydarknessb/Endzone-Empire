@@ -31,6 +31,10 @@ import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
 import DraftRoomChat from './DraftRoomChat';
+import DraftChatNonMember, { DRAFT_CHAT_NON_MEMBER_ID } from './DraftChatNonMember';
+import DraftChatConnecting from './DraftChatConnecting';
+import DraftChatMembershipAnnouncer from './DraftChatMembershipAnnouncer';
+import { MEMBERSHIP_MEMBER, MEMBERSHIP_NON_MEMBER } from './draftMembership';
 import useContainerWidth, { draftPaneLayout } from './useContainerWidth';
 import useFocusRescue from './useFocusRescue';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
@@ -192,29 +196,44 @@ function DraftBoard() {
 
   // Crossing the pane threshold swaps the three-pane workspace for the tab
   // panel (or back), remounting the whole region subtree - so a manager focused
-  // inside it loses focus to `<body>` (#525). The same focus-rescue hook the
-  // rail uses moves focus back in the SAME commit as the remount, but only when
-  // focus was inside the region that went away: `arrangement` is the signal, and
-  // `{...regionFocus}` is spread on each arrangement's region wrapper (never on
-  // the chrome, tabs or anything outside the room, which must not be moved).
+  // inside it loses focus to `<body>` (#525). A mid-draft membership revocation
+  // does the same to the chat composer or the moderation field (#534 a11y
+  // finding 1). The same focus-rescue hook the rail uses moves focus back in the
+  // SAME commit as the remount, but only when focus was inside the region that
+  // went away: the signal is the arrangement AND the membership together (the
+  // `useFocusRescue` call sits below useDraftSocket, where membership is known),
+  // and `{...regionFocus}` is spread on each arrangement's region wrapper (never
+  // on the chrome, tabs or anything outside the room, which must not be moved).
   //
-  // The target is the exact control that held focus, if it is rendered again
-  // after the flip - found by its stable id, since a remount mints new React
-  // ids: the chat composer carries a hand-written `chat-message-input`, so it
-  // survives, while an idless control (the player pool, a generated id) falls
-  // through to the room's main content container, the skip-link target that is
-  // always mounted (DRAFT_MAIN_ID). No announcement is added; the room's polite
-  // regions are unchanged.
+  // The target is the exact control that held focus, if it is rendered again -
+  // found by its stable id, since a remount mints new React ids: the chat
+  // composer carries a hand-written `chat-message-input`, so it survives a flip.
+  // On a revocation that control is gone for good, so the ordered list below
+  // hands focus to the explicit non-member surface (a real, named target), and
+  // an idless control (the player pool, a generated id) falls through to the
+  // room's main content container, the skip-link target that is always mounted
+  // (DRAFT_MAIN_ID). No announcement is added here; the polite membership
+  // announcer in the chrome speaks the loss, and the room's other regions are
+  // unchanged.
   const resolveFlipFocus = useCallback((held) => {
     const heldId = held && held.id;
     const again = heldId ? document.getElementById(heldId) : null;
     // An ORDERED fallback, not `again || main`: if the control that held focus is
-    // rendered again but is not focusable, `.focus()` on it no-ops and the
-    // main-content fallback must still run - so both candidates go to the hook,
-    // which focuses `again` and only settles for it if focus actually landed.
-    return [again, document.getElementById(DRAFT_MAIN_ID)];
+    // rendered again but is not focusable, `.focus()` on it no-ops and the next
+    // candidate must still run - so all candidates go to the hook, which tries
+    // each in turn and only settles for one focus actually landed on.
+    //
+    // The non-member section sits between the held control and the main-content
+    // landmark for the membership-revocation case (#534 a11y finding 1): when a
+    // mid-draft removal unmounts the composer or moderation field, `again` is
+    // gone, and this hands focus to the explicit non-member surface - a real,
+    // named target - rather than falling all the way to the room container.
+    return [
+      again,
+      document.getElementById(DRAFT_CHAT_NON_MEMBER_ID),
+      document.getElementById(DRAFT_MAIN_ID),
+    ];
   }, []);
-  const regionFocus = useFocusRescue(arrangement, resolveFlipFocus);
 
   const [error, setError] = useState(null);
   // Draft/Board view tab, mirrored into the URL (view=board) alongside the
@@ -311,6 +330,14 @@ function DraftBoard() {
     // threads it through to the chat composer below; it reads nothing else from
     // it and never infers it client-side.
     gifMessagesEnabled,
+    // The viewer-relative membership tri-state that gates league chat (#534).
+    // 'member' mounts the chat subtree (and only then does its combined-feed
+    // request leave the client, AC1); 'non_member' shows the explicit non-member
+    // surface (AC3); 'unknown' - before the join ack decides - mounts neither.
+    // revokeMembership is the seam the feed hook calls when the server reports a
+    // confirmed member was removed mid-draft (AC4).
+    membership,
+    revokeMembership,
     secondsLeft,
     reconnecting,
     isMyTurn,
@@ -322,6 +349,18 @@ function DraftBoard() {
   } = useDraftSocket(leagueId, {
     onPickLanded: (data) => pickLandedRef.current(data),
   });
+
+  // The focus-rescue signal is the arrangement AND the membership together, not
+  // arrangement alone (#525 handled the pane flip; #534 a11y finding 1 adds the
+  // membership edge). A mid-draft revocation unmounts the composer just as a pane
+  // flip remounts it, and it too must not drop focus to <body>; but a membership
+  // change is not an arrangement change, so keying on arrangement alone would
+  // never fire the rescue for it. A composite string means a change on EITHER
+  // axis triggers the rescue, and the resolve list above ends at a real target
+  // for each case. This is placed here rather than beside resolveFlipFocus above
+  // because `membership` is not known until useDraftSocket has answered.
+  const regionFocus = useFocusRescue(`${arrangement}:${membership}`, resolveFlipFocus);
+
   useEffect(() => {
     pickLandedRef.current = (data) => {
       pool.refetch();
@@ -608,18 +647,37 @@ function DraftBoard() {
   // The combined League chat + Draft activity feed (#435/#437/#442), wired to
   // the room's own session (#433). It is the Draft room's centerpiece (#444):
   // its own centre pane on a wide container and its own Chat tab, selected
-  // first, on a narrow one - no longer a panel tucked at the bottom of the
-  // rail. Rendered only once the socket exists; before draft:join lands there
-  // is nothing for it to ride.
-  const chatFeed = socket ? (
+  // first, on a narrow one - no longer a panel tucked at the bottom of the rail.
+  //
+  // Gated on the membership tri-state, not on socket existence (#534). The old
+  // `socket ?` mounted the log and composer the instant a socket appeared - and a
+  // refused join still leaves a live socket, so a non-member got a mounted chat
+  // over a feed request the server answers 403, with every send refused. Now:
+  //   - 'member'      mounts DraftRoomChat; ONLY here does its combined-feed
+  //                   request leave the client (AC1), and only here does the
+  //                   composer/moderation exist (AC2).
+  //   - 'non_member'  shows one explicit message and nothing else (AC3).
+  //   - 'unknown'     (before the join ack decides, socket present or not)
+  //                   mounts no chat and issues no request (AC1), showing a
+  //                   short connecting placeholder so the pane is never blank -
+  //                   on a narrow container Chat is the tab the room opens on, so
+  //                   a blank pane would read as a broken page (a11y finding 4).
+  // revokeMembership lets a mid-draft removal move a confirmed member to
+  // 'non_member' without a reload (AC4), reported by the feed hook.
+  const chatFeed = membership === MEMBERSHIP_MEMBER ? (
     <DraftRoomChat
       socket={socket}
       leagueId={Number(leagueId)}
       viewerTeamId={viewerTeamId}
       canModerate={isCommissioner}
       gifEnabled={gifMessagesEnabled}
+      onMembershipRevoked={revokeMembership}
     />
-  ) : null;
+  ) : membership === MEMBERSHIP_NON_MEMBER ? (
+    <DraftChatNonMember />
+  ) : (
+    <DraftChatConnecting />
+  );
 
   // Board is the team-by-round matrix; Pick history is the chronological view
   // of the same committed Picks, collapsible inside it rather than a second
@@ -793,6 +851,13 @@ function DraftBoard() {
             initial history and reconnect snapshots are never replayed. Visually
             hidden; the visible board already shows the Pick to sighted managers. */}
         <PickAnnouncer pick={lastPick} />
+        {/* The Draft room's membership-loss announcer (#534 a11y finding 3). It
+            lives here in the chrome, like the two above, so a narrow-container
+            Chat -> Players -> Chat tab switch never unmounts it: the persistent
+            non-member surface is not a live region (role="presentation",
+            following #519), so this speaks the loss ONCE and politely on the
+            membership edge rather than re-asserting it on every remount. */}
+        <DraftChatMembershipAnnouncer membership={membership} />
         <LeagueBreadcrumb />
         {(error || socketError) && (
           <Alert severity="error" sx={{ mb: 2 }}>

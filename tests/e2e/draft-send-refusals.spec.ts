@@ -27,7 +27,7 @@ import {
   type DraftSocketState,
 } from './fixtures/draftHarness';
 import type { Page, Locator } from '@playwright/test';
-import { ACTIVE_STATE, ACTIVE_PICKS } from './fixtures/draftFixtures';
+import { ACTIVE_STATE, ACTIVE_PICKS, FIXTURE_LEAGUE_ID } from './fixtures/draftFixtures';
 
 test.describe('Draft-room send refusals keep the message and surface the error (#447 AC3/AC2)', () => {
   test.use({ viewport: VIEWPORTS.desktop });
@@ -57,7 +57,24 @@ test.describe('Draft-room send refusals keep the message and surface the error (
     await expect(input).toHaveValue('hello everyone');
   });
 
-  test('a manager removed after joining may no longer speak: the send is refused and the text is kept (AC2 blocked manager)', async ({ page }) => {
+  test('a manager removed after joining is told they may no longer speak, and the unsent text is not lost (#534 AC4)', async ({ page }) => {
+    // Updated for #534 AC4 (this ticket supersedes the pre-#534 behavior this
+    // test used to pin). draftSocket.js revalidates membership PER SEND, so a
+    // NOT_A_MEMBER send means a manager removed after joining. Before #534 the
+    // send was merely refused and the composer kept its text; #534 makes that
+    // refusal AUTHORITATIVE - chat collapses to the explicit non-member surface
+    // without a reload, so the composer and its inline error are gone.
+    //
+    // This test still guards BOTH promises its name has always made, just through
+    // the surfaces #534 moved them to:
+    //  1. the manager is still TOLD they may no longer speak - now on the
+    //     non-member panel rather than a composer error (a removed manager
+    //     silently given a blank room would be a worse outcome, not a better one);
+    //  2. no unsent text is LOST - useComposerDraft persists every keystroke to
+    //     sessionStorage per league + account (#442/#529), and a refused send
+    //     never clears it, so the text survives the unmount in storage and is
+    //     there to restore if membership returns. The guarantee holds; only the
+    //     mechanism carrying it changed from the live composer to its saved draft.
     const input = await openRoom(page, {
       chatSendRefusal: { error: 'you are not in this league', code: 'NOT_A_MEMBER' },
     });
@@ -65,8 +82,27 @@ test.describe('Draft-room send refusals keep the message and surface the error (
     await input.fill('am I still here?');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    await expect(page.getByText('you are not in this league')).toBeVisible();
-    await expect(input).toHaveValue('am I still here?');
+    // 1. Told: the explicit non-member surface replaces the chat, composer gone.
+    await expect(
+      page.getByRole('region', { name: 'League Chat' })
+        .getByText('League chat is available to league members only.')
+    ).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveCount(0);
+
+    // 2. Not lost: the unsent draft is still in sessionStorage (never cleared by a
+    // refused send), keyed by this league, ready to restore.
+    const savedText = await page.evaluate(
+      (key) => {
+        try {
+          const raw = window.sessionStorage.getItem(key);
+          return raw ? (JSON.parse(raw).text ?? null) : null;
+        } catch {
+          return null;
+        }
+      },
+      `endzone:composerDraft:${FIXTURE_LEAGUE_ID}`
+    );
+    expect(savedText).toBe('am I still here?');
   });
 
   test('positive control: an accepted send clears the composer and shows no error', async ({ page }) => {
@@ -88,9 +124,10 @@ test.describe('Draft-room send refusals keep the message and surface the error (
 // refused NOT_A_MEMBER, never a member in this league. The board reads league,
 // teams and the clock ONLY from the draft:state snapshot (useDraftSocket), which
 // never arrives on a refusal, so the room surfaces the refusal and shows no board
-// content. This deliberately does NOT assert the composer: a refused viewer still
-// sees a mounted (dead) composer today, which is the cosmetic defect filed as
-// #534 - asserting it either way would pin questionable behaviour.
+// content. This test asserts the error and the absent board; the #534 non-member
+// CHAT surface for this same join refusal (the mounted-dead-composer defect this
+// comment used to flag as unfixed) is now implemented and asserted in
+// draft-member-gated-chat.spec.ts, so it is not duplicated here.
 test.describe('a refused join surfaces the error without a board (#447 AC2 blocked manager, join path)', () => {
   test.use({ viewport: VIEWPORTS.desktop });
 

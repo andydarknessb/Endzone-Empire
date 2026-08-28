@@ -628,6 +628,138 @@ test('an error acknowledgment from draft:join is surfaced as an alert', async ()
   expect(await screen.findByText('you are not in this league')).toBeInTheDocument();
 });
 
+// ---------------------------------------------------------------------------
+// #534: league chat mounts ONLY for a confirmed member. Three states, not the
+// old "socket exists" boolean: UNKNOWN (before the join ack) mounts nothing and
+// issues no feed request; MEMBER mounts the feed/composer/moderation; NON_MEMBER
+// shows one explicit message. NOT_A_MEMBER is the sole authority (matched on the
+// code), and it can arrive on the join, on chat:send, or as a 403 from the feed.
+// ---------------------------------------------------------------------------
+
+describe('league chat is gated on confirmed membership (#534)', () => {
+  const activeState = {
+    league: { name: 'Sunday Ballers', draft_status: 'active', draft_paused: false },
+    teams: [{ teamId: 1, teamName: 'Team A' }],
+    picks: [],
+    onTheClock: { teamId: 1, teamName: 'Team A' },
+  };
+
+  test('AC1: before the join ack decides, no chat mounts and no combined-feed request is issued', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+
+    // The socket is created on mount, so the OLD `socket ?` gate would already
+    // have mounted the log and composer here. Membership is UNKNOWN, so no member
+    // log/composer and no non-member surface are shown...
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Chat composer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+    // ...and, crucially, a request that would 403 for a non-member never left.
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/draft-feed'));
+    // But the pane is not blank (a11y finding 4): a connecting placeholder shows,
+    // so a mobile manager landing on the Chat tab does not see a broken page.
+    expect(screen.getByTestId('draft-chat-connecting')).toBeInTheDocument();
+  });
+
+  test('AC2: a confirmed member gets the chat feed, composer and Send, and the feed read fires', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2); // a member whose Team is not the one on the clock
+    act(() => fakeSocket.trigger('draft:state', activeState));
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+    // The positive half of AC1: a confirmed member DOES issue the feed read.
+    expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/draft-feed');
+  });
+
+  test('AC3: an initial NOT_A_MEMBER refusal shows one explicit message and mounts no log, composer, Send or moderation, and issues no feed request', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    // The join's ONLY acknowledgement is the refusal - an initial non-member,
+    // never a member first. Discriminated on the code, never the message text.
+    fakeSocket.emit = jest.fn((event, payload, ack) => {
+      if (event === 'draft:join' && typeof ack === 'function') {
+        ack({ error: 'you are not in this league', code: 'NOT_A_MEMBER' });
+      }
+    });
+    act(() => fakeSocket.trigger('connect'));
+
+    expect(await screen.findByTestId('draft-chat-non-member'))
+      .toHaveTextContent('League chat is available to league members only.');
+    // The log, composer, Send and moderation are all absent (AC3)...
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Chat composer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+    // ...but the section + h2 "League Chat" shell stays, so a heading-navigation
+    // user still finds chat where it was rather than a gap (a11y finding 2).
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/draft-feed'));
+  });
+
+  test('AC4: a confirmed member who gets a 403 from the member-only feed moves to the non-member surface without a reload', async () => {
+    // The commissioner-removes-a-manager-mid-draft case, feed channel: the feed
+    // route checks membership before it reads anything and answers 403.
+    apiClient.get.mockImplementation((url) =>
+      String(url).includes('/draft-feed')
+        ? Promise.reject({ response: { status: 403 } })
+        : Promise.resolve(playersPage())
+    );
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+
+    expect(await screen.findByTestId('draft-chat-non-member')).toBeInTheDocument();
+    // The member log and composer are gone, but the section + h2 shell stays
+    // (a11y finding 2), so this asserts the controls' absence, not the heading's.
+    expect(screen.queryByRole('log', { name: 'League Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+  });
+
+  test('AC5: a JOIN_FAILED refusal on a reconnect leaves a confirmed member their chat and only surfaces the error', async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+    expect(await screen.findByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+
+    // A transient refusal on the next join must not strip a genuine member of
+    // chat - it fails in the direction that only looks like caution.
+    refuseJoin('failed to join draft room', 'JOIN_FAILED');
+
+    expect(await screen.findByText('failed to join draft room')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'League Chat' })).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-chat-non-member')).not.toBeInTheDocument();
+  });
+
+  test('a11y: a mid-session revocation hands focus to the non-member surface, never to the body', async () => {
+    // The same standard the room holds when a commissioner's Hide button is torn
+    // out by a socket broadcast (draft-accessibility.spec.ts): a teardown must
+    // hand focus somewhere deliberate. Here the composer is removed from under a
+    // member; focus must land on the explicit non-member surface, not <body>.
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(2);
+    act(() => fakeSocket.trigger('draft:state', activeState));
+
+    const composer = await screen.findByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Removed mid-draft: the next join re-ack is NOT_A_MEMBER. The composer
+    // unmounts and the membership edge fires the rescue (signal is arrangement
+    // AND membership, so a membership change triggers it just like a pane flip).
+    refuseJoin('you are not in this league', 'NOT_A_MEMBER');
+
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByRole('region', { name: 'League Chat' })).toHaveFocus();
+  });
+});
+
 test('an error acknowledgment from draft:pick is surfaced as an alert', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
@@ -2090,8 +2222,12 @@ describe('narrow container layout (#444)', () => {
     // The tabs exist only once the room is narrow and loaded; the Chat tab is
     // the settled signal, and is also the tab the room opens on.
     await screen.findByRole('tab', { name: 'Chat' });
-    // No connectAsTeam: leaving the viewer team-less keeps the banner phrased
-    // as "Team A is on the clock" rather than "Your pick!".
+    // Connect as a CONFIRMED member (#534): league chat mounts only for one, so
+    // the Chat tab lands on the real feed rather than the non-member surface.
+    // The viewer holds Team 2, which is NOT the Team on the clock (Team A,
+    // teamId 1), so the banner still reads "Team A is on the clock" rather than
+    // "Your pick!" - the phrasing these tests depend on.
+    connectAsTeam(2);
     act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({ owner_id: 99 }), {
       teams: [{ teamId: 1, teamName: 'Team A' }],
       picks: [],

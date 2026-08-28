@@ -189,6 +189,47 @@ test('sends over the shared session and never opens a second connection', async 
   expect(createDraftSocket).not.toHaveBeenCalled();
 });
 
+test('reports membership revoked when a send is refused NOT_A_MEMBER (#534 AC4)', async () => {
+  // The removed-mid-draft case for the chat:send channel: the server re-validates
+  // the author's Team on every send and refuses a removed manager NOT_A_MEMBER.
+  // DraftRoomChat threads that up to the room, which collapses chat without a
+  // reload. Matched on the code, so message copy can change without breaking it.
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are not in this league', code: 'NOT_A_MEMBER' });
+  });
+
+  renderWithProviders(
+    <DraftRoomChat socket={socket} leagueId={7} viewerTeamId={11} onMembershipRevoked={onMembershipRevoked} />
+  );
+  await screen.findByText('No messages yet');
+
+  await userEvent.type(screen.getByLabelText('Message'), 'am I still here?');
+  await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+  await waitFor(() => expect(onMembershipRevoked).toHaveBeenCalledTimes(1));
+});
+
+test('does NOT report membership revoked on an ordinary refusal (#534 AC5)', async () => {
+  // A rate-limit refusal is about THIS send, not the viewer's standing, so chat
+  // must survive it. This is the direction a careless implementation breaks.
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are sending too quickly', code: 'RATE_LIMITED', retryAfterSeconds: 5 });
+  });
+
+  renderWithProviders(
+    <DraftRoomChat socket={socket} leagueId={7} viewerTeamId={11} onMembershipRevoked={onMembershipRevoked} />
+  );
+  await screen.findByText('No messages yet');
+
+  await userEvent.type(screen.getByLabelText('Message'), 'hi');
+  await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+  expect(await screen.findByText(/too quickly/i)).toBeInTheDocument();
+  expect(onMembershipRevoked).not.toHaveBeenCalled();
+});
+
 test('takes back its own listener on unmount and never ends the shared session', async () => {
   const { unmount } = renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
   await waitFor(() => expect(socket.hasHandler('chat:message')).toBe(true));

@@ -455,3 +455,112 @@ test('hideMessage surfaces a rejection and resolves false', async () => {
   expect(outcome).toBe(false);
   await waitFor(() => expect(result.current.error).toBe('moderator access required'));
 });
+
+// --------------------------------------------------------------------------
+// #534: the two channels that revoke a confirmed member mid-draft (AC4), and
+// the transient failures that must NOT (AC5). The member-only feed answers 403
+// to a non-member; chat:send answers NOT_A_MEMBER when the author's Team is
+// gone. Both are authoritative and matched on their status/code, never text.
+// Everything else preserves membership and only surfaces an error.
+// --------------------------------------------------------------------------
+
+test('a 403 from the member-only feed reports membership revoked and shows no load error (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  apiClient.get.mockRejectedValue({ response: { status: 403 } });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+
+  await waitFor(() => expect(onMembershipRevoked).toHaveBeenCalledTimes(1));
+  // A revocation replaces the whole surface; it is not a transient load error.
+  expect(result.current.error).toBeNull();
+  expect(result.current.entries).toEqual([]);
+});
+
+test.each([
+  ['a 500', { response: { status: 500 } }],
+  ['a network error with no response', { message: 'Network Error' }],
+])('a transient feed failure (%s) preserves membership and surfaces an error (AC5)', async (_label, err) => {
+  const onMembershipRevoked = jest.fn();
+  apiClient.get.mockRejectedValue(err);
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+
+  await waitFor(() => expect(result.current.error).toMatch(/could not be loaded/i));
+  // The direction a careless implementation breaks: a blip must not revoke.
+  expect(onMembershipRevoked).not.toHaveBeenCalled();
+});
+
+test('a 403 while paging older entries also reports membership revoked (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  apiClient.get.mockImplementation((url) =>
+    url.includes('before=')
+      ? Promise.reject({ response: { status: 403 } })
+      : Promise.resolve({ data: [chatEntry({ id: 7, seq: 9 })] })
+  );
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toHaveLength(1));
+
+  await act(async () => { await result.current.loadOlder(); });
+
+  expect(onMembershipRevoked).toHaveBeenCalledTimes(1);
+});
+
+test('a NOT_A_MEMBER chat:send ack revokes membership, appends nothing, and shows no composer error (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are not in this league', code: 'NOT_A_MEMBER' });
+  });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  let ok;
+  await act(async () => { ok = await result.current.sendMessage('hi'); });
+
+  expect(ok).toBe(false);
+  expect(onMembershipRevoked).toHaveBeenCalledTimes(1);
+  // The non-member surface is the message; no composer error, and nothing posts.
+  expect(result.current.error).toBeNull();
+  expect(result.current.entries).toEqual([]);
+});
+
+test('a NON-membership chat:send refusal (rate limited) does NOT revoke membership (AC5)', async () => {
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are sending too quickly', code: 'RATE_LIMITED', retryAfterSeconds: 5 });
+  });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  let ok;
+  await act(async () => { ok = await result.current.sendMessage('hi'); });
+
+  expect(ok).toBe(false);
+  expect(onMembershipRevoked).not.toHaveBeenCalled();
+  // The ordinary refusal still surfaces through the composer error channel.
+  await waitFor(() => expect(result.current.error).toMatch(/too quickly/i));
+});
+
+test('a NOT_A_MEMBER refusal on a GIF send revokes membership too (AC4)', async () => {
+  const onMembershipRevoked = jest.fn();
+  socket.emit.mockImplementation((event, payload, ack) => {
+    if (event === 'chat:send' && ack) ack({ error: 'you are not in this league', code: 'NOT_A_MEMBER' });
+  });
+  const { result } = renderHook(() =>
+    useDraftRoomFeed({ socket, leagueId: 3, viewerTeamId: 11, onMembershipRevoked })
+  );
+  await waitFor(() => expect(result.current.entries).toEqual([]));
+
+  let ok;
+  await act(async () => { ok = await result.current.sendGif(gifPayload()); });
+
+  expect(ok).toBe(false);
+  expect(onMembershipRevoked).toHaveBeenCalledTimes(1);
+});
