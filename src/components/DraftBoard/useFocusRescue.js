@@ -65,6 +65,19 @@ export default function useFocusRescue(signal, resolveTarget) {
     // running in that same commit, can still hand focus somewhere deliberate.
     // (jsdom fires no blur on unmount at all, so this branch only bites in a
     // real browser; the unit tests exercise the kept-element path directly.)
+    //
+    // KNOWN, DELIBERATE OVER-TRIGGER: focus lost to nothing is not only an
+    // unmount - a click on empty space also blurs with a null relatedTarget - so
+    // if the person focuses inside the subtree, clicks away to `<body>`, and only
+    // THEN the signal changes, this keeps the held element and the rescue pulls
+    // focus back to where they just were rather than leaving it on `<body>`. That
+    // is benign (it returns them to the control they were last in) and it is left
+    // unchased on purpose: every clean way to tell an unmount from a click-away
+    // either cannot separate them at rescue time (the held element is gone in
+    // both cases, `document.activeElement` is `<body>` in both) or adds a
+    // microtask/rAF that races the synchronous flip commit this hook is built to
+    // land inside. Simple and correct for the real cases beats complex for this
+    // one. Do not "fix" it into an async check.
     onBlur: (event) => { if (event.relatedTarget) heldEl.current = null; },
   };
 }
