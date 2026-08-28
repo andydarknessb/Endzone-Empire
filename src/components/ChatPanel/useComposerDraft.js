@@ -136,12 +136,23 @@ export default function useComposerDraft({ leagueId = null, userId = null } = {}
   // too late: the freshly keyed composer would mount against the outgoing scope's
   // stale frame, initialise closed, and then sit closed over the fields the
   // lagging re-seed restores a tick later (#529, the aria-expanded=false defect).
-  // This is React's documented "adjust state when a prop changes" pattern: store
-  // the previous scope, compare on render, reset the state when it differs.
+  //
+  // This is React's documented "adjust state when a prop changes" pattern, and
+  // the previous-scope guard MUST be state, not a ref. The app runs under
+  // React.StrictMode (src/index.js), whose development double-invoke re-runs the
+  // whole render pass; a render-phase update from the first pass does not survive
+  // into the second (React discards the render-phase queue), so the SECOND pass
+  // is the one that commits and must re-derive the re-seed. A useState guard does:
+  // the second pass re-clones it from the committed hook (the outgoing scope), so
+  // `seededScope !== scopeKey` is true again and the block fires again, and the
+  // pass self-heals. A useRef guard would NOT: refs are copied by reference and
+  // survive the double-invoke, so the second pass reads "already seeded", skips
+  // the re-seed, and commits the outgoing scope - reintroducing the very defect
+  // (and leaking the outgoing league's next keystroke under the incoming key).
   const scopeKey = `${leagueId}:${userId}`;
-  const seededRef = useRef(scopeKey);
-  if (seededRef.current !== scopeKey) {
-    seededRef.current = scopeKey;
+  const [seededScope, setSeededScope] = useState(scopeKey);
+  if (seededScope !== scopeKey) {
+    setSeededScope(scopeKey);
     const restored = readRecord(leagueId, userId);
     setTextState(restored.text);
     setGifState(restored.gif);

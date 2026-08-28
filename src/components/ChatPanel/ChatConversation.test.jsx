@@ -1192,6 +1192,43 @@ describe('ChatConversation - in-place composer-draft scope change (#529)', () =>
     expect(screen.getByLabelText('Message')).toHaveValue('incoming league note');
   });
 
+  test('the same in-place switch survives React.StrictMode, so the guard cannot be a ref (AC2, StrictMode)', async () => {
+    // The app runs under React.StrictMode (src/index.js), whose development
+    // double-invoke re-runs the whole render pass. A render-phase state update
+    // from the first pass does not survive into the second (React discards the
+    // render-phase queue), so the re-seed must be re-derived by the second pass
+    // or it never commits. That only holds when the "previous scope" guard is
+    // STATE: the second pass re-clones it from the committed hook (the old scope)
+    // and the guard fires again, self-healing. A ref survives the double-invoke
+    // by reference, so a ref guard reads "already seeded", skips the re-seed, and
+    // commits the outgoing scope - reintroducing the exact defect. Every other
+    // test in this block renders WITHOUT StrictMode (renderWithProviders wraps
+    // only Provider/Router/Routes), so they are blind to a ref-vs-state guard;
+    // this one renders WITH it and is the test that tells them apart.
+    seedRecord(5, {
+      acct: 7,
+      text: 'incoming league note',
+      gif: { assetId: 'incoming-1', description: 'a dog on a skateboard', caption: 'friday' },
+    });
+
+    renderWithProviders(
+      <React.StrictMode>
+        <InPlaceScopeHarness from={{ leagueId: 9, userId: 7 }} to={{ leagueId: 5, userId: 7 }} />
+      </React.StrictMode>
+    );
+
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(screen.getByRole('button', { name: 'switch-scope' }));
+
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('gif-picker-panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('GIF asset id')).toHaveValue('incoming-1');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('a dog on a skateboard');
+    expect(screen.getByLabelText(/caption/i)).toHaveValue('friday');
+    expect(screen.getByLabelText('Message')).toHaveValue('incoming league note');
+  });
+
   test('switching in place from a loaded scope to an empty one closes the panel and carries no outgoing text or GIF across (AC3, empty-closes + no crossing)', async () => {
     seedRecord(5, {
       acct: 7,
@@ -1241,6 +1278,7 @@ describe('ChatConversation - in-place composer-draft scope change (#529)', () =>
 
     // Account 8 inherits nothing: closed panel, empty message, empty fields.
     expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByLabelText('Message')).toHaveValue('');
     await userEvent.click(screen.getByTestId('gif-picker-trigger'));
     expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
@@ -1268,6 +1306,7 @@ describe('ChatConversation - in-place composer-draft scope change (#529)', () =>
 
     // The logged-out identity inherits nothing: closed panel, empty message, empty fields.
     expect(screen.queryByTestId('gif-picker-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gif-picker-trigger')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByLabelText('Message')).toHaveValue('');
     await userEvent.click(screen.getByTestId('gif-picker-trigger'));
     expect(screen.getByLabelText('GIF asset id')).toHaveValue('');
