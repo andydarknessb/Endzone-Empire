@@ -85,6 +85,26 @@ export type DraftSocketState = {
    * no provider network request, upheld by #446).
    */
   gifMessagesEnabled?: boolean;
+  /**
+   * When set, `draft:join` acknowledges this refusal ({ error, code }) instead
+   * of a success ack, and pushes NO `draft:state` snapshot - exactly the shape
+   * server/modules/draftSocket.js sends a viewer who holds no Team in the
+   * league (#230, ADR 0008). Defaults absent: the room joins normally. This is
+   * the seam a blocked / non-member (`NOT_A_MEMBER`) session is driven through
+   * (#447 AC2); see useDraftSocket.js, which reads `code` to decide whether the
+   * viewer-relative values survive the refusal.
+   */
+  joinRefusal?: { error: string; code?: string } | null;
+  /**
+   * When set, `chat:send` acknowledges this refusal instead of accepting the
+   * send, mirroring the real server refusals in draftSocket.js: a rate-limited
+   * sender gets `{ error, code: 'RATE_LIMITED', retryAfterSeconds }` (#440 AC5)
+   * and a manager removed after joining gets `{ error, code: 'NOT_A_MEMBER' }`
+   * (#447 AC3/AC2). On any refusal the composer keeps its text (ChatConversation
+   * clears only on a successful ack), which is what these specs assert. Defaults
+   * absent: a send is accepted with `ack({})`, the existing behaviour.
+   */
+  chatSendRefusal?: { error: string; code?: string; retryAfterSeconds?: number } | null;
 };
 
 /**
@@ -121,6 +141,15 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
         off,
         emit(event: string, payload: unknown, ack?: (resp: unknown) => void) {
           if (event === 'draft:join') {
+            // A refused join (#447 AC2): acknowledge { error, code } and push no
+            // snapshot, exactly as draftSocket.js does for a viewer holding no
+            // Team. The client (useDraftSocket) branches on the code.
+            if (initialState.joinRefusal) {
+              if (typeof ack === 'function') {
+                ack({ error: initialState.joinRefusal.error, code: initialState.joinRefusal.code });
+              }
+              return;
+            }
             // The server answers the acknowledgement BEFORE the first
             // snapshot, so the client knows its own Team before it holds any
             // Team identity to compare against. The snapshot itself carries
@@ -152,6 +181,19 @@ export async function installDraftSocketHarness(page: Page, state: DraftSocketSt
             if (typeof ack === 'function') ack({});
           }
           if (event === 'chat:send') {
+            // A refused send (#447 AC3/AC2): acknowledge the refusal so the
+            // composer keeps its text (it clears only on a successful ack). This
+            // mirrors the server's rate-limit and removed-member refusals.
+            if (initialState.chatSendRefusal) {
+              if (typeof ack === 'function') {
+                ack({
+                  error: initialState.chatSendRefusal.error,
+                  code: initialState.chatSendRefusal.code,
+                  retryAfterSeconds: initialState.chatSendRefusal.retryAfterSeconds,
+                });
+              }
+              return;
+            }
             // The composer clears only on a successful ack (#442/#443). The
             // harness accepts the send so that clear-on-send is observable; it
             // does not broadcast the message back (no live feed is simulated).
