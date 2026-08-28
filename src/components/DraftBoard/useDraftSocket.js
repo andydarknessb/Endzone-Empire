@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
 import { createDraftSocket, onReconnect } from '../../api/socket';
+import { MEMBERSHIP_UNKNOWN, MEMBERSHIP_NON_MEMBER, membershipAfterJoinAck } from './draftMembership';
 
 const initialState = {
   league: null,
@@ -158,6 +159,14 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   // capability on (enabling it in production is out of scope for #516). Off by
   // default and read strictly === true below.
   const [gifMessagesEnabled, setGifMessagesEnabled] = useState(false);
+  // The viewer-relative membership tri-state that gates league chat in the room
+  // (#534): UNKNOWN before the first join ack, MEMBER on a success ack,
+  // NON_MEMBER only on the authoritative NOT_A_MEMBER refusal. It is a state of
+  // its own, not derived from viewerTeamId, precisely so "not yet known" and
+  // "known non-member" are told apart - both would read as a null Team. The
+  // chat subtree (and so its combined-feed request) mounts only for MEMBER, so
+  // UNKNOWN issues nothing (#534 AC1). Driven by the code, never the message.
+  const [membership, setMembership] = useState(MEMBERSHIP_UNKNOWN);
   const [reconnecting, setReconnecting] = useState(false);
   const [onClockAlertOpen, setOnClockAlertOpen] = useState(false);
   // The live session, exposed so another concern in the room can ride it. The
@@ -191,6 +200,10 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     // Same tear-down: the GIF capability is a fact about the league config just
     // left, so the picker must not linger into a room that has not answered yet.
     setGifMessagesEnabled(false);
+    // Membership is a fact about THIS league; a new room is UNKNOWN until its own
+    // join acknowledgement lands. Resetting here is also what keeps a member's
+    // chat from flashing over during a league switch before the new ack decides.
+    setMembership(MEMBERSHIP_UNKNOWN);
     const newSocket = createDraftSocket();
     socketRef.current = newSocket;
     setSocket(newSocket);
@@ -200,6 +213,13 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     // (the resync mechanism for whatever happened while we were offline).
     const joinDraftRoom = () => {
       newSocket.emit('draft:join', { leagueId: Number(leagueId) }, (resp) => {
+        // Membership follows the same code-authoritative rule as the two values
+        // below, decided in one place (draftMembership): a success confirms a
+        // member, NOT_A_MEMBER is the only refusal that moves to non-member, and
+        // every other refusal preserves what we last knew (#534 AC5). This runs
+        // on every reconnect, so the preserve branch is what stops a blip from
+        // flickering a member's chat away.
+        setMembership((prev) => membershipAfterJoinAck(prev, resp));
         if (resp?.error) {
           setError(resp.error);
           // The refusal's CODE decides whether the two viewer-relative values
@@ -317,6 +337,14 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
 
   const dismissOnClockAlert = useCallback(() => setOnClockAlertOpen(false), []);
 
+  // The two OTHER channels that revoke a confirmed member mid-draft (#534 AC4):
+  // a NOT_A_MEMBER acknowledgement from chat:send, and a 403 from the member-only
+  // combined feed. The feed hook classifies each authoritatively (draftMembership)
+  // and calls this; here it just records the non-member result, which unmounts the
+  // chat subtree without a reload. Stable identity so the feed hook's listeners
+  // never re-subscribe on it.
+  const revokeMembership = useCallback(() => setMembership(MEMBERSHIP_NON_MEMBER), []);
+
   return {
     socket,
     league: state.league,
@@ -326,6 +354,8 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
     viewerTeamId,
     isCommissioner,
     gifMessagesEnabled,
+    membership,
+    revokeMembership,
     secondsLeft: state.secondsLeft,
     reconnecting,
     isMyTurn,
