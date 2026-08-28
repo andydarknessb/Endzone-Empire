@@ -30,7 +30,8 @@ import {
   type DraftSocketState,
 } from './fixtures/draftHarness';
 import type { Page } from '@playwright/test';
-import { ACTIVE_STATE, ACTIVE_PICKS } from './fixtures/draftFixtures';
+import { ACTIVE_STATE, ACTIVE_PICKS, FIXTURE_TEAMS } from './fixtures/draftFixtures';
+import { captureMatrix } from './fixtures/screenshotMatrix';
 
 async function openDraftRoom(page: Page, over: Partial<DraftSocketState> = {}) {
   await setTheme(page, 'light');
@@ -71,7 +72,11 @@ test.describe('Draft room accessibility (#445)', () => {
     await expect(page.getByRole('group', { name: 'Chat composer' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Commissioner draft controls' })).toBeVisible();
 
-    await testInfo.attach('desktop-draft-room', { body: await page.screenshot(), contentType: 'image/png' });
+    // The wide room with the Players pane selected (the left pane's default).
+    // Committed as wide-players.png; the report attachment keeps its historical
+    // name. The Board-matrix wide composition criterion 1 asks for is a separate
+    // capture in the #548 matrix below, not this one.
+    await captureMatrix(page, testInfo, { file: 'room-wide-players', attach: 'desktop-draft-room' });
   });
 
   test('desktop: a live message speaks once in a polite region (AC2 DOM evidence)', async ({ page }) => {
@@ -198,7 +203,7 @@ test.describe('Draft room accessibility (#445)', () => {
     const chatTab = page.getByRole('tab', { name: 'Chat' });
     await expect(chatTab).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('tabpanel', { name: 'Chat' })).toBeVisible();
-    await testInfo.attach('mobile-chat-tab', { body: await page.screenshot(), contentType: 'image/png' });
+    await captureMatrix(page, testInfo, { file: 'room-narrow-chat', attach: 'mobile-chat-tab' });
 
     // Arrow keys walk the tablist; this room uses manual activation (MUI's
     // default), so ArrowRight moves focus and Enter activates the tab.
@@ -212,7 +217,7 @@ test.describe('Draft room accessibility (#445)', () => {
     await page.keyboard.press('Enter');
     await expect(playersTab).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('tabpanel', { name: 'Players' })).toBeVisible();
-    await testInfo.attach('mobile-players-tab', { body: await page.screenshot(), contentType: 'image/png' });
+    await captureMatrix(page, testInfo, { file: 'room-narrow-players', attach: 'mobile-players-tab' });
 
     // Focus stays on the selected tab; one Tab press moves into its panel...
     await expect(playersTab).toBeFocused();
@@ -223,5 +228,250 @@ test.describe('Draft room accessibility (#445)', () => {
     // crossable in both directions.
     await page.keyboard.press('Shift+Tab');
     await expect(playersTab).toBeFocused();
+  });
+});
+
+// ===========================================================================
+// The regenerable, human-browsable screenshot matrix (#548).
+//
+// This EXTENDS the matrix the suite above already owns; it does not fork it.
+// The three captures above are its wide-Players and narrow-Chat / narrow-Players
+// members, now written to the committed set (tests/e2e/draft-room-screenshots/)
+// under stable descriptive names while keeping their historical report
+// attachment names. This block adds the members those did not cover: the wide
+// Board-matrix composition, the two remaining narrow tabs (Board, Draft), the
+// four interactive chat surfaces, a reduced-motion variant, and a genuine
+// keyboard-focus ring.
+//
+// Every capture is PAIRED with an assertion that its named state is on screen
+// immediately before the shot. A screenshot ticket looks done the moment images
+// exist and nothing is red, but a frame taken a moment too early (a panel before
+// it opened, a counter one keystroke short of its warning band) is a green run
+// of the wrong picture; the pre-shot assertion is what turns each image from an
+// unverified claim into a checked one.
+//
+// REGENERATE the committed set (README.md in the folder documents this too):
+//   npx playwright test --config=playwright.e2e.config.js \
+//     tests/e2e/draft-accessibility.spec.ts
+// Run with the config's own reporters. Do NOT pass --reporter=list: it overrides
+// the config's reporter array and drops the html reporter, so the run passes and
+// writes NO report attachments at all (the committed files still write, but the
+// report half of AC6 is silently lost).
+// ===========================================================================
+test.describe('Draft room screenshot matrix (#548)', () => {
+  // UTC + en-US so the one wall-clock string the matrix renders (the tombstone's
+  // toLocaleTimeString) is identical on every machine and every run. Scoped to
+  // this block so the suite above is untouched (it renders no timestamp anyway).
+  test.use({ timezoneId: 'UTC', locale: 'en-US' });
+
+  // Every capture in this block puts Harbor Hawks (NOT the harness viewer's Team)
+  // on the clock. The reason is determinism, not layout: when the viewer is on
+  // the clock, DraftStatusBar opens a "You're on the clock!" Snackbar with a
+  // 6000ms auto-hide (useDraftSocket fires it once on the isMyTurn edge), and a
+  // capture taken near that 6s boundary races it - present in one run, gone the
+  // next - which is a binary diff on a committed PNG. A non-viewer turn never
+  // fires it, so the shot is stable. The on-the-clock BANNER (LiveDraftBanner)
+  // still renders for any active draft; it simply reads "Harbor Hawks is on the
+  // clock" here, which is the on-the-clock banner criterion 1 asks to be visible.
+  const NOT_MY_TURN = { onTheClock: FIXTURE_TEAMS[1] };
+
+  test('wide: the Board matrix composition, board + chat + rail + on-the-clock banner simultaneously visible (AC1)', async ({ page }, testInfo) => {
+    // VIEWPORTS.desktop (the wide LAYOUT: three side-by-side panes), the same
+    // constant the three original captures use, so the extended matrix stays
+    // comparable with them. Criterion 1 wants the Board SELECTED while the other
+    // three regions are simultaneously visible; it does not require the whole
+    // matrix in frame, and the Draft room's shell is pinned to exactly the
+    // viewport height (draft-board.spec.ts #122), so any overflow goes into each
+    // region's own scroller rather than scrolling the page. This is a whole-room
+    // state, so it is a viewport capture (never fullPage, which on a
+    // non-scrolling shell is the same pixels but implies a completeness that the
+    // independently-scrolling regions do not have).
+    await page.setViewportSize(VIEWPORTS.desktop);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    // Select the Board in the left pane (the wide room opens on Players there).
+    // On a wide container there is no tab bar, so this "Board" button is the
+    // left-pane toggle, unambiguously.
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
+
+    // Assert each of the four regions is actually IN THE VIEWPORT - not merely in
+    // the DOM - immediately before the shot.
+    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeInViewport();
+    await expect(page.getByRole('region', { name: 'Chat and Draft activity' })).toBeInViewport();
+    await expect(page.getByRole('region', { name: 'Draft rail' })).toBeInViewport();
+    // The on-the-clock banner: "No pick clock" is unique to LiveDraftBanner, and
+    // Harbor Hawks is on the clock in this fixture (see NOT_MY_TURN above), so the
+    // banner reads that. Both are asserted in the viewport.
+    await expect(page.getByText('No pick clock')).toBeInViewport();
+    await expect(page.getByText('Harbor Hawks is on the clock')).toBeInViewport();
+
+    await captureMatrix(page, testInfo, { file: 'room-wide-board-matrix' });
+  });
+
+  test('wide: the Board matrix composition under reduced motion (AC4)', async ({ page }, testInfo) => {
+    // The reduced-motion variant is produced through the app's OWN behaviour under
+    // page.emulateMedia({ reducedMotion: 'reduce' }), never a hand-written media
+    // query. The Board matrix is the fitting subject: its on-the-clock cell and
+    // the banner timer both animate, and both carry a reduce-query opt-out. Same
+    // wide layout / desktop viewport as the composition above, so the two are
+    // directly comparable.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize(VIEWPORTS.desktop);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeInViewport();
+
+    // Prove the emulation is in effect before the shot, so "reduced motion" is
+    // asserted rather than assumed.
+    const reduced = await page.evaluate(
+      () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+    expect(reduced).toBe(true);
+
+    await captureMatrix(page, testInfo, { file: 'room-reduced-motion-wide-board' });
+  });
+
+  test('narrow: the Board tab, selected with its panel visible (AC2)', async ({ page }, testInfo) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    await page.getByRole('tab', { name: 'Board' }).click();
+    await expect(page.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tabpanel', { name: 'Board' })).toBeVisible();
+    // The Board matrix's own region sits inside the selected panel.
+    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+
+    await captureMatrix(page, testInfo, { file: 'room-narrow-board' });
+  });
+
+  test('narrow: the Draft tab, selected with its panel visible (AC2)', async ({ page }, testInfo) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    await page.getByRole('tab', { name: 'Draft' }).click();
+    await expect(page.getByRole('tab', { name: 'Draft' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tabpanel', { name: 'Draft' })).toBeVisible();
+
+    await captureMatrix(page, testInfo, { file: 'room-narrow-draft' });
+  });
+
+  test('chat: the emoji picker open (AC3)', async ({ page }, testInfo) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    // The room opens on the Chat tab, so the composer and its Insert emoji trigger
+    // are on screen. Open the picker and assert the named menu (and a real item)
+    // are visible before the shot, so the frame cannot predate the menu opening.
+    await page.getByRole('button', { name: 'Insert emoji' }).click();
+    const emojiMenu = page.getByRole('menu', { name: 'Emoji' });
+    await expect(emojiMenu).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'fire' })).toBeVisible();
+
+    // Region capture: the picker is a MUI Menu portaled to the document body, so
+    // it is the emoji menu itself that is the subject, framed whole.
+    await captureMatrix(page, testInfo, { file: 'region-chat-emoji-picker', element: emojiMenu });
+  });
+
+  test('chat: the character counter in its warning band (AC3)', async ({ page }, testInfo) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    // The warning band is remaining <= 50 code points and > 0 (chatLimits.js:
+    // CHAT_CHARS_WARNING = 50, MAX_CHAT_CHARS = 500). 460 characters leaves 40
+    // remaining: squarely inside the warning band, not over the limit. Derived
+    // from the code rather than a guessed threshold.
+    const composer = page.getByRole('textbox', { name: 'Message' });
+    await composer.fill('a'.repeat(460));
+
+    // One source (bandFor) drives BOTH the counter colour and the polite
+    // announcement, so asserting the warning announcement's exact text proves the
+    // warning STATE the colour shows - not merely that some text is in the box.
+    await expect(page.getByText('Approaching the 500 character message limit.')).toBeAttached();
+    await expect(page.getByTestId('composer-char-count')).toHaveText('460 / 500');
+    // Blur so no caret sits in the field; the counter persists without focus.
+    await composer.blur();
+    await expect(page.getByTestId('composer-char-count')).toBeVisible();
+
+    // Region capture: the warning counter lives inside the composer, its own row
+    // in the chat pane, so the composer group is the subject.
+    await captureMatrix(page, testInfo, {
+      file: 'region-chat-counter-warning',
+      element: page.getByRole('group', { name: 'Chat composer' }),
+    });
+  });
+
+  test('chat: a commissioner-hidden message tombstone (AC3)', async ({ page }, testInfo) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await openDraftRoom(page);
+
+    // Seed a message, then deliver the server's chat:hidden broadcast for it - the
+    // same shape draftSocket.js sends and the moderation test above drives - which
+    // rewrites the entry to its neutral tombstone in place.
+    await deliver(page, 'chat:message', chatMsg(1, 'Harbor Hawks', 'this will be hidden'));
+    await deliver(page, 'chat:hidden', {
+      type: 'league_chat', id: 1, seq: 1, hidden: true, message: null,
+      teamId: 2, teamName: 'Harbor Hawks', created_at: '2026-01-01T12:00:00Z',
+    });
+
+    // Assert the tombstone is rendered and the original body gone before the shot.
+    await expect(page.getByText('Message hidden by commissioner')).toBeVisible();
+    await expect(page.getByText('this will be hidden')).toHaveCount(0);
+
+    // Region capture: the tombstone is one entry inside the chat log, which is its
+    // own scrolling region, so the log is the subject.
+    await captureMatrix(page, testInfo, {
+      file: 'region-chat-hidden-tombstone',
+      element: page.getByRole('log', { name: 'League Chat' }),
+    });
+  });
+
+  test('chat: the provider-gated GIF panel (AC3)', async ({ page }, testInfo) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    // gifMessagesEnabled rides the draft:join ack (DraftSocketState, the interface
+    // Cory names) and enables the compose affordance for this capture WITHOUT
+    // changing the production capability contract: the server still gates it, and
+    // no client provider is registered, so Send stays disabled and nothing goes
+    // out.
+    await openDraftRoom(page, { gifMessagesEnabled: true });
+
+    await page.getByTestId('gif-picker-trigger').click();
+    const gifPanel = page.getByTestId('gif-picker-panel');
+    await expect(gifPanel).toBeVisible();
+    // The provider-gated nature is visibly the point: with no provider registered
+    // the panel says so and Send GIF is disabled.
+    await expect(page.getByText('The GIF picker becomes available once a provider is enabled.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send GIF' })).toBeDisabled();
+
+    // Region capture: the GIF panel is a disclosure below the composer, so the
+    // panel itself is the subject.
+    await captureMatrix(page, testInfo, { file: 'region-chat-gif-panel', element: gifPanel });
+  });
+
+  test('narrow: a real keyboard-focus ring on the tabs (AC5)', async ({ page }, testInfo) => {
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    // Establish :focus-visible through REAL keyboard navigation, not an injected
+    // class, a CSS override or a scripted approximation: focus the first tab, then
+    // move focus with a real ArrowRight (this tablist uses manual activation, so
+    // focus moves without changing selection) - the same key flow the keyboard
+    // test above drives.
+    const chatTab = page.getByRole('tab', { name: 'Chat' });
+    await chatTab.focus();
+    await page.keyboard.press('ArrowRight');
+    const playersTab = page.getByRole('tab', { name: 'Players' });
+    await expect(playersTab).toBeFocused();
+
+    // The focused element genuinely matches :focus-visible (the browser's keyboard
+    // heuristic), so the ring in the shot is the app's real keyboard-focus ring.
+    const focusVisible = await page.evaluate(
+      () => document.activeElement != null && document.activeElement.matches(':focus-visible')
+    );
+    expect(focusVisible).toBe(true);
+
+    // Whole-room state: the tab bar is pinned chrome (not inside a scroller) and
+    // the focus ring reads best in the room's context, so this is a viewport shot.
+    await captureMatrix(page, testInfo, { file: 'room-narrow-tab-focus-visible' });
   });
 });
