@@ -38,14 +38,28 @@ import FeedAnnouncer from './FeedAnnouncer';
  * The picker itself (GifComposer, inside ChatConversation) is unchanged by this
  * surface; only the two props reach it.
  *
+ * `onMembershipRevoked` is how a member removed mid-draft loses chat without a
+ * reload (#534 AC4). This component mounts ONLY for a confirmed member (DraftBoard
+ * gates it on the membership tri-state), so its mere presence issues the
+ * combined-feed request a non-member must never send (#534 AC1). If the server
+ * later reports the viewer's Team is gone - a NOT_A_MEMBER chat:send ack or a 403
+ * from the member-only feed - useDraftRoomFeed calls this, and the room swaps in
+ * its explicit non-member surface.
+ *
  * Full Pick history still lives in the Draft board; this feed shows recent Pick
  * activity, it does not replace the board (#435 AC5, CONTEXT.md: Draft board).
  */
-function DraftRoomChat({ socket, leagueId, viewerTeamId = null, canModerate = false, gifEnabled = false }) {
+function DraftRoomChat({
+  socket, leagueId, viewerTeamId = null, canModerate = false, gifEnabled = false, onMembershipRevoked = null,
+}) {
   const { entries, error, sendMessage, sendGif, loadOlder, hasMore, hideMessage } = useDraftRoomFeed({
     socket,
     leagueId,
     viewerTeamId,
+    // The two mid-draft revocation channels (#534 AC4): the feed hook watches a
+    // NOT_A_MEMBER chat:send ack and a 403 from the member-only feed, and hands
+    // the result up to the room, which unmounts this whole subtree in place.
+    onMembershipRevoked,
   });
   // The account scopes the composer draft (#442 AC5/AC6); Team identity stays
   // the actor on the wire, the account id never leaves the client.

@@ -31,6 +31,8 @@ import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
 import DraftPickConfirmDialog from './DraftPickConfirmDialog';
 import DraftRoomChat from './DraftRoomChat';
+import DraftChatNonMember from './DraftChatNonMember';
+import { MEMBERSHIP_MEMBER, MEMBERSHIP_NON_MEMBER } from './draftMembership';
 import useContainerWidth, { draftPaneLayout } from './useContainerWidth';
 import useFocusRescue from './useFocusRescue';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
@@ -311,6 +313,14 @@ function DraftBoard() {
     // threads it through to the chat composer below; it reads nothing else from
     // it and never infers it client-side.
     gifMessagesEnabled,
+    // The viewer-relative membership tri-state that gates league chat (#534).
+    // 'member' mounts the chat subtree (and only then does its combined-feed
+    // request leave the client, AC1); 'non_member' shows the explicit non-member
+    // surface (AC3); 'unknown' - before the join ack decides - mounts neither.
+    // revokeMembership is the seam the feed hook calls when the server reports a
+    // confirmed member was removed mid-draft (AC4).
+    membership,
+    revokeMembership,
     secondsLeft,
     reconnecting,
     isMyTurn,
@@ -608,17 +618,31 @@ function DraftBoard() {
   // The combined League chat + Draft activity feed (#435/#437/#442), wired to
   // the room's own session (#433). It is the Draft room's centerpiece (#444):
   // its own centre pane on a wide container and its own Chat tab, selected
-  // first, on a narrow one - no longer a panel tucked at the bottom of the
-  // rail. Rendered only once the socket exists; before draft:join lands there
-  // is nothing for it to ride.
-  const chatFeed = socket ? (
+  // first, on a narrow one - no longer a panel tucked at the bottom of the rail.
+  //
+  // Gated on the membership tri-state, not on socket existence (#534). The old
+  // `socket ?` mounted the log and composer the instant a socket appeared - and a
+  // refused join still leaves a live socket, so a non-member got a mounted chat
+  // over a feed request the server answers 403, with every send refused. Now:
+  //   - 'member'      mounts DraftRoomChat; ONLY here does its combined-feed
+  //                   request leave the client (AC1), and only here does the
+  //                   composer/moderation exist (AC2).
+  //   - 'non_member'  shows one explicit message and nothing else (AC3).
+  //   - 'unknown'     (before the join ack decides, socket present or not)
+  //                   mounts neither and issues no request (AC1).
+  // revokeMembership lets a mid-draft removal move a confirmed member to
+  // 'non_member' without a reload (AC4), reported by the feed hook.
+  const chatFeed = membership === MEMBERSHIP_MEMBER ? (
     <DraftRoomChat
       socket={socket}
       leagueId={Number(leagueId)}
       viewerTeamId={viewerTeamId}
       canModerate={isCommissioner}
       gifEnabled={gifMessagesEnabled}
+      onMembershipRevoked={revokeMembership}
     />
+  ) : membership === MEMBERSHIP_NON_MEMBER ? (
+    <DraftChatNonMember />
   ) : null;
 
   // Board is the team-by-round matrix; Pick history is the chronological view
