@@ -208,7 +208,11 @@ function DraftBoard() {
   const resolveFlipFocus = useCallback((held) => {
     const heldId = held && held.id;
     const again = heldId ? document.getElementById(heldId) : null;
-    return again || document.getElementById(DRAFT_MAIN_ID);
+    // An ORDERED fallback, not `again || main`: if the control that held focus is
+    // rendered again but is not focusable, `.focus()` on it no-ops and the
+    // main-content fallback must still run - so both candidates go to the hook,
+    // which focuses `again` and only settles for it if focus actually landed.
+    return [again, document.getElementById(DRAFT_MAIN_ID)];
   }, []);
   const regionFocus = useFocusRescue(arrangement, resolveFlipFocus);
 

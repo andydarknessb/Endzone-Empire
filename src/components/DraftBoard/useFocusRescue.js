@@ -18,9 +18,19 @@ import { useRef, useLayoutEffect } from 'react';
  * `signal` is the value whose CHANGE marks the tear-down/rebuild: the rail
  * passes a boolean `present` (true -> false as its control vanishes); the room
  * passes its `'panes' | 'tabs'` arrangement, which flips across the threshold.
- * Any change to `signal` is the trigger - a false -> true is harmless because
- * focus can only be HELD inside a subtree that is present, so the tracked
- * element is null across a mount and nothing moves.
+ * Any change to `signal` is the trigger, but whether the TRACKER is flushed by
+ * that change depends on where the caller spreads the handlers, and the two
+ * callers differ:
+ *  - the RAIL spreads them on a subtree that actually unmounts when its control
+ *    vanishes. Focus cannot be HELD inside a subtree that is absent, so every
+ *    trip through absence leaves the tracker null and a false -> true edge finds
+ *    it null and moves nothing.
+ *  - the ROOM spreads them on the wrapper of BOTH arrangements, one of which is
+ *    ALWAYS mounted, so a flip never unmounts the tracked wrapper. The tracker is
+ *    therefore NOT flushed by the arrangement change; it is cleared only by a
+ *    real focus move out (onBlur with a truthy relatedTarget, below) or by a
+ *    rescue firing. A held element can outlive the focus that set it and persist
+ *    until the next flip - see the onBlur note for the one edge that this leaves.
  *
  * Focus is moved only when it was actually inside the subtree that changed,
  * tracked by the returned focus/blur handlers spread onto that subtree: a
@@ -31,11 +41,15 @@ import { useRef, useLayoutEffect } from 'react';
  * land inside a portalled popover.
  *
  * `resolveTarget(heldElement)` chooses where focus goes, called at the moment of
- * the change. It is handed the element that HELD focus (now detached) so a
- * caller can return focus to that same control if it is rendered again -
- * identified by a stable id that survives the remount, since a generated React
- * id does not - and fall back to a fixed landmark otherwise. It returns the
- * element to focus, or a falsy value to leave focus where the browser put it.
+ * the change. It is handed the element that HELD focus (now detached) and
+ * returns the element to focus - or an ORDERED LIST of candidates, tried in turn
+ * until one actually takes focus. A caller returns the same control if it is
+ * rendered again (identified by a stable id that survives the remount, since a
+ * generated React id does not) then a fixed landmark: an element that is found
+ * but not focusable makes `.focus()` a silent no-op, and without the ordered
+ * fallback the landmark would never run and focus would be stranded on `<body>`,
+ * the exact failure this hook removes. A falsy value, or a list whose candidates
+ * are all absent or unfocusable, leaves focus where the browser put it.
  *
  * `useLayoutEffect`, not `useEffect`, so the move lands in the SAME commit as
  * the tear-down/rebuild, with no painted frame in which focus is on nothing.
@@ -50,8 +64,18 @@ export default function useFocusRescue(signal, resolveTarget) {
     if (changed && heldEl.current) {
       const held = heldEl.current;
       heldEl.current = null;
-      const target = resolveTarget(held);
-      if (target) target.focus();
+      const resolved = resolveTarget(held);
+      const candidates = Array.isArray(resolved) ? resolved : [resolved];
+      for (let i = 0; i < candidates.length; i += 1) {
+        const target = candidates[i];
+        if (target) {
+          target.focus();
+          // A found-but-unfocusable element makes focus() a silent no-op, so
+          // only stop once focus ACTUALLY landed on it; otherwise fall through
+          // to the next candidate rather than leaving focus on <body>.
+          if (document.activeElement === target) break;
+        }
+      }
     }
   }, [signal, resolveTarget]);
 

@@ -2600,22 +2600,31 @@ describe('layout flip hands focus somewhere deliberate, never to the body (#525)
     expect(screen.getByRole('main')).toHaveFocus();
   });
 
-  test('focus on a control OUTSIDE the room is never moved by a flip (AC3)', async () => {
+  test('focus moved OUT of the region is not yanked back into it by a flip (AC3)', async () => {
     await showWideActiveDraftForFlip();
 
-    // The App skip link and nav live outside the Draft room's <main>. A bare
-    // button appended beside it stands in for that: the rescue must fire only
-    // when focus was inside the region subtree that went away.
-    const outside = document.createElement('button');
-    outside.textContent = 'Site navigation';
-    document.body.appendChild(outside);
+    // Set the tracker for real by focusing a control INSIDE the region first.
+    // (The earlier version of this test focused ONLY an outside control, so the
+    // tracker was never set and it passed against any heldEl-gated rescue -
+    // including one with no relatedTarget clearing at all - green for the wrong
+    // reason, and structurally unable to see whether a focus move OUT of the
+    // region clears the hold.)
+    const composer = screen.getByLabelText('Message');
+    act(() => composer.focus());
+    expect(composer).toHaveFocus();
+
+    // Focus then moves OUT to a chrome control that belongs to no region wrapper
+    // and survives the flip (the on-the-clock sound toggle). That is a real focus
+    // move - a truthy relatedTarget - so it MUST clear the tracker...
+    const outside = screen.getByRole('button', { name: 'On-the-clock sound' });
     act(() => outside.focus());
     expect(outside).toHaveFocus();
 
+    // ...and the flip must then leave this focus entirely alone: no stale hold
+    // from the composer may yank focus back into the region.
     flip525Resize(FLIP525_NARROW);
 
     expect(outside).toHaveFocus();
-    outside.remove();
   });
 });
 
