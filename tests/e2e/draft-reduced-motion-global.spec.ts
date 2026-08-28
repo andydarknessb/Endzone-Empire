@@ -51,6 +51,7 @@ import {
   ACTIVE_PICKS,
   PENDING_STATE,
   FIXTURE_TEAMS,
+  FIXTURE_PLAYERS,
   buildLeague,
 } from './fixtures/draftFixtures';
 
@@ -324,4 +325,78 @@ test('live Draft banner stays present (live data not suppressed) under reduced m
   // state; reduced motion must not remove it. The harness viewer is on the
   // clock in ACTIVE_STATE, so the banner reads "Your pick!".
   await expect(page.getByText('Your pick!')).toBeVisible();
+});
+
+// -------------------------------------------------------------------------
+// The exemption: indeterminate progress indicators keep their motion under
+// reduced motion (their spin IS the "still working" feedback), while the global
+// rule still suppresses everything else. This test is PAIRED on purpose: an
+// exemption is a brand-new way for the whole rule to silently stop applying, so
+// "the spinner still animates" on its own could equally mean the rule does
+// nothing at all. The second assertion - a non-exempt animation reading 0s in
+// the SAME DOM under the SAME emulation - is what proves the exemption is
+// narrow rather than that the locator merely resolved.
+// -------------------------------------------------------------------------
+test('indeterminate progress keeps animating under reduce, while a non-exempt animation stays 0s (#533 AC5, exemption is narrow)', async ({ page }) => {
+  await page.setViewportSize(VIEWPORTS.desktop);
+  await setTheme(page, 'light');
+  await installDraftSocketHarness(page, { ...ACTIVE_STATE, isCommissioner: true } as DraftSocketState);
+  await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS as never });
+
+  // Drive a real MUI CircularProgress into the room: the player pool paints an
+  // indeterminate spinner while a "load more" page is in flight. Advertise a
+  // second page (totalPages: 2) and hold that second page pending until we
+  // release it, so the spinner stays put while we measure it and no request is
+  // aborted at context close (which would trip the harness console-error guard).
+  // This override is registered after installDraftRestApi, so it wins for
+  // /api/players and falls back to the harness for everything else.
+  let releaseSecondPage: () => void = () => {};
+  const secondPageHeld = new Promise<void>((resolve) => { releaseSecondPage = resolve; });
+  await page.route('**/api/players**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/players') return route.fallback();
+    if (url.searchParams.get('page') === '2') {
+      await secondPageHeld;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ players: [], totalPages: 2 }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ players: FIXTURE_PLAYERS, totalPages: 2 }) });
+  });
+
+  await gotoDraft(page);
+  await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+
+  // Trigger the "load more" fetch (the pool asks for page 2 when its scroll
+  // region reaches the bottom); scrolling to the end and firing a scroll event
+  // is deterministic regardless of how tall the eight fixture rows render.
+  const region = page.getByTestId('players-scroll-region');
+  await expect(region).toBeVisible();
+  await region.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+    el.dispatchEvent(new Event('scroll'));
+  });
+
+  // EXEMPT: the indeterminate spinner appears and keeps animating under reduce.
+  const spinner = page.locator('.MuiCircularProgress-indeterminate').first();
+  await expect(spinner).toBeVisible();
+  const spinnerMotion = await motion(spinner);
+  expect(spinnerMotion.animation, 'indeterminate spinner keeps animating under reduce').toBeGreaterThan(0);
+
+  // NARROW: a non-exempt animation in the same DOM under the same emulation is
+  // instantaneous. The sound-toggle ripple enter animation, held down for a
+  // deterministic read, must be 0s - if it were not, the global rule would be
+  // ineffective and the assertion above would prove nothing.
+  const button = page.getByRole('button', { name: 'On-the-clock sound' });
+  const box = await button.boundingBox();
+  if (!box) throw new Error('sound-toggle button has no bounding box');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  const ripple = button.locator('.MuiTouchRipple-rippleVisible').first();
+  await expect(ripple).toHaveCount(1);
+  const rippleMotion = await motion(ripple);
+  await page.mouse.up();
+  expect(rippleMotion.animation, 'non-exempt ripple animation is 0s under reduce (exemption is narrow)').toBe(0);
+
+  // Let the held page-2 request complete so nothing is aborted at teardown.
+  releaseSecondPage();
 });

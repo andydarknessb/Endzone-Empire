@@ -92,14 +92,42 @@ a:hover {
  * does not change what it selects.
  */
 @media (prefers-reduced-motion: reduce) {
+  /* Transitions and scroll animation: instantaneous everywhere. */
   *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+
+  /*
+   * Animations: instantaneous everywhere EXCEPT indeterminate progress
+   * indicators. For those, the looping motion is not decoration around the
+   * feedback, it IS the feedback: a spinning CircularProgress or a travelling
+   * indeterminate LinearProgress says "still working", and freezing it leaves a
+   * static arc or bar that a viewer cannot tell apart from a hung control or a
+   * decorative shape. Removing that motion would remove interaction feedback,
+   * which issue #533's out-of-scope list forbids.
+   *
+   * These indicators are EXCLUDED from the override rather than restored with a
+   * duration: MUI owns their keyframe durations (1.4s, 2.1s), and re-declaring a
+   * number here would silently keep forcing an old value across a MUI upgrade
+   * with nothing to catch it. `revert`/`unset`/`initial` cannot restore them
+   * either, because this override is `!important` and those keywords resolve to
+   * the 0s initial value, re-freezing them. So the override simply does not
+   * reach these elements, and MUI's own (author, non-important) animation stands.
+   *
+   * NOT exempted, deliberately: determinate progress (its value is carried by
+   * bar position, and its motion is a transition, handled instantaneously
+   * above), and Skeleton (its placeholder shape and presence carry "content is
+   * coming"; the pulse only decorates, so a static Skeleton still informs).
+   */
+  *:not(.MuiCircularProgress-indeterminate):not(.MuiCircularProgress-circleIndeterminate):not(.MuiLinearProgress-bar1Indeterminate):not(.MuiLinearProgress-bar2Indeterminate),
   *::before,
   *::after {
     animation-duration: 0s !important;
     animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0s !important;
-    transition-delay: 0s !important;
-    scroll-behavior: auto !important;
   }
 }
