@@ -130,7 +130,19 @@ const routeTable = [
   {
     method: 'GET',
     pattern: '/api/league/:id/draft-feed',
-    respond: () => ({ status: 200, body: [] }),
+    // The member-only combined feed. It answers an empty 200 by default, but a
+    // test can drive it to an authoritative failure through `draftFeedError`
+    // (installDraftRestApi) to prove the in-browser revocation path: a 403 here
+    // is a confirmed member removed mid-draft, which collapses chat to the
+    // non-member surface (#534 AC4, #541 AC7). Matched on the status the client
+    // reads; the body is copy only.
+    respond: (ctx) => {
+      const forced = ctx.state.draftFeedError;
+      if (forced) {
+        return { status: forced.status, body: forced.body != null ? forced.body : { error: 'forbidden' } };
+      }
+      return { status: 200, body: [] };
+    },
   },
   {
     method: 'GET',
