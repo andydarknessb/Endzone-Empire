@@ -40,19 +40,24 @@
  * would take `feed_seq = 1` from a fresh counter row, collide with a
  * backfilled row, and the unique `(league_id, feed_seq)` index at the end
  * would abort the migration on production. It cannot happen, but the reason is
- * NOT local to this file: knex runs each migration inside ONE transaction (no
- * `disableTransactions` is set anywhere in this repo), and the `ADD COLUMN`
- * above takes an ACCESS EXCLUSIVE lock on `chat_messages` that is held for the
- * whole of `up()`. No insert can interleave with the backfill and the seed;
- * they are one atomic unit. This safety is a property of the RUNNER, so it
- * rots silently the day someone sets `disableTransactions` on this migration -
- * if you ever do, allocate the seed and backfill so no gap between them can
- * exist, or this ordering becomes the race it looks like.
+ * NOT local to this file: knex runs each migration inside ONE transaction
+ * unless the file opts out (`exports.config = { transaction: false }`, which
+ * 20260720000003 does for CONCURRENTLY and this file does not), and the
+ * `ADD COLUMN` above takes an ACCESS EXCLUSIVE lock on `chat_messages` that is
+ * held until that transaction commits. No insert can interleave with the
+ * backfill and the seed; they are one atomic unit. This safety is a property of
+ * the RUNNER, so it rots silently the day someone adds that opt-out to this
+ * migration - if you ever do, allocate the seed and backfill so no gap between
+ * them can exist, or this ordering becomes the race it looks like.
  *
- * APPLYING IT: that same ACCESS EXCLUSIVE lock blocks every chat insert for the
- * duration of `up()` (the backfill is a single UPDATE over one small table, so
- * milliseconds - but not zero). Apply this when no draft is live, so no
- * manager's `chat:send` is blocked mid-draft.
+ * APPLYING IT: that ACCESS EXCLUSIVE lock blocks every read AND write of
+ * `chat_messages` (the whole feed, not only `chat:send`) until `up()` commits,
+ * and everything after the ADD COLUMN scales with row count: the backfill
+ * UPDATE rewrites every existing row (new tuple versions plus index
+ * maintenance, more than a scan), the counter seed aggregates every row, SET
+ * NOT NULL validates every row, and the unique index build reads every row.
+ * Measured at 7 rows on 2026-08-27 (#520). Check the current row count before
+ * applying, and apply when no draft is live.
  */
 
 const CHAT = 'chat_messages';
