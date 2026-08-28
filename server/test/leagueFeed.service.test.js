@@ -261,6 +261,30 @@ test('listCombinedDraftFeed projects hidden_at in the CHAT arm only, and blocks 
   assert.match(activityArm, /NULL::timestamptz AS hidden_at/, 'the activity arm hidden_at is the aligned NULL');
 });
 
+// #447 AC5, the combined-feed half of an old client's cursorless read. The Draft
+// room reads the COMBINED feed (useDraftRoomFeed.fetchHistory -> GET /draft-feed
+// -> listCombinedDraftFeed), so a pre-cursor client that pages without a cursor
+// must get the latest page with NO cursor predicate on either arm. This mirrors
+// the chat-feed proof above (listLeagueChatFeed ... no cursor) for the combined
+// feed, and it is falsifiable: the same function DOES emit `"..."."feed_seq" > $`
+// when given an `after` cursor (the resume test below), so a cursorless read that
+// wrongly added a predicate would turn this red.
+test('listCombinedDraftFeed reads the latest page with no cursor predicate on either arm (#447 AC5)', async () => {
+  let seenSql = null;
+  let seenParams = null;
+  const fake = createFakePool([
+    [/FROM "chat_messages"/, (text, params) => { seenSql = text; seenParams = params; return { rows: [] }; }],
+  ]);
+
+  await listCombinedDraftFeed(fake, { leagueId: 12, viewerId: 9 });
+
+  // No older-page predicate and no resume predicate: this is the latest window.
+  assert.doesNotMatch(seenSql, /"feed_seq" < \$/, 'no older-page cursor predicate on a cursorless read');
+  assert.doesNotMatch(seenSql, /"feed_seq" > \$/, 'no resume cursor predicate on a cursorless read');
+  // Exactly the no-cursor params: league, viewer, page size - no cursor value.
+  assert.deepEqual(seenParams, [12, 9, FEED_PAGE_SIZE]);
+});
+
 test('listLeagueChatFeed pages older than a cursor with feed_seq < before', async () => {
   let seenSql = null;
   let seenParams = null;

@@ -69,8 +69,16 @@ const presenterTest = base.extend<{}>({
 
 // The presenter board payload, shaped exactly as draft.router.js's allowlist
 // serialises it (PUBLIC_LEAGUE_FIELDS / PUBLIC_TEAM_FIELDS / PUBLIC_PICK_FIELDS):
-// Team identity only, never an account. Kept deliberately account-free so the
-// privacy assertion below is a real check, not a tautology of an empty object.
+// Team identity only, never an account - because that is what the server sends
+// an anonymous viewer. That also means the DOM privacy assertion below is a
+// rendered-surface CONFIRMATION, not the pin: the client has no account
+// identifier available to render, so it could not fail even if the allowlist
+// leaked. The falsifiable proof that the allowlist STRIPS account fields is the
+// server test server/test/draftPresenterBoard.test.js (:224 no account identity
+// anywhere in the response; :274 no chat/tombstone), which feeds the serializer
+// WIDER-than-contract rows carrying owner_id/username/email and asserts they are
+// gone. This spec's job is the absence-by-role of chat/composer/controls, with
+// the member positive control below.
 const PRESENTER_BOARD = {
   league: {
     name: 'Harness League',
