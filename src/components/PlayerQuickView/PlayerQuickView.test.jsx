@@ -1,5 +1,8 @@
 import React from 'react';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import {
+  MemoryRouter, Route, Routes, useLocation,
+} from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import PlayerQuickView from './PlayerQuickView';
@@ -299,6 +302,63 @@ test('preserves league context in the full-profile link', async () => {
   expect(await screen.findByRole('link', { name: /Full profile/i })).toHaveAttribute(
     'href',
     '/players/7?leagueId=10'
+  );
+});
+
+test('carries a Draft room origin through the full-profile navigation', async () => {
+  const profileOrigin = {
+    kind: 'draft-room',
+    leagueId: '10',
+    pathname: '/league/10/draft',
+    search: '?view=players&pos=WR&sort=proj&dir=desc',
+  };
+
+  function ProfileLocation() {
+    const location = useLocation();
+    return (
+      <output aria-label="Profile location">
+        {JSON.stringify({
+          pathname: location.pathname,
+          search: location.search,
+          hash: location.hash,
+          state: location.state,
+        })}
+      </output>
+    );
+  }
+
+  render(
+    <MemoryRouter
+      initialEntries={['/league/10/draft']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      <Routes>
+        <Route
+          path="/league/:leagueId/draft"
+          element={(
+            <PlayerQuickView
+              open
+              onClose={jest.fn()}
+              playerId={7}
+              leagueId={10}
+              profileOrigin={profileOrigin}
+            />
+          )}
+        />
+        <Route path="/players/:playerId" element={<ProfileLocation />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  fireEvent.click(await screen.findByRole('link', { name: /Full profile/i }));
+
+  expect(screen.getByRole('status', { name: 'Profile location' })).toHaveTextContent(
+    JSON.stringify({
+      pathname: '/players/7',
+      search: '?leagueId=10',
+      hash: '',
+      state: { playerProfileOrigin: profileOrigin },
+    })
   );
 });
 

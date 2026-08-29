@@ -1,7 +1,9 @@
 import React, {
   useState, useEffect, useRef, useCallback,
 } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import {
+  useLocation, useNavigate, useParams, useSearchParams,
+} from 'react-router-dom';
 import {
   Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab,
   ToggleButton, ToggleButtonGroup, IconButton, Tooltip,
@@ -48,6 +50,7 @@ import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
 import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
+import { createDraftRoomProfileOrigin } from '../PlayerDetail/playerProfileNavigation';
 
 // The Draft page's one landmark structure: a single <main>, named by the
 // league-name H1 inside it, that the App-level skip link (see App.jsx)
@@ -173,6 +176,14 @@ function playBeep() {
 
 function DraftBoard() {
   const { leagueId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // The Draft room canonicalizes its query string in effects below. React
+  // Router replacements do not carry location state unless asked, so capture
+  // the contextual profile-return marker during the first render, before any
+  // of those effects can erase it. This ref is deliberately one-shot.
+  const draftReturnIntentRef = useRef(location.state?.draftRoomReturn === true);
+  const draftMainRef = useRef(null);
   // No `useSelector((store) => store.user)` here any more, and that absence is
   // the point (#178, ahead of #115): with the commissioner flag arriving on
   // the join acknowledgement, the Draft room reads the signed-in account for
@@ -190,7 +201,11 @@ function DraftBoard() {
   // layout-free unit-test environment) reads as `panes` - the three-pane
   // arrangement is the default until a real measurement proves the container
   // narrow, so nothing flashes and desktop-shaped tests need no width mock.
-  const [layoutRef, containerWidth] = useContainerWidth();
+  const [measureLayoutRef, containerWidth] = useContainerWidth();
+  const layoutRef = useCallback((node) => {
+    draftMainRef.current = node;
+    measureLayoutRef(node);
+  }, [measureLayoutRef]);
   const arrangement = draftPaneLayout(containerWidth);
   const isNarrow = arrangement === 'tabs';
 
@@ -476,6 +491,25 @@ function DraftBoard() {
   const cancelDraftPlayer = () => setPendingPick(null);
 
   const loading = pool.loading || queueLoading;
+
+  useEffect(() => {
+    if (loading || !draftReturnIntentRef.current) return;
+
+    // Only the loaded branch attaches this ref. Its main is labelled by the
+    // final league-name H1, unlike the temporary loading shell it replaces.
+    const main = draftMainRef.current;
+    if (!main || main.getAttribute('aria-labelledby') !== DRAFT_H1_ID) return;
+
+    // Consume before causing focus, scrolling, or navigation so a rerender or
+    // StrictMode effect replay cannot restore the position twice.
+    draftReturnIntentRef.current = false;
+    main.focus({ preventScroll: true });
+    main.scrollIntoView({ block: 'start' });
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: null }
+    );
+  }, [loading, location.pathname, location.search, navigate]);
 
   // #322 same-pass check: this component renders two Container
   // component="main" elements (here, and again below the loading branch),
@@ -1019,6 +1053,11 @@ function DraftBoard() {
         onClose={() => setQuickViewId(null)}
         playerId={quickViewId}
         leagueId={Number(leagueId)}
+        profileOrigin={createDraftRoomProfileOrigin({
+          leagueId,
+          pathname: location.pathname,
+          search: location.search,
+        })}
         draftedBy={quickViewDraftedBy}
         playerIds={displayPlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}

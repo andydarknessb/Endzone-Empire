@@ -1,10 +1,14 @@
 import React from 'react';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
+import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import AuthenticatedPlayerProfilePage from '../PlayerDetail/AuthenticatedPlayerProfilePage';
 import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
 import DraftBoard from './DraftBoard';
@@ -12,6 +16,11 @@ import DraftBoard from './DraftBoard';
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), put: jest.fn(), post: jest.fn() },
+}));
+
+jest.mock('../../api/publicApiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
 }));
 
 jest.mock('../../api/socket', () => ({
@@ -183,17 +192,37 @@ const openFullDraftOrder = async () => {
 };
 
 let fakeSocket;
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+let scrollIntoView;
 
 beforeEach(() => {
+  clearLeagueCache();
+  scrollIntoView = jest.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    writable: true,
+    value: scrollIntoView,
+  });
   fakeSocket = makeFakeSocket();
   createDraftSocket.mockReturnValue(fakeSocket);
   onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
   apiClient.get.mockResolvedValue(playersPage());
   apiClient.put.mockResolvedValue({});
   apiClient.post.mockResolvedValue({});
+  publicApiClient.get.mockResolvedValue({ data: { rankings: [] } });
 });
 
 afterEach(() => {
+  if (originalScrollIntoView) {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: originalScrollIntoView,
+    });
+  } else {
+    delete HTMLElement.prototype.scrollIntoView;
+  }
+  clearLeagueCache();
   jest.clearAllMocks();
   jest.useRealTimers();
 });
@@ -206,6 +235,124 @@ test('creates a socket and joins the league draft room once connected', async ()
   act(() => fakeSocket.trigger('connect'));
 
   expect(fakeSocket.emit).toHaveBeenCalledWith('draft:join', { leagueId: 1 }, expect.any(Function));
+});
+
+test('ordinary Draft navigation does not claim focus or scroll the room', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.getByRole('main', { name: 'Draft Board' })).not.toHaveFocus();
+  expect(scrollIntoView).not.toHaveBeenCalled();
+});
+
+test('returns through the real full profile to the exact freshly mounted Draft room', async () => {
+  const draftSearch = '?view=players&pos=QB&q=Patrick+Mahomes&sort=proj&dir=desc&showDrafted=1&byes=6%2C10';
+  let holdReturnedPlayerPool = false;
+  let releaseReturnedPlayerPool;
+  const returnedPlayerPool = new Promise((resolve) => {
+    releaseReturnedPlayerPool = () => resolve(playersPage());
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/players' && holdReturnedPlayerPool) return returnedPlayerPool;
+    if (url === '/api/players/1/summary') {
+      return Promise.resolve({
+        data: {
+          player: {
+            id: 1,
+            name: 'Patrick Mahomes',
+            position: 'QB',
+            nfl_team: 'Kansas City Chiefs',
+          },
+          fantasy: null,
+          currentSeason: null,
+          previousSeasons: [],
+        },
+      });
+    }
+    if (url === '/api/public/players/1') {
+      return Promise.resolve({
+        data: {
+          playerId: 1,
+          name: 'Patrick Mahomes',
+          position: 'QB',
+          nflTeam: 'KC',
+          season: 2026,
+          seasons: [{ season: 2026, status: 'pending' }],
+          seasonSummary: null,
+          weeklyLogPartial: false,
+          recentGames: [],
+        },
+      });
+    }
+    if (url === '/api/league/10') {
+      return Promise.resolve({ data: { league: { id: 10, scoring_preset: 'ppr' } } });
+    }
+    return Promise.resolve(playersPage());
+  });
+
+  function DraftLocation() {
+    const location = useLocation();
+    return (
+      <output aria-label="Draft location">
+        {JSON.stringify({
+          pathname: location.pathname,
+          search: location.search,
+          state: location.state,
+        })}
+      </output>
+    );
+  }
+
+  renderWithProviders(<><DraftBoard /><DraftLocation /></>, {
+    path: '/league/:leagueId/draft',
+    route: `/league/10/draft${draftSearch}`,
+    routes: (
+      <Route
+        path="/players/:playerId"
+        element={<AuthenticatedPlayerProfilePage />}
+      />
+    ),
+  });
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Patrick Mahomes' }));
+  await userEvent.click(await screen.findByRole('link', { name: /Full profile/i }));
+
+  expect(await screen.findByRole('link', { name: 'Draft room' })).toHaveAttribute(
+    'href',
+    `/league/10/draft${draftSearch}`
+  );
+  expect(createDraftSocket).toHaveBeenCalledTimes(1);
+
+  holdReturnedPlayerPool = true;
+  await userEvent.click(screen.getByRole('link', { name: 'Draft room' }));
+
+  const loadingMain = screen.getByRole('main');
+  expect(loadingMain).toHaveAttribute('data-testid', 'page-skeleton');
+  expect(loadingMain).not.toHaveFocus();
+  expect(scrollIntoView).not.toHaveBeenCalled();
+
+  await act(async () => releaseReturnedPlayerPool());
+  await screen.findByRole('button', { name: 'Patrick Mahomes' });
+  const draftMain = screen.getByRole('main', { name: 'Draft Board' });
+  await waitFor(() => expect(draftMain).toHaveFocus());
+  expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+  expect(screen.getByRole('status', { name: 'Draft location' })).toHaveTextContent(
+    JSON.stringify({
+      pathname: '/league/10/draft',
+      search: draftSearch,
+      state: null,
+    })
+  );
+  expect(createDraftSocket).toHaveBeenCalledTimes(2);
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: { name: 'Sunday Ballers', draft_status: 'pending' },
+    teams: [],
+    picks: [],
+    onTheClock: null,
+  }));
+  expect(scrollIntoView).toHaveBeenCalledTimes(1);
 });
 
 test('renders league state (name, on-the-clock, pick history) from a draft:state event', async () => {
@@ -2216,6 +2363,23 @@ const mockNarrowContainer = () => {
 
 describe('narrow container layout (#444)', () => {
   mockNarrowContainer();
+
+  test('a contextual return focuses and top-scrolls the final narrow-layout main', async () => {
+    renderWithProviders(<DraftBoard />, {
+      path: '/league/:leagueId/draft',
+      route: {
+        pathname: '/league/1/draft',
+        search: '?view=players&pos=QB',
+        state: { draftRoomReturn: true },
+      },
+    });
+
+    await screen.findByRole('tab', { name: 'Players', selected: true });
+    const draftMain = screen.getByRole('main', { name: 'Draft Board' });
+    await waitFor(() => expect(draftMain).toHaveFocus());
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+  });
 
   const showNarrowActiveDraft = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
