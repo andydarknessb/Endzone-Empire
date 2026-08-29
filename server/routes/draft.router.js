@@ -359,7 +359,7 @@ router.post('/league/:id/pause', async (req, res) => {
 });
 
 // POST /api/draft/league/:id/teams/:teamId/autodraft — enable/disable autodraft
-// for one team. The team's own owner or the league commissioner may toggle it.
+// for one team. This is a commissioner-only control.
 // { enabled: boolean }
 router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
   const leagueId = intOrNull(req.params.id);
@@ -386,7 +386,7 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
       return res.status(404).json({ error: 'league not found' });
     }
     const teamResult = await client.query(
-      `SELECT "id", "owner_id" FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
+      `SELECT "id" FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
       [teamId, leagueId]
     );
     const team = teamResult.rows[0];
@@ -395,12 +395,11 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
       return res.status(404).json({ error: 'team not found in this league' });
     }
     const isCommissioner = await isLeagueCommissioner(client, leagueId, req.user.id);
-    const isTeamOwner = team.owner_id === req.user.id;
-    if (!isCommissioner && !isTeamOwner) {
+    if (!isCommissioner) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'only the team owner or commissioner can change autodraft' });
+      return res.status(403).json({ error: 'only the commissioner can change autodraft' });
     }
-    // Turning autodraft off (the owner is back) clears any timeout streak.
+    // Turning autodraft off clears any timeout streak.
     await client.query(
       `UPDATE "teams" SET "autodraft" = $1,
               "consecutive_timeouts" = CASE WHEN $1 THEN "consecutive_timeouts" ELSE 0 END,

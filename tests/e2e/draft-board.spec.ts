@@ -767,17 +767,30 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     // The three wide panes are each a named region, all present at once (#444):
     // Players on the left, the Chat/activity feed in the centre, the rail on
     // the right.
-    await expect(page.getByRole('region', { name: 'Available Players' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Chat and Draft activity', exact: true })).toBeVisible();
+    const players = page.getByRole('region', { name: 'Available Players' });
+    const chat = page.getByRole('region', { name: 'Chat and Draft activity', exact: true });
+    const rail = page.getByRole('region', { name: 'Draft rail' });
+    await expect(players).toBeVisible();
+    await expect(chat).toBeVisible();
     await expect(page.getByRole('region', { name: 'League Chat' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
+    await expect(rail).toBeVisible();
     await expect(page.getByRole('region', { name: 'My Queue' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Upcoming' })).toBeVisible();
+    await expect(players.getByRole('group', { name: 'Players or Board' })).toBeVisible();
+
+    const topEdges = await Promise.all([
+      players.evaluate((element) => element.getBoundingClientRect().top),
+      chat.evaluate((element) => element.getBoundingClientRect().top),
+      rail.evaluate((element) => element.getBoundingClientRect().top),
+    ]);
+    expect(new Set(topEdges.map(Math.round)).size).toBe(1);
 
     // Selecting the Board swaps the left pane's region for the Board's, still
     // named. Pick history lives inside Board (issue #123 criterion 5).
     await showBoard(page);
-    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+    const board = page.getByRole('region', { name: 'Draft Board' });
+    await expect(board).toBeVisible();
+    await expect(board.getByRole('group', { name: 'Players or Board' })).toBeVisible();
     await page.getByRole('button', { name: 'Pick history' }).click();
     await expect(page.getByRole('region', { name: 'Pick history' })).toBeVisible();
   });
@@ -1345,12 +1358,27 @@ test.describe('state-dependent rail composition (issue #123)', () => {
       '1.02 Harbor Hawks', '2.01 Harbor Hawks', '2.02 Ridge Runners',
     ]);
 
-    // Compact by default; the complete list - and with it the per-team
-    // Auto-draft switches - is available without leaving the panel.
+    // Compact by default; the complete list is available without leaving the
+    // panel, but an ordinary manager receives no commissioner-only controls.
     const disclosure = upcoming.getByRole('button', { name: 'Full Draft order' });
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
     await disclosure.click();
-    await expect(upcoming.getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeVisible();
+    const fullOrder = upcoming.getByRole('region', { name: 'Full Draft order' });
+    await expect(fullOrder.getByText('Ridge Runners')).toBeVisible();
+    await expect(fullOrder.getByRole('checkbox')).toHaveCount(0);
+  });
+
+  test('commissioner gets one quiet set of per-team Autodraft switches', async ({ page }) => {
+    await installDraftSocketHarness(page, { ...ACTIVE_STATE, isCommissioner: true });
+    await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+    await gotoDraft(page);
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+
+    const upcoming = page.getByRole('region', { name: 'Upcoming' });
+    await upcoming.getByRole('button', { name: 'Full Draft order' }).click();
+    await expect(upcoming.getByRole('checkbox')).toHaveCount(FIXTURE_TEAMS.length);
+    await expect(upcoming.getByText(/Automatic picks use/)).toHaveCount(1);
+    await expect(upcoming.getByText('Autodraft', { exact: true })).toHaveCount(0);
   });
 
   test('complete centers My Roster and the Board, and drops the workspace panels', async ({ page }) => {

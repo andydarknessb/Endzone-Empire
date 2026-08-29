@@ -386,6 +386,7 @@ function PlayerPoolTable({
   onLoadMore,
   byeOverlapByWeek = new Map(),
   isMobile = false,
+  headerAction = null,
 }) {
   const scrollRef = useRef(null);
   const headingId = useId();
@@ -427,10 +428,20 @@ function PlayerPoolTable({
 
   const filtersBox = (
     <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-      <Stack direction="row" spacing={0.5} alignItems="center">
-        <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
-        <ColumnGuide />
-      </Stack>
+      {headerAction ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, width: '100%' }}>
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
+            <ColumnGuide />
+          </Stack>
+          {headerAction}
+        </Box>
+      ) : (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
+          <ColumnGuide />
+        </Stack>
+      )}
       <TextField
         size="small"
         // The pool's own filter, named apart from the Nav bar's global player
