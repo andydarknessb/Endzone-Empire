@@ -312,11 +312,15 @@ function DraftRail({
       >
         Readiness
       </Typography>
-      <FormControlLabel
-        sx={MIN_TOUCH_TARGET_SX}
-        control={<Switch checked={!!myTeam.draft_ready} onChange={(event) => onToggleReady(event.target.checked)} inputProps={{ 'aria-label': 'I am ready for the draft' }} />}
-        label="I'm ready"
-      />
+      <Button
+        variant="contained"
+        fullWidth
+        aria-pressed={!!myTeam.draft_ready}
+        onClick={() => onToggleReady(!myTeam.draft_ready)}
+        sx={{ ...MIN_TOUCH_TARGET_SX, mb: 1 }}
+      >
+        I&apos;m ready
+      </Button>
       <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 0.5 }}>
         {readinessCountText}
       </Typography>

@@ -9,10 +9,10 @@ import { useState, useRef, useCallback } from 'react';
  * space it actually has - so a room rendered inside a narrower column collapses
  * to tabs even on a wide screen, and a room given the whole page stays in panes
  * - rather than keying off a `useMediaQuery` window breakpoint the way the
- * superseded #122/#123 layout did. 960 leaves each of the three panes a usable
- * width (the centre Chat pane is the widest) at the point they first fit.
+ * superseded #122/#123 layout did. 1200 leaves the primary player pane enough
+ * room for every drafting metric without horizontal clipping.
  */
-export const DRAFT_PANE_MIN_WIDTH = 960;
+export const DRAFT_PANE_MIN_WIDTH = 1200;
 
 /**
  * Turn a measured container width into the arrangement the Draft room should

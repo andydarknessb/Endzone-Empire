@@ -159,15 +159,19 @@ describe('which group Readiness names', () => {
     const readiness = readinessRegion();
     // The exact set of controls, not "there is no button called X": a label
     // change would slip past that, and an exact set would not.
-    expect(within(readiness).queryAllByRole('button')).toEqual([]);
-    expect(within(readiness).getByRole('checkbox', { name: 'I am ready for the draft' })).toBeInTheDocument();
+    expect(within(readiness).getAllByRole('button')).toEqual([
+      within(readiness).getByRole('button', { name: "I'm ready" }),
+    ]);
+    expect(within(readiness).getByRole('button', { name: "I'm ready" })).toHaveAttribute('aria-pressed', 'true');
     expect(within(readiness).getByText('6 of 6 managers ready')).toBeInTheDocument();
   });
 
   test('with nobody ready yet the count stands alone, with no empty list to open', () => {
     render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(0, 6)} />);
 
-    expect(within(readinessRegion()).queryAllByRole('button')).toEqual([]);
+    expect(within(readinessRegion()).getAllByRole('button')).toEqual([
+      within(readinessRegion()).getByRole('button', { name: "I'm ready" }),
+    ]);
     expect(within(readinessRegion()).getByText('0 of 6 managers ready')).toBeInTheDocument();
   });
 
@@ -185,7 +189,9 @@ describe('which group Readiness names', () => {
       .toEqual(['Team 6']);
 
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
-    expect(within(readinessRegion()).queryAllByRole('button')).toEqual([]);
+    expect(within(readinessRegion()).getAllByRole('button')).toEqual([
+      within(readinessRegion()).getByRole('button', { name: "I'm ready" }),
+    ]);
   });
 });
 
@@ -307,7 +313,9 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
 
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);
 
-    expect(within(readinessRegion()).queryAllByRole('button')).toEqual([]);
+    expect(within(readinessRegion()).getAllByRole('button')).toEqual([
+      within(readinessRegion()).getByRole('button', { name: "I'm ready" }),
+    ]);
     expect(document.body).not.toHaveFocus();
     expect(screen.getByRole('heading', { name: 'Readiness' })).toHaveFocus();
   });
@@ -336,7 +344,7 @@ describe('a control that vanishes hands focus somewhere deliberate', () => {
     const { rerender } = render(
       <DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(5, 6)} />
     );
-    const elsewhere = within(readinessRegion()).getByRole('checkbox', { name: 'I am ready for the draft' });
+    const elsewhere = within(readinessRegion()).getByRole('button', { name: "I'm ready" });
     focusInAct(elsewhere);
 
     rerender(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} teams={lobby(6, 6)} />);

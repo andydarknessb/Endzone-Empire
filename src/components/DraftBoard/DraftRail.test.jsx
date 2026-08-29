@@ -116,6 +116,26 @@ test('Readiness counts ready Teams against the league size', () => {
   // this test used to assert on is what #124 replaced.
 });
 
+test("Readiness makes I'm ready the primary full-width action", async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} />);
+
+  const ready = screen.getByRole('button', { name: "I'm ready" });
+  expect(ready).toHaveClass('MuiButton-contained');
+  expect(ready).toHaveClass('MuiButton-fullWidth');
+  expect(ready).toHaveAttribute('aria-pressed', 'false');
+  await user.click(ready);
+  expect(baseProps.onToggleReady).toHaveBeenCalledWith(true);
+
+  rerender(<DraftRail
+    {...baseProps}
+    teams={[{ ...TEAMS[0], draft_ready: true }, TEAMS[1]]}
+    draftStatus="pending"
+    upcoming={[]}
+  />);
+  expect(screen.getByRole('button', { name: "I'm ready" })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('full Pick history is gone from the rail in every status', () => {
   // It is the chronological view of the Draft board's own committed Picks
   // (CONTEXT.md: Draft board), so it lives there, not here.

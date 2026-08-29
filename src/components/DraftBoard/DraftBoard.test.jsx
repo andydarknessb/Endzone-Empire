@@ -1647,7 +1647,7 @@ test('a pending-draft member can toggle readiness and sees the league readiness 
   expect(within(readiness).getAllByRole('listitem').map((item) => item.textContent))
     .toEqual(['Team B']);
 
-  await userEvent.click(screen.getByRole('checkbox', { name: 'I am ready for the draft' }));
+  await userEvent.click(screen.getByRole('button', { name: "I'm ready" }));
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/ready', { ready: true }));
 });
 
@@ -1924,7 +1924,7 @@ test('a stale confirmation (the turn moved on while the dialog sat open) never c
 // --- Schedule-aware pool: columns, Column guide, Bye filter, Bye overlap ---
 // (issue #119, parent spec #108)
 
-test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace/Actions', async () => {
+test('the desktop columns are exactly Name/Position/Bye/ADP/Pos rank/17-game pace/Actions', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
 
@@ -1935,28 +1935,22 @@ test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-g
   expect(within(table).queryByText('Tier')).not.toBeInTheDocument();
   expect(within(table).queryByText('Season Proj')).not.toBeInTheDocument();
 
-  for (const label of ['Name', 'Position', 'NFL Team', 'ADP', '17-game pace', 'Actions']) {
+  for (const label of ['Name', 'Position', 'ADP', '17-game pace', 'Actions']) {
     expect(within(table).getByText(label)).toBeInTheDocument();
   }
+  expect(within(table).queryByRole('columnheader', { name: 'NFL Team' })).not.toBeInTheDocument();
+  expect(within(table).getByText(/· Kansas City Chiefs/)).toBeInTheDocument();
   // Bye and Pos rank headers carry their AbbreviationTooltip aria-label
   // (asserted precisely in the tests below) rather than a plain text node.
   expect(within(table).getByRole('button', { name: /^Bye:/ })).toBeInTheDocument();
   expect(within(table).getByRole('button', { name: /^Pos rank:/ })).toBeInTheDocument();
 });
 
-test('NFL Team and Bye headers are sortable and pass the server field name through', async () => {
+test('the visible Bye header is sortable and passes its server field name through', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   apiClient.get.mockClear();
 
-  await userEvent.click(screen.getByText('NFL Team'));
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ sort: 'nfl_team' }),
-    })
-  );
-
-  apiClient.get.mockClear();
   await userEvent.click(screen.getByRole('button', { name: /^Bye:/ }));
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
@@ -2308,6 +2302,20 @@ describe('accessible structure', () => {
     await openPickHistory();
     expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Pick history' })).toBeInTheDocument();
+  });
+
+  test('wide layout gives the player pool the primary width and lets chat fill its column', async () => {
+    await showFullBoard();
+
+    expect(screen.getByTestId('draft-workspace')).toHaveStyle({
+      display: 'grid',
+      gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
+    });
+    expect(screen.getByRole('region', { name: 'Chat and Draft activity' })).toHaveStyle({
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    });
   });
 
   test('the pending-draft readiness panel is a named region too', async () => {
@@ -2798,8 +2806,8 @@ describe('wide container three-pane layout (#444)', () => {
 // collide with a concurrently-merged helper (the DraftBoard.test.jsx sharing
 // hazard: two same-named module consts merge clean, then fail the build).
 const flip525State = { width: 1200, observers: new Set() };
-const FLIP525_NARROW = 500; // < DRAFT_PANE_MIN_WIDTH (960) -> tabs
-const FLIP525_WIDE = 1200; //  >= 960 -> three panes
+const FLIP525_NARROW = 500; // < DRAFT_PANE_MIN_WIDTH (1200) -> tabs
+const FLIP525_WIDE = 1200; //  >= 1200 -> three panes
 const flip525InstallResizableContainer = () => {
   let originalGetBoundingClientRect;
   let originalResizeObserver;
