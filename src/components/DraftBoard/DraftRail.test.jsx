@@ -205,10 +205,11 @@ test('the full Draft order is reachable from Upcoming, collapsed until asked for
   // Every Team in the league, not just the three the strip named.
   const upcoming = screen.getByRole('region', { name: 'Upcoming' });
   expect(within(upcoming).getAllByText('Ridge Runners')).toHaveLength(2);
-  expect(within(upcoming).queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(within(upcoming).getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeInTheDocument();
+  expect(within(upcoming).queryByRole('checkbox', { name: 'Autodraft for Harbor Hawks' })).not.toBeInTheDocument();
 });
 
-test('the commissioner-only Autodraft switches survive the move into that disclosure', async () => {
+test('the commissioner-all Autodraft switches survive the move into that disclosure', async () => {
   const onToggleAutodraft = jest.fn();
   const user = userEvent.setup();
   render(<DraftRail {...baseProps} draftStatus="active" isCommissioner onToggleAutodraft={onToggleAutodraft} />);
@@ -238,7 +239,7 @@ test('a viewer with no Team sees neither Readiness nor My Roster, and is told wh
   expect(screen.getByText('This draft is complete. Open the Board for the full record.')).toBeInTheDocument();
 });
 
-test('Draft order marks who is on the clock without exposing Autodraft controls to a manager', () => {
+test('Draft order gives a manager only their own Autodraft control', () => {
   render(<DraftRail
     {...baseProps}
     draftStatus="pending"
@@ -248,7 +249,8 @@ test('Draft order marks who is on the clock without exposing Autodraft controls 
 
   const order = screen.getByRole('region', { name: 'Draft order' });
   expect(within(order).getByText('Ridge Runners')).toBeInTheDocument();
-  expect(within(order).queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(within(order).getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeInTheDocument();
+  expect(within(order).queryByRole('checkbox', { name: 'Autodraft for Harbor Hawks' })).not.toBeInTheDocument();
 });
 
 test('commissioner Autodraft controls use one explanation and no redundant row labels or AUTO badges', () => {

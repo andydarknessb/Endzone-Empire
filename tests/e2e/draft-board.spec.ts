@@ -1359,13 +1359,15 @@ test.describe('state-dependent rail composition (issue #123)', () => {
     ]);
 
     // Compact by default; the complete list is available without leaving the
-    // panel, but an ordinary manager receives no commissioner-only controls.
+    // panel. A manager controls only their own Team.
     const disclosure = upcoming.getByRole('button', { name: 'Full Draft order' });
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
     await disclosure.click();
     const fullOrder = upcoming.getByRole('region', { name: 'Full Draft order' });
     await expect(fullOrder.getByText('Ridge Runners')).toBeVisible();
-    await expect(fullOrder.getByRole('checkbox')).toHaveCount(0);
+    await expect(fullOrder.getByRole('checkbox')).toHaveCount(1);
+    await expect(fullOrder.getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeVisible();
+    await expect(fullOrder.getByRole('checkbox', { name: 'Autodraft for Harbor Hawks' })).toHaveCount(0);
   });
 
   test('commissioner gets one quiet set of per-team Autodraft switches', async ({ page }) => {
