@@ -777,8 +777,20 @@ function DraftBoard() {
     // {...regionFocus} tracks focus across the whole three-pane region so the
     // flip to tabs can hand it back deliberately (#525); the chrome and tabs
     // above sit outside this wrapper and are never moved.
-    <Box {...regionFocus} sx={{ display: 'flex', flexDirection: 'row', gap: 2, flex: '1 1 auto', minHeight: 0 }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexBasis: '37%', minWidth: 0, height: '100%' }}>
+    <Box
+      {...regionFocus}
+      data-testid="draft-workspace"
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
+        gridTemplateRows: 'minmax(0, 1fr)',
+        gap: 2,
+        flex: '1 1 auto',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%' }}>
         <Box sx={{ flexShrink: 0, mb: 1 }}>
           <ToggleButtonGroup
             size="small"
@@ -811,7 +823,7 @@ function DraftBoard() {
         // "League chat" would collide with it under substring accessible-name
         // matching, leaving two regions a "League Chat" query cannot tell apart.
         aria-label="Chat and Draft activity"
-        sx={{ flexBasis: '41%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+        sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}
       >
         {chatFeed}
       </Box>
@@ -819,7 +831,7 @@ function DraftBoard() {
         component="section"
         aria-label="Draft rail"
         tabIndex={0}
-        sx={{ flexBasis: '22%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+        sx={{ minWidth: 0, minHeight: 0, height: '100%', overflowY: 'auto' }}
       >
         <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
       </Box>
@@ -939,6 +951,15 @@ function DraftBoard() {
             toggleSound={toggleSound}
             isCommissioner={isCommissioner}
             onRandomizeOrder={admin.handleRandomizeOrder}
+            pendingSchedule={league?.draft_status === 'pending' && league?.draft_date ? (
+              <Countdown
+                variant="inline"
+                date={league.draft_date}
+                timeZone={league.draft_timezone}
+                leagueId={league.id}
+                leagueName={league.name}
+              />
+            ) : null}
             onClockAlertOpen={onClockAlertOpen}
             onCloseOnClockAlert={dismissOnClockAlert}
           />
@@ -951,17 +972,6 @@ function DraftBoard() {
               onReset={admin.handleResetDraft}
               onGetShareLink={admin.handleGetShareLink}
             />
-          )}
-          {league?.draft_status === 'pending' && league?.draft_date && (
-            <Box sx={{ mt: 2 }}>
-              <Countdown
-                variant="full"
-                date={league.draft_date}
-                timeZone={league.draft_timezone}
-                leagueId={league.id}
-                leagueName={league.name}
-              />
-            </Box>
           )}
           {isCommissioner && (
             <DraftSettingsPanel

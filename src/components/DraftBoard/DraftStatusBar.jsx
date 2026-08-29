@@ -32,6 +32,7 @@ function DraftStatusBar({
   toggleSound,
   isCommissioner,
   onRandomizeOrder,
+  pendingSchedule = null,
   onClockAlertOpen,
   onCloseOnClockAlert,
 }) {
@@ -58,6 +59,8 @@ function DraftStatusBar({
               color="primary"
               sx={{ fontWeight: 'bold' }}
             />
+          ) : pendingSchedule ? (
+            pendingSchedule
           ) : (
             <Chip
               // Product language, never the stored enum, and the color that
@@ -106,7 +109,7 @@ function DraftStatusBar({
             </IconButton>
           </Tooltip>
           {isCommissioner && league?.draft_status === 'pending' && (
-            <Button variant="outlined" size="small" onClick={onRandomizeOrder} sx={MIN_TOUCH_TARGET_SX}>
+            <Button variant="text" size="small" onClick={onRandomizeOrder} sx={MIN_TOUCH_TARGET_SX}>
               {/* Draft order is the defined term - which team holds which
                   slot (CONTEXT.md: Draft order). */}
               Randomize Draft order

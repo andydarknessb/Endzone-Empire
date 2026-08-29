@@ -142,4 +142,13 @@ test("the commissioner's draft actions sit with mute in the controls group", () 
   expect(controls).toContainElement(screen.getByRole('button', { name: 'Randomize Draft order' }));
   expect(screen.getByRole('group', { name: 'Draft status' }))
     .not.toContainElement(screen.getByRole('button', { name: 'Randomize Draft order' }));
+  expect(screen.getByRole('button', { name: 'Randomize Draft order' })).toHaveClass('MuiButton-text');
+});
+
+test('a scheduled pending draft replaces the redundant status chip with one schedule row', () => {
+  render(<DraftStatusBar {...baseProps} pendingSchedule={<span>Draft in 2d · Sun, Aug 30</span>} />);
+
+  const status = screen.getByRole('group', { name: 'Draft status' });
+  expect(within(status).getByText(/Draft in 2d/)).toBeInTheDocument();
+  expect(within(status).queryByText('Draft not started')).not.toBeInTheDocument();
 });

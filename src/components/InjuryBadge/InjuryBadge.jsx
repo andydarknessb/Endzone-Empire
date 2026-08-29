@@ -13,8 +13,13 @@ function InjuryBadge({ status, detail }) {
   const style = STATUS_STYLES[status];
   if (!style) return null;
   return (
-    <Tooltip title={detail || style.title}>
-      <Chip label={style.label} size="small" color={style.color} />
+    <Tooltip title={detail ? `${style.title}: ${detail}` : style.title}>
+      <Chip
+        label={style.label}
+        size="small"
+        color={style.color}
+        aria-label={`Injury status: ${style.title.toLowerCase()}`}
+      />
     </Tooltip>
   );
 }

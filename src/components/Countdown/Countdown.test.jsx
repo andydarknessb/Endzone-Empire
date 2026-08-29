@@ -96,6 +96,20 @@ describe('Countdown', () => {
       render(<Countdown variant="chip" date={futureIso(2 * DAY)} />);
       expect(screen.getByText('⏱ 2d 00h')).toBeInTheDocument();
     });
+
+    test('the inline variant keeps countdown, schedule, and calendar action on one row', () => {
+      render(<Countdown
+        variant="inline"
+        date={futureIso(2 * DAY)}
+        leagueId={1}
+        leagueName="Harness League"
+      />);
+
+      const row = screen.getByTestId('draft-schedule-inline');
+      expect(row).toHaveStyle({ display: 'flex', alignItems: 'center' });
+      expect(row).toContainElement(screen.getByText('Draft in 2d 00h'));
+      expect(row).toContainElement(screen.getByRole('button', { name: 'Add to calendar' }));
+    });
   });
 
   describe('lifecycle: isolated ticking, cleared on unmount (#117 AC5)', () => {
