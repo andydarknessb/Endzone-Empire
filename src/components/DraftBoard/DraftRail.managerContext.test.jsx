@@ -411,6 +411,16 @@ describe('help sits with the control it explains', () => {
     }
   });
 
+  test('the manager-own Autodraft switch is described by the same help', () => {
+    render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} />);
+
+    const order = screen.getByRole('region', { name: 'Draft order' });
+    const control = within(order).getByRole('checkbox', { name: 'Autodraft for Ridge Runners' });
+    expect(within(order).queryByRole('checkbox', { name: 'Autodraft for Harbor Hawks' })).not.toBeInTheDocument();
+    expect(control).toHaveAttribute('aria-describedby');
+    expect(control).toHaveAccessibleDescription(/Automatic picks use/);
+  });
+
   test('the empty Queue names the Queue action and points nowhere on the page', () => {
     render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} queue={[]} />);
 
