@@ -161,11 +161,6 @@ const ALLOWLIST = [
 
   // --- Caller identity: is this row the signed-in manager's own? ---------
   {
-    file: 'server/routes/draft.router.js',
-    code: 'team.owner_id === req.user.id',
-    rule: 'caller: the team\'s own manager may toggle its autodraft, OR the commissioner may (checked separately through isLeagueCommissioner)',
-  },
-  {
     file: 'server/routes/league.router.js',
     code: 'matchup.home_owner_id === req.user.id',
     rule: 'caller: deriving the viewer\'s own team in a matchup, from a server-side query rather than a shared payload',
