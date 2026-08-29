@@ -26,6 +26,23 @@ const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DE', 'DT', 'LB', 'CB', '
 const SUMMARY_TTL_MS = 30_000;
 const summaryCache = new Map();
 
+function playerIdentityKey(player) {
+  const name = String(player.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const position = String(player.position || '').trim().toUpperCase();
+  const team = String(player.nfl_team || '').trim().toUpperCase();
+  return `${name}\u0000${position}\u0000${team}`;
+}
+
+function dedupePlayerRows(rows) {
+  const seen = new Set();
+  return rows.filter((player) => {
+    const key = playerIdentityKey(player);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function summaryCacheGet(key) {
   const hit = summaryCache.get(key);
   if (!hit) return null;
@@ -170,7 +187,11 @@ router.get('/', requireAuth, async (req, res) => {
   }
   if (availableOnly) {
     params.push(Number(leagueId));
-    where.push(`"id" NOT IN (SELECT "player_id" FROM "team_players" WHERE "league_id" = $${params.length})`);
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM "team_players"
+      WHERE "league_id" = $${params.length}
+        AND "player_id" = ANY("players"."identity_ids")
+    )`);
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
@@ -190,25 +211,43 @@ router.get('/', requireAuth, async (req, res) => {
   // because four LBs are rostered in this league). A per-row correlated
   // subquery here was ~15x slower on the unfiltered rank sort.
   const queryText = `
-    WITH "idp_ranks" AS (
+    WITH "player_identities" AS (
+      SELECT "source".*,
+             ARRAY_AGG("source"."id") OVER (
+               PARTITION BY LOWER(REGEXP_REPLACE(TRIM("source"."name"), '\\s+', ' ', 'g')),
+                            "source"."position",
+                            COALESCE(fn_normalize_nfl_team("source"."nfl_team"), '')
+             ) AS "identity_ids",
+             ROW_NUMBER() OVER (
+               PARTITION BY LOWER(REGEXP_REPLACE(TRIM("source"."name"), '\\s+', ' ', 'g')),
+                            "source"."position",
+                            COALESCE(fn_normalize_nfl_team("source"."nfl_team"), '')
+               ORDER BY ("source"."external_id" IS NULL), "source"."id"
+             ) AS "identity_rank"
+      FROM "players" AS "source"
+    ),
+    "canonical_players" AS (
+      SELECT * FROM "player_identities" WHERE "identity_rank" = 1
+    ),
+    "idp_ranks" AS (
       SELECT "pss"."player_id",
              RANK() OVER (
                PARTITION BY "p"."position" ORDER BY "pss"."fantasy_points" DESC
              )::int AS "rank"
       FROM "player_season_stats" "pss"
-      JOIN "players" "p" ON "p"."id" = "pss"."player_id"
+      JOIN "canonical_players" "p" ON "p"."id" = "pss"."player_id"
       WHERE "pss"."season" = $${rankSeasonParam}
         AND "p"."position" = ANY($${idpParam})
         AND "pss"."fantasy_points" IS NOT NULL
     )
     SELECT "players".*,
            CASE WHEN "players"."adp" IS NOT NULL THEN 1 + (
-             SELECT COUNT(*)::int FROM "players" AS "position_peers"
+             SELECT COUNT(*)::int FROM "canonical_players" AS "position_peers"
              WHERE "position_peers"."position" = "players"."position"
                AND "position_peers"."adp" < "players"."adp"
            ) ELSE "idp_ranks"."rank" END AS "position_rank",
            COUNT(*) OVER() AS total_count
-    FROM "players"
+    FROM "canonical_players" AS "players"
     LEFT JOIN "idp_ranks" ON "idp_ranks"."player_id" = "players"."id"
     ${whereSql}
     ORDER BY ${orderBy}
@@ -218,7 +257,9 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(queryText, params);
     const sqlTotal = result.rows[0] ? Number(result.rows[0].total_count) : 0;
-    const players = result.rows.map(({ total_count, ...p }) => p);
+    const players = dedupePlayerRows(result.rows.map(({
+      total_count, identity_ids, identity_rank, ...p
+    }) => p));
 
     // Bye week is schedule-derived, not a stored column — attach it to every
     // row now (whatever `players` currently holds: the full matching pool when

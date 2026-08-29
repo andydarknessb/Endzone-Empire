@@ -64,6 +64,21 @@ test('GET players?sort=nfl_team orders by team in SQL and keeps a normal LIMIT p
   assert.ok(getSql().includes('LIMIT'), 'a plain column sort keeps the SQL-side page, unlike Bye/pace');
 });
 
+test('GET players exposes one canonical row for duplicate source identities before pagination', async (t) => {
+  const getSql = installMock(t, [
+    { id: 1201, external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR', adp: '38.60', total_count: '1' },
+    { id: 1884, external_id: 2589699, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR', adp: '38.60', total_count: '1' },
+  ]);
+
+  const res = await request(app).get('/api/players?sort=adp').set('Authorization', authHeader);
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.total, 1);
+  assert.deepEqual(res.body.players.map((p) => p.id), [1201]);
+  assert.match(getSql(), /ROW_NUMBER\(\) OVER[\s\S]+PARTITION BY[\s\S]+name[\s\S]+position[\s\S]+nfl_team/);
+  assert.ok(getSql().indexOf('identity_rank') < getSql().indexOf('LIMIT'), 'identity must settle before pagination');
+});
+
 test('GET players?sort=bye_week fetches the full pool (no LIMIT) and sorts null-last in both directions', async (t) => {
   const rows = [
     { id: 1, name: 'Late Bye', position: 'RB', nfl_team: 'ATL', total_count: '4' }, // bye 9

@@ -22,7 +22,7 @@ const players = [
 ];
 
 // Mirrors the TableBody's own fixed column sequence in PlayerPoolTable.jsx
-// (Name, [Position], NFL Team, Bye, ADP, Pos rank, 17-game pace, [Actions]) -
+// (Name, [Position], Bye, ADP, Pos rank, 17-game pace, [Actions]) -
 // deliberately a LITERAL here, not derived from SORT_FIELDS. SORT_FIELDS'
 // own array order only needs to stay meaningful for the mobile "Sort by"
 // Select (its order is presented there) and must be free to change for that
@@ -34,7 +34,7 @@ const players = [
 // "fix" it by reordering the header call sites to match, and desync the
 // headers from the TableBody's own separate, untouched literal - green
 // suite, scrambled table.
-const EXPECTED_COLUMN_ORDER = ['name', 'nfl_team', 'bye_week', 'adp', 'position_rank', 'proj'];
+const EXPECTED_COLUMN_ORDER = ['name', 'bye_week', 'adp', 'position_rank', 'proj'];
 
 const baseProps = {
   searchInput: '',
@@ -68,7 +68,7 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('every SORT_FIELDS key has exactly one desktop sortable header, and every desktop sortable header is a SORT_FIELDS key', async () => {
+test('every visible desktop sort field has exactly one header wired to its shared key', async () => {
   const user = userEvent.setup();
   const onSort = jest.fn();
   render(<PlayerPoolTable {...baseProps} onSort={onSort} />);
@@ -89,17 +89,11 @@ test('every SORT_FIELDS key has exactly one desktop sortable header, and every d
     renderedKeys.push(onSort.mock.calls[0][0]);
   }
 
-  const expectedKeys = SORT_FIELDS.map((field) => field.key);
-  // Set comparison for MEMBERSHIP, not order: SORT_FIELDS' own array order
-  // only needs to stay meaningful for the mobile "Sort by" Select and must
-  // be free to change without this assertion caring. Both directions: a key
-  // added to SORT_FIELDS with no header shrinks renderedKeys below
-  // expectedKeys, and a hardcoded header for a key not in SORT_FIELDS grows
-  // renderedKeys past it - either way this fails.
-  expect(new Set(renderedKeys)).toEqual(new Set(expectedKeys));
+  EXPECTED_COLUMN_ORDER.forEach((key) => expect(SORT_KEYS).toContain(key));
+  expect(new Set(renderedKeys)).toEqual(new Set(EXPECTED_COLUMN_ORDER));
   // Guards against a duplicate header for the same key masking a missing one
   // (same Set size, different multiset).
-  expect(renderedKeys).toHaveLength(expectedKeys.length);
+  expect(renderedKeys).toHaveLength(EXPECTED_COLUMN_ORDER.length);
 
   // Column ORDER is a separate concern from membership above, asserted
   // against the fixed EXPECTED_COLUMN_ORDER literal rather than SORT_FIELDS'

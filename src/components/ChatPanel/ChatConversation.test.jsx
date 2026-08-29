@@ -62,6 +62,14 @@ test('the title is a level-2 heading naming the conversation, in its own region'
   expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
 });
 
+test('fillHeight gives the Draft room a full-height conversation column', () => {
+  renderWithProviders(<ChatConversation messages={[]} onSend={noop} fillHeight />);
+
+  const conversation = screen.getByRole('region', { name: 'League Chat' });
+  expect(conversation).toHaveStyle({ height: '100%', display: 'flex', flexDirection: 'column' });
+  expect(screen.getByTestId('chat-scroll')).toHaveStyle({ flex: '1 1 auto', maxHeight: 'none' });
+});
+
 test('the feed is a named accessible log, named by the visible heading (#445 AC1)', () => {
   renderWithProviders(<ChatConversation messages={[message({ message: 'hi' })]} onSend={noop} />);
   const log = screen.getByRole('log', { name: 'League Chat' });
@@ -742,39 +750,26 @@ test('the status region announces by band: silent above the warning, then at the
 test('the input is described by the visible counter and sets no maxLength', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
   const input = screen.getByLabelText('Message');
-  const describedById = input.getAttribute('aria-describedby');
 
-  // The describedby target exists and contains the visible glyph, so the count
-  // the manager sees is what a screen reader hears on focus.
-  expect(describedById).toBeTruthy();
-  const described = document.getElementById(describedById);
-  expect(described).not.toBeNull();
-  expect(described).toContainElement(screen.getByTestId('composer-char-count'));
+  // The visible glyph is the accessible description, so the count a manager
+  // sees is what a screen reader hears on focus.
+  expect(input).toHaveAccessibleDescription('0 / 500 characters');
+  expect(screen.getByTestId('composer-char-count')).toHaveTextContent('0 / 500');
   expect(input).not.toHaveAttribute('maxlength');
 });
 
 test('the counter description names the unit, so it does not read as a bare "N slash 500"', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
   const input = screen.getByLabelText('Message');
-  // Assert the ACCESSIBLE DESCRIPTION the input actually resolves - the text
-  // content of its aria-describedby target - not a raw attribute that a browser
-  // might prune. The visible glyph stays terse; the described text names the unit.
-  const described = document.getElementById(input.getAttribute('aria-describedby'));
-  expect(described).not.toBeNull();
+  // The visible glyph stays terse; the accessible description names the unit.
   expect(screen.getByTestId('composer-char-count')).toHaveTextContent('0 / 500');
-  expect(described.textContent.replace(/\s+/g, ' ').trim()).toBe('0 / 500 characters');
+  expect(input).toHaveAccessibleDescription('0 / 500 characters');
 });
 
-test('a click on the counter falls through to focus the input, not a dead strip', () => {
+test('the counter adornment does not intercept a click meant for the input', () => {
   renderWithProviders(<ChatConversation messages={[]} onSend={noop} />);
-  const indicator = screen.getByTestId('composer-char-count');
-  // The counter rides in the input as an end adornment; disablePointerEvents lets
-  // a click there reach the input and place the caret rather than being eaten by
-  // the adornment. jsdom does no hit-testing, so pin the mechanism: the adornment
-  // wrapper carries MUI's disablePointerEvents class.
-  const adornment = indicator.closest('.MuiInputAdornment-root');
-  expect(adornment).not.toBeNull();
-  expect(adornment.className).toMatch(/disablePointerEvents/);
+
+  expect(screen.getByTestId('composer-counter-adornment')).toHaveClass('MuiInputAdornment-disablePointerEvents');
 });
 
 test('Send stays enabled past the limit: the server is the single enforcement point', () => {

@@ -89,6 +89,7 @@ function DraftRoomChat({
         viewerUserId={viewerUserId}
         gifEnabled={gifEnabled}
         onSendGif={sendGif}
+        fillHeight
       />
     </>
   );

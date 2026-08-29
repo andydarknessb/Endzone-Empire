@@ -61,7 +61,7 @@ test.describe('Team identity', () => {
     // That panel renders at all only because the viewer was matched to a
     // Team, and the only place this harness supplies one is the draft:join
     // acknowledgement: it is on none of the broadcast payloads.
-    await expect(page.getByRole('checkbox', { name: 'I am ready for the draft' })).toBeVisible();
+    await expect(page.getByRole('button', { name: "I'm ready" })).toBeVisible();
 
     // Draft order names Teams in slot order (CONTEXT.md: Draft order).
     const order = page.getByRole('region', { name: 'Draft order' });

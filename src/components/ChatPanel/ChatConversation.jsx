@@ -67,6 +67,7 @@ function ChatConversation({
   // server via the league-join ack; `onSendGif` sends the composed GIF payload.
   gifEnabled = false,
   onSendGif = null,
+  fillHeight = false,
 }) {
   // The composer draft is preserved (#442 AC5/AC6, extended by #524): scoped per
   // league and account, cleared on send, logout or account change. The hook owns
@@ -343,7 +344,15 @@ function ChatConversation({
   }, [lastKey, messages.length]);
 
   return (
-    <Paper component="section" aria-labelledby={headingId} sx={{ p: 2, mt: 3 }}>
+    <Paper
+      component="section"
+      aria-labelledby={headingId}
+      sx={{
+        p: 2,
+        mt: fillHeight ? 0 : 3,
+        ...(fillHeight ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' } : {}),
+      }}
+    >
       <Typography id={headingId} variant="h6" component="h2" sx={{ mb: 2 }}>
         League Chat
       </Typography>
@@ -379,7 +388,12 @@ function ChatConversation({
         aria-labelledby={headingId}
         aria-live="off"
         tabIndex={-1}
-        sx={{ maxHeight: 320, overflowY: 'auto', mb: 1 }}
+        sx={{
+          maxHeight: fillHeight ? 'none' : 320,
+          overflowY: 'auto',
+          mb: 1,
+          ...(fillHeight ? { flex: '1 1 auto', minHeight: 0 } : {}),
+        }}
       >
         {hasMore && onLoadOlder && (
           <Box sx={{ textAlign: 'center', mb: 1 }}>
@@ -524,7 +538,7 @@ function ChatConversation({
           // the field's outline. The counter has no interactivity to lose.
           InputProps={{
             endAdornment: (
-              <InputAdornment position="end" disablePointerEvents>
+              <InputAdornment position="end" disablePointerEvents data-testid="composer-counter-adornment">
                 <ComposerCharacterCount text={text} indicatorId={countId} />
               </InputAdornment>
             ),

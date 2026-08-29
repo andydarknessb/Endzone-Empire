@@ -55,15 +55,32 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('desktop renders the sortable table with a focusable, named scroll region', () => {
+test('desktop keeps draft metrics visible in a compact seven-column table', () => {
   render(<PlayerPoolTable {...baseProps} />);
 
   const region = screen.getByRole('region', { name: 'Available Players' });
   expect(region).toHaveAttribute('tabIndex', '0');
-  expect(screen.getByRole('table', { name: 'Available Players' })).toBeInTheDocument();
-  expect(screen.getByRole('columnheader', { name: /Name/ })).toBeInTheDocument();
+  const scrollRegion = screen.getByTestId('players-scroll-region');
+  expect(scrollRegion).toHaveAttribute('tabIndex', '0');
+
+  const table = screen.getByRole('table', { name: 'Available Players' });
+  expect(within(table).getAllByRole('columnheader')).toHaveLength(7);
+  expect(within(table).queryByRole('columnheader', { name: 'NFL Team' })).not.toBeInTheDocument();
+  for (const name of ['Name', 'Position', 'Bye', 'ADP', 'Pos rank', '17-game pace', 'Actions']) {
+    expect(within(table).getByRole('columnheader', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+  }
+
+  const bijanRow = within(table).getByRole('row', { name: /Bijan Robinson.*ATL/ });
+  expect(within(bijanRow).getByText('· ATL')).toBeInTheDocument();
+  expect(bijanRow).toHaveStyle({ height: '44px' });
   // No player cards on desktop.
   expect(screen.queryByText('Bye: 12')).not.toBeInTheDocument();
+});
+
+test('Hide drafted is a filter checkbox', () => {
+  render(<PlayerPoolTable {...baseProps} hideDrafted />);
+
+  expect(screen.getByRole('checkbox', { name: 'Hide drafted' })).toBeChecked();
 });
 
 test('mobile renders player cards (not a table) with the same approved columns', () => {
