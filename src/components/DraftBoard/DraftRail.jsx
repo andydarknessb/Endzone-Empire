@@ -8,7 +8,6 @@ import {
   Button,
   IconButton,
   Chip,
-  FormControlLabel,
   Switch,
   Tooltip,
   Accordion,
@@ -379,27 +378,22 @@ function DraftRail({
   // Draft order: which team holds which slot (CONTEXT.md: Draft order). The
   // list itself is shared by the two places a status can meet it - its own
   // panel while the draft is pending, and the disclosure inside Upcoming once
-  // it is live - so the Autodraft switches, their help caption and the rule
-  // about who may touch them are written once.
+  // it is live - so the commissioner-only Autodraft controls and their single
+  // help caption are written once.
   const orderListBody = (
     <>
-      {/* The autodraft help is referenced by every switch below through
-          aria-describedby rather than standing on its own above them (issue
-          #124 acceptance criterion 6). Visually it still reads once, because
-          repeating it per row would be worse; what changes is that a screen
-          reader now hears it on the control it explains instead of it having
-          been read out minutes earlier, if at all. */}
-      <Typography id={autodraftHelpId} variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-        Turn on <strong>Autodraft</strong> to let the system pick automatically for a team (best available by
-        ADP) when it's on the clock. It also switches on by itself after a team misses two picks.
-      </Typography>
+      {isCommissioner && draftStatus !== 'complete' && (
+        <Typography id={autodraftHelpId} variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+          Automatic picks use the best available player by ADP. This also turns on after two missed picks.
+        </Typography>
+      )}
       <Box component="ul" role="list" sx={{ display: 'flex', flexDirection: 'column', gap: 1, listStyle: 'none', p: 0, m: 0 }}>
         {orderedTeams.map((team) => {
           // "Which one of these is me" is the viewer-relative contract (#113):
           // the viewer's own Team ID against each entry's, never an account
           // comparison.
           const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
-          const canToggle = (isCommissioner || isViewer) && draftStatus !== 'complete';
+          const canToggle = isCommissioner && draftStatus !== 'complete';
           const onClock = onTheClock && onTheClock.teamId === team.teamId;
           return (
             <Box
@@ -445,27 +439,17 @@ function DraftRail({
                   not listed there: it is the option this comment argues
                   against, not a pairing the app ships. */}
               {isViewer && <Chip size="small" variant="outlined" label="You" />}
-              {team.autodraft && <Chip size="small" color="warning" label="AUTO" />}
+              {team.autodraft && !canToggle && <Chip size="small" color="warning" label="AUTO" />}
               {canToggle && (
-                <FormControlLabel
-                  sx={{ m: 0, ...MIN_TOUCH_TARGET_SX }}
-                  labelPlacement="start"
-                  control={
-                    <Switch
-                      size="small"
-                      checked={!!team.autodraft}
-                      onChange={(e) => onToggleAutodraft(team.teamId, e.target.checked)}
-                      inputProps={{
-                        'aria-label': `Autodraft for ${team.teamName}`,
-                        'aria-describedby': autodraftHelpId,
-                      }}
-                    />
-                  }
-                  label={
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      Autodraft
-                    </Typography>
-                  }
+                <Switch
+                  size="small"
+                  sx={MIN_TOUCH_TARGET_SX}
+                  checked={!!team.autodraft}
+                  onChange={(e) => onToggleAutodraft(team.teamId, e.target.checked)}
+                  inputProps={{
+                    'aria-label': `Autodraft for ${team.teamName}`,
+                    'aria-describedby': autodraftHelpId,
+                  }}
                 />
               )}
             </Box>
@@ -518,10 +502,8 @@ function DraftRail({
   // The full Draft order sits behind a disclosure inside this panel rather
   // than as a panel of its own. Compact is the point of the strip (spec #108
   // story 56: the next three visible, the complete list available
-  // accessibly), but the complete list is also where the per-team Autodraft
-  // switches live, and those are how a manager who stepped away turns
-  // autodraft back off - the panel's own caption says it switches on by
-  // itself after two missed picks. Collapsed by default, so it costs nothing
+  // accessibly), but the complete list is also where the commissioner-only
+  // per-team Autodraft switches live. Collapsed by default, so it costs nothing
   // until it is wanted. Its trigger is deliberately not a heading: the
   // composition's H2s are its panels, and this is a control within one.
   const upcomingPanel = teams.length > 0 ? (

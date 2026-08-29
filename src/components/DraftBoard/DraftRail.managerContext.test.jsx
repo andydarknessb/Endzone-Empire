@@ -407,7 +407,7 @@ describe('help sits with the control it explains', () => {
       // which carries no title - and they still catch a stale reference,
       // since a dangling aria-describedby falls back to no description.
       expect(control).toHaveAttribute('aria-describedby');
-      expect(control).toHaveAccessibleDescription(/Turn on Autodraft/);
+      expect(control).toHaveAccessibleDescription(/Automatic picks use/);
     }
   });
 

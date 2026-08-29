@@ -66,7 +66,7 @@ function useFlashKey(value) {
  * sides have to be spelled the same way.
  */
 function DraftBoardMatrix({
-  teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false,
+  teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false, headerAction = null,
   // Shared with DraftPresenter.jsx and the mock draft simulator, each with
   // their own heading hierarchy - defaults to h2 for this issue's target
   // (DraftBoard.jsx, directly under the page's H1), overridable so a caller
@@ -114,9 +114,12 @@ function DraftBoardMatrix({
   if (teamCount === 0) {
     return (
       <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
-        <Typography id={headingId} variant="h6" component={titleComponent} sx={{ mb: 1 }}>
-          Draft Board
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
+          <Typography id={headingId} variant="h6" component={titleComponent}>
+            Draft Board
+          </Typography>
+          {headerAction}
+        </Box>
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           Draft order isn&apos;t set yet.
         </Typography>
@@ -128,9 +131,12 @@ function DraftBoardMatrix({
 
   return (
     <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
-      <Typography id={headingId} variant="h6" component={titleComponent} sx={{ mb: 2 }}>
-        Draft Board
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
+        <Typography id={headingId} variant="h6" component={titleComponent}>
+          Draft Board
+        </Typography>
+        {headerAction}
+      </Box>
       <TableContainer sx={{ overflowX: 'auto' }}>
         <Table size="small" aria-labelledby={headingId}>
           <TableHead>
