@@ -184,8 +184,8 @@ const openPickHistory = async () => {
 
 /**
  * Once a draft is live the rail shows the compact Upcoming strip, and the full
- * Draft order - with its commissioner-only Autodraft switches - sits behind a
- * disclosure inside it (issue #123 acceptance criterion 2).
+ * Draft order - with manager-own / commissioner-all Autodraft switches - sits
+ * behind a disclosure inside it (issue #123 acceptance criterion 2).
  */
 const openFullDraftOrder = async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Full Draft order' }));
@@ -437,7 +437,7 @@ test('shows the prominent on-clock timer with "Your pick!" for the active user',
   expect(screen.getByTestId('draft-clock')).toBeInTheDocument();
 });
 
-test('shows AUTO status without exposing the commissioner-only switch to a manager', async () => {
+test('a manager can toggle their own Autodraft while another Team stays status-only', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsTeam(5);
@@ -445,7 +445,10 @@ test('shows AUTO status without exposing the commissioner-only switch to a manag
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
-      teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: true }],
+      teams: [
+        { teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: true },
+        { teamId: 6, teamName: 'Other Team', draft_position: 2, autodraft: true },
+      ],
       picks: [],
       onTheClock: null,
     })
@@ -453,10 +456,15 @@ test('shows AUTO status without exposing the commissioner-only switch to a manag
 
   await openFullDraftOrder();
   expect(screen.getByText('AUTO')).toBeInTheDocument();
-  expect(screen.queryByRole('checkbox', { name: /Autodraft for Bob's Team/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: /Autodraft for Other Team/ })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/teams/5/autodraft', { enabled: false })
+  );
 });
 
-test('a commissioner toggling a team\'s autodraft posts to the autodraft endpoint', async () => {
+test('a commissioner toggling another Team\'s Autodraft posts to the endpoint', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsCommissioner(5);
@@ -464,17 +472,20 @@ test('a commissioner toggling a team\'s autodraft posts to the autodraft endpoin
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
-      teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: false }],
+      teams: [
+        { teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: false },
+        { teamId: 6, teamName: 'Other Team', draft_position: 2, autodraft: false },
+      ],
       picks: [],
       onTheClock: null,
     })
   );
 
   await openFullDraftOrder();
-  await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ }));
+  await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Other Team/ }));
 
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/teams/5/autodraft', { enabled: true })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/teams/6/autodraft', { enabled: true })
   );
 });
 

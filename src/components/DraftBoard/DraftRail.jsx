@@ -378,11 +378,11 @@ function DraftRail({
   // Draft order: which team holds which slot (CONTEXT.md: Draft order). The
   // list itself is shared by the two places a status can meet it - its own
   // panel while the draft is pending, and the disclosure inside Upcoming once
-  // it is live - so the commissioner-only Autodraft controls and their single
-  // help caption are written once.
+  // it is live - so the manager-own / commissioner-all Autodraft controls and
+  // their single help caption are written once.
   const orderListBody = (
     <>
-      {isCommissioner && draftStatus !== 'complete' && (
+      {(isCommissioner || viewerTeamId != null) && draftStatus !== 'complete' && (
         <Typography id={autodraftHelpId} variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
           Automatic picks use the best available player by ADP. This also turns on after two missed picks.
         </Typography>
@@ -393,7 +393,7 @@ function DraftRail({
           // the viewer's own Team ID against each entry's, never an account
           // comparison.
           const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
-          const canToggle = isCommissioner && draftStatus !== 'complete';
+          const canToggle = (isCommissioner || isViewer) && draftStatus !== 'complete';
           const onClock = onTheClock && onTheClock.teamId === team.teamId;
           return (
             <Box
@@ -502,9 +502,9 @@ function DraftRail({
   // The full Draft order sits behind a disclosure inside this panel rather
   // than as a panel of its own. Compact is the point of the strip (spec #108
   // story 56: the next three visible, the complete list available
-  // accessibly), but the complete list is also where the commissioner-only
-  // per-team Autodraft switches live. Collapsed by default, so it costs nothing
-  // until it is wanted. Its trigger is deliberately not a heading: the
+  // accessibly), but the complete list is also where the commissioner-all and
+  // manager-own Autodraft switches live. Collapsed by default, so it costs
+  // nothing until it is wanted. Its trigger is deliberately not a heading: the
   // composition's H2s are its panels, and this is a control within one.
   const upcomingPanel = teams.length > 0 ? (
     <Paper component="section" aria-labelledby={upcomingHeadingId} sx={{ p: 2, mb: 3 }}>
