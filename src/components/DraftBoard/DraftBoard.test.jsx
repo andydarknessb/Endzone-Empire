@@ -2310,6 +2310,7 @@ describe('accessible structure', () => {
     expect(screen.getByTestId('draft-workspace')).toHaveStyle({
       display: 'grid',
       gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
+      gridTemplateRows: 'minmax(0, 1fr)',
     });
     expect(screen.getByRole('region', { name: 'Chat and Draft activity' })).toHaveStyle({
       display: 'flex',

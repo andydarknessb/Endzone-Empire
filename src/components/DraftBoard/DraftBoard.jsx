@@ -783,12 +783,14 @@ function DraftBoard() {
       sx={{
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
+        gridTemplateRows: 'minmax(0, 1fr)',
         gap: 2,
         flex: '1 1 auto',
+        height: '100%',
         minHeight: 0,
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%' }}>
         <Box sx={{ flexShrink: 0, mb: 1 }}>
           <ToggleButtonGroup
             size="small"
@@ -821,7 +823,7 @@ function DraftBoard() {
         // "League chat" would collide with it under substring accessible-name
         // matching, leaving two regions a "League Chat" query cannot tell apart.
         aria-label="Chat and Draft activity"
-        sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%', overflow: 'hidden' }}
+        sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}
       >
         {chatFeed}
       </Box>
@@ -829,7 +831,7 @@ function DraftBoard() {
         component="section"
         aria-label="Draft rail"
         tabIndex={0}
-        sx={{ minWidth: 0, height: '100%', overflowY: 'auto' }}
+        sx={{ minWidth: 0, minHeight: 0, height: '100%', overflowY: 'auto' }}
       >
         <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
       </Box>
