@@ -718,9 +718,10 @@ function DraftBoard() {
   // panel of its own (CONTEXT.md: Draft board; issue #123 acceptance
   // criterion 5). Both are handed the one `picks` array the socket maintains,
   // so the two views cannot disagree about what was drafted.
-  const boardWithHistory = (
+  const boardWithHistory = (headerAction = null) => (
     <>
       <DraftBoardMatrix
+        headerAction={headerAction}
         teams={teams}
         picks={picks}
         onTheClock={onTheClock}
@@ -754,6 +755,26 @@ function DraftBoard() {
     viewChosenRef.current = true;
     setView(next);
   };
+
+  // The wide layout's one pane switch. It is handed to whichever left-panel
+  // Paper is visible so the control belongs to that container and all three
+  // workspace columns start on the same top edge. Narrow layouts keep their
+  // four-tab navigation and never receive this control.
+  const leftPaneToggle = (
+    <ToggleButtonGroup
+      size="small"
+      exclusive
+      value={leftPane}
+      onChange={(e, next) => {
+        if (!next) return;
+        chooseView(next);
+      }}
+      aria-label="Players or Board"
+    >
+      <ToggleButton value="players" sx={MIN_TOUCH_TARGET_SX}>Players</ToggleButton>
+      <ToggleButton value="board" sx={MIN_TOUCH_TARGET_SX}>Board</ToggleButton>
+    </ToggleButtonGroup>
+  );
 
   // The four narrow tabs, in the Chat/Players/Board/Draft order acceptance
   // criterion 2 names, with Chat first so it is the tab the room opens on.
@@ -791,28 +812,11 @@ function DraftBoard() {
       }}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%' }}>
-        <Box sx={{ flexShrink: 0, mb: 1 }}>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={leftPane}
-            onChange={(e, next) => {
-              // null is a click on the already-selected button; keep the pane
-              // rather than clearing it.
-              if (!next) return;
-              chooseView(next);
-            }}
-            aria-label="Left pane"
-          >
-            <ToggleButton value="players" sx={MIN_TOUCH_TARGET_SX}>Players</ToggleButton>
-            <ToggleButton value="board" sx={MIN_TOUCH_TARGET_SX}>Board</ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
         <Box sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {leftPane === 'board' ? (
-            <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>{boardWithHistory}</Box>
+            <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>{boardWithHistory(leftPaneToggle)}</Box>
           ) : (
-            <PlayerPoolTable {...playerPoolProps} />
+            <PlayerPoolTable {...playerPoolProps} headerAction={leftPaneToggle} />
           )}
         </Box>
       </Box>
@@ -846,7 +850,7 @@ function DraftBoard() {
     : view === 'players'
       ? <PlayerPoolTable {...playerPoolProps} isMobile />
       : view === 'board'
-        ? boardWithHistory
+        ? boardWithHistory()
         : <DraftRail {...draftRailProps} />;
 
   return (

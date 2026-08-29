@@ -21,7 +21,7 @@ export default function TimerPanel({ league, frozen, onSave, onSetClock, saving,
       {frozen && !active && <Alert severity="info">Timer settings are locked after the draft ends.</Alert>}
       <FormControl size="small" sx={{ maxWidth: 240 }} disabled={frozen && !active} error={Boolean(clockError)}><InputLabel id="pick-clock-label">Pick clock</InputLabel><Select labelId="pick-clock-label" label="Pick clock" value={clock} onChange={(event) => setClock(Number(event.target.value))}>{CLOCKS.map((seconds) => <MenuItem key={seconds} value={seconds}>{seconds === 0 ? 'Untimed' : `${seconds} seconds`}</MenuItem>)}</Select>{clockError && <FormHelperText>{clockError}</FormHelperText>}</FormControl>
       <TextField label="Autodraft delay (seconds)" type="number" size="small" sx={{ maxWidth: 240 }} inputProps={{ min: 1, max: 60 }} disabled={frozen} value={delay} error={Boolean(delayError)} helperText={delayError} onChange={(event) => setDelay(event.target.value)} />
-      <Typography variant="caption" color="text.secondary">Autodraft delay applies when the on-clock manager enables autodraft.</Typography>
+      <Typography variant="caption" color="text.secondary">Autodraft delay applies whenever the on-clock Team is on Autodraft.</Typography>
       <Box><Button variant="contained" disabled={(frozen && !active) || saving || hasInvalidTimer} onClick={() => active ? onSetClock(Number(clock)) : onSave({ pickTimeSeconds: Number(clock), autodraftDelaySeconds: Number(delay) }, 'Timer saved')}>Save timer</Button></Box>
     </Stack>
   );

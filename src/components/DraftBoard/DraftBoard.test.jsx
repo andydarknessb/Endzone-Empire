@@ -184,7 +184,7 @@ const openPickHistory = async () => {
 
 /**
  * Once a draft is live the rail shows the compact Upcoming strip, and the full
- * Draft order - with its per-team Autodraft switches - sits behind a
+ * Draft order - with its commissioner-only Autodraft switches - sits behind a
  * disclosure inside it (issue #123 acceptance criterion 2).
  */
 const openFullDraftOrder = async () => {
@@ -437,7 +437,7 @@ test('shows the prominent on-clock timer with "Your pick!" for the active user',
   expect(screen.getByTestId('draft-clock')).toBeInTheDocument();
 });
 
-test('shows an AUTO badge and a checked autodraft switch for an autodrafting team', async () => {
+test('shows AUTO status without exposing the commissioner-only switch to a manager', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsTeam(5);
@@ -453,13 +453,13 @@ test('shows an AUTO badge and a checked autodraft switch for an autodrafting tea
 
   await openFullDraftOrder();
   expect(screen.getByText('AUTO')).toBeInTheDocument();
-  expect(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ })).toBeChecked();
+  expect(screen.queryByRole('checkbox', { name: /Autodraft for Bob's Team/ })).not.toBeInTheDocument();
 });
 
-test('toggling a team\'s autodraft posts to the autodraft endpoint', async () => {
+test('a commissioner toggling a team\'s autodraft posts to the autodraft endpoint', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
-  connectAsTeam(5);
+  connectAsCommissioner(5);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
@@ -2735,18 +2735,23 @@ describe('wide container three-pane layout (#444)', () => {
     expect(screen.getByText('My Queue')).toBeInTheDocument();
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
 
-    // A wide container has no tab bar; the left pane is chosen by a toggle, and
-    // Players is the pane the room opens on.
+    // A wide container has no tab bar. The pane toggle belongs to the Available
+    // Players panel rather than sitting above it, so the panel aligns with the
+    // Chat and rail containers.
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Players' })).toHaveAttribute('aria-pressed', 'true');
+    const players = screen.getByRole('region', { name: 'Available Players' });
+    const paneToggle = within(players).getByRole('group', { name: 'Players or Board' });
+    expect(within(paneToggle).getByRole('button', { name: 'Players' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('the left-pane toggle swaps Players for the Board while Chat and the rail stay put', async () => {
     await showWideActiveDraft();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Board' }));
+    const players = screen.getByRole('region', { name: 'Available Players' });
+    await userEvent.click(within(players).getByRole('button', { name: 'Board' }));
 
-    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+    const board = screen.getByRole('region', { name: 'Draft Board' });
+    expect(within(board).getByRole('group', { name: 'Players or Board' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Available Players' })).not.toBeInTheDocument();
     // The centerpiece and the rail are unaffected by the left-pane choice.
     expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
