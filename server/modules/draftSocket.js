@@ -19,6 +19,7 @@ const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createRedisSubscriber, getRedisClient } = require('./redis');
+const { startDraftEventRelay, closeDraftEventRelay } = require('./draftEvents');
 
 /**
  * Real-time draft room. Clients connect with { auth: { token } }, then:
@@ -44,6 +45,7 @@ function attachDraftSocket(httpServer) {
     io.adapter(createAdapter(publisher, subscriber));
     io.redisSubscriber = subscriber;
   })();
+  io.draftEventsReady = startDraftEventRelay(io);
   io.use(requireSocketAuth);
   setIo(io); // let scoring/scheduler broadcast without a circular require
 
@@ -325,6 +327,8 @@ async function closeDraftSocket(io) {
   if (!io) return;
   await new Promise((resolve) => io.close(resolve));
   if (io.redisSubscriber?.isOpen) await io.redisSubscriber.quit();
+  const draftEventSubscriber = await io.draftEventsReady;
+  await closeDraftEventRelay(draftEventSubscriber);
 }
 
 /**
