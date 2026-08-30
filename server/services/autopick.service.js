@@ -4,8 +4,8 @@ const pool = require('../modules/pool');
 // binding — see server/test/autopick.service.test.js.
 const draftService = require('./draft.service');
 const { teamForPick } = require('./draftOrder.service');
-const { getIo } = require('../modules/io');
-const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
+const ioRegistry = require('../modules/io');
+const draftEvents = require('../modules/draftEvents');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 
@@ -83,22 +83,17 @@ async function autoPick({ leagueId }) {
         playerId: candidate.id,
         auto: true,
       });
-      const io = getIo();
-      if (io) {
-        // Attributed by Team at the root, so the old `by` object (whose
-        // `userId` was onTheClock.owner_id, a real account id broadcast to the
-        // room) is gone (#344, #115 child C). `auto` is true here: this is the
-        // autopick emit site. Kept in lockstep with the pick handler's emit,
-        // and both are pinned to one key set by socketPayloadShape.test.js.
-        io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: true });
-        if (outcome.draftComplete) {
-          // An autopick can be the Pick that ends the draft; its completion
-          // lifecycle entry (#437) rides to the combined feed on draft:activity
-          // through the one shared helper (null-safe), exactly as the manual-pick
-          // handler delivers it.
-          broadcastDraftActivity(leagueId, outcome.completion);
-          io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
+      // The worker has no local Socket.IO server. Publish there; the API-side
+      // relay emits the same room events that the in-process path emits below.
+      await emitDraftEvent(leagueId, 'draft:picked', { ...outcome, auto: true });
+      if (outcome.draftComplete) {
+        // An autopick can be the Pick that ends the draft; its completion
+        // lifecycle entry (#437) rides to the combined feed on draft:activity
+        // through the same cross-process relay.
+        if (outcome.completion) {
+          await emitDraftEvent(leagueId, 'draft:activity', outcome.completion);
         }
+        await emitDraftEvent(leagueId, 'draft:complete', { leagueId });
       }
       // After a genuine timeout, track the streak and flip autodraft on once it
       // crosses the threshold, so a persistently-absent owner stops stalling.
@@ -124,14 +119,28 @@ async function autoPick({ leagueId }) {
 
 /** Re-broadcast the full draft state so clients refresh AUTO badges + the clock. */
 async function broadcastDraftState(leagueId) {
-  const io = getIo();
-  if (!io) return;
+  const io = ioRegistry.getIo();
+  if (!io) {
+    await draftEvents.publishDraftEvent({ leagueId, event: 'draft:state' });
+    return;
+  }
   try {
     const { getDraftState } = require('../modules/draftSocket');
     io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
   } catch (err) {
     console.error('draft state broadcast failed:', err.message);
   }
+}
+
+async function emitDraftEvent(leagueId, event, payload) {
+  const io = ioRegistry.getIo();
+  if (io) {
+    io.to(`league:${leagueId}`).emit(event, payload);
+    return;
+  }
+  const message = { leagueId, event };
+  if (payload !== undefined) message.payload = payload;
+  await draftEvents.publishDraftEvent(message);
 }
 
 /** Scheduler entry: auto-pick every timed draft whose clock has expired. */

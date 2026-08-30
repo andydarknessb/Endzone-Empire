@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const draftService = require('../services/draft.service');
 const { autoPick, compareAutopickCandidates } = require('../services/autopick.service');
 const { installAutopickPool } = require('./helpers/autopickFixtures');
+const draftEvents = require('../modules/draftEvents');
+const ioRegistry = require('../modules/io');
 
 test('autoPick: an empty queue chooses a no-ADP player with points over a no-ADP player with neither', async (t) => {
   const withPoints = { id: 2, name: 'Has Points', adp: null, queue_rank: null, last_season_points: '50.0' };
@@ -83,6 +85,32 @@ test('autoPick returns null when nothing is draftable', async (t) => {
   installAutopickPool(t, { candidates: [] });
   const outcome = await autoPick({ leagueId: 1 });
   assert.equal(outcome, null);
+});
+
+test('autoPick publishes the committed pick when the worker has no local Socket.IO server', async (t) => {
+  installAutopickPool(t, {
+    candidates: [{ id: 8, name: 'Worker Pick', adp: '1.0', queue_rank: null, last_season_points: null }],
+  });
+  t.mock.method(ioRegistry, 'getIo', () => null);
+  const published = [];
+  t.mock.method(draftEvents, 'publishDraftEvent', async (event) => {
+    published.push(event);
+  });
+  const outcome = {
+    leagueId: 1,
+    teamId: 55,
+    player: { id: 8, name: 'Worker Pick' },
+    draftComplete: false,
+  };
+  t.mock.method(draftService, 'draftPlayer', async () => outcome);
+
+  await autoPick({ leagueId: 1 });
+
+  assert.deepEqual(published, [{
+    leagueId: 1,
+    event: 'draft:picked',
+    payload: { ...outcome, auto: true },
+  }]);
 });
 
 // ---- compareAutopickCandidates (pure) --------------------------------------
