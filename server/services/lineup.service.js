@@ -657,32 +657,25 @@ async function getLineup({ leagueId, userId, week }) {
       [team.id, season, targetWeek]
     );
 
-    // scoring.service imports lineup.service, so load these after module
-    // initialization to avoid a circular top-level dependency.
-    const { projectSeasonPoints, rulesForLeague } = require('./scoring.service');
     const playerIds = entriesResult.rows.map((row) => row.id);
-    const seasonByPlayer = new Map();
-    if (playerIds.length > 0) {
-      const seasonResult = await client.query(
-        `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
-         FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
-        [playerIds]
-      );
-      for (const row of seasonResult.rows) {
-        if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
-        seasonByPlayer.get(row.player_id).push(row);
-      }
-    }
-    const projectionRules = rulesForLeague(league);
+    // Load lazily because scoring.service imports lineup.service. Passing the
+    // League and these roster ids selects the scoring-aware weekly engine,
+    // rather than the pool-wide extrapolator or a season-level estimate.
+    const projectionService = require('./projection.service');
+    const weeklyByPlayer = playerIds.length > 0
+      ? await projectionService.getWeekProjections({
+        season,
+        week: targetWeek,
+        league,
+        playerIds,
+      })
+      : new Map();
     for (const entry of entriesResult.rows) {
-      const seasonProjection = projectSeasonPoints({
-        seasonRows: seasonByPlayer.get(entry.id) || [],
-        rules: projectionRules,
-        currentSeasonYear: season,
-      });
-      entry.projected_points = seasonProjection == null
+      const projection = weeklyByPlayer.get(entry.id);
+      const points = Number(projection?.points);
+      entry.projected_points = projection?.points == null || !Number.isFinite(points)
         ? null
-        : Math.round((seasonProjection / 17) * 10) / 10;
+        : points;
     }
 
     const locked = await lockedPlayerIds(client, {

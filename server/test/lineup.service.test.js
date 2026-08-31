@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 const { dropPlayer } = require('../services/draft.service');
+const projectionService = require('../services/projection.service');
 const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const {
@@ -65,13 +66,21 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
   assert.equal(entry.onBye, false);
 });
 
-test('getLineup batches completed-season projections and preserves weekly null semantics', async (t) => {
+test('getLineup returns league-scored current-week projections and preserves unavailable values', async (t) => {
   const entries = [
     { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
     { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR', ir_attested: false },
     { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: 'Q', slot: 'IR', ir_attested: true },
   ];
-  const seasonQueries = [];
+  const projectionCalls = [];
+  t.mock.method(projectionService, 'getWeekProjections', async (options) => {
+    projectionCalls.push(options);
+    return new Map([
+      [1, { points: '16.25', source: 'forecast' }],
+      [2, { points: 0, source: 'forecast' }],
+      [3, { points: null, source: 'forecast' }],
+    ]);
+  });
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
@@ -84,34 +93,19 @@ test('getLineup batches completed-season projections and preserves weekly null s
       rows: entries.map(({ id }) => ({ player_id: id })),
     })],
     [/^SELECT "players"\."id"/, () => ({ rows: entries })],
-    [/FROM "player_season_stats"/, (text, params) => {
-        seasonQueries.push({ text, params });
-        return {
-          rows: [
-            {
-              player_id: 1,
-              season: 2025,
-              games_played: 10,
-              stats: { rushingYards: 1000, rushingTDs: 10 },
-            },
-            {
-              player_id: 2,
-              season: 2025,
-              games_played: 3,
-              stats: { receivingYards: 300, receivingTDs: 3 },
-            },
-          ],
-        };
-    }],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
 
-  assert.equal(seasonQueries.length, 1);
-  assert.deepEqual(seasonQueries[0].params, [[1, 2, 3]]);
-  assert.equal(lineup.entries[0].projected_points, 16);
-  assert.equal(lineup.entries[1].projected_points, null);
+  assert.deepEqual(projectionCalls, [{
+    season: 2026,
+    week: 8,
+    league: { id: 5, current_season: 2026, current_week: 8 },
+    playerIds: [1, 2, 3],
+  }]);
+  assert.equal(lineup.entries[0].projected_points, 16.25);
+  assert.equal(lineup.entries[1].projected_points, 0);
   assert.equal(lineup.entries[2].projected_points, null);
   // The attestation rides along so the client can tell an attested stash
   // from an invalid one (#100).

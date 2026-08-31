@@ -180,8 +180,30 @@ test('offline lineup edit is blocked, persisted, and replayed immediately on rec
     if (request.method() === 'GET' && url.pathname === '/api/user') {
       return json(route, 200, { id: 41, username: 'lineup-manager' });
     }
+    if (request.method() === 'GET' && url.pathname === '/api/league') {
+      return json(route, 200, [{
+        id: 7,
+        name: 'Offline League',
+        best_ball: false,
+        draft_status: 'complete',
+        my_team_id: 70,
+        my_team_name: 'Offline Team',
+      }]);
+    }
     if (request.method() === 'GET' && url.pathname === '/api/league/7') {
       return json(route, 200, { league: { id: 7, name: 'Offline League', best_ball: false } });
+    }
+    if (request.method() === 'GET' && url.pathname === '/api/team/roster') {
+      return json(route, 200, [{
+        id: 501,
+        name: 'Amon-Ra St. Brown',
+        position: 'WR',
+        nfl_team: 'DET',
+        lineup_slot: 'BENCH',
+      }]);
+    }
+    if (request.method() === 'GET' && url.pathname === '/api/scoring/league/7/standings') {
+      return json(route, 200, { standings: [] });
     }
     if (request.method() === 'GET' && url.pathname === '/api/team/lineup') return json(route, 200, lineup);
     if (request.method() === 'GET' && url.pathname === '/api/team/lineup/advice') {
@@ -197,7 +219,7 @@ test('offline lineup edit is blocked, persisted, and replayed immediately on rec
     return json(route, 500, { error: `unexpected mocked request: ${request.method()} ${url.pathname}` });
   });
 
-  await page.goto('/#/league/7/lineup');
+  await page.goto('/#/team?leagueId=7');
   await expect(page.getByTestId('slot-row-BENCH-501')).toBeVisible();
   await page.getByTestId('slot-row-BENCH-501').click();
 
