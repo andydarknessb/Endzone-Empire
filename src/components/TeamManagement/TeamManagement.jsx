@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
   Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Select, MenuItem, Button, Alert, FormControl, InputLabel, Box, Skeleton,
@@ -17,6 +17,7 @@ import TeamAvatarUploader from '../common/TeamAvatarUploader';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
+import { LineupEditor } from '../LineupScreen/LineupScreen';
 
 // Injury status -> chip fill. Not backed by real data yet (players has no
 // injury_status column), so this only lights up once that field exists;
@@ -83,6 +84,7 @@ function TeamSummary({ league, summary }) {
 }
 
 function TeamManagement() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [leagues, setLeagues] = useState([]);
   const [selectedLeague, setSelectedLeague] = useState('');
   const [roster, setRoster] = useState([]);
@@ -141,7 +143,13 @@ function TeamManagement() {
       const rosterLeagues = response.data.filter((league) => !isPickemOnly(league));
       setLeagues(rosterLeagues);
       if (rosterLeagues.length > 0) {
-        setSelectedLeague(rosterLeagues[0].id);
+        const requestedLeagueId = Number(searchParams.get('leagueId'));
+        const selected = rosterLeagues.find((league) => league.id === requestedLeagueId)
+          || rosterLeagues[0];
+        setSelectedLeague(selected.id);
+        if (String(selected.id) !== searchParams.get('leagueId')) {
+          setSearchParams({ leagueId: String(selected.id) }, { replace: true });
+        }
         // Keep the skeleton up: fetchRoster (via the selectedLeague effect)
         // resolves the loading state.
       } else {
@@ -192,12 +200,21 @@ function TeamManagement() {
 
   const teamName = activeLeague?.my_team_name || 'My Team';
   const showEmptyState = !loading && roster.length === 0;
+  const showLineupEditor = !loading
+    && roster.length > 0
+    && roster.some((player) => Object.prototype.hasOwnProperty.call(player, 'lineup_slot'));
   const draftInProgress = leaguePhase === LEAGUE_PHASE.PRE_DRAFT || leaguePhase === LEAGUE_PHASE.DRAFTING;
 
   const handleAvatarUpdated = (team) => {
     setLeagues((prev) => prev.map((league) => (league.id === selectedLeague
       ? { ...league, my_team_avatar_url: team.avatar_url, my_team_avatar_static_url: team.avatar_static_url }
       : league)));
+  };
+
+  const handleLeagueChange = (event) => {
+    const leagueId = event.target.value;
+    setSelectedLeague(leagueId);
+    setSearchParams({ leagueId: String(leagueId) }, { replace: true });
   };
 
   return (
@@ -236,7 +253,7 @@ function TeamManagement() {
               labelId="league-select-label"
               label="League"
               value={selectedLeague}
-              onChange={(event) => setSelectedLeague(event.target.value)}
+              onChange={handleLeagueChange}
             >
               {leagues.map((league) => (
                 <MenuItem key={league.id} value={league.id}>{league.name}</MenuItem>
@@ -287,18 +304,19 @@ function TeamManagement() {
           </Stack>
         </Paper>
       ) : (
-        <Paper sx={{ bgcolor: 'background.paper', overflow: 'hidden' }}>
+        <>
+        {showLineupEditor && (
+          <LineupEditor leagueId={selectedLeague} showLeagueBreadcrumb={false} heading="Lineup" embedded />
+        )}
+        <Paper sx={{ bgcolor: 'background.paper', overflow: 'hidden', mt: 3 }}>
           {!loading && roster.length > 0 && (
             <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1} sx={{ p: 2 }}>
               <Box>
-                <Typography variant="h6">Current lineup</Typography>
+                <Typography variant="h6">Roster management</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Starter and bench assignments reflect the current week. Position eligibility is shown for every player.
+                  View player details, trades, and roster moves.
                 </Typography>
               </Box>
-              <Button component={RouterLink} to={`/league/${selectedLeague}/lineup`} variant="contained">
-                Set Lineup
-              </Button>
             </Stack>
           )}
           <TableContainer sx={{ overflowX: 'auto' }}>
@@ -306,7 +324,7 @@ function TeamManagement() {
               finishes and the roster is non-empty, so the table names itself
               with that same visible string instead of pointing at an id that
               is not always in the DOM. */}
-          <Table sx={{ minWidth: 760 }} aria-label="Current lineup">
+          <Table sx={{ minWidth: 760 }} aria-label="Roster management">
             <TableHead>
               <TableRow>
                 <TableCell>Slot</TableCell>
@@ -399,6 +417,7 @@ function TeamManagement() {
           </Table>
           </TableContainer>
         </Paper>
+        </>
       )}
 
       <PlayerQuickView

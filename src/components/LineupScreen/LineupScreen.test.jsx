@@ -8,7 +8,7 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
-import LineupScreen from './LineupScreen';
+import LineupScreen, { LineupEditor } from './LineupScreen';
 
 const mockStore = configureMockStore([]);
 
@@ -79,6 +79,18 @@ const renderScreenWithToasts = (leagueId = 1) =>
       route: `/league/${leagueId}/lineup`,
     }
   );
+
+test('LineupEditor accepts the League identity from its caller', async () => {
+  setupGet({ lineup: lineupResponse({ leagueId: 42 }) });
+
+  renderWithProviders(<LineupEditor leagueId={42} showLeagueBreadcrumb={false} />, {
+    path: '/team',
+    route: '/team',
+  });
+
+  await screen.findByText('Patrick Mahomes');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/team/lineup?leagueId=42');
+});
 
 // Defaults: a QB starter, two RB starters (one locked), a WR on bench (on bye).
 const lineupResponse = (overrides = {}) => ({
@@ -385,6 +397,18 @@ test('renders starters grouped by slot, bench section, and empty slot rows', asy
   // plus IR(1) and the four unoccupied configured bench spots.
   expect(screen.getAllByText('Empty')).toHaveLength(11);
   expect(within(screen.getByTestId('lineup-bench')).getAllByText('Empty')).toHaveLength(4);
+});
+
+test('numbers repeated starter slots and keeps the Bench independently scrollable', async () => {
+  mockGetAll({ data: lineupResponse() });
+
+  renderScreen();
+
+  await screen.findByText('Patrick Mahomes');
+  expect(within(screen.getByTestId('slot-row-QB-0')).getByText('QB')).toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-row-RB-0')).getByText('RB 1')).toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-row-RB-1')).getByText('RB 2')).toBeInTheDocument();
+  expect(screen.getByTestId('lineup-bench-scroll')).toHaveStyle({ overflowY: 'auto' });
 });
 
 test('renders BYE and LOCKED chips for flagged entries', async () => {
