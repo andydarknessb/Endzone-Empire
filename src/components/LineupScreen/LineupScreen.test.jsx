@@ -8,7 +8,7 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
-import LineupScreen from './LineupScreen';
+import LineupScreen, { LineupEditor } from './LineupScreen';
 
 const mockStore = configureMockStore([]);
 
@@ -79,6 +79,18 @@ const renderScreenWithToasts = (leagueId = 1) =>
       route: `/league/${leagueId}/lineup`,
     }
   );
+
+test('LineupEditor accepts the League identity from its caller', async () => {
+  setupGet({ lineup: lineupResponse({ leagueId: 42 }) });
+
+  renderWithProviders(<LineupEditor leagueId={42} showLeagueBreadcrumb={false} />, {
+    path: '/team',
+    route: '/team',
+  });
+
+  await screen.findByText('Patrick Mahomes');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/team/lineup?leagueId=42');
+});
 
 // Defaults: a QB starter, two RB starters (one locked), a WR on bench (on bye).
 const lineupResponse = (overrides = {}) => ({

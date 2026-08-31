@@ -201,8 +201,7 @@ function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
   return aEligible && bEligible;
 }
 
-function LineupScreen() {
-  const { leagueId } = useParams();
+export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
   const notify = useSnackbar();
   const { saveLineup } = useResilientLineupMutation({
     onReplaySuccess: () => notify('Lineup saved'),
@@ -710,7 +709,7 @@ function LineupScreen() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      <LeagueBreadcrumb />
+      {showLeagueBreadcrumb && <LeagueBreadcrumb />}
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -1052,6 +1051,11 @@ function LineupScreen() {
       />
     </Container>
   );
+}
+
+function LineupScreen() {
+  const { leagueId } = useParams();
+  return <LineupEditor leagueId={leagueId} />;
 }
 
 export default LineupScreen;
