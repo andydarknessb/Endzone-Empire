@@ -6,6 +6,7 @@ const draftService = require('./draft.service');
 const { teamForPick } = require('./draftOrder.service');
 const ioRegistry = require('../modules/io');
 const draftEvents = require('../modules/draftEvents');
+const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 
@@ -93,6 +94,7 @@ async function autoPick({ leagueId }) {
         if (outcome.completion) {
           await emitDraftEvent(leagueId, 'draft:activity', outcome.completion);
         }
+        await broadcastRosterAvailability(leagueId);
         await emitDraftEvent(leagueId, 'draft:complete', { leagueId });
       }
       // After a genuine timeout, track the streak and flip autodraft on once it

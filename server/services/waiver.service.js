@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
+const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const { rosterCapacity } = require('./irPolicy.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
@@ -236,7 +237,15 @@ async function processWaivers({ leagueId }) {
       [leagueId]
     );
     if (dueResult.rows.length === 0) {
+      await client.query(
+        `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "available_at" <= now()`,
+        [leagueId]
+      );
       await client.query('COMMIT');
+      // The scheduler also reaches this path when an empty blanket window
+      // expires. No roster write is needed, but the Player read model changed
+      // from waiver-only to free-agent and connected managers must refetch.
+      await broadcastRosterAvailability(leagueId);
       return { processed: 0, results: [] };
     }
 
@@ -375,6 +384,7 @@ async function processWaivers({ leagueId }) {
     );
 
     await client.query('COMMIT');
+    await broadcastRosterAvailability(leagueId);
     return { processed: dueResult.rows.length, results };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -423,7 +433,7 @@ async function claimFailureReason(client, { league, team, claim }) {
   return null;
 }
 
-/** Scheduler entry point: process every league that has due pending claims. */
+/** Scheduler entry point: process every league whose waiver availability changed. */
 async function processAllDueWaivers() {
   const due = await pool.query(
     `SELECT DISTINCT "waiver_claims"."league_id"
@@ -432,7 +442,11 @@ async function processAllDueWaivers() {
        AND "waiver_players"."player_id" = "waiver_claims"."player_id"
      LEFT JOIN "leagues" ON "leagues"."id" = "waiver_claims"."league_id"
      WHERE "waiver_claims"."status" = 'pending'
-       AND COALESCE("waiver_players"."available_at", "leagues"."waivers_clear_at", now()) <= now()`
+       AND COALESCE("waiver_players"."available_at", "leagues"."waivers_clear_at", now()) <= now()
+     UNION
+     SELECT DISTINCT "league_id" FROM "waiver_players" WHERE "available_at" <= now()
+     UNION
+     SELECT "id" AS "league_id" FROM "leagues" WHERE "waivers_clear_at" <= now()`
   );
   const outcomes = [];
   for (const row of due.rows) {

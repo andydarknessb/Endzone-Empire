@@ -9,6 +9,7 @@ const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
+const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const projectionService = require('../services/projection.service');
 
 const router = express.Router();
@@ -89,6 +90,7 @@ router.post('/roster/:playerId', async (req, res) => {
       userId: req.user.id,
       playerId: Number(req.params.playerId),
     });
+    await broadcastRosterAvailability(leagueId);
     res.status(201).json(outcome);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -112,6 +114,7 @@ router.delete('/roster/:playerId', async (req, res) => {
       userId: req.user.id,
       playerId: Number(req.params.playerId),
     });
+    await broadcastRosterAvailability(Number(leagueId));
     res.json(outcome);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -137,6 +140,7 @@ router.post('/roster/:playerId/undo-drop', async (req, res) => {
       userId: req.user.id,
       playerId: Number(req.params.playerId),
     });
+    await broadcastRosterAvailability(leagueId);
     res.status(201).json(outcome);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

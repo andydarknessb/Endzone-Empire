@@ -1,7 +1,9 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
+const { requireMember } = require('../services/leagueMembership.service');
 const { draftPlayer } = require('../services/draft.service');
+const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const {
   rulesForLeague, buildPlayerSummary, projectSeasonPoints, getSeasonPositionRank,
   IDP_POSITIONS,
@@ -57,6 +59,62 @@ function summaryCacheSet(key, value) {
   // Bound the map so a long-lived process can't leak memory during a big draft.
   if (summaryCache.size > 2000) summaryCache.clear();
   summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
+}
+
+async function attachLeagueAvailability(players, { league, viewerTeamId, identityIdsByPlayerId }) {
+  if (players.length === 0) return;
+  const identityIds = [...new Set(players.flatMap((player) => identityIdsByPlayerId.get(player.id) || [player.id]))];
+  const [rosterResult, waiverResult] = await Promise.all([
+    pool.query(
+      `SELECT "team_players"."player_id", "teams"."id" AS "team_id", "teams"."name" AS "team_name",
+              "teams"."avatar_url", "teams"."avatar_static_url"
+       FROM "team_players" JOIN "teams" ON "teams"."id" = "team_players"."team_id"
+       WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = ANY($2::int[])`,
+      [league.id, identityIds]
+    ),
+    pool.query(
+      `SELECT "player_id" FROM "waiver_players"
+       WHERE "league_id" = $1 AND "player_id" = ANY($2::int[]) AND "available_at" > now()`,
+      [league.id, identityIds]
+    ),
+  ]);
+  const canonicalByIdentityId = new Map();
+  for (const player of players) {
+    for (const identityId of identityIdsByPlayerId.get(player.id) || [player.id]) {
+      canonicalByIdentityId.set(Number(identityId), player.id);
+    }
+  }
+  const rosterByPlayerId = new Map();
+  for (const row of rosterResult.rows) {
+    const canonicalId = canonicalByIdentityId.get(Number(row.player_id));
+    if (canonicalId != null && !rosterByPlayerId.has(canonicalId)) rosterByPlayerId.set(canonicalId, row);
+  }
+  const waivedPlayerIds = new Set(
+    waiverResult.rows
+      .map((row) => canonicalByIdentityId.get(Number(row.player_id)))
+      .filter((playerId) => playerId != null)
+  );
+  const blanketWaiversOpen = league.waivers_clear_at && new Date(league.waivers_clear_at) > new Date();
+  for (const player of players) {
+    const rostered = rosterByPlayerId.get(player.id);
+    if (rostered) {
+      player.availability = rostered.team_id === viewerTeamId
+        ? { state: 'ROSTERED_BY_VIEWER' }
+        : {
+            state: 'ROSTERED_BY_OTHER_TEAM',
+            team: {
+              teamId: rostered.team_id,
+              teamName: rostered.team_name,
+              avatarUrl: rostered.avatar_url,
+              avatarStaticUrl: rostered.avatar_static_url,
+            },
+          };
+    } else if (waivedPlayerIds.has(player.id) || blanketWaiversOpen) {
+      player.availability = { state: 'ON_WAIVERS' };
+    } else {
+      player.availability = { state: 'FREE_AGENT' };
+    }
+  }
 }
 
 // Attaches `projected_points` (the "17-game pace" — a full-season projection
@@ -116,7 +174,7 @@ router.get('/', requireAuth, async (req, res) => {
   if (leagueId && !/^\d+$/.test(leagueId)) {
     return res.status(400).json({ error: 'leagueId must be a positive integer' });
   }
-  const availableOnly = req.query.available === 'true' && leagueId;
+  const availableOnly = (req.query.available === 'true' || req.query.hideRostered === 'true') && leagueId;
 
   // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
   // across the FULL eligible pool below (not just the current page) — see
@@ -139,13 +197,20 @@ router.get('/', requireAuth, async (req, res) => {
   // defaults. This keeps the list's projection identical to the quick-view's.
   let projectionRules = rulesForLeague(null);
   let currentSeasonYear = 2026;
+  let league = null;
+  let viewerTeam = null;
   if (leagueId) {
+    try {
+      viewerTeam = await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      throw error;
+    }
     const leagueRow = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [Number(leagueId)]);
-    if (leagueRow.rows[0]) {
-      projectionRules = rulesForLeague(leagueRow.rows[0]);
-      if (leagueRow.rows[0].current_season != null) {
-        currentSeasonYear = Number(leagueRow.rows[0].current_season);
-      }
+    league = leagueRow.rows[0] || null;
+    if (league) {
+      projectionRules = rulesForLeague(league);
+      if (league.current_season != null) currentSeasonYear = Number(league.current_season);
     }
   }
 
@@ -257,6 +322,10 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(queryText, params);
     const sqlTotal = result.rows[0] ? Number(result.rows[0].total_count) : 0;
+    const identityIdsByPlayerId = new Map(result.rows.map((row) => [
+      row.id,
+      Array.isArray(row.identity_ids) ? row.identity_ids.map(Number) : [row.id],
+    ]));
     const players = dedupePlayerRows(result.rows.map(({
       total_count, identity_ids, identity_rank, ...p
     }) => p));
@@ -315,6 +384,13 @@ router.get('/', requireAuth, async (req, res) => {
     const pagePlayers = needsFullPool ? settled.slice(offset, offset + PAGE_SIZE) : settled;
     if (!projectionSort) {
       await attachProjectedPoints(pagePlayers, { projectionRules, currentSeasonYear });
+    }
+    if (league && viewerTeam) {
+      await attachLeagueAvailability(pagePlayers, {
+        league,
+        viewerTeamId: viewerTeam.id,
+        identityIdsByPlayerId,
+      });
     }
 
     res.json({
@@ -388,13 +464,14 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
   }
 
   const cacheKey = `${playerId}|${leagueId || 'std'}`;
-  const cached = summaryCacheGet(cacheKey);
-  if (cached) {
-    res.set('Cache-Control', 'private, max-age=30');
-    return res.json(cached);
-  }
 
   try {
+    if (leagueId) await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
+    const cached = summaryCacheGet(cacheKey);
+    if (cached) {
+      res.set('Cache-Control', 'private, max-age=30');
+      return res.json(cached);
+    }
     const playerResult = await pool.query(`SELECT * FROM "players" WHERE "id" = $1`, [playerId]);
     const player = playerResult.rows[0];
     if (!player) return res.status(404).json({ error: 'player not found' });
@@ -448,6 +525,7 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
     res.set('Cache-Control', 'private, max-age=30');
     res.json(payload);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error building player summary', error);
     res.status(500).json({ error: 'failed to fetch player summary' });
   }
@@ -470,6 +548,7 @@ router.post('/draft/:playerId', requireAuth, async (req, res) => {
       userId: req.user.id,
       playerId: Number(req.params.playerId),
     });
+    if (outcome.draftComplete) await broadcastRosterAvailability(leagueId);
     res.status(201).json(outcome);
   } catch (error) {
     if (error.statusCode) {

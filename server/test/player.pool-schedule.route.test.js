@@ -174,3 +174,48 @@ test('GET players?byeWeeks=25 rejects a week outside 1..REG_SEASON_WEEKS', async
   assert.equal(res.status, 400);
   assert.equal(spy.mock.callCount(), 0);
 });
+
+test('GET players reports league-local ownership and filters rostered identities before pagination', async (t) => {
+  let playersSql = null;
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    if (text.includes('FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2')) return { rows: [{ id: 70 }] };
+    if (text.includes('SELECT * FROM "leagues"')) return { rows: [{ id: 1, current_season: 2026, waivers_clear_at: null }] };
+    if (text.includes('FROM "players" AS "source"')) {
+      playersSql = text;
+      return {
+        rows: [{
+          id: 5, name: 'League Local Player', position: 'RB', nfl_team: 'DAL',
+          identity_ids: [5, 500], total_count: '1',
+        }],
+      };
+    }
+    if (text.includes('FROM "nfl_games"')) return { rows: NFL_GAMES };
+    if (text.includes('FROM "player_season_stats"')) return { rows: [] };
+    if (text.includes('FROM "team_players" JOIN "teams"')) {
+      return { rows: [{ player_id: 500, team_id: 9, team_name: 'Harbor Hawks', avatar_url: null, avatar_static_url: null }] };
+    }
+    if (text.includes('FROM "waiver_players"')) return { rows: [] };
+    throw new Error(`unexpected query: ${text}`);
+  });
+
+  const res = await request(app)
+    .get('/api/players?leagueId=1&hideRostered=true')
+    .set('Authorization', authHeader);
+
+  assert.equal(res.status, 200);
+  assert.match(playersSql, /NOT EXISTS \([\s\S]*"team_players"[\s\S]*identity_ids/);
+  assert.deepEqual(res.body.players[0].availability, {
+    state: 'ROSTERED_BY_OTHER_TEAM',
+    team: { teamId: 9, teamName: 'Harbor Hawks', avatarUrl: null, avatarStaticUrl: null },
+  });
+});
+
+test('GET players refuses a league-scoped availability read to a non-member', async (t) => {
+  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+
+  const res = await request(app).get('/api/players?leagueId=1').set('Authorization', authHeader);
+
+  assert.equal(res.status, 403);
+  assert.equal(res.body.error, 'not a member of this league');
+});
