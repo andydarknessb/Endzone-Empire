@@ -382,3 +382,15 @@ test("a manager with no fantasy league can still browse players but is told why 
   expect(screen.getByRole('link', { name: 'Go to Leagues' })).toHaveAttribute('href', '/league');
   expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/roster'));
 });
+
+test('an on-waivers player links to the selected league waiver page', async () => {
+  mockDefaultApi({
+    players: [player({ availability: { state: 'ON_WAIVERS' } })],
+    league: { id: 1, name: 'Sunday Ballers', draft_status: 'complete', season_status: 'regular' },
+  });
+
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByRole('link', { name: 'On waivers' }))
+    .toHaveAttribute('href', '/league/1/waivers');
+});
