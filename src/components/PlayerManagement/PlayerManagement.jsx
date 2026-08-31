@@ -237,7 +237,7 @@ function PlayerManagement() {
       };
     }
     if (availability.state === 'ON_WAIVERS') {
-      return { label: 'On waivers', to: `/waivers?leagueId=${selectedLeague}`, tooltip: 'Submit a waiver claim instead' };
+      return { label: 'On waivers', to: `/league/${selectedLeague}/waivers`, tooltip: 'Submit a waiver claim instead' };
     }
     return {
       label: rosterAction.label,
