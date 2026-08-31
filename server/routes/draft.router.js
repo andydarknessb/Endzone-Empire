@@ -16,6 +16,7 @@ const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
 const { listPresenterDraftActivity } = require('../services/leagueFeed');
 const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
+const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 
 const router = express.Router();
 
@@ -546,6 +547,7 @@ router.post('/league/:id/undo', async (req, res) => {
       [newCurrentPick, leagueId, clockSeconds]
     );
     await client.query('COMMIT');
+    await broadcastRosterAvailability(leagueId);
     const io = getIo();
     if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
     res.json({ leagueId, undone: targets.length, currentPick: newCurrentPick });
@@ -854,11 +856,13 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       return res.status(409).json({ error: 'offline pick entry requires an active offline draft' });
     }
     let applied = 0;
+    let draftComplete = false;
     let result = { applied };
     for (let i = 0; i < playerIds.length; i++) {
       try {
-        await draftPlayer({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
+        const outcome = await draftPlayer({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
         applied++;
+        draftComplete = outcome.draftComplete;
       } catch (error) {
         const message = error instanceof DraftError || error.statusCode ? error.message : 'pick failed';
         result = { applied, error: message, failedAtIndex: i };
@@ -866,6 +870,7 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       }
     }
     if (!result.error) result = { applied };
+    if (draftComplete) await broadcastRosterAvailability(leagueId);
     const io = getIo();
     if (io && applied > 0) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
     res.json(result);

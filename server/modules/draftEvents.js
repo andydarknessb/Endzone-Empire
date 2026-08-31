@@ -7,6 +7,7 @@ const DRAFT_EVENT_NAMES = new Set([
   'draft:activity',
   'draft:complete',
   'draft:state',
+  'roster:changed',
 ]);
 
 /** Publish a draft event for a separate API/web process to relay to sockets. */

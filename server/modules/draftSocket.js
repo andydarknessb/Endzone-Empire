@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const pool = require('./pool');
 const { setIo } = require('./io');
 const { broadcastDraftActivity } = require('./draftActivityBroadcast');
+const { broadcastRosterAvailability } = require('./rosterAvailabilityBroadcast');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
@@ -292,6 +293,7 @@ function attachDraftSocket(httpServer) {
           // through the one shared helper (null-safe), beside the draft:complete
           // board signal.
           broadcastDraftActivity(leagueId, outcome.completion);
+          await broadcastRosterAvailability(leagueId);
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
         ack && ack({ ok: true, outcome });
