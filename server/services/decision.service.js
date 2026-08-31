@@ -517,7 +517,7 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
  */
 async function liveWhatIf({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
-  await materializeLineup(pool, { leagueId, teamId, season, week });
+  await materializeLineup(pool, { leagueId, teamId, season, week, league });
 
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
@@ -886,7 +886,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
   try {
     await client.query('BEGIN');
     await materializeLineup(client, {
-      leagueId, teamId: team.id, season: effectiveSeason, week: effectiveWeek,
+      leagueId, teamId: team.id, season: effectiveSeason, week: effectiveWeek, league,
     });
     const result = await client.query(
       `SELECT "player_id", "slot" FROM "lineup_entries"

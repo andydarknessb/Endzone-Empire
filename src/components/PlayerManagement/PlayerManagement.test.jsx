@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import { createDraftSocket } from '../../api/socket';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import PlayerManagement from './PlayerManagement';
 
@@ -10,6 +11,9 @@ jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() },
 }));
+
+const mockSocket = { on: jest.fn(), off: jest.fn(), emit: jest.fn(), disconnect: jest.fn(), connected: false };
+jest.mock('../../api/socket', () => ({ createDraftSocket: jest.fn() }));
 
 const player = (overrides = {}) => ({ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs', ...overrides });
 
@@ -24,6 +28,10 @@ function mockDefaultApi({ players = [player()], roster = [], totalPages = 1, lea
 
 afterEach(() => {
   jest.clearAllMocks();
+});
+
+beforeEach(() => {
+  createDraftSocket.mockReturnValue(mockSocket);
 });
 
 test('renders the player pool and the roster section', async () => {
@@ -43,7 +51,7 @@ test('fetches players filtered by page and position', async () => {
   await screen.findByText('Patrick Mahomes');
 
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-    params: { page: 1, position: 'All', sort: 'adp' },
+    params: { page: 1, position: 'All', sort: 'adp', leagueId: 1 },
   });
 });
 
@@ -56,7 +64,7 @@ test('jump-to-page clamps entries to the available page range', async () => {
   await userEvent.type(jumpInput, '99{enter}');
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 5, position: 'All', sort: 'adp' },
+      params: { page: 5, position: 'All', sort: 'adp', leagueId: 1 },
     })
   );
 
@@ -64,7 +72,7 @@ test('jump-to-page clamps entries to the available page range', async () => {
   await userEvent.type(jumpInput, '0{enter}');
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, position: 'All', sort: 'adp' },
+      params: { page: 1, position: 'All', sort: 'adp', leagueId: 1 },
     })
   );
 });
@@ -78,7 +86,7 @@ test('sorting by Name refetches with sort=name and persists to the URL', async (
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, position: 'All', sort: 'name' },
+      params: { page: 1, position: 'All', sort: 'name', leagueId: 1 },
     })
   );
 });
@@ -92,7 +100,7 @@ test('restores sort/position/search from the URL on load', async () => {
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, position: 'RB', sort: 'name', dir: 'desc', search: 'smith' },
+    params: { page: 1, position: 'RB', sort: 'name', dir: 'desc', search: 'smith', leagueId: 1 },
     })
   );
 });
@@ -104,6 +112,100 @@ test('a player already on the roster shows "Added" and a disabled button', async
 
   const button = await screen.findByRole('button', { name: 'Added' });
   expect(button).toBeDisabled();
+});
+
+test('a player rostered by another Team is unavailable in the table', async () => {
+  mockDefaultApi({
+    players: [player({
+      id: 5,
+      name: 'Rostered Guy',
+      availability: {
+        state: 'ROSTERED_BY_OTHER_TEAM',
+        team: { teamId: 9, teamName: 'Harbor Hawks', avatarUrl: null, avatarStaticUrl: null },
+      },
+    })],
+  });
+
+  renderWithProviders(<PlayerManagement />);
+
+  const action = await screen.findByRole('button', { name: 'Rostered by Harbor Hawks' });
+  expect(action).toBeDisabled();
+});
+
+test('a roster change in the selected league refreshes the player pool and roster', async () => {
+  mockDefaultApi();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByText('Patrick Mahomes');
+
+  const handler = mockSocket.on.mock.calls.find(([event]) => event === 'roster:changed')[1];
+  apiClient.get.mockClear();
+  handler({ leagueId: 1 });
+
+  await waitFor(() => {
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, position: 'All', sort: 'adp', leagueId: 1 },
+    });
+    expect(apiClient.get).toHaveBeenCalledWith('/api/team/roster?leagueId=1');
+  });
+});
+
+test('a roster change from another league does not refresh this Players view', async () => {
+  mockDefaultApi();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByText('Patrick Mahomes');
+
+  const handler = mockSocket.on.mock.calls.find(([event]) => event === 'roster:changed')[1];
+  apiClient.get.mockClear();
+  handler({ leagueId: 2 });
+
+  expect(apiClient.get).not.toHaveBeenCalled();
+});
+
+test('Hide rostered asks the selected League to filter before pagination', async () => {
+  mockDefaultApi();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByText('Patrick Mahomes');
+
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Hide rostered' }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, position: 'All', sort: 'adp', leagueId: 1, hideRostered: true },
+    })
+  );
+});
+
+test('a stale add refreshes to the authoritative unavailable Team state', async () => {
+  const freeAgent = player({ id: 8, name: 'Race Player' });
+  const rostered = player({
+    id: 8,
+    name: 'Race Player',
+    availability: {
+      state: 'ROSTERED_BY_OTHER_TEAM',
+      team: { teamId: 9, teamName: 'Harbor Hawks', avatarUrl: null, avatarStaticUrl: null },
+    },
+  });
+  let stale = false;
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers' }] });
+    if (url === '/api/players') {
+      return Promise.resolve({ data: { players: stale ? [rostered] : [freeAgent], totalPages: 1 } });
+    }
+    if (String(url).startsWith('/api/team/roster')) return Promise.resolve({ data: [] });
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+  apiClient.post.mockImplementation(async () => {
+    stale = true;
+    throw { response: { data: { error: 'player is already rostered in this league' } } };
+  });
+
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByText('Race Player');
+  await userEvent.click(screen.getByRole('button', { name: 'Add free agent' }));
+
+  expect(await screen.findByText('No longer available')).toBeInTheDocument();
+  expect(await screen.findByRole('button', { name: 'Rostered by Harbor Hawks' })).toBeDisabled();
+  expect(screen.queryByText('Added Race Player to your roster')).not.toBeInTheDocument();
 });
 
 test('clicking "Add to Roster" posts the player and league, then refetches the roster', async () => {
@@ -143,7 +245,7 @@ test('renders bye and injury badges and supports additional sortable columns', a
   expect(screen.getByLabelText(/Projected: Projected fantasy points:/)).toBeInTheDocument();
   await userEvent.click(projectedSort);
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-    params: { page: 1, position: 'All', sort: 'projected_points' },
+    params: { page: 1, position: 'All', sort: 'projected_points', leagueId: 1 },
   }));
 });
 
@@ -206,7 +308,7 @@ test('changing the position filter refetches players with the new position and r
   await userEvent.click(await screen.findByRole('option', { name: 'QB' }));
 
   await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', { params: { page: 1, position: 'QB', sort: 'adp' } })
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', { params: { page: 1, position: 'QB', sort: 'adp', leagueId: 1 } })
   );
 });
 
@@ -223,7 +325,7 @@ test('the position filter offers individual defender positions (DE/DT/LB/CB/S/DB
   await userEvent.click(screen.getByRole('option', { name: 'DT' }));
 
   await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', { params: { page: 1, position: 'DT', sort: 'adp' } })
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', { params: { page: 1, position: 'DT', sort: 'adp', leagueId: 1 } })
   );
 });
 
@@ -279,4 +381,16 @@ test("a manager with no fantasy league can still browse players but is told why 
   expect(await screen.findByText(/not in a fantasy league yet/i)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Go to Leagues' })).toHaveAttribute('href', '/league');
   expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/roster'));
+});
+
+test('an on-waivers player links to the selected league waiver page', async () => {
+  mockDefaultApi({
+    players: [player({ availability: { state: 'ON_WAIVERS' } })],
+    league: { id: 1, name: 'Sunday Ballers', draft_status: 'complete', season_status: 'regular' },
+  });
+
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByRole('link', { name: 'On waivers' }))
+    .toHaveAttribute('href', '/league/1/waivers');
 });

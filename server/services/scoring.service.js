@@ -1810,7 +1810,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
 
     const teamScore = async (teamId, asPlayed) => {
       if (!asPlayed) {
-        await materializeLineup(client, { leagueId, teamId, season, week });
+        await materializeLineup(client, { leagueId, teamId, season, week, league });
       }
       const currentRosterJoin = asPlayed
         ? ''

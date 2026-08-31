@@ -11,10 +11,12 @@ import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
+import TeamAvatar from '../common/TeamAvatar';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 import { rosterActionForPhase } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
+import { createDraftSocket } from '../../api/socket';
 
 // DE/DT/LB/CB/S/DB are individual defenders (DP-enabled leagues) — literal
 // Tank01 position codes, not the DL/LB/DB roster-eligibility group keys.
@@ -103,6 +105,8 @@ function PlayerManagement() {
       const params = { page: pageNumber, position: positionFilter, sort };
       if (dir === 'desc') params.dir = 'desc';
       if (search) params.search = search;
+      if (selectedLeague) params.leagueId = Number(selectedLeague);
+      if (hideRostered && selectedLeague) params.hideRostered = true;
       const response = await apiClient.get('/api/players', { params });
       setPlayers(response.data.players);
       setTotalPages(response.data.totalPages);
@@ -110,7 +114,7 @@ function PlayerManagement() {
     } catch (err) {
       report(err);
     }
-  }, [pageNumber, positionFilter, search, sort, dir]);
+  }, [pageNumber, positionFilter, search, sort, dir, selectedLeague, hideRostered]);
 
   const fetchRoster = useCallback(async () => {
     if (!selectedLeague) return;
@@ -124,6 +128,26 @@ function PlayerManagement() {
 
   useEffect(() => { fetchPlayers(); }, [fetchPlayers]);
   useEffect(() => { fetchRoster(); }, [fetchRoster]);
+
+  useEffect(() => {
+    if (!selectedLeague) return undefined;
+    const leagueId = Number(selectedLeague);
+    const socket = createDraftSocket();
+    const join = () => socket.emit('league:join', { leagueId });
+    const refresh = ({ leagueId: changedLeagueId } = {}) => {
+      if (Number(changedLeagueId) !== leagueId) return;
+      fetchPlayers();
+      fetchRoster();
+    };
+    socket.on('connect', join);
+    socket.on('roster:changed', refresh);
+    if (socket.connected) join();
+    return () => {
+      socket.off?.('connect', join);
+      socket.off?.('roster:changed', refresh);
+      socket.disconnect?.();
+    };
+  }, [selectedLeague, fetchPlayers, fetchRoster]);
 
   // Debounce the search box; commit the term to the URL (resetting to page 1).
   useEffect(() => {
@@ -155,11 +179,15 @@ function PlayerManagement() {
       await apiClient.post(`/api/team/roster/${player.id}`, {
         leagueId: Number(selectedLeague),
       });
-      fetchRoster();
+      await Promise.all([fetchRoster(), fetchPlayers()]);
       notify(`Added ${player.name} to your roster`);
     } catch (err) {
-      report(err);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      await Promise.all([fetchRoster(), fetchPlayers()]);
+      const message = err.response?.data?.error || err.message;
+      const staleAcquisition = message === 'player is already rostered in this league';
+      if (staleAcquisition) setError('No longer available');
+      else report(err);
+      notify(staleAcquisition ? 'No longer available' : message, { severity: 'error' });
     }
   };
 
@@ -168,7 +196,7 @@ function PlayerManagement() {
       await apiClient.post(`/api/team/roster/${player.id}/undo-drop`, {
         leagueId: Number(selectedLeague),
       });
-      fetchRoster();
+      await Promise.all([fetchRoster(), fetchPlayers()]);
     } catch (err) {
       report(err);
       notify(err.response?.data?.error || err.message, { severity: 'error' });
@@ -179,7 +207,7 @@ function PlayerManagement() {
     setError(null);
     try {
       await apiClient.delete(`/api/team/roster/${player.id}?leagueId=${selectedLeague}`);
-      fetchRoster();
+      await Promise.all([fetchRoster(), fetchPlayers()]);
       notify(`Dropped ${player.name}`, {
         severity: 'info',
         actionLabel: 'Undo',
@@ -192,7 +220,35 @@ function PlayerManagement() {
   };
 
   const isPlayerInRoster = (playerId) => roster.some((player) => player.id === playerId);
-  const shownPlayers = hideRostered ? players.filter((p) => !isPlayerInRoster(p.id)) : players;
+  const availabilityFor = (player) => player.availability || (
+    isPlayerInRoster(player.id) ? { state: 'ROSTERED_BY_VIEWER' } : { state: 'FREE_AGENT' }
+  );
+  const actionFor = (player) => {
+    const availability = availabilityFor(player);
+    if (!selectedLeague) return { label: 'Select a league first', disabled: true, tooltip: 'Select a league first' };
+    if (availability.state === 'ROSTERED_BY_VIEWER') return { label: 'Added', disabled: true, tooltip: 'Already on your roster' };
+    if (availability.state === 'ROSTERED_BY_OTHER_TEAM') {
+      const team = availability.team || {};
+      return {
+        label: `Rostered by ${team.teamName || 'another Team'}`,
+        disabled: true,
+        tooltip: `Rostered by ${team.teamName || 'another Team'}`,
+        startIcon: <TeamAvatar name={team.teamName || 'Team'} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={20} />,
+      };
+    }
+    if (availability.state === 'ON_WAIVERS') {
+      return { label: 'On waivers', to: `/league/${selectedLeague}/waivers`, tooltip: 'Submit a waiver claim instead' };
+    }
+    return {
+      label: rosterAction.label,
+      disabled: rosterAction.disabled,
+      tooltip: rosterAction.helper,
+      onClick: () => addToRoster(player),
+    };
+  };
+  const shownPlayers = hideRostered && !selectedLeague
+    ? players.filter((p) => !isPlayerInRoster(p.id))
+    : players;
 
   // Context action for the quick-view: Add to Roster for the currently-viewed
   // player, mirroring the row button's disabled/tooltip logic.
@@ -201,10 +257,7 @@ function PlayerManagement() {
   const quickViewActions = quickViewPlayer
     ? [
         {
-          label: isPlayerInRoster(quickViewPlayer.id) ? 'Added' : rosterAction.label,
-          onClick: () => addToRoster(quickViewPlayer),
-          disabled: !selectedLeague || isPlayerInRoster(quickViewPlayer.id) || rosterAction.disabled,
-          tooltip: !selectedLeague ? 'Select a league first' : rosterAction.helper,
+          ...actionFor(quickViewPlayer),
         },
       ]
     : [];
@@ -350,7 +403,9 @@ function PlayerManagement() {
                 </TableCell>
               </TableRow>
             )}
-            {shownPlayers.map((player) => (
+            {shownPlayers.map((player) => {
+              const action = actionFor(player);
+              return (
               <TableRow key={player.id}>
                 <TableCell component="th" scope="row">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -381,21 +436,25 @@ function PlayerManagement() {
                   {player.projected_points != null ? Number(player.projected_points).toFixed(1) : '-'}
                 </TableCell>
                 <TableCell align="right" sx={stickyActionCellSx}>
-                  <Tooltip title={!selectedLeague ? 'Select a league first' : rosterAction.helper}>
+                  <Tooltip title={action.tooltip || ''}>
                     <span>
                       <Button
                         variant="contained"
                         color="primary"
-                        onClick={() => addToRoster(player)}
-                        disabled={!selectedLeague || isPlayerInRoster(player.id) || rosterAction.disabled}
+                        component={action.to ? RouterLink : undefined}
+                        to={action.to}
+                        onClick={action.onClick}
+                        disabled={action.disabled}
+                        startIcon={action.startIcon}
                       >
-                        {isPlayerInRoster(player.id) ? 'Added' : rosterAction.label}
+                        {action.label}
                       </Button>
                     </span>
                   </Tooltip>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       </TableContainer>

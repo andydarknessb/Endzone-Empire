@@ -160,7 +160,7 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
       throw new CommissionerError(409, 'cannot edit a settled week');
     }
 
-    await materializeLineup(client, { leagueId, teamId, season, week: targetWeek });
+    await materializeLineup(client, { leagueId, teamId, season, week: targetWeek, league });
     const entriesResult = await client.query(
       `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
               "lineup_entries"."ir_attested",

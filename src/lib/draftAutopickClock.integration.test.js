@@ -14,12 +14,21 @@ jest.mock('../../server/modules/io', () => ({
 const pool = require('../../server/modules/pool');
 const ioRegistry = require('../../server/modules/io');
 const lineupService = require('../../server/services/lineup.service');
+const seasonService = require('../../server/services/season.service');
+const { teamForPick } = require('../../server/services/draftOrder.service');
 const { draftPlayer } = require('../../server/services/draft.service');
 const { processExpiredPickClocks } = require('../../server/services/autopick.service');
 
 const LEAGUE_ID = 7001;
 const TEAM_A = { id: 71, owner_id: 701, draft_position: 1, autodraft: false, locked: false };
 const TEAM_B = { id: 72, owner_id: 702, draft_position: 2, autodraft: false, locked: false };
+const MIXED_TEAMS = Array.from({ length: 13 }, (_, index) => ({
+  id: 100 + index,
+  owner_id: 1100 + index,
+  draft_position: index + 1,
+  autodraft: [1, 4, 7, 10, 12].includes(index),
+  locked: false,
+}));
 const ROSTER_SLOTS = [
   { key: 'QB', count: 1, eligiblePositions: ['QB'] },
   { key: 'RB', count: 1, eligiblePositions: ['RB'] },
@@ -42,7 +51,18 @@ function player(id, position, adp) {
   return { id, name: `Player ${id}`, position, nfl_team: `NFL-${id}`, adp, last_season_points: null };
 }
 
-function createState({ currentPick = 0, deadline, players, roster = [], queue = [] }) {
+function createState({
+  currentPick = 0,
+  deadline,
+  players,
+  roster = [],
+  queue = [],
+  teams = [TEAM_A, TEAM_B],
+  draftRounds = 4,
+  rosterLimit = 4,
+  rosterSlots = ROSTER_SLOTS,
+  positionCaps = { QB: 1, RB: 1, WR: 1, TE: 1 },
+}) {
   return {
     league: {
       id: LEAGUE_ID,
@@ -53,18 +73,15 @@ function createState({ currentPick = 0, deadline, players, roster = [], queue = 
       pick_time_seconds: 30,
       autodraft_delay_seconds: 2,
       pick_deadline_at: deadline,
-      roster_limit: 4,
+      roster_limit: rosterLimit,
       // Fixed at draft start (ADR 0005): this league is already 'active', so
       // draftPlayer reads this instead of recomputing from roster_limit/ir_slots.
-      draft_rounds: 4,
-      roster_slots: ROSTER_SLOTS,
-      position_caps: { QB: 1, RB: 1, WR: 1, TE: 1 },
+      draft_rounds: draftRounds,
+      roster_slots: rosterSlots,
+      position_caps: positionCaps,
       waiver_period_hours: 24,
     },
-    teams: [
-      { ...TEAM_A, consecutive_timeouts: 0 },
-      { ...TEAM_B, consecutive_timeouts: 0 },
-    ],
+    teams: teams.map((team) => ({ ...team, consecutive_timeouts: 0 })),
     players: new Map(players.map((entry) => [entry.id, entry])),
     teamPlayers: roster.map(([teamId, playerId]) => ({ leagueId: LEAGUE_ID, teamId, playerId })),
     draftQueue: queue.map(([teamId, playerId, rank]) => ({ teamId, playerId, rank })),
@@ -185,7 +202,10 @@ class FakeDraftDatabase {
     const { state } = this;
 
     if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" <= now()')) {
-      const due = state.league.pick_deadline_at && state.league.pick_deadline_at.getTime() <= Date.now();
+      const appliesNormalClockGate = sql.includes('"pick_time_seconds" > 0');
+      const due = state.league.pick_deadline_at
+        && state.league.pick_deadline_at.getTime() <= Date.now()
+        && (!appliesNormalClockGate || state.league.pick_time_seconds > 0);
       return { rows: due ? [{ id: state.league.id }] : [] };
     }
     if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR UPDATE')) {
@@ -300,6 +320,7 @@ class FakeDraftDatabase {
         : new Date(Date.now() + clockSeconds * 1000);
       return { rows: [{ pick_deadline_at: state.league.pick_deadline_at }] };
     }
+    if (sql.includes('SET "waivers_clear_at"')) return { rows: [] };
     if (sql.includes('SET "consecutive_timeouts" = 0')) {
       state.teams.find((entry) => entry.id === values[0]).consecutive_timeouts = 0;
       return { rows: [] };
@@ -393,6 +414,25 @@ describe('live snake-draft expiry and autopick integration', () => {
     expect(broadcast.deliveredAt - startedAt).toBeLessThanOrEqual(100);
   });
 
+  test('expired autodraft delay selects the best ADP player in an otherwise untimed draft', async () => {
+    const state = install(createState({
+      deadline: new Date(Date.now()),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2)],
+    }));
+    state.league.pick_time_seconds = 0;
+    state.teams[0].autodraft = true;
+    hub.connect(TEAM_A.owner_id);
+
+    const outcomes = await processExpiredPickClocks();
+
+    expect(outcomes).toEqual([{ leagueId: LEAGUE_ID, playerId: 101 }]);
+    expect(state.draftPicks).toEqual([
+      { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 },
+    ]);
+    expect(hub.deliveries.find((delivery) => delivery.event === 'draft:picked')?.payload)
+      .toMatchObject({ teamId: TEAM_A.id, player: { id: 101 }, auto: true });
+  });
+
   test('offline User B with an empty queue receives the best ADP player fitting an open starting slot', async () => {
     const state = install(createState({
       currentPick: 1,
@@ -456,5 +496,70 @@ describe('live snake-draft expiry and autopick integration', () => {
     expect(state.league.current_pick).toBe(1);
     expect(database.sql.filter((sql) => sql.includes('FOR UPDATE')).length).toBeGreaterThanOrEqual(2);
     expect(database.maxLockWaiters).toBe(1);
+  });
+
+  test('a 13-team draft completes with mixed manual and autodraft turns, preserving every slot and roster', async () => {
+    const state = install(createState({
+      deadline: new Date(Date.now()),
+      teams: MIXED_TEAMS,
+      draftRounds: 2,
+      rosterLimit: 2,
+      rosterSlots: [{ key: 'QB', count: 2, eligiblePositions: ['QB'] }],
+      positionCaps: {},
+      players: Array.from({ length: 26 }, (_, index) => player(1300 + index, 'QB', index + 1)),
+    }));
+    const seasonGeneration = jest.spyOn(seasonService, 'generateRegularSeason').mockResolvedValue();
+
+    try {
+      const manualTeams = state.teams.filter((team) => !team.autodraft);
+      const autoTeams = state.teams.filter((team) => team.autodraft);
+      for (let pickIndex = 0; pickIndex < state.teams.length * 2; pickIndex += 1) {
+        const team = teamForPick(pickIndex, state.teams);
+        const available = [...state.players.values()].find(
+          (candidate) => !state.teamPlayers.some((entry) => entry.playerId === candidate.id)
+        );
+        expect(available).toBeDefined();
+
+        if (team.autodraft) {
+          state.league.pick_deadline_at = new Date(Date.now());
+          const outcomes = await processExpiredPickClocks();
+          expect(outcomes).toHaveLength(1);
+          expect(outcomes[0]).toEqual({ leagueId: LEAGUE_ID, playerId: available.id });
+        } else {
+          const outcome = await draftPlayer({
+            leagueId: LEAGUE_ID,
+            userId: team.owner_id,
+            playerId: available.id,
+          });
+          expect(outcome.teamId).toBe(team.id);
+          expect(outcome.draftComplete).toBe(pickIndex === state.teams.length * 2 - 1);
+        }
+      }
+
+      expect(manualTeams.length).toBeGreaterThan(0);
+      expect(autoTeams.length).toBeGreaterThan(0);
+      expect(state.draftPicks).toHaveLength(26);
+      expect(state.draftPicks.map((pick) => pick.pickNumber)).toEqual(
+        Array.from({ length: 26 }, (_, index) => index + 1)
+      );
+      expect(state.draftPicks.map((pick) => pick.teamId)).toEqual(
+        Array.from({ length: 26 }, (_, index) => teamForPick(index, state.teams).id)
+      );
+      expect(state.teamPlayers).toHaveLength(26);
+      expect(new Set(state.teamPlayers.map((entry) => entry.teamId)).size).toBe(13);
+      expect(state.league.draft_status).toBe('complete');
+      expect(state.league.current_pick).toBe(26);
+      expect(state.league.pick_deadline_at).toBeNull();
+      expect(seasonGeneration).toHaveBeenCalledTimes(1);
+
+      const picked = hub.deliveries.filter((delivery) => delivery.event === 'draft:picked');
+      expect(picked).toHaveLength(10);
+      expect(picked.every((delivery) => delivery.payload.auto === true)).toBe(true);
+      expect(new Set(picked.map((delivery) => delivery.payload.teamId))).toEqual(
+        new Set(autoTeams.map((team) => team.id))
+      );
+    } finally {
+      seasonGeneration.mockRestore();
+    }
   });
 });

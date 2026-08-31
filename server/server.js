@@ -190,7 +190,7 @@ let shutdownPromise = null;
 
 async function startServer() {
   validateEnvironment();
-  await io.redisReady;
+  await Promise.all([io.redisReady, io.draftEventsReady]);
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(PORT, '0.0.0.0', resolve);

@@ -23,6 +23,7 @@ import useDraftAdmin from './useDraftAdmin';
 import useTabTitleFlash from './useTabTitleFlash';
 import DraftStatusBar from './DraftStatusBar';
 import DraftSettingsPanel from './DraftSettingsPanel';
+import DraftStartControl from './DraftStartControl';
 import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
@@ -434,6 +435,8 @@ function DraftBoard() {
     handleRemoveFromQueue,
   } = useDraftQueue(leagueId, { onError: setError });
   const admin = useDraftAdmin(leagueId, league, { onError: setError });
+  const minimumTeams = Number.isInteger(Number(league?.min_teams)) ? Number(league.min_teams) : 2;
+  const auctionUnavailable = league?.draft_type === 'auction';
 
   useTabTitleFlash(isMyTurn);
 
@@ -939,11 +942,21 @@ function DraftBoard() {
               {league?.name || 'Draft Board'}
             </Typography>
             {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
-              <Tooltip title="Draft settings">
-                <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
-                  <SettingsIcon />
-                </IconButton>
-              </Tooltip>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {league?.draft_status === 'pending' && (
+                  <DraftStartControl
+                    teamCount={teams.length}
+                    minimumTeams={minimumTeams}
+                    auctionUnavailable={auctionUnavailable}
+                    onStart={admin.handleStartDraft}
+                  />
+                )}
+                <Tooltip title="Draft settings">
+                  <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
+                    <SettingsIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             )}
           </Box>
           <DraftStatusBar

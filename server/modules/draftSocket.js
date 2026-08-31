@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const pool = require('./pool');
 const { setIo } = require('./io');
 const { broadcastDraftActivity } = require('./draftActivityBroadcast');
+const { broadcastRosterAvailability } = require('./rosterAvailabilityBroadcast');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
@@ -19,6 +20,7 @@ const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { getCorsOptions } = require('./clientOrigins');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createRedisSubscriber, getRedisClient } = require('./redis');
+const { startDraftEventRelay, closeDraftEventRelay } = require('./draftEvents');
 
 /**
  * Real-time draft room. Clients connect with { auth: { token } }, then:
@@ -44,6 +46,7 @@ function attachDraftSocket(httpServer) {
     io.adapter(createAdapter(publisher, subscriber));
     io.redisSubscriber = subscriber;
   })();
+  io.draftEventsReady = startDraftEventRelay(io);
   io.use(requireSocketAuth);
   setIo(io); // let scoring/scheduler broadcast without a circular require
 
@@ -290,6 +293,7 @@ function attachDraftSocket(httpServer) {
           // through the one shared helper (null-safe), beside the draft:complete
           // board signal.
           broadcastDraftActivity(leagueId, outcome.completion);
+          await broadcastRosterAvailability(leagueId);
           io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
         }
         ack && ack({ ok: true, outcome });
@@ -325,6 +329,8 @@ async function closeDraftSocket(io) {
   if (!io) return;
   await new Promise((resolve) => io.close(resolve));
   if (io.redisSubscriber?.isOpen) await io.redisSubscriber.quit();
+  const draftEventSubscriber = await io.draftEventsReady;
+  await closeDraftEventRelay(draftEventSubscriber);
 }
 
 /**
