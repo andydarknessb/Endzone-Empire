@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Stack, Typography } from '@mui/material';
 import DraftScheduleField from '../common/DraftScheduleField';
+import DraftStartControl from '../DraftBoard/DraftStartControl';
 import { browserTimeZone, utcIsoToZonedWallTime, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
 
 // A league's stored draft_timezone if it has one (a schedule saved through
@@ -26,10 +27,6 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
   const [draftDate, setDraftDate] = useState(() => utcIsoToZonedWallTime(league.draft_date, initialZone(league)));
   const [acknowledged, setAcknowledged] = useState(false);
   const [draftDateError, setDraftDateError] = useState(() => validateDraftDate(draftDate, timeZone));
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [startPending, setStartPending] = useState(false);
-  const [startError, setStartError] = useState('');
-  const startInFlight = useRef(false);
   useEffect(() => {
     const nextZone = initialZone(league);
     const nextDraftDate = utcIsoToZonedWallTime(league.draft_date, nextZone);
@@ -70,34 +67,6 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
       'Draft schedule saved'
     );
   };
-  const openStartConfirmation = () => {
-    setStartError('');
-    setConfirmOpen(true);
-  };
-  const closeStartConfirmation = () => {
-    if (startInFlight.current) return;
-    setStartError('');
-    setConfirmOpen(false);
-  };
-  const handleStart = async () => {
-    if (startInFlight.current) return;
-    startInFlight.current = true;
-    setStartPending(true);
-    setStartError('');
-    try {
-      const result = await onStart();
-      if (!result?.success) {
-        setStartError(result?.error || 'The draft could not be started.');
-        return;
-      }
-      setConfirmOpen(false);
-    } catch (error) {
-      setStartError(error?.response?.data?.error || error?.message || 'The draft could not be started.');
-    } finally {
-      startInFlight.current = false;
-      setStartPending(false);
-    }
-  };
   return (
     <Stack spacing={2}>
       {frozen && <Alert severity="info">Scheduling is locked after the draft starts.</Alert>}
@@ -116,13 +85,17 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
       <Typography variant="caption" color={insufficientTeams ? 'error' : 'text.secondary'}>{teamCount} of {minimumTeams} required teams have joined.</Typography>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         <Button variant="contained" disabled={frozen || saving || auctionUnavailable || Boolean(draftDateError) || needsAcknowledgement} onClick={handleSave}>Save schedule</Button>
-        <Button variant="outlined" disabled={frozen || saving || startPending || auctionUnavailable || insufficientTeams} onClick={openStartConfirmation}>Start Draft Now</Button>
+        <DraftStartControl
+          teamCount={teamCount}
+          minimumTeams={minimumTeams}
+          auctionUnavailable={auctionUnavailable}
+          onStart={onStart}
+          label="Start Draft Now"
+          variant="outlined"
+          disabled={frozen || saving}
+          showHints={false}
+        />
       </Box>
-      <Dialog open={confirmOpen} onClose={closeStartConfirmation}>
-        <DialogTitle>Start draft now?</DialogTitle>
-        <DialogContent><DialogContentText>This starts immediately for all {teamCount} managers and can&apos;t be easily undone.</DialogContentText>{startError && <Alert severity="error" sx={{ mt: 2 }}>{startError}</Alert>}</DialogContent>
-        <DialogActions><Button disabled={startPending} onClick={closeStartConfirmation}>Cancel</Button><Button variant="contained" disabled={saving || startPending} onClick={handleStart}>{startPending ? 'Starting…' : 'Start now'}</Button></DialogActions>
-      </Dialog>
     </Stack>
   );
 }
