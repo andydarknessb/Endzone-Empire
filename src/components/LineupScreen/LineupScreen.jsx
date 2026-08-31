@@ -201,7 +201,12 @@ function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
   return aEligible && bEligible;
 }
 
-export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
+export function LineupEditor({
+  leagueId,
+  showLeagueBreadcrumb = true,
+  heading = 'Set Lineup',
+  embedded = false,
+}) {
   const notify = useSnackbar();
   const { saveLineup } = useResilientLineupMutation({
     onReplaySuccess: () => notify('Lineup saved'),
@@ -559,7 +564,7 @@ export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
     );
   }
 
-  const entries = lineup?.entries || [];
+  const entries = Array.isArray(lineup?.entries) ? lineup.entries : [];
   const bySlot = {};
   entries.forEach((e) => {
     (bySlot[e.slot] = bySlot[e.slot] || []).push(e);
@@ -576,7 +581,7 @@ export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
           renderRow({
             key: `${type}-${i}`,
             testId: `slot-row-${type}-${i}`,
-            slotLabel: type,
+            slotLabel: count > 1 ? `${type} ${i + 1}` : type,
             slotType: type,
             entry: filled[i] || null,
           })
@@ -676,7 +681,7 @@ export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
     })
     : [];
 
-  const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;
+  const currentWeekValue = lineup ? selectedWeek ?? lineup.week ?? MIN_WEEK : null;
   const projectedTotal = advice?.projectedTotal;
   const optimalTotal = advice?.optimalTotal;
   // Additive advice fields. Older responses (a cached tab mid-deploy, or the
@@ -708,7 +713,7 @@ export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
       : 0;
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
+    <Container maxWidth={embedded ? false : 'lg'} disableGutters={embedded} sx={{ py: embedded ? 0 : 4 }}>
       {showLeagueBreadcrumb && <LeagueBreadcrumb />}
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -726,8 +731,8 @@ export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
 
       {lineup && (
         <>
-          <Typography variant="h4" sx={{ mb: 1 }}>
-            Set Lineup
+          <Typography variant="h4" component="h2" sx={{ mb: 1 }}>
+            {heading}
           </Typography>
           <Typography variant="subtitle1" sx={{ mb: 1, color: 'text.secondary' }}>
             Week {lineup.week}
@@ -1017,7 +1022,12 @@ export function LineupEditor({ leagueId, showLeagueBreadcrumb = true }) {
                   <Divider sx={{ mb: 2 }}>
                     <Chip label="Bench" size="small" variant="outlined" />
                   </Divider>
-                  <List disablePadding>{benchRows}</List>
+                  <Box
+                    data-testid="lineup-bench-scroll"
+                    sx={{ maxHeight: { xs: 360, md: 520 }, overflowY: 'auto', pr: 1 }}
+                  >
+                    <List disablePadding>{benchRows}</List>
+                  </Box>
                 </Box>
               </Paper>
             </Grid>

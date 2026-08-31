@@ -8,7 +8,7 @@ import TeamManagement from './TeamManagement';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
 afterEach(() => {
@@ -37,6 +37,25 @@ const makeStanding = (overrides = {}) => ({
 });
 
 const standingsResponse = (rows) => ({ data: { standings: rows } });
+
+const lineupResponse = (overrides = {}) => ({
+  leagueId: 1,
+  teamId: 101,
+  season: 2026,
+  week: 3,
+  currentWeek: 3,
+  rosterSlots: [
+    { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+    { key: 'WR', count: 1, eligiblePositions: ['WR'] },
+  ],
+  benchSlots: 5,
+  irSlots: 0,
+  entries: [
+    { id: 10, name: 'Starting Quarterback', position: 'QB', nfl_team: 'KC', slot: 'QB', locked: false, onBye: false },
+    { id: 11, name: 'Bench Receiver', position: 'WR', nfl_team: 'CHI', slot: 'BENCH', locked: false, onBye: false },
+  ],
+  ...overrides,
+});
 
 test('fetches leagues, auto-selects the first one, and loads its roster', async () => {
   apiClient.get.mockImplementation((url) => {
@@ -94,20 +113,58 @@ test('renders a pre-draft summary and directs an empty roster to the Draft Room'
   expect(screen.getByRole('link', { name: 'Draft Room' })).toHaveAttribute('href', '/league/1/draft');
 });
 
-test('shows current starter and bench slots with a Set Lineup entry point', async () => {
+test('uses Team as the current-week Lineup editor', async () => {
+  apiClient.put.mockResolvedValue({});
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league') return Promise.resolve({ data: [makeLeague()] });
     if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding({ wins: 1 })]));
-    return Promise.resolve({ data: [
+    if (url === '/api/team/roster?leagueId=1') return Promise.resolve({ data: [
       { id: 10, name: 'Starting Quarterback', position: 'QB', nfl_team: 'KC', lineup_slot: 'QB' },
       { id: 11, name: 'Bench Receiver', position: 'WR', nfl_team: 'CHI', lineup_slot: 'BENCH' },
     ] });
+    if (url === '/api/team/lineup?leagueId=1') return Promise.resolve({ data: lineupResponse() });
+    if (url === '/api/league/1') return Promise.resolve({ data: { league: makeLeague() } });
+    return Promise.resolve({ data: {} });
   });
   renderWithProviders(<TeamManagement />);
 
-  expect(await screen.findByText('Starting Quarterback')).toBeInTheDocument();
-  expect(screen.getByText('BENCH')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/1/lineup');
+  expect(await screen.findByRole('heading', { name: 'Lineup' })).toBeInTheDocument();
+  expect(screen.getAllByText('Bench Receiver')).toHaveLength(2);
+  expect(screen.getAllByText('Starting Quarterback').length).toBeGreaterThan(0);
+  expect(screen.queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-11'));
+  await userEvent.click(screen.getByTestId('slot-row-WR-0'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+    leagueId: 1,
+    week: 3,
+    moves: [{ playerId: 11, slot: 'WR' }],
+  }));
+});
+
+test('uses the League selected in Team query state for the Lineup editor', async () => {
+  const secondLeague = makeLeague({ id: 2, name: 'Second League', my_team_id: 202, my_team_name: 'Second Team' });
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league') return Promise.resolve({ data: [makeLeague(), secondLeague] });
+    if (url === '/api/team/roster?leagueId=2') return Promise.resolve({ data: [
+      { id: 20, name: 'Second Quarterback', position: 'QB', nfl_team: 'BUF', lineup_slot: 'QB' },
+    ] });
+    if (url === '/api/team/lineup?leagueId=2') {
+      return Promise.resolve({ data: lineupResponse({ leagueId: 2, entries: [
+        { id: 20, name: 'Second Quarterback', position: 'QB', nfl_team: 'BUF', slot: 'QB', locked: false, onBye: false },
+      ] }) });
+    }
+    if (url === '/api/league/2') return Promise.resolve({ data: { league: secondLeague } });
+    if (url.includes('/standings')) return Promise.resolve(standingsResponse([makeStanding({ teamId: 202 })]));
+    return Promise.resolve({ data: {} });
+  });
+
+  renderWithProviders(<TeamManagement />, { path: '/team', route: '/team?leagueId=2' });
+
+  expect(await screen.findByRole('heading', { name: 'Second Team' })).toBeInTheDocument();
+  expect(await screen.findByText('Second Quarterback')).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/team/lineup?leagueId=2');
 });
 
 test('an attested IR stash reads "IR (attested)" in the roster slot column', async () => {

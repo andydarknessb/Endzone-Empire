@@ -399,6 +399,18 @@ test('renders starters grouped by slot, bench section, and empty slot rows', asy
   expect(within(screen.getByTestId('lineup-bench')).getAllByText('Empty')).toHaveLength(4);
 });
 
+test('numbers repeated starter slots and keeps the Bench independently scrollable', async () => {
+  mockGetAll({ data: lineupResponse() });
+
+  renderScreen();
+
+  await screen.findByText('Patrick Mahomes');
+  expect(within(screen.getByTestId('slot-row-QB-0')).getByText('QB')).toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-row-RB-0')).getByText('RB 1')).toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-row-RB-1')).getByText('RB 2')).toBeInTheDocument();
+  expect(screen.getByTestId('lineup-bench-scroll')).toHaveStyle({ overflowY: 'auto' });
+});
+
 test('renders BYE and LOCKED chips for flagged entries', async () => {
   mockGetAll({ data: lineupResponse() });
 
