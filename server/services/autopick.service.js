@@ -148,7 +148,7 @@ async function processExpiredPickClocks() {
   const due = await pool.query(
     `SELECT "id" FROM "leagues"
      WHERE "draft_status" = 'active' AND "draft_paused" = false
-       AND "pick_time_seconds" > 0 AND "pick_deadline_at" IS NOT NULL
+       AND "pick_deadline_at" IS NOT NULL
        AND "pick_deadline_at" <= now()`
   );
   const outcomes = [];

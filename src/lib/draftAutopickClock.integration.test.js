@@ -202,7 +202,10 @@ class FakeDraftDatabase {
     const { state } = this;
 
     if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" <= now()')) {
-      const due = state.league.pick_deadline_at && state.league.pick_deadline_at.getTime() <= Date.now();
+      const appliesNormalClockGate = sql.includes('"pick_time_seconds" > 0');
+      const due = state.league.pick_deadline_at
+        && state.league.pick_deadline_at.getTime() <= Date.now()
+        && (!appliesNormalClockGate || state.league.pick_time_seconds > 0);
       return { rows: due ? [{ id: state.league.id }] : [] };
     }
     if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR UPDATE')) {
@@ -409,6 +412,25 @@ describe('live snake-draft expiry and autopick integration', () => {
     });
     expect(broadcast.payload).not.toHaveProperty('by');
     expect(broadcast.deliveredAt - startedAt).toBeLessThanOrEqual(100);
+  });
+
+  test('expired autodraft delay selects the best ADP player in an otherwise untimed draft', async () => {
+    const state = install(createState({
+      deadline: new Date(Date.now()),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2)],
+    }));
+    state.league.pick_time_seconds = 0;
+    state.teams[0].autodraft = true;
+    hub.connect(TEAM_A.owner_id);
+
+    const outcomes = await processExpiredPickClocks();
+
+    expect(outcomes).toEqual([{ leagueId: LEAGUE_ID, playerId: 101 }]);
+    expect(state.draftPicks).toEqual([
+      { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 },
+    ]);
+    expect(hub.deliveries.find((delivery) => delivery.event === 'draft:picked')?.payload)
+      .toMatchObject({ teamId: TEAM_A.id, player: { id: 101 }, auto: true });
   });
 
   test('offline User B with an empty queue receives the best ADP player fitting an open starting slot', async () => {
