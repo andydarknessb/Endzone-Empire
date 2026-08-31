@@ -130,7 +130,7 @@ test('"/discover" is protected: LoginPage when logged out, LeagueDiscovery when 
   expect(await screen.findByRole('heading', { name: 'Discover Leagues' })).toBeInTheDocument();
 });
 
-test('"/team" is protected: LoginPage when logged out, TeamManagement when logged in', async () => {
+test('"/team" is protected: LoginPage when logged out, Team Lineup when logged in', async () => {
   const { unmount } = renderApp('#/team', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
