@@ -284,6 +284,7 @@ const unstubbed = [
       'a test does, move the endpoint into the route table with a driven ' +
       'fixture (ADR 0014).',
     paths: [
+      { method: 'POST', pattern: '/api/league/:id/start-draft' },
       { method: 'POST', pattern: '/api/draft/league/:id/order' },
       { method: 'POST', pattern: '/api/draft/league/:id/pause' },
       { method: 'POST', pattern: '/api/draft/league/:id/teams/:teamId/autodraft' },
