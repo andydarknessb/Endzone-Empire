@@ -122,7 +122,7 @@
   },
   "//devDependencies-testing-library-dom": "@testing-library/dom is pinned so @testing-library/react and @testing-library/user-event share one installed copy; a second copy re-splits user-event's act()-aware config and every user-event interaction dispatches outside act() with no test failing. Do not remove or loosen this pin without running `npm run check:dom-dedupe` first. See #219 (the original defect), #224 (the guard), and #313 (the guard runs in the test-build CI job, so loosening this pin without a shared version fails CI, not just the manual check).",
   "devDependencies": {
-    "@babel/parser": "7.29.7",
+    "@babel/parser": "8.0.4",
     "@playwright/test": "^1.62.1",
     "react-scripts": "^5.0.1",
     "@testing-library/dom": "^10.4.1",
