@@ -31,6 +31,21 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
     }
   };
 
+  const handleStartDraft = async () => {
+    try {
+      onError?.(null);
+      await apiClient.post(`/api/league/${leagueId}/start-draft`);
+      clearLeagueCache(leagueId);
+      notify('Draft started successfully!');
+      return { success: true };
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      onError?.(message);
+      notify(message, { severity: 'error' });
+      return { success: false, error: message };
+    }
+  };
+
   const handleTogglePause = async () => {
     try {
       onError?.(null);
@@ -167,6 +182,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
     autodraftDelaySeconds,
     setAutodraftDelaySeconds,
     settingsSaving,
+    handleStartDraft,
     handleRandomizeOrder,
     handleTogglePause,
     handleToggleAutodraft,

@@ -510,6 +510,55 @@ test('shows "No picks yet" when the pick history is empty', async () => {
   expect(screen.getByText('No picks yet')).toBeInTheDocument();
 });
 
+test('puts the pending-draft start action in the Draft Room for commissioners', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: {
+      name: 'Sunday Ballers',
+      draft_status: 'pending',
+      draft_type: 'snake',
+      min_teams: 2,
+    },
+    teams: [TEAM_A, TEAM_B],
+    picks: [],
+    onTheClock: null,
+  }));
+
+  const startButton = screen.getByRole('button', { name: 'Start Draft' });
+  expect(startButton).toBeEnabled();
+  await userEvent.click(startButton);
+  await userEvent.click(screen.getByRole('button', { name: 'Start now' }));
+
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/start-draft'));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Start draft now?' })).not.toBeInTheDocument());
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: { name: 'Sunday Ballers', draft_status: 'active' },
+    teams: [TEAM_A, TEAM_B],
+    picks: [],
+    onTheClock: TEAM_A,
+  }));
+  expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
+});
+
+test('does not show the pending-draft start action to a non-commissioner', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: { name: 'Sunday Ballers', draft_status: 'pending', min_teams: 2 },
+    teams: [TEAM_A, TEAM_B],
+    picks: [],
+    onTheClock: null,
+  }));
+
+  expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
+});
+
 test('clicking Draft on a player emits draft:pick with the league and player id', async () => {
   renderBoard(3);
   await screen.findByText('Patrick Mahomes');
