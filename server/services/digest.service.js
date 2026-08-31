@@ -211,7 +211,7 @@ async function sendLineupReminders() {
       let entriesResult;
       try {
         await lineupClient.query('BEGIN');
-        await materializeLineup(lineupClient, { leagueId, teamId: team.id, season, week });
+        await materializeLineup(lineupClient, { leagueId, teamId: team.id, season, week, league });
         // `on_bye` is read off the LEFT JOIN, so the join predicate IS the
         // bye rule here. `nfl_games` keys teams by Tank01 abbreviation (DEN,
         // WSH) while `players.nfl_team` holds a FULL TEAM NAME for every DEF

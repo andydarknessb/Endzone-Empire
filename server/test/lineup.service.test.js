@@ -167,6 +167,100 @@ function installSetLineupWorld(t, injuryDesignation, {
   ]).install(t);
 }
 
+async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = [], expectError = null } = {}) {
+  const rosterSlots = [
+    { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
+    { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
+    { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
+    { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+    { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+    { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+  ];
+  const entries = [
+    ['QB', 'MIN'], ['RB', 'MIN'], ['RB', 'MIN'], ['WR', 'MIN'], ['WR', 'MIN'], ['TE', 'MIN'],
+    ['RB', 'MIN'], ['DEF', 'MIN'], ['WR', 'KC'], ['RB', 'KC'], ['WR', 'KC'], ['RB', 'KC'],
+    ['TE', 'KC'], ['QB', 'KC'],
+  ].map(([position, nfl_team], index) => ({
+    player_id: index + 1,
+    name: `Player ${index + 1}`,
+    position,
+    nfl_team,
+    injury_status: null,
+    ir_attested: false,
+  }));
+  const slots = new Map(preexistingBench
+    ? entries.map(({ player_id }) => [player_id, 'BENCH'])
+    : []);
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
+      id: 5,
+      current_season: 2026,
+      current_week: 8,
+      roster_slots: rosterSlots,
+      bench_slots: 6,
+      ir_slots: 0,
+    }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: Array.from(slots, ([player_id]) => ({ player_id })),
+    })],
+    [/^SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      slots.set(params[2], params[5]);
+      return { rows: [] };
+    }],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: entries.map((entry) => ({ ...entry, slot: slots.get(entry.player_id) })),
+    })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: lockedTeams.map((nfl_team) => ({ nfl_team })) })],
+    [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
+      slots.set(params[4], params[0]);
+      return { rows: [] };
+    }],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const save = setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 9, slot: 'WR' }, { playerId: 4, slot: 'BENCH' }],
+  });
+  if (expectError) {
+    await assert.rejects(save, expectError);
+    assert.deepEqual([...slots.values()], Array(entries.length).fill('BENCH'));
+    fake.assertClean();
+    return;
+  }
+  const result = await save;
+
+  assert.equal(result.updated, preexistingBench ? 9 : 2);
+  assert.equal([...slots.values()].filter((slot) => slot === 'BENCH').length, 6);
+  assert.equal(slots.get(9), 'WR');
+  assert.equal(slots.get(4), 'BENCH');
+  fake.assertClean();
+}
+
+test('setLineup materializes a legal first-week lineup before a manager swap', async (t) => {
+  await firstWeekLineupSwap(t);
+});
+
+test('setLineup repairs an already-materialized all-bench lineup before a manager swap', async (t) => {
+  await firstWeekLineupSwap(t, { preexistingBench: true });
+});
+
+test('setLineup recovery never starts players whose games have already kicked off', async (t) => {
+  await firstWeekLineupSwap(t, {
+    preexistingBench: true,
+    lockedTeams: ['MIN'],
+    expectError: (error) => error.statusCode === 400 && /too many players at BENCH/.test(error.message),
+  });
+});
+
 /**
  * #274: every setLineup refusal must prove the slot never moved, not just that
  * the caller was told no. All of setLineup's refusals throw INSIDE the
@@ -1278,7 +1372,7 @@ test('restoreInterruptedStash materializes the week, then puts him back in the r
   // copy-forward would read as its source), then the recorded slot written
   // over whatever it left him in.
   assert.equal(inserts.length, 2);
-  assert.deepEqual(inserts[0].params, [5, 10, 21, 2026, 9, 'BENCH', false]);
+  assert.deepEqual(inserts[0].params, [5, 10, 21, 2026, 9, 'RB', false]);
   assert.deepEqual(inserts[1].params, [5, 10, 21, 2026, 9, 'IR', true]);
   assert.match(
     inserts[1].text,

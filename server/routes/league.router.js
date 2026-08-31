@@ -879,7 +879,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     };
     const teamLineup = async (teamId) => {
       await materializeLineup(client, {
-        leagueId, teamId, season: matchup.season, week: matchup.week,
+        leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueResult.rows[0],
       });
       const lineupRows = await client.query(
         `SELECT "players"."id", "players"."name", "players"."position",

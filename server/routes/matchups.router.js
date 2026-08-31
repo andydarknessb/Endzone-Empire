@@ -37,6 +37,14 @@ router.get('/:matchupId/real-games', async (req, res) => {
     const matchup = matchupResult.rows[0];
     if (!matchup) return res.status(404).json({ error: 'matchup not found' });
 
+    const leagueResult = await client.query(
+      `SELECT "best_ball", "roster_slots", "bench_slots", "ir_slots"
+       FROM "leagues" WHERE "id" = $1`,
+      [matchup.league_id]
+    );
+    const league = leagueResult.rows[0];
+    if (!league) return res.status(404).json({ error: 'league not found' });
+
     if (!(await isMember(client, matchup.league_id, req.user.id))) {
       return res.status(403).json({ error: 'not a member of this league' });
     }
@@ -52,12 +60,14 @@ router.get('/:matchupId/real-games', async (req, res) => {
       teamId: matchup.home_team_id,
       season: matchup.season,
       week: matchup.week,
+      league,
     });
     await materializeLineup(client, {
       leagueId: matchup.league_id,
       teamId: matchup.away_team_id,
       season: matchup.season,
       week: matchup.week,
+      league,
     });
 
     const gamesResult = await client.query(
