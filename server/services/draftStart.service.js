@@ -6,6 +6,9 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { appendLifecycleActivity, DRAFT_START, COMPLETE } = require('./draftActivity');
 const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
+// The Pick clock module owns arming (ADR 0018): the draft-started event fixes
+// draft_rounds and arms the first open pick's clock in one statement.
+const pickClock = require('./pickClock.service');
 
 /** Re-broadcast the full draft state so connected clients pick up the new status/order. */
 async function broadcastDraftState(leagueId) {
@@ -123,15 +126,9 @@ async function startDraft({ leagueId, userId = null }) {
       // 0005): a draft that completes without a live pick is still "active or
       // completed" for every later read, so it must not fall through to a
       // live draftRosterSize() recomputation either.
-      await client.query(
-        `UPDATE "leagues"
-         SET "draft_status" = 'complete', "current_pick" = $2, "updated_at" = now(),
-             "draft_autostart_failed" = false, "pick_deadline_at" = NULL,
-             "draft_rounds" = $3,
-             "waivers_clear_at" = now() + make_interval(hours => "waiver_period_hours")
-         WHERE "id" = $1`,
-        [leagueId, plan.totalPicks, plan.rounds]
-      );
+      await pickClock.onDraftStarted(client, {
+        leagueId, complete: true, currentPick: plan.totalPicks, rounds: plan.rounds,
+      });
       const { generateRegularSeason } = require('./season.service');
       await generateRegularSeason({ leagueId }, client);
       // The same transaction also completed the draft (no live pick was ever
@@ -143,18 +140,10 @@ async function startDraft({ leagueId, userId = null }) {
       // 0005). draftPlayer's completion check and every other active/completed
       // read use this stored value from here on; none of them call
       // draftRosterSize() again for this league.
-      await client.query(
-        `UPDATE "leagues"
-         SET "draft_status" = 'active', "current_pick" = $2, "updated_at" = now(),
-             "draft_autostart_failed" = false,
-             "draft_rounds" = $4,
-             "pick_deadline_at" = CASE
-               WHEN $3::int IS NULL THEN NULL
-               ELSE now() + make_interval(secs => $3::int)
-             END
-         WHERE "id" = $1`,
-        [leagueId, plan.firstOpenPick, plan.firstClockSeconds, plan.rounds]
-      );
+      await pickClock.onDraftStarted(client, {
+        leagueId, complete: false, currentPick: plan.firstOpenPick,
+        clockSeconds: plan.firstClockSeconds, rounds: plan.rounds,
+      });
     }
 
     await client.query('COMMIT');

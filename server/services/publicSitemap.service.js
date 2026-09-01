@@ -21,6 +21,7 @@ const STATIC_PUBLIC_PATHS = [
   '/strategy/playoff-prep',
   '/strategy/preseason-week-1-recap',
   '/strategy/preseason-week-2-recap',
+  '/strategy/preseason-week-3-recap',
   '/strategy/rookie-draft-round-guide',
   '/recaps',
 ];

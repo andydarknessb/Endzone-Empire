@@ -1,4 +1,7 @@
-const { nextPickClockSeconds } = require('./draft.service');
+// The Pick clock module owns the arming policy and its offline composition (ADR
+// 0018): the start plan resolves the first pick's clock through the same
+// clockSecondsFor every other named event uses, so there is one spelling.
+const { clockSecondsFor } = require('./pickClock.service');
 const { draftRosterSize } = require('./rosterShape');
 const {
   teamForPick,
@@ -299,13 +302,14 @@ function startPlan(league, teams, keepers = []) {
   const firstOpenPick = nextOpenPickNumber(takenSet, 0, totalPicks);
 
   let firstClockSeconds = null;
-  if (firstOpenPick !== null && !clockless) {
+  if (firstOpenPick !== null) {
+    // clockSecondsFor applies the offline rule itself (an offline draft arms no
+    // clock), so no separate clockless gate is needed here.
     const onClock = teamForPick(firstOpenPick, teams, rotationOpts);
-    firstClockSeconds = nextPickClockSeconds({
+    firstClockSeconds = clockSecondsFor({
       draftComplete: false,
-      nextTeamAutodraft: autodraftAll || Boolean(onClock && onClock.autodraft),
-      pickTimeSeconds: league.pick_time_seconds,
-      autodraftDelaySeconds: league.autodraft_delay_seconds,
+      onClockAutodraft: autodraftAll || Boolean(onClock && onClock.autodraft),
+      league,
     });
   }
 
