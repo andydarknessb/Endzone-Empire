@@ -661,7 +661,11 @@ router.get('/:id/matchups', async (req, res) => {
        ORDER BY "matchups"."season" DESC, "matchups"."week" DESC, "matchups"."id"`,
       params
     );
-    res.json(result.rows);
+    // Each side's projected starter total rides on the list row so Game
+    // Center's cards can show it (null on final matchups and on teams with
+    // no lineup for the week; see matchupProjections.service).
+    const { attachProjectedTotals } = require('../services/matchupProjections.service');
+    res.json(await attachProjectedTotals(result.rows));
   } catch (error) {
     console.error('Error fetching matchups', error);
     res.status(500).json({ error: 'failed to fetch matchups' });
