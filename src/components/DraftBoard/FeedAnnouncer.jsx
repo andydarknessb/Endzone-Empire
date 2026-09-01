@@ -3,13 +3,7 @@ import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { feedEntryKey } from '../../lib/teamIdentity';
 import { feedAnnouncementFor } from './feedAnnouncement';
-
-// A zero-width space (U+200B): appended to an announcement when its text would
-// exactly equal the CURRENTLY RENDERED announcement, so that two entries whose
-// text is byte-identical still change the live region's text node and are both
-// announced. It is not rendered and not spoken. Built from its code point so no
-// invisible literal sits in source.
-const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
+import { nextAnnouncement } from './announcerRepeat';
 
 /**
  * The Draft room's combined-feed announcer (#445 AC2): one persistent, visually
@@ -32,9 +26,11 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed and
  * the On-the-clock banner belong to an ACTIVE one, and a draft is one or the
  * other, never both. So the only regions this announcer genuinely coexists with,
- * during the active phase, are the composer character counter (#486) and the
- * On-the-clock banner (LiveDraftBanner) - two, not a crowd. It still earns its
- * place rather than folding into either:
+ * during the active phase, are the composer character counter (#486), the
+ * On-the-clock banner (LiveDraftBanner) and, since #636, the stall announcer
+ * (StallAnnouncer) - which shares this chat subtree because it reads the same
+ * feed. A small, fixed set, each on its own axis, not a crowd. This one still
+ * earns its place rather than folding into any of them:
  *
  *  - It carries a DIFFERENT axis: human-message arrival, which neither the
  *    counter nor the banner announces. Folding it into one would make that
@@ -78,20 +74,24 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * parity-flip that had exactly that desync). This is distinct from the
  * identical-TAIL rerender above, which is a non-event and stays silent.
  *
- * PickAnnouncer.jsx (#513) now uses the identical repeat idiom - compare the new
- * text against the rendered value and append a zero-width space on an exact
- * repeat. After #518 the two no longer diverge on the repeat handling. That
- * duplication is DELIBERATE, not a pending cleanup: it is a two-line idiom, not a
- * mechanism, so a shared hook buys no reduction in logic and costs an import, an
- * indirection and a file. And the two components have genuinely different
- * lifecycles - this one is seq-gated over a feed with a clear path and an
- * initialisation guard; PickAnnouncer is keyed on a single pick prop with
- * neither - so a shared hook would have to reconcile a clear path that only one of
- * them has, which is exactly the reset-semantics hazard #513 identified. The two
- * did drift once (the fourth-repeat silence #518 fixed), but only because one was
- * fixed hours before the other; the cross-references now written in both docblocks
- * are the cheap guard against that. REOPEN THIS ONLY IF A THIRD ANNOUNCER NEEDS
- * THE SAME IDIOM: at three copies, extract a shared helper then.
+ * The repeat-safe update itself - compare the new text against the rendered
+ * value and append a zero-width space on an exact repeat - is now the shared
+ * nextAnnouncement helper (announcerRepeat.js). This and PickAnnouncer (#513)
+ * had each carried it inline, and this docblock used to say to extract it "at
+ * three copies, not two"; StallAnnouncer (#636) was that third copy, so the
+ * idiom was extracted and all three now call it. Only the two-line repeat idiom
+ * moved; the GATING stays per-component. It is NOT that all three gate alike -
+ * this announcer's effect and StallAnnouncer's share a seq high-water discipline,
+ * but they diverge past it: this one is an EVENT announcer, tail-only, because a
+ * newer chat message supersedes an older one; StallAnnouncer is a STATE announcer
+ * that scans the whole newly-arrived slice for the newest stall (a stall is not
+ * superseded by a later chat message) and clears on a resume. PickAnnouncer is
+ * different again, keyed on a single pick prop with no feed at all. The reason a
+ * shared GATING hook is still refused is not "different lifecycles" alone: it is
+ * that folding in a clear/reset path only some of them own is exactly the
+ * reset-semantics hazard #513 identified. (The 22-line similarity an earlier
+ * review flagged between this effect and StallAnnouncer's was the pre-state-model
+ * StallAnnouncer; the #636 state-model fix diverged them.)
  */
 function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
   const [announcement, setAnnouncement] = useState('');
@@ -132,16 +132,21 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
       highWaterSeqRef.current = tailSeq;
     }
 
-    // ALL Draft activity - a Pick (now the room-level PickAnnouncer's, #513) and
-    // every lifecycle entry (draft_start, pause, resume, reset, complete) alike -
-    // is a NO-OP here, keyed on the entry type rather than kind=pick so both are
-    // covered. Draft activity still advances the seq high-water mark above so a
-    // later message is not taken for backlog, but it must NOT fall through to the
-    // empty-clear below: that would BLANK a still-unread chat announcement (the
-    // previous "New message from X") every time activity lands, and in an active
-    // draft that is constant. Leave the region's current text untouched. This is
-    // distinct from the deliberate clear for a hidden arrival or the viewer's own
-    // message below, which stays exactly as it was (#513 did not change it).
+    // ALL Draft activity is a NO-OP here, keyed on the entry TYPE
+    // ('draft_activity') rather than any one kind, so the whole set is covered
+    // however it grows - the Pick (now the room-level PickAnnouncer's, #513), the
+    // stall (now the room's StallAnnouncer, #636) and every lifecycle transition
+    // alike. The authoritative kind set is the router in DraftActivityEntry.jsx
+    // (LIFECYCLE_RENDER_KINDS plus its pick, correction and stalled branches);
+    // this guard deliberately does not re-list it by kind, so it cannot fall out
+    // of date the way an inline enumeration here once did. Draft activity still
+    // advances the seq high-water mark above so a later message is not taken for
+    // backlog, but it must NOT fall through to the empty-clear below: that would
+    // BLANK a still-unread chat announcement (the previous "New message from X")
+    // every time activity lands, and in an active draft that is constant. Leave
+    // the region's current text untouched. This is distinct from the deliberate
+    // clear for a hidden arrival or the viewer's own message below, which stays
+    // exactly as it was (#513 did not change it).
     if (tail && tail.type === 'draft_activity') return;
 
     const text = feedAnnouncementFor(tail, viewerTeamId);
@@ -164,8 +169,9 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
     // across ANY interleaving such as A, A, B, B: a different entry landing between
     // two repeat-pairs cannot desync from what is on screen, because there is no
     // counter. This is not the identical-tail case above - that returns before
-    // here and stays deliberately silent.
-    setAnnouncement((prev) => (prev === text ? text + ZERO_WIDTH_SPACE : text));
+    // here and stays deliberately silent. The append-on-exact-repeat itself is
+    // the shared nextAnnouncement helper (announcerRepeat.js).
+    setAnnouncement((prev) => nextAnnouncement(prev, text));
   }, [tailKey, tailSeq, tail, viewerTeamId]);
 
   return (
