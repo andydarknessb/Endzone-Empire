@@ -469,12 +469,15 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  * it - a re-spread of `[PICK, ...LIFECYCLE_KINDS, CORRECTION]` yields a
  * byte-identical array and the whole suite still passes - so the guard reads the
  * SOURCE FORM instead: presenterDraftActivity.service.test.js extracts this
- * initialiser expression (its `Object.freeze([ ... ])`, scoped off this comment)
- * and asserts it holds no spread token, failing loudly if the declaration is ever
- * renamed rather than matching nothing. That is the consumer of the "literal,
- * never a spread" rule; a future edit that silently restores the spread turns it
- * red. What IS enforced complementarily (below): an append to LIFECYCLE_KINDS
- * turns the #540 equality pin red.
+ * initialiser expression and asserts it holds no spread token, failing loudly if
+ * the declaration is ever renamed rather than matching nothing. Its extraction is
+ * LINE-ANCHORED to the `const PRESENTER_ACTIVITY_KINDS = ...` line (a comment line
+ * begins with a space-star, never with `const`), so it reads the real array and
+ * not any copy of the declaration written INTO a comment to explain the rule -
+ * including this paragraph, which quotes the spread form above. That is the
+ * consumer of the "literal, never a spread" rule; a future edit that silently
+ * restores the spread turns it red. What IS enforced complementarily (below): an
+ * append to LIFECYCLE_KINDS turns the #540 equality pin red.
  *
  * It holds the SAME kinds as the member feed's USER_VISIBLE_KINDS today, but is
  * declared INDEPENDENTLY (#540), NOT aliased to it and no longer sharing its

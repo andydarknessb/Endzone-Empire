@@ -106,14 +106,35 @@ test('the PRESENTER_ACTIVITY_KINDS initialiser is spelled out LITERALLY, never a
   const source = fs.readFileSync(require.resolve('../services/leagueFeed'), 'utf8');
 
   // Extract ONLY the initialiser expression, from its `Object.freeze([` to the
-  // matching `])`. Anchoring on the DECLARATION keeps the extraction off the doc
-  // comment above the array, which names `...LIFECYCLE_KINDS` several times to
-  // explain the convention (ADR 0010: documenting a pattern means writing an
-  // example of it), so a whole-file or comment-spanning check would fire on its
-  // own documentation.
-  const initialiser = source.match(
-    /const PRESENTER_ACTIVITY_KINDS = Object\.freeze\(\[([\s\S]*?)\]\)/
+  // matching `])`. The regex is LINE-ANCHORED (`^ ... /m`): a doc-comment line
+  // begins with a space-star and never with `const`, so anchoring to
+  // start-of-line is what STRUCTURALLY keeps the extraction off the doc comment
+  // above the array - which names `...LIFECYCLE_KINDS` and, when someone explains
+  // the rule, writes out the whole `const ... = Object.freeze([ ... ])`
+  // declaration to show it (ADR 0010: documenting a pattern means writing an
+  // example of it). Without the anchor, String.match returns the FIRST match
+  // anywhere in the file, so a future comment quoting the declaration would be
+  // extracted instead of the real array and the guard would pass on the comment's
+  // literal example while the real array spread - the exact hole this guards.
+  const DECLARATION = /^const PRESENTER_ACTIVITY_KINDS = Object\.freeze\(\[([\s\S]*?)\]\)/m;
+
+  // Assert the declaration is UNIQUE. Zero matches already fails via the
+  // extraction assertion below; the case that assertion cannot see is TWO or more
+  // - a stray second declaration, or a refactor that left an old copy behind -
+  // where an unqualified match silently picks the first and the guard audits the
+  // wrong array with no signal. This is the anti-orphan reasoning applied to the
+  // other end: a source-form guard must know it is reading THE array, not one of
+  // several.
+  const all = [...source.matchAll(new RegExp(DECLARATION, 'gm'))];
+  assert.equal(
+    all.length,
+    1,
+    `expected exactly one \`const PRESENTER_ACTIVITY_KINDS = Object.freeze([ ... ])\` ` +
+      `declaration in leagueFeed.js, found ${all.length}; a source-form guard must ` +
+      `read THE array, not one of several`
   );
+
+  const initialiser = source.match(DECLARATION);
 
   // Assert the declaration was FOUND before asserting anything about its contents.
   // A silent no-match is indistinguishable from a match that found no spread, so
