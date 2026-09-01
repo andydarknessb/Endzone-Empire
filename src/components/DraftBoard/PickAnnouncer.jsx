@@ -2,13 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { pickAnnouncementFor } from './pickAnnouncement';
-
-// A zero-width space (U+200B): appended to an announcement when its text would
-// exactly equal the CURRENTLY RENDERED announcement, so that two Picks whose
-// text is byte-identical still change the live region's text node and are both
-// announced. It is not rendered and not spoken. Built from its code point so no
-// invisible literal sits in source.
-const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
+import { nextAnnouncement } from './announcerRepeat';
 
 /**
  * The Draft room's ROOM-LEVEL Pick announcer (#513): one persistent, visually
@@ -51,17 +45,16 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
  * setState `prev`), not a separate last-text ref or a parity counter, is what
  * makes this hold for ANY interleaving: a different Pick landing between two
  * repeats (A, A, B, B) cannot desync a counter from what is on screen, because
- * there is no counter. FeedAnnouncer.jsx (the Chat-scoped feed announcer) now
- * uses this same rendered-value comparison too: #518 replaced its older
- * parity-counter flip, which had exactly that desync defect, so the two no longer
- * diverge on the repeat handling. That duplication is DELIBERATE, not a pending
- * cleanup: it is a two-line idiom, not a mechanism, and the two components have
- * different lifecycles - this one is keyed on a single pick prop; the feed
- * announcer is seq-gated over a chat feed with a clear path and an initialisation
- * guard neither of which this one has - so a shared hook would have to reconcile a
- * clear path only one of them owns, the reset-semantics hazard #513 identified.
- * REOPEN THIS ONLY IF A THIRD ANNOUNCER NEEDS THE SAME IDIOM: extract a shared
- * helper at three copies, not two.
+ * there is no counter. That repeat-safe update is now the shared
+ * nextAnnouncement helper (announcerRepeat.js): this and FeedAnnouncer (#445)
+ * had each carried it inline, both docblocks reading "extract a shared helper at
+ * three copies, not two", and StallAnnouncer (#636) was the third copy, so the
+ * idiom was extracted and all three now call it. What is NOT shared is WHEN each
+ * fires: this one is keyed on a single pick prop, the feed announcer is seq-gated
+ * over a chat feed with a clear path and an initialisation guard this one has no
+ * need of, and the stall announcer is seq-gated over the same feed for the
+ * stalled kind - so the extraction is the two-line repeat idiom only, never the
+ * gating, which is the reset-semantics hazard #513 identified.
  */
 function PickAnnouncer({ pick = null }) {
   const [announcement, setAnnouncement] = useState('');
@@ -70,13 +63,12 @@ function PickAnnouncer({ pick = null }) {
     if (!pick) return;
     const text = pickAnnouncementFor(pick);
     if (!text) return;
-    // When the new text would exactly repeat what is CURRENTLY RENDERED, append a
-    // zero-width space so the node value still changes and the repeat is
-    // announced; otherwise set it clean. Comparing against `prev` (not a parity
-    // counter) is what keeps this correct across any interleaving such as
-    // A, A, B, B - see the docblock. FeedAnnouncer.jsx now uses the same idiom
-    // (#518 replaced its old parity-counter flip that had the desync defect).
-    setAnnouncement((prev) => (prev === text ? text + ZERO_WIDTH_SPACE : text));
+    // The shared repeat-safe update (announcerRepeat.js): when the new text would
+    // exactly repeat what is CURRENTLY RENDERED it appends a zero-width space so
+    // the node value still changes and the repeat is announced; otherwise it sets
+    // clean. Comparing against `prev` (not a parity counter) is what keeps this
+    // correct across any interleaving such as A, A, B, B - see the helper.
+    setAnnouncement((prev) => nextAnnouncement(prev, text));
   }, [pick]);
 
   return (

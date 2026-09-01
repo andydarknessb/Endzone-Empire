@@ -123,6 +123,69 @@ test('announces a live human message in a polite region - but never a Pick (#513
   expect(announcingPick).toHaveLength(0);
 });
 
+const stalledActivity = (overrides = {}) => ({
+  type: 'draft_activity',
+  kind: 'stalled',
+  id: 30,
+  seq: 30,
+  teamName: 'MinneApple',
+  created_at: '2026-09-01T12:10:00Z',
+  ...overrides,
+});
+
+test('announces a live stall in its OWN region and leaves an unread chat announcement untouched (#636)', async () => {
+  // The trap this ticket exists inside: a stall must be spoken, but NOT through
+  // the shared chat region, or it overwrites a still-unread "New message from X".
+  // A stall lands here while that chat announcement is still standing; the chat
+  // region must keep it, and the stall must be spoken in a DIFFERENT region.
+  // A backlog message seeds the feed silently (the first non-empty feed is never
+  // announced), so the LIVE message below is a genuine arrival that announces.
+  apiClient.get.mockResolvedValue({ data: [chatMessage({ id: 1, seq: 1, teamName: 'Anvils', message: 'welcome' })] });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  await screen.findByText('welcome');
+
+  // A live chat message from ANOTHER Team writes the feed announcer's region.
+  act(() => socket.trigger('chat:message', chatMessage({ id: 20, seq: 20, teamId: 12, teamName: 'Bulldogs', message: 'good luck' })));
+  expect(await screen.findByText('New message from Bulldogs')).toBeInTheDocument();
+
+  // Then the draft freezes: a stalled activity entry arrives (seq strictly newer).
+  act(() => socket.trigger('draft:activity', stalledActivity({ seq: 30, teamName: 'MinneApple' })));
+
+  // The stall is spoken - naming the cause and the commissioner next step, and
+  // the Team without agency - in a status region distinct from the chat one.
+  const stallRegion = await waitFor(() => {
+    const region = screen.getAllByRole('status').find((r) => /the draft is stuck on/i.test(r.textContent));
+    expect(region).toBeDefined();
+    return region;
+  });
+  expect(stallRegion).toHaveTextContent('no draftable player');
+  expect(stallRegion).toHaveTextContent('A commissioner must resolve and resume');
+  expect(stallRegion.textContent).not.toMatch(/stalled the draft/i);
+
+  // The chat announcement is UNCHANGED: the unread "New message from Bulldogs"
+  // still stands in its own region, in a DIFFERENT node than the stall's, so the
+  // stall did not blank it (and the two are not one region reused).
+  const chatRegion = screen.getAllByRole('status').find((r) => /New message from Bulldogs/.test(r.textContent));
+  expect(chatRegion).toBeDefined();
+  expect(chatRegion).not.toBe(stallRegion);
+  expect(chatRegion).toHaveTextContent('New message from Bulldogs');
+  // And the stall was not announced through the chat region.
+  expect(chatRegion.textContent).not.toMatch(/the draft is stuck/i);
+});
+
+test('does not announce a stall already present in the opening backlog (#636)', async () => {
+  // A room opening onto an already-stalled draft is a state to READ, not a live
+  // freeze to announce: the first non-empty feed seeds the seq high-water mark
+  // silently, the stall announcer included.
+  apiClient.get.mockResolvedValue({ data: [stalledActivity({ id: 9, seq: 9, teamName: 'MinneApple' })] });
+  renderWithProviders(<DraftRoomChat socket={socket} leagueId={3} viewerTeamId={11} />);
+  // The stall's VISIBLE stuck-state line is rendered by the feed...
+  expect(await screen.findByText(/the draft is stuck on/i)).toBeInTheDocument();
+  // ...but no polite status region announces it: it was backlog, seeded silently.
+  const announcing = screen.getAllByRole('status').filter((r) => /A commissioner must resolve and resume/i.test(r.textContent));
+  expect(announcing).toHaveLength(0);
+});
+
 const pickActivity = (overrides = {}) => ({
   type: 'draft_activity',
   kind: 'pick',

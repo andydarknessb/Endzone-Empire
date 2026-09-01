@@ -75,10 +75,11 @@ describe('FeedAnnouncer', () => {
   });
 
   it('a Draft LIFECYCLE entry does not blank a pending message announcement either (#513)', () => {
-    // The no-op keys on type === 'draft_activity', not kind === 'pick', so
-    // lifecycle entries (draft_start, pause, resume, reset, complete) are covered
-    // by the same guard as Picks: they too used to fall into the empty-clear and
-    // must now leave a still-unread message announcement intact.
+    // The no-op keys on type === 'draft_activity', not kind === 'pick', so every
+    // lifecycle transition (the authoritative kind set lives in
+    // DraftActivityEntry.jsx) is covered by the same guard as Picks: they too
+    // used to fall into the empty-clear and must now leave a still-unread message
+    // announcement intact.
     const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'old')]} />);
     rerender(<FeedAnnouncer entries={[chat(1, 'A', 'old'), chat(2, 'Rivals', 'hi')]} />);
     expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
