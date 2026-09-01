@@ -118,14 +118,27 @@ test('the PRESENTER_ACTIVITY_KINDS initialiser is spelled out LITERALLY, never a
   // literal example while the real array spread - the exact hole this guards.
   const DECLARATION = /^const PRESENTER_ACTIVITY_KINDS = Object\.freeze\(\[([\s\S]*?)\]\)/m;
 
-  // Assert the declaration is UNIQUE. Zero matches already fails via the
-  // extraction assertion below; the case that assertion cannot see is TWO or more
-  // - a stray second declaration, or a refactor that left an old copy behind -
-  // where an unqualified match silently picks the first and the guard audits the
-  // wrong array with no signal. This is the anti-orphan reasoning applied to the
-  // other end: a source-form guard must know it is reading THE array, not one of
-  // several.
+  // Collect every match ONCE, then assert in the order that keeps both failure
+  // messages reachable. matchAll needs the global flag, so rebuild DECLARATION
+  // with `gm` (new RegExp(re, flags) reuses the source and applies these flags).
   const all = [...source.matchAll(new RegExp(DECLARATION, 'gm'))];
+
+  // FOUND before anything about contents (the anti-orphan half). Zero matches is
+  // indistinguishable from a match that found no spread, so a rename or move must
+  // turn this guard RED here rather than leave it vacuously green. This is the
+  // message a future maintainer sees when a refactor orphans the guard.
+  assert.ok(
+    all.length >= 1,
+    'could not locate `const PRESENTER_ACTIVITY_KINDS = Object.freeze([ ... ])` in ' +
+      'leagueFeed.js; if the declaration was renamed or moved, update this guard ' +
+      'rather than let it match nothing'
+  );
+
+  // UNIQUE: the anti-orphan assertion above catches zero; the case it cannot see
+  // is TWO or more - a stray second declaration, or a refactor that left an old
+  // copy behind - where reading only the first match would silently audit the
+  // wrong array. Same reasoning applied to the other end: the guard must know it
+  // is reading THE array, not one of several.
   assert.equal(
     all.length,
     1,
@@ -134,22 +147,10 @@ test('the PRESENTER_ACTIVITY_KINDS initialiser is spelled out LITERALLY, never a
       `read THE array, not one of several`
   );
 
-  const initialiser = source.match(DECLARATION);
-
-  // Assert the declaration was FOUND before asserting anything about its contents.
-  // A silent no-match is indistinguishable from a match that found no spread, so
-  // a rename or move must turn this guard RED by extraction failure, never leave
-  // it vacuously green. This is the anti-orphan half of the guard.
-  assert.ok(
-    initialiser,
-    'could not locate `const PRESENTER_ACTIVITY_KINDS = Object.freeze([ ... ])` in ' +
-      'leagueFeed.js; if the declaration was renamed or moved, update this guard ' +
-      'rather than let it match nothing'
-  );
-
-  // With the declaration located, its initialiser must contain no spread token:
-  // a new lifecycle kind must never reach the anonymous presenter board without a
+  // The sole match's captured initialiser must contain no spread token: a new
+  // lifecycle kind must never reach the anonymous presenter board without a
   // deliberate edit to this array (#619).
+  const initialiser = all[0];
   assert.ok(
     !initialiser[1].includes('...'),
     'PRESENTER_ACTIVITY_KINDS must enumerate its kinds LITERALLY and never spread ' +
