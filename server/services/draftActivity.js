@@ -116,13 +116,14 @@ const ALL_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION, CUTOVER])
  * deliberate (#619): a lifecycle transition is a member-facing Draft fact by
  * construction - the same event the Draft room already shows members - so it
  * clears the member feed's SERVER kind filter with no second server gate. That
- * is membership only, not rendering: the Draft room draws just the kinds its
- * component has a verb for and shows nothing for the rest (#540 AC6, refusing to
- * guess), so a brand-new lifecycle kind is member-visible at the API yet renders
- * as nothing in the room until the client learns to draw it. It still fails
- * closed for a brand-new SHAPE added to ALL_KINDS but NOT to LIFECYCLE_KINDS:
- * CORRECTION had to be named here on purpose, and the internal CUTOVER boundary
- * is left out on purpose, so neither reaches a member feed by inheritance.
+ * is membership only, not rendering: the Draft room draws only the kinds its
+ * component knows how to draw and shows nothing for the rest (#540 AC6, refusing
+ * to guess), so a brand-new lifecycle kind is member-visible at the API yet
+ * renders as nothing in the room until the client learns to draw it. It still
+ * fails closed for a brand-new SHAPE added to ALL_KINDS but NOT to
+ * LIFECYCLE_KINDS: CORRECTION had to be named here on purpose, and the internal
+ * CUTOVER boundary is left out on purpose, so neither reaches a member feed by
+ * inheritance.
  *
  * The anonymous presenter surface does NOT inherit this way. listPresenterDraftActivity
  * filters on its OWN literal PRESENTER_ACTIVITY_KINDS (leagueFeed.js), which
