@@ -201,12 +201,13 @@ class FakeDraftDatabase {
     this.sql.push(sql);
     const { state } = this;
 
-    if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" <= now()')) {
-      const appliesNormalClockGate = sql.includes('"pick_time_seconds" > 0');
-      const due = state.league.pick_deadline_at
-        && state.league.pick_deadline_at.getTime() <= Date.now()
-        && (!appliesNormalClockGate || state.league.pick_time_seconds > 0);
-      return { rows: due ? [{ id: state.league.id }] : [] };
+    // The backstop scans every active, unpaused draft that has a stored
+    // deadline and decides due-ness in JS (#601); this returns the row and its
+    // deadline, and the sweep splits autopick-now from arm-a-timer itself.
+    if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" IS NOT NULL')) {
+      const l = state.league;
+      const active = l.draft_status === 'active' && !l.draft_paused && l.pick_deadline_at != null;
+      return { rows: active ? [{ id: l.id, pick_deadline_at: l.pick_deadline_at }] : [] };
     }
     if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR UPDATE')) {
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };

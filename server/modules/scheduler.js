@@ -1,7 +1,7 @@
 const pool = require('./pool');
 const { processAllDueWaivers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
-const { processExpiredPickClocks } = require('../services/pickClock.service');
+const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
@@ -439,6 +439,9 @@ function stopScheduler() {
   timer = null;
   draftTimer = null;
   bootTimer = null;
+  // Tear down every in-process Pick-clock expiry timer with the scheduler, so a
+  // test run or a worker shutdown cannot leak a late Autopick (#601, ADR 0018).
+  cancelAllExpiryTimers();
 }
 
 /** Snapshot of scheduler health for the /api/health endpoint. */

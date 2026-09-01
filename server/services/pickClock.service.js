@@ -285,6 +285,18 @@ async function autoPick({ leagueId }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league || league.draft_status !== 'active' || league.draft_paused) return null;
+  // Expiry guard, and the timer-vs-sweep dedupe (#601, ADR 0018): only an
+  // actually-elapsed clock autopicks. The hybrid runs two firing paths - the
+  // in-process timer and the backstop sweep - so the same deadline can reach
+  // here twice (a double-fired timer, or a sweep straggler that arrives after
+  // the timer already advanced the turn). The second firing reads the NEXT
+  // team's freshly-armed clock, which is null or still in the future, and
+  // declines here. Without this check that second firing would autopick the
+  // next team early, committing a second Pick off one expiry. A null deadline
+  // (untimed non-autodrafting turn, or a completed draft) is likewise not an
+  // expiry and never autopicks.
+  const deadline = league.pick_deadline_at;
+  if (deadline == null || new Date(deadline).getTime() > Date.now()) return null;
 
   const teamsResult = await pool.query(
     `SELECT "id", "owner_id", "autodraft" FROM "teams"
@@ -390,29 +402,117 @@ async function emitDraftEvent(leagueId, event, payload) {
   await draftEvents.publishDraftEvent(message);
 }
 
+// --- Hybrid expiry: in-process timers beside the stored deadline (#601) -------
+
 /**
- * Sweep entry point (the scheduler's thin caller): auto-pick every active draft
- * whose stored deadline has passed. This is the backstop that survives a worker
- * restart or a lost in-process timer; the whole sweep is CONTAINED so a thrown
- * query cannot escape into the worker's interval callback and take the draft
- * clock down for minutes (#600). One bad league is caught inside the loop so it
- * cannot abort the others.
+ * Armed in-process expiry timers, keyed by league id. The stored deadline on
+ * the league row stays the authoritative fact (restart-proof, multi-process
+ * safe); beside it the worker arms a timer so an expiry fires within about a
+ * second of zero instead of on the next backstop poll (ADR 0018). Timers live
+ * only in the process that armed them - the worker, where the sweep and the
+ * autopick chain both run. A worker restart loses the Map, which is exactly why
+ * the backstop sweep still exists: it re-arms timers for future deadlines and
+ * autopicks any that already elapsed while the process was down.
+ */
+const expiryTimers = new Map();
+
+/**
+ * Arm (or re-arm) the in-process timer for one league's deadline. Re-arming is
+ * idempotent: the previous timer for the league is always cleared first, so a
+ * refresh from a later sweep does not stack a second timer. A null deadline
+ * cancels without arming. The timer is unref'd so a pending expiry never keeps
+ * the worker alive on its own.
+ */
+function armExpiryTimer(leagueId, deadline) {
+  cancelExpiryTimer(leagueId);
+  if (deadline == null) return;
+  const fireInMs = Math.max(0, new Date(deadline).getTime() - Date.now());
+  const timer = setTimeout(() => {
+    // The handle has fired: drop it BEFORE autopicking so the re-arm from the
+    // committed pick installs the NEXT deadline's timer instead of being
+    // cancelled as this (already spent) one.
+    expiryTimers.delete(leagueId);
+    fireExpiryTimer(leagueId);
+  }, fireInMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  expiryTimers.set(leagueId, timer);
+}
+
+/** Cancel one league's armed timer if it has one. */
+function cancelExpiryTimer(leagueId) {
+  const timer = expiryTimers.get(leagueId);
+  if (timer) {
+    clearTimeout(timer);
+    expiryTimers.delete(leagueId);
+  }
+}
+
+/**
+ * Tear down every armed timer. The scheduler calls this on stop so a test run
+ * or a worker shutdown cannot leak a late Autopick from a timer that outlived
+ * the interval that would have fed it (#601).
+ */
+function cancelAllExpiryTimers() {
+  for (const timer of expiryTimers.values()) clearTimeout(timer);
+  expiryTimers.clear();
+}
+
+/**
+ * A fired timer autopicks its league, then re-arms itself for the turn the pick
+ * advanced to, so a full Autodraft run moves at the short delay per pick rather
+ * than waiting for the next backstop poll. autoPick's own guard makes this
+ * safe against a racing sweep: whichever path commits first advances the turn,
+ * and the other declines (a future or null next deadline). A null outcome
+ * (nothing due, sniped off every candidate, or nothing draftable) arms nothing.
+ */
+async function fireExpiryTimer(leagueId) {
+  try {
+    const outcome = await autoPick({ leagueId });
+    if (outcome) armExpiryTimer(leagueId, outcome.pickDeadlineAt);
+  } catch (err) {
+    console.error('draft clock timer fire failed for league %s:', leagueId, err.message);
+  }
+}
+
+/**
+ * Sweep entry point (the scheduler's thin caller), demoted to a backstop by the
+ * hybrid (ADR 0018). Every ~10s it reads each active, unpaused draft that has a
+ * stored deadline and either:
+ *   - autopicks it, if the deadline has already elapsed. This is the restart
+ *     and lost-timer path: a deadline that passed while the worker was down (or
+ *     whose in-process timer was never armed or was dropped) is recovered here
+ *     rather than stalling until a timer that does not exist fires.
+ *   - arms (or refreshes) an in-process timer for it, if the deadline is still
+ *     in the future, so the fast path fires it on time. Re-arming is idempotent.
+ * The autopick's committed next deadline is armed at once so the chain does not
+ * wait a full poll for its own next pick. The whole sweep is CONTAINED so a
+ * thrown query cannot escape into the worker's interval callback and take the
+ * draft clock down for minutes (#600); one bad league is caught inside the loop
+ * so it cannot abort the others. The leagues table is small, so scanning every
+ * active deadline each pass needs no new index (#601).
  */
 async function processExpiredPickClocks() {
   const outcomes = [];
   try {
-    const due = await pool.query(
-      `SELECT "id" FROM "leagues"
+    const active = await pool.query(
+      `SELECT "id", "pick_deadline_at" FROM "leagues"
        WHERE "draft_status" = 'active' AND "draft_paused" = false
-         AND "pick_deadline_at" IS NOT NULL
-         AND "pick_deadline_at" <= now()`
+         AND "pick_deadline_at" IS NOT NULL`
     );
-    for (const row of due.rows) {
-      try {
-        const outcome = await autoPick({ leagueId: row.id });
-        if (outcome) outcomes.push({ leagueId: row.id, playerId: outcome.player.id });
-      } catch (err) {
-        console.error('auto-pick failed for league %s:', row.id, err.message);
+    const now = Date.now();
+    for (const row of active.rows) {
+      if (new Date(row.pick_deadline_at).getTime() <= now) {
+        try {
+          const outcome = await autoPick({ leagueId: row.id });
+          if (outcome) {
+            outcomes.push({ leagueId: row.id, playerId: outcome.player.id });
+            armExpiryTimer(row.id, outcome.pickDeadlineAt);
+          }
+        } catch (err) {
+          console.error('auto-pick failed for league %s:', row.id, err.message);
+        }
+      } else {
+        armExpiryTimer(row.id, row.pick_deadline_at);
       }
     }
   } catch (err) {
@@ -436,4 +536,7 @@ module.exports = {
   clearClock,
   autoPick,
   processExpiredPickClocks,
+  armExpiryTimer,
+  cancelExpiryTimer,
+  cancelAllExpiryTimers,
 };
