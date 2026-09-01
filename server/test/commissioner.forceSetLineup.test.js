@@ -13,7 +13,7 @@ const DEFAULT_ROSTER_SLOTS = [
   { key: 'RB', count: 1, eligiblePositions: ['RB'] },
 ];
 
-function forceSetWorld(t, { entries, leagueOverrides = {} }) {
+function forceSetWorld(t, { entries, spentRows = [], leagueOverrides = {} }) {
   const updates = [];
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
@@ -38,6 +38,9 @@ function forceSetWorld(t, { entries, leagueOverrides = {} }) {
       rows: entries.map(({ player_id }) => ({ player_id })),
     })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((entry) => ({ ...entry })) })],
+    // Surviving as-played rows of dropped players, which the roster-joined
+    // entries query above cannot return (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: spentRows.map((row) => ({ ...row })) })],
     [update('lineup_entries'), (text, params) => {
       updates.push({ text, params });
       return { rows: [] };
@@ -175,6 +178,52 @@ test('force-set attestation is planted into later weeks already materialized wit
   assert.ok(plant, 'expected a later-weeks attestation plant');
   assert.match(plant.text, /"slot" = 'IR'/);
   assert.deepEqual(plant.params, [10, 2026, 8, [1]]);
+  fake.assertClean();
+});
+
+// --- a spent starting slot stays spent on the force path too (#627) ---------
+// The dense statement of the rule lives at the manager seam
+// (lineup.service.test.js); this pins that the commissioner's validation
+// counts the same surviving as-played rows, since a force-set that seated a
+// replacement beside one would double-score the slot just the same.
+
+test('force-set also refuses to fill a starting slot spent by a surviving as-played row (#627)', async (t) => {
+  const { fake, updates } = forceSetWorld(t, {
+    entries: [
+      { player_id: 1, slot: 'BENCH', ir_attested: false, position: 'RB', injury_status: null },
+    ],
+    spentRows: [{ position: 'RB', slot: 'RB' }],
+  });
+
+  await assert.rejects(
+    forceSetLineup({
+      leagueId: 5, userId: 100, teamId: 10, week: 8,
+      moves: [{ playerId: 1, slot: 'RB' }],
+    }),
+    (error) => error.statusCode === 400 && /too many players at RB \(2\/1\)/.test(error.message)
+  );
+
+  assert.equal(updates.length, 0, 'the refused force-set moved no slot');
+  fake.assertClean();
+});
+
+test('force-set can still repair around a spent slot by moving players out of it', async (t) => {
+  // The repair power the force validation exists to preserve: benching the
+  // replacement only lowers the spent slot count, so it stays legal.
+  const { fake, updates } = forceSetWorld(t, {
+    entries: [
+      { player_id: 1, slot: 'RB', ir_attested: false, position: 'RB', injury_status: null },
+    ],
+    spentRows: [{ position: 'RB', slot: 'RB' }],
+  });
+
+  const result = await forceSetLineup({
+    leagueId: 5, userId: 100, teamId: 10, week: 8,
+    moves: [{ playerId: 1, slot: 'BENCH' }],
+  });
+
+  assert.equal(result.updated, 1);
+  assert.equal(updates[0].params[0], 'BENCH');
   fake.assertClean();
 });
 

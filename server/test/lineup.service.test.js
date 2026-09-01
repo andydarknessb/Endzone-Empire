@@ -154,6 +154,8 @@ function installSetLineupWorld(t, injuryDesignation, {
       rows: entries.map(({ player_id }) => ({ player_id })),
     })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((entry) => ({ ...entry })) })],
+    // No surviving as-played rows in this world (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
       rows: lockedTeams.map((nfl_team) => ({ nfl_team })),
     })],
@@ -210,6 +212,8 @@ async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = 
     [/^SELECT "lineup_entries"\."player_id"/, () => ({
       rows: entries.map((entry) => ({ ...entry, slot: slots.get(entry.player_id) })),
     })],
+    // No surviving as-played rows in this world (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: lockedTeams.map((nfl_team) => ({ nfl_team })) })],
     [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
       slots.set(params[4], params[0]);
@@ -302,6 +306,8 @@ function installOverBenchedWorld(t, { positions, slotsByIndex = null }) {
     [/^SELECT "lineup_entries"\."player_id"/, () => ({
       rows: entries.map((entry) => ({ ...entry, slot: slots.get(entry.player_id) })),
     })],
+    // No surviving as-played rows in this world (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
       slots.set(params[4], params[0]);
@@ -810,6 +816,9 @@ test('a full roster resolves by dropping a bench player before activating the st
         .filter(({ player_id }) => rosteredPlayerIds.has(player_id))
         .map((entry) => ({ ...entry })),
     })],
+    // The pre-kickoff drop above deleted the departing player's row, so no
+    // surviving as-played rows here (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
@@ -1062,6 +1071,8 @@ test('weekly materialization carries the attestation forward with the slot', asy
         ir_attested: materialized.get(entry.player_id).ir_attested,
       })),
     })],
+    // No surviving as-played rows in this world (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
@@ -1233,6 +1244,89 @@ test('benchAcquiredPlayer benches a re-acquired player instead of reviving his o
   client.release();
 
   assert.deepEqual([...slots], [[1, 'QB'], [21, 'BENCH']]);
+  fake.assertClean();
+});
+
+// --- a spent starting slot stays spent (#627) --------------------------------
+// A post-kickoff drop spares the dropped starter's current-week row as the
+// record of the week as played (#190/#228), and the row keeps its starting
+// slot. That slot is spent for the week: the settle pass scores the surviving
+// row (no roster join, and the tenure exclusion does not fire because a tenure
+// really did cover his kickoff), so a replacement seated beside it would
+// double-score the slot - and a same-week re-add then leaves QB 2/1 with no
+// legal save. The save validation must therefore count surviving rows, which
+// its roster-joined entries query cannot see.
+
+function installSpentSlotWorld(t, { roster, spentRows, currentWeek = 9 }) {
+  return createFakePool([
+    // #106: a LIVE week, nothing is frozen.
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 5,
+        current_season: 2026,
+        current_week: currentWeek,
+        roster_slots: DEFAULT_ROSTER_SLOTS,
+        bench_slots: 5,
+        ir_slots: 1,
+      }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: roster.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: roster.map(({ player_id }) => ({ player_id })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: roster.map((entry) => ({ ...entry })) })],
+    // The surviving as-played rows of dropped players: what the roster-joined
+    // entries query above cannot return.
+    [/^SELECT "players"\."position"/, () => ({ rows: spentRows.map((row) => ({ ...row })) })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+}
+
+test('setLineup refuses to fill a starting slot spent by a surviving as-played row (#627)', async (t) => {
+  // Player 21 started at QB, his game kicked off, and he was dropped: his QB
+  // row survives off-roster. Seating player 1 in the "vacated" QB slot must
+  // refuse - the slot's score for the week already belongs to the record.
+  const fake = installSpentSlotWorld(t, {
+    roster: [{
+      player_id: 1, name: 'Backup Passer', position: 'QB', nfl_team: 'MIN',
+      injury_status: null, slot: 'BENCH', ir_attested: false,
+    }],
+    spentRows: [{ position: 'QB', slot: 'QB' }],
+  });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'QB' }] }),
+    (error) => error.statusCode === 400 && /too many players at QB \(2\/1\)/.test(error.message)
+  );
+
+  assertNoSlotWrite(fake);
+  // The load-bearing predicates of the spent-slot read: only rows the roster
+  // no longer covers, and only rows that score.
+  const [spent] = fake.matching(/^SELECT "players"\."position"/);
+  assert.match(spent.text, /"team_players"\."player_id" IS NULL/);
+  assert.match(spent.text, /NOT IN \('BENCH', 'IR'\)/);
+  assert.deepEqual(spent.params, [10, 2026, 9]);
+  fake.assertClean();
+});
+
+test('a spent slot with seats remaining still accepts another starter (#627)', async (t) => {
+  // RB seats two; the surviving row spends one. The other seat stays usable.
+  const fake = installSpentSlotWorld(t, {
+    roster: [{
+      player_id: 1, name: 'Second Back', position: 'RB', nfl_team: 'MIN',
+      injury_status: null, slot: 'BENCH', ir_attested: false,
+    }],
+    spentRows: [{ position: 'RB', slot: 'RB' }],
+  });
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'RB' }] });
+
+  assert.equal(result.updated, 1);
   fake.assertClean();
 });
 

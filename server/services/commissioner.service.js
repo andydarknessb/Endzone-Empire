@@ -5,6 +5,7 @@ const {
   parseLineupSettings,
   validateLineup,
   entriesForLineupValidation,
+  spentStartingSlots,
 } = require('./lineup.service');
 const { computeStandings } = require('./season.service');
 const { placeOnWaiversUndoable } = require('./waiver.service');
@@ -195,7 +196,14 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
       entry.ir_attested = irAttested;
       changed.push(entry);
     }
-    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
+    // A slot a surviving as-played row occupies is spent (#627), on the force
+    // path exactly as on the manager's: the row will settle, so it counts
+    // against the cap even though the roster-joined read above cannot see it.
+    // A commissioner repairing an inherited overflow moves rostered players
+    // OUT of the slot, which only ever lowers the count, so the repair power
+    // this validation exists to preserve survives the extra rows.
+    const spent = await spentStartingSlots(client, { teamId, season, week: targetWeek });
+    const entriesToValidate = entriesForLineupValidation([...byPlayer.values(), ...spent], league);
     const errors = validateLineup(
       entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
       { ...parseLineupSettings(league), baseline: entriesForLineupValidation(baseline, league) }

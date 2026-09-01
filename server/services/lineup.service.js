@@ -371,6 +371,44 @@ async function removeLineupEntries(client, { league, teamId, playerId, now = new
 }
 
 /**
+ * The starting slots already spent for (team, season, week) by surviving
+ * as-played rows: lineup rows whose player is no longer on the roster (#627).
+ *
+ * Such a row exists only because `removeLineupEntries` spared it - his game
+ * had kicked off and a tenure of this team covered that kickoff - so it is
+ * the record of the week as played, and the settle pass will score it (the
+ * as-played population has no roster join, and the #190 exclusion does not
+ * fire for a tenure that really covered the kickoff). A slot it occupies is
+ * therefore spent: seating a replacement beside it double-scores the slot,
+ * which is exactly the score inflation an absolute starting cap exists to
+ * refuse - but the save validations read their entries through a roster join
+ * that cannot see this row. Both validation sites (`setLineup` and the
+ * commissioner's `forceSetLineup`) count these rows on top of the rostered
+ * entries; the rows are counted, never movable, so they stay out of the
+ * per-player maps the move loops read.
+ *
+ * BENCH and IR rows are excluded because they never score: a bench seat is
+ * not spent by a departed player, and blocking one would refuse harmless
+ * saves. Best ball is unaffected downstream: `entriesForLineupValidation`
+ * keeps only IR rows there, and these are never IR.
+ */
+async function spentStartingSlots(client, { teamId, season, week }) {
+  const result = await client.query(
+    `SELECT "players"."position", "lineup_entries"."slot"
+       FROM "lineup_entries"
+       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+       LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+        AND "team_players"."player_id" = "lineup_entries"."player_id"
+      WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+        AND "lineup_entries"."week" = $3
+        AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')
+        AND "team_players"."player_id" IS NULL`,
+    [teamId, season, week]
+  );
+  return result.rows.map((row) => ({ player_id: null, position: row.position, slot: row.slot }));
+}
+
+/**
  * The slot and attestation a player holds on this team in the league's
  * current week right now, or null when he has no row there. A drop reads it
  * before `removeLineupEntries` takes the row away, so the waiver hold can
@@ -865,7 +903,12 @@ async function setLineup({ leagueId, userId, week, moves }) {
     const validationSettings = resolvesLockedZeroBenchStash
       ? { ...settings, benchSlots: 1 }
       : settings;
-    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
+    // A slot a surviving as-played row occupies is spent (#627): the row will
+    // settle, so it counts against the cap even though the roster-joined read
+    // above cannot see it. Not in `byPlayer` (it is nobody's to move) and not
+    // in `baseline` (starting caps ignore the baseline by design, #622).
+    const spent = await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
+    const entriesToValidate = entriesForLineupValidation([...byPlayer.values(), ...spent], league);
     const errors = validateLineup(
       entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
       { ...validationSettings, baseline: entriesForLineupValidation(baseline, league) }
@@ -949,6 +992,7 @@ module.exports = {
   materializeLineup,
   benchAcquiredPlayer,
   removeLineupEntries,
+  spentStartingSlots,
   currentWeekEntry,
   interruptedStashFields,
   restoreInterruptedStash,
