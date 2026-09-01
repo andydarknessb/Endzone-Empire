@@ -3,7 +3,7 @@ import { pickAnnouncementFor } from './pickAnnouncement';
 // The room-level Pick announcer's text (#513), kept a pure function so the
 // string is unit-tested on its own and the announcer component is only
 // responsible for WHEN it changes. It reads the `draft:picked` broadcast shape
-// straight off the wire (server: draftSocket.js / autopick.service.js emit
+// straight off the wire (server: draftSocket.js / pickClock.service.js emit
 // `{ ...outcome, auto }`): `teamName`, `player.name`, and the top-level `auto`
 // flag that is the one non-identity fact about how the Pick was made.
 describe('pickAnnouncementFor', () => {

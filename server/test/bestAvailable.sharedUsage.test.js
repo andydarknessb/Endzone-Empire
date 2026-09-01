@@ -1,7 +1,7 @@
 /**
  * Drift guard for #142: the Draft Sim's pool (publicRead.service.js
- * getDraftPool) and the real draft's autopick fallback (autopick.service.js)
- * must both order candidates through bestAvailable.service.js's
+ * getDraftPool) and the real draft's autopick fallback (the Pick clock module,
+ * pickClock.service.js) must both order candidates through bestAvailable.service.js's
  * compareBestAvailable — never their own reimplementation. This test spies on
  * the shared comparator and fails if either consumer stops calling it.
  */

@@ -8,7 +8,7 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  *
  * It reads the `draft:picked` broadcast shape straight off the wire: the server
  * emits `{ ...outcome, auto }` from both the manual pick handler (draftSocket.js,
- * auto: false) and the autopick service (autopick.service.js, auto: true), so
+ * auto: false) and the Pick clock module's autopick (pickClock.service.js, auto: true), so
  * `teamName`, `player.name`, the top-level `auto` flag and `draftComplete` are
  * the facts this needs. `auto` is the one non-identity fact the room keeps about
  * how a Pick was made; a manual Pick is not an autopick.

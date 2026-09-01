@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const { logger } = require('../modules/logger');
 const { withAdvisoryLock } = require('../modules/advisoryLock');
+const ioRegistry = require('../modules/io');
+const draftEvents = require('../modules/draftEvents');
 const draftService = require('../services/draft.service');
 const pickClock = require('../services/pickClock.service');
 
@@ -75,14 +77,17 @@ test('sweep: a queued player is chosen over best available, regardless of ADP', 
 });
 
 test('sweep: among queued candidates, the lower queue rank is chosen first', async (t) => {
-  const rankTwo = { id: 8, name: 'Second', adp: null, queue_rank: 2, last_season_points: null };
-  const rankOne = { id: 9, name: 'First', adp: null, queue_rank: 1, last_season_points: null };
+  // The rank-1 candidate's NAME deliberately sorts LAST, so this binds on the
+  // queue-rank branch alone: drop that branch and the name fallback would pick
+  // the rank-2 candidate (id 8) instead, going red.
+  const rankTwo = { id: 8, name: 'Aaa sorts first by name', adp: null, queue_rank: 2, last_season_points: null };
+  const rankOne = { id: 9, name: 'Zzz sorts last by name', adp: null, queue_rank: 1, last_season_points: null };
   installSweepPool(t, { candidates: [rankTwo, rankOne] }); // seeded out of order
   const attempts = recordAttempts(t);
 
   await pickClock.processExpiredPickClocks();
 
-  assert.deepEqual(attempts, [9], 'queue rank 1 sorts before rank 2');
+  assert.deepEqual(attempts, [9], 'queue rank 1 sorts before rank 2, not by name');
 });
 
 test('sweep: among unqueued candidates, ADP then last-season points then name decide, id never', async (t) => {
@@ -141,6 +146,33 @@ test('sweep: after a snipe, falls through to the next best candidate, never to t
   assert.deepEqual(outcomes, [{ leagueId: LEAGUE_ID, playerId: 2 }]);
 });
 
+// --- the worker broadcast path: no local Socket.IO server --------------------
+// Ported from the superseded autopick service suite: this is the arm the worker
+// actually takes. The worker process has no local Socket.IO server, so
+// emitDraftEvent publishes the committed pick to Redis for the API-side relay
+// (the production path for every autopick broadcast), rather than emitting
+// in-process. Pinning the exact envelope keeps a future edit from dropping or
+// reshaping it.
+
+test('sweep: with no local Socket.IO server, the committed pick is published for the API relay', async (t) => {
+  installSweepPool(t, {
+    candidates: [{ id: 8, name: 'Worker Pick', adp: '1.0', queue_rank: null, last_season_points: null }],
+  });
+  t.mock.method(ioRegistry, 'getIo', () => null);
+  const published = [];
+  t.mock.method(draftEvents, 'publishDraftEvent', async (event) => { published.push(event); });
+  const outcome = { leagueId: LEAGUE_ID, teamId: 55, player: { id: 8, name: 'Worker Pick' }, draftComplete: false };
+  t.mock.method(draftService, 'draftPlayer', async () => outcome);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(published, [{
+    leagueId: LEAGUE_ID,
+    event: 'draft:picked',
+    payload: { ...outcome, auto: true },
+  }]);
+});
+
 // --- containment: a thrown sweep is caught and the next sweep still runs ------
 
 test('sweep containment: a rejecting due query is caught and a later sweep still runs', async (t) => {
@@ -155,9 +187,13 @@ test('sweep containment: a rejecting due query is caught and a later sweep still
     throw new Error(`Unexpected SQL: ${text}`);
   });
 
-  // Red tell: without the module's containment this first await rejects and the
-  // rejection escapes into the worker's interval callback, taking the draft
-  // clock down. Contained, it resolves to an empty outcome list instead.
+  // Red tell: remove the sweep's own try/catch and this first await rejects.
+  // The module's containment makes the sweep's public contract "never reject"
+  // hold for ANY caller, not only the scheduler's draftTick (which has its own
+  // catch); the sweep resolves to an empty outcome list here instead. (The
+  // separate protection that is genuinely new to #600 - draftTick catching a
+  // failure in the advisory-lock ACQUISITION, which no prior catch covered - is
+  // pinned in scheduler.test.js, not here.)
   const first = await pickClock.processExpiredPickClocks();
   assert.deepEqual(first, []);
 

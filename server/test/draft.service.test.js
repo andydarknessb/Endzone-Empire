@@ -307,7 +307,7 @@ test('draftPlayer: rejects a manual (non-auto) pick in an active autopick-type d
   fake.assertClean();
 });
 
-test('draftPlayer: still accepts autopick.service.js\'s own auto: true pick in an autopick-type draft', async (t) => {
+test('draftPlayer: still accepts the Pick clock module\'s own auto: true pick in an autopick-type draft', async (t) => {
   const league = { ...completionLeague, draft_type: 'autopick' };
   const fake = completionPool({ league, picksMade: 4 }).install(t);
   recordBenching(t, fake);
