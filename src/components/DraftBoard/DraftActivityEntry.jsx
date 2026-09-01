@@ -25,8 +25,9 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * that dropped the reversed-Pick snapshot and the reason. Rendering nothing is
  * strictly better than impersonating a Team action for a kind nobody taught this
  * component to draw. Both user surfaces already exclude internal kinds upstream
- * (USER_VISIBLE_KINDS); this is the defense-in-depth that holds if one ever does
- * not.
+ * (the member feed via USER_VISIBLE_KINDS, the presenter feed via its own
+ * independent allowlist); this is the defense-in-depth that holds if one ever
+ * does not.
  */
 
 // The past-tense verb each Draft LIFECYCLE kind reads as (#437). A lifecycle
@@ -34,7 +35,12 @@ import { teamNameLabel } from '../../lib/teamIdentity';
 // draft") when one is present, or phrased as a plain state transition ("The
 // draft is complete") when there is no actor - a scheduler start or a
 // completion. Kept as data so a new kind is a one-line addition, not a new
-// branch, and so the actor / actor-less split is made in one place.
+// branch, and so the actor / actor-less split is made in one place. Two of the
+// server's six lifecycle kinds are deliberately absent: `complete` (below,
+// it has no verb) and `stalled` (#620 - it left this map entirely for its own
+// stuck-state render, StalledActivityLine; do NOT restore `stalled` here, that
+// would resurrect the actor-ful "<Team> stalled the draft" reading #620 was
+// filed to remove).
 const LIFECYCLE_VERB = {
   draft_start: 'started',
   pause: 'paused',
@@ -120,16 +126,21 @@ function LifecycleActivityLine({ entry }) {
 }
 
 // A nothing-draftable stall (#602) as a stuck-state line, NOT an actor-ful
-// lifecycle transition (#620). Every other lifecycle kind is a genuine
-// commissioner act, so the shared "<Team> <verb> the draft" template reads as
-// something the Team chose; a stall is the opposite - the draft stalled ON the
-// Team because there was no draftable player, and only a commissioner can
-// resolve it. Naming that as "<Team> stalled the draft" read as blame with no
-// cause and no next step, so this is a dedicated render rather than an entry
-// in LIFECYCLE_VERB: the Team is named without being cast as the actor, the
+// lifecycle transition (#620). Every OTHER lifecycle kind puts a Team in the
+// subject position only when that Team genuinely acted (complete and a
+// scheduler-started draft_start are phrased actor-less, above); a stall is the
+// one case where a Team is named for something it did NOT do and cannot fix -
+// the draft stalled ON the Team because there was no draftable player, and
+// only a commissioner can resolve it. Naming that as "<Team> stalled the
+// draft" through the shared verb template read as blame with no cause and no
+// next step, so this is a dedicated render rather than an entry in
+// LIFECYCLE_VERB: the Team is named without being cast as the actor, the
 // cause ("no draftable player") is stated, and the caption carries the next
-// step. A null Team reads as a plain stuck-state line, matching the existing
-// null-actor stance (never "Former manager").
+// step. A null Team (the only case this component's test covers) reads as a
+// plain stuck-state line rather than "Former manager" - matching the sibling
+// LifecycleActivityLine guard exactly, including its inherited gap: an empty
+// or whitespace-only teamName still falls through to teamNameLabel's shared
+// former-manager label, same as every other line in this file.
 function StalledActivityLine({ entry }) {
   const hasActor = entry.teamName != null;
   const text = hasActor
