@@ -129,6 +129,42 @@ async function isOnWaivers(client, { league, playerId }) {
   return !rostered.rows[0];
 }
 
+/**
+ * The single player a manager selected from Player Browser to claim. This is
+ * intentionally a targeted read rather than a second waiver list: a blanket
+ * waiver window applies to every unrostered player and must not turn the
+ * Waiver Wire into the entire player catalog.
+ */
+async function claimTarget({ leagueId, userId, playerId }) {
+  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+  const league = leagueResult.rows[0];
+  if (!league) throw new WaiverError(404, 'league not found');
+  assertFantasyLeagueRow(league);
+  if (league.transactions_locked) {
+    throw new WaiverError(409, 'transactions are locked by the commissioner');
+  }
+
+  const team = await requireMember(pool, { leagueId, userId });
+  if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
+
+  const playerResult = await pool.query(
+    `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
+    [playerId]
+  );
+  const player = playerResult.rows[0];
+  if (!player) throw new WaiverError(404, 'player not found');
+
+  const rostered = await pool.query(
+    `SELECT 1 FROM "team_players" WHERE "league_id" = $1 AND "player_id" = $2`,
+    [leagueId, playerId]
+  );
+  if (rostered.rows[0]) throw new WaiverError(409, 'player is already rostered in this league');
+  if (!(await isOnWaivers(pool, { league, playerId }))) {
+    throw new WaiverError(409, 'player is not on waivers');
+  }
+  return player;
+}
+
 /** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }) {
   const client = await pool.connect();
@@ -157,6 +193,9 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
       [leagueId, playerId]
     );
     if (rostered.rows[0]) throw new WaiverError(409, 'player is already rostered in this league');
+    if (!(await isOnWaivers(client, { league, playerId }))) {
+      throw new WaiverError(409, 'player is not on waivers');
+    }
 
     if (dropPlayerId) {
       const onMyTeam = await client.query(
@@ -461,6 +500,7 @@ async function processAllDueWaivers() {
 
 module.exports = {
   WaiverError,
+  claimTarget,
   claimFailureReason,
   orderClaims,
   placeOnWaivers,

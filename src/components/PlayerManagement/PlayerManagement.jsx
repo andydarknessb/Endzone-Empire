@@ -300,7 +300,7 @@ function PlayerManagement() {
       if (state === "waivers")
         return {
           label: "Claim",
-          onClick: () => navigate(`/league/${selectedLeague}/waivers`),
+          onClick: () => navigate(`/league/${selectedLeague}/waivers?playerId=${player.id}`),
           helper: "Build this claim in Waiver Wire.",
         };
       if (state === "my_team")
