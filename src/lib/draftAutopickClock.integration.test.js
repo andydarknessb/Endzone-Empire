@@ -10,6 +10,14 @@ jest.mock('../../server/modules/io', () => ({
   getIo: jest.fn(),
   setIo: jest.fn(),
 }));
+// The nothing-draftable escalation (#602) refreshes the paused clock via
+// broadcastDraftState, which reads getDraftState when a Socket.IO server is
+// present (this harness stands one in via the hub). The full draft-state read is
+// not this suite's concern - it would issue DB queries the fake does not model -
+// so stub it; the escalation's own state change is asserted on state.league.
+jest.mock('../../server/modules/draftSocket', () => ({
+  getDraftState: jest.fn().mockResolvedValue({ draft_paused: true }),
+}));
 
 const pool = require('../../server/modules/pool');
 const ioRegistry = require('../../server/modules/io');
@@ -279,6 +287,28 @@ class FakeDraftDatabase {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
+    // onResumed's league read (#599): resolves the on-clock team and clock policy
+    // for a resume. Used by the #602 escalate->resume case.
+    if (sql.includes('SELECT "current_pick", "draft_type"') && sql.includes('FROM "leagues"')) {
+      const l = state.league;
+      return { rows: values[0] === l.id ? [{
+        current_pick: l.current_pick,
+        draft_type: l.draft_type ?? 'snake',
+        draft_rotation: l.draft_rotation ?? 'snake',
+        draft_order_overrides: l.draft_order_overrides ?? null,
+        pick_time_seconds: l.pick_time_seconds,
+        autodraft_delay_seconds: l.autodraft_delay_seconds,
+      }] : [] };
+    }
+    // armInPlace (#599): the two-param re-arm-in-place UPDATE (resume, autodraft
+    // toggle) - no current_pick, no draft_paused. Mirrors now() + make_interval.
+    if (sql.includes('UPDATE "leagues"') && sql.includes('"pick_deadline_at" = CASE')
+        && values.length === 2 && !sql.includes('"current_pick"')) {
+      if (values[0] === state.league.id) {
+        state.league.pick_deadline_at = values[1] == null ? null : new Date(Date.now() + values[1] * 1000);
+      }
+      return { rows: [{ pick_deadline_at: state.league.pick_deadline_at }] };
+    }
     if (sql.includes('FROM "teams"') && sql.includes('ORDER BY "draft_position"')) {
       return { rows: state.teams.map((team) => ({ ...team })) };
     }
@@ -321,6 +351,16 @@ class FakeDraftDatabase {
       // trigger allocates feed_seq; the fake hands one back on RETURNING.
       const seq = state.draftPicks.length;
       return { rows: [{ id: seq, feed_seq: String(seq), created_at: new Date().toISOString() }], rowCount: 1 };
+    }
+    // The nothing-draftable escalation (#602) pauses and clears the clock in one
+    // statement, leaving current_pick untouched so the same team is on the clock
+    // at resume. Persist it so a repeat sweep sees the paused league.
+    if (sql.includes('UPDATE "leagues"') && sql.includes('SET "draft_paused" = true')) {
+      if (values[0] === state.league.id) {
+        state.league.draft_paused = true;
+        state.league.pick_deadline_at = null;
+      }
+      return { rows: [] };
     }
     if (sql.includes('UPDATE "leagues"') && sql.includes('SET "current_pick"')) {
       const [currentPick, draftStatus, leagueId, clockSeconds] = values;
@@ -662,5 +702,122 @@ describe('live snake-draft expiry and autopick integration', () => {
     expect(straggler).toBeNull();
     expect(state.draftPicks).toHaveLength(1);
     expect(state.draftPicks[0]).toEqual({ leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 });
+  });
+
+  // --- nothing-draftable expiry pauses the draft loudly (#602) -----------------
+  // The on-clock team has NO draftable candidate (here: every player is already
+  // rostered, so the candidate pool is empty). Instead of spinning forever on the
+  // elapsed deadline, the module pauses the draft, clears the clock, commits no
+  // Pick, and appends a STALLED Draft-activity entry naming the stuck team.
+
+  // Named teams: the escalation entry must NAME the stuck team, so these carry a
+  // name the assertions read back off the broadcast entry.
+  const STUCK_TEAM = { id: 71, owner_id: 701, draft_position: 1, autodraft: false, locked: false, name: 'MinneApple' };
+  const OTHER_TEAM = { id: 72, owner_id: 702, draft_position: 2, autodraft: false, locked: false, name: 'Rivals' };
+
+  function stalledState() {
+    // One player, already rostered to the OTHER team, so the stuck team (on the
+    // clock at pick 0) has an empty candidate pool: nothing draftable.
+    return install(createState({
+      deadline: new Date(Date.now()),
+      teams: [STUCK_TEAM, OTHER_TEAM],
+      players: [player(101, 'QB', 1)],
+      roster: [[OTHER_TEAM.id, 101]],
+    }));
+  }
+
+  const stalledDeliveries = () => hub.deliveries
+    .filter((d) => d.event === 'draft:activity' && d.payload && d.payload.kind === 'stalled');
+
+  test('an expired clock with nothing draftable pauses the draft loudly, commits no pick, names the stuck team', async () => {
+    const state = stalledState();
+    hub.connect(STUCK_TEAM.owner_id);
+    hub.connect(OTHER_TEAM.owner_id);
+
+    const outcomes = await processExpiredPickClocks();
+
+    // The sweep committed nothing (the escalation returns no autopick outcome).
+    expect(outcomes).toEqual([]);
+    // Assertion set the pre-change behaviour fails all three of (see the PR's
+    // red-tell demonstration): the draft is paused, the deadline is cleared,
+    // and no Pick was committed. The stuck team stays on the clock (current_pick
+    // unchanged), the paused-then-resumed repair shape.
+    expect(state.league.draft_paused).toBe(true);
+    expect(state.league.pick_deadline_at).toBeNull();
+    expect(state.draftPicks).toHaveLength(0);
+    expect(state.league.current_pick).toBe(0);
+
+    // The escalation is readable in the feed: exactly one STALLED entry, naming
+    // the stuck team, with no Pick facts (a lifecycle event, not a Pick).
+    const stalled = stalledDeliveries();
+    expect(stalled).toHaveLength(1);
+    expect(stalled[0].payload.teamName).toBe('MinneApple');
+    expect(stalled[0].payload).not.toHaveProperty('player');
+  });
+
+  test('repeat sweeps after the escalation commit nothing and append no duplicate entry', async () => {
+    const state = stalledState();
+    hub.connect(STUCK_TEAM.owner_id);
+
+    // First sweep escalates and pauses. Further sweeps skip the paused league
+    // entirely (its due query filters draft_paused=false), so they select
+    // nothing and append no second entry. Red tell: without the pause, the
+    // second sweep still finds the elapsed deadline and escalates again, leaving
+    // TWO stalled entries for one stuck turn.
+    await processExpiredPickClocks();
+    await processExpiredPickClocks();
+    await processExpiredPickClocks();
+
+    expect(state.draftPicks).toHaveLength(0);
+    expect(state.league.draft_paused).toBe(true);
+    expect(stalledDeliveries()).toHaveLength(1);
+  });
+
+  test('two concurrent nothing-draftable firings pause once and append exactly one entry', async () => {
+    // The idempotency that made #602 sequence behind #601: a timer fire and a
+    // backstop sweep (modelled here as two concurrent autoPick calls) can both
+    // reach the nothing-draftable turn. Both pass autoPick's top-of-function
+    // draft_paused check (neither has paused yet); the FOR UPDATE re-check inside
+    // escalateNothingDraftable is what holds them to ONE pause and ONE entry.
+    const state = stalledState();
+    hub.connect(STUCK_TEAM.owner_id);
+
+    const [a, b] = await Promise.all([
+      pickClock.autoPick({ leagueId: LEAGUE_ID }),
+      pickClock.autoPick({ leagueId: LEAGUE_ID }),
+    ]);
+
+    // Neither firing commits a Pick; both return null (nothing draftable).
+    expect(a).toBeNull();
+    expect(b).toBeNull();
+    expect(state.draftPicks).toHaveLength(0);
+    expect(state.league.draft_paused).toBe(true);
+    // Exactly one STALLED entry despite two firings: the loser rolled back.
+    expect(stalledDeliveries()).toHaveLength(1);
+  });
+
+  test('a resume on the escalated league re-arms the same stuck team, not a skipped turn', async () => {
+    // A timed, non-autodrafting stuck team: after the escalation the same team is
+    // on the clock (current_pick unchanged), so a commissioner resume (onResumed,
+    // #599) arms that team's policy clock - the full pick time here - rather than
+    // skipping the turn.
+    const state = stalledState();
+
+    await processExpiredPickClocks();
+    expect(state.league.draft_paused).toBe(true);
+    expect(state.league.current_pick).toBe(0);
+
+    const resumeClient = await pool.connect();
+    const armedAt = await pickClock.onResumed(resumeClient, { leagueId: LEAGUE_ID });
+    resumeClient.release();
+
+    // The stuck team is timed and not autodrafting, so resume arms the full
+    // 30s pick clock for it (createState default pick_time_seconds=30). The
+    // deadline is now in the future, on the SAME team's turn.
+    expect(armedAt).not.toBeNull();
+    const secondsOut = (new Date(armedAt).getTime() - Date.now()) / 1000;
+    expect(secondsOut).toBeGreaterThan(0);
+    expect(secondsOut).toBeLessThanOrEqual(30);
+    expect(state.league.current_pick).toBe(0);
   });
 });

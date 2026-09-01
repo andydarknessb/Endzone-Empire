@@ -5,6 +5,10 @@ const draftEvents = require('../modules/draftEvents');
 const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
+// draftActivity requires only teamIdentity, so there is no cycle back to this
+// module (unlike draft.service, required lazily in autoPick): a top-level
+// require is safe.
+const { appendLifecycleActivity, STALLED } = require('./draftActivity');
 
 /**
  * The Pick clock (CONTEXT.md), one owner. Every way a turn begins or a Pick
@@ -375,7 +379,108 @@ async function autoPick({ leagueId }) {
       throw err;
     }
   }
-  return null; // nothing draftable (roster full etc.) - leave the clock alone
+  // Nothing draftable for this expired turn (empty pool, full roster, or every
+  // candidate sniped away): escalate instead of spinning silently (#602). The
+  // pause is idempotent across the timer and the backstop sweep - see
+  // escalateNothingDraftable - so a firing that loses the race pauses nothing
+  // and appends nothing. autoPick still returns null either way, so neither fire
+  // path commits a Pick or arms a clock for the now-paused draft.
+  const escalation = await escalateNothingDraftable({ leagueId });
+  if (escalation) {
+    // The worker has no local Socket.IO server; emitDraftEvent publishes to the
+    // API relay when io is null (the same path the committed-pick and completion
+    // broadcasts take). broadcastDraftState refreshes the paused clock; in the
+    // worker it likewise publishes an event name for the relay to re-derive.
+    await emitDraftEvent(leagueId, 'draft:activity', escalation.activity);
+    await broadcastDraftState(leagueId);
+  }
+  return null;
+}
+
+/**
+ * Escalate an expired turn that produced no Autopick (#602). autoPick reaches
+ * here only after every candidate for the on-clock team failed to draft, so
+ * rather than returning to spin on the same elapsed deadline the module pauses
+ * the Draft LOUDLY: it clears the clock, flips draft_paused, and appends a
+ * STALLED Draft-activity entry naming the stuck Team, leaving the
+ * paused-then-resumed repair shape commissioner correction established (ADR
+ * 0018). current_pick is untouched, so the same Team is on the clock when a
+ * commissioner resumes and onResumed arms its policy clock like any resume.
+ *
+ * IDEMPOTENT ACROSS BOTH FIRING PATHS (the reason #602 was sequenced behind
+ * #601). A timer fire and a backstop sweep - or two timer fires - can both
+ * reach a nothing-draftable turn. autoPick's own draft_paused check at its top
+ * does NOT prevent that: both firings read draft_paused=false before either
+ * pauses, so both pass it. The guarantee is made HERE instead, under the league
+ * row's FOR UPDATE lock. The two firings serialize on that lock; the winner
+ * pauses and appends, and the loser - re-reading draft_paused already true (and
+ * the deadline already cleared) inside the lock - commits nothing and appends
+ * no second entry. The invariant is NOT "only one firing reaches here" (both
+ * do); it is "only the firing that still sees an active, unpaused draft on this
+ * same elapsed deadline acts".
+ *
+ * The still-elapsed re-check covers a second race the pause check alone would
+ * miss: a concurrent firing that did NOT hit nothing-draftable but committed a
+ * real Pick for this turn (it drafted a candidate this firing could not, or won
+ * the draftPlayer FOR UPDATE turn re-check). That firing advanced current_pick
+ * and armed the next team's fresh clock, so under the lock this firing reads a
+ * future-or-null deadline and declines, rather than pausing a Draft that in
+ * fact moved on.
+ */
+async function escalateNothingDraftable({ leagueId }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const leagueResult = await client.query(
+      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+      [leagueId]
+    );
+    const league = leagueResult.rows[0];
+    // A concurrent firing may have already paused (another escalation) or
+    // advanced the turn and re-armed (a committed Pick). Decline in either case.
+    if (!league || league.draft_status !== 'active' || league.draft_paused) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const deadline = league.pick_deadline_at;
+    if (deadline == null || msUntilDeadline(deadline) > 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const teamsResult = await client.query(
+      `SELECT "id", "name", "autodraft", "draft_position" FROM "teams"
+         WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
+      [leagueId]
+    );
+    const stuckTeam = teamForPick(league.current_pick, teamsResult.rows, {
+      rotation: league.draft_rotation,
+      overrides: league.draft_order_overrides,
+    });
+    // Pause and clear the clock in one statement. current_pick is deliberately
+    // left unchanged so the same Team is on the clock at resume - no skipped-turn
+    // concept is introduced (ADR 0018).
+    await client.query(
+      `UPDATE "leagues"
+         SET "draft_paused" = true, "pick_deadline_at" = NULL, "updated_at" = now()
+       WHERE "id" = $1`,
+      [leagueId]
+    );
+    // Name the stuck Team on the entry so the feed says who the Draft is waiting
+    // on. A missing on-clock team (defensive; autoPick already resolved one to
+    // get here) records a null actor rather than fabricating one.
+    const activity = await appendLifecycleActivity(client, {
+      leagueId,
+      kind: STALLED,
+      team: stuckTeam ? { id: stuckTeam.id, name: stuckTeam.name } : null,
+    });
+    await client.query('COMMIT');
+    return { activity };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /** Re-broadcast the full draft state so clients refresh AUTO badges + the clock. */

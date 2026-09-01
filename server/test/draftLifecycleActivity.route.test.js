@@ -4,6 +4,7 @@ const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { appendLifecycleActivity, activityEntryOf, STALLED } = require('../services/draftActivity');
 
 /**
  * The pause/resume route appends Draft LIFECYCLE activity from the SAME
@@ -114,6 +115,51 @@ test('POST pause: not commissioner / not active refuses 403 and appends nothing'
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction rolled back');
   assert.equal(fake.matching(/^COMMIT$/).length, 0);
   fake.assertClean();
+});
+
+test('the nothing-draftable escalation entry (#602) is a readable lifecycle entry naming the stuck team', async (t) => {
+  // The escalation (#602) is not driven by this route - it fires from the Pick
+  // clock module's expiry path - but its entry rides the SAME Draft-activity
+  // feed as pause and resume, appended through the SAME appendLifecycleActivity
+  // and shaped by the SAME activityEntryOf that the pause/resume route entries
+  // above use. This pins that a STALLED entry is a first-class, feed-readable
+  // lifecycle entry: it NAMES the stuck team and carries no Pick facts (no Pick
+  // was committed), exactly like a pause. If STALLED were not a lifecycle kind
+  // this append would throw; if activityEntryOf fabricated Pick fields for it the
+  // client renderer would draw a broken Pick line instead of the event line.
+  const STUCK_TEAM = { id: 44, name: 'MinneApple' };
+  const calls = [];
+  const client = {
+    query: async (text, params) => {
+      calls.push({ text, params });
+      return { rows: [{ id: 7, feed_seq: '21', created_at: '2026-09-01T00:02:00.000Z' }] };
+    },
+  };
+
+  const entry = await appendLifecycleActivity(client, { leagueId: LEAGUE_ID, kind: STALLED, team: STUCK_TEAM });
+
+  // One INSERT, kind 'stalled', the stuck team named, no Pick columns.
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].text, /INSERT INTO "draft_activity"/);
+  assert.deepEqual(calls[0].params, [LEAGUE_ID, 'stalled', STUCK_TEAM.id, STUCK_TEAM.name]);
+  const [columnList] = calls[0].text.split('RETURNING');
+  assert.doesNotMatch(columnList, /player_name|pick_number|"round"|is_autopick/i, 'a stalled entry carries no Pick facts');
+
+  // The typed entry the feed broadcasts and renders: a bare lifecycle shape.
+  assert.equal(entry.kind, STALLED);
+  assert.equal(entry.teamId, STUCK_TEAM.id);
+  assert.equal(entry.teamName, STUCK_TEAM.name);
+  assert.equal('player' in entry, false, 'no fabricated Pick snapshot on a stalled entry');
+
+  // And activityEntryOf shapes a stalled row read back from the feed the same
+  // bare way (the combined-feed read path), so it renders as an event line.
+  const readBack = activityEntryOf({
+    kind: STALLED, id: 7, feed_seq: '21', teamId: STUCK_TEAM.id, teamName: STUCK_TEAM.name,
+    created_at: '2026-09-01T00:02:00.000Z',
+  });
+  assert.equal(readBack.kind, STALLED);
+  assert.equal(readBack.teamName, 'MinneApple');
+  assert.equal('player' in readBack, false);
 });
 
 test('POST pause: a commissioner with no team in the league records a null actor, not a fabricated one', async (t) => {
