@@ -355,6 +355,17 @@ waiver rule, not a draft)
 The team whose turn it is to pick, and the timer bounding that turn.
 _Avoid_: current picker
 
+**Pick clock**:
+The timer lifecycle of one turn: armed when a team comes on the clock,
+cleared while the draft is paused, and discharged by that team's Pick or by
+Autopick when it expires. One rule arms it everywhere, resume included: an
+Autodraft team gets the short delay, a timed team gets the full pick time,
+an untimed team gets no clock. Pausing forgives elapsed time rather than
+preserving it. Repeated consecutive expiries are its consequence too: they
+are what places a team into Autodraft.
+_Avoid_: countdown (the display), deadline (the stored instant, not the
+concept), pick timer
+
 **Pick**:
 A team's committed claim of one player during a draft. Once accepted it
 advances the shared draft state and cannot be undone by the manager who made

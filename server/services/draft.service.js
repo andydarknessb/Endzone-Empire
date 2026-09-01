@@ -8,13 +8,16 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { teamIdentityOf } = require('./teamIdentity');
 const { appendPickActivity, appendLifecycleActivity, appendCorrectionActivity, COMPLETE } = require('./draftActivity');
-// correctionTarget is required lazily inside correctLatestPick: draftValidation
-// already requires this module at load time (nextPickClockSeconds), so a
-// top-level require here would close a cycle and hand draftValidation a
-// half-built exports object.
+// correctionTarget is required lazily inside correctLatestPick, kept lazy to
+// avoid any load-order coupling with draftValidation (which pulls in the roster
+// and draft-order modules at load time).
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRounds } = require('./rosterShape');
 const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
+// The Pick clock module owns arming: the only writer of the deadline and the
+// current pick (ADR 0018). draftPlayer advances the turn through its named
+// pick-landed event.
+const pickClock = require('./pickClock.service');
 
 const { POSITION_GROUPS } = lineupService;
 
@@ -48,17 +51,6 @@ function teamIndexForPick(pickNumber, teamCount) {
 }
 
 const AUTO_ENABLE_TIMEOUTS = 2;
-
-/**
- * Pure: seconds on the clock for the next pick. Returns null for "no clock".
- * An autodrafting team always gets the short autodraft delay (even in an
- * otherwise untimed draft); everyone else gets the league pick clock.
- */
-function nextPickClockSeconds({ draftComplete, nextTeamAutodraft, pickTimeSeconds, autodraftDelaySeconds }) {
-  if (draftComplete) return null;
-  if (nextTeamAutodraft) return Math.max(1, autodraftDelaySeconds || 1);
-  return pickTimeSeconds > 0 ? pickTimeSeconds : null;
-}
 
 /** Pure: a team hitting this many consecutive timeouts gets autodraft turned on. */
 function shouldAutoEnableAutodraft(consecutiveTimeouts) {
@@ -281,28 +273,21 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
         nextPickIndex = nextOpenPickNumber(takenSet, league.current_pick + 1, totalPicks);
         nextTeam = nextPickIndex === null ? null : teamForPick(nextPickIndex, teams, rotationOpts);
       }
-      // The next team's clock: short autodraft delay if it autodrafts, else the
-      // league pick clock (null = untimed / draft over). Offline drafts never
-      // arm a deadline regardless of a team's autodraft flag or the league's
-      // configured pick clock — picks only ever land via commissioner entry.
-      const clockSeconds = league.draft_type === 'offline' ? null : nextPickClockSeconds({
+      // Advance the turn and arm the next team's clock through the Pick clock
+      // module (ADR 0018): the only writer of current_pick and the deadline. It
+      // applies the one arming policy (short autodraft delay, full pick time, or
+      // none, and never a clock for an offline draft) and keeps the turn advance
+      // and clock arm in one atomic statement. draft_status rides that statement
+      // because the final pick's advance IS the completion, and the completion
+      // side effects below depend on 'complete' being set first (#194).
+      pickDeadlineAt = await pickClock.onPickLanded(client, {
+        leagueId,
+        nextPick: draftComplete ? pickNumber : nextPickIndex,
+        draftStatus: draftComplete ? 'complete' : 'active',
         draftComplete,
-        nextTeamAutodraft: nextTeam ? nextTeam.autodraft : false,
-        pickTimeSeconds: league.pick_time_seconds,
-        autodraftDelaySeconds: league.autodraft_delay_seconds,
+        nextTeam,
+        league,
       });
-      const leagueUpdate = await client.query(
-        `UPDATE "leagues"
-         SET "current_pick" = $1, "draft_status" = $2, "updated_at" = now(),
-             "pick_deadline_at" = CASE
-               WHEN $4::int IS NULL THEN NULL
-               ELSE now() + make_interval(secs => $4::int)
-             END
-         WHERE "id" = $3
-         RETURNING "pick_deadline_at"`,
-        [draftComplete ? pickNumber : nextPickIndex, draftComplete ? 'complete' : 'active', leagueId, clockSeconds]
-      );
-      pickDeadlineAt = leagueUpdate.rows[0].pick_deadline_at;
       // A present owner making their own pick clears any timeout streak.
       if (!auto) {
         await client.query(
@@ -715,7 +700,6 @@ module.exports = {
   undoDrop,
   correctLatestPick,
   teamIndexForPick,
-  nextPickClockSeconds,
   shouldAutoEnableAutodraft,
   AUTO_ENABLE_TIMEOUTS,
   DraftError,

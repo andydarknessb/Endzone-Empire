@@ -30,15 +30,29 @@ app.use('/api/draft', require('../routes/draft.router'));
 
 // A world where the acting commissioner owns ACTOR_TEAM, the pause UPDATE
 // matches (commissioner + active), and the lifecycle append lands at feed_seq 12.
+// The clock is now armed/cleared through the Pick clock module (ADR 0018): the
+// guarded UPDATE flips draft_paused, then the module's own leagues UPDATE writes
+// the deadline (both match update('leagues')). On resume the module first reads
+// the league and teams to resolve the on-clock team and arm the policy clock.
 function pausePool({ paused }) {
-  return createFakePool([
+  const handlers = [
     // requireFantasyLeague() middleware on /league/:id.
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
+    // The guarded draft_paused flip AND the module's clock write both match here.
     [update('leagues'), () => ({ rows: [{ id: LEAGUE_ID, draft_paused: paused, pick_deadline_at: paused ? null : '2026-09-01T00:01:00.000Z' }] })],
-    // lookupTeam: the acting commissioner's Team in this league.
-    [select('teams'), () => ({ rows: [ACTOR_TEAM] })],
-    [insert('draft_activity'), () => ({ rows: [{ id: 3, feed_seq: '12', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
-  ]);
+  ];
+  if (!paused) {
+    // onResumed resolves the on-clock team, then arms the policy clock.
+    handlers.push([/SELECT "current_pick", "draft_type"/, () => ({ rows: [{
+      current_pick: 0, draft_type: 'snake', draft_rotation: 'snake', draft_order_overrides: null,
+      pick_time_seconds: 60, autodraft_delay_seconds: 10,
+    }] })]);
+    handlers.push([/SELECT "id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: [{ id: 30, autodraft: false, draft_position: 1 }] })]);
+  }
+  // lookupTeam: the acting commissioner's Team in this league.
+  handlers.push([/SELECT "id", "name" FROM "teams"/, () => ({ rows: [ACTOR_TEAM] })]);
+  handlers.push([insert('draft_activity'), () => ({ rows: [{ id: 3, feed_seq: '12', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })]);
+  return createFakePool(handlers);
 }
 
 const doPause = (paused) => request(app)
@@ -59,9 +73,12 @@ test('POST pause: appends a pause activity with the commissioner Team, in one tr
   assert.deepEqual(appended[0].params, [LEAGUE_ID, 'pause', ACTOR_TEAM.id, ACTOR_TEAM.name]);
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
   assert.equal(fake.matching(/^ROLLBACK$/).length, 0);
-  // Established clock behavior preserved: pausing clears the deadline.
-  const leagueUpdate = fake.matching(update('leagues'))[0];
-  assert.match(leagueUpdate.text, /"pick_deadline_at"\s*=\s*CASE/);
+  // Established clock behavior preserved: pausing clears the deadline, now
+  // through the Pick clock module's own UPDATE rather than the flip's CASE.
+  assert.ok(
+    fake.matching(update('leagues')).some((c) => /"pick_deadline_at" = NULL/.test(c.text)),
+    'pausing cleared the deadline'
+  );
   assert.equal(res.body.pick_deadline_at, null);
   fake.assertClean();
 });
