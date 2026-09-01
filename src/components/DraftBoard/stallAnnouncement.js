@@ -62,11 +62,14 @@ export function stallAnnouncementFor(entry) {
  * The exit set is DERIVED from the Draft lifecycle kinds by exclusion, never a
  * hand-written parallel list that could drift: it is every lifecycle kind EXCEPT
  * the ones that do not end a stuck state. LIFECYCLE_KINDS mirrors the server's
- * roster (server/services/draftActivity.js); react-scripts confines client
- * imports to src/, so this is the one client-side copy - keep it in step if a
- * lifecycle kind is added there, and a new kind is then an EXIT by default (it
- * clears) unless it is added to NON_EXIT_KINDS, which is the safe direction: a
- * stall that lingers is worse than one cleared a beat early.
+ * roster (server/services/draftActivity.js). react-scripts's WEBPACK BUILD
+ * confines runtime imports to src/ (ModuleScopePlugin), so the client carries its
+ * own copy rather than pulling the server module into the bundle - but jest has
+ * no such confinement, so stallAnnouncement.parity.test.js imports the server
+ * LIFECYCLE_KINDS and FAILS if the two drift (the house pattern, e.g.
+ * chatLimits.parity.test.js). A new lifecycle kind added on the server is an EXIT
+ * by default here (it clears) unless it is also added to NON_EXIT_KINDS, which is
+ * the safe direction: a stall that lingers is worse than one cleared a beat early.
  *
  * NON_EXIT_KINDS, and why each is here:
  *  - `stalled` is the ENTRY edge, not an exit.
@@ -76,7 +79,10 @@ export function stallAnnouncementFor(entry) {
  *    silence a still-stuck draft.
  *  - `draft_start` is the opening transition, not a stuck-state exit.
  */
-const LIFECYCLE_KINDS = ['draft_start', 'pause', 'resume', 'reset', 'complete', 'stalled'];
+// Exported so stallAnnouncement.parity.test.js can pin it to the server roster.
+export const LIFECYCLE_KINDS = Object.freeze([
+  'draft_start', 'pause', 'resume', 'reset', 'complete', 'stalled',
+]);
 const STALL_ENTRY_KIND = 'stalled';
 const NON_EXIT_KINDS = new Set(['draft_start', 'pause', STALL_ENTRY_KIND]);
 export const STALL_EXIT_KINDS = Object.freeze(
