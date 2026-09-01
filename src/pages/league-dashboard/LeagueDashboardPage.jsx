@@ -80,8 +80,11 @@ export default function LeagueDashboardPage() {
 
   return (
     <DashboardShell>
+      {/* A plain layout row, not a <header>: a top-level <header> maps to the
+          `banner` landmark, and the app shell's global app bar (Nav) already
+          owns that role, so this must not add a second banner at cutover. The
+          h1 below carries the heading structure. */}
       <Box
-        component="header"
         sx={{
           display: 'flex',
           alignItems: 'baseline',
@@ -122,12 +125,14 @@ export default function LeagueDashboardPage() {
         )}
       </Box>
 
-      {/* HERO: my-team beside matchup preview. Empty slots the widget tickets
-          (#639, #640) swap their widgets into. Collapses to one column at
-          tablet width. */}
+      {/* HERO: my-team beside matchup preview. Nameless <section> layout
+          containers, deliberately NOT labelled landmarks: an empty labelled
+          region is announced with nothing in it (noise). The real landmarks are
+          the titled Cards the widget tickets (#639-#643) swap into these empty
+          slots, each a labelled region via shared/ui Card. Collapses to one
+          column at tablet width. */}
       <Box
         component="section"
-        aria-label="Your team and this week's matchup"
         data-testid="dashboard-hero"
         sx={{
           display: 'grid',
@@ -139,11 +144,11 @@ export default function LeagueDashboardPage() {
         <Box data-testid="slot-matchup-preview" />
       </Box>
 
-      {/* MAIN: standings beside a rail. Empty slots for #641/#642/#643.
-          Collapses to one column at tablet width. */}
+      {/* MAIN: standings beside a rail (same nameless-container reasoning as the
+          hero). Empty slots for #641/#642/#643. Collapses to one column at
+          tablet width. */}
       <Box
         component="section"
-        aria-label="Standings and league"
         data-testid="dashboard-main"
         sx={{
           display: 'grid',
@@ -154,8 +159,6 @@ export default function LeagueDashboardPage() {
       >
         <Box data-testid="slot-standings" />
         <Box
-          component="aside"
-          aria-label="League updates"
           data-testid="dashboard-rail"
           sx={{ display: 'grid', gap: '22px' }}
         />

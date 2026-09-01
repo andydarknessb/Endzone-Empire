@@ -175,6 +175,9 @@ test('commissioner (invite_code present): the Invite button copies the join link
     `${window.location.origin}/#/league/join?code=abc123`
   );
   expect(await screen.findByText('Copied')).toBeInTheDocument();
+  // The success is announced to assistive tech through a polite live region,
+  // not left to the (inconsistently announced) button-name swap alone.
+  expect(screen.getByRole('status')).toHaveTextContent('Invite link copied');
 });
 
 test('non-commissioner (no invite_code): no Invite button is rendered', async () => {
