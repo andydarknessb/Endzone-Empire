@@ -821,6 +821,42 @@ test('shows a "Needs attention" warning chip in the summary header when starting
   ).toBeInTheDocument();
 });
 
+// The MinneApple wedge's client half: a roster can hold more bench players
+// than the league has bench slots (a draft that cannot fill every starting
+// slot seats the surplus on the bench). Rendering only benchSlots rows hid
+// the overflow players entirely, so managers could neither see nor drop them.
+test('renders every bench player when the bench overflows its slot count, and flags it', async () => {
+  const benchOverflowEntries = [
+    { id: 21, name: 'Bench QB One', position: 'QB', nfl_team: 'MIN', slot: 'BENCH', locked: false, onBye: false },
+    { id: 22, name: 'Bench QB Two', position: 'QB', nfl_team: 'MIN', slot: 'BENCH', locked: false, onBye: false },
+    { id: 23, name: 'Bench QB Three', position: 'QB', nfl_team: 'MIN', slot: 'BENCH', locked: false, onBye: false },
+  ];
+  mockGetAll({
+    data: lineupResponse({
+      benchSlots: 2,
+      entries: [...lineupResponse().entries, ...benchOverflowEntries],
+    }),
+  });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  // Four bench players against two bench slots: every one gets a row.
+  expect(screen.getByTestId('slot-row-BENCH-4')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-BENCH-21')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-BENCH-22')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-BENCH-23')).toBeInTheDocument();
+  // The fixture also has empty starting slots, which show the chip on their
+  // own — the overflow must contribute its own sentence, so assert the
+  // tooltip copy, not just the chip's presence.
+  await userEvent.hover(
+    within(screen.getByTestId('lineup-summary-header')).getByTestId('lineup-warning-chip')
+  );
+  expect(
+    await screen.findByText(/2 more bench players than bench slots/)
+  ).toBeInTheDocument();
+});
+
 test('shows an error alert when the initial fetch fails', async () => {
   // The league endpoint resolves normally here (rather than a blanket
   // mockRejectedValue for every URL) so this stays a clean regression test

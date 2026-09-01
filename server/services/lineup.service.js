@@ -85,8 +85,12 @@ function parseLineupSettings(league) {
  * entries: [{ playerId, position, slot }]. Returns an array of error strings
  * (empty when valid). Starting slots, BENCH, and IR are all capped — total
  * roster size is enforced as starters + bench + IR by construction.
+ *
+ * `baseline` (optional): the same lineup's entries as they stood BEFORE the
+ * save under validation. When given, a slot's cap is enforced as "no worse
+ * than baseline" rather than absolutely — see the comment at the cap check.
  */
-function validateLineup(entries, { rosterSlots = DEFAULT_ROSTER_SLOTS, benchSlots = 5, irSlots = 1 } = {}) {
+function validateLineup(entries, { rosterSlots = DEFAULT_ROSTER_SLOTS, benchSlots = 5, irSlots = 1, baseline = null } = {}) {
   const errors = [];
   const counts = {};
   const slotByKey = new Map(rosterSlots.map((s) => [s.key, s]));
@@ -102,9 +106,31 @@ function validateLineup(entries, { rosterSlots = DEFAULT_ROSTER_SLOTS, benchSlot
     }
     counts[slot] = (counts[slot] || 0) + 1;
   }
+  // A save is refused for overflow it CREATES, never for overflow it merely
+  // inherits. A roster can hold more players than its fillable slots can
+  // seat (a draft that took six QBs and no TE leaves seven players for a
+  // six-slot bench), and with an absolute cap every such lineup rejects
+  // every save, wedging the team permanently: the manager cannot even make
+  // the moves or the drops that would dig them out. So when the caller
+  // supplies the pre-save `baseline` entries, BENCH and IR caps are forgiven
+  // up to the overflow that already stood there; a save that leaves them no
+  // worse is legal, and one that worsens them still refuses with the same
+  // message. Forgiveness covers ONLY the seats that never score. A STARTING
+  // slot's cap stays absolute even against a baseline that overflows it:
+  // every non-BENCH/IR row scores, so tolerating an inherited second QB
+  // would turn a loud, correctable state into silent score inflation.
+  // Eligibility above stays absolute too: an ineligible placement is always
+  // new.
+  const baselineCounts = {};
+  for (const entry of baseline || []) {
+    baselineCounts[entry.slot] = (baselineCounts[entry.slot] || 0) + 1;
+  }
   for (const [slot, count] of Object.entries(counts)) {
     const max = slot === IR ? irSlots : slot === BENCH ? benchSlots : slotByKey.get(slot).count;
-    if (count > max) errors.push(`too many players at ${slot} (${count}/${max})`);
+    const allowed = slot === BENCH || slot === IR
+      ? Math.max(max, baselineCounts[slot] || 0)
+      : max;
+    if (count > allowed) errors.push(`too many players at ${slot} (${count}/${max})`);
   }
   return errors;
 }
@@ -753,6 +779,10 @@ async function setLineup({ leagueId, userId, week, moves }) {
       [team.id, season, targetWeek]
     );
     const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
+    // Snapshot the pre-save slots NOW: the repair below and the moves both
+    // mutate these rows in place, and the validation at the bottom forgives
+    // only the overflow that stood before this save touched anything.
+    const baseline = entriesResult.rows.map((r) => ({ player_id: r.player_id, slot: r.slot }));
 
     const locked = await lockedPlayerIds(client, {
       season,
@@ -826,7 +856,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
     const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
     const errors = validateLineup(
       entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
-      validationSettings
+      { ...validationSettings, baseline: entriesForLineupValidation(baseline, league) }
     );
     if (errors.length > 0) throw new LineupError(400, errors.join('; '));
 
