@@ -12,10 +12,13 @@ import { Avatar } from '@mui/material';
  * grade, not a bare letter. `role="img"` is required for that: without it the
  * Avatar is a roleless div, and ARIA does not expose an `aria-label` on a
  * generic role, so AT would fall back to reading the visible letter. `role`
- * makes the label authoritative and hides the decorative letter from AT. An
- * unrecognised grade still renders with that accessible name on a neutral fill
- * rather than throwing, so a widget passing an unexpected value degrades
- * instead of blanking the card.
+ * makes the label authoritative and hides the decorative letter from AT.
+ *
+ * Two degrade paths, so a widget never blanks the card or announces garbage:
+ *   - a value that is not one of A-F still renders it on a neutral fill with
+ *     accessible name "Grade <value>".
+ *   - a missing grade (null/undefined/blank, the pre-draft case) renders a "-"
+ *     placeholder named "Grade not available", never "Grade undefined".
  */
 const GRADE_TOKENS = {
   A: 'var(--dash-grade-a)',
@@ -26,8 +29,10 @@ const GRADE_TOKENS = {
 };
 
 export default function GradeChip({ grade, sx, ...rest }) {
-  const key = typeof grade === 'string' ? grade.toUpperCase() : '';
+  const raw = grade == null ? '' : String(grade).trim();
+  const key = raw.toUpperCase();
   const known = Object.prototype.hasOwnProperty.call(GRADE_TOKENS, key);
+  const missing = raw === '';
   const backgroundColor = known ? GRADE_TOKENS[key] : 'var(--dash-surface2)';
   // On a real grade fill the dark `dash-on-grade` letter clears AA. On the
   // neutral fallback fill it would not (on-grade on surface2 is 1.22:1 in
@@ -38,7 +43,7 @@ export default function GradeChip({ grade, sx, ...rest }) {
   return (
     <Avatar
       role="img"
-      aria-label={`Grade ${key || grade}`}
+      aria-label={missing ? 'Grade not available' : `Grade ${key}`}
       variant="circular"
       sx={{
         width: 26,
@@ -52,7 +57,7 @@ export default function GradeChip({ grade, sx, ...rest }) {
       }}
       {...rest}
     >
-      {key || grade}
+      {missing ? '-' : key}
     </Avatar>
   );
 }

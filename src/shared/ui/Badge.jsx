@@ -24,24 +24,27 @@ const VARIANT_SX = {
     color: 'var(--dash-accent)',
     border: '1px solid var(--dash-accent-line)',
   },
-  // The "You" pill shares the accent palette with `live` but is its own thing
-  // in the mockup (`.you`): smaller, heavier, wider tracking. Keeping its type
-  // distinct is what makes it read as an identity marker rather than a status
-  // chip when the two sit near each other.
+  // The "You" pill shares the accent palette with `live`. Its distinct type
+  // (see YOU_TYPE) is what keeps it reading as an identity marker rather than a
+  // status chip when the two sit near each other.
   you: {
     backgroundColor: 'var(--dash-accent-soft)',
     color: 'var(--dash-accent)',
     border: '1px solid var(--dash-accent-line)',
-    fontSize: '10.5px',
-    fontWeight: 700,
-    letterSpacing: '0.08em',
   },
 };
+
+// The "You" pill's distinguishing type from the mockup (`.you`): smaller,
+// heavier, wider tracking than the base chip. Applied as inline `style` (not
+// sx) so a test can read it and a regression back to the `live` look is caught,
+// not just so it renders.
+const YOU_TYPE = { fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.08em' };
 
 export default function Badge({
   variant = 'neutral',
   children,
   sx,
+  style,
   'data-testid': testId = 'badge',
   ...rest
 }) {
@@ -53,6 +56,7 @@ export default function Badge({
       size="small"
       data-variant={variant}
       data-testid={testId}
+      style={{ ...(variant === 'you' ? YOU_TYPE : {}), ...style }}
       sx={{
         height: 'auto',
         fontSize: '11.5px',

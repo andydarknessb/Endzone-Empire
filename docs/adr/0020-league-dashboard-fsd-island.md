@@ -14,7 +14,11 @@ the immutability guard explicitly permits for a Status line
 (`scripts/ci/check-adr-immutability.js`); no other line of 0017 is touched. So
 a reader who lands on ADR 0017 is routed here.
 
-The League Dashboard island is:
+The League Dashboard island will comprise (this ADR is the foundation ticket;
+`src/shared/ui` and the token group ship with it, and the slices below are
+introduced by the eight tickets that build on it, so at this ADR's own commit
+only `src/shared/ui`, `src/widgets/draft-order` and `src/features/autodraft-toggle`
+exist):
 
 - `src/pages/league-dashboard`, the page slice that composes the widgets.
 - Six widget slices: `src/widgets/my-team-summary`, `matchup-preview`,
@@ -64,10 +68,26 @@ possible but is still not a prerequisite.
   `tokens.contrast.test.js` in both themes. The guard certifies exactly the
   pairings it lists (ADR 0010): a pairing a widget invents that is not on that
   list is not covered, so a widget adding a new token-on-surface combination
-  registers it there rather than assuming the group is blanket-safe.
+  registers it there rather than assuming the group is blanket-safe. Two such
+  boundaries are load-bearing and cannot be widened by retuning without
+  collapsing a tier, so they are rules for the widget tickets, not just guard
+  rows:
+    - Faint text on the accent tint (`dash-faint` on `dash-accent-soft`, the
+      `tr.me` rank cell) is legible only over a card (`dash-surface`). A tinted
+      element on any other surface uses ink or dim for its text, never faint.
+    - Grade-as-text (`dash-grade-*-text`) is legible on a card (`dash-surface`)
+      and a stat tile (`dash-surface2`), not on the raised tile
+      (`dash-surface3`), where light grade-b text is 4.40. Grade text is not
+      painted on the raised tile.
 - ADR 0004 (the resource cache and its more-than-one-mount admission rule) and
   ADR 0007 (interaction-test style) continue to govern the data seam and the
   tests; this ADR does not change them.
+- The committed design source `docs/design/dashboard-concept.html` contains
+  em-dashes (in its copy and its empty standings cells). It is a reference, not
+  shipped copy, and the em-dash guard (ADR 0016) scans only `.js`/`.jsx` under
+  `src/` and `server/`, so it does not reach the mockup. A widget transcribing
+  the mockup's strings rewrites those em-dashes to house style (middot
+  separators, en-dash ranges), as spec #617 already directs.
 - ADR 0017's Status line now reads "scope superseded by ADR 0020", so a reader
   following the Draft order island to the Dashboard island is routed here from
   0017 itself, not only from this ADR.

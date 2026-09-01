@@ -60,6 +60,15 @@ export const colorTokens = {
     // ---- League Dashboard token group (light), derived from the dark group
     // below. See the dark block for the full rationale; only the derivation
     // notes specific to light live here. Registered pairings: tokens.contrast.
+    //
+    // WHY A PARALLEL SCALE (this file is still the single source of truth): the
+    // `dash-*` names duplicate the ROLES of the app tokens (`dash-bg`/`-surface`
+    // /`-ink`/`-dim` mirror `bg-page`/`surface`/`text-primary`/`text-muted`) but
+    // at the redesign's own darker, higher-contrast values. They are scoped to
+    // the League Dashboard island (ADR 0020) and are NOT transitional: use the
+    // `dash-*` tokens inside the dashboard slices, the app tokens everywhere
+    // else. The two scales coexisting here is the point of keeping them in one
+    // file, so a later merge or divergence is visible in a single place.
     'dash-bg': '#eef2f6',
     'dash-surface': '#ffffff',
     'dash-surface2': '#f4f7fa',
@@ -177,15 +186,16 @@ export const colorTokens = {
     'dash-line-strong': 'rgba(154, 183, 211, 0.22)',
     'dash-ink': '#e8eef4',
     'dash-dim': '#93a4b5',
-    // Lightened from the mockup's #5c6e80. The mockup uses --faint only at
-    // small sizes (11-12.5px, including real prose), which WCAG treats as
-    // normal text, so `dash-faint` is registered at AA_TEXT (4.5), not the
-    // large-text 3.0. The verbatim value fails 4.5 on every surface (best 3.64
-    // on bg), so it is lifted to #8a9bad, the least-light value that clears 4.5
-    // on the lightest surface (4.84 on surface3), the same treatment `accent`
-    // already gets in this file (see #237). It is the lightest AA-legible muted
-    // tier, one notch below `dash-dim`; a widget can use it for any de-emphasized
-    // text without an accessibility caveat.
+    // Lightened from the mockup's #5c6e80. The mockup uses --faint from 11px up
+    // to 16px (`.vs` is 16px/600, `.rk` inherits 13.5px, `.stat .k` is 11px),
+    // none of which is WCAG "large text" (18.66px bold / 24px), so `dash-faint`
+    // is registered at AA_TEXT (4.5), not the large-text 3.0. The verbatim value
+    // fails 4.5 on every surface (best 3.64 on bg), so it is lifted to #8a9bad,
+    // the least-light value that clears 4.5 on the lightest surface (4.84 on
+    // surface3), the same treatment `accent` already gets in this file (#237).
+    // It is the lightest AA-legible muted tier, one notch below `dash-dim`, for
+    // any de-emphasized text on a plain surface. NB it does NOT clear 4.5 on the
+    // accent tint except over a card (see the tint rows in tokens.contrast).
     'dash-faint': '#8a9bad',
     'dash-accent': '#2fd97b',
     'dash-accent-soft': 'rgba(47, 217, 123, 0.12)',

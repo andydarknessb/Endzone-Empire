@@ -232,18 +232,22 @@ const PAIRINGS = [
   pairing('accent', 'accent-soft', AA_TEXT, 'nav link hover on the app bar', 'surface-raised'),
 
   // ---- League Dashboard token group (ADR 0020, #637). The dashboard themes
-  // shared/ui and its widgets from the `dash-*` tokens; every ink-on-surface
-  // pairing it puts on screen is registered here for both modes so a widget
-  // ticket cannot ship an unguarded pairing. Three inks (`dash-ink`,
-  // `dash-dim`, `dash-faint`) sit on four surfaces (`dash-bg` the page and the
-  // three card/tile surfaces `dash-surface`/`-surface2`/`-surface3`):
+  // shared/ui and its widgets from the `dash-*` tokens. This block registers
+  // the token-on-surface pairings the dashboard PUTS ON SCREEN, in both modes.
+  // It does NOT prove the token set safe in the abstract: the guard certifies
+  // exactly the pairings listed (ADR 0010), so a widget that composes a NEW
+  // token-on-surface combination (a token on a backdrop no row below covers)
+  // registers it here rather than assuming the group is blanket-safe. Three
+  // inks (`dash-ink`, `dash-dim`, `dash-faint`) sit on four surfaces (`dash-bg`
+  // the page and the three card/tile surfaces `dash-surface`/`-surface2`/
+  // `-surface3`):
   //   * ink and dim carry small essential text, so AA_TEXT (4.5).
   //   * faint is the lightest muted tier (uppercase stat/table labels, counts,
-  //     captions, short prose). The mockup uses it only at small sizes
-  //     (11-12.5px), which WCAG treats as normal text, so it is held to
-  //     AA_TEXT (4.5) too, not the large-text 3.0. `dash-faint` was lightened
-  //     from the mockup value so it clears 4.5 on every surface (tokens.js);
-  //     it needs no "large text only" caveat.
+  //     captions, short prose). The mockup uses it from 11px to 16px (`.vs` is
+  //     16px/600, `.rk` 13.5px), none of which is WCAG large text, so it is
+  //     held to AA_TEXT (4.5). `dash-faint` was lightened from the mockup value
+  //     so it clears 4.5 on every plain surface (tokens.js). On the accent tint
+  //     it clears only over a card; see the tint rows below.
   pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
   pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
   pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),
@@ -256,18 +260,34 @@ const PAIRINGS = [
   pairing('dash-faint', 'dash-surface', AA_TEXT, 'dashboard faint label on a card'),
   pairing('dash-faint', 'dash-surface2', AA_TEXT, 'dashboard faint label on a stat tile'),
   pairing('dash-faint', 'dash-surface3', AA_TEXT, 'dashboard faint label on the raised tile'),
-  // The "You" pill and live chip: accent text on the accent-soft tint (#203
-  // compositing pattern). A badge is a floating element, so the tint can sit
-  // on any of the four surfaces: the mockup's `.chip.live` is on the page
-  // background (`dash-bg`), the You pill on a card (`dash-surface`), and either
-  // can land on a stat tile / hovered row (`dash-surface2`) or the raised tile
-  // (`dash-surface3`). All four are registered so a widget cannot ship the
-  // live chip on the page unguarded (it fails AA in light with a lighter
-  // accent; `dash-accent` was darkened so every backdrop clears AA_TEXT).
-  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over the page', 'dash-bg'),
-  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over a card', 'dash-surface'),
-  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over a stat tile', 'dash-surface2'),
-  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over the raised tile', 'dash-surface3'),
+  // Text ON the accent-soft tint (#203 compositing pattern). The tint is used
+  // two ways in the mockup: as a floating badge fill (`.chip.live`, the `.you`
+  // pill) and as a standings ROW background (`tr.me`). A badge floats, so its
+  // foregrounds are registered over all four surfaces; the `tr.me` row lives
+  // inside a card, so its foregrounds sit over `dash-surface`.
+  //
+  //   * accent text (the live chip / You pill label): all four backdrops.
+  //     `dash-accent` was darkened so every one clears AA_TEXT (a lighter
+  //     accent failed over the page background).
+  //   * ink text (the `tr.me` team name): all four backdrops, clears easily
+  //     (9.17-14.46).
+  //   * faint text (the `tr.me` rank cell, `.rk`): registered over `dash-surface`
+  //     ONLY, and that is a real boundary, not an omission. Faint on the tint
+  //     measures 4.62/4.81 over a card (passes) but 4.15/3.92 light and
+  //     5.48/3.76 dark over bg/surface2/surface3 - it fails on six of the other
+  //     backdrops and cannot be retuned to pass without collapsing the faint
+  //     tier into dim. So the rule for widgets, stated here and in ADR 0020, is:
+  //     faint text on the accent tint only inside a card (where `tr.me` lives);
+  //     a tinted element on any other surface uses ink or dim, never faint.
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over the page', 'dash-bg'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over a card', 'dash-surface'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over a stat tile', 'dash-surface2'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over the raised tile', 'dash-surface3'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the page', 'dash-bg'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a card', 'dash-surface'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a stat tile', 'dash-surface2'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the raised tile', 'dash-surface3'),
+  pairing('dash-faint', 'dash-accent-soft', AA_TEXT, 'the me-row rank cell on the accent tint over a card (the only guarded tinted-faint backdrop)', 'dash-surface'),
   // GradeChip: the fixed dark `dash-on-grade` letter on each of the five grade
   // fills. AA_TEXT since the letter is small (a 26px round chip, ~14px glyph).
   pairing('dash-on-grade', 'dash-grade-a', AA_TEXT, 'grade A chip letter'),
@@ -279,8 +299,11 @@ const PAIRINGS = [
   // as colored text on a tile (`.stat .v`, dashboard-concept.html), and the
   // vivid fills above are unreadable as text on a light surface (grade-a would
   // be 1.72 on surface2). `dash-grade-*-text` are the legible-as-text tokens,
-  // guarded on the card and stat-tile surfaces a grade value sits on, both
-  // modes, so a widget cannot ship grade text unguarded (finding #1, PR #650).
+  // guarded on the card (`dash-surface`) and stat-tile (`dash-surface2`)
+  // surfaces a grade value sits on, both modes. They are NOT guarded on the
+  // raised tile (`dash-surface3`): light grade-b-text is 4.40 there, so the
+  // rule (here and in ADR 0020) is that grade text is not painted on the raised
+  // tile - it belongs on a card or a stat tile, where the mockup puts it.
   pairing('dash-grade-a-text', 'dash-surface', AA_TEXT, 'grade A as text on a card'),
   pairing('dash-grade-a-text', 'dash-surface2', AA_TEXT, 'grade A as text on a stat tile'),
   pairing('dash-grade-b-text', 'dash-surface', AA_TEXT, 'grade B as text on a card'),
@@ -291,9 +314,11 @@ const PAIRINGS = [
   pairing('dash-grade-d-text', 'dash-surface2', AA_TEXT, 'grade D as text on a stat tile'),
   pairing('dash-grade-f-text', 'dash-surface', AA_TEXT, 'grade F as text on a card'),
   pairing('dash-grade-f-text', 'dash-surface2', AA_TEXT, 'grade F as text on a stat tile'),
-  // The primary button: `dash-on-accent` label on the accent fill. AA_LARGE,
-  // matching how `on-accent`/`accent` is held above (button label = UI text).
-  pairing('dash-on-accent', 'dash-accent', AA_LARGE, 'dashboard primary button label on accent'),
+  // The primary button: `dash-on-accent` label on the accent fill. The mockup's
+  // only primary button (`.btn`) is 13px/600, which is normal text by WCAG, not
+  // large text, so this is AA_TEXT (4.5), not the large-text 3.0. It clears it
+  // comfortably in both modes (6.65 light, 10.31 dark).
+  pairing('dash-on-accent', 'dash-accent', AA_TEXT, 'dashboard primary button label on accent'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can
