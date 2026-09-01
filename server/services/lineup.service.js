@@ -184,8 +184,17 @@ async function isFinalWeekForTeam(client, { leagueId, teamId, season, week }) {
  * This does not change how a live week scores, and it does not cost the
  * acquired player his bench spot: the new current week has no row for him
  * either, so its first touch materializes him onto the bench (#97 / PR #102).
+ *
+ * `acquiredPlayerId` (set only by `benchAcquiredPlayer`) names a player whose
+ * copy-forward slot must not be trusted: his latest earlier week may hold the
+ * starting slot he was dropped out of, and reviving it seats him beside
+ * whoever holds that slot now (#623). His fresh row lands on the bench with
+ * no attestation. The first-ever starter seed still applies to him - there is
+ * no standing lineup for that seed to disrupt, and every live draft pick
+ * arrives through this path (the keeper pre-fill writes no lineup rows, so
+ * it neither needs nor gets the flag).
  */
-async function materializeLineup(client, { leagueId, teamId, season, week, league }) {
+async function materializeLineup(client, { leagueId, teamId, season, week, league, acquiredPlayerId }) {
   if (await isFinalWeekForTeam(client, { leagueId, teamId, season, week })) return;
 
   const rosterResult = await client.query(
@@ -227,7 +236,8 @@ async function materializeLineup(client, { leagueId, teamId, season, week, leagu
   }
 
   for (const row of missing) {
-    const prev = prevEntries.get(row.player_id);
+    const acquired = row.player_id === acquiredPlayerId;
+    const prev = acquired ? undefined : prevEntries.get(row.player_id);
     await client.query(
       `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
        VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -245,20 +255,22 @@ async function materializeLineup(client, { leagueId, teamId, season, week, leagu
  * cannot bypass the placement gate.
  *
  * A lineup entry follows the roster now (#197), so an ordinary departure no
- * longer leaves a stash behind for a re-add to sit straight back into. Two
- * routes to an IR row still reach this function, and both need closing: a
- * POST-KICKOFF departure keeps its current-week row deliberately, and
- * `materializeLineup`'s copy-forward can carry an IR slot into a later week
- * from an earlier one he was stashed in.
+ * longer leaves a stash behind for a re-add to sit straight back into. What
+ * still reaches this function and needs closing: a POST-KICKOFF departure
+ * keeps its current-week row deliberately, and `materializeLineup`'s
+ * copy-forward reads the player's latest earlier week - which can hold an IR
+ * stash or the very starting slot he was dropped out of, now occupied by
+ * someone else (#623).
  *
  * Two steps, in this order. First the current week is materialized, so it is
  * a complete week (never a lone row the next copy-forward would read as its
- * source and bench the whole roster by) and the player has a row in it.
- * Then every IR row of his from the current week on is moved to the bench,
- * ending any standing attestation (#100) with it: an acquisition is not the
- * undo that restores one. Only IR rows: a surviving starter row from a week
- * he actually played stays as played, with its points. Earlier weeks are
- * history and stay as they were.
+ * source and bench the whole roster by) and the player has a row in it;
+ * naming him as acquired makes any fresh row of his land on the bench rather
+ * than on whatever his old week held. Then every surviving IR row of his from
+ * the current week on is moved to the bench, ending any standing attestation
+ * (#100) with it: an acquisition is not the undo that restores one. The sweep
+ * touches only IR rows: a starter row from a week he actually played stays as
+ * played, with its points. Earlier weeks are history and stay as they were.
  *
  * `undoDrop` calls this only when the stash it would restore is no longer
  * valid (`undoRestoresStash`); otherwise an undo replays the stash its drop
@@ -268,7 +280,7 @@ async function materializeLineup(client, { leagueId, teamId, season, week, leagu
  */
 async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
   const { id: leagueId, current_season: season, current_week: week } = league;
-  await materializeLineup(client, { leagueId, teamId, season, week, league });
+  await materializeLineup(client, { leagueId, teamId, season, week, league, acquiredPlayerId: playerId });
   await client.query(
     `UPDATE "lineup_entries" SET "slot" = $5, "ir_attested" = false, "updated_at" = now()
      WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" >= $4 AND "slot" = $6`,

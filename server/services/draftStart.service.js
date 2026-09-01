@@ -38,6 +38,12 @@ async function startDraft({ leagueId, userId = null }) {
   const client = await pool.connect();
   // The lifecycle entries this start committed, broadcast only after COMMIT.
   let committedActivities = [];
+  // The deadline the start armed, carried out to the caller (null for a
+  // keeper-complete or untimed start). The WORKER's scheduled-autostart caller
+  // arms an in-process expiry timer for it (#615); it is deliberately NOT armed
+  // here, because startDraft also runs on the manual-start API path, where in
+  // production no timer registry exists (ADR 0018).
+  let pickDeadlineAt = null;
   try {
     await client.query('BEGIN');
 
@@ -126,7 +132,7 @@ async function startDraft({ leagueId, userId = null }) {
       // 0005): a draft that completes without a live pick is still "active or
       // completed" for every later read, so it must not fall through to a
       // live draftRosterSize() recomputation either.
-      await pickClock.onDraftStarted(client, {
+      pickDeadlineAt = await pickClock.onDraftStarted(client, {
         leagueId, complete: true, currentPick: plan.totalPicks, rounds: plan.rounds,
       });
       const { generateRegularSeason } = require('./season.service');
@@ -140,7 +146,7 @@ async function startDraft({ leagueId, userId = null }) {
       // 0005). draftPlayer's completion check and every other active/completed
       // read use this stored value from here on; none of them call
       // draftRosterSize() again for this league.
-      await pickClock.onDraftStarted(client, {
+      pickDeadlineAt = await pickClock.onDraftStarted(client, {
         leagueId, complete: false, currentPick: plan.firstOpenPick,
         clockSeconds: plan.firstClockSeconds, rounds: plan.rounds,
       });
@@ -160,7 +166,7 @@ async function startDraft({ leagueId, userId = null }) {
   // combined feed (#437). draft:state above refreshed the board; these carry the
   // start (and, on a keeper-filled start, the completion) to the feed.
   for (const entry of committedActivities) broadcastDraftActivity(leagueId, entry);
-  return { leagueId };
+  return { leagueId, pickDeadlineAt };
 }
 
 module.exports = { startDraft };

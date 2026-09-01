@@ -564,17 +564,18 @@ test('#227 best ball: a DEF UNIT acquired BEFORE its game still counts', async (
  * ------------------------------------------------------------------ */
 
 test('#190 standard: a post-game acquisition is excluded even from a STARTING slot', async (t) => {
-  // He started at RB for team B back in week 7, so materializeLineup's
-  // copy-forward hands him a STARTING slot in week 8 - which is exactly what
-  // a standard league counts. Without the settle rule he is paid for it.
+  // A week-8 RB row for him already exists at team B, seeded directly: the
+  // copy-forward used to create this state and #623 stopped it, but the
+  // settle rule must not lean on that fix - pre-fix rows exist, and whatever
+  // seats an untenured row in a starting slot, the slot alone is exactly what
+  // a standard league counts, and without the settle rule he is paid for it.
   // This is the standard-league twin of the best-ball test above: best ball
   // needs no such help, which is why the two leagues need separate fixtures.
   const world = createWorld({
     lineupEntries: [
       { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
       { team_id: TEAM_B, player_id: QB_B, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
-      { team_id: TEAM_B, player_id: QB_B, season: SEASON, week: 7, slot: 'QB', ir_attested: false },
-      { team_id: TEAM_B, player_id: ACQUIRED, season: SEASON, week: 7, slot: 'RB', ir_attested: false },
+      { team_id: TEAM_B, player_id: ACQUIRED, season: SEASON, week: WEEK, slot: 'RB', ir_attested: false },
     ],
   });
   world.fake.install(t);
@@ -583,7 +584,7 @@ test('#190 standard: a post-game acquisition is excluded even from a STARTING sl
   assert.equal(
     world.entriesFor(TEAM_B, SEASON, WEEK).find((e) => e.player_id === ACQUIRED).slot,
     'RB',
-    'the copy-forward really does seat him as a starter in the closing week'
+    'the acquisition leaves the surviving starter row as it stands'
   );
 
   await advanceWeek(world.state);
@@ -595,7 +596,7 @@ test('#190 standard: a post-game acquisition is excluded even from a STARTING sl
 test('#190 standard: excluding a post-game acquisition still leaves him benched next week', async (t) => {
   // #97 / PR #102: an acquisition lands on the bench, and the settle pass
   // must not cost him that. Kept separate from the test above because that
-  // one gives him week-7 history on purpose, and materializeLineup's
+  // one seeds him a week-8 RB row on purpose, and materializeLineup's
   // copy-forward would then carry the RB slot into week 9 - which is the
   // copy-forward's own behaviour, not anything #190 decides.
   const world = createWorld();
