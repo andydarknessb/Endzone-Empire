@@ -98,6 +98,20 @@ test('sweep: among unqueued candidates, ADP then last-season points then name de
   assert.deepEqual(attempts, [99], 'name breaks the tie, not id');
 });
 
+test('sweep: an unqueued ADP candidate outranks a productive no-ADP one', async (t) => {
+  // ADP is the first unqueued key: an ADP player is reached before a no-ADP
+  // player however productive. The producer here has the higher points, so a
+  // points-first ordering would reach it first - it must not.
+  const hasAdp = { id: 1, name: 'Has ADP', adp: '10.0', queue_rank: null, last_season_points: null };
+  const productiveNoAdp = { id: 2, name: 'Productive', adp: null, queue_rank: null, last_season_points: '99.0' };
+  installSweepPool(t, { candidates: [productiveNoAdp, hasAdp] }); // seeded out of order
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [1], 'ADP outranks production; the no-ADP producer is not reached first');
+});
+
 test('sweep: an empty queue prefers a no-ADP producer over a no-signal candidate', async (t) => {
   const withPoints = { id: 2, name: 'Has Points', adp: null, queue_rank: null, last_season_points: '50.0' };
   const noSignal = { id: 3, name: 'No Signal', adp: null, queue_rank: null, last_season_points: null };
