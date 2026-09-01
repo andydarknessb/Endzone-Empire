@@ -58,6 +58,19 @@ const COMPLETE = 'complete';
 const CORRECTION = 'correction';
 
 /**
+ * STALLED (#602): the Pick clock expired on a turn whose team had no draftable
+ * player, so the module paused the Draft loudly for commissioner repair instead
+ * of spinning silently on the elapsed deadline. It is a bare lifecycle event
+ * like a pause - it carries only the stuck Team's identity and the instant, no
+ * Pick facts (no Pick was committed) - so it is written through
+ * appendLifecycleActivity and lives in LIFECYCLE_KINDS beside pause and resume.
+ * The stuck Team is recorded as the entry's Team so the feed names who the Draft
+ * is waiting on; the commissioner repairs and resumes through the existing flow
+ * (ADR 0018, the paused-then-resumed shape correction already established).
+ */
+const STALLED = 'stalled';
+
+/**
  * The cutover BOUNDARY kind (#436, ADR 0012). It is not a Draft event: it is the
  * single per-league marker the legacy backfill inserts just after the legacy set
  * to separate synthetic legacy ordering from authoritative live ordering. It
@@ -74,7 +87,7 @@ const CUTOVER = 'cutover';
  * appendPickActivity, so routing one here (which writes no Pick columns) would
  * silently drop them.
  */
-const LIFECYCLE_KINDS = Object.freeze([DRAFT_START, PAUSE, RESUME, RESET, COMPLETE]);
+const LIFECYCLE_KINDS = Object.freeze([DRAFT_START, PAUSE, RESUME, RESET, COMPLETE, STALLED]);
 
 /**
  * EVERY Draft-activity kind an append path can WRITE (#540). This is the roster
@@ -354,6 +367,7 @@ module.exports = {
   COMPLETE,
   CORRECTION,
   CUTOVER,
+  STALLED,
   LIFECYCLE_KINDS,
   ALL_KINDS,
   USER_VISIBLE_KINDS,

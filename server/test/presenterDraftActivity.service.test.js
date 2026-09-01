@@ -74,8 +74,10 @@ test('reads draft_activity ONLY - never chat_messages, user_blocks or a viewer',
 test('the presenter kinds are a positive ALLOWLIST that excludes the cutover boundary', async () => {
   // AC3 is "approved public Pick and lifecycle facts": the SQL restricts kind
   // to an allowlist bound as $2, and the allowlist is the approved set - a Pick,
-  // the five lifecycle transitions and a correction - and NOT the internal
-  // cutover marker (#436) nor any future kind added upstream.
+  // the lifecycle transitions and a correction - and NOT the internal cutover
+  // marker (#436) nor any future kind added upstream. STALLED (#602) is a public
+  // lifecycle transition like pause/resume (the draft the room showed up for is
+  // waiting on a named team), so it belongs on this anonymous board too.
   const fake = activityPool([pickRow()]);
   await listPresenterDraftActivity(fake, { leagueId: 12 });
 
@@ -83,8 +85,8 @@ test('the presenter kinds are a positive ALLOWLIST that excludes the cutover bou
   assert.match(query.text, /"draft_activity"\."kind" = ANY\(\$2\)/);
   assert.deepEqual(
     [...PRESENTER_ACTIVITY_KINDS].sort(),
-    ['complete', 'correction', 'draft_start', 'pause', 'pick', 'reset', 'resume'],
-    'the approved presenter kinds are exactly these seven'
+    ['complete', 'correction', 'draft_start', 'pause', 'pick', 'reset', 'resume', 'stalled'],
+    'the approved presenter kinds are exactly these eight'
   );
   assert.ok(!PRESENTER_ACTIVITY_KINDS.includes('cutover'), 'the cutover boundary is never a presenter kind');
   assert.deepEqual(query.params[1], PRESENTER_ACTIVITY_KINDS, 'the allowlist rides as the $2 bound param');
