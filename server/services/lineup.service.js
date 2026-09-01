@@ -190,8 +190,9 @@ async function isFinalWeekForTeam(client, { leagueId, teamId, season, week }) {
  * starting slot he was dropped out of, and reviving it seats him beside
  * whoever holds that slot now (#623). His fresh row lands on the bench with
  * no attestation. The first-ever starter seed still applies to him - there is
- * no standing lineup for that seed to disrupt, and every draft pick arrives
- * through this path.
+ * no standing lineup for that seed to disrupt, and every live draft pick
+ * arrives through this path (the keeper pre-fill writes no lineup rows, so
+ * it neither needs nor gets the flag).
  */
 async function materializeLineup(client, { leagueId, teamId, season, week, league, acquiredPlayerId }) {
   if (await isFinalWeekForTeam(client, { leagueId, teamId, season, week })) return;
