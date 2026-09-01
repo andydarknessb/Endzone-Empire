@@ -3,7 +3,7 @@
  * honoring a league's rotation type (snake vs linear) and any commissioner
  * round-by-round overrides. This supersedes the inline round-parity math
  * previously duplicated across draft.service.js, draftSocket.js,
- * autopick.service.js, and draft.router.js — draft.service.js's
+ * pickClock.service.js (the autopick sweep), and draft.router.js — draft.service.js's
  * teamIndexForPick() stays in place (and tested) as the plain snake-index
  * primitive teamForPick() falls back to.
  *

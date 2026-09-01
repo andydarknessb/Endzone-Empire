@@ -33,10 +33,58 @@ test('close-matchup push targets Game Center instead of the retired Matchups rou
 
 const scheduler = require('../modules/scheduler');
 const tank01Client = require('../modules/tank01Client');
+const pool = require('../modules/pool');
+const pickClock = require('../services/pickClock.service');
 
 test('syncEveryTicks doubles the box-score cadence once quota is degraded', async (t) => {
   t.mock.method(tank01Client, 'getQuotaState', async () => ({ mode: 'degraded' }));
   assert.equal(await scheduler.syncEveryTicks(), scheduler.SYNC_EVERY_TICKS * 2);
+});
+
+// ---- draft-clock tick containment (#600) -----------------------------------
+
+test('draftTick contains a failure in the advisory-lock acquisition itself, without throwing', async (t) => {
+  // The sweep contains its own failures, and draftTickUnlocked has always caught
+  // the sweep. The gap #600 closes is withAdvisoryLock's OWN acquisition - the
+  // pool.connect() and the try-lock query - which runs before the work callback
+  // and is covered by no inner catch. A rejection there used to reach setInterval
+  // as an unhandled rejection and could take the worker (and every live draft's
+  // clock) down. draftTick now catches it. Red tell: drop draftTick's try/catch
+  // and this rejects, failing the assertion below.
+  t.mock.method(pool, 'connect', async () => { throw new Error('pool exhausted acquiring the draft-clock lock'); });
+
+  let threw = false;
+  let result;
+  try {
+    result = await scheduler.draftTick();
+  } catch (err) {
+    threw = true;
+  }
+
+  assert.equal(threw, false, 'draftTick swallowed the lock-acquisition failure instead of rejecting into setInterval');
+  assert.equal(result, undefined);
+});
+
+test('stopScheduler tears down armed Pick-clock timers so none fire after a stop (#601)', (t) => {
+  // Timers are torn down with the scheduler: after a stop, no armed in-process
+  // expiry timer may fire, so a test run or a shutdown cannot leak a late
+  // Autopick. autoPick's first act is to read the league row; counting that
+  // read is a faithful proxy for "the timer fired autoPick".
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  t.after(() => pickClock.cancelAllExpiryTimers());
+  let leagueReads = 0;
+  t.mock.method(pool, 'query', async (sql) => {
+    if (String(sql).includes('FROM "leagues" WHERE "id" = $1')) leagueReads += 1;
+    return { rows: [] };
+  });
+
+  pickClock.armExpiryTimer(9001, new Date(Date.now() + 5000));
+  scheduler.stopScheduler();
+  t.mock.timers.tick(10000); // well past the 5s deadline
+
+  // Red tell: drop cancelAllExpiryTimers() from stopScheduler and the timer
+  // survives the stop, fires autoPick on this tick, and leagueReads becomes 1.
+  assert.equal(leagueReads, 0, 'no armed timer fired autoPick after the scheduler stopped');
 });
 
 test('syncEveryTicks keeps the normal cadence while quota is healthy', async (t) => {

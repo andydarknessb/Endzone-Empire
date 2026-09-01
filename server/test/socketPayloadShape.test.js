@@ -11,7 +11,7 @@ const {
   getDraftState,
 } = require('../modules/draftSocket');
 const draftService = require('../services/draft.service');
-const { autoPick } = require('../services/autopick.service');
+const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool, AUTOPICK_TEAM } = require('./helpers/autopickFixtures');
 const lineupService = require('../services/lineup.service');
 
@@ -63,8 +63,8 @@ const lineupService = require('../services/lineup.service');
  *     and BOTH are pinned here so a re-added account id at either site goes red:
  *       * the pick handler (captured off the real room emitter through the
  *         socket harness); and
- *       * autopick.service (captured off a fake `io` singleton, since autopick
- *         emits through getIo()).
+ *       * the Pick clock module's autoPick (captured off a fake `io` singleton,
+ *         since it emits through getIo()).
  *     #344 DROPPED the old `by` account object at both (the picker is already
  *     named at the root by Team via `teamId` / `teamName`, so `by` was
  *     redundant account identity) and, in its place, put a single non-identity
@@ -267,9 +267,10 @@ test('draft:picked names the picker by Team at the root, with no by account obje
   assert.equal(picked.activity.isAutopick, false);
 });
 
-// The SECOND draft:picked emit site (autopick.service.js), pinned so #344
-// cannot strip `by` from the pick handler, flip that todo green, and leave
-// autopick still broadcasting `by.userId` to the whole room. autopick emits
+// The SECOND draft:picked emit site (the Pick clock module's autoPick,
+// pickClock.service.js), pinned so #344 cannot strip `by` from the pick handler,
+// flip that todo green, and leave autopick still broadcasting `by.userId` to the
+// whole room. autopick emits
 // through the getIo() singleton and reaches draftPlayer by namespace, so both
 // are captured with a fake io and a mocked draftPlayer (its outcome shape is
 // the pick handler's, already pinned above; here it is the same 8-key outcome).

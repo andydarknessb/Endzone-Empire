@@ -161,7 +161,7 @@ function installSetLineupWorld(t, injuryDesignation, {
   ]).install(t);
 }
 
-async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = [], expectError = null } = {}) {
+async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = [], expectPartialRepair = false } = {}) {
   const rosterSlots = [
     { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
     { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
@@ -218,19 +218,26 @@ async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = 
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
 
-  const save = setLineup({
+  const result = await setLineup({
     leagueId: 5,
     userId: 7,
     week: 8,
     moves: [{ playerId: 9, slot: 'WR' }, { playerId: 4, slot: 'BENCH' }],
   });
-  if (expectError) {
-    await assert.rejects(save, expectError);
-    assert.deepEqual([...slots.values()], Array(entries.length).fill('BENCH'));
+  if (expectPartialRepair) {
+    // Recovery still never starts a locked player: every MIN player stays
+    // exactly where kickoff found them, on the bench. But the save is no
+    // longer refused outright for the bench overflow it INHERITED (the
+    // all-bench wedge): the unlocked KC players land in the slots they can
+    // fill and the surplus stays benched.
+    for (const entry of entries.filter((e) => e.nfl_team === 'MIN')) {
+      assert.equal(slots.get(entry.player_id), 'BENCH');
+    }
+    assert.equal(slots.get(9), 'WR');
+    assert.equal([...slots.values()].filter((slot) => slot === 'BENCH').length, 8);
     fake.assertClean();
     return;
   }
-  const result = await save;
 
   assert.equal(result.updated, preexistingBench ? 9 : 2);
   assert.equal([...slots.values()].filter((slot) => slot === 'BENCH').length, 6);
@@ -251,8 +258,167 @@ test('setLineup recovery never starts players whose games have already kicked of
   await firstWeekLineupSwap(t, {
     preexistingBench: true,
     lockedTeams: ['MIN'],
-    expectError: (error) => error.statusCode === 400 && /too many players at BENCH/.test(error.message),
+    expectPartialRepair: true,
   });
+});
+
+/**
+ * The MinneApple wedge (league 137, 2026 week 1). A draft can build a roster
+ * that cannot fill every starting slot — six QBs and no TE — so after the
+ * all-bench materialization the repair seats only 8 of 9 starters and 7
+ * players remain on a 6-slot bench. An absolute cap then rejected EVERY save
+ * ("too many players at BENCH (7/6)"), rolled back the repair with it, and
+ * wedged the team permanently. The cap is now "no worse than before": a save
+ * is refused only for overflow it creates.
+ */
+function installOverBenchedWorld(t, { positions, slotsByIndex = null }) {
+  const slots = new Map(positions.map((_, i) => [i + 1, slotsByIndex ? slotsByIndex[i] : 'BENCH']));
+  const entries = positions.map((position, i) => ({
+    player_id: i + 1,
+    name: `Player ${i + 1}`,
+    position,
+    nfl_team: 'MIN',
+    injury_status: null,
+    ir_attested: false,
+  }));
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
+      id: 137,
+      current_season: 2026,
+      current_week: 1,
+      roster_slots: DEFAULT_ROSTER_SLOTS,
+      bench_slots: 6,
+      ir_slots: 1,
+      best_ball: false,
+    }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 249 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id }) => ({ player_id })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: entries.map((entry) => ({ ...entry, slot: slots.get(entry.player_id) })),
+    })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
+      slots.set(params[4], params[0]);
+      return { rows: [] };
+    }],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+  return { fake, slots };
+}
+
+// Team 249's real mix: 15 players, no TE, so only 8 of 9 starting slots are
+// fillable and one player can never leave the bench.
+const NO_TE_ROSTER = [
+  'QB', 'QB', 'QB', 'QB', 'QB', 'QB',
+  'RB', 'RB', 'RB',
+  'WR', 'WR', 'WR', 'WR',
+  'K',
+  'DEF',
+];
+
+test('setLineup unwedges an all-bench roster that cannot fill every starting slot', async (t) => {
+  const { fake, slots } = installOverBenchedWorld(t, { positions: NO_TE_ROSTER });
+
+  const result = await setLineup({
+    leagueId: 137,
+    userId: 7,
+    week: 1,
+    moves: [{ playerId: 1, slot: 'QB' }],
+  });
+
+  assert.ok(result.updated >= 1);
+  assert.equal(slots.get(1), 'QB');
+  // The repair filled the 8 fillable slots; the inherited seventh bench
+  // player is tolerated, not rejected.
+  assert.equal([...slots.values()].filter((slot) => slot === 'BENCH').length, 7);
+  assert.equal([...slots.values()].filter((slot) => slot === 'TE').length, 0);
+  fake.assertClean();
+});
+
+test('setLineup allows a count-neutral swap on an over-benched lineup', async (t) => {
+  // Same roster, starters already set as far as they can be: 7 on the bench.
+  const slotsByIndex = ['QB', 'BENCH', 'BENCH', 'BENCH', 'BENCH', 'BENCH',
+    'RB', 'RB', 'FLEX', 'WR', 'WR', 'BENCH', 'BENCH', 'K', 'DEF'];
+  const { fake, slots } = installOverBenchedWorld(t, { positions: NO_TE_ROSTER, slotsByIndex });
+
+  const result = await setLineup({
+    leagueId: 137,
+    userId: 7,
+    week: 1,
+    moves: [{ playerId: 1, slot: 'BENCH' }, { playerId: 2, slot: 'QB' }],
+  });
+
+  assert.equal(result.updated, 2);
+  assert.equal(slots.get(1), 'BENCH');
+  assert.equal(slots.get(2), 'QB');
+  fake.assertClean();
+});
+
+test('setLineup still refuses a move that worsens inherited bench overflow', async (t) => {
+  const slotsByIndex = ['QB', 'BENCH', 'BENCH', 'BENCH', 'BENCH', 'BENCH',
+    'RB', 'RB', 'FLEX', 'WR', 'WR', 'BENCH', 'BENCH', 'K', 'DEF'];
+  const { fake, slots } = installOverBenchedWorld(t, { positions: NO_TE_ROSTER, slotsByIndex });
+
+  // Benching the K with no replacement takes the bench from 7 to 8: that
+  // overflow is NEW, so the absolute message still names the real cap.
+  await assert.rejects(
+    setLineup({ leagueId: 137, userId: 7, week: 1, moves: [{ playerId: 14, slot: 'BENCH' }] }),
+    (error) => error.statusCode === 400 && /too many players at BENCH \(8\/6\)/.test(error.message)
+  );
+
+  assert.equal(slots.get(14), 'K');
+  assertNoSlotWrite(fake);
+  fake.assertClean();
+});
+
+test('validateLineup with a baseline forgives inherited overflow and nothing else', () => {
+  const settings = { rosterSlots: DEFAULT_ROSTER_SLOTS, benchSlots: 1, irSlots: 1 };
+  const bench = (playerId) => ({ playerId, position: 'RB', slot: 'BENCH' });
+  const overBenched = [bench(1), bench(2), bench(3)];
+
+  // Absolute without a baseline, and against a legal baseline.
+  assert.match(validateLineup(overBenched, settings)[0], /too many players at BENCH \(3\/1\)/);
+  assert.match(
+    validateLineup(overBenched, { ...settings, baseline: [bench(1)] })[0],
+    /too many players at BENCH \(3\/1\)/
+  );
+  // No worse than an already-overflowing baseline: legal.
+  assert.deepEqual(validateLineup(overBenched, { ...settings, baseline: overBenched }), []);
+  // Improving on the baseline is legal too.
+  assert.deepEqual(
+    validateLineup([bench(1), bench(2)], { ...settings, baseline: overBenched }),
+    []
+  );
+  // Eligibility is never forgiven, whatever the baseline held.
+  const badSlot = [{ playerId: 1, position: 'QB', slot: 'RB' }];
+  assert.match(
+    validateLineup(badSlot, { ...settings, baseline: badSlot })[0],
+    /a QB cannot start at RB/
+  );
+  // A STARTING slot is never forgiven either, even against a baseline that
+  // already overflows it: starters score, so an inherited second QB must
+  // stay a loud error (an unvalidated write path can plant one - see #621),
+  // never a tolerated state that quietly doubles a slot's points.
+  const twoQbs = [
+    { playerId: 1, position: 'QB', slot: 'QB' },
+    { playerId: 2, position: 'QB', slot: 'QB' },
+  ];
+  assert.match(
+    validateLineup(twoQbs, { ...settings, baseline: twoQbs })[0],
+    /too many players at QB \(2\/1\)/
+  );
+  // IR is forgiven like BENCH: an inherited double stash never scores.
+  const twoIr = [
+    { playerId: 1, position: 'RB', slot: 'IR' },
+    { playerId: 2, position: 'RB', slot: 'IR' },
+  ];
+  assert.deepEqual(validateLineup(twoIr, { ...settings, baseline: twoIr }), []);
 });
 
 /**

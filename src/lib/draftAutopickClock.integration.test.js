@@ -10,6 +10,14 @@ jest.mock('../../server/modules/io', () => ({
   getIo: jest.fn(),
   setIo: jest.fn(),
 }));
+// The nothing-draftable escalation (#602) refreshes the paused clock via
+// broadcastDraftState, which reads getDraftState when a Socket.IO server is
+// present (this harness stands one in via the hub). The full draft-state read is
+// not this suite's concern - it would issue DB queries the fake does not model -
+// so stub it; the escalation's own state change is asserted on state.league.
+jest.mock('../../server/modules/draftSocket', () => ({
+  getDraftState: jest.fn().mockResolvedValue({ draft_paused: true }),
+}));
 
 const pool = require('../../server/modules/pool');
 const ioRegistry = require('../../server/modules/io');
@@ -17,7 +25,8 @@ const lineupService = require('../../server/services/lineup.service');
 const seasonService = require('../../server/services/season.service');
 const { teamForPick } = require('../../server/services/draftOrder.service');
 const { draftPlayer } = require('../../server/services/draft.service');
-const { processExpiredPickClocks } = require('../../server/services/autopick.service');
+const pickClock = require('../../server/services/pickClock.service');
+const { processExpiredPickClocks } = pickClock;
 
 const LEAGUE_ID = 7001;
 const TEAM_A = { id: 71, owner_id: 701, draft_position: 1, autodraft: false, locked: false };
@@ -42,6 +51,16 @@ function deferred() {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+// Drain the microtask queue enough times to let a fired in-process timer's
+// async autopick (draftPlayer's whole transaction chain, all fake-DB awaits and
+// therefore all microtasks) settle. Jest 27's modern fake timers fire the
+// setTimeout callback synchronously but do not await the promise it returns, and
+// this version has no advanceTimersByTimeAsync; the fake DB never awaits a real
+// timer, so a bounded microtask flush is sufficient and deterministic.
+async function flushAsync() {
+  for (let i = 0; i < 100; i += 1) await Promise.resolve();
 }
 
 // Third arg is the player's ADP (#142 best available: ADP, then last
@@ -201,12 +220,13 @@ class FakeDraftDatabase {
     this.sql.push(sql);
     const { state } = this;
 
-    if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" <= now()')) {
-      const appliesNormalClockGate = sql.includes('"pick_time_seconds" > 0');
-      const due = state.league.pick_deadline_at
-        && state.league.pick_deadline_at.getTime() <= Date.now()
-        && (!appliesNormalClockGate || state.league.pick_time_seconds > 0);
-      return { rows: due ? [{ id: state.league.id }] : [] };
+    // The backstop scans every active, unpaused draft that has a stored
+    // deadline and decides due-ness in JS (#601); this returns the row and its
+    // deadline, and the sweep splits autopick-now from arm-a-timer itself.
+    if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" IS NOT NULL')) {
+      const l = state.league;
+      const active = l.draft_status === 'active' && !l.draft_paused && l.pick_deadline_at != null;
+      return { rows: active ? [{ id: l.id, pick_deadline_at: l.pick_deadline_at }] : [] };
     }
     if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR UPDATE')) {
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
@@ -229,9 +249,9 @@ class FakeDraftDatabase {
           .filter((entry) => entry.teamId === teamId)
           .map((entry) => [entry.playerId, entry.rank])
       );
-      // Unordered on purpose — autopick.service.js now sorts candidates in
-      // JS via the shared bestAvailable comparator, the same way real
-      // Postgres results aren't pre-sorted by this fake.
+      // Unordered on purpose — the Pick clock module (pickClock.service.js)
+      // now sorts candidates in JS via the shared bestAvailable comparator, the
+      // same way real Postgres results aren't pre-sorted by this fake.
       const candidates = [...state.players.values()]
         .filter((entry) => !rostered.has(entry.id))
         .map((entry) => ({
@@ -266,6 +286,28 @@ class FakeDraftDatabase {
     if (sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR UPDATE')) {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
+    }
+    // onResumed's league read (#599): resolves the on-clock team and clock policy
+    // for a resume. Used by the #602 escalate->resume case.
+    if (sql.includes('SELECT "current_pick", "draft_type"') && sql.includes('FROM "leagues"')) {
+      const l = state.league;
+      return { rows: values[0] === l.id ? [{
+        current_pick: l.current_pick,
+        draft_type: l.draft_type ?? 'snake',
+        draft_rotation: l.draft_rotation ?? 'snake',
+        draft_order_overrides: l.draft_order_overrides ?? null,
+        pick_time_seconds: l.pick_time_seconds,
+        autodraft_delay_seconds: l.autodraft_delay_seconds,
+      }] : [] };
+    }
+    // armInPlace (#599): the two-param re-arm-in-place UPDATE (resume, autodraft
+    // toggle) - no current_pick, no draft_paused. Mirrors now() + make_interval.
+    if (sql.includes('UPDATE "leagues"') && sql.includes('"pick_deadline_at" = CASE')
+        && values.length === 2 && !sql.includes('"current_pick"')) {
+      if (values[0] === state.league.id) {
+        state.league.pick_deadline_at = values[1] == null ? null : new Date(Date.now() + values[1] * 1000);
+      }
+      return { rows: [{ pick_deadline_at: state.league.pick_deadline_at }] };
     }
     if (sql.includes('FROM "teams"') && sql.includes('ORDER BY "draft_position"')) {
       return { rows: state.teams.map((team) => ({ ...team })) };
@@ -309,6 +351,16 @@ class FakeDraftDatabase {
       // trigger allocates feed_seq; the fake hands one back on RETURNING.
       const seq = state.draftPicks.length;
       return { rows: [{ id: seq, feed_seq: String(seq), created_at: new Date().toISOString() }], rowCount: 1 };
+    }
+    // The nothing-draftable escalation (#602) pauses and clears the clock in one
+    // statement, leaving current_pick untouched so the same team is on the clock
+    // at resume. Persist it so a repeat sweep sees the paused league.
+    if (sql.includes('UPDATE "leagues"') && sql.includes('SET "draft_paused" = true')) {
+      if (values[0] === state.league.id) {
+        state.league.draft_paused = true;
+        state.league.pick_deadline_at = null;
+      }
+      return { rows: [] };
     }
     if (sql.includes('UPDATE "leagues"') && sql.includes('SET "current_pick"')) {
       const [currentPick, draftStatus, leagueId, clockSeconds] = values;
@@ -370,6 +422,10 @@ describe('live snake-draft expiry and autopick integration', () => {
   });
 
   afterEach(() => {
+    // Tear down any in-process expiry timer this test armed BEFORE dropping the
+    // fake clock: the registry is a module singleton, so a leaked timer would
+    // fire under the next test's state.
+    pickClock.cancelAllExpiryTimers();
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
     benchAcquiredPlayerSpy.mockRestore();
@@ -561,5 +617,212 @@ describe('live snake-draft expiry and autopick integration', () => {
     } finally {
       seasonGeneration.mockRestore();
     }
+  });
+
+  // --- hybrid expiry: the in-process timer fires on time (#601) ---------------
+
+  test('the in-process timer fires an armed deadline that elapses, with the backstop sweep firing nothing', async () => {
+    const state = install(createState({
+      // Two seconds out: still in the future, so the backstop sweep autopicks
+      // nothing (its due filter is <= now); it arms an in-process timer instead.
+      deadline: new Date(Date.now() + 2000),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2), player(103, 'WR', 3)],
+      queue: [[TEAM_A.id, 101, 1]],
+    }));
+    hub.connect(TEAM_A.owner_id);
+
+    // One backstop pass. The deadline is in the future, so it commits nothing
+    // and arms the timer. Red tell: disable the arming branch of the sweep
+    // (armExpiryTimer in processExpiredPickClocks) and this test stays empty at
+    // the end, because with the deadline in the future the backstop can never be
+    // the thing that fires it - only the timer can.
+    const backstop = await processExpiredPickClocks();
+    expect(backstop).toEqual([]);
+    expect(state.draftPicks).toHaveLength(0);
+
+    // Time reaches the deadline. The sweep is not run again, so only the armed
+    // in-process timer can produce the pick.
+    jest.advanceTimersByTime(2000);
+    await flushAsync();
+
+    expect(state.draftPicks).toEqual([
+      { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 },
+    ]);
+    expect(hub.deliveries.find((delivery) => delivery.event === 'draft:picked')?.payload)
+      .toMatchObject({ teamId: TEAM_A.id, player: { id: 101 }, auto: true });
+  });
+
+  test('a deadline already elapsed at startup, with no timer armed, is swept on the first backstop pass', async () => {
+    const state = install(createState({
+      // Elapsed five seconds ago, as if written while the worker was down.
+      deadline: new Date(Date.now() - 5000),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2)],
+      queue: [[TEAM_A.id, 101, 1]],
+    }));
+    hub.connect(TEAM_A.owner_id);
+
+    // A fresh process armed no timer for this deadline (the Map is empty), so
+    // advancing time fires nothing.
+    jest.advanceTimersByTime(60000);
+    await flushAsync();
+    expect(state.draftPicks).toHaveLength(0);
+
+    // The backstop recovers it on its first pass: this is the restart path.
+    const outcomes = await processExpiredPickClocks();
+    expect(outcomes).toEqual([{ leagueId: LEAGUE_ID, playerId: 101 }]);
+    expect(state.draftPicks).toEqual([
+      { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 },
+    ]);
+  });
+
+  test('two expiry firings for one deadline commit exactly one Pick', async () => {
+    // A timed league (default 30s): after User A's expiry autopick, User B is on
+    // the clock with a freshly armed 30s deadline - firmly in the future.
+    const state = install(createState({
+      deadline: new Date(Date.now()),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2), player(103, 'WR', 3), player(104, 'TE', 4)],
+      queue: [[TEAM_A.id, 101, 1]],
+    }));
+    hub.connect(TEAM_A.owner_id);
+
+    // First firing: the in-process timer. It commits User A's pick and advances
+    // the turn to User B (whose 30s clock is now in the future).
+    pickClock.armExpiryTimer(LEAGUE_ID, state.league.pick_deadline_at);
+    jest.advanceTimersByTime(1);
+    await flushAsync();
+    expect(state.draftPicks).toHaveLength(1);
+    expect(state.league.current_pick).toBe(1);
+
+    // Second firing for the same expiry beat: a sweep straggler / double-fired
+    // timer reaches autoPick after the turn advanced. User B's clock has not
+    // elapsed, so the expiry guard declines and commits no second Pick. Red
+    // tell: remove that guard and this instead autopicks User B early, leaving
+    // two committed picks.
+    const straggler = await pickClock.autoPick({ leagueId: LEAGUE_ID });
+    expect(straggler).toBeNull();
+    expect(state.draftPicks).toHaveLength(1);
+    expect(state.draftPicks[0]).toEqual({ leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 });
+  });
+
+  // --- nothing-draftable expiry pauses the draft loudly (#602) -----------------
+  // The on-clock team has NO draftable candidate (here: every player is already
+  // rostered, so the candidate pool is empty). Instead of spinning forever on the
+  // elapsed deadline, the module pauses the draft, clears the clock, commits no
+  // Pick, and appends a STALLED Draft-activity entry naming the stuck team.
+
+  // Named teams: the escalation entry must NAME the stuck team, so these carry a
+  // name the assertions read back off the broadcast entry.
+  const STUCK_TEAM = { id: 71, owner_id: 701, draft_position: 1, autodraft: false, locked: false, name: 'MinneApple' };
+  const OTHER_TEAM = { id: 72, owner_id: 702, draft_position: 2, autodraft: false, locked: false, name: 'Rivals' };
+
+  function stalledState() {
+    // One player, already rostered to the OTHER team, so the stuck team (on the
+    // clock at pick 0) has an empty candidate pool: nothing draftable.
+    return install(createState({
+      deadline: new Date(Date.now()),
+      teams: [STUCK_TEAM, OTHER_TEAM],
+      players: [player(101, 'QB', 1)],
+      roster: [[OTHER_TEAM.id, 101]],
+    }));
+  }
+
+  const stalledDeliveries = () => hub.deliveries
+    .filter((d) => d.event === 'draft:activity' && d.payload && d.payload.kind === 'stalled');
+
+  test('an expired clock with nothing draftable pauses the draft loudly, commits no pick, names the stuck team', async () => {
+    const state = stalledState();
+    hub.connect(STUCK_TEAM.owner_id);
+    hub.connect(OTHER_TEAM.owner_id);
+
+    const outcomes = await processExpiredPickClocks();
+
+    // The sweep committed nothing (the escalation returns no autopick outcome).
+    expect(outcomes).toEqual([]);
+    // Assertion set the pre-change behaviour fails all three of (see the PR's
+    // red-tell demonstration): the draft is paused, the deadline is cleared,
+    // and no Pick was committed. The stuck team stays on the clock (current_pick
+    // unchanged), the paused-then-resumed repair shape.
+    expect(state.league.draft_paused).toBe(true);
+    expect(state.league.pick_deadline_at).toBeNull();
+    expect(state.draftPicks).toHaveLength(0);
+    expect(state.league.current_pick).toBe(0);
+
+    // The escalation is readable in the feed: exactly one STALLED entry, naming
+    // the stuck team, with no Pick facts (a lifecycle event, not a Pick).
+    const stalled = stalledDeliveries();
+    expect(stalled).toHaveLength(1);
+    expect(stalled[0].payload.teamName).toBe('MinneApple');
+    expect(stalled[0].payload).not.toHaveProperty('player');
+  });
+
+  test('repeat sweeps after the escalation commit nothing and append no duplicate entry', async () => {
+    const state = stalledState();
+    hub.connect(STUCK_TEAM.owner_id);
+
+    // First sweep escalates and pauses. Further sweeps skip the paused league
+    // entirely (its due query filters draft_paused=false), so they select
+    // nothing and append no second entry. Red tell: without the pause, the
+    // second sweep still finds the elapsed deadline and escalates again, leaving
+    // TWO stalled entries for one stuck turn.
+    await processExpiredPickClocks();
+    await processExpiredPickClocks();
+    await processExpiredPickClocks();
+
+    expect(state.draftPicks).toHaveLength(0);
+    expect(state.league.draft_paused).toBe(true);
+    expect(stalledDeliveries()).toHaveLength(1);
+  });
+
+  test('two concurrent nothing-draftable firings pause once and append exactly one entry', async () => {
+    // The idempotency that made #602 sequence behind #601: a timer fire and a
+    // backstop sweep (modelled here as two concurrent autoPick calls) can both
+    // reach the nothing-draftable turn. Both pass autoPick's top-of-function
+    // draft_paused check (neither has paused yet); the FOR UPDATE re-check inside
+    // escalateNothingDraftable is what holds them to ONE pause and ONE entry.
+    const state = stalledState();
+    hub.connect(STUCK_TEAM.owner_id);
+
+    const [a, b] = await Promise.all([
+      pickClock.autoPick({ leagueId: LEAGUE_ID }),
+      pickClock.autoPick({ leagueId: LEAGUE_ID }),
+    ]);
+
+    // Neither firing commits a Pick; both return null (nothing draftable).
+    expect(a).toBeNull();
+    expect(b).toBeNull();
+    expect(state.draftPicks).toHaveLength(0);
+    expect(state.league.draft_paused).toBe(true);
+    // Exactly one STALLED entry despite two firings: the loser rolled back.
+    expect(stalledDeliveries()).toHaveLength(1);
+  });
+
+  test('a resume on the escalated league re-arms the SAME stuck team, by its own policy, not a skipped turn', async () => {
+    // The stuck team (on the clock at pick 0) is timed and NOT autodrafting, so
+    // its policy is the full 30s pick clock. The OTHER team is made autodrafting,
+    // whose policy would be the 2s delay - so the two teams' policies now DIFFER.
+    // That is what gives the assertion teeth: a resume that armed the wrong team
+    // (a skipped turn advancing current_pick to the other team) or the wrong
+    // policy would yield ~2s, and the >25s assertion below goes red. With both
+    // teams non-autodrafting the two policies were both 30s and team identity was
+    // discriminated by nothing.
+    const state = stalledState();
+    state.teams[1].autodraft = true;
+
+    await processExpiredPickClocks();
+    expect(state.league.draft_paused).toBe(true);
+    expect(state.league.current_pick).toBe(0);
+
+    const resumeClient = await pool.connect();
+    const armedAt = await pickClock.onResumed(resumeClient, { leagueId: LEAGUE_ID });
+    resumeClient.release();
+
+    // Resume arms the STUCK team's own policy - the full 30s pick clock - not the
+    // autodrafting other team's 2s delay: proof the same team (current_pick
+    // untouched) is on the clock and got its own policy, per #599 arming.
+    expect(armedAt).not.toBeNull();
+    const secondsOut = (new Date(armedAt).getTime() - Date.now()) / 1000;
+    expect(secondsOut).toBeGreaterThan(25);
+    expect(secondsOut).toBeLessThanOrEqual(30);
+    expect(state.league.current_pick).toBe(0);
   });
 });

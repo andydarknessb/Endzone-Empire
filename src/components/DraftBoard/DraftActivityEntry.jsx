@@ -40,6 +40,10 @@ const LIFECYCLE_VERB = {
   pause: 'paused',
   resume: 'resumed',
   reset: 'reset',
+  // #602: an expired turn with no draftable player paused the draft; the stuck
+  // Team is the entry's actor, so this reads "<Team> stalled the draft" and the
+  // commissioner knows who to repair before resuming.
+  stalled: 'stalled',
 };
 
 // The lifecycle kinds LifecycleActivityLine knows how to draw (#437): the verbed

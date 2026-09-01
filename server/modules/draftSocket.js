@@ -284,8 +284,9 @@ function attachDraftSocket(httpServer) {
         // outcome), so the old `by: { userId, username }` account object is
         // gone from the broadcast (#344, #115 child C). `auto` is the one
         // non-identity fact the room still needs about how the pick was made;
-        // a manual pick is not an autopick. autopick.service is the other emit
-        // site; socketPayloadShape.test.js pins both to one key set.
+        // a manual pick is not an autopick. The Pick clock module's autoPick
+        // (pickClock.service.js) is the other emit site; socketPayloadShape.test.js
+        // pins both to one key set.
         io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: false });
         if (outcome.draftComplete) {
           // The Pick that ended the draft also appended a completion lifecycle

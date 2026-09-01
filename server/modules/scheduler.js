@@ -1,7 +1,7 @@
 const pool = require('./pool');
 const { processAllDueWaivers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
-const { processExpiredPickClocks } = require('../services/autopick.service');
+const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
@@ -408,7 +408,17 @@ async function draftTickUnlocked() {
 }
 
 async function draftTick() {
-  return withAdvisoryLock(23002, 'draft-clock', draftTickUnlocked);
+  // The sweep contains its own failures (pickClock.processExpiredPickClocks);
+  // this catch is the backstop for the advisory-lock acquisition itself (the
+  // pool connect or the try-lock query), so a bad tick can never reach
+  // setInterval as an unhandled rejection and take the worker - and the live
+  // draft's clock - down for minutes (#600).
+  try {
+    return await withAdvisoryLock(23002, 'draft-clock', draftTickUnlocked);
+  } catch (err) {
+    console.error('draft clock tick failed to acquire its lock:', err.message);
+    return undefined;
+  }
 }
 
 function startScheduler() {
@@ -429,6 +439,9 @@ function stopScheduler() {
   timer = null;
   draftTimer = null;
   bootTimer = null;
+  // Tear down every in-process Pick-clock expiry timer with the scheduler, so a
+  // test run or a worker shutdown cannot leak a late Autopick (#601, ADR 0018).
+  cancelAllExpiryTimers();
 }
 
 /** Snapshot of scheduler health for the /api/health endpoint. */

@@ -6,8 +6,9 @@
  *
  * Shared by the Draft Sim's pool (publicRead.service.js getDraftPool, which
  * also applies the membership rule below) and the real draft's autopick
- * fallback (autopick.service.js, which sorts every undrafted candidate this
- * way after its own queue). Both consumers call THIS module's exports —
+ * fallback (the Pick clock module, pickClock.service.js, which sorts every
+ * undrafted candidate this way after its own queue). Both consumers call THIS
+ * module's exports —
  * server/test/bestAvailable.sharedUsage.test.js fails if either stops.
  *
  * Callers hand rows/objects shaped `{ adp, last_season_points, name }` — the

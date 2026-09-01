@@ -3431,7 +3431,7 @@ describe('the final Pick and Draft completion (#519)', () => {
       })
     );
     // The real wire on completion emits THREE things, not one (draftSocket.js:
-    // 287-293, identically in autopick.service.js): the pick, a completion
+    // 287-293, identically in the Pick clock module's autoPick): the pick, a completion
     // lifecycle entry on draft:activity (#437), and draft:complete. Fire all
     // three so "exactly one live update on the final Pick" is proven against the
     // wire, not against a simplification. The other two are silent today - the

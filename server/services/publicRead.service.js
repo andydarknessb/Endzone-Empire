@@ -528,8 +528,8 @@ async function getDraftPool({ includeIdp = false } = {}) {
   );
 
   // Best available (CONTEXT.md): ADP, then last completed season's points,
-  // then name — never database id. The exact same exports
-  // autopick.service.js's fallback sorts through (bestAvailable.service.js);
+  // then name — never database id. The exact same exports the Pick clock
+  // module's autopick fallback sorts through (bestAvailable.service.js);
   // DRAFT_POOL_LIMIT is a safety ceiling, not the rule.
   const mainRows = mainRes.rows
     .filter(bestAvailable.isBestAvailableEligible)
