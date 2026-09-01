@@ -401,6 +401,24 @@ test('validateLineup with a baseline forgives inherited overflow and nothing els
     validateLineup(badSlot, { ...settings, baseline: badSlot })[0],
     /a QB cannot start at RB/
   );
+  // A STARTING slot is never forgiven either, even against a baseline that
+  // already overflows it: starters score, so an inherited second QB must
+  // stay a loud error (an unvalidated write path can plant one - see #621),
+  // never a tolerated state that quietly doubles a slot's points.
+  const twoQbs = [
+    { playerId: 1, position: 'QB', slot: 'QB' },
+    { playerId: 2, position: 'QB', slot: 'QB' },
+  ];
+  assert.match(
+    validateLineup(twoQbs, { ...settings, baseline: twoQbs })[0],
+    /too many players at QB \(2\/1\)/
+  );
+  // IR is forgiven like BENCH: an inherited double stash never scores.
+  const twoIr = [
+    { playerId: 1, position: 'RB', slot: 'IR' },
+    { playerId: 2, position: 'RB', slot: 'IR' },
+  ];
+  assert.deepEqual(validateLineup(twoIr, { ...settings, baseline: twoIr }), []);
 });
 
 /**

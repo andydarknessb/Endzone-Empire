@@ -112,17 +112,24 @@ function validateLineup(entries, { rosterSlots = DEFAULT_ROSTER_SLOTS, benchSlot
   // six-slot bench), and with an absolute cap every such lineup rejects
   // every save, wedging the team permanently: the manager cannot even make
   // the moves or the drops that would dig them out. So when the caller
-  // supplies the pre-save `baseline` entries, a slot's cap is forgiven up to
-  // the overflow that already stood there; a slot the save leaves no worse
-  // is legal, and one it worsens still refuses with the same message.
-  // Eligibility above stays absolute: an ineligible placement is always new.
+  // supplies the pre-save `baseline` entries, BENCH and IR caps are forgiven
+  // up to the overflow that already stood there; a save that leaves them no
+  // worse is legal, and one that worsens them still refuses with the same
+  // message. Forgiveness covers ONLY the seats that never score. A STARTING
+  // slot's cap stays absolute even against a baseline that overflows it:
+  // every non-BENCH/IR row scores, so tolerating an inherited second QB
+  // would turn a loud, correctable state into silent score inflation.
+  // Eligibility above stays absolute too: an ineligible placement is always
+  // new.
   const baselineCounts = {};
   for (const entry of baseline || []) {
     baselineCounts[entry.slot] = (baselineCounts[entry.slot] || 0) + 1;
   }
   for (const [slot, count] of Object.entries(counts)) {
     const max = slot === IR ? irSlots : slot === BENCH ? benchSlots : slotByKey.get(slot).count;
-    const allowed = Math.max(max, baselineCounts[slot] || 0);
+    const allowed = slot === BENCH || slot === IR
+      ? Math.max(max, baselineCounts[slot] || 0)
+      : max;
     if (count > allowed) errors.push(`too many players at ${slot} (${count}/${max})`);
   }
   return errors;

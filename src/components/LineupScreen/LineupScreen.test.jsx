@@ -846,8 +846,14 @@ test('renders every bench player when the bench overflows its slot count, and fl
   expect(screen.getByTestId('slot-row-BENCH-21')).toBeInTheDocument();
   expect(screen.getByTestId('slot-row-BENCH-22')).toBeInTheDocument();
   expect(screen.getByTestId('slot-row-BENCH-23')).toBeInTheDocument();
-  expect(
+  // The fixture also has empty starting slots, which show the chip on their
+  // own — the overflow must contribute its own sentence, so assert the
+  // tooltip copy, not just the chip's presence.
+  await userEvent.hover(
     within(screen.getByTestId('lineup-summary-header')).getByTestId('lineup-warning-chip')
+  );
+  expect(
+    await screen.findByText(/2 more bench players than bench slots/)
   ).toBeInTheDocument();
 });
 
