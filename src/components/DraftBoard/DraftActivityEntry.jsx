@@ -38,9 +38,11 @@ import { teamNameLabel } from '../../lib/teamIdentity';
 // branch, and so the actor / actor-less split is made in one place. Two of the
 // server's six lifecycle kinds are deliberately absent: `complete` (below,
 // it has no verb) and `stalled` (#620 - it left this map entirely for its own
-// stuck-state render, StalledActivityLine; do NOT restore `stalled` here, that
-// would resurrect the actor-ful "<Team> stalled the draft" reading #620 was
-// filed to remove).
+// stuck-state render, StalledActivityLine). Do NOT restore `stalled` here: the
+// dedicated `entry.kind === 'stalled'` branch in the router (below) is checked
+// first, so a restored entry would be dead code that silently falsifies the
+// LIFECYCLE_RENDER_KINDS comment below. The routing branch, not this map's
+// contents, is what keeps `stalled` off the actor-ful template.
 const LIFECYCLE_VERB = {
   draft_start: 'started',
   pause: 'paused',
