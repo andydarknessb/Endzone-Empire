@@ -11,7 +11,7 @@ const pool = require('../modules/pool');
 const bestAvailable = require('../services/bestAvailable.service');
 const draftService = require('../services/draft.service');
 const publicRead = require('../services/publicRead.service');
-const { autoPick } = require('../services/autopick.service');
+const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool } = require('./helpers/autopickFixtures');
 
 test('getDraftPool sorts its main tranche through the shared bestAvailable comparator', async (t) => {

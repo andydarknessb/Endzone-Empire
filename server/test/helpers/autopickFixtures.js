@@ -4,9 +4,11 @@
  * current_pick/rotation, keeping every test focused on candidate ordering
  * rather than draft-order mechanics.
  *
- * Used by server/test/autopick.service.test.js and
- * server/test/bestAvailable.sharedUsage.test.js — extracted so the two
- * don't hand-roll the same pool-mocking boilerplate (#142 code review).
+ * Used by the autoPick() consumers (bestAvailable.sharedUsage.test.js and the
+ * socket-payload suites) — extracted so they don't hand-roll the same
+ * pool-mocking boilerplate (#142 code review). The Pick clock sweep suite
+ * (pickClock.sweep.test.js) drives the whole sweep from the interface and adds
+ * the due-clock query, so it carries its own fixture rather than this one.
  */
 const pool = require('../../modules/pool');
 

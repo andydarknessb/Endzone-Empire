@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { createSocketHarness } = require('./helpers/socketHarness');
 const draftService = require('../services/draft.service');
-const { autoPick } = require('../services/autopick.service');
+const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool } = require('./helpers/autopickFixtures');
 const lineupService = require('../services/lineup.service');
 

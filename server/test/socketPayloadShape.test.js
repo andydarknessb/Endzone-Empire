@@ -11,7 +11,7 @@ const {
   getDraftState,
 } = require('../modules/draftSocket');
 const draftService = require('../services/draft.service');
-const { autoPick } = require('../services/autopick.service');
+const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool, AUTOPICK_TEAM } = require('./helpers/autopickFixtures');
 const lineupService = require('../services/lineup.service');
 

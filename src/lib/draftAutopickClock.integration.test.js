@@ -17,7 +17,7 @@ const lineupService = require('../../server/services/lineup.service');
 const seasonService = require('../../server/services/season.service');
 const { teamForPick } = require('../../server/services/draftOrder.service');
 const { draftPlayer } = require('../../server/services/draft.service');
-const { processExpiredPickClocks } = require('../../server/services/autopick.service');
+const { processExpiredPickClocks } = require('../../server/services/pickClock.service');
 
 const LEAGUE_ID = 7001;
 const TEAM_A = { id: 71, owner_id: 701, draft_position: 1, autodraft: false, locked: false };
@@ -229,9 +229,9 @@ class FakeDraftDatabase {
           .filter((entry) => entry.teamId === teamId)
           .map((entry) => [entry.playerId, entry.rank])
       );
-      // Unordered on purpose — autopick.service.js now sorts candidates in
-      // JS via the shared bestAvailable comparator, the same way real
-      // Postgres results aren't pre-sorted by this fake.
+      // Unordered on purpose — the Pick clock module (pickClock.service.js)
+      // now sorts candidates in JS via the shared bestAvailable comparator, the
+      // same way real Postgres results aren't pre-sorted by this fake.
       const candidates = [...state.players.values()]
         .filter((entry) => !rostered.has(entry.id))
         .map((entry) => ({
