@@ -1217,6 +1217,25 @@ test('benchAcquiredPlayer leaves a surviving starter row as played', async () =>
   fake.assertClean();
 });
 
+test('benchAcquiredPlayer benches a re-acquired player instead of reviving his old starting slot (#623)', async () => {
+  // Player 21 started at QB in week 8, was dropped pre-kickoff in week 9 (so
+  // his current-week row was deleted), and is re-acquired after player 1 took
+  // over QB. The copy-forward reads week 8 and would seat him straight back
+  // into QB - two players in a one-QB slot. An acquisition arrives on the
+  // bench whatever slot his latest earlier week held.
+  const { fake, slots } = acquisitionWorld({
+    roster: [{ player_id: 1, position: 'QB' }, { player_id: 21, position: 'QB' }],
+    currentSlots: [[1, 'QB']],
+    previousSlots: [[1, 'BENCH'], [21, 'QB']],
+  });
+  const client = await fake.connect();
+  await acquire(client, 21);
+  client.release();
+
+  assert.deepEqual([...slots], [[1, 'QB'], [21, 'BENCH']]);
+  fake.assertClean();
+});
+
 // --- a lineup entry follows the roster (#197) --------------------------------
 // Six paths remove a player from a team and none of them used to touch
 // lineup_entries, so a lineup row outlived the roster relationship it
