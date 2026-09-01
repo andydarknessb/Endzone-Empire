@@ -152,8 +152,9 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
       if (league.draft_status === 'active' && league.draft_type === 'offline') {
         throw new DraftError(409, 'this is an offline draft; the commissioner enters every pick');
       }
-      // Autopick-type drafts resolve every pick server-side (autopick.service.js,
-      // which calls in here with auto: true); a manager has no manual Pick
+      // Autopick-type drafts resolve every pick server-side (the Pick clock
+      // module's autoPick, pickClock.service.js, calls in here with auto: true);
+      // a manager has no manual Pick
       // control for one (issue #120) and this is the server-side half of that
       // guarantee, not just a client-side hidden button.
       if (!auto && league.draft_status === 'active' && league.draft_type === 'autopick') {

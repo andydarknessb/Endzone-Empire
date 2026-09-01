@@ -33,10 +33,35 @@ test('close-matchup push targets Game Center instead of the retired Matchups rou
 
 const scheduler = require('../modules/scheduler');
 const tank01Client = require('../modules/tank01Client');
+const pool = require('../modules/pool');
 
 test('syncEveryTicks doubles the box-score cadence once quota is degraded', async (t) => {
   t.mock.method(tank01Client, 'getQuotaState', async () => ({ mode: 'degraded' }));
   assert.equal(await scheduler.syncEveryTicks(), scheduler.SYNC_EVERY_TICKS * 2);
+});
+
+// ---- draft-clock tick containment (#600) -----------------------------------
+
+test('draftTick contains a failure in the advisory-lock acquisition itself, without throwing', async (t) => {
+  // The sweep contains its own failures, and draftTickUnlocked has always caught
+  // the sweep. The gap #600 closes is withAdvisoryLock's OWN acquisition - the
+  // pool.connect() and the try-lock query - which runs before the work callback
+  // and is covered by no inner catch. A rejection there used to reach setInterval
+  // as an unhandled rejection and could take the worker (and every live draft's
+  // clock) down. draftTick now catches it. Red tell: drop draftTick's try/catch
+  // and this rejects, failing the assertion below.
+  t.mock.method(pool, 'connect', async () => { throw new Error('pool exhausted acquiring the draft-clock lock'); });
+
+  let threw = false;
+  let result;
+  try {
+    result = await scheduler.draftTick();
+  } catch (err) {
+    threw = true;
+  }
+
+  assert.equal(threw, false, 'draftTick swallowed the lock-acquisition failure instead of rejecting into setInterval');
+  assert.equal(result, undefined);
 });
 
 test('syncEveryTicks keeps the normal cadence while quota is healthy', async (t) => {
