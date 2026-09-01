@@ -455,12 +455,22 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  * not reach an anonymous board until it is added here on purpose - publication
  * by decision, the same stance the board's field allowlist takes.
  *
- * That promise is only true because every approved kind is spelled out LITERALLY
- * below - the list does NOT spread LIFECYCLE_KINDS (#619). A spread would inherit
- * new lifecycle kinds silently: #602's `stalled` reached this open-internet
- * surface with no edit here, which is exactly the leak "publication by decision"
- * claims to prevent. Enumerating each kind makes exposing one to the anonymous
- * board a DELIBERATE edit to this array, never an inherited default.
+ * That promise holds only because every approved kind is spelled out LITERALLY
+ * below - the list does NOT spread LIFECYCLE_KINDS (#619). Under the old spread a
+ * new lifecycle kind reached this open-internet surface with no SOURCE edit to
+ * this array: #602's `stalled` arrived exactly that way. A test did fire - the
+ * literal kind-list assertion in presenterDraftActivity.service.test.js went from
+ * seven kinds to eight (PR #618) - but that only bumped a downstream assertion to
+ * match a decision already taken elsewhere; the array that governs the anonymous
+ * board was itself never reviewed. Enumerating each kind makes exposing one here
+ * a DELIBERATE edit to this array, never an inherited default.
+ *
+ * Caveat, filed not forgotten (#633): the literal form is not itself enforced. No
+ * test distinguishes this array from `[PICK, ...LIFECYCLE_KINDS, CORRECTION]` - a
+ * re-spread yields a byte-identical array and the whole suite still passes - so
+ * nothing here stops a future edit from silently restoring the spread; #633 holds
+ * whether to build that guard. What IS enforced is the complementary half (below):
+ * an append to LIFECYCLE_KINDS turns the #540 equality pin red.
  *
  * It holds the SAME kinds as the member feed's USER_VISIBLE_KINDS today, but is
  * declared INDEPENDENTLY (#540), NOT aliased to it and no longer sharing its
