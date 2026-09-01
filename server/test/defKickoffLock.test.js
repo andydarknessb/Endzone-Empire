@@ -91,6 +91,8 @@ function lineupWorld({ entries, kickedOff }) {
       rows: rows.map(({ player_id }) => ({ player_id })),
     })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: rows.map((row) => ({ ...row })) })],
+    // No surviving as-played rows in this world (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "players"\."id"/, () => ({ rows: rows.map((row) => ({ ...row, id: row.player_id })) })],
     [/^SELECT "player_id", "season", "games_played"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({

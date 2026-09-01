@@ -25,8 +25,9 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * that dropped the reversed-Pick snapshot and the reason. Rendering nothing is
  * strictly better than impersonating a Team action for a kind nobody taught this
  * component to draw. Both user surfaces already exclude internal kinds upstream
- * (USER_VISIBLE_KINDS); this is the defense-in-depth that holds if one ever does
- * not.
+ * (the member feed via USER_VISIBLE_KINDS, the presenter feed via its own
+ * independent allowlist); this is the defense-in-depth that holds if one ever
+ * does not.
  */
 
 // The past-tense verb each Draft LIFECYCLE kind reads as (#437). A lifecycle
@@ -34,16 +35,19 @@ import { teamNameLabel } from '../../lib/teamIdentity';
 // draft") when one is present, or phrased as a plain state transition ("The
 // draft is complete") when there is no actor - a scheduler start or a
 // completion. Kept as data so a new kind is a one-line addition, not a new
-// branch, and so the actor / actor-less split is made in one place.
+// branch, and so the actor / actor-less split is made in one place. Two of the
+// server's six lifecycle kinds are deliberately absent: `complete` (below,
+// it has no verb) and `stalled` (#620 - it left this map entirely for its own
+// stuck-state render, StalledActivityLine). Do NOT restore `stalled` here: the
+// dedicated `entry.kind === 'stalled'` branch in the router (below) is checked
+// first, so a restored entry would be dead code that silently falsifies the
+// LIFECYCLE_RENDER_KINDS comment below. The routing branch, not this map's
+// contents, is what keeps `stalled` off the actor-ful template.
 const LIFECYCLE_VERB = {
   draft_start: 'started',
   pause: 'paused',
   resume: 'resumed',
   reset: 'reset',
-  // #602: an expired turn with no draftable player paused the draft; the stuck
-  // Team is the entry's actor, so this reads "<Team> stalled the draft" and the
-  // commissioner knows who to repair before resuming.
-  stalled: 'stalled',
 };
 
 // The lifecycle kinds LifecycleActivityLine knows how to draw (#437): the verbed
@@ -51,8 +55,9 @@ const LIFECYCLE_VERB = {
 // - it reads as a plain "The draft is complete"). Derived from LIFECYCLE_VERB so
 // the verbed kinds are listed in exactly one place. This is the renderer's KNOWN
 // set for the lifecycle branch - a kind outside it (a Pick, a correction, the
-// cutover boundary, or a kind not yet invented) is NOT a lifecycle line and must
-// be routed elsewhere or refused, never coerced into "updated the draft".
+// cutover boundary, `stalled` (its own stuck-state line, #620), or a kind not
+// yet invented) is NOT a lifecycle line and must be routed elsewhere or
+// refused, never coerced into "updated the draft".
 const LIFECYCLE_RENDER_KINDS = new Set([...Object.keys(LIFECYCLE_VERB), 'complete']);
 
 // One committed Pick as Draft activity in the combined feed (#435). It is NOT
@@ -122,6 +127,39 @@ function LifecycleActivityLine({ entry }) {
   );
 }
 
+// A nothing-draftable stall (#602) as a stuck-state line, NOT an actor-ful
+// lifecycle transition (#620). Every OTHER lifecycle kind puts a Team in the
+// subject position only when that Team genuinely acted (complete and a
+// scheduler-started draft_start are phrased actor-less, above); a stall is the
+// one case where a Team is named for something it did NOT do and cannot fix -
+// the draft stalled ON the Team because there was no draftable player, and
+// only a commissioner can resolve it. Naming that as "<Team> stalled the
+// draft" through the shared verb template read as blame with no cause and no
+// next step, so this is a dedicated render rather than an entry in
+// LIFECYCLE_VERB: the Team is named without being cast as the actor, the
+// cause ("no draftable player") is stated, and the caption carries the next
+// step. A null Team (the only case this component's test covers) reads as a
+// plain stuck-state line rather than "Former manager" - matching the sibling
+// LifecycleActivityLine guard exactly, including its inherited gap: an empty
+// or whitespace-only teamName still falls through to teamNameLabel's shared
+// former-manager label, same as every other line in this file.
+function StalledActivityLine({ entry }) {
+  const hasActor = entry.teamName != null;
+  const text = hasActor
+    ? <>The draft is stuck on <strong>{teamNameLabel(entry.teamName)}</strong>: no draftable player</>
+    : <>The draft is stuck: no draftable player</>;
+  return (
+    <>
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        {text}
+      </Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        A commissioner must resolve and resume {'·'} {new Date(entry.created_at).toLocaleTimeString()}
+      </Typography>
+    </>
+  );
+}
+
 // A Commissioner correction as an event line (#439, #540). A correction is an
 // ADMINISTRATIVE act by the commissioner against a Team's Pick; it is NOT that
 // Team acting, so the line names the correction as the event and shows the
@@ -160,16 +198,20 @@ function CorrectionActivityLine({ entry }) {
 
 // Route a Draft-activity entry to the right event-line renderer by kind. A Pick
 // shows its snapshot facts; a correction is an explicit commissioner act; the
-// five lifecycle transitions are event lines. Any OTHER kind - an internal
-// boundary like cutover, or a kind not yet invented - renders NOTHING rather
-// than being coerced into a generic Team action (#540 AC6): the component
-// refuses to guess. Returning null means no container and no line at all.
+// verbed lifecycle transitions plus completion are event lines; a stall is its
+// own stuck-state line (#620), not an actor-ful lifecycle transition.
+// Any OTHER kind - an internal boundary like cutover, or a kind not yet
+// invented - renders NOTHING rather than being coerced into a generic Team
+// action (#540 AC6): the component refuses to guess. Returning null means no
+// container and no line at all.
 function DraftActivityEntry({ entry }) {
   let line = null;
   if (entry.kind === 'pick') {
     line = <PickActivityLine entry={entry} />;
   } else if (entry.kind === 'correction') {
     line = <CorrectionActivityLine entry={entry} />;
+  } else if (entry.kind === 'stalled') {
+    line = <StalledActivityLine entry={entry} />;
   } else if (LIFECYCLE_RENDER_KINDS.has(entry.kind)) {
     line = <LifecycleActivityLine entry={entry} />;
   } else {

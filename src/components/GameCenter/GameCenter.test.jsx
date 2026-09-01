@@ -309,3 +309,43 @@ test('every card — hero and list — links directly to its box score, no inter
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/3/matchups/5');
 });
+
+// The league matchups list carries each side's projected starter total
+// (home_projected_total / away_projected_total, null when the team has no
+// lineup for the week or the matchup is final). Both the hero card and the
+// League Matchups cards show it, and the hero's win probability is shaped by
+// the real totals rather than a pair of zeros.
+test('shows projected totals from the matchups payload on the hero card and league matchup cards', async () => {
+  mockApi({
+    matchups: [
+      matchup({
+        id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival',
+        home_score: 30, away_score: 20, home_projected_total: 100, away_projected_total: 140,
+      }),
+      matchup({
+        id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B',
+        home_projected_total: 112.36, away_projected_total: null,
+      }),
+      matchup({
+        id: 3, week: 1, home_team_id: 50, away_team_id: 60, home_team_name: 'Done A', away_team_name: 'Done B',
+        home_score: 90, away_score: 80, final: true, home_projected_total: null, away_projected_total: null,
+      }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
+    rosters: [],
+    viewerTeamId: 10,
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+
+  expect(await screen.findByText('Your Matchup · Week 1')).toBeInTheDocument();
+  // Hero: both totals, and a win probability driven by them. Expected finals
+  // are 30 + 70 remaining vs 20 + 120 remaining, so the home side trails.
+  expect(screen.getByText('Proj: 100.0')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 140.0')).toBeInTheDocument();
+  expect(screen.getByLabelText('Win probability: My Team 16%, Rival 84%')).toBeInTheDocument();
+  // League card: a real total rounds to one decimal; a missing one on an open
+  // matchup keeps the dash; a final matchup shows no projection line at all.
+  expect(screen.getByText('Proj: 112.4')).toBeInTheDocument();
+  expect(screen.getAllByText('Proj: -')).toHaveLength(1);
+});

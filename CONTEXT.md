@@ -520,7 +520,10 @@ kicked off, in which case it stays as the record of the week as played. A week
 whose matchup has settled keeps its entries whatever the schedule says about
 kickoff: a settled week is scored from those entries alone, so removing one
 changes a score the league has already been told. A surviving entry therefore
-means the player was on that roster at kickoff. Only undoing a drop ever puts
+means the player was on that roster at kickoff, and a starting slot it
+occupies is spent for that week: the settle pass will score the surviving row,
+so no save, manager or commissioner, may seat a replacement beside it (#627).
+Only undoing a drop ever puts
 an entry back where it was, and the only slot it puts back is IR: the undo
 replays the stash the drop interrupted, and only while that stash is still
 valid. Anything else, an undo of a stash that stopped qualifying included,

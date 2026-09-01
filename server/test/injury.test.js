@@ -135,6 +135,10 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
       }] };
     }],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    // No surviving as-played rows in this world (#627). Matched explicitly so
+    // the spent-slot read cannot fall through to the /FROM "lineup_entries"/
+    // catch-all below, whose handler signals the IR scan.
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
       lineupSlot = params[0];
       signalLineupMoved();

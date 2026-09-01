@@ -194,6 +194,30 @@ function LiveScoringFeed({ items }) {
   );
 }
 
+/**
+ * One team's projected starter total as the list route reports it
+ * (`home_projected_total` / `away_projected_total`, number or null). A
+ * number shows to one decimal, matching Matchup Detail; null keeps a muted
+ * dash, since "no lineup yet" is a real state and not a zero. Callers hide
+ * it once the matchup is final: a settled game has a score, not a forecast.
+ */
+function ProjectedCaption({ value, align = 'left' }) {
+  const known = value != null && Number.isFinite(Number(value));
+  return (
+    <Typography
+      variant="caption"
+      sx={{
+        display: 'block',
+        textAlign: align,
+        color: known ? 'text.secondary' : 'text.disabled',
+        fontStyle: known ? 'normal' : 'italic',
+      }}
+    >
+      {known ? `Proj: ${Number(value).toFixed(1)}` : 'Proj: -'}
+    </Typography>
+  );
+}
+
 function GameCenter() {
   const { leagueId } = useParams();
   const [matchups, setMatchups] = useState([]);
@@ -387,8 +411,8 @@ function GameCenter() {
     ? matchupWinProbability({
         homeScore: heroHomeScore,
         awayScore: heroAwayScore,
-        homeProjectedTotal: 0,
-        awayProjectedTotal: 0,
+        homeProjectedTotal: heroMatchup.home_projected_total,
+        awayProjectedTotal: heroMatchup.away_projected_total,
       })
     : null;
   const heroStarted = !!heroMatchup && (
@@ -514,6 +538,7 @@ function GameCenter() {
                     >
                       {heroHomeScore}
                     </Typography>
+                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.home_projected_total} />}
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                       <AbbreviationTooltip term="PMR" />: -
                     </Typography>
@@ -533,6 +558,7 @@ function GameCenter() {
                     >
                       {heroAwayScore}
                     </Typography>
+                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.away_projected_total} align="right" />}
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                       <AbbreviationTooltip term="PMR" />: -
                     </Typography>
@@ -583,9 +609,7 @@ function GameCenter() {
                           >
                             {matchup.home_team_name} ({homeScore})
                           </Typography>
-                          <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                            Proj: -
-                          </Typography>
+                          {!matchup.final && <ProjectedCaption value={matchup.home_projected_total} />}
                         </Box>
                       </Box>
                       <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary' }}>
@@ -606,9 +630,7 @@ function GameCenter() {
                           >
                             {matchup.away_team_name} ({awayScore})
                           </Typography>
-                          <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                            Proj: -
-                          </Typography>
+                          {!matchup.final && <ProjectedCaption value={matchup.away_projected_total} />}
                         </Box>
                       </Box>
                     </Box>
