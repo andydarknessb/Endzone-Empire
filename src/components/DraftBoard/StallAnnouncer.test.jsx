@@ -12,9 +12,13 @@ const stalled = (seq, teamName = 'MinneApple') => ({
 const pick = (seq, teamName = 'Bulldogs', playerName = 'Pat Mahomes') => ({
   type: 'draft_activity', kind: 'pick', seq, id: seq, teamName, player: { name: playerName },
 });
+const resume = (seq, teamName = 'Commish FC') => ({
+  type: 'draft_activity', kind: 'resume', seq, id: seq, teamName,
+  created_at: '2026-09-01T00:05:00.000Z',
+});
 
 describe('StallAnnouncer', () => {
-  it('mounts a persistent polite status region, silent to start', () => {
+  it('mounts a polite status region, silent to start', () => {
     render(<StallAnnouncer entries={[]} />);
     const region = screen.getByRole('status');
     expect(region).toHaveAttribute('aria-live', 'polite');
@@ -92,6 +96,40 @@ describe('StallAnnouncer', () => {
     expect(region.textContent).not.toBe(afterFirst);
     // ...and the discriminator is specifically U+200B, nothing visible or spoken.
     expect(region.textContent).toBe(afterFirst + String.fromCharCode(0x200b));
+  });
+
+  it('announces a stall that arrives BEHIND a later entry in one multi-entry slice (not just the tail)', () => {
+    // The feed does not arrive one entry at a time: useDraftRoomFeed commits a
+    // whole live/reconnect slice in ONE setEntries. A stall committed alongside a
+    // trailing chat message (e.g. a reconnect resume slice) is NOT the tail. It
+    // must still be announced - and its seq must not be silently skipped past.
+    const { rerender } = render(<StallAnnouncer entries={[chat(29)]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    // seq 30 stall, seq 31 chat, delivered together; tail is the chat.
+    rerender(<StallAnnouncer entries={[chat(29), stalled(30, 'MinneApple'), chat(31, 'Rivals')]} />);
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('The draft is stuck on MinneApple');
+    expect(region).toHaveTextContent('A commissioner must resolve and resume');
+  });
+
+  it('clears when the draft resumes: a resume ends the stuck state, so the region falls silent', () => {
+    // A stall is a STATE, not an event: it must not linger in the accessibility
+    // tree (visuallyHidden is clip-based, so the text stays readable in browse
+    // mode) after the commissioner resolved it and the draft resumed.
+    const { rerender } = render(<StallAnnouncer entries={[chat(1)]} />);
+    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
+    // The commissioner resolves and resumes.
+    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), resume(3)]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
+  it('nets to resumed when a stall and a resume arrive in the same slice (newest transition wins)', () => {
+    const { rerender } = render(<StallAnnouncer entries={[chat(1)]} />);
+    // stalled(2) then resume(3) committed together: the draft stuck then resumed,
+    // so the net state is not-stuck and nothing should be left announced.
+    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), resume(3)]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
   });
 
   it('stays silent when older entries are prepended (Load older)', () => {

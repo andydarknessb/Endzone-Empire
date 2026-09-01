@@ -79,13 +79,15 @@ function DraftRoomChat({
           re-seeded silently rather than replayed. */}
       <FeedAnnouncer entries={entries} viewerTeamId={viewerTeamId} />
       {/* The stall announcer (#636) reads the SAME combined feed, but speaks a
-          nothing-draftable stall (#602) in its OWN dedicated polite region - the
-          one draft_activity kind the feed announcer's blanket silence must not
-          swallow, since it halts the draft and names a required commissioner
-          action. It is a separate region on purpose: announcing a stall through
-          the feed announcer's region would overwrite an unread chat announcement,
-          the same defect its early return prevents, in the other direction. It
-          takes no viewerTeamId - a stall is addressed to whoever can resolve it. */}
+          nothing-draftable stall (#602) in its OWN dedicated polite region. Of
+          the kinds the feed announcer's blanket silence covers, Picks already
+          have a room-level voice (PickAnnouncer, #513); the stall is the kind
+          left with NO voice, and it must have one because it halts the draft and
+          names a required commissioner action. It is a separate region on
+          purpose: announcing a stall through the feed announcer's region would
+          overwrite an unread chat announcement, the same defect its early return
+          prevents, in the other direction. It takes no viewerTeamId - a stall is
+          addressed to whoever can resolve it. */}
       <StallAnnouncer entries={entries} />
       <ChatConversation
         messages={entries}

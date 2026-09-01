@@ -26,9 +26,11 @@
  * `setAnnouncement((prev) => nextAnnouncement(prev, text))`.
  *
  * The marker is built from its code point so no invisible literal sits in
- * source; the announcer tests pin it as U+200B exactly.
+ * source; the announcer tests pin it as U+200B exactly. It stays module-private -
+ * every consumer goes through nextAnnouncement, and both inline predecessors kept
+ * it private too.
  */
-export const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
+const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
 /**
  * The next live-region text given what is CURRENTLY RENDERED (`prev`) and the

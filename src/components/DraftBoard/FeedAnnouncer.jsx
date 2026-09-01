@@ -26,9 +26,11 @@ import { nextAnnouncement } from './announcerRepeat';
  * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed and
  * the On-the-clock banner belong to an ACTIVE one, and a draft is one or the
  * other, never both. So the only regions this announcer genuinely coexists with,
- * during the active phase, are the composer character counter (#486) and the
- * On-the-clock banner (LiveDraftBanner) - two, not a crowd. It still earns its
- * place rather than folding into either:
+ * during the active phase, are the composer character counter (#486), the
+ * On-the-clock banner (LiveDraftBanner) and, since #636, the stall announcer
+ * (StallAnnouncer) - which shares this chat subtree because it reads the same
+ * feed. A small, fixed set, each on its own axis, not a crowd. This one still
+ * earns its place rather than folding into any of them:
  *
  *  - It carries a DIFFERENT axis: human-message arrival, which neither the
  *    counter nor the banner announces. Folding it into one would make that
@@ -78,12 +80,18 @@ import { nextAnnouncement } from './announcerRepeat';
  * had each carried it inline, and this docblock used to say to extract it "at
  * three copies, not two"; StallAnnouncer (#636) was that third copy, so the
  * idiom was extracted and all three now call it. Only the two-line repeat idiom
- * moved: the GATING stays per-component, because the three fire on genuinely
- * different lifecycles - this one is seq-gated over the feed with a clear path
- * and an initialisation guard, PickAnnouncer is keyed on a single pick prop with
- * neither, and StallAnnouncer is seq-gated over the same feed for the stalled
- * kind - and folding a clear path only one of them owns into a shared hook is
- * exactly the reset-semantics hazard #513 identified.
+ * moved; the GATING stays per-component. It is NOT that all three gate alike -
+ * this announcer's effect and StallAnnouncer's share a seq high-water discipline,
+ * but they diverge past it: this one is an EVENT announcer, tail-only, because a
+ * newer chat message supersedes an older one; StallAnnouncer is a STATE announcer
+ * that scans the whole newly-arrived slice for the newest stall (a stall is not
+ * superseded by a later chat message) and clears on a resume. PickAnnouncer is
+ * different again, keyed on a single pick prop with no feed at all. The reason a
+ * shared GATING hook is still refused is not "different lifecycles" alone: it is
+ * that folding in a clear/reset path only some of them own is exactly the
+ * reset-semantics hazard #513 identified. (The 22-line similarity an earlier
+ * review flagged between this effect and StallAnnouncer's was the pre-state-model
+ * StallAnnouncer; the #636 state-model fix diverged them.)
  */
 function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
   const [announcement, setAnnouncement] = useState('');

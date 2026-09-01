@@ -148,6 +148,12 @@ test('announces a live stall in its OWN region and leaves an unread chat announc
   act(() => socket.trigger('chat:message', chatMessage({ id: 20, seq: 20, teamId: 12, teamName: 'Bulldogs', message: 'good luck' })));
   expect(await screen.findByText('New message from Bulldogs')).toBeInTheDocument();
 
+  // Capture the chat region and its EXACT text node value before the stall lands,
+  // so "unchanged" is asserted precisely - not merely that the substring survives.
+  const chatRegion = screen.getAllByRole('status').find((r) => /New message from Bulldogs/.test(r.textContent));
+  expect(chatRegion).toBeDefined();
+  const chatTextBefore = chatRegion.textContent;
+
   // Then the draft freezes: a stalled activity entry arrives (seq strictly newer).
   act(() => socket.trigger('draft:activity', stalledActivity({ seq: 30, teamName: 'MinneApple' })));
 
@@ -162,13 +168,13 @@ test('announces a live stall in its OWN region and leaves an unread chat announc
   expect(stallRegion).toHaveTextContent('A commissioner must resolve and resume');
   expect(stallRegion.textContent).not.toMatch(/stalled the draft/i);
 
-  // The chat announcement is UNCHANGED: the unread "New message from Bulldogs"
-  // still stands in its own region, in a DIFFERENT node than the stall's, so the
-  // stall did not blank it (and the two are not one region reused).
-  const chatRegion = screen.getAllByRole('status').find((r) => /New message from Bulldogs/.test(r.textContent));
-  expect(chatRegion).toBeDefined();
+  // The chat announcement is EXACTLY UNCHANGED: same node, byte-identical text.
+  // toBe on the raw textContent (not a substring match) is what catches a
+  // spurious re-announce - a zero-width-space flip or a re-set would change the
+  // node value while still containing "New message from Bulldogs".
   expect(chatRegion).not.toBe(stallRegion);
-  expect(chatRegion).toHaveTextContent('New message from Bulldogs');
+  expect(chatRegion.textContent).toBe(chatTextBefore);
+  expect(chatRegion.textContent).toBe('New message from Bulldogs');
   // And the stall was not announced through the chat region.
   expect(chatRegion.textContent).not.toMatch(/the draft is stuck/i);
 });

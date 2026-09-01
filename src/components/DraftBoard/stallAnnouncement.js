@@ -8,12 +8,14 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * use.
  *
  * A stall (#602) is the one Draft-activity kind that HALTS the draft until a
- * commissioner acts. Every OTHER draft_activity entry is silent to a screen
- * reader on purpose - Picks moved to the room-level PickAnnouncer (#513), and
- * the combined-feed announcer no-ops all draft_activity so it never blanks an
- * unread chat announcement (feedAnnouncement.js) - but a stall halts the room
- * and names a required human action, so it earns a spoken announcement of its
- * own.
+ * commissioner acts. Every other draft_activity kind is silent in the
+ * COMBINED-FEED announcer on purpose - it no-ops all draft_activity so it never
+ * blanks an unread chat announcement (feedAnnouncement.js). (Picks are not
+ * silent room-wide: they moved to the room-level PickAnnouncer, #513, which
+ * speaks every live Pick - they are just silent in the feed announcer.) A stall
+ * halts the room and names a required human action, so it earns a spoken
+ * announcement of its own rather than being swallowed by that feed-announcer
+ * silence.
  *
  * The text names the CAUSE (no draftable player) and the NEXT STEP (a
  * commissioner must resolve and resume), derived from #620's visible
