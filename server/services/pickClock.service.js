@@ -285,16 +285,18 @@ async function autoPick({ leagueId }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league || league.draft_status !== 'active' || league.draft_paused) return null;
-  // Expiry guard, and the timer-vs-sweep dedupe (#601, ADR 0018): only an
-  // actually-elapsed clock autopicks. The hybrid runs two firing paths - the
-  // in-process timer and the backstop sweep - so the same deadline can reach
-  // here twice (a double-fired timer, or a sweep straggler that arrives after
-  // the timer already advanced the turn). The second firing reads the NEXT
-  // team's freshly-armed clock, which is null or still in the future, and
-  // declines here. Without this check that second firing would autopick the
-  // next team early, committing a second Pick off one expiry. A null deadline
-  // (untimed non-autodrafting turn, or a completed draft) is likewise not an
-  // expiry and never autopicks.
+  // Expiry guard (#601, ADR 0018): only an actually-elapsed clock autopicks.
+  // This is one half of the timer-vs-sweep dedupe, and it covers exactly the
+  // SEQUENCED case: a second firing (a re-armed timer, or a backstop straggler)
+  // that arrives AFTER an earlier firing already advanced the turn reads the
+  // next team's freshly-armed clock, which is null or still in the future, and
+  // declines here. Without it that second firing would autopick the next team
+  // early, committing a second Pick off one expiry. It does NOT cover the
+  // CONCURRENT case (two firings that both read this same elapsed deadline
+  // before either commits): both pass this check, and the loser is stopped one
+  // level down by draft.service's turn re-check under FOR UPDATE (see autoPick's
+  // 409 handling and fireExpiryTimer). A null deadline (untimed non-autodrafting
+  // turn, or a completed draft) is likewise not an expiry and never autopicks.
   const deadline = league.pick_deadline_at;
   if (deadline == null || msUntilDeadline(deadline) > 0) return null;
 
@@ -421,6 +423,17 @@ const expiryTimers = new Map();
  * the clock is still running, zero or negative once it has elapsed. The one
  * spelling of the clock-elapsed comparison, shared by the arming math, the
  * sweep's due split, and the expiry guard.
+ *
+ * Deliberate clock choice (#601): the deadline is written by Postgres
+ * (now() + make_interval), but due-ness and the arm delay are evaluated here on
+ * the worker's Node clock rather than a second `<= now()` round-trip to the DB.
+ * Any offset between the app and DB clocks shifts firing by that offset - within
+ * the spec's "about a second" target for co-located services, and self-limiting:
+ * a slightly-early guard decline is re-armed by the next backstop pass, and a
+ * slightly-late fire still autopicks. A fully DB-relative arm (returning
+ * EXTRACT(EPOCH FROM (pick_deadline_at - now())) from the sweep and reading the
+ * DB clock in the guard too) was weighed and left out as not worth the extra
+ * read for a sub-second, backstopped effect.
  */
 function msUntilDeadline(deadline) {
   return new Date(deadline).getTime() - Date.now();
@@ -471,10 +484,15 @@ function cancelAllExpiryTimers() {
 /**
  * A fired timer autopicks its league, then re-arms itself for the turn the pick
  * advanced to, so a full Autodraft run moves at the short delay per pick rather
- * than waiting for the next backstop poll. autoPick's own guard makes this
- * safe against a racing sweep: whichever path commits first advances the turn,
- * and the other declines (a future or null next deadline). A null outcome
- * (nothing due, sniped off every candidate, or nothing draftable) arms nothing.
+ * than waiting for the next backstop poll. Racing the sweep for the same
+ * deadline is safe by two distinct mechanisms, not one: a firing that arrives
+ * after the turn advanced is declined by autoPick's expiry guard (the next
+ * deadline is future or null); two firings that read this same elapsed deadline
+ * concurrently BOTH pass that guard, and the loser is stopped by
+ * draft.service.draftPlayer's turn re-check under FOR UPDATE, surfacing as the
+ * 409 autoPick walks off its remaining candidates to a null outcome. Either way
+ * exactly one Pick commits. A null outcome (not due, sniped off every candidate,
+ * or nothing draftable) arms nothing.
  */
 async function fireExpiryTimer(leagueId) {
   try {
@@ -547,6 +565,5 @@ module.exports = {
   autoPick,
   processExpiredPickClocks,
   armExpiryTimer,
-  cancelExpiryTimer,
   cancelAllExpiryTimers,
 };
