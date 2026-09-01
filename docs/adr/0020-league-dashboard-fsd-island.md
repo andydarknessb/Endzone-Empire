@@ -73,8 +73,13 @@ possible but is still not a prerequisite.
   collapsing a tier, so they are rules for the widget tickets, not just guard
   rows:
     - Faint text on the accent tint (`dash-faint` on `dash-accent-soft`, the
-      `tr.me` rank cell) is legible only over a card (`dash-surface`). A tinted
-      element on any other surface uses ink or dim for its text, never faint.
+      `tr.me` rank cell) is legible only over a card (`dash-surface`). This is
+      one uniform rule, deliberately a touch stricter than dark mode alone
+      requires: faint on the tint over the page background passes in dark (5.48)
+      but fails in light (4.15), so the card-only rule errs safe across both
+      modes. A tinted element on any other surface uses ink for its text (ink is
+      registered on the tint over all four surfaces), never faint or dim - dim
+      also fails on the tint over the raised tile (4.37 light / 4.20 dark).
     - Grade-as-text (`dash-grade-*-text`) is legible on a card (`dash-surface`)
       and a stat tile (`dash-surface2`), not on the raised tile
       (`dash-surface3`), where light grade-b text is 4.40. Grade text is not

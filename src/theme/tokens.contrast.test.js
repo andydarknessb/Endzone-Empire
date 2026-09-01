@@ -273,12 +273,18 @@ const PAIRINGS = [
   //     (9.17-14.46).
   //   * faint text (the `tr.me` rank cell, `.rk`): registered over `dash-surface`
   //     ONLY, and that is a real boundary, not an omission. Faint on the tint
-  //     measures 4.62/4.81 over a card (passes) but 4.15/3.92 light and
-  //     5.48/3.76 dark over bg/surface2/surface3 - it fails on six of the other
-  //     backdrops and cannot be retuned to pass without collapsing the faint
-  //     tier into dim. So the rule for widgets, stated here and in ADR 0020, is:
-  //     faint text on the accent tint only inside a card (where `tr.me` lives);
-  //     a tinted element on any other surface uses ink or dim, never faint.
+  //     clears 4.5 over a card (4.62 light / 4.81 dark) but not elsewhere: over
+  //     the page background it fails in light (4.15) though it passes in dark
+  //     (5.48), and over surface2 (4.32/4.30) and surface3 (3.92/3.76) it fails
+  //     in both modes. It cannot be retuned to clear the tint on those surfaces
+  //     without overshooting past `dash-dim` and inverting the tier order (dim
+  //     itself only reaches 4.20 on the dark tint over surface3). So the rule
+  //     for widgets, stated here and in ADR 0020, is one uniform card-only rule,
+  //     deliberately a touch stricter than dark-over-bg alone would need: faint
+  //     text on the accent tint only inside a card (where `tr.me` lives); a
+  //     tinted element on any other surface uses INK - registered on the tint
+  //     over all four surfaces (9.17-14.46) - never faint or dim (dim also fails
+  //     on the tint over the raised tile, 4.37 light / 4.20 dark).
   pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over the page', 'dash-bg'),
   pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over a card', 'dash-surface'),
   pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over a stat tile', 'dash-surface2'),
