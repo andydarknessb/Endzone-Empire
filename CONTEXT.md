@@ -499,6 +499,19 @@ _Avoid_: lineup
 The subset of a roster a team starts in one week, one player per starting slot.
 _Avoid_: roster, starting roster
 
+**Roster Management presentation**:
+The single row presentation every occupied Lineup row uses, whether
+Starter, Bench, or IR: profile image, position, Bye, status, and
+acquisition detail, plus the row actions player quick view, Trade, Drop,
+and Undo. It names a row shape, not a screen: it is distinct from Roster
+(everything a team holds) and Lineup (the surface that presents rows in
+this shape). The name descends from the Roster Management table Lineup
+absorbed and removed (spec #575, ADR 0019); the sentence-case form
+'Roster management' survives only as that removed table's historical
+accessible name, used in the Lineup test suite's assertion that no such
+table remains.
+_Avoid_: Roster, Lineup, a separate Roster Management table
+
 **Lineup entry**:
 One player's slot on one team's lineup card for one week. A lineup entry
 follows the roster: when a team loses a player, his entries for future weeks
