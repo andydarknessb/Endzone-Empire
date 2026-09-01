@@ -297,7 +297,7 @@ async function materializeNewWeekLineups({ leagueId, season, week, league }) {
     await client.query('COMMIT');
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
-    console.error(`week ${week} lineups not materialized for league ${leagueId}`, error.message);
+    console.error('new-week lineups not materialized', { leagueId, week, error: error.message });
   } finally {
     if (client) client.release();
   }
