@@ -15,7 +15,6 @@ import {
   Alert,
   Skeleton,
   Box,
-  Tooltip,
   Card,
   CardActionArea,
   Drawer,
@@ -212,18 +211,6 @@ function LeagueDashboard() {
     await Promise.all([refetch(), loadStandings()]);
   }, [refetch, loadStandings]);
 
-  const handleStartDraft = async () => {
-    try {
-      setError(null);
-      await apiClient.post(`/api/league/${leagueId}/start-draft`);
-      notify('Draft started successfully!');
-      refresh();
-    } catch (err) {
-      setError(errorMessage(err));
-      notify(errorMessage(err), { severity: 'error' });
-    }
-  };
-
   const handleAdvanceWeek = async () => {
     try {
       setError(null);
@@ -303,7 +290,6 @@ function LeagueDashboard() {
   // Below the configured minimum, the draft can't start yet (min_teams may be
   // absent in older data â€” treat that as no gate).
   const belowMin = league.min_teams != null && teams.length < league.min_teams;
-  const auctionUnsupported = league.draft_type === 'auction';
   const leaguePhase = deriveLeaguePhase(league);
   const preDraft = leaguePhase === LEAGUE_PHASE.PRE_DRAFT;
   const drafting = leaguePhase === LEAGUE_PHASE.DRAFTING;
@@ -543,50 +529,13 @@ function LeagueDashboard() {
         )}
       </Box>
 
-      {/* Contextual actions: only shown when they apply. A pick'em-only
-          league has no draft to start and its week follows the NFL calendar
-          on its own, so neither action exists there. */}
-      {!pickemOnly && isCommissioner && (preDraft || seasonLive) && (
+      {/* Contextual actions: starting a draft belongs to the Draft Room; the
+          dashboard keeps only the in-season commissioner action here. */}
+      {!pickemOnly && isCommissioner && seasonLive && (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
-          {preDraft && (
-            <Box>
-              <Tooltip
-                title={
-                  belowMin
-                    ? `Need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`
-                    : auctionUnsupported
-                    ? 'Salary-cap auctions are not supported yet'
-                    : ''
-                }
-              >
-                <span>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={handleStartDraft}
-                    disabled={belowMin || auctionUnsupported}
-                  >
-                    Start Draft
-                  </Button>
-                </span>
-              </Tooltip>
-              {belowMin && (
-                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
-                  Requires a minimum of {league.min_teams} teams to start the draft.
-                </Typography>
-              )}
-              {auctionUnsupported && !belowMin && (
-                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
-                  Live salary-cap auctions are not supported yet.
-                </Typography>
-              )}
-            </Box>
-          )}
-          {seasonLive && (
-            <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
-              Advance Week
-            </Button>
-          )}
+          <Button variant="contained" color="secondary" onClick={handleAdvanceWeek}>
+            Advance Week
+          </Button>
         </Box>
       )}
 

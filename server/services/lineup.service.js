@@ -140,7 +140,9 @@ async function isFinalWeekForTeam(client, { leagueId, teamId, season, week }) {
 /**
  * Ensure every player currently on the team's roster has a lineup_entries row
  * for (season, week). First touch of a week copies slots forward from the
- * team's most recent earlier week; players without history default to BENCH.
+ * team's most recent earlier week. A standard league's first-ever lineup is
+ * seeded with a legal starter assignment; later players without history
+ * default to BENCH.
  * Must run inside the caller's transaction (client).
  *
  * A FINAL week is frozen (#106): its rows are the record of the week as
@@ -157,7 +159,7 @@ async function isFinalWeekForTeam(client, { leagueId, teamId, season, week }) {
  * acquired player his bench spot: the new current week has no row for him
  * either, so its first touch materializes him onto the bench (#97 / PR #102).
  */
-async function materializeLineup(client, { leagueId, teamId, season, week }) {
+async function materializeLineup(client, { leagueId, teamId, season, week, league }) {
   if (await isFinalWeekForTeam(client, { leagueId, teamId, season, week })) return;
 
   const rosterResult = await client.query(
@@ -188,6 +190,15 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
     [teamId, season, week]
   );
   const prevEntries = new Map(prevResult.rows.map((r) => [r.player_id, r]));
+  const initialStarterSlots = new Map();
+  if (league && !league.best_ball && existing.rows.length === 0 && prevEntries.size === 0) {
+    const { rosterSlots } = parseLineupSettings(league);
+    const { starters } = optimalLineup(
+      rosterResult.rows.map(({ player_id, position }) => ({ playerId: player_id, position })),
+      rosterSlots
+    );
+    for (const starter of starters) initialStarterSlots.set(starter.playerId, starter.slot);
+  }
 
   for (const row of missing) {
     const prev = prevEntries.get(row.player_id);
@@ -195,7 +206,9 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
       `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT ("team_id", "season", "week", "player_id") DO NOTHING`,
-      [leagueId, teamId, row.player_id, season, week, prev?.slot || BENCH, Boolean(prev?.ir_attested)]
+      [leagueId, teamId, row.player_id, season, week,
+        initialStarterSlots.get(row.player_id) || prev?.slot || BENCH,
+        Boolean(prev?.ir_attested)]
     );
   }
 }
@@ -229,7 +242,7 @@ async function materializeLineup(client, { leagueId, teamId, season, week }) {
  */
 async function benchAcquiredPlayer(client, { league, teamId, playerId }) {
   const { id: leagueId, current_season: season, current_week: week } = league;
-  await materializeLineup(client, { leagueId, teamId, season, week });
+  await materializeLineup(client, { leagueId, teamId, season, week, league });
   await client.query(
     `UPDATE "lineup_entries" SET "slot" = $5, "ir_attested" = false, "updated_at" = now()
      WHERE "team_id" = $1 AND "player_id" = $2 AND "season" = $3 AND "week" >= $4 AND "slot" = $6`,
@@ -372,7 +385,7 @@ function interruptedStashFields(entry) {
  */
 async function restoreInterruptedStash(client, { league, teamId, playerId, slot, irAttested }) {
   const { id: leagueId, current_season: season, current_week: week } = league;
-  await materializeLineup(client, { leagueId, teamId, season, week });
+  await materializeLineup(client, { leagueId, teamId, season, week, league });
   await client.query(
     `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
      VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -629,7 +642,7 @@ async function getLineup({ leagueId, userId, week }) {
     const season = league.current_season;
     const targetWeek = week || league.current_week;
 
-    await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek });
+    await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek, league });
 
     const entriesResult = await client.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
@@ -644,32 +657,25 @@ async function getLineup({ leagueId, userId, week }) {
       [team.id, season, targetWeek]
     );
 
-    // scoring.service imports lineup.service, so load these after module
-    // initialization to avoid a circular top-level dependency.
-    const { projectSeasonPoints, rulesForLeague } = require('./scoring.service');
     const playerIds = entriesResult.rows.map((row) => row.id);
-    const seasonByPlayer = new Map();
-    if (playerIds.length > 0) {
-      const seasonResult = await client.query(
-        `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
-         FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
-        [playerIds]
-      );
-      for (const row of seasonResult.rows) {
-        if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
-        seasonByPlayer.get(row.player_id).push(row);
-      }
-    }
-    const projectionRules = rulesForLeague(league);
+    // Load lazily because scoring.service imports lineup.service. Passing the
+    // League and these roster ids selects the scoring-aware weekly engine,
+    // rather than the pool-wide extrapolator or a season-level estimate.
+    const projectionService = require('./projection.service');
+    const weeklyByPlayer = playerIds.length > 0
+      ? await projectionService.getWeekProjections({
+        season,
+        week: targetWeek,
+        league,
+        playerIds,
+      })
+      : new Map();
     for (const entry of entriesResult.rows) {
-      const seasonProjection = projectSeasonPoints({
-        seasonRows: seasonByPlayer.get(entry.id) || [],
-        rules: projectionRules,
-        currentSeasonYear: season,
-      });
-      entry.projected_points = seasonProjection == null
+      const projection = weeklyByPlayer.get(entry.id);
+      const points = Number(projection?.points);
+      entry.projected_points = projection?.points == null || !Number.isFinite(points)
         ? null
-        : Math.round((seasonProjection / 17) * 10) / 10;
+        : points;
     }
 
     const locked = await lockedPlayerIds(client, {
@@ -730,7 +736,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
       throw new LineupError(409, 'cannot edit a past week');
     }
 
-    await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek });
+    await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek, league });
 
     const entriesResult = await client.query(
       `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
@@ -753,7 +759,29 @@ async function setLineup({ leagueId, userId, week, moves }) {
       week: targetWeek,
       players: entriesResult.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
     });
-    const changed = [];
+    const settings = parseLineupSettings(league);
+    const changedByPlayer = new Map();
+    const markChanged = (entry) => changedByPlayer.set(entry.player_id, entry);
+    // Older first-week materializations placed every player on BENCH. Repair
+    // only that impossible state before applying the manager's requested
+    // moves; a partial or legal lineup remains entirely manager-controlled.
+    const allBenchOverflow = !league.best_ball
+      && entriesResult.rows.length > settings.benchSlots
+      && entriesResult.rows.every((entry) => entry.slot === BENCH);
+    if (allBenchOverflow) {
+      const { starters } = optimalLineup(
+        entriesResult.rows
+          .filter((entry) => !locked.has(entry.player_id))
+          .map(({ player_id, position }) => ({ playerId: player_id, position })),
+        settings.rosterSlots
+      );
+      for (const starter of starters) {
+        const entry = byPlayer.get(starter.playerId);
+        entry.slot = starter.slot;
+        entry.ir_attested = false;
+        markChanged(entry);
+      }
+    }
     let resolvesLockedZeroBenchStash = false;
     for (const move of moves) {
       const entry = byPlayer.get(move.playerId);
@@ -779,7 +807,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
       // post-move stash by the normal gate - moving an attested player out
       // and back within one save cannot relaunder the override.
       entry.ir_attested = false;
-      changed.push(entry);
+      markChanged(entry);
     }
 
     const invalidStash = Array.from(byPlayer.values()).find(
@@ -792,7 +820,6 @@ async function setLineup({ leagueId, userId, week, moves }) {
       );
     }
 
-    const settings = parseLineupSettings(league);
     const validationSettings = resolvesLockedZeroBenchStash
       ? { ...settings, benchSlots: 1 }
       : settings;
@@ -803,6 +830,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
     );
     if (errors.length > 0) throw new LineupError(400, errors.join('; '));
 
+    const changed = [...changedByPlayer.values()];
     for (const entry of changed) {
       await client.query(
         `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = false, "updated_at" = now()

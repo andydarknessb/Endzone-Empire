@@ -324,7 +324,7 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     await setTheme(page, 'light');
   });
 
-  test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace/Actions', async ({ page }) => {
+  test('the desktop columns are exactly Name/Position/Bye/ADP/Pos rank/17-game pace/Actions', async ({ page }) => {
     await setupActiveDraft(page);
     // The pool is the left pane on this wide viewport; wait for it before the
     // non-retrying allTextContents() read below.
@@ -338,7 +338,7 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     const headers = (await page.getByRole('columnheader').allTextContents())
       .map((h) => h.replace(/sorted (ascending|descending)$/, '').trim());
     expect(headers).toEqual([
-      'Name', 'Position', 'NFL Team', 'Bye', 'ADP', 'Pos rank', '17-game pace', 'Actions',
+      'Name', 'Position', 'Bye', 'ADP', 'Pos rank', '17-game pace', 'Actions',
     ]);
     // Render index, Draft value, and Tier are all absent.
     await expect(page.getByText('Draft value')).toHaveCount(0);
@@ -346,13 +346,29 @@ test.describe('schedule-aware player pool (issue #119)', () => {
     await expect(page.getByText('Season Proj')).toHaveCount(0);
   });
 
-  test('sorts by NFL Team across the full pool before pagination', async ({ page }) => {
+  test('folds NFL Team into the player name cell', async ({ page }) => {
+    await setupActiveDraft(page);
+    const firstNameCell = page.locator('table tbody tr').first().locator('td').first();
+    await expect(firstNameCell).toContainText(/·/);
+  });
+
+  test('fits the drafting metrics without horizontal clipping or an Actions overlap', async ({ page }) => {
     await setupActiveDraft(page);
 
-    await page.getByText('NFL Team', { exact: true }).click();
+    const scrollRegion = page.getByTestId('players-scroll-region');
+    await expect(scrollRegion).toHaveAttribute('tabindex', '0');
+    const dimensions = await scrollRegion.evaluate(({ clientWidth, scrollWidth }) => ({ clientWidth, scrollWidth }));
+    expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 
-    const teams = await page.locator('table tbody tr td:nth-child(3)').allTextContents();
-    expect(teams).toEqual([...teams].sort());
+    const adp = await page.getByRole('columnheader', { name: /^ADP:/ }).boundingBox();
+    const actions = await page.getByRole('columnheader', { name: 'Actions' }).boundingBox();
+    const firstRow = await page.locator('table tbody tr').first().boundingBox();
+    expect(adp).not.toBeNull();
+    expect(actions).not.toBeNull();
+    expect(firstRow).not.toBeNull();
+    expect(adp.x + adp.width).toBeLessThanOrEqual(actions.x);
+    // The 44px row target includes a 1px rendered table border in Chromium.
+    expect(firstRow.height).toBeLessThanOrEqual(45);
   });
 
   test('sorts by Bye with deterministic null-last behavior in both directions', async ({ page }) => {
@@ -751,17 +767,30 @@ test.describe('accessible structure: skip link, landmarks, headings', () => {
     // The three wide panes are each a named region, all present at once (#444):
     // Players on the left, the Chat/activity feed in the centre, the rail on
     // the right.
-    await expect(page.getByRole('region', { name: 'Available Players' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Chat and Draft activity', exact: true })).toBeVisible();
+    const players = page.getByRole('region', { name: 'Available Players' });
+    const chat = page.getByRole('region', { name: 'Chat and Draft activity', exact: true });
+    const rail = page.getByRole('region', { name: 'Draft rail' });
+    await expect(players).toBeVisible();
+    await expect(chat).toBeVisible();
     await expect(page.getByRole('region', { name: 'League Chat' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
+    await expect(rail).toBeVisible();
     await expect(page.getByRole('region', { name: 'My Queue' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Upcoming' })).toBeVisible();
+    await expect(players.getByRole('group', { name: 'Players or Board' })).toBeVisible();
+
+    const topEdges = await Promise.all([
+      players.evaluate((element) => element.getBoundingClientRect().top),
+      chat.evaluate((element) => element.getBoundingClientRect().top),
+      rail.evaluate((element) => element.getBoundingClientRect().top),
+    ]);
+    expect(new Set(topEdges.map(Math.round)).size).toBe(1);
 
     // Selecting the Board swaps the left pane's region for the Board's, still
     // named. Pick history lives inside Board (issue #123 criterion 5).
     await showBoard(page);
-    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeVisible();
+    const board = page.getByRole('region', { name: 'Draft Board' });
+    await expect(board).toBeVisible();
+    await expect(board.getByRole('group', { name: 'Players or Board' })).toBeVisible();
     await page.getByRole('button', { name: 'Pick history' }).click();
     await expect(page.getByRole('region', { name: 'Pick history' })).toBeVisible();
   });
@@ -1230,9 +1259,9 @@ test.describe('browser evidence: every required width in both themes', () => {
         const tabs = await page.getByRole('tab').allTextContents();
         // A wide container shows the three panes at once and has no tab bar; a
         // narrow one exposes the four Chat/Players/Board/Draft tabs (#444). The
-        // pane threshold (960) sits between the tablet (768) and desktop (1280)
+        // pane threshold (1200) sits between the tablet (768) and desktop (1280)
         // widths, so this split is unambiguous at every evidenced width.
-        if (viewport.width >= 960) {
+        if (viewport.width >= 1280) {
           expect(tabs).toEqual([]);
           await expect(page.getByRole('region', { name: 'Chat and Draft activity', exact: true })).toBeVisible();
           await expect(page.getByRole('region', { name: 'Draft rail' })).toBeVisible();
@@ -1247,6 +1276,15 @@ test.describe('browser evidence: every required width in both themes', () => {
       });
     }
   }
+
+  test('uses tabs at 960px, before a three-pane player pool would clip drafting metrics', async ({ page }) => {
+    await page.setViewportSize({ width: 960, height: 900 });
+    await setTheme(page, 'light');
+    await setupOverflowingDraft(page);
+
+    await expect(page.getByRole('tab')).toHaveText(['Chat', 'Players', 'Board', 'Draft']);
+    await expect(page.getByTestId('players-scroll-region')).toHaveCount(0);
+  });
 });
 
 // --- Issue #123: the rail and the Board follow draft status ---
@@ -1303,7 +1341,7 @@ test.describe('state-dependent rail composition (issue #123)', () => {
     await setupActiveDraft(page);
 
     await expect(page.getByRole('region', { name: 'Readiness' })).toHaveCount(0);
-    await expect(page.getByRole('checkbox', { name: 'I am ready for the draft' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: "I'm ready" })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Draft rail' }).getByText('Pick history')).toHaveCount(0);
   });
 
@@ -1320,12 +1358,29 @@ test.describe('state-dependent rail composition (issue #123)', () => {
       '1.02 Harbor Hawks', '2.01 Harbor Hawks', '2.02 Ridge Runners',
     ]);
 
-    // Compact by default; the complete list - and with it the per-team
-    // Auto-draft switches - is available without leaving the panel.
+    // Compact by default; the complete list is available without leaving the
+    // panel. A manager controls only their own Team.
     const disclosure = upcoming.getByRole('button', { name: 'Full Draft order' });
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
     await disclosure.click();
-    await expect(upcoming.getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeVisible();
+    const fullOrder = upcoming.getByRole('region', { name: 'Full Draft order' });
+    await expect(fullOrder.getByText('Ridge Runners')).toBeVisible();
+    await expect(fullOrder.getByRole('checkbox')).toHaveCount(1);
+    await expect(fullOrder.getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeVisible();
+    await expect(fullOrder.getByRole('checkbox', { name: 'Autodraft for Harbor Hawks' })).toHaveCount(0);
+  });
+
+  test('commissioner gets one quiet set of per-team Autodraft switches', async ({ page }) => {
+    await installDraftSocketHarness(page, { ...ACTIVE_STATE, isCommissioner: true });
+    await installDraftRestApi(page, { league: ACTIVE_STATE.league, picks: ACTIVE_PICKS });
+    await gotoDraft(page);
+    await expect(page.getByRole('heading', { name: 'Harness League', level: 1 })).toBeVisible();
+
+    const upcoming = page.getByRole('region', { name: 'Upcoming' });
+    await upcoming.getByRole('button', { name: 'Full Draft order' }).click();
+    await expect(upcoming.getByRole('checkbox')).toHaveCount(FIXTURE_TEAMS.length);
+    await expect(upcoming.getByText(/Automatic picks use/)).toHaveCount(1);
+    await expect(upcoming.getByText('Autodraft', { exact: true })).toHaveCount(0);
   });
 
   test('complete centers My Roster and the Board, and drops the workspace panels', async ({ page }) => {

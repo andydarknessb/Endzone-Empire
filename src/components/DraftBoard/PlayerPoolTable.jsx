@@ -11,7 +11,7 @@ import {
   Select,
   MenuItem,
   FormControlLabel,
-  Switch,
+  Checkbox,
   Table,
   TableBody,
   TableCell,
@@ -98,19 +98,8 @@ const headCellSx = {
   bgcolor: 'background.default',
   borderBottom: '2px solid',
   borderBottomColor: 'divider',
+  px: 1,
 };
-
-// Pin the action column to the right edge so Draft/Queue stay reachable when
-// the table overflows horizontally on narrow (phone) screens.
-export const stickyActionHeadSx = {
-  ...headCellSx,
-  position: 'sticky',
-  right: 0,
-  zIndex: 3,
-};
-// Inherit the row's (striped/hover) background so the pinned column has no
-// vertical seam against the row.
-export const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'inherit', zIndex: 1 };
 
 // Fetch the next page once the scroller is within this many pixels of the
 // bottom, so the next window of rows is ready before the user hits the edge.
@@ -139,8 +128,7 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
  * what the six hardcoded headers had. Numeric columns (RIGHT_ALIGNED_SORT_KEYS)
  * right-align and carry the same label:definition accessible name and
  * hover/focus tooltip AbbreviationTooltip supplies everywhere else in this
- * table (issue #211); Name and NFL Team show their label plain, same as
- * before.
+ * table (issue #211); Name shows its label plain, same as before.
  *
  * The definition is built inline off STAT_DEFINITIONS rather than by nesting
  * an AbbreviationTooltip inside this header's own TableSortLabel (issue
@@ -177,7 +165,7 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
  *
  * The hidden direction Box still renders unconditionally by `active` (not
  * gated on `alignRight`) so its DOM presence stays a single, uniform rule
- * across every header - for Name/NFL Team (no aria-label anywhere in their
+ * across every header - for Name (no aria-label anywhere in its
  * header) it's what makes the direction reach the name via ordinary
  * name-from-content; for the numeric headers it's redundant with
  * numericAriaLabel already saying so, not a second, divergent source of
@@ -278,9 +266,9 @@ function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, queu
   );
 }
 
-/** One player's card on mobile (issue 122): the same approved columns the
- * desktop table shows (Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace)
- * stacked instead of columned, plus the same state-gated Draft/Queue actions. */
+/** One player's card on mobile (issue 122): the desktop facts, including its
+ * inline NFL team, stacked into labeled fields plus the same state-gated
+ * Draft/Queue actions. */
 function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap, queued, onDraft, onQueue, onOpenQuickView }) {
   return (
     <Paper
@@ -297,9 +285,9 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap
         <PositionChip position={player.position} />
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5 }}>
-        {/* Every stat here is labeled, including NFL Team - the desktop row
-            got that one for free from its column header, which doesn't exist
-            in card layout (QA finding: a screen reader read a bare "ATL"
+        {/* Every stat here is labeled, including NFL Team. The desktop name
+            cell gives the team enough context inline; card layout needs an
+            explicit label (QA finding: a screen reader read a bare "ATL"
             with no context). Plain labels, not AbbreviationTooltip: that
             component adds its own focusable (tabIndex=0) hit target, fine
             once per column header but not repeated per stat per card - the
@@ -398,6 +386,7 @@ function PlayerPoolTable({
   onLoadMore,
   byeOverlapByWeek = new Map(),
   isMobile = false,
+  headerAction = null,
 }) {
   const scrollRef = useRef(null);
   const headingId = useId();
@@ -439,10 +428,20 @@ function PlayerPoolTable({
 
   const filtersBox = (
     <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-      <Stack direction="row" spacing={0.5} alignItems="center">
-        <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
-        <ColumnGuide />
-      </Stack>
+      {headerAction ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, width: '100%' }}>
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
+            <ColumnGuide />
+          </Stack>
+          {headerAction}
+        </Box>
+      ) : (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Typography id={headingId} variant="h6" component="h2">Available Players</Typography>
+          <ColumnGuide />
+        </Stack>
+      )}
       <TextField
         size="small"
         // The pool's own filter, named apart from the Nav bar's global player
@@ -551,7 +550,7 @@ function PlayerPoolTable({
       <FormControlLabel
         sx={MIN_TOUCH_TARGET_SX}
         control={
-          <Switch size="small" checked={hideDrafted} onChange={(e) => onHideDraftedChange(e.target.checked)} />
+          <Checkbox size="small" checked={hideDrafted} onChange={(e) => onHideDraftedChange(e.target.checked)} />
         }
         label="Hide drafted"
       />
@@ -667,7 +666,12 @@ function PlayerPoolTable({
         data-testid="players-scroll-region"
         sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
       >
-        <Table stickyHeader aria-labelledby={headingId}>
+        <Table
+          stickyHeader
+          size="small"
+          aria-labelledby={headingId}
+          sx={{ '& .MuiTableCell-body': { px: 1, py: 0 } }}
+        >
           <TableHead>
             <TableRow>
               {/* Column order is fixed markup here, same as the equally-fixed
@@ -680,12 +684,11 @@ function PlayerPoolTable({
                   are the two non-sortable columns and aren't in SORT_FIELDS. */}
               <SortableHeaderCell field={sortFieldsByKey.name} sort={sort} dir={dir} onSort={onSort} />
               <TableCell sx={headCellSx}>Position</TableCell>
-              <SortableHeaderCell field={sortFieldsByKey.nfl_team} sort={sort} dir={dir} onSort={onSort} />
               <SortableHeaderCell field={sortFieldsByKey.bye_week} sort={sort} dir={dir} onSort={onSort} />
               <SortableHeaderCell field={sortFieldsByKey.adp} sort={sort} dir={dir} onSort={onSort} />
               <SortableHeaderCell field={sortFieldsByKey.position_rank} sort={sort} dir={dir} onSort={onSort} />
               <SortableHeaderCell field={sortFieldsByKey.proj} sort={sort} dir={dir} onSort={onSort} />
-              <TableCell sx={stickyActionHeadSx} align="center">
+              <TableCell sx={headCellSx} align="center">
                 Actions
               </TableCell>
             </TableRow>
@@ -693,7 +696,7 @@ function PlayerPoolTable({
           <TableBody>
             {displayPlayers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={7} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No available players matching “${search}”` : 'No available players'}
                 </TableCell>
               </TableRow>
@@ -703,10 +706,13 @@ function PlayerPoolTable({
                 draftedIds, canManualPickBase: tableCanManualPick, tablePickUnavailable, byeOverlapByWeek, queue,
               });
               return (
-                <TableRow key={player.id}>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <TableRow key={player.id} sx={{ height: 44 }}>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, whiteSpace: 'nowrap' }}>
                       <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenQuickView} sx={MIN_TOUCH_TARGET_SX} />
+                      <Typography component="span" variant="caption" color="text.secondary">
+                        · {player.nfl_team || 'FA'}
+                      </Typography>
                       <InjuryBadge status={player.injury_status} detail={player.injury_detail} />
                       {isDrafted && <Chip size="small" label="Drafted" color="default" />}
                     </Box>
@@ -714,7 +720,6 @@ function PlayerPoolTable({
                   <TableCell>
                     <PositionChip position={player.position} />
                   </TableCell>
-                  <TableCell>{player.nfl_team}</TableCell>
                   <TableCell align="right" sx={numericCellSx}>
                     {player.bye_week != null ? (
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
@@ -755,7 +760,7 @@ function PlayerPoolTable({
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell align="center" sx={stickyActionCellSx}>
+                  <TableCell align="center">
                     <PlayerActions
                       player={player}
                       isDrafted={isDrafted}
@@ -771,7 +776,7 @@ function PlayerPoolTable({
             })}
             {loadingMore && (
               <TableRow>
-                <TableCell colSpan={8} sx={{ textAlign: 'center', py: 2 }}>
+                <TableCell colSpan={7} sx={{ textAlign: 'center', py: 2 }}>
                   <CircularProgress size={20} />
                 </TableCell>
               </TableRow>

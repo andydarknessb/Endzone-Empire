@@ -1,7 +1,9 @@
 import React, {
   useState, useEffect, useRef, useCallback,
 } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import {
+  useLocation, useNavigate, useParams, useSearchParams,
+} from 'react-router-dom';
 import {
   Container, Typography, Alert, Box, Skeleton, useMediaQuery, Tabs, Tab,
   ToggleButton, ToggleButtonGroup, IconButton, Tooltip,
@@ -21,6 +23,7 @@ import useDraftAdmin from './useDraftAdmin';
 import useTabTitleFlash from './useTabTitleFlash';
 import DraftStatusBar from './DraftStatusBar';
 import DraftSettingsPanel from './DraftSettingsPanel';
+import DraftStartControl from './DraftStartControl';
 import LiveDraftBanner from './LiveDraftBanner';
 import PlayerPoolTable from './PlayerPoolTable';
 import DraftRail from './DraftRail';
@@ -48,6 +51,7 @@ import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
 import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
+import { createDraftRoomProfileOrigin } from '../PlayerDetail/playerProfileNavigation';
 
 // The Draft page's one landmark structure: a single <main>, named by the
 // league-name H1 inside it, that the App-level skip link (see App.jsx)
@@ -173,6 +177,14 @@ function playBeep() {
 
 function DraftBoard() {
   const { leagueId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // The Draft room canonicalizes its query string in effects below. React
+  // Router replacements do not carry location state unless asked, so capture
+  // the contextual profile-return marker during the first render, before any
+  // of those effects can erase it. This ref is deliberately one-shot.
+  const draftReturnIntentRef = useRef(location.state?.draftRoomReturn === true);
+  const draftMainRef = useRef(null);
   // No `useSelector((store) => store.user)` here any more, and that absence is
   // the point (#178, ahead of #115): with the commissioner flag arriving on
   // the join acknowledgement, the Draft room reads the signed-in account for
@@ -190,7 +202,11 @@ function DraftBoard() {
   // layout-free unit-test environment) reads as `panes` - the three-pane
   // arrangement is the default until a real measurement proves the container
   // narrow, so nothing flashes and desktop-shaped tests need no width mock.
-  const [layoutRef, containerWidth] = useContainerWidth();
+  const [measureLayoutRef, containerWidth] = useContainerWidth();
+  const layoutRef = useCallback((node) => {
+    draftMainRef.current = node;
+    measureLayoutRef(node);
+  }, [measureLayoutRef]);
   const arrangement = draftPaneLayout(containerWidth);
   const isNarrow = arrangement === 'tabs';
 
@@ -419,6 +435,8 @@ function DraftBoard() {
     handleRemoveFromQueue,
   } = useDraftQueue(leagueId, { onError: setError });
   const admin = useDraftAdmin(leagueId, league, { onError: setError });
+  const minimumTeams = Number.isInteger(Number(league?.min_teams)) ? Number(league.min_teams) : 2;
+  const auctionUnavailable = league?.draft_type === 'auction';
 
   useTabTitleFlash(isMyTurn);
 
@@ -476,6 +494,25 @@ function DraftBoard() {
   const cancelDraftPlayer = () => setPendingPick(null);
 
   const loading = pool.loading || queueLoading;
+
+  useEffect(() => {
+    if (loading || !draftReturnIntentRef.current) return;
+
+    // Only the loaded branch attaches this ref. Its main is labelled by the
+    // final league-name H1, unlike the temporary loading shell it replaces.
+    const main = draftMainRef.current;
+    if (!main || main.getAttribute('aria-labelledby') !== DRAFT_H1_ID) return;
+
+    // Consume before causing focus, scrolling, or navigation so a rerender or
+    // StrictMode effect replay cannot restore the position twice.
+    draftReturnIntentRef.current = false;
+    main.focus({ preventScroll: true });
+    main.scrollIntoView({ block: 'start' });
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: null }
+    );
+  }, [loading, location.pathname, location.search, navigate]);
 
   // #322 same-pass check: this component renders two Container
   // component="main" elements (here, and again below the loading branch),
@@ -684,9 +721,10 @@ function DraftBoard() {
   // panel of its own (CONTEXT.md: Draft board; issue #123 acceptance
   // criterion 5). Both are handed the one `picks` array the socket maintains,
   // so the two views cannot disagree about what was drafted.
-  const boardWithHistory = (
+  const boardWithHistory = (headerAction = null) => (
     <>
       <DraftBoardMatrix
+        headerAction={headerAction}
         teams={teams}
         picks={picks}
         onTheClock={onTheClock}
@@ -721,6 +759,26 @@ function DraftBoard() {
     setView(next);
   };
 
+  // The wide layout's one pane switch. It is handed to whichever left-panel
+  // Paper is visible so the control belongs to that container and all three
+  // workspace columns start on the same top edge. Narrow layouts keep their
+  // four-tab navigation and never receive this control.
+  const leftPaneToggle = (
+    <ToggleButtonGroup
+      size="small"
+      exclusive
+      value={leftPane}
+      onChange={(e, next) => {
+        if (!next) return;
+        chooseView(next);
+      }}
+      aria-label="Players or Board"
+    >
+      <ToggleButton value="players" sx={MIN_TOUCH_TARGET_SX}>Players</ToggleButton>
+      <ToggleButton value="board" sx={MIN_TOUCH_TARGET_SX}>Board</ToggleButton>
+    </ToggleButtonGroup>
+  );
+
   // The four narrow tabs, in the Chat/Players/Board/Draft order acceptance
   // criterion 2 names, with Chat first so it is the tab the room opens on.
   // Built from DRAFT_VIEWS so their order and the valid-view guard cannot drift;
@@ -743,30 +801,25 @@ function DraftBoard() {
     // {...regionFocus} tracks focus across the whole three-pane region so the
     // flip to tabs can hand it back deliberately (#525); the chrome and tabs
     // above sit outside this wrapper and are never moved.
-    <Box {...regionFocus} sx={{ display: 'flex', flexDirection: 'row', gap: 2, flex: '1 1 auto', minHeight: 0 }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexBasis: '37%', minWidth: 0, height: '100%' }}>
-        <Box sx={{ flexShrink: 0, mb: 1 }}>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={leftPane}
-            onChange={(e, next) => {
-              // null is a click on the already-selected button; keep the pane
-              // rather than clearing it.
-              if (!next) return;
-              chooseView(next);
-            }}
-            aria-label="Left pane"
-          >
-            <ToggleButton value="players" sx={MIN_TOUCH_TARGET_SX}>Players</ToggleButton>
-            <ToggleButton value="board" sx={MIN_TOUCH_TARGET_SX}>Board</ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
+    <Box
+      {...regionFocus}
+      data-testid="draft-workspace"
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
+        gridTemplateRows: 'minmax(0, 1fr)',
+        gap: 2,
+        flex: '1 1 auto',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%' }}>
         <Box sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {leftPane === 'board' ? (
-            <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>{boardWithHistory}</Box>
+            <Box sx={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>{boardWithHistory(leftPaneToggle)}</Box>
           ) : (
-            <PlayerPoolTable {...playerPoolProps} />
+            <PlayerPoolTable {...playerPoolProps} headerAction={leftPaneToggle} />
           )}
         </Box>
       </Box>
@@ -777,7 +830,7 @@ function DraftBoard() {
         // "League chat" would collide with it under substring accessible-name
         // matching, leaving two regions a "League Chat" query cannot tell apart.
         aria-label="Chat and Draft activity"
-        sx={{ flexBasis: '41%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+        sx={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, height: '100%', overflow: 'hidden' }}
       >
         {chatFeed}
       </Box>
@@ -785,7 +838,7 @@ function DraftBoard() {
         component="section"
         aria-label="Draft rail"
         tabIndex={0}
-        sx={{ flexBasis: '22%', minWidth: 0, height: '100%', overflowY: 'auto' }}
+        sx={{ minWidth: 0, minHeight: 0, height: '100%', overflowY: 'auto' }}
       >
         <DraftRail {...draftRailProps} queueStickyTop={8} queueMaxHeight="45vh" />
       </Box>
@@ -800,7 +853,7 @@ function DraftBoard() {
     : view === 'players'
       ? <PlayerPoolTable {...playerPoolProps} isMobile />
       : view === 'board'
-        ? boardWithHistory
+        ? boardWithHistory()
         : <DraftRail {...draftRailProps} />;
 
   return (
@@ -889,11 +942,21 @@ function DraftBoard() {
               {league?.name || 'Draft Board'}
             </Typography>
             {isCommissioner && (league?.draft_status === 'pending' || league?.draft_status === 'active') && (
-              <Tooltip title="Draft settings">
-                <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
-                  <SettingsIcon />
-                </IconButton>
-              </Tooltip>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {league?.draft_status === 'pending' && (
+                  <DraftStartControl
+                    teamCount={teams.length}
+                    minimumTeams={minimumTeams}
+                    auctionUnavailable={auctionUnavailable}
+                    onStart={admin.handleStartDraft}
+                  />
+                )}
+                <Tooltip title="Draft settings">
+                  <IconButton aria-label="Draft settings" onClick={() => setSettingsOpen(true)} sx={MIN_TOUCH_TARGET_SX}>
+                    <SettingsIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             )}
           </Box>
           <DraftStatusBar
@@ -905,6 +968,15 @@ function DraftBoard() {
             toggleSound={toggleSound}
             isCommissioner={isCommissioner}
             onRandomizeOrder={admin.handleRandomizeOrder}
+            pendingSchedule={league?.draft_status === 'pending' && league?.draft_date ? (
+              <Countdown
+                variant="inline"
+                date={league.draft_date}
+                timeZone={league.draft_timezone}
+                leagueId={league.id}
+                leagueName={league.name}
+              />
+            ) : null}
             onClockAlertOpen={onClockAlertOpen}
             onCloseOnClockAlert={dismissOnClockAlert}
           />
@@ -917,17 +989,6 @@ function DraftBoard() {
               onReset={admin.handleResetDraft}
               onGetShareLink={admin.handleGetShareLink}
             />
-          )}
-          {league?.draft_status === 'pending' && league?.draft_date && (
-            <Box sx={{ mt: 2 }}>
-              <Countdown
-                variant="full"
-                date={league.draft_date}
-                timeZone={league.draft_timezone}
-                leagueId={league.id}
-                leagueName={league.name}
-              />
-            </Box>
           )}
           {isCommissioner && (
             <DraftSettingsPanel
@@ -1019,6 +1080,11 @@ function DraftBoard() {
         onClose={() => setQuickViewId(null)}
         playerId={quickViewId}
         leagueId={Number(leagueId)}
+        profileOrigin={createDraftRoomProfileOrigin({
+          leagueId,
+          pathname: location.pathname,
+          search: location.search,
+        })}
         draftedBy={quickViewDraftedBy}
         playerIds={displayPlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}

@@ -1,10 +1,14 @@
 import React from 'react';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
+import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import AuthenticatedPlayerProfilePage from '../PlayerDetail/AuthenticatedPlayerProfilePage';
 import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
 import DraftBoard from './DraftBoard';
@@ -12,6 +16,11 @@ import DraftBoard from './DraftBoard';
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), put: jest.fn(), post: jest.fn() },
+}));
+
+jest.mock('../../api/publicApiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
 }));
 
 jest.mock('../../api/socket', () => ({
@@ -175,25 +184,45 @@ const openPickHistory = async () => {
 
 /**
  * Once a draft is live the rail shows the compact Upcoming strip, and the full
- * Draft order - with its per-team Autodraft switches - sits behind a
- * disclosure inside it (issue #123 acceptance criterion 2).
+ * Draft order - with manager-own / commissioner-all Autodraft switches - sits
+ * behind a disclosure inside it (issue #123 acceptance criterion 2).
  */
 const openFullDraftOrder = async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Full Draft order' }));
 };
 
 let fakeSocket;
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+let scrollIntoView;
 
 beforeEach(() => {
+  clearLeagueCache();
+  scrollIntoView = jest.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    writable: true,
+    value: scrollIntoView,
+  });
   fakeSocket = makeFakeSocket();
   createDraftSocket.mockReturnValue(fakeSocket);
   onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
   apiClient.get.mockResolvedValue(playersPage());
   apiClient.put.mockResolvedValue({});
   apiClient.post.mockResolvedValue({});
+  publicApiClient.get.mockResolvedValue({ data: { rankings: [] } });
 });
 
 afterEach(() => {
+  if (originalScrollIntoView) {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: originalScrollIntoView,
+    });
+  } else {
+    delete HTMLElement.prototype.scrollIntoView;
+  }
+  clearLeagueCache();
   jest.clearAllMocks();
   jest.useRealTimers();
 });
@@ -206,6 +235,124 @@ test('creates a socket and joins the league draft room once connected', async ()
   act(() => fakeSocket.trigger('connect'));
 
   expect(fakeSocket.emit).toHaveBeenCalledWith('draft:join', { leagueId: 1 }, expect.any(Function));
+});
+
+test('ordinary Draft navigation does not claim focus or scroll the room', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  expect(screen.getByRole('main', { name: 'Draft Board' })).not.toHaveFocus();
+  expect(scrollIntoView).not.toHaveBeenCalled();
+});
+
+test('returns through the real full profile to the exact freshly mounted Draft room', async () => {
+  const draftSearch = '?view=players&pos=QB&q=Patrick+Mahomes&sort=proj&dir=desc&showDrafted=1&byes=6%2C10';
+  let holdReturnedPlayerPool = false;
+  let releaseReturnedPlayerPool;
+  const returnedPlayerPool = new Promise((resolve) => {
+    releaseReturnedPlayerPool = () => resolve(playersPage());
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/players' && holdReturnedPlayerPool) return returnedPlayerPool;
+    if (url === '/api/players/1/summary') {
+      return Promise.resolve({
+        data: {
+          player: {
+            id: 1,
+            name: 'Patrick Mahomes',
+            position: 'QB',
+            nfl_team: 'Kansas City Chiefs',
+          },
+          fantasy: null,
+          currentSeason: null,
+          previousSeasons: [],
+        },
+      });
+    }
+    if (url === '/api/public/players/1') {
+      return Promise.resolve({
+        data: {
+          playerId: 1,
+          name: 'Patrick Mahomes',
+          position: 'QB',
+          nflTeam: 'KC',
+          season: 2026,
+          seasons: [{ season: 2026, status: 'pending' }],
+          seasonSummary: null,
+          weeklyLogPartial: false,
+          recentGames: [],
+        },
+      });
+    }
+    if (url === '/api/league/10') {
+      return Promise.resolve({ data: { league: { id: 10, scoring_preset: 'ppr' } } });
+    }
+    return Promise.resolve(playersPage());
+  });
+
+  function DraftLocation() {
+    const location = useLocation();
+    return (
+      <output aria-label="Draft location">
+        {JSON.stringify({
+          pathname: location.pathname,
+          search: location.search,
+          state: location.state,
+        })}
+      </output>
+    );
+  }
+
+  renderWithProviders(<><DraftBoard /><DraftLocation /></>, {
+    path: '/league/:leagueId/draft',
+    route: `/league/10/draft${draftSearch}`,
+    routes: (
+      <Route
+        path="/players/:playerId"
+        element={<AuthenticatedPlayerProfilePage />}
+      />
+    ),
+  });
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Patrick Mahomes' }));
+  await userEvent.click(await screen.findByRole('link', { name: /Full profile/i }));
+
+  expect(await screen.findByRole('link', { name: 'Draft room' })).toHaveAttribute(
+    'href',
+    `/league/10/draft${draftSearch}`
+  );
+  expect(createDraftSocket).toHaveBeenCalledTimes(1);
+
+  holdReturnedPlayerPool = true;
+  await userEvent.click(screen.getByRole('link', { name: 'Draft room' }));
+
+  const loadingMain = screen.getByRole('main');
+  expect(loadingMain).toHaveAttribute('data-testid', 'page-skeleton');
+  expect(loadingMain).not.toHaveFocus();
+  expect(scrollIntoView).not.toHaveBeenCalled();
+
+  await act(async () => releaseReturnedPlayerPool());
+  await screen.findByRole('button', { name: 'Patrick Mahomes' });
+  const draftMain = screen.getByRole('main', { name: 'Draft Board' });
+  await waitFor(() => expect(draftMain).toHaveFocus());
+  expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+  expect(screen.getByRole('status', { name: 'Draft location' })).toHaveTextContent(
+    JSON.stringify({
+      pathname: '/league/10/draft',
+      search: draftSearch,
+      state: null,
+    })
+  );
+  expect(createDraftSocket).toHaveBeenCalledTimes(2);
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: { name: 'Sunday Ballers', draft_status: 'pending' },
+    teams: [],
+    picks: [],
+    onTheClock: null,
+  }));
+  expect(scrollIntoView).toHaveBeenCalledTimes(1);
 });
 
 test('renders league state (name, on-the-clock, pick history) from a draft:state event', async () => {
@@ -290,7 +437,7 @@ test('shows the prominent on-clock timer with "Your pick!" for the active user',
   expect(screen.getByTestId('draft-clock')).toBeInTheDocument();
 });
 
-test('shows an AUTO badge and a checked autodraft switch for an autodrafting team', async () => {
+test('a manager can toggle their own Autodraft while another Team stays status-only', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   connectAsTeam(5);
@@ -298,7 +445,10 @@ test('shows an AUTO badge and a checked autodraft switch for an autodrafting tea
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
-      teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: true }],
+      teams: [
+        { teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: true },
+        { teamId: 6, teamName: 'Other Team', draft_position: 2, autodraft: true },
+      ],
       picks: [],
       onTheClock: null,
     })
@@ -306,28 +456,36 @@ test('shows an AUTO badge and a checked autodraft switch for an autodrafting tea
 
   await openFullDraftOrder();
   expect(screen.getByText('AUTO')).toBeInTheDocument();
-  expect(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ })).toBeChecked();
+  expect(screen.queryByRole('checkbox', { name: /Autodraft for Other Team/ })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ }));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/teams/5/autodraft', { enabled: false })
+  );
 });
 
-test('toggling a team\'s autodraft posts to the autodraft endpoint', async () => {
+test('a commissioner toggling another Team\'s Autodraft posts to the endpoint', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
-  connectAsTeam(5);
+  connectAsCommissioner(5);
 
   act(() =>
     fakeSocket.trigger('draft:state', {
       league: { name: 'Sunday Ballers', draft_status: 'active', owner_id: 99 },
-      teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: false }],
+      teams: [
+        { teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: false },
+        { teamId: 6, teamName: 'Other Team', draft_position: 2, autodraft: false },
+      ],
       picks: [],
       onTheClock: null,
     })
   );
 
   await openFullDraftOrder();
-  await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Bob's Team/ }));
+  await userEvent.click(screen.getByRole('checkbox', { name: /Autodraft for Other Team/ }));
 
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/teams/5/autodraft', { enabled: true })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/teams/6/autodraft', { enabled: true })
   );
 });
 
@@ -350,6 +508,55 @@ test('shows "No picks yet" when the pick history is empty', async () => {
 
   await openPickHistory();
   expect(screen.getByText('No picks yet')).toBeInTheDocument();
+});
+
+test('puts the pending-draft start action in the Draft Room for commissioners', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: {
+      name: 'Sunday Ballers',
+      draft_status: 'pending',
+      draft_type: 'snake',
+      min_teams: 2,
+    },
+    teams: [TEAM_A, TEAM_B],
+    picks: [],
+    onTheClock: null,
+  }));
+
+  const startButton = screen.getByRole('button', { name: 'Start Draft' });
+  expect(startButton).toBeEnabled();
+  await userEvent.click(startButton);
+  await userEvent.click(screen.getByRole('button', { name: 'Start now' }));
+
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/start-draft'));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Start draft now?' })).not.toBeInTheDocument());
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: { name: 'Sunday Ballers', draft_status: 'active' },
+    teams: [TEAM_A, TEAM_B],
+    picks: [],
+    onTheClock: TEAM_A,
+  }));
+  expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
+});
+
+test('does not show the pending-draft start action to a non-commissioner', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  act(() => fakeSocket.trigger('draft:state', {
+    league: { name: 'Sunday Ballers', draft_status: 'pending', min_teams: 2 },
+    teams: [TEAM_A, TEAM_B],
+    picks: [],
+    onTheClock: null,
+  }));
+
+  expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
 });
 
 test('clicking Draft on a player emits draft:pick with the league and player id', async () => {
@@ -1500,7 +1707,7 @@ test('a pending-draft member can toggle readiness and sees the league readiness 
   expect(within(readiness).getAllByRole('listitem').map((item) => item.textContent))
     .toEqual(['Team B']);
 
-  await userEvent.click(screen.getByRole('checkbox', { name: 'I am ready for the draft' }));
+  await userEvent.click(screen.getByRole('button', { name: "I'm ready" }));
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/draft/league/1/ready', { ready: true }));
 });
 
@@ -1777,7 +1984,7 @@ test('a stale confirmation (the turn moved on while the dialog sat open) never c
 // --- Schedule-aware pool: columns, Column guide, Bye filter, Bye overlap ---
 // (issue #119, parent spec #108)
 
-test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-game pace/Actions', async () => {
+test('the desktop columns are exactly Name/Position/Bye/ADP/Pos rank/17-game pace/Actions', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
 
@@ -1788,28 +1995,22 @@ test('the final columns are exactly Name/Position/NFL Team/Bye/ADP/Pos rank/17-g
   expect(within(table).queryByText('Tier')).not.toBeInTheDocument();
   expect(within(table).queryByText('Season Proj')).not.toBeInTheDocument();
 
-  for (const label of ['Name', 'Position', 'NFL Team', 'ADP', '17-game pace', 'Actions']) {
+  for (const label of ['Name', 'Position', 'ADP', '17-game pace', 'Actions']) {
     expect(within(table).getByText(label)).toBeInTheDocument();
   }
+  expect(within(table).queryByRole('columnheader', { name: 'NFL Team' })).not.toBeInTheDocument();
+  expect(within(table).getByText(/· Kansas City Chiefs/)).toBeInTheDocument();
   // Bye and Pos rank headers carry their AbbreviationTooltip aria-label
   // (asserted precisely in the tests below) rather than a plain text node.
   expect(within(table).getByRole('button', { name: /^Bye:/ })).toBeInTheDocument();
   expect(within(table).getByRole('button', { name: /^Pos rank:/ })).toBeInTheDocument();
 });
 
-test('NFL Team and Bye headers are sortable and pass the server field name through', async () => {
+test('the visible Bye header is sortable and passes its server field name through', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   apiClient.get.mockClear();
 
-  await userEvent.click(screen.getByText('NFL Team'));
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ sort: 'nfl_team' }),
-    })
-  );
-
-  apiClient.get.mockClear();
   await userEvent.click(screen.getByRole('button', { name: /^Bye:/ }));
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
@@ -2163,6 +2364,21 @@ describe('accessible structure', () => {
     expect(screen.getByRole('region', { name: 'Pick history' })).toBeInTheDocument();
   });
 
+  test('wide layout gives the player pool the primary width and lets chat fill its column', async () => {
+    await showFullBoard();
+
+    expect(screen.getByTestId('draft-workspace')).toHaveStyle({
+      display: 'grid',
+      gridTemplateColumns: 'minmax(0, 59fr) minmax(0, 25fr) minmax(0, 16fr)',
+      gridTemplateRows: 'minmax(0, 1fr)',
+    });
+    expect(screen.getByRole('region', { name: 'Chat and Draft activity' })).toHaveStyle({
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    });
+  });
+
   test('the pending-draft readiness panel is a named region too', async () => {
     renderBoard(1);
     await screen.findByText('Patrick Mahomes');
@@ -2216,6 +2432,23 @@ const mockNarrowContainer = () => {
 
 describe('narrow container layout (#444)', () => {
   mockNarrowContainer();
+
+  test('a contextual return focuses and top-scrolls the final narrow-layout main', async () => {
+    renderWithProviders(<DraftBoard />, {
+      path: '/league/:leagueId/draft',
+      route: {
+        pathname: '/league/1/draft',
+        search: '?view=players&pos=QB',
+        state: { draftRoomReturn: true },
+      },
+    });
+
+    await screen.findByRole('tab', { name: 'Players', selected: true });
+    const draftMain = screen.getByRole('main', { name: 'Draft Board' });
+    await waitFor(() => expect(draftMain).toHaveFocus());
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+  });
 
   const showNarrowActiveDraft = async () => {
     renderBoard(1, { user: { id: 5, username: 'alice' } });
@@ -2562,18 +2795,23 @@ describe('wide container three-pane layout (#444)', () => {
     expect(screen.getByText('My Queue')).toBeInTheDocument();
     expect(screen.getByText('Patrick Mahomes')).toBeInTheDocument();
 
-    // A wide container has no tab bar; the left pane is chosen by a toggle, and
-    // Players is the pane the room opens on.
+    // A wide container has no tab bar. The pane toggle belongs to the Available
+    // Players panel rather than sitting above it, so the panel aligns with the
+    // Chat and rail containers.
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Players' })).toHaveAttribute('aria-pressed', 'true');
+    const players = screen.getByRole('region', { name: 'Available Players' });
+    const paneToggle = within(players).getByRole('group', { name: 'Players or Board' });
+    expect(within(paneToggle).getByRole('button', { name: 'Players' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('the left-pane toggle swaps Players for the Board while Chat and the rail stay put', async () => {
     await showWideActiveDraft();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Board' }));
+    const players = screen.getByRole('region', { name: 'Available Players' });
+    await userEvent.click(within(players).getByRole('button', { name: 'Board' }));
 
-    expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
+    const board = screen.getByRole('region', { name: 'Draft Board' });
+    expect(within(board).getByRole('group', { name: 'Players or Board' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Available Players' })).not.toBeInTheDocument();
     // The centerpiece and the rail are unaffected by the left-pane choice.
     expect(screen.getByRole('region', { name: 'League Chat' })).toBeInTheDocument();
@@ -2634,8 +2872,8 @@ describe('wide container three-pane layout (#444)', () => {
 // collide with a concurrently-merged helper (the DraftBoard.test.jsx sharing
 // hazard: two same-named module consts merge clean, then fail the build).
 const flip525State = { width: 1200, observers: new Set() };
-const FLIP525_NARROW = 500; // < DRAFT_PANE_MIN_WIDTH (960) -> tabs
-const FLIP525_WIDE = 1200; //  >= 960 -> three panes
+const FLIP525_NARROW = 500; // < DRAFT_PANE_MIN_WIDTH (1200) -> tabs
+const FLIP525_WIDE = 1200; //  >= 1200 -> three panes
 const flip525InstallResizableContainer = () => {
   let originalGetBoundingClientRect;
   let originalResizeObserver;

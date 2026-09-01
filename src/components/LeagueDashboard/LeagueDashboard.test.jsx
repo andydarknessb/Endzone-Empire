@@ -456,97 +456,12 @@ test('does not render an invite code section when none is present', async () => 
   expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
 });
 
-test('shows "Start Draft" only for the owner while the draft is pending, and starting it refetches', async () => {
-  // The server side of the action, so the refetch can be observed landing
-  // rather than merely counted: once the draft has started the league row
-  // comes back active.
-  const gets = {
+test('leaves the pending-draft start action to the Draft Room', async () => {
+  mockGetByUrl({
     '/api/league/1': leagueResponse(),
     '/api/user': userResponse(),
     '/standings': standingsResponse(),
-  };
-  mockGetByUrl(gets);
-  apiClient.post.mockImplementation((url) => {
-    if (url === '/api/league/1/start-draft') {
-      gets['/api/league/1'] = leagueResponse({ draft_status: 'active' });
-    }
-    return Promise.resolve({});
   });
-
-  renderDashboardWithToasts();
-  await screen.findByText('Sunday Ballers');
-
-  const startButton = screen.getByRole('button', { name: 'Start Draft' });
-  await userEvent.click(startButton);
-
-  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/1/start-draft'));
-  expect(await screen.findByText('Draft started successfully!')).toBeInTheDocument();
-  await waitFor(() =>
-    expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument()
-  );
-  expect(screen.getByText('active')).toBeInTheDocument();
-});
-
-test('disables "Start Draft" until the minimum team count is reached', async () => {
-  // One team in the league (see leagueResponse), minimum of 8 required.
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({ min_teams: 8 }),
-    '/api/user': userResponse(),
-    '/standings': standingsResponse(),
-  });
-
-  renderDashboard();
-  await screen.findByText('Sunday Ballers');
-
-  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
-});
-
-test('enables "Start Draft" once the minimum team count is met', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({ min_teams: 1 }),
-    '/api/user': userResponse(),
-    '/standings': standingsResponse(),
-  });
-
-  renderDashboard();
-  await screen.findByText('Sunday Ballers');
-
-  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
-});
-
-test('disables Start Draft for a salary-cap auction with an explanatory tooltip', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({ min_teams: 1, draft_type: 'auction' }),
-    '/api/user': userResponse(),
-    '/standings': standingsResponse(),
-  });
-  renderDashboard();
-  await screen.findByText('Sunday Ballers');
-
-  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
-  expect(screen.getByText('Live salary-cap auctions are not supported yet.')).toBeInTheDocument();
-});
-
-test('does not show "Start Draft" for a non-owner', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({ ownerTeamId: 99 }),
-    '/api/user': userResponse(),
-    '/standings': standingsResponse(),
-  });
-
-  renderDashboard();
-  await screen.findByText('Sunday Ballers');
-
-  expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
-});
-
-test('does not show "Start Draft" once the draft is no longer pending', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({ draft_status: 'active', ownerTeamId: 1 }),
-    '/api/user': userResponse(),
-    '/standings': standingsResponse(),
-  });
-
   renderDashboard();
   await screen.findByText('Sunday Ballers');
 
@@ -707,7 +622,6 @@ test('a co-commissioner gets Commissioner Tools and Draft Settings, but not the 
 
   expect(screen.getByText('Commissioner Tools')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /Draft Settings/ })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeInTheDocument();
   // Managing co-commissioners stays with the owner.
   expect(screen.queryByText('Co-commissioners')).not.toBeInTheDocument();
 });

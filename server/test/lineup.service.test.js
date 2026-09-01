@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { byeWeekFromPlayedWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
 const { dropPlayer } = require('../services/draft.service');
+const projectionService = require('../services/projection.service');
 const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const {
@@ -65,13 +66,21 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
   assert.equal(entry.onBye, false);
 });
 
-test('getLineup batches completed-season projections and preserves weekly null semantics', async (t) => {
+test('getLineup returns league-scored current-week projections and preserves unavailable values', async (t) => {
   const entries = [
     { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
     { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR', ir_attested: false },
     { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: 'Q', slot: 'IR', ir_attested: true },
   ];
-  const seasonQueries = [];
+  const projectionCalls = [];
+  t.mock.method(projectionService, 'getWeekProjections', async (options) => {
+    projectionCalls.push(options);
+    return new Map([
+      [1, { points: '16.25', source: 'forecast' }],
+      [2, { points: 0, source: 'forecast' }],
+      [3, { points: null, source: 'forecast' }],
+    ]);
+  });
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
@@ -84,34 +93,19 @@ test('getLineup batches completed-season projections and preserves weekly null s
       rows: entries.map(({ id }) => ({ player_id: id })),
     })],
     [/^SELECT "players"\."id"/, () => ({ rows: entries })],
-    [/FROM "player_season_stats"/, (text, params) => {
-        seasonQueries.push({ text, params });
-        return {
-          rows: [
-            {
-              player_id: 1,
-              season: 2025,
-              games_played: 10,
-              stats: { rushingYards: 1000, rushingTDs: 10 },
-            },
-            {
-              player_id: 2,
-              season: 2025,
-              games_played: 3,
-              stats: { receivingYards: 300, receivingTDs: 3 },
-            },
-          ],
-        };
-    }],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
 
-  assert.equal(seasonQueries.length, 1);
-  assert.deepEqual(seasonQueries[0].params, [[1, 2, 3]]);
-  assert.equal(lineup.entries[0].projected_points, 16);
-  assert.equal(lineup.entries[1].projected_points, null);
+  assert.deepEqual(projectionCalls, [{
+    season: 2026,
+    week: 8,
+    league: { id: 5, current_season: 2026, current_week: 8 },
+    playerIds: [1, 2, 3],
+  }]);
+  assert.equal(lineup.entries[0].projected_points, 16.25);
+  assert.equal(lineup.entries[1].projected_points, 0);
   assert.equal(lineup.entries[2].projected_points, null);
   // The attestation rides along so the client can tell an attested stash
   // from an invalid one (#100).
@@ -166,6 +160,100 @@ function installSetLineupWorld(t, injuryDesignation, {
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
 }
+
+async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = [], expectError = null } = {}) {
+  const rosterSlots = [
+    { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
+    { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
+    { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
+    { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+    { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+    { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+  ];
+  const entries = [
+    ['QB', 'MIN'], ['RB', 'MIN'], ['RB', 'MIN'], ['WR', 'MIN'], ['WR', 'MIN'], ['TE', 'MIN'],
+    ['RB', 'MIN'], ['DEF', 'MIN'], ['WR', 'KC'], ['RB', 'KC'], ['WR', 'KC'], ['RB', 'KC'],
+    ['TE', 'KC'], ['QB', 'KC'],
+  ].map(([position, nfl_team], index) => ({
+    player_id: index + 1,
+    name: `Player ${index + 1}`,
+    position,
+    nfl_team,
+    injury_status: null,
+    ir_attested: false,
+  }));
+  const slots = new Map(preexistingBench
+    ? entries.map(({ player_id }) => [player_id, 'BENCH'])
+    : []);
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
+      id: 5,
+      current_season: 2026,
+      current_week: 8,
+      roster_slots: rosterSlots,
+      bench_slots: 6,
+      ir_slots: 0,
+    }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: Array.from(slots, ([player_id]) => ({ player_id })),
+    })],
+    [/^SELECT "player_id", "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^INSERT INTO "lineup_entries"/, (text, params) => {
+      slots.set(params[2], params[5]);
+      return { rows: [] };
+    }],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: entries.map((entry) => ({ ...entry, slot: slots.get(entry.player_id) })),
+    })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: lockedTeams.map((nfl_team) => ({ nfl_team })) })],
+    [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
+      slots.set(params[4], params[0]);
+      return { rows: [] };
+    }],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const save = setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 9, slot: 'WR' }, { playerId: 4, slot: 'BENCH' }],
+  });
+  if (expectError) {
+    await assert.rejects(save, expectError);
+    assert.deepEqual([...slots.values()], Array(entries.length).fill('BENCH'));
+    fake.assertClean();
+    return;
+  }
+  const result = await save;
+
+  assert.equal(result.updated, preexistingBench ? 9 : 2);
+  assert.equal([...slots.values()].filter((slot) => slot === 'BENCH').length, 6);
+  assert.equal(slots.get(9), 'WR');
+  assert.equal(slots.get(4), 'BENCH');
+  fake.assertClean();
+}
+
+test('setLineup materializes a legal first-week lineup before a manager swap', async (t) => {
+  await firstWeekLineupSwap(t);
+});
+
+test('setLineup repairs an already-materialized all-bench lineup before a manager swap', async (t) => {
+  await firstWeekLineupSwap(t, { preexistingBench: true });
+});
+
+test('setLineup recovery never starts players whose games have already kicked off', async (t) => {
+  await firstWeekLineupSwap(t, {
+    preexistingBench: true,
+    lockedTeams: ['MIN'],
+    expectError: (error) => error.statusCode === 400 && /too many players at BENCH/.test(error.message),
+  });
+});
 
 /**
  * #274: every setLineup refusal must prove the slot never moved, not just that
@@ -1278,7 +1366,7 @@ test('restoreInterruptedStash materializes the week, then puts him back in the r
   // copy-forward would read as its source), then the recorded slot written
   // over whatever it left him in.
   assert.equal(inserts.length, 2);
-  assert.deepEqual(inserts[0].params, [5, 10, 21, 2026, 9, 'BENCH', false]);
+  assert.deepEqual(inserts[0].params, [5, 10, 21, 2026, 9, 'RB', false]);
   assert.deepEqual(inserts[1].params, [5, 10, 21, 2026, 9, 'IR', true]);
   assert.match(
     inserts[1].text,

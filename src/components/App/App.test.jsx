@@ -130,7 +130,7 @@ test('"/discover" is protected: LoginPage when logged out, LeagueDiscovery when 
   expect(await screen.findByRole('heading', { name: 'Discover Leagues' })).toBeInTheDocument();
 });
 
-test('"/team" is protected: LoginPage when logged out, TeamManagement when logged in', async () => {
+test('"/team" is protected: LoginPage when logged out, Team Lineup when logged in', async () => {
   const { unmount } = renderApp('#/team', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
@@ -150,7 +150,7 @@ test('"/player" is protected: LoginPage when logged out, PlayerManagement when l
       return Promise.resolve({ data: { players: [], totalPages: 1 } });
     });
   });
-  expect(await screen.findByRole('heading', { name: 'My Roster' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Player Browser' })).toBeInTheDocument();
 });
 
 test('"/league/:leagueId" is protected: LoginPage when logged out, LeagueDashboard when logged in', async () => {
@@ -179,31 +179,20 @@ test('"/league/:leagueId/matchups" no longer resolves — the standalone Matchup
   expect(await screen.findByRole('heading', { name: '404' })).toBeInTheDocument();
 });
 
-test('"/league/:leagueId/lineup" is protected and renders LineupScreen when logged in', async () => {
+test('"/league/:leagueId/lineup" is protected and redirects to Team with the League selected', async () => {
   const { unmount } = renderApp('#/league/1/lineup', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
 
   renderApp('#/league/1/lineup', { user: loggedIn }, () => {
-    apiClient.get.mockResolvedValue({
-      data: {
-        leagueId: 1, teamId: 10, season: 2026, week: 1, currentWeek: 1,
-        rosterSlots: [
-          { key: 'QB', count: 1, eligiblePositions: ['QB'] },
-          { key: 'RB', count: 2, eligiblePositions: ['RB'] },
-          { key: 'WR', count: 2, eligiblePositions: ['WR'] },
-          { key: 'TE', count: 1, eligiblePositions: ['TE'] },
-          { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
-          { key: 'K', count: 1, eligiblePositions: ['K'] },
-          { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
-        ],
-        benchSlots: 5,
-        irSlots: 1,
-        entries: [],
-      },
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/1') return Promise.resolve({ data: { league: { id: 1, pickem_only: false } } });
+      if (url === '/api/league') return Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers' }] });
+      return Promise.resolve({ data: [] });
     });
   });
-  expect(await screen.findByText('Set Lineup')).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'My Team' })).toBeInTheDocument();
+  expect(window.location.hash).toBe('#/team?leagueId=1');
 });
 
 test('"/league/:leagueId/matchups/:matchupId" is protected and renders MatchupDetail when logged in', async () => {

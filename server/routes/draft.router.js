@@ -16,6 +16,7 @@ const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
 const { listPresenterDraftActivity } = require('../services/leagueFeed');
 const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
+const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 
 const router = express.Router();
 
@@ -359,7 +360,8 @@ router.post('/league/:id/pause', async (req, res) => {
 });
 
 // POST /api/draft/league/:id/teams/:teamId/autodraft — enable/disable autodraft
-// for one team. The team's own owner or the league commissioner may toggle it.
+// for one team. A manager controls their own Team; a commissioner controls any
+// Team in the league.
 // { enabled: boolean }
 router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
   const leagueId = intOrNull(req.params.id);
@@ -395,12 +397,12 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
       return res.status(404).json({ error: 'team not found in this league' });
     }
     const isCommissioner = await isLeagueCommissioner(client, leagueId, req.user.id);
-    const isTeamOwner = team.owner_id === req.user.id;
-    if (!isCommissioner && !isTeamOwner) {
+    const isTeamManager = team.owner_id === req.user.id;
+    if (!isTeamManager && !isCommissioner) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'only the team owner or commissioner can change autodraft' });
+      return res.status(403).json({ error: 'only the team manager or a commissioner can change autodraft' });
     }
-    // Turning autodraft off (the owner is back) clears any timeout streak.
+    // Turning autodraft off clears any timeout streak.
     await client.query(
       `UPDATE "teams" SET "autodraft" = $1,
               "consecutive_timeouts" = CASE WHEN $1 THEN "consecutive_timeouts" ELSE 0 END,
@@ -545,6 +547,7 @@ router.post('/league/:id/undo', async (req, res) => {
       [newCurrentPick, leagueId, clockSeconds]
     );
     await client.query('COMMIT');
+    await broadcastRosterAvailability(leagueId);
     const io = getIo();
     if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
     res.json({ leagueId, undone: targets.length, currentPick: newCurrentPick });
@@ -853,11 +856,13 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       return res.status(409).json({ error: 'offline pick entry requires an active offline draft' });
     }
     let applied = 0;
+    let draftComplete = false;
     let result = { applied };
     for (let i = 0; i < playerIds.length; i++) {
       try {
-        await draftPlayer({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
+        const outcome = await draftPlayer({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
         applied++;
+        draftComplete = outcome.draftComplete;
       } catch (error) {
         const message = error instanceof DraftError || error.statusCode ? error.message : 'pick failed';
         result = { applied, error: message, failedAtIndex: i };
@@ -865,6 +870,7 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       }
     }
     if (!result.error) result = { applied };
+    if (draftComplete) await broadcastRosterAvailability(leagueId);
     const io = getIo();
     if (io && applied > 0) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
     res.json(result);

@@ -87,7 +87,9 @@ test('the derived rank falls back to rollup points for IDP rows only', async (t)
   // once-per-query ranked CTE (global — deliberately not under the outer
   // WHERE) joined 1:1, with a NOT NULL guard so a missing/void rollup can
   // never rank a player 1st.
-  assert.match(playersSql, /WITH "idp_ranks" AS \(/);
+  assert.match(playersSql, /WITH "player_identities" AS \(/);
+  assert.match(playersSql, /"canonical_players" AS \(/);
+  assert.match(playersSql, /"idp_ranks" AS \(/);
   assert.match(playersSql, /RANK\(\) OVER \(\s*PARTITION BY "p"\."position" ORDER BY "pss"\."fantasy_points" DESC\s*\)/);
   assert.match(playersSql, /"p"\."position" = ANY\(\$\d+\)/);
   assert.match(playersSql, /"pss"\."fantasy_points" IS NOT NULL/);

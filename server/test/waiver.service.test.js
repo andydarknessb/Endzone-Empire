@@ -1,8 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { claimFailureReason, orderClaims, processWaivers } = require('../services/waiver.service');
+const { claimFailureReason, claimTarget, orderClaims, processWaivers, submitClaim } = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
+const { getIo, setIo } = require('../modules/io');
 
 const claim = (id, teamId, bid = 0, createdAt = '2026-07-11T00:00:00Z') => ({
   id,
@@ -60,6 +61,43 @@ test('orderClaims does not mutate its input', () => {
   const input = [claim(1, 10), claim(2, 20)];
   orderClaims(input, priorities, 'priority');
   assert.deepEqual(input.map((c) => c.id), [1, 2]);
+});
+
+test('submitClaim refuses a player who is already a free agent', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: null }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [select('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+
+  await assert.rejects(
+    () => submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: null, bid: 0 }),
+    { message: 'player is not on waivers' }
+  );
+  assert.equal(fake.matching(insert('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('claimTarget admits an unrostered player during the blanket waiver window', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false, waivers_clear_at: '2099-07-12T15:00:00.000Z' }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+    [/^SELECT "id", "name", "position", "nfl_team" FROM "players"/, () => ({
+      rows: [{ id: 500, name: 'Blanket Waiver Player', position: 'WR', nfl_team: 'DAL' }],
+    })],
+    [/^SELECT 1 FROM "team_players"/, () => ({ rows: [] })],
+    [select('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const player = await claimTarget({ leagueId: 1, userId: 8, playerId: 500 });
+
+  assert.deepEqual(player, { id: 500, name: 'Blanket Waiver Player', position: 'WR', nfl_team: 'DAL' });
+  fake.assertClean();
 });
 
 // --- roster capacity at the claim site (#97) --------------------------------
@@ -186,6 +224,24 @@ test('processWaivers: the winning claim benches the acquired player', async (t) 
 
   assert.deepEqual(result.results, [{ claimId: 9, playerId: 500, status: 'won', teamId: 31 }]);
   assert.deepEqual(benched, [{ league, teamId: 31, playerId: 500, afterRosterWrite: true }]);
+  fake.assertClean();
+});
+
+test('processWaivers clears an expired empty waiver window and refreshes league availability', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
+    [select('waiver_claims'), () => ({ rows: [] })],
+    [remove('waiver_players'), () => ({ rows: [], rowCount: 1 })],
+  ]).install(t);
+  const previousIo = getIo();
+  const events = [];
+  setIo({ to: (room) => ({ emit: (event, payload) => events.push({ room, event, payload }) }) });
+  t.after(() => setIo(previousIo));
+
+  const result = await processWaivers({ leagueId: 1 });
+
+  assert.deepEqual(result, { processed: 0, results: [] });
+  assert.deepEqual(events, [{ room: 'league:1', event: 'roster:changed', payload: { leagueId: 1 } }]);
   fake.assertClean();
 });
 

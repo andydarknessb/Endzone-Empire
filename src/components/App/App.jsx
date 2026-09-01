@@ -5,6 +5,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useParams,
 } from 'react-router-dom';
 
 import { useDispatch, useSelector } from 'react-redux';
@@ -40,7 +41,7 @@ import './App.css';
 
 const LeagueManagement = lazy(() => import('../LeagueManagement/LeagueManagement'));
 const LeagueDiscovery = lazy(() => import('../LeagueDiscovery/LeagueDiscovery'));
-const TeamManagement = lazy(() => import('../TeamManagement/TeamManagement'));
+const TeamLineup = lazy(() => import('../LineupScreen/TeamLineup'));
 const PlayerManagement = lazy(() => import('../PlayerManagement/PlayerManagement'));
 const LeagueDashboard = lazy(() => import('../LeagueDashboard/LeagueDashboard'));
 const MatchupDetail = lazy(() => import('../MatchupDetail/MatchupDetail'));
@@ -50,7 +51,6 @@ const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
 const LeagueRules = lazy(() => import('../LeagueRules/LeagueRules'));
 const LeaguePickem = lazy(() => import('../LeaguePickem/LeaguePickem'));
 const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
-const LineupScreen = lazy(() => import('../LineupScreen/LineupScreen'));
 const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
 const TradeCenter = lazy(() => import('../TradeCenter/TradeCenter'));
 const TransactionLog = lazy(() => import('../TransactionLog/TransactionLog'));
@@ -150,6 +150,11 @@ function AppLayout({ children }) {
   );
 }
 
+function LegacyLineupRedirect() {
+  const { leagueId } = useParams();
+  return <Navigate to={`/team?leagueId=${encodeURIComponent(leagueId)}`} replace />;
+}
+
 function App() {
   const dispatch = useDispatch();
 
@@ -178,7 +183,7 @@ function App() {
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/league/join" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
-          <Route path="/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
+          <Route path="/team" element={<ProtectedRoute><TeamLineup /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><FantasyOnly><MatchupDetail /></FantasyOnly></ProtectedRoute>} />
@@ -187,7 +192,7 @@ function App() {
           <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><FantasyOnly><DraftSettings /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/rules" element={<ProtectedRoute><LeagueRules /></ProtectedRoute>} />
           <Route path="/league/:leagueId/pickem" element={<ProtectedRoute><LeaguePickem /></ProtectedRoute>} />
-          <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><FantasyOnly><LineupScreen /></FantasyOnly></ProtectedRoute>} />
+          <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><FantasyOnly><LegacyLineupRedirect /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><FantasyOnly><WaiverWire /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><FantasyOnly><TradeCenter /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />

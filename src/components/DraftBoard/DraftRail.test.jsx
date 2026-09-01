@@ -116,6 +116,26 @@ test('Readiness counts ready Teams against the league size', () => {
   // this test used to assert on is what #124 replaced.
 });
 
+test("Readiness makes I'm ready the primary full-width action", async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} />);
+
+  const ready = screen.getByRole('button', { name: "I'm ready" });
+  expect(ready).toHaveClass('MuiButton-contained');
+  expect(ready).toHaveClass('MuiButton-fullWidth');
+  expect(ready).toHaveAttribute('aria-pressed', 'false');
+  await user.click(ready);
+  expect(baseProps.onToggleReady).toHaveBeenCalledWith(true);
+
+  rerender(<DraftRail
+    {...baseProps}
+    teams={[{ ...TEAMS[0], draft_ready: true }, TEAMS[1]]}
+    draftStatus="pending"
+    upcoming={[]}
+  />);
+  expect(screen.getByRole('button', { name: "I'm ready" })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('full Pick history is gone from the rail in every status', () => {
   // It is the chronological view of the Draft board's own committed Picks
   // (CONTEXT.md: Draft board), so it lives there, not here.
@@ -184,17 +204,15 @@ test('the full Draft order is reachable from Upcoming, collapsed until asked for
   expect(trigger).toHaveAttribute('aria-expanded', 'true');
   // Every Team in the league, not just the three the strip named.
   const upcoming = screen.getByRole('region', { name: 'Upcoming' });
+  expect(within(upcoming).getAllByText('Ridge Runners')).toHaveLength(2);
   expect(within(upcoming).getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeInTheDocument();
-  expect(within(upcoming).getByText(/Turn on/)).toBeInTheDocument();
+  expect(within(upcoming).queryByRole('checkbox', { name: 'Autodraft for Harbor Hawks' })).not.toBeInTheDocument();
 });
 
-test('the Autodraft switches survive the move into that disclosure', async () => {
-  // They are the only client surface that posts to the autodraft endpoint,
-  // and the draft's own copy says autodraft switches itself on after two
-  // missed picks - so this is how a manager who stepped away turns it off.
+test('the commissioner-all Autodraft switches survive the move into that disclosure', async () => {
   const onToggleAutodraft = jest.fn();
   const user = userEvent.setup();
-  render(<DraftRail {...baseProps} draftStatus="active" onToggleAutodraft={onToggleAutodraft} />);
+  render(<DraftRail {...baseProps} draftStatus="active" isCommissioner onToggleAutodraft={onToggleAutodraft} />);
 
   await user.click(screen.getByRole('button', { name: 'Full Draft order' }));
   await user.click(screen.getByRole('checkbox', { name: 'Autodraft for Ridge Runners' }));
@@ -221,7 +239,7 @@ test('a viewer with no Team sees neither Readiness nor My Roster, and is told wh
   expect(screen.getByText('This draft is complete. Open the Board for the full record.')).toBeInTheDocument();
 });
 
-test('Draft order still marks who is on the clock and offers the autodraft toggle', () => {
+test('Draft order gives a manager only their own Autodraft control', () => {
   render(<DraftRail
     {...baseProps}
     draftStatus="pending"
@@ -231,8 +249,27 @@ test('Draft order still marks who is on the clock and offers the autodraft toggl
 
   const order = screen.getByRole('region', { name: 'Draft order' });
   expect(within(order).getByText('Ridge Runners')).toBeInTheDocument();
-  // The viewer's own row can always be toggled; another Team's cannot unless
-  // the viewer is the commissioner.
   expect(within(order).getByRole('checkbox', { name: 'Autodraft for Ridge Runners' })).toBeInTheDocument();
   expect(within(order).queryByRole('checkbox', { name: 'Autodraft for Harbor Hawks' })).not.toBeInTheDocument();
+});
+
+test('commissioner Autodraft controls use one explanation and no redundant row labels or AUTO badges', () => {
+  render(<DraftRail
+    {...baseProps}
+    isCommissioner
+    draftStatus="pending"
+    upcoming={[]}
+    teams={[
+      { ...TEAMS[0], autodraft: true },
+      TEAMS[1],
+    ]}
+  />);
+
+  const order = screen.getByRole('region', { name: 'Draft order' });
+  const switches = within(order).getAllByRole('checkbox');
+  expect(switches).toHaveLength(2);
+  expect(switches[0]).toBeChecked();
+  expect(within(order).getAllByText(/Automatic picks use/)).toHaveLength(1);
+  expect(within(order).queryByText('Autodraft')).not.toBeInTheDocument();
+  expect(within(order).queryByText('AUTO')).not.toBeInTheDocument();
 });

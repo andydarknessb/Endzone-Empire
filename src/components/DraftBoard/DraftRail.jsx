@@ -7,9 +7,6 @@ import {
   Typography,
   Button,
   IconButton,
-  Chip,
-  FormControlLabel,
-  Switch,
   Tooltip,
   Accordion,
   AccordionSummary,
@@ -28,9 +25,9 @@ import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
-import { teamsInDraftOrder } from '../../lib/draftTurns';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import useFocusRescue from './useFocusRescue';
+import DraftOrderPanel from '../../widgets/draft-order/ui/DraftOrderPanel';
 
 // The rail's two vanishing controls - the Readiness exception list when the
 // last manager declares ready, and the viewer's picks popover when their last
@@ -115,20 +112,13 @@ function DraftRail({
   // each entry's Team ID. Never a comparison of account ids.
   const myTeam = viewerTeamId == null ? undefined : teams.find((team) => team.teamId === viewerTeamId);
   const readiness = readinessSummaryFor(teams);
-  // The Draft order is a sequence of slots, so it is rendered as one wherever
-  // it appears, and the sort is src/lib/draftTurns.js's rather than whatever
-  // order the last socket frame happened to carry.
-  const orderedTeams = teamsInDraftOrder(teams);
-
   // Stable heading ids for this instance, so each panel's Paper/section can be
   // named via aria-labelledby instead of duplicating its visible title text.
   const queueHeadingId = useId();
-  const orderHeadingId = useId();
   const readinessHeadingId = useId();
   const upcomingHeadingId = useId();
   const orderDisclosureId = useId();
   const readinessListId = useId();
-  const autodraftHelpId = useId();
   const myPicksHeadingId = useId();
   const allPicksHeadingId = useId();
 
@@ -312,11 +302,15 @@ function DraftRail({
       >
         Readiness
       </Typography>
-      <FormControlLabel
-        sx={MIN_TOUCH_TARGET_SX}
-        control={<Switch checked={!!myTeam.draft_ready} onChange={(event) => onToggleReady(event.target.checked)} inputProps={{ 'aria-label': 'I am ready for the draft' }} />}
-        label="I'm ready"
-      />
+      <Button
+        variant="contained"
+        fullWidth
+        aria-pressed={!!myTeam.draft_ready}
+        onClick={() => onToggleReady(!myTeam.draft_ready)}
+        sx={{ ...MIN_TOUCH_TARGET_SX, mb: 1 }}
+      >
+        I&apos;m ready
+      </Button>
       <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 0.5 }}>
         {readinessCountText}
       </Typography>
@@ -372,113 +366,18 @@ function DraftRail({
     </Paper>
   ) : null;
 
-  // Draft order: which team holds which slot (CONTEXT.md: Draft order). The
-  // list itself is shared by the two places a status can meet it - its own
-  // panel while the draft is pending, and the disclosure inside Upcoming once
-  // it is live - so the Autodraft switches, their help caption and the rule
-  // about who may touch them are written once.
-  const orderListBody = (
-    <>
-      {/* The autodraft help is referenced by every switch below through
-          aria-describedby rather than standing on its own above them (issue
-          #124 acceptance criterion 6). Visually it still reads once, because
-          repeating it per row would be worse; what changes is that a screen
-          reader now hears it on the control it explains instead of it having
-          been read out minutes earlier, if at all. */}
-      <Typography id={autodraftHelpId} variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-        Turn on <strong>Autodraft</strong> to let the system pick automatically for a team (best available by
-        ADP) when it's on the clock. It also switches on by itself after a team misses two picks.
-      </Typography>
-      <Box component="ul" role="list" sx={{ display: 'flex', flexDirection: 'column', gap: 1, listStyle: 'none', p: 0, m: 0 }}>
-        {orderedTeams.map((team) => {
-          // "Which one of these is me" is the viewer-relative contract (#113):
-          // the viewer's own Team ID against each entry's, never an account
-          // comparison.
-          const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
-          const canToggle = (isCommissioner || isViewer) && draftStatus !== 'complete';
-          const onClock = onTheClock && onTheClock.teamId === team.teamId;
-          return (
-            <Box
-              component="li"
-              role="listitem"
-              key={team.teamId}
-              sx={{
-                display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 44,
-                // The accent is the glanceable half of the You marker and is
-                // never the whole of it: the row also carries the word, so the
-                // marker survives greyscale, a colour-vision difference, and a
-                // forced-colours mode that discards the tint (issue #124
-                // acceptance criterion 3). The same accent-soft fill already
-                // marks the queue's next-up row in this file, so this
-                // introduces no foreground-over-background pairing the app did
-                // not already have.
-                ...(isViewer ? {
-                  bgcolor: 'var(--accent-soft)',
-                  borderLeft: '3px solid var(--accent)',
-                  borderRadius: 'var(--radius-sm)',
-                  pl: 1,
-                } : {}),
-              }}
-            >
-              <Typography variant="body2" sx={{ minWidth: 22, color: 'text.secondary' }}>
-                {team.draft_position != null ? `${team.draft_position}.` : '-'}
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: onClock ? 'bold' : 'normal', flexGrow: 1 }}>
-                {team.teamName}
-                {onClock && ' ⏱'}
-              </Typography>
-              {/* Default colour, not `primary`. A primary outlined Chip paints
-                  its label `--accent`, and this Chip sits on the row's own
-                  `--accent-soft` fill: composited over `--surface` that is
-                  4.27:1 in dark theme, under AA's 4.5 for text this size. The
-                  default label is `--text-primary`, which is 10.75:1 dark and
-                  14.04:1 light on the same fill, and is the pairing the
-                  queue's next-up row in this file already uses. Since #203
-                  tokens.contrast.test.js composites alpha over a named
-                  backdrop, and text-primary/accent-soft over surface is one of
-                  the pairings it asserts, so the chosen ratio is now guarded
-                  rather than hand-computed. The rejected `--accent` label is
-                  not listed there: it is the option this comment argues
-                  against, not a pairing the app ships. */}
-              {isViewer && <Chip size="small" variant="outlined" label="You" />}
-              {team.autodraft && <Chip size="small" color="warning" label="AUTO" />}
-              {canToggle && (
-                <FormControlLabel
-                  sx={{ m: 0, ...MIN_TOUCH_TARGET_SX }}
-                  labelPlacement="start"
-                  control={
-                    <Switch
-                      size="small"
-                      checked={!!team.autodraft}
-                      onChange={(e) => onToggleAutodraft(team.teamId, e.target.checked)}
-                      inputProps={{
-                        'aria-label': `Autodraft for ${team.teamName}`,
-                        'aria-describedby': autodraftHelpId,
-                      }}
-                    />
-                  }
-                  label={
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      Autodraft
-                    </Typography>
-                  }
-                />
-              )}
-            </Box>
-          );
-        })}
-      </Box>
-    </>
-  );
-
-  const orderPanel = teams.length > 0 ? (
-    <Paper component="section" aria-labelledby={orderHeadingId} sx={{ p: 2, mb: 3 }}>
-      <Typography id={orderHeadingId} variant="h6" component="h2" sx={{ mb: 0.5 }}>
-        Draft order
-      </Typography>
-      {orderListBody}
-    </Paper>
-  ) : null;
+  // Draft order is a shared widget because the same Team sequence appears in
+  // the pending panel and the active Upcoming disclosure. DraftRail still
+  // decides when each composition is visible; the widget owns the row layout.
+  const draftOrderProps = {
+    teams,
+    draftStatus,
+    viewerTeamId,
+    isCommissioner,
+    onTheClock,
+    onToggleAutodraft,
+  };
+  const orderPanel = teams.length > 0 ? <DraftOrderPanel {...draftOrderProps} /> : null;
 
   const rosterPanel = rosterView ? (
     <Box sx={{ mb: 3 }}>
@@ -514,11 +413,9 @@ function DraftRail({
   // The full Draft order sits behind a disclosure inside this panel rather
   // than as a panel of its own. Compact is the point of the strip (spec #108
   // story 56: the next three visible, the complete list available
-  // accessibly), but the complete list is also where the per-team Autodraft
-  // switches live, and those are how a manager who stepped away turns
-  // autodraft back off - the panel's own caption says it switches on by
-  // itself after two missed picks. Collapsed by default, so it costs nothing
-  // until it is wanted. Its trigger is deliberately not a heading: the
+  // accessibly), but the complete list is also where the commissioner-all and
+  // manager-own Autodraft switches live. Collapsed by default, so it costs
+  // nothing until it is wanted. Its trigger is deliberately not a heading: the
   // composition's H2s are its panels, and this is a control within one.
   const upcomingPanel = teams.length > 0 ? (
     <Paper component="section" aria-labelledby={upcomingHeadingId} sx={{ p: 2, mb: 3 }}>
@@ -685,7 +582,17 @@ function DraftRail({
         {/* Likewise no `id`: MUI's own region already carries the summary's
             aria-controls value (this one came in with #123 and is corrected
             here rather than left standing beside the identical new one). */}
-        <AccordionDetails sx={{ px: 0 }}>{orderListBody}</AccordionDetails>
+        <AccordionDetails sx={{ px: 0 }}>
+          <DraftOrderPanel
+            teams={teams}
+            draftStatus={draftStatus}
+            viewerTeamId={viewerTeamId}
+            isCommissioner={isCommissioner}
+            onTheClock={onTheClock}
+            onToggleAutodraft={onToggleAutodraft}
+            embedded
+          />
+        </AccordionDetails>
       </Accordion>
     </Paper>
   ) : null;

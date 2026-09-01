@@ -163,7 +163,7 @@ const ALLOWLIST = [
   {
     file: 'server/routes/draft.router.js',
     code: 'team.owner_id === req.user.id',
-    rule: 'caller: the team\'s own manager may toggle its autodraft, OR the commissioner may (checked separately through isLeagueCommissioner)',
+    rule: 'caller: a manager may toggle Autodraft for their own Team; commissioners may toggle any Team through the separate isLeagueCommissioner gate',
   },
   {
     file: 'server/routes/league.router.js',

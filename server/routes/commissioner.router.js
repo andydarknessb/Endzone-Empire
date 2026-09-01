@@ -1,6 +1,7 @@
 const express = require('express');
 const { requireAuth } = require('../modules/auth');
 const commissioner = require('../services/commissioner.service');
+const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const { requireFantasyLeague } = require('../services/leagueType');
 
 const router = express.Router();
@@ -174,7 +175,9 @@ router.post('/league/:id/force-transaction', fantasyOnly, async (req, res) => {
     return res.status(400).json({ error: 'playerId (integer) is required' });
   }
   try {
-    res.json(await commissioner.forceTransaction({ leagueId, userId: req.user.id, teamId, action, playerId }));
+    const outcome = await commissioner.forceTransaction({ leagueId, userId: req.user.id, teamId, action, playerId });
+    await broadcastRosterAvailability(leagueId);
+    res.json(outcome);
   } catch (error) {
     handle(res, error, 'failed to force transaction');
   }

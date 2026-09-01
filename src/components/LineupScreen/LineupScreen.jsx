@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -20,12 +20,15 @@ import {
   IconButton,
   Divider,
   Tooltip,
+  Stack,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AddIcon from '@mui/icons-material/Add';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
@@ -34,6 +37,7 @@ import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import { prefersReducedMotion } from '../../lib/reducedMotionMedia';
 
 // Mirrors POSITION_GROUPS in server/services/lineup.service.js — group keys
@@ -201,8 +205,14 @@ function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
   return aEligible && bEligible;
 }
 
-function LineupScreen() {
-  const { leagueId } = useParams();
+export function LineupEditor({
+  leagueId,
+  showLeagueBreadcrumb = true,
+  heading = 'Set Lineup',
+  embedded = false,
+  roster = null,
+  refreshRoster,
+}) {
   const notify = useSnackbar();
   const { saveLineup } = useResilientLineupMutation({
     onReplaySuccess: () => notify('Lineup saved'),
@@ -218,6 +228,7 @@ function LineupScreen() {
   const [quickViewId, setQuickViewId] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
   const advicePanelRef = useRef(null);
+  const rosterByPlayerId = new Map((roster || []).map((player) => [player.id, player]));
 
   // GET /api/team/lineup doesn't carry the league's best_ball flag, and no
   // league object is otherwise available to this screen (it's reached
@@ -463,23 +474,63 @@ function LineupScreen() {
     performMove([{ playerId: chosenEntry.id, slot: slotType }]);
   };
 
+  const refreshAfterRosterMutation = async () => {
+    await Promise.all([
+      typeof refreshRoster === 'function' ? refreshRoster() : Promise.resolve(),
+      fetchLineup(),
+    ]);
+  };
+
+  const undoDrop = async (entry) => {
+    try {
+      await apiClient.post(`/api/team/roster/${entry.id}/undo-drop`, { leagueId: Number(leagueId) });
+      await refreshAfterRosterMutation();
+    } catch (err) {
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
+    }
+  };
+
+  const dropPlayer = async (entry) => {
+    try {
+      await apiClient.delete(`/api/team/roster/${entry.id}?leagueId=${leagueId}`);
+      await refreshAfterRosterMutation();
+      notify(`Dropped ${entry.name}`, {
+        severity: 'info',
+        actionLabel: 'Undo',
+        onAction: () => undoDrop(entry),
+      });
+    } catch (err) {
+      notify(err.response?.data?.error || err.message, { severity: 'error' });
+    }
+  };
+
   const renderRow = ({ key, testId, slotLabel, slotType, entry }) => {
     const isSelected = !!(entry && selectedEntry && selectedEntry.id === entry.id);
     const showEligibility = !!selectedEntry && !isSelected;
     const eligible = showEligibility && isEligibleTarget(selectedEntry, entry, slotType, lineup?.rosterSlots);
+    const rosterPlayer = entry ? rosterByPlayerId.get(entry.id) : null;
+    const isCurrentWeek = lineup?.week === lineup?.currentWeek;
+    const canManageRoster = Boolean(rosterPlayer && isCurrentWeek && typeof refreshRoster === 'function');
+    const assignmentDisabledByBestBall = bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType);
     // Every row is inert while the league isn't known yet (#217) — the same
     // disabled treatment a locked slot already gets, not just the slots a
     // best-ball league would manage.
     const disabled = leagueUnsettled
-      || (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType))
+      || (assignmentDisabledByBestBall && !canManageRoster)
       || (showEligibility && !eligible);
     const isEmpty = !entry;
+    const byeWeek = rosterPlayer?.bye_week ?? entry?.bye_week;
+    const projectedPoints = entry?.projected_points ?? rosterPlayer?.projected_weekly_points;
+    const acquiredDate = rosterPlayer?.acquired_at
+      ? new Date(rosterPlayer.acquired_at).toLocaleDateString()
+      : null;
     return (
       <ListItemButton
         key={key}
         data-testid={testId}
         selected={isSelected}
         disabled={disabled}
+        aria-disabled={assignmentDisabledByBestBall && canManageRoster ? true : (disabled || undefined)}
         onClick={(e) => handleRowClick(entry, slotType, e)}
         sx={{
           border: '1px solid',
@@ -492,10 +543,24 @@ function LineupScreen() {
           ...(showEligibility && !eligible && { opacity: 0.45 }),
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            flexWrap: 'wrap',
+            gap: 1.5,
+            width: '100%',
+          }}
+        >
           <Chip label={slotLabel} size="small" sx={{ minWidth: 56 }} />
           {entry ? (
             <>
+              <PlayerAvatar
+                name={entry.name}
+                position={entry.position}
+                photoUrl={rosterPlayer?.photo_url}
+                size={42}
+              />
               <Box sx={{ flexGrow: 1 }}>
                 <Typography variant="body1">
                   <PlayerNameLink name={entry.name} playerId={entry.id} onOpen={setQuickViewId} />
@@ -503,10 +568,17 @@ function LineupScreen() {
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {entry.position} · {entry.nfl_team}
                   {entry.opponent && ` · vs ${entry.opponent}`}
-                  {entry.projected_points != null && ` · proj ${entry.projected_points}`}
+                  {projectedPoints != null && ` · proj ${projectedPoints}`}
                 </Typography>
+                {(byeWeek != null || acquiredDate) && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                    {byeWeek != null && `Bye ${byeWeek}`}
+                    {byeWeek != null && acquiredDate && ' · '}
+                    {acquiredDate && `Acquired ${acquiredDate}`}
+                  </Typography>
+                )}
               </Box>
-              <InjuryBadge status={entry.injury_status} />
+              <InjuryBadge status={entry.injury_status ?? rosterPlayer?.injury_status} />
               {slotType === 'IR' && entry.ir_attested && (
                 <Tooltip title="Attested by the commissioner: this stash stays valid even though the injury feed disagrees. Any slot move you make on him ends the attestation.">
                   <Chip label="ATTESTED" size="small" color="success" variant="outlined" />
@@ -520,6 +592,35 @@ function LineupScreen() {
                 />
               )}
               {entry.locked && <Chip label="LOCKED" size="small" color="error" />}
+              {canManageRoster && (
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Tooltip title="Start a trade">
+                    <IconButton
+                      size="small"
+                      component={RouterLink}
+                      to={`/league/${leagueId}/trades`}
+                      aria-label="Trade"
+                      onClick={(event) => event.stopPropagation()}
+                      sx={{ color: 'info.main' }}
+                    >
+                      <SwapHorizIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Drop player">
+                    <IconButton
+                      size="small"
+                      aria-label="Drop"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        dropPlayer(entry);
+                      }}
+                      sx={{ color: 'error.main' }}
+                    >
+                      <PersonRemoveIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              )}
             </>
           ) : (
             <>
@@ -560,7 +661,7 @@ function LineupScreen() {
     );
   }
 
-  const entries = lineup?.entries || [];
+  const entries = Array.isArray(lineup?.entries) ? lineup.entries : [];
   const bySlot = {};
   entries.forEach((e) => {
     (bySlot[e.slot] = bySlot[e.slot] || []).push(e);
@@ -577,7 +678,7 @@ function LineupScreen() {
           renderRow({
             key: `${type}-${i}`,
             testId: `slot-row-${type}-${i}`,
-            slotLabel: type,
+            slotLabel: count > 1 ? `${type} ${i + 1}` : type,
             slotType: type,
             entry: filled[i] || null,
           })
@@ -677,7 +778,7 @@ function LineupScreen() {
     })
     : [];
 
-  const currentWeekValue = lineup ? selectedWeek ?? lineup.week : null;
+  const currentWeekValue = lineup ? selectedWeek ?? lineup.week ?? MIN_WEEK : null;
   const projectedTotal = advice?.projectedTotal;
   const optimalTotal = advice?.optimalTotal;
   // Additive advice fields. Older responses (a cached tab mid-deploy, or the
@@ -709,8 +810,8 @@ function LineupScreen() {
       : 0;
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <LeagueBreadcrumb />
+    <Container maxWidth={embedded ? false : 'lg'} disableGutters={embedded} sx={{ py: embedded ? 0 : 4 }}>
+      {showLeagueBreadcrumb && <LeagueBreadcrumb />}
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -727,8 +828,8 @@ function LineupScreen() {
 
       {lineup && (
         <>
-          <Typography variant="h4" sx={{ mb: 1 }}>
-            Set Lineup
+          <Typography variant="h4" component="h2" sx={{ mb: 1 }}>
+            {heading}
           </Typography>
           <Typography variant="subtitle1" sx={{ mb: 1, color: 'text.secondary' }}>
             Week {lineup.week}
@@ -1018,7 +1119,12 @@ function LineupScreen() {
                   <Divider sx={{ mb: 2 }}>
                     <Chip label="Bench" size="small" variant="outlined" />
                   </Divider>
-                  <List disablePadding>{benchRows}</List>
+                  <Box
+                    data-testid="lineup-bench-scroll"
+                    sx={{ maxHeight: { xs: 360, md: 520 }, overflowY: 'auto', pr: 1 }}
+                  >
+                    <List disablePadding>{benchRows}</List>
+                  </Box>
                 </Box>
               </Paper>
             </Grid>
@@ -1052,6 +1158,11 @@ function LineupScreen() {
       />
     </Container>
   );
+}
+
+function LineupScreen() {
+  const { leagueId } = useParams();
+  return <LineupEditor leagueId={leagueId} />;
 }
 
 export default LineupScreen;

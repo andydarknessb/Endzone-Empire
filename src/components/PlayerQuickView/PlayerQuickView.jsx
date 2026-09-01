@@ -137,7 +137,7 @@ function StatCardList({ label, rows }) {
  * @param playerIds  Optional ordered id list the dialog was opened from; enables
  *                   prev/next arrows + Left/Right arrow-key navigation.
  * @param onNavigate (id) => void — called with the new id on prev/next.
- * @param actions    Optional [{ label, onClick, disabled, tooltip, unavailableReason, variant, color }]
+ * @param actions    Optional [{ label, onClick, to, disabled, tooltip, unavailableReason, variant, color, startIcon }]
  *                   context action(s) (e.g. Add to Roster / Draft / Queue).
  *                   `disabled` is a native, permanent disablement (e.g.
  *                   already queued). `unavailableReason`, when set, renders
@@ -145,7 +145,17 @@ function StatCardList({ label, rows }) {
  *                   reachable by keyboard, with activation suppressed and
  *                   its text shown as the explanation (issue #120).
  */
-function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerIds, onNavigate, actions }) {
+function PlayerQuickView({
+  open,
+  onClose,
+  playerId,
+  leagueId,
+  profileOrigin,
+  draftedBy,
+  playerIds,
+  onNavigate,
+  actions,
+}) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -601,11 +611,14 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
                           variant={action.variant || 'contained'}
                           color={action.color || 'primary'}
                           size="small"
+                          component={action.to ? RouterLink : undefined}
+                          to={action.to}
                           disabled={action.disabled}
                           aria-disabled={unavailable || undefined}
+                          startIcon={action.startIcon}
                           onClick={(event) => {
                             if (unavailable) return; // suppressed activation
-                            action.onClick(event);
+                            action.onClick?.(event);
                           }}
                           sx={MIN_TOUCH_TARGET_SX}
                         >
@@ -622,6 +635,7 @@ function PlayerQuickView({ open, onClose, playerId, leagueId, draftedBy, playerI
               <Link
                 component={RouterLink}
                 to={`/players/${playerId}${leagueId ? `?leagueId=${leagueId}` : ''}`}
+                state={profileOrigin ? { playerProfileOrigin: profileOrigin } : undefined}
                 onClick={onClose}
                 sx={{ display: 'inline-flex', alignItems: 'center', ...MIN_TOUCH_TARGET_SX }}
               >

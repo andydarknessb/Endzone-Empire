@@ -283,6 +283,28 @@ function Countdown({
     );
   }
 
+  if (variant === 'inline') {
+    return (
+      <Box
+        data-testid="draft-schedule-inline"
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+      >
+        <CountdownTicker targetTime={targetTime} prefix={prefix} variant="full" onExpire={handleExpire} />
+        {showScheduleDetail && (
+          <Tooltip title={detail} enterTouchDelay={0}>
+            <Typography variant="body2" tabIndex={0} sx={{ color: 'text.secondary', cursor: 'help' }}>
+              {`· ${viewerSchedule}`}
+            </Typography>
+          </Tooltip>
+        )}
+        {showScheduleDetail && leagueId != null && leagueName && (
+          <Button size="small" onClick={handleDownloadIcs}>Add to calendar</Button>
+        )}
+        <CountdownAnnouncer targetTime={targetTime} eventLabel={eventLabel} enabled={announce} />
+      </Box>
+    );
+  }
+
   return (
     <Box>
       <CountdownTicker targetTime={targetTime} prefix={prefix} variant="full" onExpire={handleExpire} />
@@ -310,7 +332,7 @@ function Countdown({
 Countdown.propTypes = {
   date: PropTypes.string,
   prefix: PropTypes.string,
-  variant: PropTypes.oneOf(['chip', 'full']),
+  variant: PropTypes.oneOf(['chip', 'full', 'inline']),
   timeZone: PropTypes.string,
   leagueName: PropTypes.string,
   leagueId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
