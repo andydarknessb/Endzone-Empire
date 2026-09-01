@@ -160,8 +160,10 @@ async function runAction(league, action) {
 /** The 'start' scheduled action: start the draft, or flag+notify if it can't start right now. */
 async function runStartAction(league) {
   const { startDraft } = require('./draftStart.service');
+  const pickClock = require('./pickClock.service');
+  let started;
   try {
-    await startDraft({ leagueId: league.id, userId: null });
+    started = await startDraft({ leagueId: league.id, userId: null });
   } catch (err) {
     if (!err.statusCode) throw err;
     // Can't start right now (race lost to a concurrent change, stale
@@ -180,6 +182,17 @@ async function runStartAction(league) {
     });
     return;
   }
+
+  // This caller runs in the WORKER (scheduler.processScheduledDrafts), the one
+  // process that owns a Pick-clock timer registry, so it is where an
+  // autostarted draft's first-pick expiry timer is armed (#615, ADR 0018):
+  // arming from here fires the first Autopick on time instead of up to one
+  // backstop poll late. The manual-start API path calls startDraft directly, in
+  // the API process where no registry exists, and must keep arming nothing.
+  // armExpiryTimer is idempotent and treats a null deadline (an untimed clock
+  // or a keeper-complete start) as cancel-without-arming, so it is safe to call
+  // with whatever the start returned.
+  pickClock.armExpiryTimer(league.id, started.pickDeadlineAt);
 
   await notifyLeague(pool, {
     leagueId: league.id,
