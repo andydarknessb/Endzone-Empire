@@ -131,9 +131,15 @@ describe('DraftActivityEntry still renders the known kinds (regression)', () => 
     // A STALLED entry did not act - the draft stalled ON the Team because there
     // was no draftable player - so #620 pulled it out of the shared
     // "<Team> <verb> the draft" actor template: that read as blame for a state
-    // the Team did not choose. Falsifiable (AC1): re-routing `stalled` back
-    // through LIFECYCLE_VERB turns "is stuck on" and the stalled-the-draft
-    // absence both red.
+    // the Team did not choose. Falsifiable (AC1, demonstrated in the PR body):
+    // reverting DraftActivityEntry's routing to how #618 left it - restoring
+    // `stalled: 'stalled'` in LIFECYCLE_VERB AND dropping the dedicated
+    // `entry.kind === 'stalled'` branch so `stalled` falls through to
+    // LIFECYCLE_RENDER_KINDS/LifecycleActivityLine again - turns "is stuck on"
+    // and the stalled-the-draft absence both red. Restoring the map entry
+    // alone is NOT enough to flip this test: the dedicated branch is checked
+    // first and would still win, which is exactly why routing (not just the
+    // verb map) had to change.
     render(
       <DraftActivityEntry entry={{
         type: 'draft_activity', kind: 'stalled', teamName: 'MinneApple',
