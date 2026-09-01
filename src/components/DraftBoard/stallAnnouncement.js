@@ -25,13 +25,19 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * line plus a caption - but it must not drift from that stance; #620 owns the
  * visible copy and this must not edit it.
  *
- * A null (or, through teamNameLabel's shared rule, whitespace-only) Team reads
- * as a plain stuck-state line rather than "Former manager": a stall names the
- * Team only to locate the stuck pick, and a scheduler-shaped null actor is a
- * plain state, exactly as the sibling visible line treats it. Only a `stalled`
- * draft_activity entry has text here; anything else returns the empty string,
- * the real return StallAnnouncer keeps its region mounted and silent for (the
- * ReadinessAnnouncer #164 lesson).
+ * A null Team reads as a plain stuck-state line rather than "Former manager": a
+ * stall names the Team only to locate the stuck pick, and a scheduler-shaped
+ * null actor is a plain state, exactly as the sibling visible line
+ * (DraftActivityEntry.StalledActivityLine) treats it. The guard is
+ * `teamName != null`, so - matching that sibling line's inherited gap exactly -
+ * an empty or whitespace-only teamName does NOT take the plain-line branch; it
+ * falls through to teamNameLabel's shared former-manager label, the same as
+ * every other line rendered from a Team identity. A real stall carries either a
+ * genuine name or a null actor, so this gap is defensive, not a live case.
+ *
+ * Only a `stalled` draft_activity entry has text here; anything else returns the
+ * empty string, the real return StallAnnouncer keeps its region mounted and
+ * silent for (the ReadinessAnnouncer #164 lesson).
  */
 export function stallAnnouncementFor(entry) {
   if (!entry || entry.type !== 'draft_activity' || entry.kind !== 'stalled') return '';
