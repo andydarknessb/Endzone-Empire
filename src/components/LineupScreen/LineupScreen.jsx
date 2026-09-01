@@ -705,16 +705,25 @@ export function LineupEditor({
   const needsZeroBenchRecoveryTarget = isStandardLeague
     && lineup?.benchSlots === 0
     && (bySlot.IR || []).some((entry) => canResolveLockedIrStash(entry, 'BENCH'));
+  // Never fewer rows than there are bench players: a roster can overflow
+  // its bench (a draft that cannot fill every starting slot seats the
+  // surplus here), and a bench player without a row is one the manager can
+  // neither see nor drop — exactly the trap that wedged the over-benched
+  // MinneApple teams.
   const benchRowCount = bestBall
     ? Math.max(
         lineup?.benchSlots || 0,
         benchEntries.length + ((bySlot.IR || []).length > 0 ? 1 : 0)
       )
     : isStandardLeague
-      ? Math.max(lineup?.benchSlots || 0, needsZeroBenchRecoveryTarget ? 1 : 0)
-      // Loading/error: neither formula above is knowable yet, so just show
-      // the configured bench slots with no best-ball or recovery boost.
-      : lineup?.benchSlots || 0;
+      ? Math.max(
+          lineup?.benchSlots || 0,
+          benchEntries.length,
+          needsZeroBenchRecoveryTarget ? 1 : 0
+        )
+      // Loading/error: the best-ball and recovery boosts aren't knowable
+      // yet, but every bench player still gets a row.
+      : Math.max(lineup?.benchSlots || 0, benchEntries.length);
   const benchRows = lineup
     ? Array.from({ length: benchRowCount }, (_, i) => {
         const entry = benchEntries[i] || null;
@@ -740,12 +749,21 @@ export function LineupEditor({
   const startersOnBye = lineup
     ? starterSlotOrder.flatMap((type) => bySlot[type] || []).filter((e) => e.onBye)
     : [];
-  const showLineupWarning = isStandardLeague && (emptyStarterSlots > 0 || startersOnBye.length > 0);
+  // Over-benched: more bench players than the league's bench slots. Legal to
+  // hold (the server forgives inherited overflow) but worth flagging, since
+  // dropping players is the only way back under the cap.
+  const benchOverflow = isStandardLeague
+    ? Math.max(0, benchEntries.length - (lineup?.benchSlots ?? benchEntries.length))
+    : 0;
+  const showLineupWarning = isStandardLeague
+    && (emptyStarterSlots > 0 || startersOnBye.length > 0 || benchOverflow > 0);
   const lineupWarningText = [
     emptyStarterSlots > 0 &&
       `${emptyStarterSlots} empty starting slot${emptyStarterSlots > 1 ? 's' : ''}.`,
     startersOnBye.length > 0 &&
       `${startersOnBye.map((e) => e.name).join(', ')} on a bye this week.`,
+    benchOverflow > 0 &&
+      `${benchOverflow} more bench player${benchOverflow > 1 ? 's' : ''} than bench slots; drop players to get back under the limit.`,
   ]
     .filter(Boolean)
     .join(' ');

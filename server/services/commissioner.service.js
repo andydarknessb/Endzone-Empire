@@ -174,6 +174,11 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
       [teamId, season, targetWeek]
     );
     const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
+    // Pre-save snapshot for the validation below: like the manager path, a
+    // force-set is refused only for overflow it creates, never for overflow
+    // the lineup already carried — otherwise a commissioner could not even
+    // rescue a team whose roster cannot fill every starting slot.
+    const baseline = entriesResult.rows.map((r) => ({ player_id: r.player_id, slot: r.slot }));
     const changed = [];
     for (const move of moves) {
       const entry = byPlayer.get(move.playerId);
@@ -193,7 +198,7 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
     const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
     const errors = validateLineup(
       entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
-      parseLineupSettings(league)
+      { ...parseLineupSettings(league), baseline: entriesForLineupValidation(baseline, league) }
     );
     if (errors.length > 0) throw new CommissionerError(400, errors.join('; '));
     for (const entry of changed) {
