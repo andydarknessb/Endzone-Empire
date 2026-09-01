@@ -57,6 +57,16 @@ const chatMsg = (seq: number, teamName: string, message: string) => ({
   type: 'league_chat', id: seq, seq, teamId: 2, teamName, message, created_at: '2026-01-01T12:00:00Z',
 });
 
+// Assert the reduced-motion emulation is genuinely in effect before a shot, so a
+// reduced-motion capture proves the state rather than assuming it. Shared by both
+// reduced-motion variants (the wide Board matrix and the narrow Chat tab).
+async function expectReducedMotion(page: Page) {
+  const reduced = await page.evaluate(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+  expect(reduced).toBe(true);
+}
+
 // Force software rasterization for every capture in this file. GPU text
 // rasterization is not bit-exact between runs - a couple of anti-aliased pixels
 // on rendered glyphs flicker, invisible to a reader but a binary diff on a
@@ -335,10 +345,7 @@ test.describe('Draft room screenshot matrix (#548)', () => {
 
     // Prove the emulation is in effect before the shot, so "reduced motion" is
     // asserted rather than assumed.
-    const reduced = await page.evaluate(
-      () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    );
-    expect(reduced).toBe(true);
+    await expectReducedMotion(page);
 
     await captureMatrix(page, testInfo, { file: 'room-reduced-motion-wide-board' });
   });
@@ -357,10 +364,7 @@ test.describe('Draft room screenshot matrix (#548)', () => {
     await expect(page.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('tabpanel', { name: 'Chat' })).toBeVisible();
 
-    const reduced = await page.evaluate(
-      () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    );
-    expect(reduced).toBe(true);
+    await expectReducedMotion(page);
 
     await captureMatrix(page, testInfo, { file: 'room-reduced-motion-narrow-chat' });
   });
