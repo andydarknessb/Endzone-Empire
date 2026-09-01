@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { nextPickClockSeconds, shouldAutoEnableAutodraft } = require('../services/draft.service');
+// nextPickClockSeconds now lives in the Pick clock module, its owner (ADR 0018);
+// shouldAutoEnableAutodraft stays in draft.service.
+const { nextPickClockSeconds } = require('../services/pickClock.service');
+const { shouldAutoEnableAutodraft } = require('../services/draft.service');
 
 test('nextPickClockSeconds: no clock once the draft is complete', () => {
   assert.equal(

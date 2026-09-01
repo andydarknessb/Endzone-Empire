@@ -8,17 +8,15 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { teamIdentityOf } = require('./teamIdentity');
 const { appendPickActivity, appendLifecycleActivity, appendCorrectionActivity, COMPLETE } = require('./draftActivity');
-// correctionTarget is required lazily inside correctLatestPick: draftValidation
-// already requires this module at load time (nextPickClockSeconds), so a
-// top-level require here would close a cycle and hand draftValidation a
-// half-built exports object.
+// correctionTarget is required lazily inside correctLatestPick, kept lazy to
+// avoid any load-order coupling with draftValidation (which pulls in the roster
+// and draft-order modules at load time).
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRounds } = require('./rosterShape');
 const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
 // The Pick clock module owns arming: the only writer of the deadline and the
 // current pick (ADR 0018). draftPlayer advances the turn through its named
-// pick-landed event, and the arming policy (nextPickClockSeconds) is re-exported
-// from here for the existing importers (draftValidation, the draft-clock tests).
+// pick-landed event.
 const pickClock = require('./pickClock.service');
 
 const { POSITION_GROUPS } = lineupService;
@@ -702,9 +700,6 @@ module.exports = {
   undoDrop,
   correctLatestPick,
   teamIndexForPick,
-  // Re-exported from the Pick clock module, which owns the one arming policy
-  // (ADR 0018), for draftValidation.startPlan and the draft-clock unit tests.
-  nextPickClockSeconds: pickClock.nextPickClockSeconds,
   shouldAutoEnableAutodraft,
   AUTO_ENABLE_TIMEOUTS,
   DraftError,
