@@ -8,22 +8,22 @@ test('renders its label text', () => {
 });
 
 test('defaults to the neutral variant', () => {
-  const { container } = render(<Badge>12 Teams</Badge>);
-  const badge = container.querySelector('[data-variant]');
+  render(<Badge>12 Teams</Badge>);
+  const badge = screen.getByTestId('badge');
   expect(badge).toHaveAttribute('data-variant', 'neutral');
   expect(badge).toHaveTextContent('12 Teams');
 });
 
 test('exposes the live variant', () => {
-  const { container } = render(<Badge variant="live">Week 1 · Regular Season</Badge>);
-  const badge = container.querySelector('[data-variant]');
+  render(<Badge variant="live">Week 1 · Regular Season</Badge>);
+  const badge = screen.getByTestId('badge');
   expect(badge).toHaveAttribute('data-variant', 'live');
   expect(badge).toHaveTextContent('Week 1 · Regular Season');
 });
 
 test('exposes the "You" pill variant', () => {
-  const { container } = render(<Badge variant="you">You</Badge>);
-  const badge = container.querySelector('[data-variant]');
+  render(<Badge variant="you">You</Badge>);
+  const badge = screen.getByTestId('badge');
   expect(badge).toHaveAttribute('data-variant', 'you');
   expect(badge).toHaveTextContent('You');
 });

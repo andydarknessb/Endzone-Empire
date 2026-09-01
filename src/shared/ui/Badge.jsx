@@ -31,7 +31,13 @@ const VARIANT_SX = {
   },
 };
 
-export default function Badge({ variant = 'neutral', children, sx, ...rest }) {
+export default function Badge({
+  variant = 'neutral',
+  children,
+  sx,
+  'data-testid': testId = 'badge',
+  ...rest
+}) {
   const variantSx = VARIANT_SX[variant] ?? VARIANT_SX.neutral;
 
   return (
@@ -39,6 +45,7 @@ export default function Badge({ variant = 'neutral', children, sx, ...rest }) {
       label={children}
       size="small"
       data-variant={variant}
+      data-testid={testId}
       sx={{
         height: 'auto',
         fontSize: '11.5px',
