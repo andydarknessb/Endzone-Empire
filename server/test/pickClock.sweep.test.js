@@ -23,6 +23,9 @@ const LEAGUE_ID = 1;
 const SWEEP_LEAGUE = {
   id: LEAGUE_ID, draft_status: 'active', draft_paused: false, current_pick: 0,
   draft_rotation: 'snake', draft_order_overrides: null,
+  // Elapsed well in the past: the sweep autopicks it (the backstop path), and
+  // the module's expiry guard sees an actually-elapsed clock (#601).
+  pick_deadline_at: new Date('2000-01-01T00:00:00.000Z'),
 };
 // autodraft:true -> the pick is not a "timeout", so the streak UPDATE branch is
 // skipped and each test stays focused on candidate ordering (the same reason
@@ -38,7 +41,11 @@ const SWEEP_TEAM = { id: 55, owner_id: 7, autodraft: true };
 function installSweepPool(t, { candidates, league = SWEEP_LEAGUE, team = SWEEP_TEAM } = {}) {
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
-    if (text.includes('"pick_deadline_at" <= now()')) return { rows: [{ id: league.id }] };
+    // The backstop scans every active deadline and decides due-ness in JS now
+    // (#601); this league's deadline is elapsed, so it takes the autopick path.
+    if (text.includes('"pick_deadline_at" IS NOT NULL')) {
+      return { rows: [{ id: league.id, pick_deadline_at: league.pick_deadline_at }] };
+    }
     if (text.includes('FROM "leagues" WHERE "id" = $1')) return { rows: [league] };
     if (text.includes('FROM "teams"')) return { rows: [team] };
     if (text.includes('EXTRACT(MONTH FROM CURRENT_DATE)')) return { rows: [{ season: 2026 }] };
@@ -179,10 +186,10 @@ test('sweep containment: a rejecting due query is caught and a later sweep still
   let dueCalls = 0;
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
-    if (text.includes('"pick_deadline_at" <= now()')) {
+    if (text.includes('"pick_deadline_at" IS NOT NULL')) {
       dueCalls += 1;
       if (dueCalls === 1) throw new Error('deadline sweep query blew up');
-      return { rows: [] }; // second sweep: nothing due
+      return { rows: [] }; // second sweep: nothing active
     }
     throw new Error(`Unexpected SQL: ${text}`);
   });

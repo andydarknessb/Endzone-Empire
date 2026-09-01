@@ -17,7 +17,8 @@ const lineupService = require('../../server/services/lineup.service');
 const seasonService = require('../../server/services/season.service');
 const { teamForPick } = require('../../server/services/draftOrder.service');
 const { draftPlayer } = require('../../server/services/draft.service');
-const { processExpiredPickClocks } = require('../../server/services/pickClock.service');
+const pickClock = require('../../server/services/pickClock.service');
+const { processExpiredPickClocks } = pickClock;
 
 const LEAGUE_ID = 7001;
 const TEAM_A = { id: 71, owner_id: 701, draft_position: 1, autodraft: false, locked: false };
@@ -42,6 +43,16 @@ function deferred() {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+// Drain the microtask queue enough times to let a fired in-process timer's
+// async autopick (draftPlayer's whole transaction chain, all fake-DB awaits and
+// therefore all microtasks) settle. Jest 27's modern fake timers fire the
+// setTimeout callback synchronously but do not await the promise it returns, and
+// this version has no advanceTimersByTimeAsync; the fake DB never awaits a real
+// timer, so a bounded microtask flush is sufficient and deterministic.
+async function flushAsync() {
+  for (let i = 0; i < 100; i += 1) await Promise.resolve();
 }
 
 // Third arg is the player's ADP (#142 best available: ADP, then last
@@ -201,12 +212,13 @@ class FakeDraftDatabase {
     this.sql.push(sql);
     const { state } = this;
 
-    if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" <= now()')) {
-      const appliesNormalClockGate = sql.includes('"pick_time_seconds" > 0');
-      const due = state.league.pick_deadline_at
-        && state.league.pick_deadline_at.getTime() <= Date.now()
-        && (!appliesNormalClockGate || state.league.pick_time_seconds > 0);
-      return { rows: due ? [{ id: state.league.id }] : [] };
+    // The backstop scans every active, unpaused draft that has a stored
+    // deadline and decides due-ness in JS (#601); this returns the row and its
+    // deadline, and the sweep splits autopick-now from arm-a-timer itself.
+    if (sql.includes('WHERE "draft_status" = \'active\'') && sql.includes('"pick_deadline_at" IS NOT NULL')) {
+      const l = state.league;
+      const active = l.draft_status === 'active' && !l.draft_paused && l.pick_deadline_at != null;
+      return { rows: active ? [{ id: l.id, pick_deadline_at: l.pick_deadline_at }] : [] };
     }
     if (sql.includes('SELECT * FROM "leagues"') && !sql.includes('FOR UPDATE')) {
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
@@ -370,6 +382,10 @@ describe('live snake-draft expiry and autopick integration', () => {
   });
 
   afterEach(() => {
+    // Tear down any in-process expiry timer this test armed BEFORE dropping the
+    // fake clock: the registry is a module singleton, so a leaked timer would
+    // fire under the next test's state.
+    pickClock.cancelAllExpiryTimers();
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
     benchAcquiredPlayerSpy.mockRestore();
@@ -561,5 +577,90 @@ describe('live snake-draft expiry and autopick integration', () => {
     } finally {
       seasonGeneration.mockRestore();
     }
+  });
+
+  // --- hybrid expiry: the in-process timer fires on time (#601) ---------------
+
+  test('the in-process timer fires an armed deadline that elapses, with the backstop sweep firing nothing', async () => {
+    const state = install(createState({
+      // Two seconds out: still in the future, so the backstop sweep autopicks
+      // nothing (its due filter is <= now); it arms an in-process timer instead.
+      deadline: new Date(Date.now() + 2000),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2), player(103, 'WR', 3)],
+      queue: [[TEAM_A.id, 101, 1]],
+    }));
+    hub.connect(TEAM_A.owner_id);
+
+    // One backstop pass. The deadline is in the future, so it commits nothing
+    // and arms the timer. Red tell: disable the arming branch of the sweep
+    // (armExpiryTimer in processExpiredPickClocks) and this test stays empty at
+    // the end, because with the deadline in the future the backstop can never be
+    // the thing that fires it - only the timer can.
+    const backstop = await processExpiredPickClocks();
+    expect(backstop).toEqual([]);
+    expect(state.draftPicks).toHaveLength(0);
+
+    // Time reaches the deadline. The sweep is not run again, so only the armed
+    // in-process timer can produce the pick.
+    jest.advanceTimersByTime(2000);
+    await flushAsync();
+
+    expect(state.draftPicks).toEqual([
+      { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 },
+    ]);
+    expect(hub.deliveries.find((delivery) => delivery.event === 'draft:picked')?.payload)
+      .toMatchObject({ teamId: TEAM_A.id, player: { id: 101 }, auto: true });
+  });
+
+  test('a deadline already elapsed at startup, with no timer armed, is swept on the first backstop pass', async () => {
+    const state = install(createState({
+      // Elapsed five seconds ago, as if written while the worker was down.
+      deadline: new Date(Date.now() - 5000),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2)],
+      queue: [[TEAM_A.id, 101, 1]],
+    }));
+    hub.connect(TEAM_A.owner_id);
+
+    // A fresh process armed no timer for this deadline (the Map is empty), so
+    // advancing time fires nothing.
+    jest.advanceTimersByTime(60000);
+    await flushAsync();
+    expect(state.draftPicks).toHaveLength(0);
+
+    // The backstop recovers it on its first pass: this is the restart path.
+    const outcomes = await processExpiredPickClocks();
+    expect(outcomes).toEqual([{ leagueId: LEAGUE_ID, playerId: 101 }]);
+    expect(state.draftPicks).toEqual([
+      { leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 },
+    ]);
+  });
+
+  test('two expiry firings for one deadline commit exactly one Pick', async () => {
+    // A timed league (default 30s): after User A's expiry autopick, User B is on
+    // the clock with a freshly armed 30s deadline - firmly in the future.
+    const state = install(createState({
+      deadline: new Date(Date.now()),
+      players: [player(101, 'QB', 1), player(102, 'RB', 2), player(103, 'WR', 3), player(104, 'TE', 4)],
+      queue: [[TEAM_A.id, 101, 1]],
+    }));
+    hub.connect(TEAM_A.owner_id);
+
+    // First firing: the in-process timer. It commits User A's pick and advances
+    // the turn to User B (whose 30s clock is now in the future).
+    pickClock.armExpiryTimer(LEAGUE_ID, state.league.pick_deadline_at);
+    jest.advanceTimersByTime(1);
+    await flushAsync();
+    expect(state.draftPicks).toHaveLength(1);
+    expect(state.league.current_pick).toBe(1);
+
+    // Second firing for the same expiry beat: a sweep straggler / double-fired
+    // timer reaches autoPick after the turn advanced. User B's clock has not
+    // elapsed, so the expiry guard declines and commits no second Pick. Red
+    // tell: remove that guard and this instead autopicks User B early, leaving
+    // two committed picks.
+    const straggler = await pickClock.autoPick({ leagueId: LEAGUE_ID });
+    expect(straggler).toBeNull();
+    expect(state.draftPicks).toHaveLength(1);
+    expect(state.draftPicks[0]).toEqual({ leagueId: LEAGUE_ID, teamId: TEAM_A.id, playerId: 101, pickNumber: 1 });
   });
 });
