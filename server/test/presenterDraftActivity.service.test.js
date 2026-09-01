@@ -135,10 +135,14 @@ test('the PRESENTER_ACTIVITY_KINDS initialiser is spelled out LITERALLY, never a
   );
 
   // UNIQUE: the anti-orphan assertion above catches zero; the case it cannot see
-  // is TWO or more - a stray second declaration, or a refactor that left an old
-  // copy behind - where reading only the first match would silently audit the
-  // wrong array. Same reasoning applied to the other end: the guard must know it
-  // is reading THE array, not one of several.
+  // is TWO or more. NOT a second real declaration - two top-level `const` of the
+  // same name is a SyntaxError the module never survives, so it can never reach
+  // this assertion. What it catches is declaration-shaped TEXT at column 0
+  // elsewhere in the file - a copy inside a template literal or a generated-code
+  // string - which the line-anchored regex cannot distinguish from the real
+  // declaration, so reading only the first match would silently audit the wrong
+  // one. Same reasoning as the anti-orphan half applied to the other end: the
+  // guard must know it is reading THE array, not one of several.
   assert.equal(
     all.length,
     1,
