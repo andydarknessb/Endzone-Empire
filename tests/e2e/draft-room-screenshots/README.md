@@ -49,6 +49,7 @@ Each filename says its scope so a reader never assumes the wider one:
 |---|---|---|---|
 | `room-wide-board-matrix.png` | room | wide / desktop | Board matrix selected with the chat/activity pane, Draft rail and on-the-clock banner all visible at once (AC1) |
 | `room-reduced-motion-wide-board.png` | room | wide / desktop | the same composition under `prefers-reduced-motion: reduce` (AC4) |
+| `room-reduced-motion-narrow-chat.png` | room | narrow / mobile | the Chat tab under `prefers-reduced-motion: reduce` (AC4) |
 | `room-wide-players.png` | room | wide / desktop | the Players pane selected (the wide room's default left pane) |
 | `room-narrow-chat.png` | room | narrow / mobile | the Chat tab selected, its panel visible (AC2) |
 | `room-narrow-players.png` | room | narrow / mobile | the Players tab selected, its panel visible (AC2) |

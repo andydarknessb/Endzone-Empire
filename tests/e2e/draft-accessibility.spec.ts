@@ -57,6 +57,17 @@ const chatMsg = (seq: number, teamName: string, message: string) => ({
   type: 'league_chat', id: seq, seq, teamId: 2, teamName, message, created_at: '2026-01-01T12:00:00Z',
 });
 
+// Force software rasterization for every capture in this file. GPU text
+// rasterization is not bit-exact between runs - a couple of anti-aliased pixels
+// on rendered glyphs flicker, invisible to a reader but a binary diff on a
+// committed PNG - so the committed screenshot matrix (#548) would rot with
+// spurious diffs on every regeneration. Software raster is deterministic. This
+// must be top-level (Playwright forbids launchOptions inside a describe, since
+// it forces a fresh worker); it relaunches only THIS file's worker, so the rest
+// of tests/e2e is untouched. The existing #445 accessibility assertions are
+// role/focus/DOM-level and unaffected by the rasterizer.
+test.use({ launchOptions: { args: ['--disable-gpu', '--disable-lcd-text', '--font-render-hinting=none'] } });
+
 test.describe('Draft room accessibility (#445)', () => {
   test('desktop: roles and names a screen reader computes from (DOM-level evidence for AC1)', async ({ page }, testInfo) => {
     await page.setViewportSize(VIEWPORTS.desktop);
@@ -332,6 +343,28 @@ test.describe('Draft room screenshot matrix (#548)', () => {
     await captureMatrix(page, testInfo, { file: 'room-reduced-motion-wide-board' });
   });
 
+  test('narrow: the Chat tab under reduced motion (AC4)', async ({ page }, testInfo) => {
+    // The second named reduced-motion variant, in the narrow layout (the tab bar's
+    // indicator and MUI's touch ripple are the animations reduce suppresses here),
+    // so the "variants" the criterion names span both layouts and each pairs with
+    // its ordinary-motion room capture. Same emulateMedia route, never a
+    // hand-written media query.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await openDraftRoom(page, NOT_MY_TURN);
+
+    // The room opens on the Chat tab; assert its panel is visible before the shot.
+    await expect(page.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tabpanel', { name: 'Chat' })).toBeVisible();
+
+    const reduced = await page.evaluate(
+      () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+    expect(reduced).toBe(true);
+
+    await captureMatrix(page, testInfo, { file: 'room-reduced-motion-narrow-chat' });
+  });
+
   test('narrow: the Board tab, selected with its panel visible (AC2)', async ({ page }, testInfo) => {
     await page.setViewportSize(VIEWPORTS.mobile);
     await openDraftRoom(page, NOT_MY_TURN);
@@ -380,17 +413,25 @@ test.describe('Draft room screenshot matrix (#548)', () => {
     // The warning band is remaining <= 50 code points and > 0 (chatLimits.js:
     // CHAT_CHARS_WARNING = 50, MAX_CHAT_CHARS = 500). 460 characters leaves 40
     // remaining: squarely inside the warning band, not over the limit. Derived
-    // from the code rather than a guessed threshold.
+    // from the code rather than a guessed threshold. The filler is natural varied
+    // text rather than a run of one repeated glyph: a long run of identical
+    // glyphs at fractional device-pixel positions is the classic subpixel
+    // anti-aliasing flap, and it made the committed PNG non-deterministic; varied
+    // text with word breaks rasterizes stably.
+    const filler = ' '.repeat(460);
     const composer = page.getByRole('textbox', { name: 'Message' });
-    await composer.fill('a'.repeat(460));
+    await composer.fill(filler);
 
     // One source (bandFor) drives BOTH the counter colour and the polite
     // announcement, so asserting the warning announcement's exact text proves the
     // warning STATE the colour shows - not merely that some text is in the box.
     await expect(page.getByText('Approaching the 500 character message limit.')).toBeAttached();
     await expect(page.getByTestId('composer-char-count')).toHaveText('460 / 500');
-    // Blur so no caret sits in the field; the counter persists without focus.
+    // Blur so no caret sits in the field, and pin the horizontal scroll to 0 so
+    // the overflowing text always renders from its start; the counter persists
+    // without focus.
     await composer.blur();
+    await composer.evaluate((el) => { (el as HTMLInputElement).scrollLeft = 0; });
     await expect(page.getByTestId('composer-char-count')).toBeVisible();
 
     // Region capture: the warning counter lives inside the composer, its own row
@@ -403,7 +444,7 @@ test.describe('Draft room screenshot matrix (#548)', () => {
 
   test('chat: a commissioner-hidden message tombstone (AC3)', async ({ page }, testInfo) => {
     await page.setViewportSize(VIEWPORTS.mobile);
-    await openDraftRoom(page);
+    await openDraftRoom(page, NOT_MY_TURN);
 
     // Seed a message, then deliver the server's chat:hidden broadcast for it - the
     // same shape draftSocket.js sends and the moderation test above drives - which
@@ -433,7 +474,7 @@ test.describe('Draft room screenshot matrix (#548)', () => {
     // changing the production capability contract: the server still gates it, and
     // no client provider is registered, so Send stays disabled and nothing goes
     // out.
-    await openDraftRoom(page, { gifMessagesEnabled: true });
+    await openDraftRoom(page, { ...NOT_MY_TURN, gifMessagesEnabled: true });
 
     await page.getByTestId('gif-picker-trigger').click();
     const gifPanel = page.getByTestId('gif-picker-panel');
