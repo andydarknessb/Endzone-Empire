@@ -57,6 +57,35 @@ export const colorTokens = {
     // fill the silver/bronze slots MUI's palette has no equivalent for.
     'medal-silver': '#9aa5b1',
     'medal-bronze': '#a56a3a',
+    // ---- League Dashboard token group (light), derived from the dark group
+    // below. See the dark block for the full rationale; only the derivation
+    // notes specific to light live here. Registered pairings: tokens.contrast.
+    'dash-bg': '#eef2f6',
+    'dash-surface': '#ffffff',
+    'dash-surface2': '#f4f7fa',
+    'dash-surface3': '#e6ecf2',
+    'dash-line': 'rgba(31, 45, 58, 0.12)',
+    'dash-line-strong': 'rgba(31, 45, 58, 0.22)',
+    'dash-ink': '#141b23',
+    'dash-dim': '#55636f',
+    'dash-faint': '#6e7b85',
+    // Accent flips DARK in light mode (the app's own `accent` does the same,
+    // #1e5bb8 light vs #7eaaff dark): the mockup's bright #2fd97b is far too
+    // light to carry the "You" pill / live-chip text on a near-white card, so
+    // light mode uses a dark green and `dash-on-accent` flips to white.
+    'dash-accent': '#12784a',
+    'dash-accent-soft': 'rgba(18, 120, 74, 0.12)',
+    'dash-accent-line': 'rgba(18, 120, 74, 0.32)',
+    // Grade colors are a data encoding (letter -> hue) and are kept identical
+    // in both themes so an A chip reads the same everywhere; the fixed dark
+    // `dash-on-grade` ink clears AA on all five (verified in tokens.contrast).
+    'dash-grade-a': '#2fd97b',
+    'dash-grade-b': '#a8cc4a',
+    'dash-grade-c': '#e5b04a',
+    'dash-grade-d': '#e07a45',
+    'dash-grade-f': '#e25c5c',
+    'dash-on-grade': '#0b1015',
+    'dash-on-accent': '#ffffff',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -112,6 +141,43 @@ export const colorTokens = {
     // Medal accents for podium/standings UI (see the light theme note above).
     'medal-silver': '#b8c0c9',
     'medal-bronze': '#c98a54',
+    // ---- League Dashboard token group (dark). This is the SOURCE the light
+    // group above is derived from: every value here is lifted verbatim from
+    // the approved mockup's :root block (docs/design/dashboard-concept.html,
+    // embedded in #617) EXCEPT `dash-faint`, noted below. The dashboard
+    // (ADR 0020) themes `shared/ui` and its widgets from these names via the
+    // usual --var flattening; every ink-on-surface pairing is contrast-guarded
+    // in tokens.contrast.test.js for BOTH modes.
+    'dash-bg': '#0b1015',
+    'dash-surface': '#141b23',
+    'dash-surface2': '#1b242f',
+    'dash-surface3': '#222e3b',
+    'dash-line': 'rgba(154, 183, 211, 0.12)',
+    'dash-line-strong': 'rgba(154, 183, 211, 0.22)',
+    'dash-ink': '#e8eef4',
+    'dash-dim': '#93a4b5',
+    // Nudged from the mockup's #5c6e80. `dash-faint` is the de-emphasized
+    // label tier and is registered at AA_LARGE (3.0), but the verbatim value
+    // clears 3.0 only on `dash-bg`/`dash-surface` and FAILS it on the lighter
+    // `dash-surface2` (2.98) and `dash-surface3` (2.63), so the guard would go
+    // red. Lifted to #6e8093, the smallest lightening that clears 3.0 on the
+    // lightest surface (3.40 on surface3) with headroom, mirroring how this
+    // file already lightened `accent` to satisfy the same guard (see #237).
+    // Widgets must use `dash-dim` (AA_TEXT) for any small essential label;
+    // `dash-faint` is reserved for large or non-essential secondary text.
+    'dash-faint': '#6e8093',
+    'dash-accent': '#2fd97b',
+    'dash-accent-soft': 'rgba(47, 217, 123, 0.12)',
+    'dash-accent-line': 'rgba(47, 217, 123, 0.35)',
+    // Data-encoding grade colors, kept identical across themes (see light).
+    'dash-grade-a': '#2fd97b',
+    'dash-grade-b': '#a8cc4a',
+    'dash-grade-c': '#e5b04a',
+    'dash-grade-d': '#e07a45',
+    'dash-grade-f': '#e25c5c',
+    // The dark ink the mockup paints on grade chips and on the primary button.
+    'dash-on-grade': '#0b1015',
+    'dash-on-accent': '#0b1015',
   },
 };
 
@@ -144,6 +210,14 @@ export const scaleTokens = {
   'radius-md': '10px',
   'radius-lg': '16px',
   'radius-pill': '999px',
+  // League Dashboard radii and type faces (theme-independent), from the
+  // mockup's :root (--r, --r-sm, --display, --body). The two families are
+  // self-hosted woff2 (see src/theme/base.css @font-face), never fetched from
+  // Google Fonts at runtime; these carry the mockup's fallback stacks.
+  'dash-radius': '14px',
+  'dash-radius-sm': '10px',
+  'dash-font-display': '"Barlow Condensed", Impact, sans-serif',
+  'dash-font-body': '"Archivo", "Helvetica Neue", Arial, sans-serif',
   'transition-fast': '150ms',
   'transition-base': '200ms',
   // Brand wordmark gradient (public layer + landing hero). References the

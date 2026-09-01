@@ -230,6 +230,47 @@ const PAIRINGS = [
   // all; it came in under AA in dark theme (3.75:1) until #237 lightened
   // `accent`/`accent-soft` to clear it. Body text, so AA_TEXT, not AA_LARGE.
   pairing('accent', 'accent-soft', AA_TEXT, 'nav link hover on the app bar', 'surface-raised'),
+
+  // ---- League Dashboard token group (ADR 0020, #637). The dashboard themes
+  // shared/ui and its widgets from the `dash-*` tokens; every ink-on-surface
+  // pairing it puts on screen is registered here for both modes so a widget
+  // ticket cannot ship an unguarded pairing. Three inks (`dash-ink`,
+  // `dash-dim`, `dash-faint`) sit on four surfaces (`dash-bg` the page and the
+  // three card/tile surfaces `dash-surface`/`-surface2`/`-surface3`):
+  //   * ink and dim carry small essential text, so AA_TEXT (4.5).
+  //   * faint is the de-emphasized label tier (uppercase stat/table labels,
+  //     counts, captions). It is held to AA_LARGE (3.0) as a documented floor,
+  //     the same non-standard-basis treatment HOVER_DELTA gets above: faint is
+  //     reserved for large or non-essential secondary text, and widgets use
+  //     `dash-dim` for any small essential label (noted on `dash-faint` in
+  //     tokens.js, which was lightened from the mockup value to clear 3.0 on
+  //     the lightest surface).
+  pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
+  pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
+  pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),
+  pairing('dash-ink', 'dash-surface3', AA_TEXT, 'dashboard body text on the raised tile'),
+  pairing('dash-dim', 'dash-bg', AA_TEXT, 'dashboard muted text on the page'),
+  pairing('dash-dim', 'dash-surface', AA_TEXT, 'dashboard muted text on a card'),
+  pairing('dash-dim', 'dash-surface2', AA_TEXT, 'dashboard muted text on a stat tile'),
+  pairing('dash-dim', 'dash-surface3', AA_TEXT, 'dashboard muted text on the raised tile'),
+  pairing('dash-faint', 'dash-bg', AA_LARGE, 'dashboard faint label on the page'),
+  pairing('dash-faint', 'dash-surface', AA_LARGE, 'dashboard faint label on a card'),
+  pairing('dash-faint', 'dash-surface2', AA_LARGE, 'dashboard faint label on a stat tile'),
+  pairing('dash-faint', 'dash-surface3', AA_LARGE, 'dashboard faint label on the raised tile'),
+  // The "You" pill and live chip: accent text on the accent-soft tint, which
+  // is always painted on a card, so `dash-surface` is the backdrop composited
+  // under the translucent tint (#203 pattern).
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint', 'dash-surface'),
+  // GradeChip: the fixed dark `dash-on-grade` letter on each of the five grade
+  // fills. AA_TEXT since the letter is small (a 26px round chip, ~14px glyph).
+  pairing('dash-on-grade', 'dash-grade-a', AA_TEXT, 'grade A chip letter'),
+  pairing('dash-on-grade', 'dash-grade-b', AA_TEXT, 'grade B chip letter'),
+  pairing('dash-on-grade', 'dash-grade-c', AA_TEXT, 'grade C chip letter'),
+  pairing('dash-on-grade', 'dash-grade-d', AA_TEXT, 'grade D chip letter'),
+  pairing('dash-on-grade', 'dash-grade-f', AA_TEXT, 'grade F chip letter'),
+  // The primary button: `dash-on-accent` label on the accent fill. AA_LARGE,
+  // matching how `on-accent`/`accent` is held above (button label = UI text).
+  pairing('dash-on-accent', 'dash-accent', AA_LARGE, 'dashboard primary button label on accent'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can
