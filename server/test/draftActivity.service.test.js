@@ -10,6 +10,7 @@ const {
   COMPLETE,
   CORRECTION,
   CUTOVER,
+  STALLED,
   LIFECYCLE_KINDS,
   ALL_KINDS,
   USER_VISIBLE_KINDS,
@@ -167,7 +168,9 @@ const LIFECYCLE_ROW = {
 };
 
 test('LIFECYCLE_KINDS names every non-Pick lifecycle kind and excludes pick', () => {
-  assert.deepEqual([...LIFECYCLE_KINDS].sort(), [COMPLETE, DRAFT_START, PAUSE, RESET, RESUME].sort());
+  // STALLED (#602) is a bare lifecycle event (no Pick facts), so it lives here
+  // beside pause and resume and flows into ALL_KINDS / USER_VISIBLE_KINDS.
+  assert.deepEqual([...LIFECYCLE_KINDS].sort(), [COMPLETE, DRAFT_START, PAUSE, RESET, RESUME, STALLED].sort());
   assert.equal(LIFECYCLE_KINDS.includes(PICK), false, 'a Pick is not a lifecycle append');
 });
 
