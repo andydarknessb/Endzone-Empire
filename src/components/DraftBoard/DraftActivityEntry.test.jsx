@@ -127,19 +127,39 @@ describe('DraftActivityEntry still renders the known kinds (regression)', () => 
     expect(screen.getByText(/paused the draft/i)).toBeInTheDocument();
   });
 
-  it('renders the nothing-draftable escalation (#602) naming the stuck Team', () => {
-    // A STALLED entry is a lifecycle event, so it reads as "<Team> stalled the
-    // draft" through the shared verb map - the stuck team named, no Pick facts.
-    // Falsifiable: drop the LIFECYCLE_VERB `stalled` entry and this renders
-    // nothing (the renderer refuses an unknown kind), so this goes red.
+  it('renders the nothing-draftable stall (#602, #620) as a stuck-state line naming the Team without agency', () => {
+    // A STALLED entry did not act - the draft stalled ON the Team because there
+    // was no draftable player - so #620 pulled it out of the shared
+    // "<Team> <verb> the draft" actor template: that read as blame for a state
+    // the Team did not choose. Falsifiable (AC1): re-routing `stalled` back
+    // through LIFECYCLE_VERB turns "is stuck on" and the stalled-the-draft
+    // absence both red.
     render(
       <DraftActivityEntry entry={{
         type: 'draft_activity', kind: 'stalled', teamName: 'MinneApple',
         created_at: '2026-09-01T00:00:00.000Z',
       }} />
     );
-    expect(screen.getByText(/minneapple/i)).toBeInTheDocument();
-    expect(screen.getByText(/stalled the draft/i)).toBeInTheDocument();
+    expect(screen.getByText(/the draft is stuck on/i)).toBeInTheDocument();
+    expect(screen.getByText('MinneApple')).toBeInTheDocument();
+    expect(screen.getByText(/no draftable player/i)).toBeInTheDocument();
+    expect(screen.queryByText(/stalled the draft/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/a commissioner must resolve and resume/i)).toBeInTheDocument();
     expect(screen.getByTestId('draft-activity')).toBeInTheDocument();
+  });
+
+  it('renders the nothing-draftable stall with a null Team as a plain stuck-state line, never "Former manager"', () => {
+    // Defensive case (#620): a null-actor stall must read as a plain state
+    // transition, matching the existing null-actor stance for other lifecycle
+    // kinds, not "Former manager".
+    render(
+      <DraftActivityEntry entry={{
+        type: 'draft_activity', kind: 'stalled', teamName: null,
+        created_at: '2026-09-01T00:00:00.000Z',
+      }} />
+    );
+    expect(screen.getByText(/the draft is stuck: no draftable player/i)).toBeInTheDocument();
+    expect(screen.queryByText(/former manager/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/a commissioner must resolve and resume/i)).toBeInTheDocument();
   });
 });
