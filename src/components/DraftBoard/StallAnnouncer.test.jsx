@@ -13,6 +13,17 @@ const stall = (teamName = 'MinneApple', seq = 30) => ({
   created_at: '2026-09-01T00:00:00.000Z',
 });
 
+// A stall-relevant lifecycle entry that is NOT the stall itself: an exit
+// (resume/reset/complete) that ends the stuck state, or a pause that does not.
+const lifecycle = (kind, seq = 40) => ({
+  type: 'draft_activity',
+  kind,
+  id: seq,
+  seq,
+  teamName: 'Commish FC',
+  created_at: '2026-09-01T00:05:00.000Z',
+});
+
 describe('StallAnnouncer', () => {
   it('mounts a persistent polite status region, silent to start', () => {
     render(<StallAnnouncer stall={null} />);
@@ -83,14 +94,37 @@ describe('StallAnnouncer', () => {
     expect(region.textContent).toBe(afterFirst + String.fromCharCode(0x200b));
   });
 
-  it('stays silent when handed a non-stall entry (only the stalled kind has a voice here)', () => {
-    // The room feeds this seam only stalled entries, but stallAnnouncementFor
-    // returns empty for any other kind, so a defensive non-stall prop keeps the
-    // region mounted and silent (the ReadinessAnnouncer #164 lesson).
+  it.each(['resume', 'reset', 'complete'])(
+    'clears the announcement when the stuck state ends on %s (#653): a stall is a STATE, so an exit retracts it',
+    (kind) => {
+      const { rerender } = render(<StallAnnouncer stall={null} />);
+      rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
+      expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
+      // The stuck state ends: the region must fall silent, not leave "The draft is
+      // stuck" standing in the accessibility tree for the life of the room.
+      rerender(<StallAnnouncer stall={lifecycle(kind, 40)} />);
+      expect(screen.getByRole('status')).toHaveTextContent('');
+    }
+  );
+
+  it('does NOT clear on pause: a nothing-draftable stall already implies the draft is paused (ADR 0018)', () => {
     const { rerender } = render(<StallAnnouncer stall={null} />);
-    rerender(
-      <StallAnnouncer stall={{ type: 'draft_activity', kind: 'resume', id: 3, seq: 3, teamName: 'Commish FC' }} />
-    );
-    expect(screen.getByRole('status')).toHaveTextContent('');
+    rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
+    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
+    // pause is not an exit, so a standing stall survives it untouched.
+    rerender(<StallAnnouncer stall={lifecycle('pause', 40)} />);
+    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
+  });
+
+  it('re-announces a fresh stall after a clear (stall, resume, stall again)', () => {
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    const region = screen.getByRole('status');
+    rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
+    expect(region).toHaveTextContent('The draft is stuck on MinneApple');
+    rerender(<StallAnnouncer stall={lifecycle('resume', 40)} />);
+    expect(region).toHaveTextContent('');
+    // A second stuck state after the resume must announce again from empty.
+    rerender(<StallAnnouncer stall={stall('MinneApple', 50)} />);
+    expect(region).toHaveTextContent('The draft is stuck on MinneApple');
   });
 });

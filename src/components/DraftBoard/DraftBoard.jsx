@@ -30,6 +30,7 @@ import DraftRail from './DraftRail';
 import ReadinessAnnouncer from './ReadinessAnnouncer';
 import PickAnnouncer from './PickAnnouncer';
 import StallAnnouncer from './StallAnnouncer';
+import { isStallRelevant } from './stallAnnouncement';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
 import DraftDayControls from './DraftDayControls';
@@ -324,12 +325,15 @@ function DraftBoard() {
   // Each landed Pick is a fresh payload object, so its identity changes and the
   // announcer's effect fires exactly once per Pick.
   const [lastPick, setLastPick] = useState(null);
-  // The newest live stalled entry, for the room-level stall announcer (#648).
+  // The newest live stall-RELEVANT lifecycle entry, for the room-level stall
+  // announcer (#648). A stall is a STATE with two edges, so this carries BOTH: the
+  // `stalled` entry that enters the stuck state AND an exit (resume/reset/complete)
+  // that ends it, so the announcer can speak on entry and CLEAR on exit (#653).
   // Set only from the live draft:activity seam below, never from draft:state, so
   // the opening backlog and reconnect snapshots are not spoken as a live freeze.
-  // Each live stall is a fresh payload object, so its identity changes and the
-  // announcer speaks exactly once per stall. Mirrors lastPick.
-  const [lastStall, setLastStall] = useState(null);
+  // Each live transition is a fresh payload object, so its identity changes and
+  // the announcer reacts exactly once per transition. Mirrors lastPick.
+  const [lastStallActivity, setLastStallActivity] = useState(null);
   const {
     // The room's one authenticated session, so league chat can ride it here
     // rather than opening a second connection (#433). draft:join has already
@@ -371,16 +375,16 @@ function DraftBoard() {
     error: socketError,
   } = useDraftSocket(leagueId, {
     onPickLanded: (data) => pickLandedRef.current(data),
-    // The live-only Draft-activity seam (#648): record the newest live STALL for
-    // the room-level announcer. Only the stalled kind is this announcer's
-    // concern; every other lifecycle kind (pick, resume, complete, corrections)
-    // is left to its own surface and never reaches lastStall. No render state is
-    // read here - a stall is addressed to whoever can resolve it, never gated by
-    // viewer identity - so this needs no ref refresh, unlike onPickLanded above.
+    // The live-only Draft-activity seam (#648): record the newest STALL-RELEVANT
+    // lifecycle entry for the room-level announcer - both edges of the stuck
+    // state, the `stalled` entry and an exit (resume/reset/complete), so the
+    // announcer speaks on entry and clears on exit (#653). isStallRelevant filters
+    // out every other kind (pick, correction, pause, draft_start) before it
+    // reaches the announcer. No render state is read here - a stall is addressed
+    // to whoever can resolve it, never gated by viewer identity - so this needs no
+    // ref refresh, unlike onPickLanded above.
     onDraftActivity: (entry) => {
-      if (entry && entry.type === 'draft_activity' && entry.kind === 'stalled') {
-        setLastStall(entry);
-      }
+      if (isStallRelevant(entry)) setLastStallActivity(entry);
     },
   });
 
@@ -927,13 +931,16 @@ function DraftBoard() {
             nothing-draftable stall (#602) is heard on the Players, Board and
             Draft tabs too - not only while Chat is mounted - which is where a
             narrow-container manager actually sits when drafting. Fed by the
-            live-only draft:activity seam (lastStall), so the opening backlog and
+            live-only draft:activity seam (lastStallActivity), so the opening backlog and
             reconnect snapshots are never replayed as a live freeze. Its own
             region, distinct from the feed announcer's, so a stall never overwrites
             an unread chat announcement. It takes no viewer identity - a stall is
-            addressed to whoever can resolve it. Visually hidden; the banner and
-            the feed's stuck-state line already show the stall to sighted managers. */}
-        <StallAnnouncer stall={lastStall} />
+            addressed to whoever can resolve it. It CLEARS when the stuck state
+            ends (resume/reset/complete), so stale "stuck" text does not linger in
+            the accessibility tree for the life of the room (#653). Visually hidden;
+            the banner and the feed's stuck-state line already show it to sighted
+            managers. */}
+        <StallAnnouncer stall={lastStallActivity} />
         {/* The Draft room's membership-loss announcer (#534 a11y finding 3). It
             lives here in the chrome, like the two above, so a narrow-container
             Chat -> Players -> Chat tab switch never unmounts it: the persistent

@@ -3497,6 +3497,40 @@ describe('room-level stall announcement, wide layout (#648)', () => {
     expect(chatRegion.textContent).toBe(chatTextBefore);
     expect(chatRegion.textContent).toBe('New message from Rivals');
   });
+
+  // A stall is a STATE with two edges: the room seam carries the exit too, so the
+  // announcement is RETRACTED when the stuck state ends, live, on the same event.
+  // Without this the room-level move would leave "The draft is stuck" standing in
+  // the accessibility tree for the life of the room, on every tab (#653).
+  const landLifecycle = (kind) =>
+    act(() =>
+      fakeSocket.trigger('draft:activity', {
+        type: 'draft_activity', kind, id: 40, seq: 40, teamName: 'Commish FC',
+        created_at: '2026-09-01T12:20:00Z',
+      })
+    );
+
+  test.each(['resume', 'reset', 'complete'])(
+    'a live %s clears the room-level stall announcement (exit edge, #653)',
+    async (kind) => {
+      await showWideActiveDraft();
+      landStall();
+      await waitFor(() => expect(announcementsSaying(STALL_NEXT_STEP)).toHaveLength(1));
+
+      landLifecycle(kind);
+      await waitFor(() => expect(announcementsSaying(STALL_NEXT_STEP)).toHaveLength(0));
+    }
+  );
+
+  test('a live pause does NOT clear a standing stall (a stall already implies paused)', async () => {
+    await showWideActiveDraft();
+    landStall();
+    await waitFor(() => expect(announcementsSaying(STALL_NEXT_STEP)).toHaveLength(1));
+
+    landLifecycle('pause');
+    // The pause is the same stuck state, not its end: the stall still stands.
+    expect(announcementsSaying(STALL_NEXT_STEP)).toHaveLength(1);
+  });
 });
 
 describe('room-level stall announcement across narrow tabs (#648)', () => {

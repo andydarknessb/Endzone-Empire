@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { stallAnnouncementFor } from './stallAnnouncement';
+import { stallAnnouncementFor, isStallExit } from './stallAnnouncement';
 import { nextAnnouncement } from './announcerRepeat';
 
 /**
@@ -42,11 +42,27 @@ import { nextAnnouncement } from './announcerRepeat';
  * but a persisting stall stays visible in the banner and the feed line (#648
  * accepted delta).
  *
- * KEYED ON THE PROP'S IDENTITY, LIKE PICKANNOUNCER. Only a genuinely new stalled
- * entry re-fires the region: the effect keys on the prop's identity, so an
- * ordinary rerender that hands the same object back (a pool refetch, a clock
- * tick) changes nothing and stays silent. Each live stall is a fresh payload
- * object, so its identity changes and the announcer speaks exactly once per stall.
+ * A STATE HAS TWO EDGES, SO THE PROP CARRIES BOTH (#648, #653). Unlike a Pick -
+ * an event PickAnnouncer speaks and never clears - a stall is a STATE: "the draft
+ * is stuck" is a standing assertion about the world, so it must be RETRACTED when
+ * the world changes. The `stall` prop is therefore the newest stall-RELEVANT
+ * lifecycle entry the room records (DraftBoard's onDraftActivity, gated by
+ * isStallRelevant): the `stalled` ENTRY edge, or an EXIT edge (resume/reset/
+ * complete) that ends the stuck state. On an entry this speaks; on an exit it
+ * CLEARS to empty (mutating the node value without announcing silence, the
+ * FeedAnnouncer empty-clear idiom), so a browse-mode reader does not find "The
+ * draft is stuck" lingering after the draft resumed, was reset, or completed - a
+ * regression that would otherwise stand for the life of the room, on every tab,
+ * now that the announcer is room-level. `pause` is deliberately NOT an exit (a
+ * stall already implies paused, ADR 0018); the exclusion lives in
+ * stallAnnouncement.js. Modelling this on PickAnnouncer alone (entry only) is
+ * exactly what would drop the exit.
+ *
+ * KEYED ON THE PROP'S IDENTITY, LIKE PICKANNOUNCER. Only a genuinely new entry
+ * re-fires the region: the effect keys on the prop's identity, so an ordinary
+ * rerender that hands the same object back (a pool refetch, a clock tick) changes
+ * nothing. Each live transition is a fresh payload object, so its identity
+ * changes and the announcer reacts exactly once per transition.
  *
  * WHY A DEDICATED REGION, NOT A BRANCH OF THE FEED ANNOUNCER. The combined-feed
  * announcer no-ops ALL draft_activity on purpose: falling through would blank a
@@ -73,13 +89,20 @@ function StallAnnouncer({ stall = null }) {
 
   useEffect(() => {
     if (!stall) return;
+    // The EXIT edge (resume/reset/complete): the stuck state ended, so clear to
+    // empty. Checked FIRST so an exit is never mistaken for a silent no-op.
+    if (isStallExit(stall)) {
+      setAnnouncement('');
+      return;
+    }
     const text = stallAnnouncementFor(stall);
-    if (!text) return;
-    // The shared repeat-safe update (announcerRepeat.js): when the new text would
-    // exactly repeat what is CURRENTLY RENDERED it appends a zero-width space so
-    // the node value still changes and the repeat is announced; otherwise it sets
-    // clean. Comparing against `prev` (not a parity counter) keeps this correct
-    // across any interleaving - see the helper and PickAnnouncer.
+    if (!text) return; // defensive: a non-stall-relevant entry never reaches here
+    // The ENTRY edge: the shared repeat-safe update (announcerRepeat.js). When the
+    // new text would exactly repeat what is CURRENTLY RENDERED it appends a
+    // zero-width space so the node value still changes and the repeat is
+    // announced; otherwise it sets clean. Comparing against `prev` (not a parity
+    // counter) keeps this correct across any interleaving - see the helper and
+    // PickAnnouncer.
     setAnnouncement((prev) => nextAnnouncement(prev, text));
   }, [stall]);
 
