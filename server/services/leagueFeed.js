@@ -298,11 +298,11 @@ function combinedEntryOf(row) {
  * to activityEntryOf - a Pick is never moderatable and never a tombstone.
  *
  * The Draft-activity arm restricts `kind` to USER_VISIBLE_KINDS - the positive
- * member allowlist; the presenter reader filters on its own independent
- * PRESENTER_ACTIVITY_KINDS holding the same kinds today (#619) - INSIDE its
- * WHERE, so the internal CUTOVER boundary (#436) is excluded BEFORE the per-arm
- * LIMIT and can never
- * consume a visible page slot (#540 AC4). Filtering after the limit would let a
+ * member allowlist - INSIDE its WHERE, so the internal CUTOVER boundary (#436)
+ * is excluded BEFORE the per-arm LIMIT and can never consume a visible page slot
+ * (#540 AC4). (The presenter reader filters on its own independent
+ * PRESENTER_ACTIVITY_KINDS, holding the same kinds today but declared apart,
+ * #619.) Filtering after the limit would let a
  * page that happened to hold a cutover row come back short, an intermittent gap
  * with no error; filtering before it cannot. Unlike the presenter reader, the
  * activity arm DOES project `reason`: a Commissioner correction's recorded
@@ -448,12 +448,12 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  *
  * The KINDS a presenter may see are an explicit ALLOWLIST (#438 AC3, "approved
  * public Pick and lifecycle facts"), not everything in draft_activity. A Pick,
- * every lifecycle transition and a Commissioner correction are approved public
- * facts; the CUTOVER boundary marker (#436) is an internal backfill artifact
- * that carries no Team or Pick fact and reads as noise, so it is left out.
- * Because this is a positive list, a NEW kind added upstream does not reach an
- * anonymous board until it is added here on purpose - publication by decision,
- * the same stance the board's field allowlist takes.
+ * each lifecycle transition named below and a Commissioner correction are
+ * approved public facts; the CUTOVER boundary marker (#436) is an internal
+ * backfill artifact that carries no Team or Pick fact and reads as noise, so it
+ * is left out. Because this is a positive list, a NEW kind added upstream does
+ * not reach an anonymous board until it is added here on purpose - publication
+ * by decision, the same stance the board's field allowlist takes.
  *
  * That promise is only true because every approved kind is spelled out LITERALLY
  * below - the list does NOT spread LIFECYCLE_KINDS (#619). A spread would inherit
@@ -464,15 +464,14 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  *
  * It holds the SAME kinds as the member feed's USER_VISIBLE_KINDS today, but is
  * declared INDEPENDENTLY (#540), NOT aliased to it and no longer sharing its
- * LIFECYCLE_KINDS spread. The presenter link is
- * anonymous and shareable, so the two surfaces must be able to diverge on
- * purpose. Because this list is literal while USER_VISIBLE_KINDS still spreads
- * LIFECYCLE_KINDS, a future lifecycle kind added to LIFECYCLE_KINDS flows into
- * the member set automatically but not into this list: the #540 contract test
- * that pins the two equal then FIRES on that difference, turning the divergence
- * into a conscious, reviewed decision rather than a silent leak. (The reason
- * FIELD is protected structurally - a member sees it, a presenter never does,
- * below.)
+ * LIFECYCLE_KINDS spread. The presenter link is anonymous and shareable, so the
+ * two surfaces must be able to diverge on purpose. Because this list is literal
+ * while USER_VISIBLE_KINDS still spreads LIFECYCLE_KINDS, a future lifecycle
+ * kind added to LIFECYCLE_KINDS flows into the member set automatically but not
+ * into this list: the #540 contract test that pins the two equal then FIRES on
+ * that difference, turning the divergence into a conscious, reviewed decision
+ * rather than a silent leak. (The reason FIELD is protected structurally - a
+ * member sees it, a presenter never does, below.)
  *
  * Cursors mirror the sibling readers: the default/`before` window takes the
  * newest page descending then flips to ascending display order; `after` resumes
