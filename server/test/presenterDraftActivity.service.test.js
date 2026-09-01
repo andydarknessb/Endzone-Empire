@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { createFakePool } = require('./helpers/fakePool');
 const { listPresenterDraftActivity, PRESENTER_ACTIVITY_KINDS } = require('../services/leagueFeed');
 
@@ -90,6 +91,76 @@ test('the presenter kinds are a positive ALLOWLIST that excludes the cutover bou
   );
   assert.ok(!PRESENTER_ACTIVITY_KINDS.includes('cutover'), 'the cutover boundary is never a presenter kind');
   assert.deepEqual(query.params[1], PRESENTER_ACTIVITY_KINDS, 'the allowlist rides as the $2 bound param');
+});
+
+test('the PRESENTER_ACTIVITY_KINDS initialiser is spelled out LITERALLY, never a spread (#633)', () => {
+  // The list's whole privacy value is that every approved kind is enumerated
+  // literally (#619): a re-spread of `[PICK, ...LIFECYCLE_KINDS, CORRECTION]`
+  // yields a byte-identical array, so every value-comparing assertion above
+  // (deepEqual, includes, the sorted copy) stays green if the literal is silently
+  // restored to a spread. This is the ONE assertion that reads the SOURCE FORM,
+  // which is the whole protection #619 established and which nothing else audits.
+  //
+  // Resolve the module by the SAME specifier this file already requires, so a
+  // file move tracks automatically and this never carries a second hardcoded path.
+  const source = fs.readFileSync(require.resolve('../services/leagueFeed'), 'utf8');
+
+  // Extract ONLY the initialiser expression, from its `Object.freeze([` to the
+  // matching `])`. The regex is LINE-ANCHORED (`^ ... /m`): a doc-comment line
+  // begins with a space-star and never with `const`, so anchoring to
+  // start-of-line is what STRUCTURALLY keeps the extraction off the doc comment
+  // above the array - which names `...LIFECYCLE_KINDS` and, when someone explains
+  // the rule, writes out the whole `const ... = Object.freeze([ ... ])`
+  // declaration to show it (ADR 0010: documenting a pattern means writing an
+  // example of it). Without the anchor, String.match returns the FIRST match
+  // anywhere in the file, so a future comment quoting the declaration would be
+  // extracted instead of the real array and the guard would pass on the comment's
+  // literal example while the real array spread - the exact hole this guards.
+  const DECLARATION = /^const PRESENTER_ACTIVITY_KINDS = Object\.freeze\(\[([\s\S]*?)\]\)/m;
+
+  // Collect every match ONCE, then assert in the order that keeps both failure
+  // messages reachable. matchAll needs the global flag, so rebuild DECLARATION
+  // with `gm` (new RegExp(re, flags) reuses the source and applies these flags).
+  const all = [...source.matchAll(new RegExp(DECLARATION, 'gm'))];
+
+  // FOUND before anything about contents (the anti-orphan half). Zero matches is
+  // indistinguishable from a match that found no spread, so a rename or move must
+  // turn this guard RED here rather than leave it vacuously green. This is the
+  // message a future maintainer sees when a refactor orphans the guard.
+  assert.ok(
+    all.length >= 1,
+    'could not locate `const PRESENTER_ACTIVITY_KINDS = Object.freeze([ ... ])` in ' +
+      'leagueFeed.js; if the declaration was renamed or moved, update this guard ' +
+      'rather than let it match nothing'
+  );
+
+  // UNIQUE: the anti-orphan assertion above catches zero; the case it cannot see
+  // is TWO or more. NOT a second real declaration - two top-level `const` of the
+  // same name is a SyntaxError the module never survives, so it can never reach
+  // this assertion. What it catches is declaration-shaped TEXT at column 0
+  // elsewhere in the file - a copy inside a template literal or a generated-code
+  // string - which the line-anchored regex cannot distinguish from the real
+  // declaration, so reading only the first match would silently audit the wrong
+  // one. Same reasoning as the anti-orphan half applied to the other end: the
+  // guard must know it is reading THE array, not one of several.
+  assert.equal(
+    all.length,
+    1,
+    `expected exactly one \`const PRESENTER_ACTIVITY_KINDS = Object.freeze([ ... ])\` ` +
+      `declaration in leagueFeed.js, found ${all.length}; a source-form guard must ` +
+      `read THE array, not one of several`
+  );
+
+  // The sole match's captured initialiser must contain no spread token: a new
+  // lifecycle kind must never reach the anonymous presenter board without a
+  // deliberate edit to this array (#619).
+  const initialiser = all[0];
+  assert.ok(
+    !initialiser[1].includes('...'),
+    'PRESENTER_ACTIVITY_KINDS must enumerate its kinds LITERALLY and never spread ' +
+      'LIFECYCLE_KINDS (#619): a re-spread lets a future lifecycle kind reach the ' +
+      'anonymous presenter board with no reviewed edit to this array'
+  );
 });
 
 test('never projects the commissioner correction reason (un-vetted free-text)', async () => {
