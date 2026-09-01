@@ -677,6 +677,18 @@ _Avoid_: final scoring, finalize (the step that follows it)
 The commissioner action that closes out the current week: finalizes scores,
 settles standings, awards trophies and opens the next week.
 
+**Expected final**:
+A starter's, or a team's, points at the end of the week as best known now: his
+weekly projection before his kickoff, his points so far plus any shortfall
+against that projection while his game is in progress, and his points alone
+once it is final. A team's is the sum over its starters.
+_Avoid_: live projection, pace, projected total (once games have started)
+
+**Players remaining**:
+The count of a team's starters whose NFL games have not finished this week. A
+starter whose game has not kicked off counts.
+_Avoid_: PMR (in prose), players left, yet to play
+
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly
 high score, champion, longest win streak, biggest comeback or best draft grade.

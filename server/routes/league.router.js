@@ -661,11 +661,18 @@ router.get('/:id/matchups', async (req, res) => {
        ORDER BY "matchups"."season" DESC, "matchups"."week" DESC, "matchups"."id"`,
       params
     );
-    // Each side's projected starter total rides on the list row so Game
-    // Center's cards can show it (null on final matchups and on teams with
-    // no lineup for the week; see matchupProjections.service).
-    const { attachProjectedTotals } = require('../services/matchupProjections.service');
-    res.json(await attachProjectedTotals(result.rows));
+    // Each side's expected final and players remaining ride on the list row
+    // so Game Center's cards can show them (null on final matchups, on
+    // best-ball leagues and on teams with no lineup for the week; see
+    // expectedFinal.service). The league row is fetched only when an open
+    // matchup exists, since it is what the weekly projection scores under.
+    const { attachExpectedFinals } = require('../services/expectedFinal.service');
+    let league = null;
+    if (result.rows.some((m) => !m.final)) {
+      const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+      league = leagueResult.rows[0] || null;
+    }
+    res.json(await attachExpectedFinals(result.rows, { league }));
   } catch (error) {
     console.error('Error fetching matchups', error);
     res.status(500).json({ error: 'failed to fetch matchups' });
@@ -836,20 +843,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     if (!matchup) return res.status(404).json({ error: 'matchup not found in this league' });
 
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+    const leagueRow = leagueResult.rows[0];
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
     const { materializeLineup } = require('../services/lineup.service');
-    const { getWeekProjections } = require('../services/projection.service');
+    const projectionService = require('../services/projection.service');
+    const { expectedFinalsForWeek } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
-    const rules = rulesForLeague(leagueResult.rows[0]);
+    const rules = rulesForLeague(leagueRow);
 
-    // Per-week projections power the pace bars and the live win-probability bar.
-    // Read-only, cached — a miss just leaves projections null, never an error.
-    let projById = new Map();
-    try {
-      projById = await getWeekProjections({ season: matchup.season, week: matchup.week });
-    } catch (projErr) {
-      console.error('matchup projections unavailable', projErr.message);
-    }
     // This week's real-game opponents, for the cutscene's chasing defender.
     const scheduleRows = await client.query(
       `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
@@ -865,25 +866,9 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const opponentByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
 
     await client.query('BEGIN');
-    const toPlayer = (row) => {
-      const projection = projById.get(row.id);
-      return {
-        id: row.id,
-        name: row.name,
-        position: row.position,
-        nfl_team: row.nfl_team,
-        injury_status: row.injury_status,
-        slot: row.slot,
-        // Full stat line for the expandable row; safe to expose (public NFL data).
-        stats: row.stats || null,
-        points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
-        projected: projection ? Math.round(projection.points * 100) / 100 : null,
-        opponent: opponentByTeam.get(normalizeNflTeam(row.nfl_team)) || null,
-      };
-    };
     const teamLineup = async (teamId) => {
       await materializeLineup(client, {
-        leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueResult.rows[0],
+        leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueRow,
       });
       const lineupRows = await client.query(
         `SELECT "players"."id", "players"."name", "players"."position",
@@ -917,16 +902,69 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
          ORDER BY "lineup_entries"."slot", "players"."name"`,
         [teamId, matchup.season, matchup.week]
       );
-      const starters = starterRows.rows.map(toPlayer);
-      const bench = lineupRows.rows.map(toPlayer);
-      const projectedTotal = Math.round(
-        starters.reduce((sum, s) => sum + (s.projected || 0), 0) * 100
-      ) / 100;
-      return { starters, bench, projectedTotal };
+      return { starterRows: starterRows.rows, benchRows: lineupRows.rows };
     };
-    const homeTeam = await teamLineup(matchup.home_team_id);
-    const awayTeam = await teamLineup(matchup.away_team_id);
+    const homeRaw = await teamLineup(matchup.home_team_id);
+    const awayRaw = await teamLineup(matchup.away_team_id);
     await client.query('COMMIT');
+
+    // Expected final and per-starter projections come from the one shared
+    // producer (expectedFinal.service): the weekly projection under this
+    // league's scoring with the availability rule, so the totals here, the
+    // Game Center card and the Lineup page agree. Bench rows read the same
+    // weekly run so a bench number is comparable to a starter's. Both are
+    // best-effort: a miss leaves projections null, never an error.
+    const teamIds = [matchup.home_team_id, matchup.away_team_id];
+    let byTeam = new Map();
+    try {
+      byTeam = await expectedFinalsForWeek({
+        league: leagueRow, season: matchup.season, week: matchup.week, teamIds,
+      });
+    } catch (efErr) {
+      console.error('matchup expected finals unavailable', efErr.message);
+    }
+    let benchProjections = new Map();
+    const benchIds = [...homeRaw.benchRows, ...awayRaw.benchRows].map((row) => row.id);
+    if (benchIds.length > 0) {
+      try {
+        const run = await projectionService.getWeeklyProjections({
+          season: matchup.season, week: matchup.week, league: leagueRow, playerIds: benchIds,
+        });
+        benchProjections = projectionService.toLegacyProjectionMap(run);
+      } catch (projErr) {
+        console.error('matchup bench projections unavailable', projErr.message);
+      }
+    }
+    const toPlayer = (row, projectionOf) => {
+      const projected = projectionOf(row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        position: row.position,
+        nfl_team: row.nfl_team,
+        injury_status: row.injury_status,
+        slot: row.slot,
+        // Full stat line for the expandable row; safe to expose (public NFL data).
+        stats: row.stats || null,
+        points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
+        projected: Number.isFinite(Number(projected)) && projected != null
+          ? Math.round(Number(projected) * 100) / 100
+          : null,
+        opponent: opponentByTeam.get(normalizeNflTeam(row.nfl_team)) || null,
+      };
+    };
+    const buildTeam = (raw, teamId) => {
+      const team = byTeam.get(Number(teamId)) || null;
+      const starterProjection = new Map((team ? team.starters : []).map((s) => [s.playerId, s.projection]));
+      return {
+        starters: raw.starterRows.map((row) => toPlayer(row, (id) => (starterProjection.has(id) ? starterProjection.get(id) : null))),
+        bench: raw.benchRows.map((row) => toPlayer(row, (id) => benchProjections.get(id)?.points ?? null)),
+        expectedFinal: team ? team.expectedFinal : null,
+        playersRemaining: team ? team.playersRemaining : null,
+      };
+    };
+    const homeTeam = buildTeam(homeRaw, matchup.home_team_id);
+    const awayTeam = buildTeam(awayRaw, matchup.away_team_id);
 
     // Live bench what-if for the viewer, but only when they own one of the two
     // teams in this matchup. Read-only, best-effort — never fails the request.
@@ -960,14 +998,16 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         name: matchup.home_team_name,
         starters: homeTeam.starters,
         bench: homeTeam.bench,
-        projectedTotal: homeTeam.projectedTotal,
+        expectedFinal: homeTeam.expectedFinal,
+        playersRemaining: homeTeam.playersRemaining,
       },
       away: {
         teamId: matchup.away_team_id,
         name: matchup.away_team_name,
         starters: awayTeam.starters,
         bench: awayTeam.bench,
-        projectedTotal: awayTeam.projectedTotal,
+        expectedFinal: awayTeam.expectedFinal,
+        playersRemaining: awayTeam.playersRemaining,
       },
     });
   } catch (error) {

@@ -1,0 +1,219 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createFakePool } = require('./helpers/fakePool');
+const projectionService = require('../services/projection.service');
+const {
+  expectedFinalForStarter,
+  gameStateFor,
+  expectedFinalsForWeek,
+  attachExpectedFinals,
+} = require('../services/expectedFinal.service');
+
+/**
+ * Expected final (CONTEXT.md): projection before kickoff, points plus the
+ * floored shortfall while in progress, points alone once final; a team's is
+ * the sum over its starters; players remaining counts starters whose game
+ * has not finished. The service is the one producer behind the matchup
+ * list, the matchup detail and the live-score socket event.
+ */
+
+// ---------------------------------------------------------------------------
+// Pure rules
+// ---------------------------------------------------------------------------
+
+test('a starter is his projection before kickoff, his floor-gapped points in progress, his points when final', () => {
+  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 0, gameState: 'scheduled' }), 18.4);
+  // Quiet so far: still expected to reach his projection.
+  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 6.1, gameState: 'in_progress' }), 18.4);
+  // Exploded early: nothing left to add, points stand.
+  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 27.3, gameState: 'in_progress' }), 27.3);
+  // Final: whatever he scored, even below projection.
+  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 9.9, gameState: 'final' }), 9.9);
+  // A starter ruled out (projection 0) and not yet final contributes nothing.
+  assert.equal(expectedFinalForStarter({ projection: 0, points: 0, gameState: 'scheduled' }), 0);
+});
+
+test('game state: the live table wins, kickoff decides with no row, points prove a game began, bye is final', () => {
+  const now = '2026-10-25T18:00:00.000Z';
+  const before = '2026-10-25T20:15:00.000Z';
+  const past = '2026-10-25T17:00:00.000Z';
+  assert.equal(gameStateFor({ liveStatus: 'final', kickoffAt: before, onBye: false, points: 0, now }), 'final');
+  assert.equal(gameStateFor({ liveStatus: 'in_progress', kickoffAt: before, onBye: false, points: 0, now }), 'in_progress');
+  assert.equal(gameStateFor({ liveStatus: 'scheduled', kickoffAt: past, onBye: false, points: 0, now }), 'scheduled');
+  assert.equal(gameStateFor({ liveStatus: null, kickoffAt: before, onBye: false, points: 0, now }), 'scheduled');
+  assert.equal(gameStateFor({ liveStatus: null, kickoffAt: past, onBye: false, points: 0, now }), 'in_progress');
+  assert.equal(gameStateFor({ liveStatus: null, kickoffAt: null, onBye: false, points: 0, now }), 'scheduled');
+  // Points on the board with a stale 'scheduled' row: the game began.
+  assert.equal(gameStateFor({ liveStatus: 'scheduled', kickoffAt: before, onBye: false, points: 4.2, now }), 'in_progress');
+  // A bye has no game to wait for.
+  assert.equal(gameStateFor({ liveStatus: null, kickoffAt: null, onBye: true, points: 0, now }), 'final');
+  // No live row and kickoff long past: the game is over, whatever the
+  // points say. Five hours is the bound; four hours fifty-nine is still on.
+  const longAgo = '2026-10-25T12:59:00.000Z';
+  const justUnder = '2026-10-25T13:00:01.000Z';
+  assert.equal(gameStateFor({ liveStatus: null, kickoffAt: longAgo, onBye: false, points: 0, now }), 'final');
+  assert.equal(gameStateFor({ liveStatus: null, kickoffAt: longAgo, onBye: false, points: 17.2, now }), 'final');
+  assert.equal(gameStateFor({ liveStatus: null, kickoffAt: justUnder, onBye: false, points: 0, now }), 'in_progress');
+  // A live row saying in progress outranks the schedule's clock.
+  assert.equal(gameStateFor({ liveStatus: 'in_progress', kickoffAt: longAgo, onBye: false, points: 0, now }), 'in_progress');
+});
+
+// ---------------------------------------------------------------------------
+// expectedFinalsForWeek against the fake pool
+// ---------------------------------------------------------------------------
+
+const SEASON = 2026;
+const WEEK = 8;
+const NOW = '2026-10-25T18:30:00.000Z'; // Sunday, after the 17:00Z kickoffs
+const LEAGUE = { id: 5, scoring_preset: 'half_ppr', best_ball: false };
+
+// Team 10: QB (Chiefs, final, 22.5 actual), RB (Bills, in progress, 4.0 so
+// far, proj 14.0), WR (Eagles, not kicked off, proj 11.3).
+// Team 20: RB on bye (proj 9.0 counts 0, final), K ruled Out (proj 8.0
+// counts 0, game in progress with no points).
+const STARTERS = [
+  { team_id: 10, player_id: 1, nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } }, // 22.5
+  { team_id: 10, player_id: 2, nfl_team: 'BUF', injury_status: 'Q', stats: { rushingYards: 40 } }, // 4.0
+  { team_id: 10, player_id: 3, nfl_team: 'Philadelphia Eagles', injury_status: null, stats: null },
+  { team_id: 20, player_id: 4, nfl_team: 'Ghosts', injury_status: null, stats: null }, // no game this week
+  { team_id: 20, player_id: 5, nfl_team: 'DAL', injury_status: 'O', stats: null },
+];
+const PROJECTIONS = new Map([
+  [1, { points: 19.0 }],
+  [2, { points: 14.0 }],
+  [3, { points: 11.3 }],
+  [4, { points: 9.0 }],
+  [5, { points: 8.0 }],
+]);
+const LIVE = [
+  { home_team: 'KC', away_team: 'LV', game_status: 'final' },
+  { home_team: 'BUF', away_team: 'MIA', game_status: 'in_progress' },
+  { home_team: 'DAL', away_team: 'NYG', game_status: 'in_progress' },
+  // Eagles: no live row yet; the schedule's 20:25Z kickoff decides.
+];
+const SCHEDULE = [
+  { nfl_team: 'KC', kickoff_at: '2026-10-25T17:00:00.000Z' },
+  { nfl_team: 'BUF', kickoff_at: '2026-10-25T17:00:00.000Z' },
+  { nfl_team: 'DAL', kickoff_at: '2026-10-25T17:00:00.000Z' },
+  { nfl_team: 'PHI', kickoff_at: '2026-10-25T20:25:00.000Z' },
+];
+// computeByeWeeks reads the whole regular season and answers in the
+// caller's own team vocabulary. Every team plays every week except the
+// Ghosts, who sit out WEEK: a bye must come from a real one-week gap.
+const BYE_ROWS = [];
+for (let w = 1; w <= 18; w++) {
+  for (const team of ['KC', 'BUF', 'DAL', 'Philadelphia Eagles']) BYE_ROWS.push({ nfl_team: team, week: w });
+  if (w !== WEEK) BYE_ROWS.push({ nfl_team: 'Ghosts', week: w });
+}
+
+/**
+ * `starters` may be an array or a (text, params) => rows function so one
+ * fake can answer differently per queried week.
+ */
+function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, projections = PROJECTIONS } = {}) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => {
+    if (projections instanceof Error) throw projections;
+    return { modelVersion: 'test', projections };
+  });
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  return createFakePool([
+    [/FROM "lineup_entries"/, (text, params) => ({
+      rows: typeof starters === 'function' ? starters(text, params) : starters,
+    })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
+    [/FROM "live_game_states"/, () => ({ rows: live })],
+    [/FROM "nfl_games" WHERE/, () => ({ rows: schedule })],
+  ]);
+}
+
+test('a team is the sum of its starters across all three phases, with players remaining counted', async (t) => {
+  const fake = weekPool(t);
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  const home = byTeam.get(10);
+  // 22.5 (final) + 14.0 (4.0 so far, 10.0 still expected) + 11.3 (not started) = 47.8
+  assert.equal(home.expectedFinal, 47.8);
+  assert.equal(home.playersRemaining, 2);
+  assert.deepEqual(home.starters.map((s) => [s.playerId, s.gameState, s.expectedFinal]), [
+    [1, 'final', 22.5],
+    [2, 'in_progress', 14],
+    [3, 'scheduled', 11.3],
+  ]);
+  const away = byTeam.get(20);
+  // Bye counts 0 and is final; Out counts 0 in progress, nothing to add.
+  assert.equal(away.expectedFinal, 0);
+  assert.equal(away.playersRemaining, 1);
+  assert.deepEqual(away.starters.map((s) => [s.playerId, s.gameState, s.projection]), [
+    [4, 'final', 0],
+    [5, 'in_progress', 0],
+  ]);
+});
+
+test('the projection run is asked once for the union of every starter under the league', async (t) => {
+  const fake = weekPool(t);
+  await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
+  const calls = projectionService.getWeeklyProjections.mock.calls;
+  assert.equal(calls.length, 1);
+  const args = calls[0].arguments[0];
+  assert.equal(args.league, LEAGUE);
+  assert.equal(args.season, SEASON);
+  assert.equal(args.week, WEEK);
+  assert.deepEqual([...args.playerIds].sort(), [1, 2, 3, 4, 5]);
+});
+
+test('a team with no starter rows is absent and a best-ball league never reads lineups', async (t) => {
+  const fake = weekPool(t, { starters: STARTERS.filter((s) => s.team_id === 10) });
+  const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
+  assert.ok(byTeam.has(10));
+  assert.equal(byTeam.has(20), false);
+
+  const bestBall = await expectedFinalsForWeek({
+    league: { ...LEAGUE, best_ball: true }, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  assert.equal(bestBall.size, 0);
+  assert.equal(fake.matching(/lineup_entries/).length, 1, 'best-ball never reads lineups');
+});
+
+test('a projection outage answers no expected final rather than a forecast of zero', async (t) => {
+  const fake = weekPool(t, { projections: new Error('run store down') });
+  const none = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
+  assert.equal(none.size, 0);
+});
+
+test('attachExpectedFinals decorates open rows and leaves final rows and untouched weeks null', async (t) => {
+  // Week 9 is open but nobody has a lineup yet.
+  const fake = weekPool(t, { starters: (text, params) => (Number(params[2]) === WEEK ? STARTERS : []) });
+  const rows = [
+    { id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false },
+    { id: 6, season: SEASON, week: WEEK - 1, home_team_id: 10, away_team_id: 20, final: true },
+    { id: 8, season: SEASON, week: WEEK + 1, home_team_id: 20, away_team_id: 10, final: false },
+  ];
+  const out = await attachExpectedFinals(rows, { league: LEAGUE, db: fake, now: NOW });
+  const open = out.find((m) => m.id === 7);
+  assert.equal(open.home_expected_final, 47.8);
+  assert.equal(open.away_expected_final, 0);
+  assert.equal(open.home_players_remaining, 2);
+  assert.equal(open.away_players_remaining, 1);
+  for (const id of [6, 8]) {
+    const m = out.find((r) => r.id === id);
+    assert.equal(m.home_expected_final, null);
+    assert.equal(m.away_expected_final, null);
+    assert.equal(m.home_players_remaining, null);
+    assert.equal(m.away_players_remaining, null);
+  }
+  // One projection read: the open week with lineups. Week 9 had no starters.
+  assert.equal(projectionService.getWeeklyProjections.mock.calls.length, 1);
+  // The input rows are not mutated.
+  assert.equal(Object.prototype.hasOwnProperty.call(rows[0], 'home_expected_final'), false);
+});
+
+test('a final-only list never touches the database', async () => {
+  const fake = createFakePool([]);
+  const out = await attachExpectedFinals(
+    [{ id: 6, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: true }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].home_expected_final, null);
+  assert.equal(fake.calls.length, 0);
+});
