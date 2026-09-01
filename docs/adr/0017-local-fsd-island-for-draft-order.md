@@ -1,6 +1,6 @@
 # Use a local FSD island for Draft order controls
 
-Status: accepted (2026-08-30)
+Status: accepted (2026-08-30); scope superseded by ADR 0020 (2026-09-01)
 
 The Draft order enhancement will introduce `src/widgets/draft-order` and
 `src/features/autodraft-toggle` as a local Feature-Sliced Design island

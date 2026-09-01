@@ -230,6 +230,101 @@ const PAIRINGS = [
   // all; it came in under AA in dark theme (3.75:1) until #237 lightened
   // `accent`/`accent-soft` to clear it. Body text, so AA_TEXT, not AA_LARGE.
   pairing('accent', 'accent-soft', AA_TEXT, 'nav link hover on the app bar', 'surface-raised'),
+
+  // ---- League Dashboard token group (ADR 0020, #637). The dashboard themes
+  // shared/ui and its widgets from the `dash-*` tokens. This block registers
+  // the token-on-surface pairings the dashboard PUTS ON SCREEN, in both modes.
+  // It does NOT prove the token set safe in the abstract: the guard certifies
+  // exactly the pairings listed (ADR 0010), so a widget that composes a NEW
+  // token-on-surface combination (a token on a backdrop no row below covers)
+  // registers it here rather than assuming the group is blanket-safe. Three
+  // inks (`dash-ink`, `dash-dim`, `dash-faint`) sit on four surfaces (`dash-bg`
+  // the page and the three card/tile surfaces `dash-surface`/`-surface2`/
+  // `-surface3`):
+  //   * ink and dim carry small essential text, so AA_TEXT (4.5).
+  //   * faint is the lightest muted tier (uppercase stat/table labels, counts,
+  //     captions, short prose). The mockup uses it from 11px to 16px (`.vs` is
+  //     16px/600, `.rk` 13.5px), none of which is WCAG large text, so it is
+  //     held to AA_TEXT (4.5). `dash-faint` was lightened from the mockup value
+  //     so it clears 4.5 on every plain surface (tokens.js). On the accent tint
+  //     it clears only over a card; see the tint rows below.
+  pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
+  pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
+  pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),
+  pairing('dash-ink', 'dash-surface3', AA_TEXT, 'dashboard body text on the raised tile'),
+  pairing('dash-dim', 'dash-bg', AA_TEXT, 'dashboard muted text on the page'),
+  pairing('dash-dim', 'dash-surface', AA_TEXT, 'dashboard muted text on a card'),
+  pairing('dash-dim', 'dash-surface2', AA_TEXT, 'dashboard muted text on a stat tile'),
+  pairing('dash-dim', 'dash-surface3', AA_TEXT, 'dashboard muted text on the raised tile'),
+  pairing('dash-faint', 'dash-bg', AA_TEXT, 'dashboard faint label on the page'),
+  pairing('dash-faint', 'dash-surface', AA_TEXT, 'dashboard faint label on a card'),
+  pairing('dash-faint', 'dash-surface2', AA_TEXT, 'dashboard faint label on a stat tile'),
+  pairing('dash-faint', 'dash-surface3', AA_TEXT, 'dashboard faint label on the raised tile'),
+  // Text ON the accent-soft tint (#203 compositing pattern). The tint is used
+  // two ways in the mockup: as a floating badge fill (`.chip.live`, the `.you`
+  // pill) and as a standings ROW background (`tr.me`). A badge floats, so its
+  // foregrounds are registered over all four surfaces; the `tr.me` row lives
+  // inside a card, so its foregrounds sit over `dash-surface`.
+  //
+  //   * accent text (the live chip / You pill label): all four backdrops.
+  //     `dash-accent` was darkened so every one clears AA_TEXT (a lighter
+  //     accent failed over the page background).
+  //   * ink text (the `tr.me` team name): all four backdrops, clears easily
+  //     (9.17-14.46).
+  //   * faint text (the `tr.me` rank cell, `.rk`): registered over `dash-surface`
+  //     ONLY, and that is a real boundary, not an omission. Faint on the tint
+  //     clears 4.5 over a card (4.62 light / 4.81 dark) but not elsewhere: over
+  //     the page background it fails in light (4.15) though it passes in dark
+  //     (5.48), and over surface2 (4.32/4.30) and surface3 (3.92/3.76) it fails
+  //     in both modes. It cannot be retuned to clear the tint on those surfaces
+  //     without overshooting past `dash-dim` and inverting the tier order (dim
+  //     itself only reaches 4.20 on the dark tint over surface3). So the rule
+  //     for widgets, stated here and in ADR 0020, is one uniform card-only rule,
+  //     deliberately a touch stricter than dark-over-bg alone would need: faint
+  //     text on the accent tint only inside a card (where `tr.me` lives); a
+  //     tinted element on any other surface uses INK - registered on the tint
+  //     over all four surfaces (9.17-14.46) - never faint or dim (dim also fails
+  //     on the tint over the raised tile, 4.37 light / 4.20 dark).
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over the page', 'dash-bg'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over a card', 'dash-surface'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over a stat tile', 'dash-surface2'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'accent text on the accent tint over the raised tile', 'dash-surface3'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the page', 'dash-bg'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a card', 'dash-surface'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a stat tile', 'dash-surface2'),
+  pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the raised tile', 'dash-surface3'),
+  pairing('dash-faint', 'dash-accent-soft', AA_TEXT, 'the me-row rank cell on the accent tint over a card (the only guarded tinted-faint backdrop)', 'dash-surface'),
+  // GradeChip: the fixed dark `dash-on-grade` letter on each of the five grade
+  // fills. AA_TEXT since the letter is small (a 26px round chip, ~14px glyph).
+  pairing('dash-on-grade', 'dash-grade-a', AA_TEXT, 'grade A chip letter'),
+  pairing('dash-on-grade', 'dash-grade-b', AA_TEXT, 'grade B chip letter'),
+  pairing('dash-on-grade', 'dash-grade-c', AA_TEXT, 'grade C chip letter'),
+  pairing('dash-on-grade', 'dash-grade-d', AA_TEXT, 'grade D chip letter'),
+  pairing('dash-on-grade', 'dash-grade-f', AA_TEXT, 'grade F chip letter'),
+  // Grade as TEXT (not a chip fill): the mockup paints the my-team draft grade
+  // as colored text on a tile (`.stat .v`, dashboard-concept.html), and the
+  // vivid fills above are unreadable as text on a light surface (grade-a would
+  // be 1.72 on surface2). `dash-grade-*-text` are the legible-as-text tokens,
+  // guarded on the card (`dash-surface`) and stat-tile (`dash-surface2`)
+  // surfaces a grade value sits on, both modes. They are NOT guarded on the
+  // raised tile (`dash-surface3`): light grade-b-text is 4.40 there, so the
+  // rule (here and in ADR 0020) is that grade text is not painted on the raised
+  // tile - it belongs on a card or a stat tile, where the mockup puts it.
+  pairing('dash-grade-a-text', 'dash-surface', AA_TEXT, 'grade A as text on a card'),
+  pairing('dash-grade-a-text', 'dash-surface2', AA_TEXT, 'grade A as text on a stat tile'),
+  pairing('dash-grade-b-text', 'dash-surface', AA_TEXT, 'grade B as text on a card'),
+  pairing('dash-grade-b-text', 'dash-surface2', AA_TEXT, 'grade B as text on a stat tile'),
+  pairing('dash-grade-c-text', 'dash-surface', AA_TEXT, 'grade C as text on a card'),
+  pairing('dash-grade-c-text', 'dash-surface2', AA_TEXT, 'grade C as text on a stat tile'),
+  pairing('dash-grade-d-text', 'dash-surface', AA_TEXT, 'grade D as text on a card'),
+  pairing('dash-grade-d-text', 'dash-surface2', AA_TEXT, 'grade D as text on a stat tile'),
+  pairing('dash-grade-f-text', 'dash-surface', AA_TEXT, 'grade F as text on a card'),
+  pairing('dash-grade-f-text', 'dash-surface2', AA_TEXT, 'grade F as text on a stat tile'),
+  // The primary button: `dash-on-accent` label on the accent fill. The mockup's
+  // only primary button (`.btn`) is 13px/600, which is normal text by WCAG, not
+  // large text, so this is AA_TEXT (4.5), not the large-text 3.0. It clears it
+  // comfortably in both modes (6.65 light, 10.31 dark).
+  pairing('dash-on-accent', 'dash-accent', AA_TEXT, 'dashboard primary button label on accent'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can
