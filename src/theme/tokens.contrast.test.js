@@ -325,6 +325,14 @@ const PAIRINGS = [
   // large text, so this is AA_TEXT (4.5), not the large-text 3.0. It clears it
   // comfortably in both modes (6.65 light, 10.31 dark).
   pairing('dash-on-accent', 'dash-accent', AA_TEXT, 'dashboard primary button label on accent'),
+  // The keyboard focus ring on the dashboard page background. The island does
+  // not redefine `--focus-ring`, so the global `:focus-visible` ring (base.css)
+  // paints the app `focus-ring` token, and the copy-invite button (#638) is the
+  // first focusable control the island lands directly on `dash-bg`. That
+  // backdrop is new for the ring, so per ADR 0010 / ADR 0020 it is registered
+  // rather than assumed. AA_LARGE, like the other focus-ring rows above; the
+  // opaque ring needs no compositing (#155).
+  pairing('focus-ring', 'dash-bg', AA_LARGE, 'focus ring on the dashboard page'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can
