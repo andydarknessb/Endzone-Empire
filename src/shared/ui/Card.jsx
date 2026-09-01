@@ -71,10 +71,13 @@ export default function Card({
           >
             {title}
           </Typography>
+          {/* count and tail are 12px, so they use `dash-dim` (AA_TEXT), not
+              the `dash-faint` tier (AA_LARGE) which is below AA for small
+              text. See the faint note in tokens.js / tokens.contrast.test.js. */}
           {count != null && (
             <Typography
               component="span"
-              sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-faint)' }}
+              sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-dim)' }}
             >
               {count}
             </Typography>
@@ -82,7 +85,7 @@ export default function Card({
           {tail != null && (
             <Box
               component="span"
-              sx={{ ml: 'auto', fontSize: '12px', color: 'var(--dash-faint)' }}
+              sx={{ ml: 'auto', fontSize: '12px', color: 'var(--dash-dim)' }}
             >
               {tail}
             </Box>

@@ -72,10 +72,16 @@ export const colorTokens = {
     // Accent flips DARK in light mode (the app's own `accent` does the same,
     // #1e5bb8 light vs #7eaaff dark): the mockup's bright #2fd97b is far too
     // light to carry the "You" pill / live-chip text on a near-white card, so
-    // light mode uses a dark green and `dash-on-accent` flips to white.
-    'dash-accent': '#12784a',
-    'dash-accent-soft': 'rgba(18, 120, 74, 0.12)',
-    'dash-accent-line': 'rgba(18, 120, 74, 0.32)',
+    // light mode uses a dark green and `dash-on-accent` flips to white. Chosen
+    // dark enough that accent text on the `accent-soft` tint clears AA_TEXT
+    // over EVERY surface it can sit on, not just `dash-surface`: the mockup's
+    // `.chip.live` sits on the page background, where the tint composites over
+    // `dash-bg` (a first pick of #12784a cleared only `dash-surface` at 4.67
+    // and failed over `dash-bg`/`-surface2`/`-surface3` at 4.17/4.36/3.96).
+    // All four now clear 4.5 (4.70 to 5.55); see tokens.contrast.test.js.
+    'dash-accent': '#0f6a41',
+    'dash-accent-soft': 'rgba(15, 106, 65, 0.12)',
+    'dash-accent-line': 'rgba(15, 106, 65, 0.32)',
     // Grade colors are a data encoding (letter -> hue) and are kept identical
     // in both themes so an A chip reads the same everywhere; the fixed dark
     // `dash-on-grade` ink clears AA on all five (verified in tokens.contrast).

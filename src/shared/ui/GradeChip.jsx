@@ -9,9 +9,13 @@ import { Avatar } from '@mui/material';
  *
  * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
  * The accessible name is "Grade A" (etc.) so a screen-reader user hears the
- * grade, not a bare letter. An unrecognised grade still renders with that
- * accessible name on a neutral fill rather than throwing, so a widget passing
- * an unexpected value degrades instead of blanking the card.
+ * grade, not a bare letter. `role="img"` is required for that: without it the
+ * Avatar is a roleless div, and ARIA does not expose an `aria-label` on a
+ * generic role, so AT would fall back to reading the visible letter. `role`
+ * makes the label authoritative and hides the decorative letter from AT. An
+ * unrecognised grade still renders with that accessible name on a neutral fill
+ * rather than throwing, so a widget passing an unexpected value degrades
+ * instead of blanking the card.
  */
 const GRADE_TOKENS = {
   A: 'var(--dash-grade-a)',
@@ -27,6 +31,7 @@ export default function GradeChip({ grade, sx, ...rest }) {
 
   return (
     <Avatar
+      role="img"
       aria-label={`Grade ${key || grade}`}
       variant="circular"
       sx={{

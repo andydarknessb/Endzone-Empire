@@ -257,10 +257,18 @@ const PAIRINGS = [
   pairing('dash-faint', 'dash-surface', AA_LARGE, 'dashboard faint label on a card'),
   pairing('dash-faint', 'dash-surface2', AA_LARGE, 'dashboard faint label on a stat tile'),
   pairing('dash-faint', 'dash-surface3', AA_LARGE, 'dashboard faint label on the raised tile'),
-  // The "You" pill and live chip: accent text on the accent-soft tint, which
-  // is always painted on a card, so `dash-surface` is the backdrop composited
-  // under the translucent tint (#203 pattern).
-  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint', 'dash-surface'),
+  // The "You" pill and live chip: accent text on the accent-soft tint (#203
+  // compositing pattern). A badge is a floating element, so the tint can sit
+  // on any of the four surfaces: the mockup's `.chip.live` is on the page
+  // background (`dash-bg`), the You pill on a card (`dash-surface`), and either
+  // can land on a stat tile / hovered row (`dash-surface2`) or the raised tile
+  // (`dash-surface3`). All four are registered so a widget cannot ship the
+  // live chip on the page unguarded (it fails AA in light with a lighter
+  // accent; `dash-accent` was darkened so every backdrop clears AA_TEXT).
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over the page', 'dash-bg'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over a card', 'dash-surface'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over a stat tile', 'dash-surface2'),
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'dashboard accent text on the accent tint over the raised tile', 'dash-surface3'),
   // GradeChip: the fixed dark `dash-on-grade` letter on each of the five grade
   // fills. AA_TEXT since the letter is small (a 26px round chip, ~14px glyph).
   pairing('dash-on-grade', 'dash-grade-a', AA_TEXT, 'grade A chip letter'),
