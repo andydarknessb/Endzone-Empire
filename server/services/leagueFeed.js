@@ -31,8 +31,13 @@ const {
   activityEntryOf,
   DRAFT_ACTIVITY,
   PICK,
+  DRAFT_START,
+  PAUSE,
+  RESUME,
+  RESET,
+  COMPLETE,
+  STALLED,
   CORRECTION,
-  LIFECYCLE_KINDS,
   USER_VISIBLE_KINDS,
 } = require('./draftActivity');
 // The content_kind discriminator value for a GIF message (#446). A GIF message
@@ -293,9 +298,11 @@ function combinedEntryOf(row) {
  * to activityEntryOf - a Pick is never moderatable and never a tombstone.
  *
  * The Draft-activity arm restricts `kind` to USER_VISIBLE_KINDS - the positive
- * allowlist shared with the presenter reader - INSIDE its WHERE, so the internal
- * CUTOVER boundary (#436) is excluded BEFORE the per-arm LIMIT and can never
- * consume a visible page slot (#540 AC4). Filtering after the limit would let a
+ * member allowlist - INSIDE its WHERE, so the internal CUTOVER boundary (#436)
+ * is excluded BEFORE the per-arm LIMIT and can never consume a visible page slot
+ * (#540 AC4). (The presenter reader filters on its own independent
+ * PRESENTER_ACTIVITY_KINDS, holding the same kinds today but declared apart,
+ * #619.) Filtering after the limit would let a
  * page that happened to hold a cutover row come back short, an intermittent gap
  * with no error; filtering before it cannot. Unlike the presenter reader, the
  * activity arm DOES project `reason`: a Commissioner correction's recorded
@@ -441,30 +448,56 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  *
  * The KINDS a presenter may see are an explicit ALLOWLIST (#438 AC3, "approved
  * public Pick and lifecycle facts"), not everything in draft_activity. A Pick,
- * the five lifecycle transitions and a Commissioner correction are approved
- * public facts; the CUTOVER boundary marker (#436) is an internal backfill
- * artifact that carries no Team or Pick fact and reads as noise, so it is left
- * out. Because this is a positive list, a NEW kind added upstream does not reach
- * an anonymous board until it is added here on purpose - publication by
- * decision, the same stance the board's field allowlist takes.
+ * each lifecycle transition named below and a Commissioner correction are
+ * approved public facts; the CUTOVER boundary marker (#436) is an internal
+ * backfill artifact that carries no Team or Pick fact and reads as noise, so it
+ * is left out. Because this is a positive list, a NEW kind added upstream does
+ * not reach an anonymous board until it is added here on purpose - publication
+ * by decision, the same stance the board's field allowlist takes.
  *
- * It is spelled IDENTICALLY to the member feed's USER_VISIBLE_KINDS today, but is
- * declared INDEPENDENTLY on purpose (#540), NOT aliased to it. The presenter link
- * is anonymous and shareable; if this list were `= USER_VISIBLE_KINDS`, any kind
- * later made visible to MEMBERS would become visible on the open-internet
- * presenter surface automatically, with no review - the exact "a kind reached a
- * surface nobody thought about" class this ticket exists to close. Declaring it
- * apart makes exposing a kind to the anonymous board a DELIBERATE edit here, not
- * an inherited default. The #540 contract test pins the two equal TODAY so a
- * divergence is a conscious change, caught rather than silent. (The reason FIELD
- * is protected structurally - a member sees it, a presenter never does, below.)
+ * That promise holds only because every approved kind is spelled out LITERALLY
+ * below - the list does NOT spread LIFECYCLE_KINDS (#619). Under the old spread a
+ * new lifecycle kind reached this open-internet surface with no SOURCE edit to
+ * this array: #602's `stalled` arrived exactly that way. A test did fire - the
+ * literal kind-list assertion in presenterDraftActivity.service.test.js went from
+ * seven kinds to eight (PR #618) - but that only bumped a downstream assertion to
+ * match a decision already taken elsewhere; the array that governs the anonymous
+ * board was itself never reviewed. Enumerating each kind makes exposing one here
+ * a DELIBERATE edit to this array, never an inherited default.
+ *
+ * Caveat, filed not forgotten (#633): the literal form is not itself enforced. No
+ * test distinguishes this array from `[PICK, ...LIFECYCLE_KINDS, CORRECTION]` - a
+ * re-spread yields a byte-identical array and the whole suite still passes - so
+ * nothing here stops a future edit from silently restoring the spread; #633 holds
+ * whether to build that guard. What IS enforced is the complementary half (below):
+ * an append to LIFECYCLE_KINDS turns the #540 equality pin red.
+ *
+ * It holds the SAME kinds as the member feed's USER_VISIBLE_KINDS today, but is
+ * declared INDEPENDENTLY (#540), NOT aliased to it and no longer sharing its
+ * LIFECYCLE_KINDS spread. The presenter link is anonymous and shareable, so the
+ * two surfaces must be able to diverge on purpose. Because this list is literal
+ * while USER_VISIBLE_KINDS still spreads LIFECYCLE_KINDS, a future lifecycle
+ * kind added to LIFECYCLE_KINDS flows into the member set automatically but not
+ * into this list: the #540 contract test that pins the two equal then FIRES on
+ * that difference, turning the divergence into a conscious, reviewed decision
+ * rather than a silent leak. (The reason FIELD is protected structurally - a
+ * member sees it, a presenter never does, below.)
  *
  * Cursors mirror the sibling readers: the default/`before` window takes the
  * newest page descending then flips to ascending display order; `after` resumes
  * forward (feed_seq > cursor) ascending. `after` takes precedence; a caller
  * pages one direction at a time.
  */
-const PRESENTER_ACTIVITY_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
+const PRESENTER_ACTIVITY_KINDS = Object.freeze([
+  PICK,
+  DRAFT_START,
+  PAUSE,
+  RESUME,
+  RESET,
+  COMPLETE,
+  STALLED,
+  CORRECTION,
+]);
 
 async function listPresenterDraftActivity(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);
