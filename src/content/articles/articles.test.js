@@ -59,6 +59,18 @@ describe('articles content module', () => {
     expect(typeof await article.loadBody()).toBe('function');
   });
 
+  it('registers the Week 3 recap with the requested byline and a lazy body', async () => {
+    const article = getArticle('preseason-week-3-recap');
+    expect(article).toEqual(
+      expect.objectContaining({
+        title: 'NFL Preseason Week 3 Recap: Cutdown Fallout and Final Draft Moves',
+        author: 'Andy Darkness',
+        date: '2026-09-01',
+      })
+    );
+    expect(typeof await article.loadBody()).toBe('function');
+  });
+
   it('featuredArticles caps the count', () => {
     expect(featuredArticles(3)).toHaveLength(3);
     expect(featuredArticles(2)).toHaveLength(2);
