@@ -31,8 +31,13 @@ const {
   activityEntryOf,
   DRAFT_ACTIVITY,
   PICK,
+  DRAFT_START,
+  PAUSE,
+  RESUME,
+  RESET,
+  COMPLETE,
+  STALLED,
   CORRECTION,
-  LIFECYCLE_KINDS,
   USER_VISIBLE_KINDS,
 } = require('./draftActivity');
 // The content_kind discriminator value for a GIF message (#446). A GIF message
@@ -441,30 +446,47 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  *
  * The KINDS a presenter may see are an explicit ALLOWLIST (#438 AC3, "approved
  * public Pick and lifecycle facts"), not everything in draft_activity. A Pick,
- * the five lifecycle transitions and a Commissioner correction are approved
- * public facts; the CUTOVER boundary marker (#436) is an internal backfill
- * artifact that carries no Team or Pick fact and reads as noise, so it is left
- * out. Because this is a positive list, a NEW kind added upstream does not reach
- * an anonymous board until it is added here on purpose - publication by
- * decision, the same stance the board's field allowlist takes.
+ * every lifecycle transition and a Commissioner correction are approved public
+ * facts; the CUTOVER boundary marker (#436) is an internal backfill artifact
+ * that carries no Team or Pick fact and reads as noise, so it is left out.
+ * Because this is a positive list, a NEW kind added upstream does not reach an
+ * anonymous board until it is added here on purpose - publication by decision,
+ * the same stance the board's field allowlist takes.
  *
- * It is spelled IDENTICALLY to the member feed's USER_VISIBLE_KINDS today, but is
- * declared INDEPENDENTLY on purpose (#540), NOT aliased to it. The presenter link
- * is anonymous and shareable; if this list were `= USER_VISIBLE_KINDS`, any kind
- * later made visible to MEMBERS would become visible on the open-internet
- * presenter surface automatically, with no review - the exact "a kind reached a
- * surface nobody thought about" class this ticket exists to close. Declaring it
- * apart makes exposing a kind to the anonymous board a DELIBERATE edit here, not
- * an inherited default. The #540 contract test pins the two equal TODAY so a
- * divergence is a conscious change, caught rather than silent. (The reason FIELD
- * is protected structurally - a member sees it, a presenter never does, below.)
+ * That promise is only true because every approved kind is spelled out LITERALLY
+ * below - the list does NOT spread LIFECYCLE_KINDS (#619). A spread would inherit
+ * new lifecycle kinds silently: #602's `stalled` reached this open-internet
+ * surface with no edit here, which is exactly the leak "publication by decision"
+ * claims to prevent. Enumerating each kind makes exposing one to the anonymous
+ * board a DELIBERATE edit to this array, never an inherited default.
+ *
+ * It holds the SAME kinds as the member feed's USER_VISIBLE_KINDS today, but is
+ * declared INDEPENDENTLY (#540), NOT aliased to it and no longer sharing its
+ * LIFECYCLE_KINDS spread. The presenter link is
+ * anonymous and shareable, so the two surfaces must be able to diverge on
+ * purpose. Because this list is literal while USER_VISIBLE_KINDS still spreads
+ * LIFECYCLE_KINDS, a future lifecycle kind added to LIFECYCLE_KINDS flows into
+ * the member set automatically but not into this list: the #540 contract test
+ * that pins the two equal then FIRES on that difference, turning the divergence
+ * into a conscious, reviewed decision rather than a silent leak. (The reason
+ * FIELD is protected structurally - a member sees it, a presenter never does,
+ * below.)
  *
  * Cursors mirror the sibling readers: the default/`before` window takes the
  * newest page descending then flips to ascending display order; `after` resumes
  * forward (feed_seq > cursor) ascending. `after` takes precedence; a caller
  * pages one direction at a time.
  */
-const PRESENTER_ACTIVITY_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
+const PRESENTER_ACTIVITY_KINDS = Object.freeze([
+  PICK,
+  DRAFT_START,
+  PAUSE,
+  RESUME,
+  RESET,
+  COMPLETE,
+  STALLED,
+  CORRECTION,
+]);
 
 async function listPresenterDraftActivity(db, { leagueId, before = null, after = null, limit = FEED_PAGE_SIZE } = {}) {
   const capped = Math.min(Math.max(1, Number(limit) || FEED_PAGE_SIZE), FEED_PAGE_SIZE);

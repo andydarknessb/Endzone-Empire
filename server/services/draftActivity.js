@@ -107,13 +107,26 @@ const LIFECYCLE_KINDS = Object.freeze([DRAFT_START, PAUSE, RESUME, RESET, COMPLE
 const ALL_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION, CUTOVER]);
 
 /**
- * The POSITIVE allowlist of kinds a user-visible feed may show (#540): a Pick,
- * every lifecycle transition and a Commissioner correction. It is the single
- * source of truth shared by BOTH user surfaces - the member combined feed
- * (listCombinedDraftFeed) and the anonymous presenter feed
- * (listPresenterDraftActivity) filter on exactly this set. Being a positive
- * allowlist, it FAILS CLOSED: a new kind added to ALL_KINDS does not reach any
- * user surface until it is added here on purpose (publication by decision).
+ * The POSITIVE allowlist of kinds the MEMBER-visible feed may show (#540): a
+ * Pick, every lifecycle transition and a Commissioner correction. The member
+ * combined feed (listCombinedDraftFeed) filters on exactly this set.
+ *
+ * It SPREADS LIFECYCLE_KINDS, so a new kind added to LIFECYCLE_KINDS flows into
+ * the member-visible set AUTOMATICALLY, with no edit here. That inheritance is
+ * deliberate (#619): a lifecycle transition is a member-facing Draft fact by
+ * construction - the same event the Draft room already shows members - so a new
+ * one should reach member surfaces without a second gate. It still fails closed
+ * for a brand-new SHAPE added to ALL_KINDS but NOT to LIFECYCLE_KINDS: CORRECTION
+ * had to be named here on purpose, and the internal CUTOVER boundary is left out
+ * on purpose, so neither reaches a member feed by inheritance.
+ *
+ * The anonymous presenter surface does NOT inherit this way. listPresenterDraftActivity
+ * filters on its OWN literal PRESENTER_ACTIVITY_KINDS (leagueFeed.js), which
+ * spells every approved kind out rather than spreading LIFECYCLE_KINDS, so
+ * exposing a kind on the open-internet board is always an explicit edit there
+ * (#619). The #540 contract test pins the two lists equal today; because this
+ * one spreads and that one is literal, appending a lifecycle kind here alone
+ * makes that test fire, forcing the presenter decision to be conscious.
  */
 const USER_VISIBLE_KINDS = Object.freeze([PICK, ...LIFECYCLE_KINDS, CORRECTION]);
 
