@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, Link as RouterLink } from 'react-router-dom';
+import { useParams, useSearchParams, Link as RouterLink } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -69,6 +69,7 @@ function sortRosterForDrop(roster) {
 
 function WaiverWire() {
   const { leagueId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const notify = useSnackbar();
   const [data, setData] = useState(null);
   const [roster, setRoster] = useState([]);
@@ -86,12 +87,48 @@ function WaiverWire() {
   // Once the user manually touches the Upgrade sort, stop auto-defaulting it
   // on every suggestions refresh.
   const manualSortRef = useRef(false);
+  const claimTargetRequestRef = useRef(null);
+  const claimTargetParam = searchParams.get('playerId');
+  const claimTargetId = /^\d+$/.test(claimTargetParam || '') ? Number(claimTargetParam) : null;
 
   useEffect(() => {
     fetchAll();
     // fetchAll closes over leagueId, which is the explicit trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
+
+  useEffect(() => {
+    if (!claimTargetId || claimTargetRequestRef.current === claimTargetId) return undefined;
+
+    let cancelled = false;
+    claimTargetRequestRef.current = claimTargetId;
+    apiClient
+      .get(`/api/waivers/claim-target?leagueId=${leagueId}&playerId=${claimTargetId}`)
+      .then((response) => {
+        if (cancelled) return;
+        setError(null);
+        setClaimPlayer(response.data.player);
+        setDropPlayerId('');
+        setBid('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err.response?.data?.error || err.message);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSearchParams((current) => {
+            const next = new URLSearchParams(current);
+            next.delete('playerId');
+            return next;
+          }, { replace: true });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [claimTargetId, leagueId, setSearchParams]);
 
   const fetchAll = async () => {
     let waiversData = null;

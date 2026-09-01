@@ -57,6 +57,24 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/waivers/claim-target?leagueId=N&playerId=N - one server-approved
+// player selected from Player Browser, including a blanket-waiver player.
+router.get('/claim-target', async (req, res) => {
+  const leagueId = intOrNull(req.query.leagueId);
+  const playerId = intOrNull(req.query.playerId);
+  if (!leagueId || !playerId) {
+    return res.status(400).json({ error: 'leagueId and playerId query params (integers) are required' });
+  }
+  try {
+    const player = await waivers.claimTarget({ leagueId, userId: req.user.id, playerId });
+    res.json({ player });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error fetching waiver claim target', error);
+    res.status(500).json({ error: 'failed to fetch waiver claim target' });
+  }
+});
+
 // GET /api/waivers/suggestions?leagueId=N&season=S&week=W — ranked upgrade
 // candidates for the caller's team (season/week optional — league defaults)
 router.get('/suggestions', async (req, res) => {

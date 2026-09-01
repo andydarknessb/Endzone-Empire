@@ -1,6 +1,7 @@
 import React from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Route, useLocation } from "react-router-dom";
 import renderWithProviders from "../../test-utils/renderWithProviders";
 import apiClient from "../../api/apiClient";
 import PlayerManagement from "./PlayerManagement";
@@ -27,6 +28,11 @@ const league = {
   my_team_faab_remaining: 72,
 };
 const originalMatchMedia = window.matchMedia;
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+}
 
 function mockBrowser({
   players = [player()],
@@ -113,6 +119,23 @@ test("renders the server-authoritative availability actions without disclosing a
   expect(
     screen.queryByText(/Rival Team|Rival Manager/),
   ).not.toBeInTheDocument();
+});
+
+test("routes a waiver player to a claimable Waiver Wire target", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers" } }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />, {
+    routes: <Route path="/league/:leagueId/waivers" element={<LocationProbe />} />,
+  });
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/league/1/waivers?playerId=2",
+  );
 });
 
 test("adds a Free agent then refreshes the server-authoritative browser state", async () => {

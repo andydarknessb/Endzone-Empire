@@ -12,10 +12,10 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() },
 }));
 
-const renderScreen = (leagueId = 1) =>
+const renderScreen = (leagueId = 1, route = `/league/${leagueId}/waivers`) =>
   renderWithProviders(<WaiverWire />, {
     path: '/league/:leagueId/waivers',
-    route: `/league/${leagueId}/waivers`,
+    route,
   });
 
 // Toast text (via notify) only renders when a SnackbarProvider is mounted.
@@ -77,14 +77,45 @@ const suggestionsResponse = (overrides = {}) => ({
   ...overrides,
 });
 
-const setupGet = ({ waivers, roster, suggestions = { suggestions: [] } }) => {
+const setupGet = ({ waivers, roster, suggestions = { suggestions: [] }, claimTarget }) => {
   apiClient.get.mockImplementation((url) => {
     if (url.startsWith('/api/waivers/suggestions')) return Promise.resolve({ data: suggestions });
+    if (url.startsWith('/api/waivers/claim-target')) return Promise.resolve({ data: { player: claimTarget } });
     if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waivers });
     if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: roster });
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
 };
+
+test('opens a server-validated blanket-waiver target from the Player Browser', async () => {
+  const blanketWaiverPlayer = {
+    id: 8,
+    name: 'Blanket Waiver Player',
+    position: 'WR',
+    nfl_team: 'DAL',
+  };
+  setupGet({
+    waivers: waiversResponse({ onWaivers: [], myClaims: [] }),
+    roster: rosterResponse(),
+    claimTarget: blanketWaiverPlayer,
+  });
+  apiClient.post.mockResolvedValue({});
+
+  renderScreen(1, '/league/1/waivers?playerId=8');
+
+  expect(await screen.findByRole('dialog', { name: /claim blanket waiver player/i })).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/waivers/claim-target?leagueId=1&playerId=8');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Submit Claim' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/waivers/claim', {
+      leagueId: 1,
+      playerId: 8,
+      dropPlayerId: null,
+      bid: 0,
+    })
+  );
+});
 
 afterEach(() => {
   jest.clearAllMocks();
