@@ -796,12 +796,17 @@ describe('live snake-draft expiry and autopick integration', () => {
     expect(stalledDeliveries()).toHaveLength(1);
   });
 
-  test('a resume on the escalated league re-arms the same stuck team, not a skipped turn', async () => {
-    // A timed, non-autodrafting stuck team: after the escalation the same team is
-    // on the clock (current_pick unchanged), so a commissioner resume (onResumed,
-    // #599) arms that team's policy clock - the full pick time here - rather than
-    // skipping the turn.
+  test('a resume on the escalated league re-arms the SAME stuck team, by its own policy, not a skipped turn', async () => {
+    // The stuck team (on the clock at pick 0) is timed and NOT autodrafting, so
+    // its policy is the full 30s pick clock. The OTHER team is made autodrafting,
+    // whose policy would be the 2s delay - so the two teams' policies now DIFFER.
+    // That is what gives the assertion teeth: a resume that armed the wrong team
+    // (a skipped turn advancing current_pick to the other team) or the wrong
+    // policy would yield ~2s, and the >25s assertion below goes red. With both
+    // teams non-autodrafting the two policies were both 30s and team identity was
+    // discriminated by nothing.
     const state = stalledState();
+    state.teams[1].autodraft = true;
 
     await processExpiredPickClocks();
     expect(state.league.draft_paused).toBe(true);
@@ -811,12 +816,12 @@ describe('live snake-draft expiry and autopick integration', () => {
     const armedAt = await pickClock.onResumed(resumeClient, { leagueId: LEAGUE_ID });
     resumeClient.release();
 
-    // The stuck team is timed and not autodrafting, so resume arms the full
-    // 30s pick clock for it (createState default pick_time_seconds=30). The
-    // deadline is now in the future, on the SAME team's turn.
+    // Resume arms the STUCK team's own policy - the full 30s pick clock - not the
+    // autodrafting other team's 2s delay: proof the same team (current_pick
+    // untouched) is on the clock and got its own policy, per #599 arming.
     expect(armedAt).not.toBeNull();
     const secondsOut = (new Date(armedAt).getTime() - Date.now()) / 1000;
-    expect(secondsOut).toBeGreaterThan(0);
+    expect(secondsOut).toBeGreaterThan(25);
     expect(secondsOut).toBeLessThanOrEqual(30);
     expect(state.league.current_pick).toBe(0);
   });
