@@ -3,7 +3,6 @@ import { useSelector } from 'react-redux';
 import useDraftRoomFeed from './useDraftRoomFeed';
 import ChatConversation from '../ChatPanel/ChatConversation';
 import FeedAnnouncer from './FeedAnnouncer';
-import StallAnnouncer from './StallAnnouncer';
 
 /**
  * The Draft room's combined feed (issue #435, ADR 0012): the SAME League chat
@@ -78,17 +77,16 @@ function DraftRoomChat({
           manager sees (chat is not on screen), and on return the backlog is
           re-seeded silently rather than replayed. */}
       <FeedAnnouncer entries={entries} viewerTeamId={viewerTeamId} />
-      {/* The stall announcer (#636) reads the SAME combined feed, but speaks a
-          nothing-draftable stall (#602) in its OWN dedicated polite region. Of
-          the kinds the feed announcer's blanket silence covers, Picks already
-          have a room-level voice (PickAnnouncer, #513); the stall is the kind
-          left with NO voice, and it must have one because it halts the draft and
-          names a required commissioner action. It is a separate region on
-          purpose: announcing a stall through the feed announcer's region would
-          overwrite an unread chat announcement, the same defect its early return
-          prevents, in the other direction. It takes no viewerTeamId - a stall is
-          addressed to whoever can resolve it. */}
-      <StallAnnouncer entries={entries} />
+      {/* The stall announcer (#636) is NO LONGER here. It moved to the Draft room
+          chrome (DraftBoard, beside PickAnnouncer) in #648, fed by a live-only
+          draft:activity socket seam instead of this combined feed, so a
+          nothing-draftable stall (#602) is heard on every tab - including the
+          Players, Board and Draft tabs a narrow-container manager drafts from,
+          which unmount this chat subtree - and exactly once on wide, where this
+          subtree is always mounted for a member. The feed announcer's blanket
+          draft_activity silence, its early return and its unread-chat protection
+          are untouched: a stall is spoken by the chrome announcer's own region,
+          never through this one. */}
       <ChatConversation
         messages={entries}
         error={error}

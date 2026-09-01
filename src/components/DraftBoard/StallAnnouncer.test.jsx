@@ -2,24 +2,31 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import StallAnnouncer from './StallAnnouncer';
 
-const chat = (seq, teamName = 'A', message = 'hi') => ({
-  type: 'league_chat', seq, id: seq, teamName, message,
-});
-const stalled = (seq, teamName = 'MinneApple') => ({
-  type: 'draft_activity', kind: 'stalled', seq, id: seq, teamName,
+// A live stalled entry as the room records it from the draft:activity seam
+// (#648): a fresh object per stall, so its identity changes and the effect fires.
+const stall = (teamName = 'MinneApple', seq = 30) => ({
+  type: 'draft_activity',
+  kind: 'stalled',
+  id: seq,
+  seq,
+  teamName,
   created_at: '2026-09-01T00:00:00.000Z',
 });
-const pick = (seq, teamName = 'Bulldogs', playerName = 'Pat Mahomes') => ({
-  type: 'draft_activity', kind: 'pick', seq, id: seq, teamName, player: { name: playerName },
-});
-const resume = (seq, teamName = 'Commish FC') => ({
-  type: 'draft_activity', kind: 'resume', seq, id: seq, teamName,
+
+// A stall-relevant lifecycle entry that is NOT the stall itself: an exit
+// (resume/reset/complete) that ends the stuck state, or a pause that does not.
+const lifecycle = (kind, seq = 40) => ({
+  type: 'draft_activity',
+  kind,
+  id: seq,
+  seq,
+  teamName: 'Commish FC',
   created_at: '2026-09-01T00:05:00.000Z',
 });
 
 describe('StallAnnouncer', () => {
-  it('mounts a polite status region, silent to start', () => {
-    render(<StallAnnouncer entries={[]} />);
+  it('mounts a persistent polite status region, silent to start', () => {
+    render(<StallAnnouncer stall={null} />);
     const region = screen.getByRole('status');
     expect(region).toHaveAttribute('aria-live', 'polite');
     // The region exists and is empty rather than absent, so a later change lands
@@ -28,12 +35,10 @@ describe('StallAnnouncer', () => {
   });
 
   it('announces a live stall: names the cause and the commissioner next step, Team not the actor (AC1)', () => {
-    // Seed silently with an ordinary entry, then a strictly-newer stalled entry
-    // arrives live.
-    const { rerender } = render(<StallAnnouncer entries={[chat(1)]} />);
+    const { rerender } = render(<StallAnnouncer stall={null} />);
     expect(screen.getByRole('status')).toHaveTextContent('');
 
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple')]} />);
+    rerender(<StallAnnouncer stall={stall('MinneApple')} />);
     const region = screen.getByRole('status');
     expect(region).toHaveTextContent('no draftable player');
     expect(region).toHaveTextContent('A commissioner must resolve and resume');
@@ -44,98 +49,82 @@ describe('StallAnnouncer', () => {
     expect(region.textContent).not.toMatch(/MinneApple (stalled|paused)/i);
   });
 
-  it('does NOT announce a stall that is only in the opening backlog / a history REPLACE (AC3)', () => {
-    // The first non-empty feed is backlog, not a live arrival: it seeds the seq
-    // high-water mark silently even when a stalled entry is its tail.
-    render(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple')]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('');
-
-    // And a wholesale /draft-feed history REPLACE that resolves AFTER a live seed
-    // and drops the tail to an older stalled entry is not new either: the
-    // monotonic-seq guard keeps it silent.
-    const { rerender } = render(<StallAnnouncer entries={[chat(50)]} />);
-    // (second region now exists; scope the assertions to the fresh render's tree)
-    rerender(<StallAnnouncer entries={[chat(38), stalled(40, 'MinneApple')]} />);
-    const regions = screen.getAllByRole('status');
-    regions.forEach((region) => expect(region).toHaveTextContent(''));
+  it('announces each successive stall', () => {
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
+    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
+    rerender(<StallAnnouncer stall={stall('Gridiron', 40)} />);
+    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on Gridiron');
   });
 
-  it('stays silent when the newest entry is a NON-stall activity or chat, and does not blank a standing stall', () => {
-    const { rerender } = render(<StallAnnouncer entries={[chat(1)]} />);
-    // A live stall announces.
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple')]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
-    // A Pick lands after it (activity is constant in a draft): the stall
-    // announcement must survive untouched, not be blanked.
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), pick(3)]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
-    // A chat message lands after that: likewise untouched, and NOT announced here.
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), pick(3), chat(4, 'Rivals')]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
-    expect(screen.getByRole('status').textContent).not.toMatch(/New message/);
+  it('does not re-announce on an ordinary rerender that does not change the stall', () => {
+    // A parent rerender (a pool refetch, a clock tick) that hands the SAME stall
+    // object back must not re-fire the region; only a genuinely new stall does.
+    const landed = stall('MinneApple');
+    const { rerender } = render(<StallAnnouncer stall={landed} />);
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('The draft is stuck on MinneApple');
+    const after = region.textContent;
+    rerender(<StallAnnouncer stall={landed} />);
+    // Same object identity: the announcement text node is untouched.
+    expect(region.textContent).toBe(after);
   });
 
   it('re-announces a SECOND stall whose text is byte-identical to the first', () => {
-    // A stall on one Team resolves and resumes, then stalls again on the same
-    // Team with the same cause: the two announcements are byte-identical. React
-    // bails on an Object.is-equal string, so without a discriminator the second
-    // is silent. The raw node value must change between them (a zero-width space).
-    const { rerender } = render(<StallAnnouncer entries={[chat(1)]} />);
+    // A stall on one Team resolves and resumes, then stalls again on the same Team
+    // with the same cause: the two announcements are byte-identical. React bails on
+    // an Object.is-equal string, so without a discriminator the second is silent.
+    // The raw node value must change between them (a zero-width space).
+    const { rerender } = render(<StallAnnouncer stall={null} />);
     const region = screen.getByRole('status');
 
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple')]} />);
+    // Two distinct stall objects (identity differs, so the effect runs) whose
+    // announcement text is identical.
+    rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
     expect(region).toHaveTextContent('The draft is stuck on MinneApple');
     const afterFirst = region.textContent;
 
-    // A different entry lands between (so the tail key changes), then the same
-    // stall recurs at a newer seq.
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), pick(3)]} />);
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), pick(3), stalled(4, 'MinneApple')]} />);
+    rerender(<StallAnnouncer stall={stall('MinneApple', 44)} />);
     expect(region).toHaveTextContent('The draft is stuck on MinneApple');
-    // The node value changed, so assistive tech re-announces...
+    // The raw text node value changed (an invisible, unspoken discriminator), so
+    // assistive tech re-announces rather than seeing an unchanged node.
     expect(region.textContent).not.toBe(afterFirst);
-    // ...and the discriminator is specifically U+200B, nothing visible or spoken.
+    // ...and the discriminator is specifically U+200B, nothing visible or spoken,
+    // built from its code point so no invisible literal sits in this file either.
     expect(region.textContent).toBe(afterFirst + String.fromCharCode(0x200b));
   });
 
-  it('announces a stall that arrives BEHIND a later entry in one multi-entry slice (not just the tail)', () => {
-    // The feed does not arrive one entry at a time: useDraftRoomFeed commits a
-    // whole live/reconnect slice in ONE setEntries. A stall committed alongside a
-    // trailing chat message (e.g. a reconnect resume slice) is NOT the tail. It
-    // must still be announced - and its seq must not be silently skipped past.
-    const { rerender } = render(<StallAnnouncer entries={[chat(29)]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('');
-    // seq 30 stall, seq 31 chat, delivered together; tail is the chat.
-    rerender(<StallAnnouncer entries={[chat(29), stalled(30, 'MinneApple'), chat(31, 'Rivals')]} />);
-    const region = screen.getByRole('status');
-    expect(region).toHaveTextContent('The draft is stuck on MinneApple');
-    expect(region).toHaveTextContent('A commissioner must resolve and resume');
-  });
+  it.each(['resume', 'reset', 'complete'])(
+    'clears the announcement when the stuck state ends on %s (#653): a stall is a STATE, so an exit retracts it',
+    (kind) => {
+      const { rerender } = render(<StallAnnouncer stall={null} />);
+      rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
+      expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
+      // The stuck state ends: the region must fall silent, not leave "The draft is
+      // stuck" standing in the accessibility tree for the life of the room.
+      rerender(<StallAnnouncer stall={lifecycle(kind, 40)} />);
+      expect(screen.getByRole('status')).toHaveTextContent('');
+    }
+  );
 
-  it('clears when the draft resumes: a resume ends the stuck state, so the region falls silent', () => {
-    // A stall is a STATE, not an event: it must not linger in the accessibility
-    // tree (visuallyHidden is clip-based, so the text stays readable in browse
-    // mode) after the commissioner resolved it and the draft resumed.
-    const { rerender } = render(<StallAnnouncer entries={[chat(1)]} />);
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple')]} />);
+  it('does NOT clear on pause: a nothing-draftable stall already implies the draft is paused (ADR 0018)', () => {
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
     expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
-    // The commissioner resolves and resumes.
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), resume(3)]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('');
+    // pause is not an exit, so a standing stall survives it untouched.
+    rerender(<StallAnnouncer stall={lifecycle('pause', 40)} />);
+    expect(screen.getByRole('status')).toHaveTextContent('The draft is stuck on MinneApple');
   });
 
-  it('nets to resumed when a stall and a resume arrive in the same slice (newest transition wins)', () => {
-    const { rerender } = render(<StallAnnouncer entries={[chat(1)]} />);
-    // stalled(2) then resume(3) committed together: the draft stuck then resumed,
-    // so the net state is not-stuck and nothing should be left announced.
-    rerender(<StallAnnouncer entries={[chat(1), stalled(2, 'MinneApple'), resume(3)]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('');
-  });
-
-  it('stays silent when older entries are prepended (Load older)', () => {
-    // loadOlder grows the HEAD; the tail is unchanged, so nothing new arrived.
-    const { rerender } = render(<StallAnnouncer entries={[chat(5)]} />);
-    rerender(<StallAnnouncer entries={[stalled(3, 'MinneApple'), chat(4), chat(5)]} />);
-    expect(screen.getByRole('status')).toHaveTextContent('');
+  it('re-announces a fresh stall after a clear (stall, resume, stall again)', () => {
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    const region = screen.getByRole('status');
+    rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
+    expect(region).toHaveTextContent('The draft is stuck on MinneApple');
+    rerender(<StallAnnouncer stall={lifecycle('resume', 40)} />);
+    expect(region).toHaveTextContent('');
+    // A second stuck state after the resume must announce again from empty.
+    rerender(<StallAnnouncer stall={stall('MinneApple', 50)} />);
+    expect(region).toHaveTextContent('The draft is stuck on MinneApple');
   });
 });
