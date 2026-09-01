@@ -5,7 +5,11 @@ const { requireAuth } = require('../modules/auth');
 const { getIo } = require('../modules/io');
 const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
-const { draftPlayer, correctLatestPick, DraftError, nextPickClockSeconds } = require('../services/draft.service');
+const { draftPlayer, correctLatestPick, DraftError } = require('../services/draft.service');
+// The Pick clock module owns arming (ADR 0018): pause, resume, the autodraft
+// toggle and undo re-arm the deadline only through its named events, so no route
+// writes the pick deadline column directly.
+const pickClock = require('../services/pickClock.service');
 const { validateKeepers, undoTargets } = require('../services/draftValidation.service');
 const { draftRosterSize } = require('../services/rosterShape');
 const { removeLineupEntries } = require('../services/lineup.service');
@@ -312,28 +316,28 @@ router.post('/league/:id/pause', async (req, res) => {
   // A transaction now, not a bare UPDATE: the pause/resume must append its
   // Draft-activity entry from the SAME transaction that flips draft_paused
   // (#437 AC2), so a rolled-back toggle leaves no orphan activity and a
-  // committed one always has its entry. The clock CASE is unchanged - resuming
-  // re-arms the established pick clock, pausing clears it.
+  // committed one always has its entry. The clock is armed through the Pick
+  // clock module (ADR 0018): resuming grants the on-the-clock team the policy
+  // clock, never the time remaining at pause, so an autodrafting team resumes on
+  // the short delay instead of a full clock (timed) or a frozen NULL (untimed).
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const result = await client.query(
-      `UPDATE "leagues"
-       SET "draft_paused" = $1,
-           "pick_deadline_at" = CASE
-             WHEN $1 THEN NULL
-             WHEN "pick_time_seconds" > 0 THEN now() + make_interval(secs => "pick_time_seconds")
-             ELSE NULL
-           END,
-           "updated_at" = now()
+      `UPDATE "leagues" SET "draft_paused" = $1, "updated_at" = now()
        WHERE "id" = $2 AND ${commissionerPredicate(3)} AND "draft_status" = 'active'
-       RETURNING "id", "draft_paused", "pick_deadline_at"`,
+       RETURNING "id", "draft_paused"`,
       [paused, leagueId, req.user.id]
     );
     if (!result.rows[0]) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
     }
+    // Clear the clock on pause, arm the policy clock on resume - the module is
+    // the only writer of the deadline.
+    const pickDeadlineAt = paused
+      ? await pickClock.onPaused(client, { leagueId })
+      : await pickClock.onResumed(client, { leagueId });
     // The acting commissioner's Team, or null when they hold none - recorded as
     // null, never fabricated (#437 AC5). Team identity only, no account field.
     const actorTeam = await lookupTeam(client, { leagueId, userId: req.user.id });
@@ -349,7 +353,9 @@ router.post('/league/:id/pause', async (req, res) => {
       io.to(`league:${leagueId}`).emit('draft:state', state);
     }
     broadcastDraftActivity(leagueId, entry);
-    res.json(result.rows[0]);
+    // The response still carries the re-armed (or cleared) deadline the clients
+    // read, now sourced from the Pick clock module rather than the flip's own UPDATE.
+    res.json({ ...result.rows[0], pick_deadline_at: pickDeadlineAt });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error pausing draft', error);
@@ -422,12 +428,9 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
         overrides: league.draft_order_overrides,
       });
       if (onClock && onClock.id === teamId) {
-        await client.query(
-          `UPDATE "leagues"
-           SET "pick_deadline_at" = now() + make_interval(secs => GREATEST(1, "autodraft_delay_seconds"))
-           WHERE "id" = $1`,
-          [leagueId]
-        );
+        // The team now on the clock is autodrafting: arm the short delay through
+        // the Pick clock module (ADR 0018), the only writer of the deadline.
+        await pickClock.onAutodraftToggled(client, { leagueId, league });
       }
     }
     await client.query('COMMIT');
@@ -533,19 +536,15 @@ router.post('/league/:id/undo', async (req, res) => {
     );
     const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
     const onClock = teamForPick(newCurrentPick, teamsResult.rows, rotationOpts);
-    const clockSeconds = league.draft_type === 'offline' ? null : nextPickClockSeconds({
-      draftComplete: false,
-      nextTeamAutodraft: onClock ? onClock.autodraft : false,
-      pickTimeSeconds: league.pick_time_seconds,
-      autodraftDelaySeconds: league.autodraft_delay_seconds,
+    // Rewind the turn and re-arm the team now on the clock by the one policy,
+    // through the Pick clock module (ADR 0018): the only writer of current_pick
+    // and the deadline.
+    await pickClock.onPickUndone(client, {
+      leagueId,
+      newCurrentPick,
+      onClockAutodraft: onClock ? onClock.autodraft : false,
+      league,
     });
-    await client.query(
-      `UPDATE "leagues"
-       SET "current_pick" = $1, "updated_at" = now(),
-           "pick_deadline_at" = CASE WHEN $3::int IS NULL THEN NULL ELSE now() + make_interval(secs => $3::int) END
-       WHERE "id" = $2`,
-      [newCurrentPick, leagueId, clockSeconds]
-    );
     await client.query('COMMIT');
     await broadcastRosterAvailability(leagueId);
     const io = getIo();
@@ -653,11 +652,14 @@ router.post('/league/:id/reset', async (req, res) => {
     await client.query(
       `UPDATE "leagues"
        SET "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
-           "pick_deadline_at" = NULL, "draft_date" = NULL, "draft_timezone" = NULL, "draft_reminder_stage" = 0,
+           "draft_date" = NULL, "draft_timezone" = NULL, "draft_reminder_stage" = 0,
            "draft_autostart_failed" = false, "updated_at" = now()
        WHERE "id" = $1`,
       [leagueId]
     );
+    // A reset to pending has no team on the clock: clear the deadline through the
+    // Pick clock module (ADR 0018), the only writer of the pick deadline column.
+    await pickClock.clearClock(client, { leagueId });
     // Record the reset as append-only Draft activity, in the SAME transaction
     // (#437 AC3). Every DELETE above wiped picks, rosters and lineup rows, but
     // NOT draft_activity: it has no FK to draft_picks and this route issues no
