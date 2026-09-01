@@ -296,7 +296,7 @@ async function autoPick({ leagueId }) {
   // (untimed non-autodrafting turn, or a completed draft) is likewise not an
   // expiry and never autopicks.
   const deadline = league.pick_deadline_at;
-  if (deadline == null || new Date(deadline).getTime() > Date.now()) return null;
+  if (deadline == null || msUntilDeadline(deadline) > 0) return null;
 
   const teamsResult = await pool.query(
     `SELECT "id", "owner_id", "autodraft" FROM "teams"
@@ -417,6 +417,16 @@ async function emitDraftEvent(leagueId, event, payload) {
 const expiryTimers = new Map();
 
 /**
+ * Milliseconds from now until `deadline` (a Date or timestamp): positive while
+ * the clock is still running, zero or negative once it has elapsed. The one
+ * spelling of the clock-elapsed comparison, shared by the arming math, the
+ * sweep's due split, and the expiry guard.
+ */
+function msUntilDeadline(deadline) {
+  return new Date(deadline).getTime() - Date.now();
+}
+
+/**
  * Arm (or re-arm) the in-process timer for one league's deadline. Re-arming is
  * idempotent: the previous timer for the league is always cleared first, so a
  * refresh from a later sweep does not stack a second timer. A null deadline
@@ -426,11 +436,12 @@ const expiryTimers = new Map();
 function armExpiryTimer(leagueId, deadline) {
   cancelExpiryTimer(leagueId);
   if (deadline == null) return;
-  const fireInMs = Math.max(0, new Date(deadline).getTime() - Date.now());
+  const fireInMs = Math.max(0, msUntilDeadline(deadline));
   const timer = setTimeout(() => {
-    // The handle has fired: drop it BEFORE autopicking so the re-arm from the
-    // committed pick installs the NEXT deadline's timer instead of being
-    // cancelled as this (already spent) one.
+    // This handle has fired and is spent. Drop it from the registry before
+    // autopicking so the Map holds only live timers: if the autopick declines
+    // (autoPick returns null and re-arms nothing) no stale handle is left
+    // behind, and if it commits, its re-arm installs a fresh entry.
     expiryTimers.delete(leagueId);
     fireExpiryTimer(leagueId);
   }, fireInMs);
@@ -499,9 +510,8 @@ async function processExpiredPickClocks() {
        WHERE "draft_status" = 'active' AND "draft_paused" = false
          AND "pick_deadline_at" IS NOT NULL`
     );
-    const now = Date.now();
     for (const row of active.rows) {
-      if (new Date(row.pick_deadline_at).getTime() <= now) {
+      if (msUntilDeadline(row.pick_deadline_at) <= 0) {
         try {
           const outcome = await autoPick({ leagueId: row.id });
           if (outcome) {
