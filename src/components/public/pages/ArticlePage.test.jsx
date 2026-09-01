@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
 import ArticlePage, { articleDate } from './ArticlePage';
+import { listArticles } from '../../../content/articles';
 
 // A date-only ISO string parses as UTC midnight, so in any timezone west of
 // UTC toLocaleDateString renders the PREVIOUS day: every byline was a day
@@ -71,8 +72,17 @@ test('navigating to a related article loads its body and rebuilds the table of c
   await screen.findByRole('heading', { name: 'How to build tiers' });
 
   // The related strip links to the newest recap; this is an in-app hop, so the
-  // page keeps its component instance and only the slug changes.
-  await user.click(screen.getByRole('link', { name: /NFL Preseason Week 2 Recap/ }));
+  // page keeps its component instance and only the slug changes. Target the
+  // NEWEST recap by date (not a fixed week number): every recap carries the same
+  // "The Scoreboard"/"Fantasy Stock Risers" headings, so the link name is the
+  // only thing pinning which body this test actually loads, and pointing it at
+  // an older recap leaves it one published article away from falling out of the
+  // three-slot strip.
+  // The card's accessible name is the title plus the excerpt, so this matches
+  // the title as a substring rather than asserting the whole name.
+  const newestRecap = listArticles().find((a) => a.category === 'Recap');
+  const titlePattern = new RegExp(newestRecap.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  await user.click(screen.getByRole('link', { name: titlePattern }));
 
   expect(await screen.findByRole('heading', { name: 'The Scoreboard' })).toBeInTheDocument();
   // The nav is re-queried inside waitFor: it empties (unmounts) while the new

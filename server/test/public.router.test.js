@@ -750,6 +750,8 @@ test('GET /sitemap.xml serves static, player, and recap public URLs', async (t) 
     'streaming-defense-and-kicker',
     'playoff-prep',
     'preseason-week-1-recap',
+    'preseason-week-2-recap',
+    'preseason-week-3-recap',
     'rookie-draft-round-guide',
   ]) {
     assert.ok(

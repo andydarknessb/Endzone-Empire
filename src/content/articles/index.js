@@ -21,6 +21,7 @@ import streamingDefenseAndKicker from './streaming-defense-and-kicker.meta';
 import playoffPrep from './playoff-prep.meta';
 import preseasonWeek1Recap from './preseason-week-1-recap.meta';
 import preseasonWeek2Recap from './preseason-week-2-recap.meta';
+import preseasonWeek3Recap from './preseason-week-3-recap.meta';
 import rookieDraftRoundGuide from './rookie-draft-round-guide.meta';
 
 // One loader per article, keyed by slug. Literal import() calls so the
@@ -33,6 +34,7 @@ const BODY_LOADERS = {
   'playoff-prep': () => import('./playoff-prep'),
   'preseason-week-1-recap': () => import('./preseason-week-1-recap'),
   'preseason-week-2-recap': () => import('./preseason-week-2-recap'),
+  'preseason-week-3-recap': () => import('./preseason-week-3-recap'),
   'rookie-draft-round-guide': () => import('./rookie-draft-round-guide'),
 };
 
@@ -45,6 +47,7 @@ const ARTICLES = [
   playoffPrep,
   preseasonWeek1Recap,
   preseasonWeek2Recap,
+  preseasonWeek3Recap,
   rookieDraftRoundGuide,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
