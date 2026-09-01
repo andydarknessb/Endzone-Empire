@@ -298,8 +298,10 @@ function combinedEntryOf(row) {
  * to activityEntryOf - a Pick is never moderatable and never a tombstone.
  *
  * The Draft-activity arm restricts `kind` to USER_VISIBLE_KINDS - the positive
- * allowlist shared with the presenter reader - INSIDE its WHERE, so the internal
- * CUTOVER boundary (#436) is excluded BEFORE the per-arm LIMIT and can never
+ * member allowlist; the presenter reader filters on its own independent
+ * PRESENTER_ACTIVITY_KINDS holding the same kinds today (#619) - INSIDE its
+ * WHERE, so the internal CUTOVER boundary (#436) is excluded BEFORE the per-arm
+ * LIMIT and can never
  * consume a visible page slot (#540 AC4). Filtering after the limit would let a
  * page that happened to hold a cutover row come back short, an intermittent gap
  * with no error; filtering before it cannot. Unlike the presenter reader, the
