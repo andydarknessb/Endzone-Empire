@@ -194,6 +194,18 @@ test('autodraft toggled: the on-clock team now autodrafting gets the short delay
   assert.equal(deadline, armedAt(8), 'the short delay, floored at one second');
 });
 
+test('autodraft toggled: an offline draft arms no clock, like the other events', async (t) => {
+  // The toggle route reaches this with an active offline draft (no draft_type
+  // guard on that path), so this event must apply the offline rule too - it does
+  // not arm a divergent deadline where the five siblings arm none (#598 story 7).
+  const fake = createFakePool([armingLeagueUpdate()]).install(t);
+  const league = { draft_type: 'offline', pick_time_seconds: 90, autodraft_delay_seconds: 8 };
+
+  const deadline = await withClient(fake, (client) => pickClock.onAutodraftToggled(client, { leagueId: LEAGUE_ID, league }));
+
+  assert.equal(deadline, null, 'an offline draft never arms a clock');
+});
+
 // --- pick undone ------------------------------------------------------------
 
 test('pick undone: the turn rewinds and the team now on the clock is re-armed by the policy', async (t) => {

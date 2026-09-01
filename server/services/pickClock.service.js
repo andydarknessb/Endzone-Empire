@@ -172,16 +172,13 @@ async function onResumed(client, { leagueId }) {
  */
 async function onAutodraftToggled(client, { leagueId, league }) {
   // The team is autodrafting by definition here, so the policy resolves to the
-  // short delay (floored at one second). The offline guard is intentionally not
-  // applied: this preserves the established toggle behaviour of arming the delay
-  // for whoever is on the clock, and an offline draft never reaches an
-  // autodraft-on-the-clock toggle in practice.
-  const clockSeconds = nextPickClockSeconds({
-    draftComplete: false,
-    nextTeamAutodraft: true,
-    pickTimeSeconds: league.pick_time_seconds,
-    autodraftDelaySeconds: league.autodraft_delay_seconds,
-  });
+  // short delay (floored at one second) for a timed or untimed league. It goes
+  // through clockSecondsFor like every other event so there is one spelling
+  // (ADR 0018): an offline draft arms no clock, matching the five siblings
+  // rather than diverging (spec #598 user story 7). The toggle route reaches
+  // this with an active offline draft (no draft_type guard on that path), so
+  // `league` MUST carry draft_type or the offline rule would silently not apply.
+  const clockSeconds = clockSecondsFor({ draftComplete: false, onClockAutodraft: true, league });
   return armInPlace(client, { leagueId, clockSeconds });
 }
 

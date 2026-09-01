@@ -383,7 +383,10 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      `SELECT "owner_id", "draft_status", "current_pick", "draft_paused", "autodraft_delay_seconds",
+      // draft_type is selected because the Pick clock policy needs it: an
+      // offline draft arms no clock. It must travel with the onAutodraftToggled
+      // call below, or clockSecondsFor would read undefined and keep arming.
+      `SELECT "owner_id", "draft_status", "draft_type", "current_pick", "draft_paused", "autodraft_delay_seconds",
               "draft_rotation", "draft_order_overrides"
        FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
