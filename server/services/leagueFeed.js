@@ -465,12 +465,16 @@ async function listCombinedDraftFeed(db, { leagueId, viewerId, before = null, af
  * board was itself never reviewed. Enumerating each kind makes exposing one here
  * a DELIBERATE edit to this array, never an inherited default.
  *
- * Caveat, filed not forgotten (#633): the literal form is not itself enforced. No
- * test distinguishes this array from `[PICK, ...LIFECYCLE_KINDS, CORRECTION]` - a
- * re-spread yields a byte-identical array and the whole suite still passes - so
- * nothing here stops a future edit from silently restoring the spread; #633 holds
- * whether to build that guard. What IS enforced is the complementary half (below):
- * an append to LIFECYCLE_KINDS turns the #540 equality pin red.
+ * The literal form is itself enforced (#633). A value-comparing test cannot see
+ * it - a re-spread of `[PICK, ...LIFECYCLE_KINDS, CORRECTION]` yields a
+ * byte-identical array and the whole suite still passes - so the guard reads the
+ * SOURCE FORM instead: presenterDraftActivity.service.test.js extracts this
+ * initialiser expression (its `Object.freeze([ ... ])`, scoped off this comment)
+ * and asserts it holds no spread token, failing loudly if the declaration is ever
+ * renamed rather than matching nothing. That is the consumer of the "literal,
+ * never a spread" rule; a future edit that silently restores the spread turns it
+ * red. What IS enforced complementarily (below): an append to LIFECYCLE_KINDS
+ * turns the #540 equality pin red.
  *
  * It holds the SAME kinds as the member feed's USER_VISIBLE_KINDS today, but is
  * declared INDEPENDENTLY (#540), NOT aliased to it and no longer sharing its

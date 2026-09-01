@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { createFakePool } = require('./helpers/fakePool');
 const { listPresenterDraftActivity, PRESENTER_ACTIVITY_KINDS } = require('../services/leagueFeed');
 
@@ -90,6 +91,50 @@ test('the presenter kinds are a positive ALLOWLIST that excludes the cutover bou
   );
   assert.ok(!PRESENTER_ACTIVITY_KINDS.includes('cutover'), 'the cutover boundary is never a presenter kind');
   assert.deepEqual(query.params[1], PRESENTER_ACTIVITY_KINDS, 'the allowlist rides as the $2 bound param');
+});
+
+test('the PRESENTER_ACTIVITY_KINDS initialiser is spelled out LITERALLY, never a spread (#633)', () => {
+  // The list's whole privacy value is that every approved kind is enumerated
+  // literally (#619): a re-spread of `[PICK, ...LIFECYCLE_KINDS, CORRECTION]`
+  // yields a byte-identical array, so every value-comparing assertion above
+  // (deepEqual, includes, the sorted copy) stays green if the literal is silently
+  // restored to a spread. This is the ONE assertion that reads the SOURCE FORM,
+  // which is the whole protection #619 established and which nothing else audits.
+  //
+  // Resolve the module by the SAME specifier this file already requires, so a
+  // file move tracks automatically and this never carries a second hardcoded path.
+  const source = fs.readFileSync(require.resolve('../services/leagueFeed'), 'utf8');
+
+  // Extract ONLY the initialiser expression, from its `Object.freeze([` to the
+  // matching `])`. Anchoring on the DECLARATION keeps the extraction off the doc
+  // comment above the array, which names `...LIFECYCLE_KINDS` several times to
+  // explain the convention (ADR 0010: documenting a pattern means writing an
+  // example of it), so a whole-file or comment-spanning check would fire on its
+  // own documentation.
+  const initialiser = source.match(
+    /const PRESENTER_ACTIVITY_KINDS = Object\.freeze\(\[([\s\S]*?)\]\)/
+  );
+
+  // Assert the declaration was FOUND before asserting anything about its contents.
+  // A silent no-match is indistinguishable from a match that found no spread, so
+  // a rename or move must turn this guard RED by extraction failure, never leave
+  // it vacuously green. This is the anti-orphan half of the guard.
+  assert.ok(
+    initialiser,
+    'could not locate `const PRESENTER_ACTIVITY_KINDS = Object.freeze([ ... ])` in ' +
+      'leagueFeed.js; if the declaration was renamed or moved, update this guard ' +
+      'rather than let it match nothing'
+  );
+
+  // With the declaration located, its initialiser must contain no spread token:
+  // a new lifecycle kind must never reach the anonymous presenter board without a
+  // deliberate edit to this array (#619).
+  assert.ok(
+    !initialiser[1].includes('...'),
+    'PRESENTER_ACTIVITY_KINDS must enumerate its kinds LITERALLY and never spread ' +
+      'LIFECYCLE_KINDS (#619): a re-spread lets a future lifecycle kind reach the ' +
+      'anonymous presenter board with no reviewed edit to this array'
+  );
 });
 
 test('never projects the commissioner correction reason (un-vetted free-text)', async () => {
