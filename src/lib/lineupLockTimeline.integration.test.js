@@ -94,6 +94,19 @@ function createDatabaseFixture() {
             .map((row) => ({ ...row, slot: state.slots.get(row.player_id) })),
         };
       }
+      if (sql.includes('"team_players"."player_id" IS NULL')) {
+        // #627: the spent-slot read - surviving as-played rows of players no
+        // longer on the roster. Derived from the same state as everything
+        // else: in this fixture a dropped player's row is deleted with him
+        // (pre-kickoff), so the answer is empty unless a test builds the
+        // post-kickoff survival state.
+        return {
+          rows: playerRows
+            .filter((row) => !state.rostered.has(row.player_id) && state.slots.has(row.player_id))
+            .map((row) => ({ position: row.position, slot: state.slots.get(row.player_id) }))
+            .filter((row) => row.slot !== 'BENCH' && row.slot !== 'IR'),
+        };
+      }
       if (sql.includes('FROM "nfl_games"') && sql.includes('"kickoff_at" <= $3')) {
         const serverNow = new Date(values[2]);
         return { rows: games.filter((game) => game.kickoff_at <= serverNow) };

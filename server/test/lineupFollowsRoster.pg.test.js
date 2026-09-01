@@ -458,4 +458,55 @@ if (!ENABLED) {
       'the current and future weeks went; the past week, the record of a week as played, did not'
     );
   });
+
+  test('spentStartingSlots returns exactly the off-roster starting rows of the week (#627)', async () => {
+    // The predicate no fake can prove: the anti-join against team_players and
+    // the BENCH/IR and week scoping, against real rows. The unit tests assert
+    // the query's text; this asserts what Postgres does with it.
+    const { spentStartingSlots } = require('../services/lineup.service');
+
+    const league = await pool.query(
+      `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "current_season", "current_week")
+       VALUES ('PG Spent Slots', $1, 'pgspent', $2, $3) RETURNING "id"`,
+      [userId, SEASON, CURRENT_WEEK]
+    );
+    leagueIds.push(league.rows[0].id);
+    const spentLeagueId = league.rows[0].id;
+    const team = await pool.query(
+      `INSERT INTO "teams" ("league_id", "owner_id", "name")
+       VALUES ($1, $2, 'PG Spent Team') RETURNING "id"`,
+      [spentLeagueId, userId]
+    );
+    const teamId = team.rows[0].id;
+
+    // Kept is ROSTERED and starting; Kicked, Open and Bye hold rows with no
+    // team_players behind them: a starter (the one the read is for), a bench
+    // row and an IR row. A second off-roster starter row sits in the NEXT
+    // week to pin the week predicate.
+    await pool.query(
+      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+      [spentLeagueId, teamId, playerIds.Kept]
+    );
+    const seed = [
+      [playerIds.Kept, CURRENT_WEEK, 'QB'],
+      [playerIds.KickedOff, CURRENT_WEEK, 'RB'],
+      [playerIds.Open, CURRENT_WEEK, 'BENCH'],
+      [playerIds.Bye, CURRENT_WEEK, 'IR'],
+      [playerIds.KickedOff, FUTURE_WEEK, 'WR'],
+    ];
+    for (const [playerId, week, slot] of seed) {
+      await pool.query(
+        `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot")
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [spentLeagueId, teamId, playerId, SEASON, week, slot]
+      );
+    }
+
+    const spent = await spentStartingSlots(pool, { teamId, season: SEASON, week: CURRENT_WEEK });
+
+    assert.deepEqual(
+      spent, [{ player_id: null, position: 'RB', slot: 'RB' }],
+      'the off-roster starter and nothing else: not the rostered starter, not the off-roster BENCH/IR rows, not another week'
+    );
+  });
 }
