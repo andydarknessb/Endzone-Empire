@@ -3378,6 +3378,185 @@ describe('room-level Pick announcement across narrow tabs (#513)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Room-level stall announcement (#648). A nothing-draftable stall (#602) must
+// be spoken wherever the manager is in the room - on EVERY narrow tab and once
+// on wide - by the room-level StallAnnouncer in the chrome, fed by the live-only
+// draft:activity socket seam, NOT by the chat-subtree feed. Before this ticket
+// the stall announcer consumed the combined feed and so unmounted with the Chat
+// tab on a narrow container, leaving a screen-reader user on Players/Board/Draft
+// silent when the draft froze - the exact gap #513 already closed for Picks.
+//
+// The counting discipline mirrors #513: assertions COUNT the role="status"
+// regions carrying the announcer's copy and assert exactly one. The VISIBLE
+// stuck-state feed line (DraftActivityEntry.StalledActivityLine) also contains
+// this text, but it is plain Typography inside the role="log" feed, never a
+// role="status" region, so it is not counted - a stall reaching the feed on the
+// Chat tab must not read as a second status announcement.
+// ---------------------------------------------------------------------------
+
+// The announcer-only next-step sentence, distinctive enough to count status
+// regions by. stallAnnouncementFor puts it after the cause; the visible feed
+// caption repeats it, but that caption is not a status region (see above).
+const STALL_NEXT_STEP = 'A commissioner must resolve and resume';
+
+// A live stalled draft_activity entry as the server broadcasts it on the league
+// room's draft:activity event (pickClock.service escalation -> draftActivityBroadcast).
+// Same shape the feed's StalledActivityLine renders and the room-level seam records.
+const stalledEntry = (overrides = {}) => ({
+  type: 'draft_activity',
+  kind: 'stalled',
+  id: 30,
+  seq: 30,
+  teamName: 'MinneApple',
+  created_at: '2026-09-01T12:10:00Z',
+  ...overrides,
+});
+
+// Fire one live stall on the shared session's draft:activity event. Both the
+// room-level seam (useDraftSocket) and, where Chat is mounted, the feed hook
+// (useDraftRoomFeed) listen on this one session, so a double-speech regression
+// (a stall announced through a status region twice) would show as a count of two.
+const landStall = (overrides = {}) => {
+  act(() => fakeSocket.trigger('draft:activity', stalledEntry(overrides)));
+};
+
+describe('room-level stall announcement, wide layout (#648)', () => {
+  // Default zero-width jsdom measurement reads as wide, so the Chat feed and its
+  // announcer are mounted at once beside the board - the "exactly once when Chat
+  // is mounted" case.
+  const showWideActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1); // viewer holds Team A
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A })));
+    await screen.findByRole('heading', { level: 2, name: 'League Chat' });
+  };
+
+  test('announces a live stall exactly once with Chat mounted beside the board (AC2)', async () => {
+    await showWideActiveDraft();
+    // Seed the feed so a regression that spoke the stall through the chat subtree
+    // would surface as a second status region rather than hide.
+    seedFeed();
+    landStall();
+
+    await waitFor(() => expect(announcementsSaying(STALL_NEXT_STEP)).toHaveLength(1));
+  });
+
+  test('opening onto an already-stalled draft (backlog ends in a stall) announces nothing (AC3)', async () => {
+    // The opening backlog arrives on the feed's REST fetch, which the live-only
+    // socket seam never sees: a room opening onto a stuck draft is a STATE to
+    // read, not a live freeze to announce.
+    apiClient.get.mockImplementation((url) =>
+      String(url).includes('/draft-feed')
+        ? Promise.resolve({ data: [stalledEntry({ id: 9, seq: 9 })] })
+        : Promise.resolve(playersPage())
+    );
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_A })));
+
+    // The VISIBLE stuck-state line renders from the feed backlog...
+    expect(await screen.findByText(/the draft is stuck on/i)).toBeInTheDocument();
+    // ...but no status region announces it: backlog never reaches the live seam.
+    expect(announcementsSaying(STALL_NEXT_STEP)).toHaveLength(0);
+  });
+
+  test('a live stall does not overwrite a standing unread chat announcement (AC4, #636 AC2 at room level)', async () => {
+    await showWideActiveDraft();
+    seedFeed(); // seq 50, seeds the feed announcer silently
+    // A live human message from another Team writes the feed announcer's region.
+    act(() =>
+      fakeSocket.trigger('chat:message', {
+        type: 'league_chat', seq: 60, id: 'c60', teamId: 99, teamName: 'Rivals', message: 'gg',
+      })
+    );
+    const chatRegion = await waitFor(() => {
+      const region = screen.getAllByRole('status').find((r) => /New message from Rivals/.test(r.textContent));
+      expect(region).toBeDefined();
+      return region;
+    });
+    const chatTextBefore = chatRegion.textContent;
+
+    // Then the draft freezes live.
+    landStall();
+
+    // The stall is spoken in its OWN status region, distinct from the chat one...
+    const stallRegion = await waitFor(() => {
+      const region = screen.getAllByRole('status').find((r) => /the draft is stuck on/i.test(r.textContent));
+      expect(region).toBeDefined();
+      return region;
+    });
+    expect(stallRegion).toHaveTextContent('no draftable player');
+    expect(stallRegion).toHaveTextContent(STALL_NEXT_STEP);
+    expect(stallRegion.textContent).not.toMatch(/stalled the draft/i);
+
+    // ...and the chat announcement is EXACTLY unchanged: same node, byte-identical
+    // text (toBe on raw textContent catches a spurious re-announce or ZWSP flip).
+    expect(stallRegion).not.toBe(chatRegion);
+    expect(chatRegion.textContent).toBe(chatTextBefore);
+    expect(chatRegion.textContent).toBe('New message from Rivals');
+  });
+});
+
+describe('room-level stall announcement across narrow tabs (#648)', () => {
+  mockNarrowContainer();
+
+  const showNarrowActiveDraft = async () => {
+    renderBoard(1);
+    await screen.findByRole('tab', { name: 'Chat' });
+    connectAsTeam(1);
+    act(() =>
+      fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+        teams: [TEAM_A, TEAM_B],
+        onTheClock: TEAM_A,
+      }))
+    );
+  };
+
+  // Every narrow tab must hear a live stall, including the three that do NOT
+  // mount the Chat feed at all - the exact gap this ticket closes. On the Chat
+  // tab the feed IS mounted, so that case also proves no double speech there.
+  // Removing the chrome mount in a throwaway commit turns the non-Chat cases red
+  // (and, since the chat-scoped mount is removed per this ticket, the Chat case
+  // too): the room-level announcer is the only voice.
+  test.each(['Chat', 'Players', 'Board', 'Draft'])(
+    'announces a live stall exactly once while the %s tab is selected (AC1)',
+    async (tab) => {
+      await showNarrowActiveDraft();
+      await userEvent.click(screen.getByRole('tab', { name: tab }));
+      // Seed the feed only where it is mounted (the Chat tab); elsewhere the feed
+      // is unmounted and the room-level announcer is the only voice.
+      if (tab === 'Chat') seedFeed();
+      landStall();
+
+      await waitFor(() => expect(announcementsSaying(STALL_NEXT_STEP)).toHaveLength(1));
+    }
+  );
+
+  test('does not replay a stall when a narrow tab is switched away and back', async () => {
+    // The room-level announcer lives in the chrome, which never unmounts on a tab
+    // switch, and lastStall does not change when the tab does - so a stall is
+    // neither re-announced nor replayed on return.
+    await showNarrowActiveDraft(); // opens on Chat
+    landStall();
+    const stallRegion = await waitFor(() => {
+      const region = screen.getAllByRole('status').find((r) => r.textContent.includes(STALL_NEXT_STEP));
+      expect(region).toBeTruthy();
+      return region;
+    });
+    const textAfterStall = stallRegion.textContent;
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Players' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+
+    const sameRegion = screen.getAllByRole('status').find((r) => r.textContent.includes(STALL_NEXT_STEP));
+    expect(sameRegion).toBe(stallRegion);
+    expect(sameRegion.textContent).toBe(textAfterStall);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The final Pick and Draft completion (#519). The last live Pick and the
 // completion must be ONE ordered polite update - Team and player first, then
 // "Draft complete." - and the visible "Draft complete!" success Alert must stay
