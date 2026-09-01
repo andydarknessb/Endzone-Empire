@@ -185,8 +185,8 @@ function CorrectionActivityLine({ entry }) {
 
 // Route a Draft-activity entry to the right event-line renderer by kind. A Pick
 // shows its snapshot facts; a correction is an explicit commissioner act; the
-// four verbed lifecycle transitions plus completion are event lines; a stall
-// is its own stuck-state line (#620), not an actor-ful lifecycle transition.
+// verbed lifecycle transitions plus completion are event lines; a stall is its
+// own stuck-state line (#620), not an actor-ful lifecycle transition.
 // Any OTHER kind - an internal boundary like cutover, or a kind not yet
 // invented - renders NOTHING rather than being coerced into a generic Team
 // action (#540 AC6): the component refuses to guess. Returning null means no
