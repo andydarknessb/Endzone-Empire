@@ -126,4 +126,20 @@ describe('DraftActivityEntry still renders the known kinds (regression)', () => 
     );
     expect(screen.getByText(/paused the draft/i)).toBeInTheDocument();
   });
+
+  it('renders the nothing-draftable escalation (#602) naming the stuck Team', () => {
+    // A STALLED entry is a lifecycle event, so it reads as "<Team> stalled the
+    // draft" through the shared verb map - the stuck team named, no Pick facts.
+    // Falsifiable: drop the LIFECYCLE_VERB `stalled` entry and this renders
+    // nothing (the renderer refuses an unknown kind), so this goes red.
+    render(
+      <DraftActivityEntry entry={{
+        type: 'draft_activity', kind: 'stalled', teamName: 'MinneApple',
+        created_at: '2026-09-01T00:00:00.000Z',
+      }} />
+    );
+    expect(screen.getByText(/minneapple/i)).toBeInTheDocument();
+    expect(screen.getByText(/stalled the draft/i)).toBeInTheDocument();
+    expect(screen.getByTestId('draft-activity')).toBeInTheDocument();
+  });
 });
