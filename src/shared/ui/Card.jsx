@@ -11,11 +11,13 @@ import { Box, Paper, Typography } from '@mui/material';
  * composed by every widget and importing nothing above it. Colors come only
  * from `--dash-*` tokens, never literals.
  *
- * The card renders as a landmark `section`. When a `title` is given it is a
- * real heading (level 2 by default, override with `headingLevel`) and labels
- * the section, so a screen-reader user can navigate cards by heading. The body
- * carries no padding of its own, so a widget can lay a flush table or its own
- * padded content inside.
+ * The card renders as a `section` element. When a `title` is given it becomes
+ * a labelled landmark region: the title is a real heading (level 2 by default,
+ * override with `headingLevel`) and labels the section, so a screen-reader user
+ * can navigate cards by heading. Without a title it is a plain `section` with
+ * no accessible name, so it is NOT announced as a landmark (a nameless region
+ * would only add noise). The body carries no padding of its own, so a widget
+ * can lay a flush table or its own padded content inside.
  */
 export default function Card({
   title,
@@ -71,13 +73,13 @@ export default function Card({
           >
             {title}
           </Typography>
-          {/* count and tail are 12px, so they use `dash-dim` (AA_TEXT), not
-              the `dash-faint` tier (AA_LARGE) which is below AA for small
-              text. See the faint note in tokens.js / tokens.contrast.test.js. */}
+          {/* count and tail are the de-emphasized `dash-faint` tier, which
+              clears AA_TEXT on every surface (see tokens.js / the faint note
+              in tokens.contrast.test.js), so it is safe for this 12px text. */}
           {count != null && (
             <Typography
               component="span"
-              sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-dim)' }}
+              sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-faint)' }}
             >
               {count}
             </Typography>
@@ -85,7 +87,7 @@ export default function Card({
           {tail != null && (
             <Box
               component="span"
-              sx={{ ml: 'auto', fontSize: '12px', color: 'var(--dash-dim)' }}
+              sx={{ ml: 'auto', fontSize: '12px', color: 'var(--dash-faint)' }}
             >
               {tail}
             </Box>

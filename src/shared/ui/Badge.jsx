@@ -24,10 +24,17 @@ const VARIANT_SX = {
     color: 'var(--dash-accent)',
     border: '1px solid var(--dash-accent-line)',
   },
+  // The "You" pill shares the accent palette with `live` but is its own thing
+  // in the mockup (`.you`): smaller, heavier, wider tracking. Keeping its type
+  // distinct is what makes it read as an identity marker rather than a status
+  // chip when the two sit near each other.
   you: {
     backgroundColor: 'var(--dash-accent-soft)',
     color: 'var(--dash-accent)',
     border: '1px solid var(--dash-accent-line)',
+    fontSize: '10.5px',
+    fontWeight: 700,
+    letterSpacing: '0.08em',
   },
 };
 

@@ -238,13 +238,12 @@ const PAIRINGS = [
   // `dash-dim`, `dash-faint`) sit on four surfaces (`dash-bg` the page and the
   // three card/tile surfaces `dash-surface`/`-surface2`/`-surface3`):
   //   * ink and dim carry small essential text, so AA_TEXT (4.5).
-  //   * faint is the de-emphasized label tier (uppercase stat/table labels,
-  //     counts, captions). It is held to AA_LARGE (3.0) as a documented floor,
-  //     the same non-standard-basis treatment HOVER_DELTA gets above: faint is
-  //     reserved for large or non-essential secondary text, and widgets use
-  //     `dash-dim` for any small essential label (noted on `dash-faint` in
-  //     tokens.js, which was lightened from the mockup value to clear 3.0 on
-  //     the lightest surface).
+  //   * faint is the lightest muted tier (uppercase stat/table labels, counts,
+  //     captions, short prose). The mockup uses it only at small sizes
+  //     (11-12.5px), which WCAG treats as normal text, so it is held to
+  //     AA_TEXT (4.5) too, not the large-text 3.0. `dash-faint` was lightened
+  //     from the mockup value so it clears 4.5 on every surface (tokens.js);
+  //     it needs no "large text only" caveat.
   pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
   pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
   pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),
@@ -253,10 +252,10 @@ const PAIRINGS = [
   pairing('dash-dim', 'dash-surface', AA_TEXT, 'dashboard muted text on a card'),
   pairing('dash-dim', 'dash-surface2', AA_TEXT, 'dashboard muted text on a stat tile'),
   pairing('dash-dim', 'dash-surface3', AA_TEXT, 'dashboard muted text on the raised tile'),
-  pairing('dash-faint', 'dash-bg', AA_LARGE, 'dashboard faint label on the page'),
-  pairing('dash-faint', 'dash-surface', AA_LARGE, 'dashboard faint label on a card'),
-  pairing('dash-faint', 'dash-surface2', AA_LARGE, 'dashboard faint label on a stat tile'),
-  pairing('dash-faint', 'dash-surface3', AA_LARGE, 'dashboard faint label on the raised tile'),
+  pairing('dash-faint', 'dash-bg', AA_TEXT, 'dashboard faint label on the page'),
+  pairing('dash-faint', 'dash-surface', AA_TEXT, 'dashboard faint label on a card'),
+  pairing('dash-faint', 'dash-surface2', AA_TEXT, 'dashboard faint label on a stat tile'),
+  pairing('dash-faint', 'dash-surface3', AA_TEXT, 'dashboard faint label on the raised tile'),
   // The "You" pill and live chip: accent text on the accent-soft tint (#203
   // compositing pattern). A badge is a floating element, so the tint can sit
   // on any of the four surfaces: the mockup's `.chip.live` is on the page
@@ -276,6 +275,22 @@ const PAIRINGS = [
   pairing('dash-on-grade', 'dash-grade-c', AA_TEXT, 'grade C chip letter'),
   pairing('dash-on-grade', 'dash-grade-d', AA_TEXT, 'grade D chip letter'),
   pairing('dash-on-grade', 'dash-grade-f', AA_TEXT, 'grade F chip letter'),
+  // Grade as TEXT (not a chip fill): the mockup paints the my-team draft grade
+  // as colored text on a tile (`.stat .v`, dashboard-concept.html), and the
+  // vivid fills above are unreadable as text on a light surface (grade-a would
+  // be 1.72 on surface2). `dash-grade-*-text` are the legible-as-text tokens,
+  // guarded on the card and stat-tile surfaces a grade value sits on, both
+  // modes, so a widget cannot ship grade text unguarded (finding #1, PR #650).
+  pairing('dash-grade-a-text', 'dash-surface', AA_TEXT, 'grade A as text on a card'),
+  pairing('dash-grade-a-text', 'dash-surface2', AA_TEXT, 'grade A as text on a stat tile'),
+  pairing('dash-grade-b-text', 'dash-surface', AA_TEXT, 'grade B as text on a card'),
+  pairing('dash-grade-b-text', 'dash-surface2', AA_TEXT, 'grade B as text on a stat tile'),
+  pairing('dash-grade-c-text', 'dash-surface', AA_TEXT, 'grade C as text on a card'),
+  pairing('dash-grade-c-text', 'dash-surface2', AA_TEXT, 'grade C as text on a stat tile'),
+  pairing('dash-grade-d-text', 'dash-surface', AA_TEXT, 'grade D as text on a card'),
+  pairing('dash-grade-d-text', 'dash-surface2', AA_TEXT, 'grade D as text on a stat tile'),
+  pairing('dash-grade-f-text', 'dash-surface', AA_TEXT, 'grade F as text on a card'),
+  pairing('dash-grade-f-text', 'dash-surface2', AA_TEXT, 'grade F as text on a stat tile'),
   // The primary button: `dash-on-accent` label on the accent fill. AA_LARGE,
   // matching how `on-accent`/`accent` is held above (button label = UI text).
   pairing('dash-on-accent', 'dash-accent', AA_LARGE, 'dashboard primary button label on accent'),

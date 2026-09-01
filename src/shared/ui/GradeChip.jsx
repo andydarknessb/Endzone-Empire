@@ -27,7 +27,13 @@ const GRADE_TOKENS = {
 
 export default function GradeChip({ grade, sx, ...rest }) {
   const key = typeof grade === 'string' ? grade.toUpperCase() : '';
-  const backgroundColor = GRADE_TOKENS[key] ?? 'var(--dash-surface2)';
+  const known = Object.prototype.hasOwnProperty.call(GRADE_TOKENS, key);
+  const backgroundColor = known ? GRADE_TOKENS[key] : 'var(--dash-surface2)';
+  // On a real grade fill the dark `dash-on-grade` letter clears AA. On the
+  // neutral fallback fill it would not (on-grade on surface2 is 1.22:1 in
+  // dark, invisible), so the fallback letter uses `dash-ink` instead, which
+  // clears AA on surface2 in both modes (13.41 dark, 16.13 light).
+  const color = known ? 'var(--dash-on-grade)' : 'var(--dash-ink)';
 
   return (
     <Avatar
@@ -38,7 +44,7 @@ export default function GradeChip({ grade, sx, ...rest }) {
         width: 26,
         height: 26,
         backgroundColor,
-        color: 'var(--dash-on-grade)',
+        color,
         fontFamily: 'var(--dash-font-display)',
         fontSize: '14px',
         fontWeight: 700,
