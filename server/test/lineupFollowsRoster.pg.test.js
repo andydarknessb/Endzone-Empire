@@ -489,10 +489,10 @@ if (!ENABLED) {
     );
     const seed = [
       [playerIds.Kept, CURRENT_WEEK, 'QB'],
-      [playerIds.Kicked, CURRENT_WEEK, 'RB'],
+      [playerIds.KickedOff, CURRENT_WEEK, 'RB'],
       [playerIds.Open, CURRENT_WEEK, 'BENCH'],
       [playerIds.Bye, CURRENT_WEEK, 'IR'],
-      [playerIds.Kicked, FUTURE_WEEK, 'WR'],
+      [playerIds.KickedOff, FUTURE_WEEK, 'WR'],
     ];
     for (const [playerId, week, slot] of seed) {
       await pool.query(
