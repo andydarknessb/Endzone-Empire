@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const { notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySideWhereSql } = require('./leagueType');
+const pickClock = require('./pickClock.service');
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -160,7 +161,6 @@ async function runAction(league, action) {
 /** The 'start' scheduled action: start the draft, or flag+notify if it can't start right now. */
 async function runStartAction(league) {
   const { startDraft } = require('./draftStart.service');
-  const pickClock = require('./pickClock.service');
   let started;
   try {
     started = await startDraft({ leagueId: league.id, userId: null });

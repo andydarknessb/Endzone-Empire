@@ -94,9 +94,11 @@ test('worker scheduled autostart of an untimed (or keeper-complete) draft arms n
   await processScheduledDrafts({ now: new Date() });
 
   // Positive control: the identical spy captured a real deadline in the AC1
-  // test above, so it is not blind; here it sees only a null, which
-  // armExpiryTimer treats as cancel-without-arming - no timer is armed.
-  assert.deepEqual(armed, [{ leagueId: LEAGUE_ID, dl: null }], 'a null deadline arms nothing');
+  // test above, so it is not blind. What this test proves is that the seam
+  // reached the arm and passed null; that a null deadline actually arms nothing
+  // is proved by the end-to-end sibling below (armExpiryTimer is stubbed here,
+  // so its cancel-without-arming behaviour cannot be observed from this test).
+  assert.deepEqual(armed, [{ leagueId: LEAGUE_ID, dl: null }], 'the seam passed a null deadline to the arm');
 });
 
 test('a worker scheduled start that rolls back arms nothing (#615 AC4)', async (t) => {
