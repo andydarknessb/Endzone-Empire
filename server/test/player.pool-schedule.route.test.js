@@ -192,9 +192,8 @@ test('GET players reports league-local ownership and filters rostered identities
     }
     if (text.includes('FROM "nfl_games"')) return { rows: NFL_GAMES };
     if (text.includes('FROM "player_season_stats"')) return { rows: [] };
-    if (text.includes('FROM "team_players" JOIN "teams"')) {
-      return { rows: [{ player_id: 500, team_id: 9, team_name: 'Harbor Hawks', avatar_url: null, avatar_static_url: null }] };
-    }
+    if (text.includes('COUNT(*)::int AS "roster_count"')) return { rows: [{ roster_count: 0 }] };
+    if (text.includes('FROM "team_players"')) return { rows: [{ player_id: 500, team_id: 9 }] };
     if (text.includes('FROM "waiver_players"')) return { rows: [] };
     throw new Error(`unexpected query: ${text}`);
   });
@@ -205,10 +204,7 @@ test('GET players reports league-local ownership and filters rostered identities
 
   assert.equal(res.status, 200);
   assert.match(playersSql, /NOT EXISTS \([\s\S]*"team_players"[\s\S]*identity_ids/);
-  assert.deepEqual(res.body.players[0].availability, {
-    state: 'ROSTERED_BY_OTHER_TEAM',
-    team: { teamId: 9, teamName: 'Harbor Hawks', avatarUrl: null, avatarStaticUrl: null },
-  });
+  assert.deepEqual(res.body.players[0].availability, { state: 'rostered' });
 });
 
 test('GET players refuses a league-scoped availability read to a non-member', async (t) => {

@@ -1,14 +1,20 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
-const { requireMember } = require('../services/leagueMembership.service');
 const { draftPlayer } = require('../services/draft.service');
-const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const {
-  rulesForLeague, buildPlayerSummary, projectSeasonPoints, getSeasonPositionRank,
+  rulesForLeague,
+  buildPlayerSummary,
+  projectSeasonPoints,
+  getSeasonPositionRank,
   IDP_POSITIONS,
 } = require('../services/scoring.service');
-const { computeByeWeek, computeByeWeeks, REG_SEASON_WEEKS } = require('../services/bye.service');
+const {
+  computeByeWeek,
+  computeByeWeeks,
+  REG_SEASON_WEEKS,
+} = require('../services/bye.service');
+const { requireMember } = require('../services/leagueMembership.service');
 
 const router = express.Router();
 
@@ -19,7 +25,20 @@ const PAGE_SIZE = 25;
 // the whole defensive-line group. Limited to the codes Tank01 actually
 // reports (confirmed live): DE, DT, LB, CB, S, DB — NT/ILB/OLB/FS/SS/DL
 // exist in POSITION_GROUPS as a safety net but have ~zero real rows.
-const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DE', 'DT', 'LB', 'CB', 'S', 'DB'];
+const POSITIONS = [
+  'QB',
+  'RB',
+  'WR',
+  'TE',
+  'K',
+  'DEF',
+  'DE',
+  'DT',
+  'LB',
+  'CB',
+  'S',
+  'DB',
+];
 
 // Short-lived in-memory cache for the player summary. Keyed by player + league
 // (scoring rules differ per league), so a draft room hammering this endpoint
@@ -29,9 +48,16 @@ const SUMMARY_TTL_MS = 30_000;
 const summaryCache = new Map();
 
 function playerIdentityKey(player) {
-  const name = String(player.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  const position = String(player.position || '').trim().toUpperCase();
-  const team = String(player.nfl_team || '').trim().toUpperCase();
+  const name = String(player.name || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  const position = String(player.position || '')
+    .trim()
+    .toUpperCase();
+  const team = String(player.nfl_team || '')
+    .trim()
+    .toUpperCase();
   return `${name}\u0000${position}\u0000${team}`;
 }
 
@@ -61,59 +87,55 @@ function summaryCacheSet(key, value) {
   summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
 }
 
-async function attachLeagueAvailability(players, { league, viewerTeamId, identityIdsByPlayerId }) {
-  if (players.length === 0) return;
-  const identityIds = [...new Set(players.flatMap((player) => identityIdsByPlayerId.get(player.id) || [player.id]))];
+const AVAILABILITY_STATES = new Set([
+  'free_agent',
+  'waivers',
+  'my_team',
+  'rostered',
+]);
+
+async function attachLeagueAvailability(players, { leagueId, teamId, blanketWaiversOpen }) {
+  const identityIds = [
+    ...new Set(players.flatMap((player) => player.identity_ids || [player.id])),
+  ];
+  if (identityIds.length === 0) return;
+
   const [rosterResult, waiverResult] = await Promise.all([
     pool.query(
-      `SELECT "team_players"."player_id", "teams"."id" AS "team_id", "teams"."name" AS "team_name",
-              "teams"."avatar_url", "teams"."avatar_static_url"
-       FROM "team_players" JOIN "teams" ON "teams"."id" = "team_players"."team_id"
-       WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = ANY($2::int[])`,
-      [league.id, identityIds]
+      `SELECT "team_id", "player_id" FROM "team_players"
+       WHERE "league_id" = $1 AND "player_id" = ANY($2)`,
+      [leagueId, identityIds],
     ),
     pool.query(
-      `SELECT "player_id" FROM "waiver_players"
-       WHERE "league_id" = $1 AND "player_id" = ANY($2::int[]) AND "available_at" > now()`,
-      [league.id, identityIds]
+      `SELECT "player_id", "available_at" FROM "waiver_players"
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
+      [leagueId, identityIds],
     ),
   ]);
-  const canonicalByIdentityId = new Map();
-  for (const player of players) {
-    for (const identityId of identityIdsByPlayerId.get(player.id) || [player.id]) {
-      canonicalByIdentityId.set(Number(identityId), player.id);
-    }
-  }
-  const rosterByPlayerId = new Map();
-  for (const row of rosterResult.rows) {
-    const canonicalId = canonicalByIdentityId.get(Number(row.player_id));
-    if (canonicalId != null && !rosterByPlayerId.has(canonicalId)) rosterByPlayerId.set(canonicalId, row);
-  }
-  const waivedPlayerIds = new Set(
-    waiverResult.rows
-      .map((row) => canonicalByIdentityId.get(Number(row.player_id)))
-      .filter((playerId) => playerId != null)
+  const rosterTeamByPlayerId = new Map(
+    rosterResult.rows.map((row) => [row.player_id, row.team_id]),
   );
-  const blanketWaiversOpen = league.waivers_clear_at && new Date(league.waivers_clear_at) > new Date();
+  const waiverByPlayerId = new Map(
+    waiverResult.rows.map((row) => [row.player_id, row.available_at]),
+  );
+
   for (const player of players) {
-    const rostered = rosterByPlayerId.get(player.id);
-    if (rostered) {
-      player.availability = rostered.team_id === viewerTeamId
-        ? { state: 'ROSTERED_BY_VIEWER' }
-        : {
-            state: 'ROSTERED_BY_OTHER_TEAM',
-            team: {
-              teamId: rostered.team_id,
-              teamName: rostered.team_name,
-              avatarUrl: rostered.avatar_url,
-              avatarStaticUrl: rostered.avatar_static_url,
-            },
-          };
-    } else if (waivedPlayerIds.has(player.id) || blanketWaiversOpen) {
-      player.availability = { state: 'ON_WAIVERS' };
-    } else {
-      player.availability = { state: 'FREE_AGENT' };
+    const identities = player.identity_ids || [player.id];
+    const rosterTeamId = identities
+      .map((id) => rosterTeamByPlayerId.get(id))
+      .find(Boolean);
+    if (rosterTeamId) {
+      player.availability = {
+        state: rosterTeamId === teamId ? 'my_team' : 'rostered',
+      };
+      continue;
     }
+    const availableAt = identities
+      .map((id) => waiverByPlayerId.get(id))
+      .find(Boolean);
+    player.availability = availableAt || blanketWaiversOpen
+      ? { state: 'waivers', availableAt }
+      : { state: 'free_agent' };
   }
 }
 
@@ -124,17 +146,21 @@ async function attachLeagueAvailability(players, { league, viewerTeamId, identit
 // of the pool actually needs this (see the projectionSort branch below: only
 // a sort BY this field needs it computed for the whole matching pool before
 // the pool can be paginated; everything else only needs it for the page).
-async function attachProjectedPoints(list, { projectionRules, currentSeasonYear }) {
+async function attachProjectedPoints(
+  list,
+  { projectionRules, currentSeasonYear },
+) {
   const ids = list.map((p) => p.id);
   if (ids.length === 0) return;
   const seasonRes = await pool.query(
     `SELECT "player_id", "season", "games_played", "stats", "fantasy_points"
      FROM "player_season_stats" WHERE "player_id" = ANY($1)`,
-    [ids]
+    [ids],
   );
   const seasonByPlayer = new Map();
   for (const row of seasonRes.rows) {
-    if (!seasonByPlayer.has(row.player_id)) seasonByPlayer.set(row.player_id, []);
+    if (!seasonByPlayer.has(row.player_id))
+      seasonByPlayer.set(row.player_id, []);
     seasonByPlayer.get(row.player_id).push(row);
   }
   for (const p of list) {
@@ -146,7 +172,7 @@ async function attachProjectedPoints(list, { projectionRules, currentSeasonYear 
   }
 }
 
-// GET /api/players?page=N&position=QB[&leagueId=N&available=true]
+// GET /api/players?page=N&position=QB[&leagueId=N&availability=free_agent]
 // Paginated player pool with strict integer validation on `page`.
 router.get('/', requireAuth, async (req, res) => {
   const rawPage = req.query.page === undefined ? '1' : String(req.query.page);
@@ -156,25 +182,41 @@ router.get('/', requireAuth, async (req, res) => {
   const page = Number(rawPage);
   const offset = (page - 1) * PAGE_SIZE;
 
-  const position = req.query.position && req.query.position !== 'All'
-    ? String(req.query.position).toUpperCase()
-    : null;
+  const position =
+    req.query.position && req.query.position !== 'All'
+      ? String(req.query.position).toUpperCase()
+      : null;
   if (position && !POSITIONS.includes(position)) {
-    return res.status(400).json({ error: `position must be one of ${POSITIONS.join(', ')}` });
+    return res
+      .status(400)
+      .json({ error: `position must be one of ${POSITIONS.join(', ')}` });
   }
 
   // Optional case-insensitive name search. Wildcards/backslashes are escaped so
   // a user typing "%" matches a literal percent, not the whole pool (default
   // ESCAPE '\' applies to the ILIKE below). Capped so a huge string can't bloat
   // the query.
-  const search = req.query.search ? String(req.query.search).trim().slice(0, 100) : '';
+  const search = req.query.search
+    ? String(req.query.search).trim().slice(0, 100)
+    : '';
 
   // Optional: exclude players already rostered in a league (draft board view)
   const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
   if (leagueId && !/^\d+$/.test(leagueId)) {
-    return res.status(400).json({ error: 'leagueId must be a positive integer' });
+    return res
+      .status(400)
+      .json({ error: 'leagueId must be a positive integer' });
   }
   const availableOnly = (req.query.available === 'true' || req.query.hideRostered === 'true') && leagueId;
+  const availability = req.query.availability
+    ? String(req.query.availability)
+    : null;
+  if (availability && (!leagueId || !AVAILABILITY_STATES.has(availability))) {
+    return res.status(400).json({
+      error:
+        'availability requires leagueId and must be free_agent, waivers, my_team, or rostered',
+    });
+  }
 
   // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
   // across the FULL eligible pool below (not just the current page) — see
@@ -184,11 +226,15 @@ router.get('/', requireAuth, async (req, res) => {
   if (req.query.byeWeeks !== undefined && req.query.byeWeeks !== '') {
     const raw = String(req.query.byeWeeks);
     if (!/^\d+(,\d+)*$/.test(raw)) {
-      return res.status(400).json({ error: 'byeWeeks must be a comma-separated list of integers' });
+      return res
+        .status(400)
+        .json({ error: 'byeWeeks must be a comma-separated list of integers' });
     }
     byeWeeksFilter = [...new Set(raw.split(',').map(Number))];
     if (byeWeeksFilter.some((week) => week < 1 || week > REG_SEASON_WEEKS)) {
-      return res.status(400).json({ error: `byeWeeks must be between 1 and ${REG_SEASON_WEEKS}` });
+      return res
+        .status(400)
+        .json({ error: `byeWeeks must be between 1 and ${REG_SEASON_WEEKS}` });
     }
   }
 
@@ -197,22 +243,34 @@ router.get('/', requireAuth, async (req, res) => {
   // defaults. This keeps the list's projection identical to the quick-view's.
   let projectionRules = rulesForLeague(null);
   let currentSeasonYear = 2026;
+  let memberTeam = null;
   let league = null;
-  let viewerTeam = null;
   if (leagueId) {
     try {
-      viewerTeam = await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
+      memberTeam = await requireMember(pool, {
+        leagueId: Number(leagueId),
+        userId: req.user.id,
+      });
+      const leagueRow = await pool.query(
+        `SELECT * FROM "leagues" WHERE "id" = $1`,
+        [Number(leagueId)],
+      );
+      league = leagueRow.rows[0] || null;
+      if (league) {
+        projectionRules = rulesForLeague(league);
+        if (league.current_season != null) {
+          currentSeasonYear = Number(league.current_season);
+        }
+      }
     } catch (error) {
-      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      if (error.statusCode)
+        return res.status(error.statusCode).json({ error: error.message });
       throw error;
     }
-    const leagueRow = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [Number(leagueId)]);
-    league = leagueRow.rows[0] || null;
-    if (league) {
-      projectionRules = rulesForLeague(league);
-      if (league.current_season != null) currentSeasonYear = Number(league.current_season);
-    }
   }
+  const blanketWaiversOpen = Boolean(
+    league?.waivers_clear_at && new Date(league.waivers_clear_at) > new Date(),
+  );
 
   // Ordering: whitelisted sort key + direction — never interpolate raw user
   // input into SQL. ADP is the default (best pick first, undrafted last).
@@ -256,6 +314,62 @@ router.get('/', requireAuth, async (req, res) => {
       SELECT 1 FROM "team_players"
       WHERE "league_id" = $${params.length}
         AND "player_id" = ANY("players"."identity_ids")
+    )`);
+  }
+  if (availability === 'free_agent' && blanketWaiversOpen) {
+    where.push('FALSE');
+  } else if (availability === 'free_agent') {
+    params.push(Number(leagueId));
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM "team_players"
+      WHERE "league_id" = $${params.length}
+        AND "player_id" = ANY("players"."identity_ids")
+    )`);
+    params.push(Number(leagueId));
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM "waiver_players"
+      WHERE "league_id" = $${params.length}
+        AND "player_id" = ANY("players"."identity_ids")
+        AND "available_at" > now()
+    )`);
+  } else if (availability === 'waivers' && blanketWaiversOpen) {
+    params.push(Number(leagueId));
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM "team_players"
+      WHERE "league_id" = $${params.length}
+        AND "player_id" = ANY("players"."identity_ids")
+    )`);
+  } else if (availability === 'waivers') {
+    params.push(Number(leagueId));
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM "team_players"
+      WHERE "league_id" = $${params.length}
+        AND "player_id" = ANY("players"."identity_ids")
+    )`);
+    params.push(Number(leagueId));
+    where.push(`EXISTS (
+      SELECT 1 FROM "waiver_players"
+      WHERE "league_id" = $${params.length}
+        AND "player_id" = ANY("players"."identity_ids")
+        AND "available_at" > now()
+    )`);
+  } else if (availability === 'my_team') {
+    params.push(Number(leagueId), req.user.id);
+    where.push(`EXISTS (
+      SELECT 1 FROM "team_players"
+      JOIN "teams" ON "teams"."id" = "team_players"."team_id"
+      WHERE "team_players"."league_id" = $${params.length - 1}
+        AND "teams"."owner_id" = $${params.length}
+        AND "team_players"."player_id" = ANY("players"."identity_ids")
+    )`);
+  } else if (availability === 'rostered') {
+    params.push(Number(leagueId), req.user.id);
+    where.push(`EXISTS (
+      SELECT 1 FROM "team_players"
+      JOIN "teams" ON "teams"."id" = "team_players"."team_id"
+      WHERE "team_players"."league_id" = $${params.length - 1}
+        AND "teams"."owner_id" <> $${params.length}
+        AND "team_players"."player_id" = ANY("players"."identity_ids")
     )`);
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -322,20 +436,18 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(queryText, params);
     const sqlTotal = result.rows[0] ? Number(result.rows[0].total_count) : 0;
-    const identityIdsByPlayerId = new Map(result.rows.map((row) => [
-      row.id,
-      Array.isArray(row.identity_ids) ? row.identity_ids.map(Number) : [row.id],
-    ]));
-    const players = dedupePlayerRows(result.rows.map(({
-      total_count, identity_ids, identity_rank, ...p
-    }) => p));
+    const players = dedupePlayerRows(
+      result.rows.map(({ total_count, identity_rank, ...p }) => p),
+    );
 
     // Bye week is schedule-derived, not a stored column — attach it to every
     // row now (whatever `players` currently holds: the full matching pool when
     // Bye/pace sort or a Bye filter is in play, or just this one SQL-paginated
     // page otherwise) so the filter/sort below can see it. Cheap regardless of
     // pool size: one batched query keyed by distinct NFL team, not by player.
-    const nflTeams = [...new Set(players.map((p) => p.nfl_team).filter(Boolean))];
+    const nflTeams = [
+      ...new Set(players.map((p) => p.nfl_team).filter(Boolean)),
+    ];
     const byeByTeam = await computeByeWeeks(nflTeams, currentSeasonYear);
     for (const p of players) {
       p.bye_week = byeByTeam.get(p.nfl_team) ?? null;
@@ -346,7 +458,9 @@ router.get('/', requireAuth, async (req, res) => {
     let settled = players;
     if (byeWeeksFilter.length > 0) {
       const weekSet = new Set(byeWeeksFilter);
-      settled = settled.filter((p) => p.bye_week != null && weekSet.has(p.bye_week));
+      settled = settled.filter(
+        (p) => p.bye_week != null && weekSet.has(p.bye_week),
+      );
     }
 
     // Nulls sort last regardless of direction — folded into the comparator
@@ -363,7 +477,9 @@ router.get('/', requireAuth, async (req, res) => {
       return a.id - b.id;
     };
     if (byeSort) {
-      settled = [...settled].sort(nullsLastComparator((p) => p.bye_week, dir === 'DESC' ? -1 : 1));
+      settled = [...settled].sort(
+        nullsLastComparator((p) => p.bye_week, dir === 'DESC' ? -1 : 1),
+      );
     }
 
     // The SQL total_count reflects the outer WHERE only — once a Bye filter
@@ -377,30 +493,68 @@ router.get('/', requireAuth, async (req, res) => {
     // this until after the page is known keeps that cost proportional to
     // what's rendered, not to the whole eligible pool.
     if (projectionSort) {
-      await attachProjectedPoints(settled, { projectionRules, currentSeasonYear });
-      settled.sort(nullsLastComparator((p) => Number(p.projected_points), dir === 'DESC' ? -1 : 1));
+      await attachProjectedPoints(settled, {
+        projectionRules,
+        currentSeasonYear,
+      });
+      settled.sort(
+        nullsLastComparator(
+          (p) => Number(p.projected_points),
+          dir === 'DESC' ? -1 : 1,
+        ),
+      );
     }
 
-    const pagePlayers = needsFullPool ? settled.slice(offset, offset + PAGE_SIZE) : settled;
+    const pagePlayers = needsFullPool
+      ? settled.slice(offset, offset + PAGE_SIZE)
+      : settled;
     if (!projectionSort) {
-      await attachProjectedPoints(pagePlayers, { projectionRules, currentSeasonYear });
-    }
-    if (league && viewerTeam) {
-      await attachLeagueAvailability(pagePlayers, {
-        league,
-        viewerTeamId: viewerTeam.id,
-        identityIdsByPlayerId,
+      await attachProjectedPoints(pagePlayers, {
+        projectionRules,
+        currentSeasonYear,
       });
     }
 
+    if (memberTeam)
+      await attachLeagueAvailability(pagePlayers, {
+        leagueId: Number(leagueId),
+        teamId: memberTeam.id,
+        blanketWaiversOpen,
+      });
+    const responsePlayers = pagePlayers.map(
+      ({ identity_ids, ...player }) => player,
+    );
+    let context = null;
+    if (memberTeam && league) {
+      const rosterCountResult = await pool.query(
+        `SELECT COUNT(*)::int AS "roster_count" FROM "team_players" WHERE "team_id" = $1`,
+        [memberTeam.id],
+      );
+      context = {
+        leagueId: Number(leagueId),
+        leagueName: league.name,
+        rosterCount: Number(rosterCountResult.rows[0]?.roster_count || 0),
+        rosterCapacity:
+          league.roster_limit == null ? null : Number(league.roster_limit),
+        waiverType: league.waiver_type || null,
+        faabRemaining:
+          league.waiver_type === 'faab' ? memberTeam.faab_remaining : null,
+        waiverPriority:
+          league.waiver_type === 'priority' ? memberTeam.waiver_priority : null,
+      };
+    }
+
     res.json({
-      players: pagePlayers,
+      players: responsePlayers,
       page,
       pageSize: PAGE_SIZE,
       totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
       total,
+      context,
     });
   } catch (error) {
+    if (error.statusCode)
+      return res.status(error.statusCode).json({ error: error.message });
     console.error('Error on GET players query', error);
     res.status(500).json({ error: 'failed to fetch players' });
   }
@@ -410,11 +564,16 @@ router.get('/', requireAuth, async (req, res) => {
 // week, season totals, and a per-game projection (season average)
 router.get('/:id', requireAuth, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
-    return res.status(400).json({ error: 'player id must be a positive integer' });
+    return res
+      .status(400)
+      .json({ error: 'player id must be a positive integer' });
   }
   const playerId = Number(req.params.id);
   try {
-    const playerResult = await pool.query(`SELECT * FROM "players" WHERE "id" = $1`, [playerId]);
+    const playerResult = await pool.query(
+      `SELECT * FROM "players" WHERE "id" = $1`,
+      [playerId],
+    );
     const player = playerResult.rows[0];
     if (!player) return res.status(404).json({ error: 'player not found' });
 
@@ -422,23 +581,33 @@ router.get('/:id', requireAuth, async (req, res) => {
       `SELECT "season", "week", "stats", "fantasy_points"
        FROM "player_stats" WHERE "player_id" = $1
        ORDER BY "season" DESC, "week"`,
-      [playerId]
+      [playerId],
     );
-    const weekly = weeklyResult.rows.map((r) => ({ ...r, fantasy_points: Number(r.fantasy_points) }));
+    const weekly = weeklyResult.rows.map((r) => ({
+      ...r,
+      fantasy_points: Number(r.fantasy_points),
+    }));
     const latestSeason = weekly.length > 0 ? weekly[0].season : null;
     const seasonWeeks = weekly.filter((w) => w.season === latestSeason);
-    const totalPoints = seasonWeeks.reduce((sum, w) => sum + w.fantasy_points, 0);
+    const totalPoints = seasonWeeks.reduce(
+      (sum, w) => sum + w.fantasy_points,
+      0,
+    );
     res.json({
       player,
       weekly,
-      seasonTotals: latestSeason === null ? null : {
-        season: latestSeason,
-        games: seasonWeeks.length,
-        points: Math.round(totalPoints * 100) / 100,
-        projectedPoints: seasonWeeks.length > 0
-          ? Math.round((totalPoints / seasonWeeks.length) * 10) / 10
-          : null,
-      },
+      seasonTotals:
+        latestSeason === null
+          ? null
+          : {
+              season: latestSeason,
+              games: seasonWeeks.length,
+              points: Math.round(totalPoints * 100) / 100,
+              projectedPoints:
+                seasonWeeks.length > 0
+                  ? Math.round((totalPoints / seasonWeeks.length) * 10) / 10
+                  : null,
+            },
     });
   } catch (error) {
     console.error('Error fetching player detail', error);
@@ -454,25 +623,31 @@ router.get('/:id', requireAuth, async (req, res) => {
 // differently in a PPR vs. standard league.
 router.get('/:id/summary', requireAuth, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
-    return res.status(400).json({ error: 'player id must be a positive integer' });
+    return res
+      .status(400)
+      .json({ error: 'player id must be a positive integer' });
   }
   const playerId = Number(req.params.id);
 
   const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
   if (leagueId && !/^\d+$/.test(leagueId)) {
-    return res.status(400).json({ error: 'leagueId must be a positive integer' });
+    return res
+      .status(400)
+      .json({ error: 'leagueId must be a positive integer' });
   }
-
-  const cacheKey = `${playerId}|${leagueId || 'std'}`;
 
   try {
     if (leagueId) await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
+    const cacheKey = `${playerId}|${leagueId || 'std'}`;
     const cached = summaryCacheGet(cacheKey);
     if (cached) {
       res.set('Cache-Control', 'private, max-age=30');
       return res.json(cached);
     }
-    const playerResult = await pool.query(`SELECT * FROM "players" WHERE "id" = $1`, [playerId]);
+    const playerResult = await pool.query(
+      `SELECT * FROM "players" WHERE "id" = $1`,
+      [playerId],
+    );
     const player = playerResult.rows[0];
     if (!player) return res.status(404).json({ error: 'player not found' });
 
@@ -482,7 +657,10 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
     let rules = rulesForLeague(null);
     let currentSeasonYear = 2026;
     if (leagueId) {
-      const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [Number(leagueId)]);
+      const leagueResult = await pool.query(
+        `SELECT * FROM "leagues" WHERE "id" = $1`,
+        [Number(leagueId)],
+      );
       if (leagueResult.rows[0]) {
         rules = rulesForLeague(leagueResult.rows[0]);
         if (leagueResult.rows[0].current_season != null) {
@@ -494,21 +672,26 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
     const weeklyResult = await pool.query(
       `SELECT "season", "week", "stats" FROM "player_stats"
        WHERE "player_id" = $1 ORDER BY "season" DESC, "week"`,
-      [playerId]
+      [playerId],
     );
     const seasonResult = await pool.query(
       `SELECT "season", "games_played", "stats" FROM "player_season_stats"
        WHERE "player_id" = $1 ORDER BY "season" DESC`,
-      [playerId]
+      [playerId],
     );
     const byeWeek = await computeByeWeek(player.nfl_team, currentSeasonYear);
 
     // Points-based rank within the position for the latest completed season
     // (rows arrive season DESC, so find() takes the newest one).
     const lastCompletedRow =
-      seasonResult.rows.find((r) => Number(r.season) < currentSeasonYear) || null;
+      seasonResult.rows.find((r) => Number(r.season) < currentSeasonYear) ||
+      null;
     const rankInfo = lastCompletedRow
-      ? await getSeasonPositionRank(playerId, player.position, Number(lastCompletedRow.season))
+      ? await getSeasonPositionRank(
+          playerId,
+          player.position,
+          Number(lastCompletedRow.season),
+        )
       : null;
 
     const payload = buildPlayerSummary({
@@ -518,14 +701,15 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
       rules,
       byeWeek,
       currentSeasonYear,
-      posRank: rankInfo ? { season: Number(lastCompletedRow.season), ...rankInfo } : null,
+      posRank: rankInfo
+        ? { season: Number(lastCompletedRow.season), ...rankInfo }
+        : null,
     });
 
     summaryCacheSet(cacheKey, payload);
     res.set('Cache-Control', 'private, max-age=30');
     res.json(payload);
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error building player summary', error);
     res.status(500).json({ error: 'failed to fetch player summary' });
   }
@@ -535,11 +719,15 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
 // Fully transactional: pick + roster insert commit together or not at all.
 router.post('/draft/:playerId', requireAuth, async (req, res) => {
   if (!/^\d+$/.test(req.params.playerId)) {
-    return res.status(400).json({ error: 'playerId must be a positive integer' });
+    return res
+      .status(400)
+      .json({ error: 'playerId must be a positive integer' });
   }
   const leagueId = req.body && req.body.leagueId;
   if (!Number.isInteger(leagueId) || leagueId < 1) {
-    return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
+    return res
+      .status(400)
+      .json({ error: 'leagueId (integer) is required in the body' });
   }
 
   try {
@@ -548,7 +736,6 @@ router.post('/draft/:playerId', requireAuth, async (req, res) => {
       userId: req.user.id,
       playerId: Number(req.params.playerId),
     });
-    if (outcome.draftComplete) await broadcastRosterAvailability(leagueId);
     res.status(201).json(outcome);
   } catch (error) {
     if (error.statusCode) {
