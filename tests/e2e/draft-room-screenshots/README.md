@@ -25,7 +25,17 @@ still passes but writes no report attachments.
 The spec rewrites every file in this folder on each run. The set is
 deterministic (animations frozen, caret hidden, fonts awaited, timezone and
 locale pinned, and a non-viewer turn so the transient on-the-clock snackbar
-never fires), so a clean regeneration leaves `git status` clean.
+never fires), so regenerating **on the same OS** the committed files were made
+on leaves `git status` clean.
+
+These PNGs were generated on Windows. Font rasterisation and compositing differ
+between operating systems, so regenerating on a different OS (Linux CI, macOS)
+will show every PNG modified. That is expected, not a bug: nothing in the suite
+compares a freshly captured PNG against the committed bytes (capture and write,
+never compare), and CI re-captures, overwrites and discards these files without
+committing, so the cross-OS difference never fails a check. If you regenerate on
+Linux and see 13 modified files, restore them with `git restore` rather than
+committing them.
 
 ## Capture scope is in the filename
 
@@ -48,7 +58,7 @@ Each filename says its scope so a reader never assumes the wider one:
 | File | Scope | Layout | State |
 |---|---|---|---|
 | `room-wide-board-matrix.png` | room | wide / desktop | Board matrix selected with the chat/activity pane, Draft rail and on-the-clock banner all visible at once (AC1) |
-| `room-reduced-motion-wide-board.png` | room | wide / desktop | the same composition under `prefers-reduced-motion: reduce` (AC4) |
+| `room-reduced-motion-wide-board.png` | room | wide / desktop | the wide Board composition captured under `prefers-reduced-motion: reduce` (AC4). Byte-identical to `room-wide-board-matrix.png`: the matrix freezes animations for determinism, so the on-the-clock pulse is already a still frame and `reduce` changes nothing in this shot. The emulation is genuinely in effect (asserted before the capture), which is what AC4 asks for; the narrow variant below does differ from its ordinary sibling. |
 | `room-reduced-motion-narrow-chat.png` | room | narrow / mobile | the Chat tab under `prefers-reduced-motion: reduce` (AC4) |
 | `room-wide-players.png` | room | wide / desktop | the Players pane selected (the wide room's default left pane) |
 | `room-narrow-chat.png` | room | narrow / mobile | the Chat tab selected, its panel visible (AC2) |

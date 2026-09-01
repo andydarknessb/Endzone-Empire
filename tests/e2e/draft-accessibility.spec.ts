@@ -315,16 +315,29 @@ test.describe('Draft room screenshot matrix (#548)', () => {
     // left-pane toggle, unambiguously.
     await page.getByRole('button', { name: 'Board', exact: true }).click();
 
-    // Assert each of the four regions is actually IN THE VIEWPORT - not merely in
-    // the DOM - immediately before the shot.
-    await expect(page.getByRole('region', { name: 'Draft Board' })).toBeInViewport();
-    await expect(page.getByRole('region', { name: 'Chat and Draft activity' })).toBeInViewport();
-    await expect(page.getByRole('region', { name: 'Draft rail' })).toBeInViewport();
+    // Assert each of the four regions is both rendered-VISIBLE (not opacity:0 or
+    // visibility:hidden, which an intersection check alone would pass) AND actually
+    // IN THE VIEWPORT - not merely in the DOM - immediately before the shot. Both
+    // properties are wanted here: in-viewport is the harder one for "simultaneously
+    // visible", but toBeVisible is what rules out a present-but-invisible node.
+    const draftBoard = page.getByRole('region', { name: 'Draft Board' });
+    const chatActivity = page.getByRole('region', { name: 'Chat and Draft activity' });
+    const draftRail = page.getByRole('region', { name: 'Draft rail' });
+    await expect(draftBoard).toBeVisible();
+    await expect(draftBoard).toBeInViewport();
+    await expect(chatActivity).toBeVisible();
+    await expect(chatActivity).toBeInViewport();
+    await expect(draftRail).toBeVisible();
+    await expect(draftRail).toBeInViewport();
     // The on-the-clock banner: "No pick clock" is unique to LiveDraftBanner, and
     // Harbor Hawks is on the clock in this fixture (see NOT_MY_TURN above), so the
-    // banner reads that. Both are asserted in the viewport.
-    await expect(page.getByText('No pick clock')).toBeInViewport();
-    await expect(page.getByText('Harbor Hawks is on the clock')).toBeInViewport();
+    // banner reads that. Both are asserted visible and in the viewport.
+    const noPickClock = page.getByText('No pick clock');
+    const onTheClock = page.getByText('Harbor Hawks is on the clock');
+    await expect(noPickClock).toBeVisible();
+    await expect(noPickClock).toBeInViewport();
+    await expect(onTheClock).toBeVisible();
+    await expect(onTheClock).toBeInViewport();
 
     await captureMatrix(page, testInfo, { file: 'room-wide-board-matrix' });
   });
