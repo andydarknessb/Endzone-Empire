@@ -199,14 +199,18 @@ async function forceSetLineup({ leagueId, userId, teamId, week, moves }) {
     // A slot a surviving as-played row occupies is spent (#627), on the force
     // path exactly as on the manager's: the row will settle, so it counts
     // against the cap even though the roster-joined read above cannot see it.
-    // A commissioner repairing an inherited overflow moves rostered players
-    // OUT of the slot, which only ever lowers the count, so the repair power
-    // this validation exists to preserve survives the extra rows.
-    const spent = await spentStartingSlots(client, { teamId, season, week: targetWeek });
-    const entriesToValidate = entriesForLineupValidation([...byPlayer.values(), ...spent], league);
+    // Fetched after that read for the order `setLineup` explains. A
+    // commissioner repairing an inherited overflow moves rostered players OUT
+    // of the spent slot, which lowers its count - though where they land is
+    // still capped, so a full bench can leave dropping a player as the only
+    // repair.
+    const spent = league.best_ball
+      ? []
+      : await spentStartingSlots(client, { teamId, season, week: targetWeek });
+    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
     const errors = validateLineup(
       entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
-      { ...parseLineupSettings(league), baseline: entriesForLineupValidation(baseline, league) }
+      { ...parseLineupSettings(league), baseline: entriesForLineupValidation(baseline, league), spent }
     );
     if (errors.length > 0) throw new CommissionerError(400, errors.join('; '));
     for (const entry of changed) {

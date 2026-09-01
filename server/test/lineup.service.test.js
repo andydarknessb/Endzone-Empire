@@ -736,6 +736,8 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
         slot: currentSlots.get(entry.player_id),
       })),
     })],
+    // No surviving as-played rows in this world (#627).
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
@@ -1327,6 +1329,101 @@ test('a spent slot with seats remaining still accepts another starter (#627)', a
   const result = await setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'RB' }] });
 
   assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('a spent row is a count, not a placement: no eligibility check, unknown slots ignored (#627)', async (t) => {
+  // The surviving row is a record. Its player's position may have been
+  // reclassified since the week was played (a WR now sits on a TE row), and
+  // in principle its slot key could be one the league's shape no longer
+  // knows. Neither may refuse a save: the row is immovable, so an error it
+  // raises is an error nobody can clear.
+  const fake = installSpentSlotWorld(t, {
+    roster: [{
+      player_id: 1, name: 'Fresh Passer', position: 'QB', nfl_team: 'MIN',
+      injury_status: null, slot: 'BENCH', ir_attested: false,
+    }],
+    spentRows: [{ position: 'WR', slot: 'TE' }, { position: 'WR', slot: 'ZZ' }],
+  });
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'QB' }] });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('a spent row that skipped its eligibility check still spends the seat (#627)', async (t) => {
+  // The flip side of the test above: bypassing eligibility must not drop the
+  // row from the counts, or a reclassified player's surviving row would stop
+  // guarding its slot.
+  const fake = installSpentSlotWorld(t, {
+    roster: [{
+      player_id: 1, name: 'Second End', position: 'TE', nfl_team: 'MIN',
+      injury_status: null, slot: 'BENCH', ir_attested: false,
+    }],
+    spentRows: [{ position: 'WR', slot: 'TE' }],
+  });
+
+  await assert.rejects(
+    setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'TE' }] }),
+    (error) => error.statusCode === 400 && /too many players at TE \(2\/1\)/.test(error.message)
+  );
+
+  assertNoSlotWrite(fake);
+  fake.assertClean();
+});
+
+test('the all-bench repair seats starters only into the seats a spent slot leaves free (#627)', async (t) => {
+  // A team that never saved a lineup sits at one starter and everything else
+  // on BENCH; if that one starter is dropped post-kickoff, his surviving row
+  // spends his slot and the rostered rows are ALL BENCH - so the repair
+  // fires on the manager's first save. Seating a full complement would
+  // collide with the surviving row and have validation refuse the whole
+  // save for something the manager never asked for; the repair must seat
+  // around it instead.
+  const slots = new Map([[1, 'BENCH'], [2, 'BENCH'], [3, 'BENCH'], [4, 'BENCH']]);
+  const entries = [
+    { player_id: 1, name: 'Bench QB', position: 'QB' },
+    { player_id: 2, name: 'Back Two', position: 'RB' },
+    { player_id: 3, name: 'Back Three', position: 'RB' },
+    { player_id: 4, name: 'Back Four', position: 'RB' },
+  ].map((entry) => ({ ...entry, nfl_team: 'MIN', injury_status: null, ir_attested: false }));
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 5, current_season: 2026, current_week: 9,
+        roster_slots: DEFAULT_ROSTER_SLOTS, bench_slots: 2, ir_slots: 1,
+      }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id }) => ({ player_id })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: entries.map((entry) => ({ ...entry, slot: slots.get(entry.player_id) })),
+    })],
+    // The dropped starter's surviving row: one RB seat is already spent.
+    [/^SELECT "players"\."position"/, () => ({ rows: [{ position: 'RB', slot: 'RB' }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => {
+      slots.set(params[4], params[0]);
+      return { rows: [] };
+    }],
+    [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'QB' }] });
+
+  assert.ok(result.updated >= 3, 'the repair seated the free seats');
+  const placed = [...slots.values()];
+  assert.equal(slots.get(1), 'QB');
+  assert.equal(placed.filter((slot) => slot === 'RB').length, 1, 'one rostered RB beside the spent seat, not two');
+  assert.equal(placed.filter((slot) => slot === 'FLEX').length, 1);
+  assert.equal(placed.filter((slot) => slot === 'BENCH').length, 1);
   fake.assertClean();
 });
 
