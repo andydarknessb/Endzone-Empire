@@ -49,10 +49,11 @@
  * Run: `npm run check:adr-immutability` (its own test first, then the guard).
  *
  * HOW TO PROVE THE GUARD FIRES: do not tamper the `Status:` line as a manual
- * control -- it is the one exempt edit, so it stays green, which looks
- * identical to a guard that never ran. To see it fail, edit any OTHER body
- * line of an ADR that exists on your base ref; the guard names the file and
- * the line. The test file already proves both directions, so read those
+ * control -- it is the one exempt edit, so as long as it stays a `Status:`
+ * line it stays green, which looks identical to a guard that never ran. To
+ * see it fail, edit any OTHER body line of an ADR that exists on your base
+ * ref; the guard names the file and the line. The test file already proves
+ * the failure at both the single-file and multi-file level, so read those
  * instead of tampering by hand:
  *   - compareAdr: rewriting a body line is a violation naming the line (the
  *     blind spot this guard closes)
