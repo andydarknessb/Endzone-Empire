@@ -513,7 +513,7 @@ function PlayerManagement() {
             spacing={1}
           >
             <Box>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+              <Typography variant="subtitle2" component="p" sx={{ fontWeight: 800 }}>
                 {marketContext.leagueName}
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -800,6 +800,7 @@ function PlayerManagement() {
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Typography
                           variant="subtitle1"
+                          component="p"
                           sx={{ fontWeight: 900 }}
                           noWrap
                         >
@@ -821,7 +822,7 @@ function PlayerManagement() {
                     <Typography variant="caption" color="text.secondary">
                       Pool projection
                     </Typography>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                    <Typography variant="subtitle2" component="span" sx={{ fontWeight: 900 }}>
                       {player.projected_points != null
                         ? Number(player.projected_points).toFixed(1)
                         : "-"}{" "}

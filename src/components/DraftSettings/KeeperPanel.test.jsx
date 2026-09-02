@@ -295,6 +295,38 @@ describe('zero/one-team empty states', () => {
   });
 });
 
+// ADR 0021 / #695: "Keeper assignments" and "Keeper board preview" each
+// introduce more than one control (a Stack of assignment rows; a preview
+// grid), so they are section titles at h5, one level below the Draft
+// Settings page's own <Typography variant="h4"> title. "Keeper lock" is the
+// judgment call from the #704 correction comment: its Box always holds
+// exactly one control that needs it as a name (the RadioGroup) — the
+// conditional custom-lock TextField carries its own complete label ("Keeper
+// lock date and time") and never depends on "Keeper lock" for its accessible
+// name — so it stays a label (component="p" + id + aria-labelledby on the
+// RadioGroup) rather than a heading, in both the draft-lock and custom-lock
+// states. A bare render (no ThemeProvider) must show no stray h6.
+describe('heading levels (#704)', () => {
+  test('gives "Keeper assignments" and "Keeper board preview" an explicit h5, and "Keeper lock" a group label, with no stray h6', () => {
+    renderPanel();
+
+    expect(screen.getByRole('heading', { level: 5, name: 'Keeper assignments' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 5, name: 'Keeper board preview' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Keeper lock' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+  });
+
+  test('keeps "Keeper lock" as the radio group\'s label, not a heading, once the custom lock field appears', () => {
+    renderPanel();
+    fireEvent.click(screen.getByLabelText('Custom'));
+
+    expect(screen.getByLabelText('Keeper lock date and time')).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Keeper lock' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Keeper lock' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+  });
+});
+
 // The keeper form mirrors the server bound: the IR slot is not a round (#96).
 test('bounds the keeper count by the draft roster size, not the IR-inclusive roster limit', () => {
   render(

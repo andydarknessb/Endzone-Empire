@@ -190,7 +190,7 @@ function ProfileSettingsModal({ open, onClose }) {
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="xs">
       <DialogTitle>Profile Settings</DialogTitle>
       <DialogContent>
-        <Typography variant="subtitle2" sx={{ mt: 1, mb: 1, fontWeight: 700 }}>
+        <Typography variant="subtitle2" component="h3" sx={{ mt: 1, mb: 1, fontWeight: 700 }}>
           Team name &amp; avatar
         </Typography>
         <InputLabel id="profile-rename-league-label">League</InputLabel>
@@ -233,7 +233,7 @@ function ProfileSettingsModal({ open, onClose }) {
 
         <Divider sx={{ my: 2 }} />
 
-        <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+        <Typography variant="subtitle2" component="h3" sx={{ mb: 1, fontWeight: 700 }}>
           Account data
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
