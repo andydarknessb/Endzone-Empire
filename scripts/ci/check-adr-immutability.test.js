@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   normaliseLines,
   compareAdr,
@@ -7,6 +9,64 @@ const {
   buildViolationMessage,
   buildSuccessMessage,
 } = require('./check-adr-immutability');
+
+// Audits the guard's own docblock (see #712): the "HOW TO PROVE THE GUARD
+// FIRES" section cites two test descriptions by name so a reader can go read
+// the proof instead of tampering an ADR by hand. Nothing enforced that the
+// citations still pointed at real tests, so a rename could silently strand
+// them. These two extractors are specific to this docblock's shape -- a
+// `*   - ` bullet with `*     ` continuation lines -- and to this file's
+// `test('...', ...)` calls; they are not a general cross-reference tool.
+
+// Extracts every bullet under the "HOW TO PROVE THE GUARD FIRES" heading in
+// the guard's docblock, joining a wrapped bullet's continuation lines with a
+// single space so it compares as one string.
+function extractCitedDescriptions(guardSource) {
+  const lines = guardSource.split(/\r\n|\n/);
+  const headingIndex = lines.findIndex((line) => line.includes('HOW TO PROVE THE GUARD FIRES'));
+  if (headingIndex === -1) {
+    return [];
+  }
+
+  const bulletStart = /^ \* {3}- (.+)$/;
+  const continuation = /^ \* {5}(.+)$/;
+  const descriptions = [];
+  let current = null;
+
+  for (let i = headingIndex + 1; i < lines.length; i += 1) {
+    const startMatch = bulletStart.exec(lines[i]);
+    if (startMatch) {
+      if (current !== null) descriptions.push(current);
+      current = startMatch[1];
+      continue;
+    }
+    const continuationMatch = current !== null ? continuation.exec(lines[i]) : null;
+    if (continuationMatch) {
+      current = `${current} ${continuationMatch[1]}`;
+      continue;
+    }
+    if (current !== null) {
+      // First line after the bullet list that is neither a new bullet nor a
+      // continuation of the current one: the list is over.
+      break;
+    }
+  }
+  if (current !== null) descriptions.push(current);
+
+  return descriptions;
+}
+
+// Extracts every `test('<title>', ...)` title from this file's own source.
+function extractTestTitles(testFileSource) {
+  const titles = [];
+  const pattern = /^test\('([^']*)'/gm;
+  let match = pattern.exec(testFileSource);
+  while (match !== null) {
+    titles.push(match[1]);
+    match = pattern.exec(testFileSource);
+  }
+  return titles;
+}
 
 // Pure logic only: base and head texts are handed in as strings. Nothing here
 // runs git or touches the real docs/adr/ directory.
@@ -156,4 +216,24 @@ test('buildSuccessMessage: counts the examined ADRs, names the base ref, and nam
   assert.match(message, /2 merged ADRs on origin\/integration/);
   assert.match(message, /Ignored 1 file /);
   assert.match(message, /TEMPLATE\.md/);
+});
+
+test('HOW TO PROVE THE GUARD FIRES cites test descriptions that actually exist in this file', () => {
+  const guardSource = fs.readFileSync(path.join(__dirname, 'check-adr-immutability.js'), 'utf8');
+  const testFileSource = fs.readFileSync(__filename, 'utf8');
+
+  const citations = extractCitedDescriptions(guardSource);
+  const titles = extractTestTitles(testFileSource);
+
+  // Positive control: an extractor that silently finds nothing must fail
+  // this assertion, not pass vacuously (that silent-empty extractor is the
+  // exact defect class #712 exists to close).
+  assert.ok(citations.length > 0, 'expected at least one cited test description in the docblock');
+
+  for (const citation of citations) {
+    assert.ok(
+      titles.includes(citation),
+      `docblock cites "${citation}" but no test('...', ...) in this file has that exact title`,
+    );
+  }
 });
