@@ -96,6 +96,8 @@ function startWorld(t) {
   const fake = createFakePool([
     ...identityReads(),
     [select('leagues'), () => ({ rows: [{ ...row }] })],
+    // The market gate on start (#747): a loaded market so start is not refused.
+    [select('players'), () => ({ rows: [{ n: 500 }] })],
     [update('leagues'), (text) => {
       if (/'active'/.test(text)) row.draft_status = 'active';
       else if (/'complete'/.test(text)) row.draft_status = 'complete';

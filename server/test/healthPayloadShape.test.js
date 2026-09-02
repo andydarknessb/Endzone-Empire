@@ -62,6 +62,8 @@ function healthPool(over = {}) {
   return createFakePool([
     [/^SELECT 1$/, () => ({ rows: [{ '?column?': 1 }] })],
     [/FROM "worker_heartbeats"/, () => ({ rows: over.workers || [wideWorkerRow()] })],
+    // getSchedulerStatus reads the latest ADP run here (#747); default: none.
+    [/FROM "data_sync_runs"/, () => ({ rows: over.adpRuns || [] })],
   ]);
 }
 
@@ -269,7 +271,7 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
   assert.deepEqual(keys(res.body.worker.workers[0]), ['lastError', 'lastSeenAt', 'name', 'release', 'stale']);
   assert.deepEqual(keys(res.body.quota), ['budget', 'cycleStart', 'mode', 'provider', 'remaining', 'used']);
   assert.deepEqual(keys(res.body.holdout), ['obligations', 'ok']);
-  assert.deepEqual(keys(res.body.scheduler), ['lastSyncAt', 'lastTickAt', 'lastTickError']);
+  assert.deepEqual(keys(res.body.scheduler), ['lastAdpSync', 'lastSyncAt', 'lastTickAt', 'lastTickError']);
   assert.deepEqual(keys(res.body.liveGameEngine), [
     'clockSource', 'configuredClockSource', 'espnConsecutiveFailures',
     'lastError', 'lastRunAt', 'lastSourceUsed', 'quotaMode',
@@ -377,6 +379,9 @@ test('GET /: healthy scheduler and liveGameEngine publish null error fields', as
   stubHoldout(t);
   const res = await request(app).get('/api/health');
   assert.equal(res.body.scheduler.lastTickError, null);
+  // No ADP run on file yet: the freshness key is present and null (#747 AC7).
+  assert.ok('lastAdpSync' in res.body.scheduler, 'scheduler payload carries lastAdpSync');
+  assert.equal(res.body.scheduler.lastAdpSync, null);
   assert.equal(res.body.liveGameEngine.lastError, null);
   fake.assertClean();
 });
@@ -387,10 +392,11 @@ test('GET /: hostile scheduler and liveGameEngine errors become categories, leak
   stubHoldout(t);
   // The router reads these through the module object, so the getters are a
   // mockable seam (unlike the load-time-destructured redis/quota clients).
-  t.mock.method(scheduler, 'getSchedulerStatus', () => ({
+  t.mock.method(scheduler, 'getSchedulerStatus', async () => ({
     lastTickAt: '2026-08-25T00:00:00.000Z',
     lastTickError: HOSTILE_DB,
     lastSyncAt: null,
+    lastAdpSync: null,
   }));
   t.mock.method(liveGameEngine, 'getLiveGameEngineStatus', () => ({
     lastRunAt: '2026-08-25T00:00:00.000Z',
@@ -407,7 +413,7 @@ test('GET /: hostile scheduler and liveGameEngine errors become categories, leak
   assert.ok(CATEGORY_ENUM.has(res.body.scheduler.lastTickError), 'scheduler.lastTickError is a category');
   assert.ok(CATEGORY_ENUM.has(res.body.liveGameEngine.lastError), 'liveGameEngine.lastError is a category');
   // Key sets stay exactly as the pins above require, values and all.
-  assert.deepEqual(keys(res.body.scheduler), ['lastSyncAt', 'lastTickAt', 'lastTickError']);
+  assert.deepEqual(keys(res.body.scheduler), ['lastAdpSync', 'lastSyncAt', 'lastTickAt', 'lastTickError']);
   assert.deepEqual(keys(res.body.liveGameEngine), [
     'clockSource', 'configuredClockSource', 'espnConsecutiveFailures',
     'lastError', 'lastRunAt', 'lastSourceUsed', 'quotaMode',

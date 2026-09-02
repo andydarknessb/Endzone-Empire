@@ -189,7 +189,7 @@ router.get('/', async (req, res) => {
     holdout,
     // Spread keeps each status's key set exactly as pinned; only the error
     // field is rewritten from a raw message to its category (#242).
-    scheduler: publishSchedulerStatus(scheduler.getSchedulerStatus()),
+    scheduler: publishSchedulerStatus(await scheduler.getSchedulerStatus()),
     liveGameEngine: publishLiveGameEngineStatus(liveGameEngine.getLiveGameEngineStatus()),
     uptimeSec: Math.round(process.uptime()),
     release: process.env.RENDER_GIT_COMMIT || process.env.APP_RELEASE || null,

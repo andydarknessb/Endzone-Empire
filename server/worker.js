@@ -19,7 +19,7 @@ let stopping = false;
 installConsoleBridge();
 
 async function heartbeat() {
-  const scheduler = getSchedulerStatus();
+  const scheduler = await getSchedulerStatus();
   const live = getLiveGameEngineStatus();
   await recordWorkerHeartbeat({
     name: 'jobs',

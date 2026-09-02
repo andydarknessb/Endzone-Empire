@@ -53,6 +53,12 @@ let lastRetentionDay = null;
 // Tank01 injury refresh uses the same successful-run day stamp: failures retry
 // next tick, while an ineligible designation already committed cannot re-flag.
 let lastInjurySyncDay = null;
+// ADP market refresh (#747): same successful-run day stamp. No credential gate -
+// FFC is free and keyless, so it runs all year. A thrown run does not stamp, so
+// the next tick retries; a thin-market run (recorded ok = false, market left
+// intact by the wipe guard) does stamp, so it does not hammer FFC all day - the
+// stale freshness signal is what surfaces the problem instead.
+let lastAdpSyncDay = null;
 
 async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
@@ -80,6 +86,11 @@ async function tickUnlocked() {
       await runDailyInjurySync();
     } catch (err) {
       console.error('daily injury sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runDailyAdpSync();
+    } catch (err) {
+      console.error('daily adp sync failed (will retry next tick):', err.message);
     }
     try {
       await runHoldoutSnapshots();
@@ -169,6 +180,22 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
   const scoring = require('../services/scoring.service');
   const result = await scoring.syncInjuries();
   lastInjurySyncDay = today;
+  return result;
+}
+
+/**
+ * Daily ADP market refresh (#747). Runs at most once per local calendar day,
+ * all year - FFC is free and keyless, so unlike the injury sync there is no
+ * credential gate. The wipe guard and the data_sync_runs record live inside
+ * adp.syncAdp(); this wrapper only enforces once-a-day and stamps the day after
+ * a run that did not throw, so a transient upstream failure retries next tick.
+ */
+async function runDailyAdpSync({ now = new Date() } = {}) {
+  const today = now.toLocaleDateString('en-CA');
+  if (lastAdpSyncDay === today) return null;
+  const adp = require('../services/adp.service');
+  const result = await adp.syncAdp();
+  lastAdpSyncDay = today;
   return result;
 }
 
@@ -444,9 +471,36 @@ function stopScheduler() {
   cancelAllExpiryTimers();
 }
 
-/** Snapshot of scheduler health for the /api/health endpoint. */
-function getSchedulerStatus() {
-  return { lastTickAt, lastTickError, lastSyncAt };
+/**
+ * Snapshot of scheduler health for the /api/health and /api/admin endpoints.
+ * Async because it also reports the latest ADP market sync (#747), read from
+ * data_sync_runs. It must NEVER throw: health probes and the worker heartbeat
+ * call it, so a read failure degrades to lastAdpSync: null, not an exception.
+ */
+async function getSchedulerStatus() {
+  let lastAdpSync = null;
+  try {
+    const res = await pool.query(
+      `SELECT "finished_at", "ok", "detail" FROM "data_sync_runs"
+       WHERE "job" = 'adp' ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
+    );
+    const row = res.rows[0];
+    if (row) {
+      lastAdpSync = {
+        finishedAt: row.finished_at,
+        ok: row.ok,
+        matched: row.detail && row.detail.matched != null ? row.detail.matched : null,
+      };
+    }
+  } catch (err) {
+    // Never throw (health probes and the worker heartbeat depend on it), but do
+    // not degrade silently: a permanently broken read (dropped table, a
+    // permission change) would otherwise be indistinguishable from "no run yet"
+    // (#747 review 750-f4).
+    console.warn('getSchedulerStatus: data_sync_runs read failed, reporting lastAdpSync=null:', err.message);
+    lastAdpSync = null;
+  }
+  return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync };
 }
 
 module.exports = {
@@ -459,6 +513,7 @@ module.exports = {
   syncAndScoreLiveWeeks,
   syncEveryTicks,
   runDailyInjurySync,
+  runDailyAdpSync,
   runHoldoutSnapshots,
   runPickemWeekSync,
   runPickemSeasonCompletion,

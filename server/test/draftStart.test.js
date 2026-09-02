@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { startDraft } = require('../services/draftStart.service');
+const { MARKET_FLOOR } = require('../services/adp.service');
 
 const baseLeague = {
   id: 1,
@@ -47,12 +48,15 @@ const TWO_KEEPERS = [
  * generateRegularSeason depends on exactly that. A static row would model a
  * database that forgets the UPDATE two statements earlier.
  */
-function draftStartPool({ league = baseLeague, keepers = [], teams = DEFAULT_TEAMS } = {}) {
+function draftStartPool({ league = baseLeague, keepers = [], teams = DEFAULT_TEAMS, market = 500 } = {}) {
   const row = { ...league };
   return createFakePool([
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // isLeagueCommissioner's owner-or-co-commissioner probe.
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
+    // The market gate's count of players carrying an ADP (#747). Default clears
+    // MARKET_FLOOR so every unrelated start test is unaffected.
+    [select('players'), () => ({ rows: [{ n: market }] })],
     [update('leagues'), (text) => {
       if (/'complete'/.test(text)) row.draft_status = 'complete';
       else if (/'active'/.test(text)) row.draft_status = 'active';
@@ -205,6 +209,46 @@ test('startDraft by the scheduler (no acting user) records draft_start with a nu
   assert.equal(appended[0].params[1], 'draft_start');
   assert.equal(appended[0].params[2], null, 'no actor team id');
   assert.equal(appended[0].params[3], null, 'no actor team name');
+  fake.assertClean();
+});
+
+// ---- the market gate on draft start (#747) ---------------------------------
+
+test('startDraft refuses when the player market has not loaded, with the 409 copy naming cause and fix', async (t) => {
+  // A market below MARKET_FLOOR would leave autopicks falling back to last
+  // season's points, so start is refused where a human can still act. Raising
+  // this fixture to MARKET_FLOOR (100) clears the gate and turns the test red.
+  const fake = draftStartPool({ market: MARKET_FLOOR - 1 }).install(t);
+
+  await assert.rejects(
+    startDraft({ leagueId: 1, userId: 7 }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(
+        error.message,
+        `The player market has not loaded (${MARKET_FLOOR - 1} of ${MARKET_FLOOR} players carry an ADP), `
+          + "so autopicks would fall back to last season's points. "
+          + 'Ask your admin to run the ADP sync, then start the draft.'
+      );
+      return true;
+    }
+  );
+
+  // Refused under the lock: rolled back, and nothing was written or started.
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
+  assert.equal(fake.matching(/^COMMIT$/).length, 0);
+  assert.equal(fake.matching(update('leagues')).length, 0);
+  assert.equal(fake.matching(insert('draft_activity')).length, 0);
+  fake.assertClean();
+});
+
+test('startDraft proceeds when exactly MARKET_FLOOR players carry an ADP', async (t) => {
+  const fake = draftStartPool({ market: MARKET_FLOOR }).install(t);
+
+  await startDraft({ leagueId: 1, userId: 7 });
+
+  assert.equal(fake.matching(/^COMMIT$/).length, 1);
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 0);
   fake.assertClean();
 });
 
