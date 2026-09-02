@@ -26,15 +26,24 @@ import { assignRosterSlots } from '../../lib/rosterAssignment';
  *     is a regression, not a wash.
  * (2) It would also make this strip harder to tell apart, for anything that
  *     counts or enumerates status regions by role, from the room's other
- *     status regions - most of which are visually hidden and built to speak
- *     once and fall silent. This strip is the opposite: a visible,
- *     continuously-updating summary that sits on screen for the whole
- *     draft.
- * (3) No test asserts this strip's role either way. (The #513/#648 counting
- *     tests in DraftBoard.test.jsx count status regions by their copy, not
- *     their number, so adding the role here would not collide with them -
- *     that is not why it stays off.) A later reversal needs a new ruling,
- *     not a passing suite, to justify it.
+ *     status regions - most of which are visually hidden and replace a
+ *     single short fact wholesale on each announcement (a pick, a stall, a
+ *     keystroke count), which is exactly where atomicity above is a
+ *     non-issue for them. This strip is different in kind: a visible
+ *     summary of several independently-changing facts that sits on screen
+ *     for the whole draft, not a single fact restated.
+ * (3) A dedicated test locks this in today: RosterNeedsStrip.test.jsx's
+ *     "announces politely without claiming the status role DraftRail owns"
+ *     asserts aria-live="polite" AND that queryByRole('status') finds
+ *     nothing here, so adding the role would fail it. (The name is a
+ *     callback to #164, which stripped the status role and aria-live from
+ *     DraftRail's own managers-ready line, not from this strip - the rail
+ *     itself renders no status region at all now.) Separately, the
+ *     #513/#648 counting tests in DraftBoard.test.jsx count status regions
+ *     by their copy, not their number, so adding the role here would not
+ *     collide with those - that is not why it stays off. A later reversal
+ *     needs a new ruling AND a test change, not a ruling alone: the
+ *     strip's own suite pins the current absence.
  *
  * Provider-free (MUI only): the Draft Simulator mounts it with no providers.
  * Narrow-width chip collapsing is a `maxChips` prop rather than a media query,
