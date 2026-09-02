@@ -1143,6 +1143,43 @@ test('draft-grades card: a 500 shows a compact error, and the header still rende
   expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
 });
 
+// #679: the owning Card computes aria-busy from `phase` (Card aria-busy=
+// {phase === 'loading'}) rather than from mount/unmount, so a widget stuck
+// busy forever would still pass a true-only assertion. The endpoint mock
+// below is a manually-resolved promise (not mockGetByUrl's `{ pending: true }`
+// marker, which never settles) so this one test can observe both the busy
+// state and the settle within it, mirroring the matchup-preview pending/
+// settled pair. Scoped with within(card): the draft-grades fixture's viewer
+// grade/value collide with my-team-summary's (#642's own review finding).
+test('draft-grades card: aria-busy is true while the grades read is pending and false once it resolves', async () => {
+  let resolveGrades;
+  const gradesPromise = new Promise((resolve) => {
+    resolveGrades = resolve;
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league/1/draft-grades' || url.endsWith('/api/league/1/draft-grades')) {
+      return gradesPromise;
+    }
+    if (url === '/api/league/1' || url.endsWith('/api/league/1')) {
+      return Promise.resolve(draftGradesRailLeague());
+    }
+    return Promise.resolve({ data: [] });
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  expect(within(card).getAllByTestId('draft-grades-skeleton').length).toBeGreaterThan(0);
+  expect(card).toHaveAttribute('aria-busy', 'true');
+
+  await act(async () => {
+    resolveGrades(draftGradesRailResponse());
+    await gradesPromise;
+  });
+
+  await within(card).findAllByRole('row');
+  expect(card).toHaveAttribute('aria-busy', 'false');
+});
+
 // ==========================================================================
 // quick-actions widget (#643), the full-width section below the main grid.
 // Same seam as the sections above: this ticket registers its own endpoint
