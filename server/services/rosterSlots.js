@@ -21,7 +21,7 @@
  *
  *   - src/lib/lineupAttention.js's `DEFAULT_STARTER_SLOT_ORDER` (the starter
  *     KEYS only) is PINNED to this module by lineupAttention.parity.test.js.
- *   - src/lib/draftSim/templates.js exports a THIRD, byte-identical
+ *   - src/lib/draftSim/templates.js exports a byte-identical
  *     `DEFAULT_ROSTER_SLOTS`. It is PINNED to this module by
  *     src/lib/draftSim/templates.parity.test.js (#692), which compares the
  *     two whole-object and in order, not just by key: this copy also carries
