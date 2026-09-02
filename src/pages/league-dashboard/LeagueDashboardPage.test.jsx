@@ -1149,9 +1149,13 @@ test('draft-grades card: a 500 shows a compact error, and the header still rende
 // below is a manually-resolved promise (not mockGetByUrl's `{ pending: true }`
 // marker, which never settles) so this one test can observe both the busy
 // state and the settle within it, mirroring the matchup-preview pending/
-// settled pair. Scoped with within(card): the draft-grades fixture's viewer
-// grade/value collide with my-team-summary's (#642's own review finding).
-test('draft-grades card: aria-busy is true while the grades read is pending and false once it resolves', async () => {
+// settled pair. "Loading" (not "pending") in the test name to match
+// useDraftGrades' own vocabulary: that hook's `phase` reserves 'pending' for
+// the 404 no-grades-yet case (see the neighboring 404 test above), and this
+// test covers the in-flight 'loading' phase instead. Scoped with
+// within(card): the findAllByRole('row') check below would otherwise also
+// match standings-table's rows, which render on the same page.
+test('draft-grades card: aria-busy is true while the grades read is loading and false once it resolves', async () => {
   let resolveGrades;
   const gradesPromise = new Promise((resolve) => {
     resolveGrades = resolve;
