@@ -14,6 +14,14 @@ import { Skeleton as MuiSkeleton } from '@mui/material';
  * card/region that owns the fetch, not from each shape. The pulse is collapsed
  * under the app's global prefers-reduced-motion rule (base.css); the shape's
  * presence, not its motion, carries "content is coming".
+ *
+ * That owner obligation is enforced per consumer, in the consumer's own test
+ * asserting `aria-busy` on its owning region, not by a repo-wide guard: see
+ * LeagueDashboardPage.test.jsx's "shows a loading placeholder until the league
+ * arrives" (the page shell) and "my-team card: while standings are pending the
+ * card holds its layout with skeletons" (the my-team-summary widget) for the
+ * two that exist today; the next widget author should copy the pattern, not
+ * the silence.
  */
 export default function Skeleton({
   variant = 'rounded',
