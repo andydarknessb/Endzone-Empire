@@ -23,9 +23,10 @@ const {
 // FIRES" heading in the guard's docblock, joining each bullet's continuation
 // lines with a single space so a wrapped citation compares as one string.
 // The scan stops at the first line that is neither a bullet nor a
-// continuation of one, so it is bounded to that run: it will not skip a gap
-// (e.g. a blank ` *` line) to find a later bullet, and it will not run past
-// the section into a later, unrelated docblock.
+// continuation of one, so it will not skip a gap (e.g. a blank ` *` line) to
+// find a later bullet. It is also bounded by the end of the docblock itself
+// (the closing `*/` line): an empty section under the heading cannot fall
+// through and pick up a bullet from a later, unrelated docblock.
 function extractCitations(guardSource) {
   const lines = guardSource.split(/\r\n|\n/);
   const headingIndex = lines.findIndex((line) => line.includes('HOW TO PROVE THE GUARD FIRES'));
@@ -39,6 +40,11 @@ function extractCitations(guardSource) {
   let current = null;
 
   for (let i = headingIndex + 1; i < lines.length; i += 1) {
+    if (lines[i].trim() === '*/') {
+      // End of the docblock: stop here, not just at the first non-bullet
+      // line, so an empty section cannot reach into a later docblock.
+      break;
+    }
     const startMatch = bulletStart.exec(lines[i]);
     if (startMatch) {
       if (current !== null) citations.push(current);
