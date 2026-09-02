@@ -36,22 +36,27 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *     surfaces it as "Projected N.N" while a game is live, and this card shows
  *     it as the pre-kickoff projection).
  *
- *     The fallback exists ONLY because attachExpectedFinals materializes no
- *     lineups on purpose ("a list GET must not write a dozen teams' rows",
- *     expectedFinal.service.js): a team with no starter rows yet answers null
- *     there, which is the early-week case (a team created mid-week, or a
- *     league whose week has never advanced). The detail route calls
- *     materializeLineup for both teams inside its own transaction, so it
- *     returns a real number where the list could not; that is the fallback's
- *     entire justification, and it is why the two are not interchangeable even
- *     though they name the same field. This is a CONDITION, not a bare fact:
- *     week advance and the season opener materialize every team's lineup (the
- *     commissioner, season and lineup services all call materializeLineup per
- *     team), so a null list value for the viewer's row is the exception, and
- *     if the list ever comes to carry a value for every team on every week,
- *     this fallback becomes dead code. Nothing here should be read as "the
- *     detail read always fires"; it fires only while the list can still be
- *     null.
+ *     The list carries null on either side for more than one reason
+ *     (expectedFinal.service.js, and see server/routes/league.router.js:664-668
+ *     for the same enumeration from the route's side): a final matchup (the
+ *     score is the result, nothing is projected), a best-ball league
+ *     (attachExpectedFinals never projects one, by design, permanently), no
+ *     league context for the read, or a team with no starter rows yet for the
+ *     week ("a list GET must not write a dozen teams' rows" - the early-week
+ *     case: a team created mid-week, or a league whose week has never
+ *     advanced) - plus a failed read, which is best-effort and also leaves
+ *     nulls rather than erroring the list. The detail route calls
+ *     materializeLineup for both teams inside its own transaction, so for the
+ *     no-starter-rows case it returns a real number where the list could not;
+ *     that is the fallback's justification for that one cause, and it is why
+ *     the two are not interchangeable even though they name the same field.
+ *
+ *     This fallback is NOT a dead-code prediction: a best-ball league's list
+ *     carries null on both sides permanently, by design (`league.best_ball`
+ *     short-circuits attachExpectedFinals every time), so for a best-ball
+ *     league the fallback is the ONLY source these values will ever have.
+ *     There is no future state of the list in which every team on every week
+ *     answers non-null; do not delete this fallback on that assumption.
  *
  *     A miss or a failed detail read degrades just the number to a placeholder
  *     rather than erroring the card, the way the spine/degrade split works in
