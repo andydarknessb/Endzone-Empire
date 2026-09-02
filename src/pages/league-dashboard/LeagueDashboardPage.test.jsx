@@ -577,6 +577,12 @@ test('standings-table: in-season renders the full table, a team count, names fro
   const youRow = within(card).getByTestId('standings-table-you-row');
   expect(within(youRow).getByText('You')).toBeInTheDocument();
   expect(within(youRow).getByText('Squad 1')).toBeInTheDocument();
+  // The row contract (#671): every row-shaped viewer mark carries
+  // data-viewer-team, in addition to the visible You pill.
+  expect(youRow).toHaveAttribute('data-viewer-team', 'true');
+  const youBadge = youRow.querySelector('[data-variant="you"]');
+  expect(youBadge).not.toBeNull();
+  expect(youBadge).toHaveTextContent('You');
 });
 
 test('standings-table: in-season renders the viewer record as W-L-T and points to one decimal', async () => {
@@ -1010,9 +1016,14 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
   expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
 
   // The row is identifiable to assistive tech, not by color alone (WCAG
-  // 1.4.1): a visually-hidden marker, present only on the viewer's row.
-  expect(within(viewerRow).getByText('Your team')).toBeInTheDocument();
-  expect(within(rows[1]).queryByText('Your team')).not.toBeInTheDocument();
+  // 1.4.1): the shared island viewer-row marker, present only on the
+  // viewer's row (#671) - a visible "You" pill plus the row-contract
+  // attribute, not a hidden-only label.
+  expect(viewerRow).toHaveAttribute('data-viewer-team', 'true');
+  expect(rows[1]).not.toHaveAttribute('data-viewer-team');
+  const youBadge = viewerRow.querySelector('[data-variant="you"]');
+  expect(youBadge).not.toBeNull();
+  expect(youBadge).toHaveTextContent('You');
 });
 
 test('draft-grades card: a 404 renders the pending copy with no error', async () => {

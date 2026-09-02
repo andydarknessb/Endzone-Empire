@@ -6,7 +6,10 @@ import { Chip } from '@mui/material';
  * mockup:
  *   - `neutral` (default): the plain `.chip` (surface2 fill, dim text).
  *   - `live`: the `.chip.live` accent state (accent text on the accent tint).
- *   - `you`: the small `.you` pill that marks the viewer's own Team.
+ *   - `you`: the small `.you` pill that is the League Dashboard island's viewer-row
+ *     marker (#671): every row-shaped widget that shows the viewer among other
+ *     Teams renders this pill on the viewer's row, and that row also carries the
+ *     `data-viewer-team` attribute so the mark is never color- or text-only.
  *
  * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
  * The label text is whatever `children` holds; the variant is also exposed as
