@@ -749,6 +749,39 @@ async function playersNotHeldAt(client, { teamId, scheduled }) {
 }
 
 /**
+ * The week AS PLAYED: of this team's lineup rows for the week, the ones the
+ * score of record counts. A row survives only if a tenure of this team
+ * covered its player's own kickoff (#228), and in best ball only if one also
+ * covered the week's LAST kickoff (#635, ADR 0022). A player with no game
+ * that week is never excluded.
+ *
+ * This is the ONE population every reading of a settled week goes through:
+ * the settle pass and the re-score of a final week (`scoreMatchups`), and
+ * hindsight (#736). It lives here, beside the two questions it asks, so a
+ * consumer cannot grow a second population that merely happens to agree
+ * with the score of record today and drifts from it tomorrow; that is how
+ * hindsight came to score every row of a settled week. A LIVE week is the
+ * one reading this does not govern: it joins the current roster instead.
+ *
+ * `rows` carry `player_id` and `nfl_team` (the schedule key, folded through
+ * the same predicate as the lineup lock). `client` is anything with a
+ * `query`, so the pool serves outside a transaction.
+ */
+async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache = null }) {
+  if (rows.length === 0) return rows;
+  const playersOf = (list) => list.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team }));
+  const notHeldAtOwn = await playersNotHeldAtKickoff(client, {
+    teamId, season, week, players: playersOf(rows), kickoffCache,
+  });
+  const held = rows.filter((row) => !notHeldAtOwn.has(row.player_id));
+  if (!league.best_ball || held.length === 0) return held;
+  const notHeldThrough = await playersNotHeldAtLastKickoff(client, {
+    teamId, season, week, players: playersOf(held), kickoffCache,
+  });
+  return held.filter((row) => !notHeldThrough.has(row.player_id));
+}
+
+/**
  * Pure: add schedule-derived lock and bye metadata to lineup entries.
  *
  * `locked` is a Set of PLAYER IDS from `lockedPlayerIds`, not of team names
@@ -1093,6 +1126,7 @@ module.exports = {
   lockedPlayerIds,
   playersNotHeldAtKickoff,
   playersNotHeldAtLastKickoff,
+  rowsHeldAsPlayed,
   annotateLineupEntries,
   getLineup,
   setLineup,
