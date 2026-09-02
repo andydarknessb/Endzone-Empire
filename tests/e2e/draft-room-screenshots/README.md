@@ -11,8 +11,9 @@ League` fixture): no production, no real league, no database.
 
 ## Regenerate
 
-From the repo root, with the client already reusable at `127.0.0.1:4173` (the
-e2e config starts it for you outside CI):
+From the repo root (the e2e config starts the client for you at
+`127.0.0.1:4173`; set `E2E_REUSE_SERVER=1` first if you're intentionally
+reusing one you already have running there):
 
 ```
 npx playwright test --config=playwright.e2e.config.js tests/e2e/draft-accessibility.spec.ts
