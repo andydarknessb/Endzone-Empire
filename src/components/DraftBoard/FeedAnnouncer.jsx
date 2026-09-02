@@ -34,11 +34,10 @@ import { nextAnnouncement } from './announcerRepeat';
  * matches ReadinessAnnouncer's source even though that component renders null
  * outside the PENDING phase (railCompositionFor), and it structurally cannot
  * see RosterNeedsStrip (src/components/RosterPanel/, mounted in the ACTIVE
- * rail composition, railComposition.js) - that region is deliberately
- * `aria-live="polite"` WITHOUT `role="status"`, because the room already has
- * one role="status" claim (ReadinessAnnouncer) and DraftBoard.test.jsx queries
- * it with a singular getByRole, which throws on a second match. Each region is
- * on its own axis, none folding into another. This one still earns its place
+ * rail composition, railComposition.js) - that region carries
+ * `aria-live="polite"` WITHOUT `role="status"` (see its own docblock, and #664
+ * for why that docblock's stated reason no longer holds). Each region is on
+ * its own axis, none folding into another. This one still earns its place
  * rather than folding into any of them:
  *
  *  - It carries a DIFFERENT axis: human-message arrival, which neither
