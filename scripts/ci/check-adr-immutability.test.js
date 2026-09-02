@@ -11,17 +11,22 @@ const {
 } = require('./check-adr-immutability');
 
 // Audits the guard's own docblock (see #712): the "HOW TO PROVE THE GUARD
-// FIRES" section cites two test descriptions by name so a reader can go read
-// the proof instead of tampering an ADR by hand. Nothing enforced that the
+// FIRES" section cites two test titles by name so a reader can go read the
+// proof instead of tampering an ADR by hand. Nothing enforced that the
 // citations still pointed at real tests, so a rename could silently strand
 // them. These two extractors are specific to this docblock's shape -- a
 // `*   - ` bullet with `*     ` continuation lines -- and to this file's
 // `test('...', ...)` calls; they are not a general cross-reference tool.
 
-// Extracts every bullet under the "HOW TO PROVE THE GUARD FIRES" heading in
-// the guard's docblock, joining a wrapped bullet's continuation lines with a
-// single space so it compares as one string.
-function extractCitedDescriptions(guardSource) {
+// Extracts the contiguous run of ` *   - ` bullets (with ` *     `
+// continuation lines) that immediately follows the "HOW TO PROVE THE GUARD
+// FIRES" heading in the guard's docblock, joining each bullet's continuation
+// lines with a single space so a wrapped citation compares as one string.
+// The scan stops at the first line that is neither a bullet nor a
+// continuation of one, so it is bounded to that run: it will not skip a gap
+// (e.g. a blank ` *` line) to find a later bullet, and it will not run past
+// the section into a later, unrelated docblock.
+function extractCitations(guardSource) {
   const lines = guardSource.split(/\r\n|\n/);
   const headingIndex = lines.findIndex((line) => line.includes('HOW TO PROVE THE GUARD FIRES'));
   if (headingIndex === -1) {
@@ -30,13 +35,13 @@ function extractCitedDescriptions(guardSource) {
 
   const bulletStart = /^ \* {3}- (.+)$/;
   const continuation = /^ \* {5}(.+)$/;
-  const descriptions = [];
+  const citations = [];
   let current = null;
 
   for (let i = headingIndex + 1; i < lines.length; i += 1) {
     const startMatch = bulletStart.exec(lines[i]);
     if (startMatch) {
-      if (current !== null) descriptions.push(current);
+      if (current !== null) citations.push(current);
       current = startMatch[1];
       continue;
     }
@@ -47,13 +52,13 @@ function extractCitedDescriptions(guardSource) {
     }
     if (current !== null) {
       // First line after the bullet list that is neither a new bullet nor a
-      // continuation of the current one: the list is over.
+      // continuation of the current one: the run is over.
       break;
     }
   }
-  if (current !== null) descriptions.push(current);
+  if (current !== null) citations.push(current);
 
-  return descriptions;
+  return citations;
 }
 
 // Extracts every `test('<title>', ...)` title from this file's own source.
@@ -68,8 +73,11 @@ function extractTestTitles(testFileSource) {
   return titles;
 }
 
-// Pure logic only: base and head texts are handed in as strings. Nothing here
-// runs git or touches the real docs/adr/ directory.
+// Pure logic only: base and head texts are handed in as strings, except the
+// docblock-citation audit at the bottom of this file, which reads
+// check-adr-immutability.js and this file itself off disk (both are static
+// repo files, not runtime state). Nothing here runs git or touches the real
+// docs/adr/ directory.
 
 const BASE = [
   '# nfl_games uniqueness is enforced on the team code, not the raw code',
@@ -222,13 +230,13 @@ test('HOW TO PROVE THE GUARD FIRES cites test descriptions that actually exist i
   const guardSource = fs.readFileSync(path.join(__dirname, 'check-adr-immutability.js'), 'utf8');
   const testFileSource = fs.readFileSync(__filename, 'utf8');
 
-  const citations = extractCitedDescriptions(guardSource);
+  const citations = extractCitations(guardSource);
   const titles = extractTestTitles(testFileSource);
 
   // Positive control: an extractor that silently finds nothing must fail
   // this assertion, not pass vacuously (that silent-empty extractor is the
   // exact defect class #712 exists to close).
-  assert.ok(citations.length > 0, 'expected at least one cited test description in the docblock');
+  assert.ok(citations.length > 0, 'expected at least one citation in the docblock');
 
   for (const citation of citations) {
     assert.ok(
