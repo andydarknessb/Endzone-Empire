@@ -175,9 +175,22 @@ test.describe('Draft room accessibility (#445)', () => {
     const log = page.getByRole('log', { name: 'League Chat' });
     await expect(log).toBeVisible();
 
-    // Scroll up into older content (fires the scroll handler that records the
-    // reader is no longer at the bottom).
-    await log.evaluate((el) => { el.scrollTop = 0; });
+    // Scroll up into older content. Assigning scrollTop only QUEUES a scroll
+    // event for the next rendering frame; it does not run the handler that
+    // flips atBottomRef synchronously. Under CPU contention no frame need
+    // elapse before the next page.evaluate below delivers the 26th message,
+    // so the handler must be fired explicitly, in this same round trip, to
+    // guarantee atBottomRef is false before that message lands.
+    await log.evaluate((el) => {
+      // Precondition the jump control depends on: the log actually overflows.
+      // If a future layout change makes 25 messages fit, fail here with a
+      // clear message instead of a missing button further down.
+      if (el.scrollHeight <= el.clientHeight) {
+        throw new Error(`log does not overflow: scrollHeight=${el.scrollHeight} clientHeight=${el.clientHeight}`);
+      }
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll'));
+    });
 
     // A new message arrives while they read: the N-new affordance appears.
     await deliver(page, 'chat:message', chatMsg(26, 'Ridge Runners', 'over here'));
