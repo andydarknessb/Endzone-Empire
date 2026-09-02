@@ -64,3 +64,13 @@ does, and to best ball alone.
 - Hindsight and the recap's blunder pick still score every row of a settled
   week with no tenure exclusion, so in best ball they disagree with the score
   of record. Pre-existing, tracked as #736.
+
+## Amendment (2026-09-02, #736): hindsight reads this pool too
+
+The last consequence above records hindsight and the recap's blunder pick as
+scoring every row of a settled week, disagreeing with the score of record in
+best ball, and tracked as #736. That gap is closed by ADR 0023: hindsight
+reads the settle pass's population through the one helper that applies both
+exclusions, so the bound this ADR records governs hindsight as well, and in
+best ball a team's hindsight actual is its score of record. Nothing above
+this line has changed.

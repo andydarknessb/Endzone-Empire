@@ -702,6 +702,16 @@ The count of a team's starters whose NFL games have not finished this week. A
 starter whose game has not kicked off counts.
 _Avoid_: PMR (in prose), players left, yet to play
 
+**Hindsight**:
+A settled week re-read against the best legal lineup its team could have
+started from the week as played: the same players the settle pass counted,
+so hindsight never disagrees with the score of record. What the team started
+against that lineup is the points left on the bench. In best ball the two
+lineups are one and nothing is ever left (ADR 0023).
+_Avoid_: what-if (the live, in-progress counterpart), regret (the holdout
+study's measure of the same gap), optimal lineup (the thing hindsight
+compares against, not the comparison)
+
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly
 high score, champion, longest win streak, biggest comeback or best draft grade.
