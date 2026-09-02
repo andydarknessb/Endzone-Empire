@@ -47,6 +47,12 @@ jobs:
       # Its parser tests run here so a broken parser cannot merge; the
       # post-merge job re-runs them as a tripwire before it writes anything.
       - run: npm run test:close-merged-issues
+      # The Promote workflow's Render deploy poller (#733) decides the
+      # production release's red/green: fail fast on a failed build, wait
+      # through a slow one, and never fire the worker hook while the old web
+      # instance still answers 200. Its tests run here so a regression in the
+      # poller cannot merge, in the same job as the close-merged-issues test.
+      - run: npm run test:wait-for-render-deploy
       # The holdout-confirm-2026 study captures against these constants; an
       # unintended change (even a key-order change) silently drops captured
       # weeks. Deliberate changes update the pin in the same commit.
