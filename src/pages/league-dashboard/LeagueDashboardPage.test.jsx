@@ -751,6 +751,14 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
   const bar = within(viewerRow).getByRole('progressbar');
   expect(bar).toHaveAttribute('aria-valuenow', '1284');
   expect(bar).toHaveAttribute('aria-valuemax', '1592');
+  // Without aria-valuetext, AT reads the value as a percentage of min/max
+  // (81%) instead of the roster value itself.
+  expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
+
+  // The row is identifiable to assistive tech, not by color alone (WCAG
+  // 1.4.1): a visually-hidden marker, present only on the viewer's row.
+  expect(within(viewerRow).getByText('Your team')).toBeInTheDocument();
+  expect(within(rows[1]).queryByText('Your team')).not.toBeInTheDocument();
 });
 
 test('draft-grades card: a 404 renders the pending copy with no error', async () => {

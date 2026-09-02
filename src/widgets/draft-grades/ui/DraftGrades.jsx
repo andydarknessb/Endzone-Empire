@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Table, TableBody, TableCell, TableRow, Typography } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Card, GradeChip, Skeleton } from '../../../shared/ui';
 import useDraftGrades from '../model/useDraftGrades';
 
@@ -17,7 +18,19 @@ import useDraftGrades from '../model/useDraftGrades';
  * Bars scale to the highest roster value in the response, so that row alone
  * reaches 100%. Each bar is a real `progressbar`: `aria-valuenow` carries the
  * roster value and `aria-valuemax` the highest value in the response, so the
- * proportion is observable to assistive tech, not only visual.
+ * proportion is observable to assistive tech, not only visual. `aria-valuetext`
+ * is required alongside those: without it, assistive tech reads the value as a
+ * PERCENTAGE of min/max (the ARIA default), which would announce "81%" for a
+ * number the sighted reader sees as 1,284 - so it carries the same "N of max"
+ * reading a sighted user gets from the number beside the bar.
+ *
+ * The viewer's row gets the accent background/border (color only, as the
+ * mockup has it) plus a visually-hidden "Your team" marker in the name cell,
+ * so the row is identifiable in the accessibility tree, not only by color
+ * (WCAG 1.4.1). This is a widget-local choice, not the `data-viewer-team` /
+ * no-label convention #182 set for PowerRankings and Pick'em standings: #182
+ * scoped itself to those two surfaces and left every other one ("#113's
+ * surfaces decide that for themselves") to choose its own treatment.
  *
  * The card owns its one read (the draft-grades endpoint) and is the region
  * that owns it, so it carries `aria-busy` while that read is in flight
@@ -67,7 +80,15 @@ export default function DraftGrades({ leagueId }) {
           <TableBody>
             {rows.map((row) => {
               const isViewer = row.teamId === viewerTeamId;
-              const pct = maxRosterValue > 0 ? (row.rosterValue / maxRosterValue) * 100 : 0;
+              // A malformed roster value (a legacy/partial computed row) falls
+              // back to 0 for the bar's math rather than feeding NaN into
+              // aria-valuenow / a "NaN%" width.
+              const hasValue = Number.isFinite(row.rosterValue);
+              const safeValue = hasValue ? row.rosterValue : 0;
+              const pct = hasValue && maxRosterValue > 0 ? (safeValue / maxRosterValue) * 100 : 0;
+              const valueText = hasValue
+                ? `${safeValue.toLocaleString('en-US')} of ${maxRosterValue.toLocaleString('en-US')}`
+                : 'Not available';
               return (
                 <TableRow
                   key={row.teamId}
@@ -87,6 +108,11 @@ export default function DraftGrades({ leagueId }) {
                       <Box component="span" sx={{ fontSize: '13.5px', color: 'var(--dash-ink)' }}>
                         {row.teamName}
                       </Box>
+                      {isViewer && (
+                        <Box component="span" sx={visuallyHidden}>
+                          Your team
+                        </Box>
+                      )}
                     </Box>
                   </TableCell>
                   <TableCell align="right" sx={{ borderBottom: '1px solid var(--dash-line)' }}>
@@ -99,14 +125,26 @@ export default function DraftGrades({ leagueId }) {
                           color: 'var(--dash-dim)',
                         }}
                       >
-                        {Number.isFinite(row.rosterValue) ? row.rosterValue.toLocaleString('en-US') : '-'}
+                        {hasValue ? (
+                          safeValue.toLocaleString('en-US')
+                        ) : (
+                          <>
+                            <Box component="span" aria-hidden="true">
+                              -
+                            </Box>
+                            <Box component="span" sx={visuallyHidden}>
+                              Not available
+                            </Box>
+                          </>
+                        )}
                       </Box>
                       <Box
                         role="progressbar"
                         aria-label={`${row.teamName} roster value`}
-                        aria-valuenow={row.rosterValue}
+                        aria-valuenow={safeValue}
                         aria-valuemin={0}
                         aria-valuemax={maxRosterValue}
+                        aria-valuetext={valueText}
                         sx={{
                           width: '100%',
                           height: 4,
