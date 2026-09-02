@@ -168,7 +168,11 @@ test('"/league/:leagueId" is protected: LoginPage when logged out, LeagueDashboa
       return Promise.resolve({ data: [] });
     });
   });
-  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  // The redesigned dashboard page (src/pages/league-dashboard) renders the
+  // league name as its h1 landmark, not the legacy page's plain heading.
+  expect(
+    await screen.findByRole('heading', { level: 1, name: 'Sunday Ballers' })
+  ).toBeInTheDocument();
 });
 
 test('"/league/:leagueId/matchups" no longer resolves — the standalone Matchups page was removed', async () => {
