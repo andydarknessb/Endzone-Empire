@@ -57,7 +57,7 @@ function GameLogSparkline({ games, format }) {
     <Card variant="outlined" sx={{ mb: 2 }}>
       <CardContent sx={{ pb: 1.5 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Points by week</Typography>
+          <Typography variant="subtitle2" component="h2" sx={{ fontWeight: 700 }}>Points by week</Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>Oldest to newest</Typography>
         </Stack>
         <Box

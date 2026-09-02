@@ -847,7 +847,7 @@ export function LineupEditor({
           <Typography variant="h4" component="h2" sx={{ mb: 1 }}>
             {heading}
           </Typography>
-          <Typography variant="subtitle1" sx={{ mb: 1, color: 'text.secondary' }}>
+          <Typography variant="subtitle1" component="p" sx={{ mb: 1, color: 'text.secondary' }}>
             Week {lineup.week}
           </Typography>
           {bestBall && (
@@ -1029,7 +1029,7 @@ export function LineupEditor({
 
                   {openSlotFills.length > 0 && (
                     <Box sx={{ mt: 1 }} data-testid="lineup-open-slot-fills">
-                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                      <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
                         Empty starting slots
                       </Typography>
                       {openSlotFills.map((fill) => (

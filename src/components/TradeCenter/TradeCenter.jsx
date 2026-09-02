@@ -165,7 +165,7 @@ function RosterColumn({ label, players, selectedIds, onToggle, testId }) {
   const groups = groupPlayersByPosition(players || []);
   return (
     <Grid xs={12} sm={6} data-testid={testId}>
-      <Typography variant="subtitle1" sx={{ mb: 1 }}>
+      <Typography variant="subtitle1" component="h3" sx={{ mb: 1 }}>
         {label}
       </Typography>
       {groups.map(({ position, players: groupPlayers }) => (

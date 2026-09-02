@@ -31,7 +31,7 @@ function PlayerCard({ player, stat, statLabel = 'pts', subtitle }) {
             {initials(name)}
           </Avatar>
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-            <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>
+            <Typography variant="subtitle2" component="span" noWrap sx={{ fontWeight: 700 }}>
               {name}
             </Typography>
             <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.25 }}>

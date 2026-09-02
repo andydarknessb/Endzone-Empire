@@ -90,7 +90,7 @@ function TradeProposalCard({
 
         <Grid container spacing={2}>
           <Grid xs={12} sm={6}>
-            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+            <Typography variant="subtitle2" component="p" sx={{ mb: 1, fontWeight: 700 }}>
               {leftLabel}
             </Typography>
             <Stack spacing={1}>
@@ -100,7 +100,7 @@ function TradeProposalCard({
             </Stack>
           </Grid>
           <Grid xs={12} sm={6} sx={{ borderLeft: { sm: '1px solid' }, borderColor: { sm: 'divider' }, pl: { sm: 3 } }}>
-            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+            <Typography variant="subtitle2" component="p" sx={{ mb: 1, fontWeight: 700 }}>
               {rightLabel}
             </Typography>
             <Stack spacing={1}>

@@ -276,7 +276,7 @@ export default function LeaguePickem() {
       {settings.isCommissioner && (
         <Accordion disableGutters sx={{ mb: 3 }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />} aria-controls="pickem-settings-content">
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Commissioner settings</Typography>
+            <Typography variant="subtitle1" component="span" sx={{ fontWeight: 600 }}>Commissioner settings</Typography>
           </AccordionSummary>
           <AccordionDetails id="pickem-settings-content" sx={{ pt: 0 }}>
             <PickemSettingsPanel

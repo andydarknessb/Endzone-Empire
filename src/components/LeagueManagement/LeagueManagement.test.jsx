@@ -542,6 +542,7 @@ test("occupancy and attribution render as two separate block elements, not one j
   });
 
   const card = await screen.findByTestId('invite-preview');
+  const name = screen.getByText('Office Pick\'em');
   const occupancy = screen.getByText(/3\/12 teams/);
   const attribution = screen.getByText(/run by Gridiron Gang/i);
 
@@ -550,15 +551,16 @@ test("occupancy and attribution render as two separate block elements, not one j
   expect(occupancy).not.toBe(attribution);
   expect(occupancy).not.toHaveTextContent(/run by/i);
   expect(attribution).not.toHaveTextContent(/teams/i);
-  // Both are block-level (Typography renders body2 as <p>): the boundary
-  // between them is what assistive technology announces as a break.
+  // The preview name and both facts are semantic blocks. The name is not a
+  // heading; it carries subtitle styling with an explicit paragraph element.
   expect(occupancy.tagName).toBe('P');
   expect(attribution.tagName).toBe('P');
+  expect(name.tagName).toBe('P');
   // Testing Library queries can't express "count the paragraph children of
   // this node" - node access is the only way to check the structure itself
   // rather than just the text it contains.
   // eslint-disable-next-line testing-library/no-node-access
-  expect(card.querySelectorAll('p')).toHaveLength(2);
+  expect(card.querySelectorAll('p')).toHaveLength(3);
 });
 
 test("a commissioner with no Team row shows the seat count alone, in one element, not a dangling second one", async () => {
@@ -577,10 +579,11 @@ test("a commissioner with no Team row shows the seat count alone, in one element
   expect(card).not.toHaveTextContent(/run by/i);
   expect(card).not.toHaveTextContent(/alice\b/i);
   expect(card).not.toHaveTextContent(/teams\s*·/);
-  // Not just "no text" - no second, empty block left behind either. An
-  // empty live-region child is still a node a screen reader can land on.
+  // The title and seat count remain; no third, empty attribution block is
+  // left behind. An empty live-region child is still a node a screen reader
+  // can land on.
   // eslint-disable-next-line testing-library/no-node-access
-  expect(card.querySelectorAll('p')).toHaveLength(1);
+  expect(card.querySelectorAll('p')).toHaveLength(2);
 });
 
 // #209's second problem: the card appeared with no live region and no

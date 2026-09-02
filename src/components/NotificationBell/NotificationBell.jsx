@@ -99,7 +99,7 @@ function NotificationBell() {
         <Box
           sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 0.5, gap: 2 }}
         >
-          <Typography variant="subtitle2">Notifications</Typography>
+          <Typography variant="subtitle2" component="h3">Notifications</Typography>
           <Button size="small" onClick={markAllRead} disabled={unread === 0}>
             Mark all read
           </Button>
