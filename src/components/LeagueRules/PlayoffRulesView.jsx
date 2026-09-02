@@ -13,7 +13,7 @@ export default function PlayoffRulesView({ league }) {
   return (
     <Stack spacing={4}>
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Season shape</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Season shape</Typography>
         <RuleRow
           label="Regular season length"
           value={`${regularSeasonWeeks} weeks`}
@@ -38,7 +38,7 @@ export default function PlayoffRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Keepers</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Keepers</Typography>
         <RuleRow label="Keepers" value={keepersEnabled ? 'Enabled' : 'Disabled'} />
         {keepersEnabled && (
           <RuleRow

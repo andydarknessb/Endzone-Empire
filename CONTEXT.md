@@ -474,7 +474,17 @@ reference, deliberately distinct from this app's own ranking of him.
 _Avoid_: rank, position rank
 
 **Draft grade**:
-A letter grade assessing a team's completed draft.
+A letter grade assessing a team's completed draft. It is earned from Net vs
+ADP, z-scored against the rest of the league. Projected roster value is a
+separate team stat and is never the grade's input.
+
+**Net vs ADP**:
+The sum, across one team's picks, of how far each pick beat its market ADP
+(ADP minus pick number, negated so higher is better). A steal is the pick
+furthest below its ADP, a reach the pick furthest above it. A market measure
+of the draft, not a season-forward one, so it is not Draft value. The Draft
+Sim's "Market delta" is the same sum before negation (lower is better there).
+_Avoid_: draft value, roster value, steal score
 
 **Draft value**:
 A season-forward assessment of what a player is worth to a drafting team,

@@ -358,10 +358,27 @@ test('my-team card: draft-grades fixture fills the grade and roster-value tiles'
   renderPage();
 
   const card = await screen.findByTestId('my-team-summary');
-  // Scoped to the card: #642 renders a grade letter and a roster value for
-  // every team, so a page-wide query would match many.
+  // Scoped to the card: #642 renders a grade letter for every team, so a
+  // page-wide query would match many.
   expect(await within(card).findByText('C')).toBeInTheDocument();
   expect(within(card).getByText('1,284')).toBeInTheDocument();
+});
+
+// Week 1 of a season: the server sends the grade with rosterValue null (no
+// projections exist yet). Number(null) is 0, which is exactly the "0 roster
+// value" production showed; the tile must render the placeholder instead.
+test('my-team card: a null roster value renders the placeholder, not 0, while the grade still shows', async () => {
+  mockGetByUrl({
+    '/api/league/1': myTeamLeague(),
+    '/api/league/1/draft-grades': draftGradesResponse({ rosterValue: null }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('my-team-summary');
+  expect(await within(card).findByText('C')).toBeInTheDocument();
+  const valueTile = within(card).getByTestId('stat-roster-value');
+  expect(valueTile).toHaveTextContent('-');
+  expect(valueTile.textContent).not.toMatch(/\d/);
 });
 
 test('my-team card: a 404 from draft-grades leaves the grade and value tiles as placeholders with no digits', async () => {
@@ -1022,17 +1039,21 @@ test('matchup card: a best-ball league skips the detail read, rendering both pla
 // shared setup changes.
 //
 // This widget reads the SAME /api/league/:id/draft-grades endpoint as
-// my-team-summary above, and AC1 pins the very values (grade C, roster value
-// 1,284) that #639's fixture already renders inside its own card. Every
-// value assertion here is scoped with within(card) (the widget's own card)
-// or within(row) (one row of it), never a page-wide getBy*/findBy*, so this
-// section never collides with the section above it or with a sibling ticket
-// rendering the same numbers.
+// my-team-summary above, and the viewer's grade letter (C) renders in both
+// cards. Every value assertion here is scoped with within(card) (the
+// widget's own card) or within(row) (one row of it), never a page-wide
+// getBy*/findBy*, so this section never collides with the section above it
+// or with a sibling ticket rendering the same letters.
+//
+// The number beside each grade is Net vs ADP (the figure the grade is ranked
+// on), never roster value: roster value is not the grade's input and is null
+// at week 1 of a season, which is how production showed a 0 beside every
+// grade (league 137, 2026). The fixture's nets are that league's real spread.
 // ==========================================================================
 
 // 12 Teams, matching the dashboard-concept mockup's Draft Grades rail: the
-// viewer (teamId 1) sits at rank 6 with grade C and roster value 1,284, and
-// the top roster value (1,592) belongs to a different Team. `teamName` is the
+// viewer (teamId 1) sits at rank 6 with grade C and a net of +95.1, and the
+// top net (+161.2) belongs to a different Team. `teamName` is the
 // canonical Team-identity field (teamIdentity.js); `name` here is the raw
 // column the league route also leaks (carry-over comment #5) and must NOT be
 // what the card renders.
@@ -1062,28 +1083,38 @@ const draftGradesRailLeague = (overrides = {}) =>
 // GET /api/league/:id/draft-grades, 12 rows in rank order (the server already
 // ranks best-first). Each row's `name` is a decoy raw column deliberately
 // different from the matching Team's `teamName` above, so a test that reads
-// it by mistake fails loudly instead of passing by coincidence.
+// it by mistake fails loudly instead of passing by coincidence. rosterValue
+// is null on every row (the week-1 shape); the card must not need it.
+const railPick = (name, pickNumber, marketAdp) => ({
+  playerId: pickNumber, name, position: 'RB', pickNumber, marketAdp, draftValueScore: marketAdp - pickNumber,
+});
+const railRow = (teamId, grade, rank, adpNet, steal = null, reach = null, pricedPicks = 9) => ({
+  teamId, name: `raw-${teamId}`, grade, rank, adpNet, rosterValue: null, steal, reach, pricedPicks,
+});
 const draftGradesRailResponse = () => ({
   data: {
     computedAt: '2026-09-01T00:00:00.000Z',
+    rosterValueAvailable: false,
     grades: [
-      { teamId: 2, name: 'raw-2', grade: 'A', rosterValue: 1592, rank: 1 },
-      { teamId: 3, name: 'raw-3', grade: 'A', rosterValue: 1548, rank: 2 },
-      { teamId: 4, name: 'raw-4', grade: 'A', rosterValue: 1501, rank: 3 },
-      { teamId: 5, name: 'raw-5', grade: 'A', rosterValue: 1477, rank: 4 },
-      { teamId: 6, name: 'raw-6', grade: 'B', rosterValue: 1390, rank: 5 },
-      { teamId: 1, name: 'raw-1', grade: 'C', rosterValue: 1284, rank: 6 },
-      { teamId: 7, name: 'raw-7', grade: 'C', rosterValue: 1241, rank: 7 },
-      { teamId: 8, name: 'raw-8', grade: 'D', rosterValue: 1144, rank: 8 },
-      { teamId: 9, name: 'raw-9', grade: 'D', rosterValue: 1120, rank: 9 },
-      { teamId: 10, name: 'raw-10', grade: 'D', rosterValue: 1082, rank: 10 },
-      { teamId: 11, name: 'raw-11', grade: 'F', rosterValue: 968, rank: 11 },
-      { teamId: 12, name: 'raw-12', grade: 'F', rosterValue: 902, rank: 12 },
+      railRow(2, 'A', 1, 161.2, railPick('Puka Nacua', 14, 4.3), railPick('Kyler Murray', 38, 71)),
+      railRow(3, 'A', 2, 158.8),
+      railRow(4, 'A', 3, 157.3),
+      railRow(5, 'A', 4, 155.4),
+      railRow(6, 'B', 5, 110.5),
+      railRow(1, 'C', 6, 95.1, railPick('Bijan Robinson', 18, 3), railPick('Jake Elliott', 40, 120.5)),
+      railRow(7, 'C', 7, 63.1, null, railPick('Tyler Bass', 33, 150)),
+      railRow(8, 'D', 8, 42.1),
+      railRow(9, 'D', 9, 26.9),
+      railRow(10, 'D', 10, 14.4),
+      // A Team with no market ADP on any pick (IDP-heavy): no net, no steal, no
+      // reach, and a different sentence from "every pick landed at its ADP".
+      railRow(11, 'F', 11, null, null, null, 0),
+      railRow(12, 'F', 12, -52.1, railPick('Sam LaPorta', 60, 55), null),
     ],
   },
 });
 
-test('draft-grades card: heading, Roster value tail, 12 rows in rank order with Team names from teams[]', async () => {
+test('draft-grades card: heading, Net vs ADP tail, 12 rows in rank order with Team names from teams[]', async () => {
   mockGetByUrl({
     '/api/league/1': draftGradesRailLeague(),
     '/api/league/1/draft-grades': draftGradesRailResponse(),
@@ -1092,7 +1123,10 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
 
   const card = await screen.findByTestId('draft-grades');
   expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
-  expect(within(card).getByText('Roster value')).toBeInTheDocument();
+  expect(within(card).getByText('Net vs ADP')).toBeInTheDocument();
+  // The card never renders the (null) roster value column: no "0", no "-"
+  // where a number should be, and no leftover roster-value bar.
+  expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
 
   // Rank order (response order), read from teams[] rather than the grades
   // response's own (decoy) `name` field.
@@ -1118,19 +1152,42 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
   // None of the decoy raw names ever render.
   expect(within(card).queryByText(/^raw-/)).not.toBeInTheDocument();
 
-  // The viewer's own row (teamId 1): scoped to that row so its "C" chip and
-  // "1,284" value cannot collide with my-team-summary's card above, which
-  // renders the same grade and value for the same viewer.
+  // The viewer's own row (teamId 1): scoped to that row so its "C" chip
+  // cannot collide with my-team-summary's card above, which renders the same
+  // grade for the same viewer. The number is the grade's own input, signed,
+  // and the row says how the grade was earned: best steal, worst reach.
   const viewerRow = within(card).getByTestId('draft-grades-row-1');
   expect(within(viewerRow).getByRole('img', { name: 'Grade C' })).toBeInTheDocument();
-  expect(within(viewerRow).getByText('1,284')).toBeInTheDocument();
-
-  const bar = within(viewerRow).getByRole('progressbar');
-  expect(bar).toHaveAttribute('aria-valuenow', '1284');
-  expect(bar).toHaveAttribute('aria-valuemax', '1592');
-  // Without aria-valuetext, AT reads the value as a percentage of min/max
-  // (81%) instead of the roster value itself.
-  expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
+  // The Team cell is the row header, so the number cell is read with its
+  // Team; the number cell itself carries the hidden column label, anchored
+  // so the label and value cannot drift into the pick line.
+  expect(within(viewerRow).getByRole('rowheader')).toHaveTextContent('MyBallsHurts');
+  expect(within(viewerRow).getByTestId('draft-grades-net')).toHaveTextContent(/^Net vs ADP \+95\.1$/);
+  expect(within(viewerRow).getByTestId('draft-grades-picks')).toHaveTextContent(
+    /^Steal: Bijan Robinson \(pick 18, ADP 3\) · Reach: Jake Elliott \(pick 40, ADP 120\.5\)$/
+  );
+  const rowNet = (teamId) => within(within(card).getByTestId(`draft-grades-row-${teamId}`)).getByTestId('draft-grades-net');
+  const rowPicks = (teamId) => within(within(card).getByTestId(`draft-grades-row-${teamId}`)).getByTestId('draft-grades-picks');
+  // A negative net keeps its sign; a Team with only one qualifying pick shows
+  // only that half; a priced Team with neither says so instead of rendering
+  // blank.
+  expect(rowNet(12)).toHaveTextContent(/^Net vs ADP -52\.1$/);
+  expect(rowPicks(7)).toHaveTextContent(/^Reach: Tyler Bass \(pick 33, ADP 150\)$/);
+  expect(rowPicks(3)).toHaveTextContent(/^Every pick landed at its ADP$/);
+  // No market ADP on any pick: the net is not available (no "NaN", no "0")
+  // and the sentence says why, rather than claiming every pick hit its ADP.
+  expect(rowNet(11)).toHaveTextContent(/^Net vs ADP -Not available$/);
+  expect(rowNet(11).textContent).not.toMatch(/NaN|\d/);
+  expect(rowPicks(11)).toHaveTextContent(/^No market ADP for these picks$/);
+  // Roster value is gone from this card entirely: no header, no column.
+  expect(within(card).queryByText(/roster value/i)).not.toBeInTheDocument();
+  // The card explains the number it shows, in full, and the table points at
+  // that explanation so table-mode readers meet it too.
+  const explainer = within(card).getByTestId('draft-grades-explainer');
+  expect(explainer).toHaveTextContent(
+    'Net vs ADP adds up how far each pick beat its market ADP. Higher is better: a steal fell to the Team later than its ADP, a reach went earlier.'
+  );
+  expect(within(card).getByRole('table')).toHaveAttribute('aria-describedby', explainer.id);
 
   // The row is identifiable in the accessibility tree and to tooling, not by
   // color alone (WCAG 1.4.1): the shared island viewer-row marker (#671) - a
@@ -1660,6 +1717,51 @@ test('commissioner-panel: expanding League administration mounts the legacy comm
   // "Commissioner Tools" header), composed as-is with the props the legacy page
   // gives it.
   expect(await within(card).findByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
+});
+
+test('commissioner-panel: the League administration disclosure wires aria-expanded/aria-controls to the region it mounts (#694)', async () => {
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  const toggle = within(card).getByRole('button', { name: /league administration/i });
+
+  // Collapsed: aria-expanded is false, aria-controls is ABSENT (not merely
+  // empty) because the region only exists while open - a static reference
+  // would dangle collapsed - and no element with the region's id is mounted.
+  // Checked by id, not only by data-testid: a testid-only check would miss
+  // the id itself dropping or drifting while the (test-only) testid held.
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(toggle).not.toHaveAttribute('aria-controls');
+  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
+  // The ruling's collapsed clause is stated in terms of the region's id
+  // specifically; the testid check above is not a substitute for it.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
+
+  await userEvent.click(toggle);
+
+  // Expanded: aria-controls now names the mounted region's id, and that
+  // region contains the legacy tools' own heading.
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(toggle).toHaveAttribute('aria-controls', 'commissioner-panel-administration');
+  const region = await screen.findByTestId('commissioner-panel-administration');
+  // Tie aria-controls to the region it actually names, not just to a matching
+  // literal: this is what would catch the region's id drifting or vanishing
+  // while its data-testid (a test-only hook) stayed put.
+  expect(region).toHaveAttribute('id', toggle.getAttribute('aria-controls'));
+  expect(within(region).getByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
+
+  await userEvent.click(toggle);
+
+  // Collapsed again: back to the same wiring, the region unmounted and the
+  // reference gone.
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(toggle).not.toHaveAttribute('aria-controls');
+  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
+  // See the first collapsed phase above: checked by id, not only by testid.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
 });
 
 // ==========================================================================

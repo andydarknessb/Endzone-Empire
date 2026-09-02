@@ -59,6 +59,20 @@ export function buildTheme(mode) {
       stat: { fontVariantNumeric: 'tabular-nums', fontWeight: 600 },
     },
     components: {
+      // Heading-level policy (ADR 0021): heading levels are always explicit via
+      // `component`; the subtitle variants carry type scale only. MUI maps
+      // subtitle1/subtitle2 to <h6> by default, which would drop a stray
+      // level-6 heading into the a11y tree at every unqualified subtitle site.
+      // Remapping just those two variants to <p> makes the default safe (the
+      // type scale is unchanged, and an explicit `component` still wins); MUI
+      // falls back to its built-in mapping for every variant left out here, so
+      // h1-h6 and body1/body2 are untouched. This theme default is the guard;
+      // no lint or CI rule enforces the policy.
+      MuiTypography: {
+        defaultProps: {
+          variantMapping: { subtitle1: 'p', subtitle2: 'p' },
+        },
+      },
       MuiPaper: {
         styleOverrides: {
           // MUI's elevationN slots are fixed keys (elevation0..24), but callers use

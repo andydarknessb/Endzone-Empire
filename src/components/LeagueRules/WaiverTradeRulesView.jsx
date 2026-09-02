@@ -35,7 +35,7 @@ export default function WaiverTradeRulesView({ league }) {
       )}
 
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Waivers</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Waivers</Typography>
         <RuleRow
           label="Waiver system"
           value={WAIVER_TYPE_LABELS[waiverType] || waiverType}
@@ -52,7 +52,7 @@ export default function WaiverTradeRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Trades</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Trades</Typography>
         <RuleRow label="Trade review" value={review.value} detail={review.detail} />
         <RuleRow
           label="Trade deadline"

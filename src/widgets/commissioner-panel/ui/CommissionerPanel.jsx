@@ -21,6 +21,11 @@ import useCommissionerPanel from '../model/useCommissionerPanel';
  * (Skeleton.jsx / carry-over: aria-busy belongs to the region whose skeletons
  * hold layout), so composing it would announce a loading state that never
  * exists.
+ *
+ * Tested at the page seam per ADR 0020 ("testable at one seam (the composed
+ * page)"): this slice has no test file of its own by decision, and its
+ * assertions live in LeagueDashboardPage.test.jsx's `commissioner-panel:`
+ * block.
  */
 export default function CommissionerPanel({ leagueId }) {
   const {
