@@ -22,7 +22,7 @@ export default function PickemRulesView({ league }) {
   return (
     <Stack spacing={4}>
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Scoring</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Scoring</Typography>
         {error ? (
           <Alert
             severity="error"
@@ -47,7 +47,7 @@ export default function PickemRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Picks</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Picks</Typography>
         <RuleRow
           label="Picks lock"
           value="At kickoff"
@@ -61,7 +61,7 @@ export default function PickemRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Season</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Season</Typography>
         <RuleRow
           label="Standings"
           value="Season-long"
