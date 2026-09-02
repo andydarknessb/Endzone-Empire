@@ -182,11 +182,16 @@ test.describe('Draft room accessibility (#445)', () => {
     // so the handler must be fired explicitly, in this same round trip, to
     // guarantee atBottomRef is false before that message lands.
     await log.evaluate((el) => {
-      // Precondition the jump control depends on: the log actually overflows.
-      // If a future layout change makes 25 messages fit, fail here with a
-      // clear message instead of a missing button further down.
-      if (el.scrollHeight <= el.clientHeight) {
-        throw new Error(`log does not overflow: scrollHeight=${el.scrollHeight} clientHeight=${el.clientHeight}`);
+      // Precondition the jump control depends on: the log overflows by MORE
+      // than handleScroll's own at-bottom tolerance (ChatConversation.jsx:293,
+      // atBottom = scrollHeight - scrollTop - clientHeight <= 24). Mirroring
+      // that 24px threshold here, not just checking for zero overflow, matters
+      // because with scrollTop driven to 0, atBottom is still true whenever
+      // overflow is 24px or less - a layout change that leaves the log in that
+      // marginal band would otherwise slip past this guard and die later on
+      // the missing jump button instead of failing here with a clear message.
+      if (el.scrollHeight - el.clientHeight <= 24) {
+        throw new Error(`log does not overflow past the 24px at-bottom tolerance: scrollHeight=${el.scrollHeight} clientHeight=${el.clientHeight}`);
       }
       el.scrollTop = 0;
       el.dispatchEvent(new Event('scroll'));
