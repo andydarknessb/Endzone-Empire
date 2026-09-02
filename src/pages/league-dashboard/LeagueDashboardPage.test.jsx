@@ -1022,17 +1022,21 @@ test('matchup card: a best-ball league skips the detail read, rendering both pla
 // shared setup changes.
 //
 // This widget reads the SAME /api/league/:id/draft-grades endpoint as
-// my-team-summary above, and AC1 pins the very values (grade C, roster value
-// 1,284) that #639's fixture already renders inside its own card. Every
-// value assertion here is scoped with within(card) (the widget's own card)
-// or within(row) (one row of it), never a page-wide getBy*/findBy*, so this
-// section never collides with the section above it or with a sibling ticket
-// rendering the same numbers.
+// my-team-summary above, and the viewer's grade letter (C) renders in both
+// cards. Every value assertion here is scoped with within(card) (the
+// widget's own card) or within(row) (one row of it), never a page-wide
+// getBy*/findBy*, so this section never collides with the section above it
+// or with a sibling ticket rendering the same letters.
+//
+// The number beside each grade is Net vs ADP (the figure the grade is ranked
+// on), never roster value: roster value is not the grade's input and is null
+// at week 1 of a season, which is how production showed a 0 beside every
+// grade (league 137, 2026). The fixture's nets are that league's real spread.
 // ==========================================================================
 
 // 12 Teams, matching the dashboard-concept mockup's Draft Grades rail: the
-// viewer (teamId 1) sits at rank 6 with grade C and roster value 1,284, and
-// the top roster value (1,592) belongs to a different Team. `teamName` is the
+// viewer (teamId 1) sits at rank 6 with grade C and a net of +95.1, and the
+// top net (+161.2) belongs to a different Team. `teamName` is the
 // canonical Team-identity field (teamIdentity.js); `name` here is the raw
 // column the league route also leaks (carry-over comment #5) and must NOT be
 // what the card renders.
@@ -1062,28 +1066,36 @@ const draftGradesRailLeague = (overrides = {}) =>
 // GET /api/league/:id/draft-grades, 12 rows in rank order (the server already
 // ranks best-first). Each row's `name` is a decoy raw column deliberately
 // different from the matching Team's `teamName` above, so a test that reads
-// it by mistake fails loudly instead of passing by coincidence.
+// it by mistake fails loudly instead of passing by coincidence. rosterValue
+// is null on every row (the week-1 shape); the card must not need it.
+const railPick = (name, pickNumber, marketAdp) => ({
+  playerId: pickNumber, name, position: 'RB', pickNumber, marketAdp, draftValueScore: marketAdp - pickNumber,
+});
+const railRow = (teamId, grade, rank, adpNet, steal = null, reach = null) => ({
+  teamId, name: `raw-${teamId}`, grade, rank, adpNet, rosterValue: null, steal, reach,
+});
 const draftGradesRailResponse = () => ({
   data: {
     computedAt: '2026-09-01T00:00:00.000Z',
+    rosterValueAvailable: false,
     grades: [
-      { teamId: 2, name: 'raw-2', grade: 'A', rosterValue: 1592, rank: 1 },
-      { teamId: 3, name: 'raw-3', grade: 'A', rosterValue: 1548, rank: 2 },
-      { teamId: 4, name: 'raw-4', grade: 'A', rosterValue: 1501, rank: 3 },
-      { teamId: 5, name: 'raw-5', grade: 'A', rosterValue: 1477, rank: 4 },
-      { teamId: 6, name: 'raw-6', grade: 'B', rosterValue: 1390, rank: 5 },
-      { teamId: 1, name: 'raw-1', grade: 'C', rosterValue: 1284, rank: 6 },
-      { teamId: 7, name: 'raw-7', grade: 'C', rosterValue: 1241, rank: 7 },
-      { teamId: 8, name: 'raw-8', grade: 'D', rosterValue: 1144, rank: 8 },
-      { teamId: 9, name: 'raw-9', grade: 'D', rosterValue: 1120, rank: 9 },
-      { teamId: 10, name: 'raw-10', grade: 'D', rosterValue: 1082, rank: 10 },
-      { teamId: 11, name: 'raw-11', grade: 'F', rosterValue: 968, rank: 11 },
-      { teamId: 12, name: 'raw-12', grade: 'F', rosterValue: 902, rank: 12 },
+      railRow(2, 'A', 1, 161.2, railPick('Puka Nacua', 14, 4.3), railPick('Kyler Murray', 38, 71)),
+      railRow(3, 'A', 2, 158.8),
+      railRow(4, 'A', 3, 157.3),
+      railRow(5, 'A', 4, 155.4),
+      railRow(6, 'B', 5, 110.5),
+      railRow(1, 'C', 6, 95.1, railPick('Bijan Robinson', 18, 3), railPick('Jake Elliott', 40, 120.5)),
+      railRow(7, 'C', 7, 63.1, null, railPick('Tyler Bass', 33, 150)),
+      railRow(8, 'D', 8, 42.1),
+      railRow(9, 'D', 9, 26.9),
+      railRow(10, 'D', 10, 14.4),
+      railRow(11, 'F', 11, -19.2),
+      railRow(12, 'F', 12, -52.1, railPick('Sam LaPorta', 60, 55), null),
     ],
   },
 });
 
-test('draft-grades card: heading, Roster value tail, 12 rows in rank order with Team names from teams[]', async () => {
+test('draft-grades card: heading, Net vs ADP tail, 12 rows in rank order with Team names from teams[]', async () => {
   mockGetByUrl({
     '/api/league/1': draftGradesRailLeague(),
     '/api/league/1/draft-grades': draftGradesRailResponse(),
@@ -1092,7 +1104,10 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
 
   const card = await screen.findByTestId('draft-grades');
   expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
-  expect(within(card).getByText('Roster value')).toBeInTheDocument();
+  expect(within(card).getByText('Net vs ADP')).toBeInTheDocument();
+  // The card never renders the (null) roster value column: no "0", no "-"
+  // where a number should be, and no leftover roster-value bar.
+  expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
 
   // Rank order (response order), read from teams[] rather than the grades
   // response's own (decoy) `name` field.
@@ -1118,19 +1133,30 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
   // None of the decoy raw names ever render.
   expect(within(card).queryByText(/^raw-/)).not.toBeInTheDocument();
 
-  // The viewer's own row (teamId 1): scoped to that row so its "C" chip and
-  // "1,284" value cannot collide with my-team-summary's card above, which
-  // renders the same grade and value for the same viewer.
+  // The viewer's own row (teamId 1): scoped to that row so its "C" chip
+  // cannot collide with my-team-summary's card above, which renders the same
+  // grade for the same viewer. The number is the grade's own input, signed,
+  // and the row says how the grade was earned: best steal, worst reach.
   const viewerRow = within(card).getByTestId('draft-grades-row-1');
   expect(within(viewerRow).getByRole('img', { name: 'Grade C' })).toBeInTheDocument();
-  expect(within(viewerRow).getByText('1,284')).toBeInTheDocument();
-
-  const bar = within(viewerRow).getByRole('progressbar');
-  expect(bar).toHaveAttribute('aria-valuenow', '1284');
-  expect(bar).toHaveAttribute('aria-valuemax', '1592');
-  // Without aria-valuetext, AT reads the value as a percentage of min/max
-  // (81%) instead of the roster value itself.
-  expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
+  expect(viewerRow).toHaveTextContent('Net vs ADP +95.1');
+  expect(within(viewerRow).getByTestId('draft-grades-picks')).toHaveTextContent(
+    'Steal: Bijan Robinson (pick 18, ADP 3) · Reach: Jake Elliott (pick 40, ADP 120.5)'
+  );
+  // A negative net keeps its sign; a Team with only one qualifying pick shows
+  // only that half; a Team with neither says so instead of rendering blank.
+  expect(within(card).getByTestId('draft-grades-row-12')).toHaveTextContent('-52.1');
+  expect(within(within(card).getByTestId('draft-grades-row-7')).getByTestId('draft-grades-picks')).toHaveTextContent(
+    /^Reach: Tyler Bass \(pick 33, ADP 150\)$/
+  );
+  expect(within(within(card).getByTestId('draft-grades-row-3')).getByTestId('draft-grades-picks')).toHaveTextContent(
+    'Every pick landed at its ADP'
+  );
+  // No roster value leaks in as a number: the fixture carries none, and the
+  // old bug was a 0 rendered where one belonged.
+  expect(within(card).queryByText(/^0$/)).not.toBeInTheDocument();
+  // The card explains the number it shows.
+  expect(within(card).getByTestId('draft-grades-explainer')).toHaveTextContent(/Net vs ADP adds up/);
 
   // The row is identifiable in the accessibility tree and to tooling, not by
   // color alone (WCAG 1.4.1): the shared island viewer-row marker (#671) - a

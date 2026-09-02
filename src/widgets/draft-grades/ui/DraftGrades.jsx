@@ -6,23 +6,16 @@ import useDraftGrades from '../model/useDraftGrades';
 
 /**
  * League Dashboard rail-top widget (ticket #642): every Team ranked by its
- * draft grade, with a round letter grade chip, the Team name, and the roster
- * value as a number plus a proportional bar. The viewer's own row carries the
- * accent row treatment so it stands out in a list of every Team, not just its
- * own.
+ * draft grade, with a round letter grade chip, the Team name, the one number
+ * the grade is ranked on (Net vs ADP: how far the Team's picks landed past
+ * their market ADP, summed, higher is better) and the Team's best steal and
+ * worst reach, so a manager can see how the grade was earned. Projected
+ * roster value used to sit here; it is not what the grade is based on and is
+ * null at week 1 of a season, so it was showing a 0 beside every grade.
  *
  * Composes `shared/ui` (ADR 0020): `Card` for the labelled region and header
- * (title + the "Roster value" tail), `GradeChip` for the per-row letter chip.
+ * (title + the "Net vs ADP" tail), `GradeChip` for the per-row letter chip.
  * Colors come only from `--dash-*` tokens.
- *
- * Bars scale to the highest roster value in the response, so that row alone
- * reaches 100%. Each bar is a real `progressbar`: `aria-valuenow` carries the
- * roster value and `aria-valuemax` the highest value in the response, so the
- * proportion is observable to assistive tech, not only visual. `aria-valuetext`
- * is required alongside those: without it, assistive tech reads the value as a
- * PERCENTAGE of min/max (the ARIA default), which would announce "81%" for a
- * number the sighted reader sees as 1,284 - so it carries the same "N of max"
- * reading a sighted user gets from the number beside the bar.
  *
  * The viewer's row carries the visible `Badge variant="you"` pill (the League
  * Dashboard island's shared viewer-row marker, per #671) in the name cell,
@@ -36,14 +29,34 @@ import useDraftGrades from '../model/useDraftGrades';
  * (Skeleton.jsx: the loading state is announced by the owning card, not by
  * each aria-hidden shape).
  */
+
+const NET_FORMAT = { maximumFractionDigits: 1 };
+
+function formatNet(value) {
+  const text = value.toLocaleString('en-US', NET_FORMAT);
+  return value > 0 ? `+${text}` : text;
+}
+
+function describePick(pick) {
+  const adp = Number.isFinite(pick.marketAdp) ? pick.marketAdp.toLocaleString('en-US', NET_FORMAT) : '?';
+  return `${pick.name} (pick ${pick.pickNumber}, ADP ${adp})`;
+}
+
+function pickLine(row) {
+  const parts = [];
+  if (row.steal) parts.push(`Steal: ${describePick(row.steal)}`);
+  if (row.reach) parts.push(`Reach: ${describePick(row.reach)}`);
+  return parts.length > 0 ? parts.join(' · ') : 'Every pick landed at its ADP';
+}
+
 export default function DraftGrades({ leagueId }) {
-  const { phase, rows, viewerTeamId, maxRosterValue } = useDraftGrades(leagueId);
+  const { phase, rows, viewerTeamId } = useDraftGrades(leagueId);
 
   return (
     <Card
       data-testid="draft-grades"
       title="Draft Grades"
-      tail="Roster value"
+      tail="Net vs ADP"
       aria-busy={phase === 'loading'}
       sx={{ p: 0 }}
     >
@@ -75,54 +88,67 @@ export default function DraftGrades({ leagueId }) {
       )}
 
       {phase === 'ready' && (
-        <Table size="small" aria-label="Draft grades by Team">
-          <TableBody>
-            {rows.map((row) => {
-              const isViewer = row.teamId === viewerTeamId;
-              // A malformed roster value (a legacy/partial computed row) falls
-              // back to 0 for the bar's math rather than feeding NaN into
-              // aria-valuenow / a "NaN%" width.
-              const hasValue = Number.isFinite(row.rosterValue);
-              const safeValue = hasValue ? row.rosterValue : 0;
-              const pct = hasValue && maxRosterValue > 0 ? (safeValue / maxRosterValue) * 100 : 0;
-              const valueText = hasValue
-                ? `${safeValue.toLocaleString('en-US')} of ${maxRosterValue.toLocaleString('en-US')}`
-                : 'Not available';
-              return (
-                <TableRow
-                  key={row.teamId}
-                  data-testid={`draft-grades-row-${row.teamId}`}
-                  data-viewer-team={isViewer || undefined}
-                  sx={
-                    isViewer
-                      ? {
-                          backgroundColor: 'var(--dash-accent-soft)',
-                          boxShadow: 'inset 3px 0 0 var(--dash-accent)',
-                        }
-                      : undefined
-                  }
-                >
-                  <TableCell sx={{ borderBottom: '1px solid var(--dash-line)' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                      <GradeChip grade={row.grade} />
-                      <Box component="span" sx={{ fontSize: '13.5px', color: 'var(--dash-ink)' }}>
-                        {row.teamName}
+        <>
+          <Table size="small" aria-label="Draft grades by Team">
+            <TableBody>
+              {rows.map((row) => {
+                const isViewer = row.teamId === viewerTeamId;
+                // A malformed net (a legacy/partial computed row) renders as
+                // not available rather than "NaN".
+                const hasNet = Number.isFinite(row.adpNet);
+                return (
+                  <TableRow
+                    key={row.teamId}
+                    data-testid={`draft-grades-row-${row.teamId}`}
+                    data-viewer-team={isViewer || undefined}
+                    sx={
+                      isViewer
+                        ? {
+                            backgroundColor: 'var(--dash-accent-soft)',
+                            boxShadow: 'inset 3px 0 0 var(--dash-accent)',
+                          }
+                        : undefined
+                    }
+                  >
+                    <TableCell sx={{ borderBottom: '1px solid var(--dash-line)' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                        <GradeChip grade={row.grade} />
+                        <Box sx={{ display: 'grid', gap: 0.25, minWidth: 0 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box component="span" sx={{ fontSize: '13.5px', color: 'var(--dash-ink)' }}>
+                              {row.teamName}
+                            </Box>
+                            {isViewer && <Badge variant="you">You</Badge>}
+                          </Box>
+                          <Box
+                            component="span"
+                            data-testid="draft-grades-picks"
+                            sx={{ fontSize: '11.5px', color: 'var(--dash-dim)' }}
+                          >
+                            {pickLine(row)}
+                          </Box>
+                        </Box>
                       </Box>
-                      {isViewer && <Badge variant="you">You</Badge>}
-                    </Box>
-                  </TableCell>
-                  <TableCell align="right" sx={{ borderBottom: '1px solid var(--dash-line)' }}>
-                    <Box sx={{ display: 'grid', gap: 0.5, justifyItems: 'end', minWidth: 90 }}>
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ borderBottom: '1px solid var(--dash-line)', verticalAlign: 'top' }}
+                    >
                       <Box
                         component="span"
                         sx={{
                           fontVariantNumeric: 'tabular-nums',
-                          fontSize: '12.5px',
-                          color: 'var(--dash-dim)',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          color: 'var(--dash-ink)',
+                          whiteSpace: 'nowrap',
                         }}
                       >
-                        {hasValue ? (
-                          safeValue.toLocaleString('en-US')
+                        <Box component="span" sx={visuallyHidden}>
+                          Net vs ADP{' '}
+                        </Box>
+                        {hasNet ? (
+                          formatNet(row.adpNet)
                         ) : (
                           <>
                             <Box component="span" aria-hidden="true">
@@ -134,37 +160,20 @@ export default function DraftGrades({ leagueId }) {
                           </>
                         )}
                       </Box>
-                      <Box
-                        role="progressbar"
-                        aria-label={`${row.teamName} roster value`}
-                        aria-valuenow={safeValue}
-                        aria-valuemin={0}
-                        aria-valuemax={maxRosterValue}
-                        aria-valuetext={valueText}
-                        sx={{
-                          width: '100%',
-                          height: 4,
-                          borderRadius: '2px',
-                          backgroundColor: 'var(--dash-surface2)',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            height: '100%',
-                            borderRadius: '2px',
-                            backgroundColor: 'var(--dash-accent)',
-                            width: `${pct}%`,
-                          }}
-                        />
-                      </Box>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          <Typography
+            data-testid="draft-grades-explainer"
+            sx={{ px: 2.25, py: 1.5, fontSize: '11.5px', color: 'var(--dash-dim)' }}
+          >
+            Net vs ADP adds up how far each pick landed past its market ADP. Higher is better; a
+            steal fell to the Team, a reach went early.
+          </Typography>
+        </>
       )}
     </Card>
   );

@@ -21,6 +21,13 @@ import { useLeague } from '../../../hooks/useLeague';
  * condition, not as a permanent fact - if draft-grades is ever added to the
  * allowlist while more than one mount still reads it, ADR 0004's rule fires
  * and this read should move to a `useResource` adapter.
+ *
+ * The number each row carries is `adpNet`, the figure the grade is actually
+ * ranked on (draftgrade.service: the negated sum of ADP minus pick across the
+ * Team's picks, higher is better), with the Team's best `steal` and worst
+ * `reach` alongside so the card can say how the grade was earned. Projected
+ * roster value is deliberately not read here: the grade is not based on it,
+ * and at week 1 of a season it is null (no projections exist yet).
  */
 
 export function useDraftGrades(leagueId) {
@@ -47,6 +54,15 @@ export function useDraftGrades(leagueId) {
   const gradeRows = Array.isArray(grades.data?.grades) ? grades.data.grades : [];
   const teamRows = Array.isArray(teams) ? teams : [];
 
+  const pickSummary = (pick) =>
+    pick && pick.name
+      ? {
+          name: pick.name,
+          pickNumber: Number(pick.pickNumber),
+          marketAdp: Number(pick.marketAdp),
+        }
+      : null;
+
   // Rows preserve the response's own order (the server already ranks
   // best-first), joined against `teams[]` for the Team's canonical name.
   const rows = gradeRows.map((row) => {
@@ -55,16 +71,13 @@ export function useDraftGrades(leagueId) {
       teamId: row.teamId,
       teamName: team ? team.teamName : row.name,
       grade: row.grade,
-      rosterValue: Number(row.rosterValue),
+      adpNet: Number(row.adpNet),
+      steal: pickSummary(row.steal),
+      reach: pickSummary(row.reach),
     };
   });
 
-  const maxRosterValue = rows.reduce(
-    (max, row) => (Number.isFinite(row.rosterValue) && row.rosterValue > max ? row.rosterValue : max),
-    0
-  );
-
-  return { phase, rows, viewerTeamId, maxRosterValue };
+  return { phase, rows, viewerTeamId };
 }
 
 export default useDraftGrades;

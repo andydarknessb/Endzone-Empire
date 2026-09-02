@@ -344,7 +344,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                             {row.grade}
                           </Box>
                         </TableCell>
-                        <TableCell align="right">{row.rosterValue}</TableCell>
+                        <TableCell align="right">{row.rosterValue == null ? '-' : row.rosterValue}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

@@ -12,11 +12,21 @@ const { optimalLineup, parseLineupSettings } = require('./lineup.service');
  * Valuation: every pick receives the signed market delta `ADP - pick number`.
  * Lower is better: a player taken at 45 with ADP 12 is -33 (a steal), while a
  * player taken at 10 with ADP 80 is +70 (a reach). Team grades use the inverse
- * composite delta as their z-score input. Projected roster value remains in
- * the payload for backwards-compatible UI display.
+ * composite delta as their z-score input. Each Team row carries that inverse
+ * as `adpNet` (higher is better) plus its single best `steal` and worst
+ * `reach`, so a surface can say how the grade was earned instead of showing
+ * a number the grade is not based on.
+ *
+ * Projected roster value rides along as a separate Team stat. It is null,
+ * and the payload is NOT cached, whenever no drafted player carries a
+ * projection: the pool-wide producer averages the current season's played
+ * weeks, so at week 1 of a new season it returns nothing, and a compute at
+ * that moment used to persist a 0 roster value for every Team until the next
+ * algorithm bump (production league 137, 2026). The version bump to 3 is
+ * what evicts those rows.
  */
 
-const DRAFT_GRADE_ALGORITHM_VERSION = 2;
+const DRAFT_GRADE_ALGORITHM_VERSION = 3;
 
 const GRADE_THRESHOLDS = [
   { min: 1.0, grade: 'A' },
@@ -65,6 +75,40 @@ function draftPickValue({ pickNumber, marketAdp }) {
 }
 
 /**
+ * Pure: per-Team explanation of the grade from its picks. `adpNet` is the
+ * negated cumulative delta (higher is better, so it reads naturally beside a
+ * letter grade); `steal` is the pick furthest below its market ADP and
+ * `reach` the pick furthest above it, or null when no pick qualifies.
+ * ADP-fallback picks are neutral by construction and never nominated.
+ */
+function summarizePicks(picks) {
+  let steal = null;
+  let reach = null;
+  let total = 0;
+  for (const pick of picks) {
+    total += pick.draftValueScore;
+    if (pick.adpFallback) continue;
+    if (pick.draftValueScore < 0 && (steal === null || pick.draftValueScore < steal.draftValueScore)) steal = pick;
+    if (pick.draftValueScore > 0 && (reach === null || pick.draftValueScore > reach.draftValueScore)) reach = pick;
+  }
+  const describe = (pick) => (pick
+    ? {
+      playerId: pick.playerId,
+      name: pick.name,
+      position: pick.position,
+      pickNumber: pick.pickNumber,
+      marketAdp: pick.marketAdp,
+      draftValueScore: pick.draftValueScore,
+    }
+    : null);
+  return {
+    adpNet: round2(-total) || 0,
+    steal: describe(steal),
+    reach: describe(reach),
+  };
+}
+
+/**
  * Pure: smaller cumulative deltas are better, so negate the score before the
  * established z-score matrix. gradeTeams keeps exact ties deterministic by id.
  */
@@ -83,8 +127,9 @@ function gradeDraftValues(teamValues) {
     const original = originalByTeam.get(teamId);
     return {
       ...original,
-      rosterValue: round2(original.rosterValue),
+      rosterValue: original.rosterValue == null ? null : round2(original.rosterValue),
       draftValueScore: round2(original.draftValueScore),
+      ...summarizePicks(original.picks || []),
       grade,
       rank,
     };
@@ -113,7 +158,8 @@ async function getOrComputeDraftGrades({ leagueId }) {
 
   const picksResult = await pool.query(
     `SELECT "draft_picks"."team_id", "draft_picks"."player_id", "draft_picks"."pick_number",
-            "players"."position", "players"."adp", "teams"."name" AS "team_name"
+            "players"."position", "players"."adp", "players"."name" AS "player_name",
+            "teams"."name" AS "team_name"
      FROM "draft_picks"
      JOIN "players" ON "players"."id" = "draft_picks"."player_id"
      JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
@@ -137,11 +183,16 @@ async function getOrComputeDraftGrades({ leagueId }) {
     const value = draftPickValue({ pickNumber: pick.pick_number, marketAdp: pick.adp });
     byTeam.get(pick.team_id).picks.push({
       playerId: pick.player_id,
+      name: pick.player_name,
       position: pick.position,
       pickNumber: pick.pick_number,
       ...value,
     });
   }
+
+  // A projection map with no entry for any drafted player is the week-1
+  // shape described in the header: roster value is unknowable, not 0.
+  const rosterValueAvailable = picksResult.rows.some((pick) => pointsFor.has(pick.player_id));
 
   const teamValues = [];
   for (const [teamId, { name, picks }] of byTeam) {
@@ -154,7 +205,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
     teamValues.push({
       teamId,
       name,
-      rosterValue: optimal.total + 0.25 * benchValue,
+      rosterValue: rosterValueAvailable ? optimal.total + 0.25 * benchValue : null,
       draftValueScore: round2(picks.reduce((sum, pick) => sum + pick.draftValueScore, 0)),
       picks,
     });
@@ -163,8 +214,12 @@ async function getOrComputeDraftGrades({ leagueId }) {
   const data = {
     algorithmVersion: DRAFT_GRADE_ALGORITHM_VERSION,
     computedAt: new Date().toISOString(),
+    rosterValueAvailable,
     grades: gradeDraftValues(teamValues),
   };
+  // Grades are a pure function of the picks, so serving them uncached is
+  // correct; only a payload with real roster values is worth persisting.
+  if (!rosterValueAvailable) return data;
   await pool.query(
     `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
      VALUES ($1, $2, 0, 'draft_grades', $3)
@@ -178,6 +233,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
 module.exports = {
   draftPickValue,
   gradeDraftValues,
+  summarizePicks,
   gradeTeams,
   getOrComputeDraftGrades,
   DRAFT_GRADE_ALGORITHM_VERSION,
