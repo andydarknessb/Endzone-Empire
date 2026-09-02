@@ -23,9 +23,10 @@
 
 // The standard 7-slot starter order (9 starter instances). Used ONLY to pick and
 // order starting slots when a league carries no explicit `roster_slots` yet (a
-// league still loading, or a legacy row). Mirrors the keys of lineup.service's
-// DEFAULT_ROSTER_SLOTS and LineupScreen's former local constant of the same name;
-// keep the three in step if the standard roster shape ever changes.
+// league still loading, or a legacy row). Mirrors the starter keys of the
+// server's lineup.service DEFAULT_ROSTER_SLOTS; keep the two in step if the
+// standard roster shape ever changes. (LineupScreen no longer keeps its own copy
+// - it imports this one.)
 export const DEFAULT_STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 
 export function lineupAttention({ rosterSlots = [], entries = [] } = {}) {

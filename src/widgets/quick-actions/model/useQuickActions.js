@@ -197,7 +197,7 @@ function describeCard(key, ctx) {
 }
 
 export function useQuickActions(leagueId) {
-  const { league, viewerTeamId } = useLeague(leagueId);
+  const { league } = useLeague(leagueId);
   const pickemOnly = isPickemOnly(league);
   const isCommissioner = !!league?.is_commissioner;
   const phase = league ? deriveLeaguePhase(league) : null;
@@ -245,7 +245,7 @@ export function useQuickActions(leagueId) {
     return { label: group.label, count: cards.length, cards };
   }).filter((group) => group.count > 0);
 
-  return { ready: league != null, viewerTeamId, groups };
+  return { ready: league != null, groups };
 }
 
 export default useQuickActions;

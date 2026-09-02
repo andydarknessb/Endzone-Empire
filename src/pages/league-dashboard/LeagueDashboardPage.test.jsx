@@ -1045,8 +1045,12 @@ const quickActionsStandardSlots = [
 // endpoint's shape). The widget reads only `lineup_slot` and `bye_week`.
 const quickActionsRosterResponse = (rows) => ({ data: rows });
 
-// A full standard starting lineup, nobody on a bye. One player per starting
-// slot instance of quickActionsStandardSlots.
+// A full standard starting lineup: one player per starting slot instance of
+// quickActionsStandardSlots. Nobody is on the CURRENT week's bye. DEF One
+// deliberately carries an OFF-week bye (bye_week 5, never the fixtures'
+// current_week 3): a widget that counted "any non-null bye_week" instead of the
+// current week would flag it, so its presence in the no-current-week-bye cases
+// pins the comparison to the current week.
 const quickActionsFullRoster = () => [
   { id: 11, name: 'QB One', lineup_slot: 'QB', bye_week: null },
   { id: 12, name: 'RB One', lineup_slot: 'RB', bye_week: null },
@@ -1056,7 +1060,7 @@ const quickActionsFullRoster = () => [
   { id: 16, name: 'TE One', lineup_slot: 'TE', bye_week: null },
   { id: 17, name: 'FLEX One', lineup_slot: 'FLEX', bye_week: null },
   { id: 18, name: 'K One', lineup_slot: 'K', bye_week: null },
-  { id: 19, name: 'DEF One', lineup_slot: 'DEF', bye_week: null },
+  { id: 19, name: 'DEF One', lineup_slot: 'DEF', bye_week: 5 },
 ];
 
 const QUICK_ACTIONS_ROSTER_URL = '/api/team/roster?leagueId=1';
@@ -1120,9 +1124,22 @@ test('quick-actions: two starters on a current-week bye mark Set Lineup Recommen
   expect(within(tile).getByText('2 starters on bye · fix before Sunday')).toBeInTheDocument();
 });
 
-test('quick-actions: a full roster with no byes shows no Recommended anywhere on an in-season member page', async () => {
+test('quick-actions: a full roster with no current-week byes shows no Recommended anywhere on an in-season member page', async () => {
+  // roster_slots is supplied so the empty-slot half of the recommendation is
+  // LIVE here, not inert: with the required slots known, an empty roster would
+  // read 9 empty slots and recommend. A full roster is therefore the reason
+  // there is no recommendation, not a coincidence of missing config. The full
+  // roster also carries DEF One's off-week bye (bye_week 5 vs current_week 3),
+  // so this asserts the widget counts current-week byes only.
   mockGetByUrl({
-    '/api/league/1': quickActionsLeague(),
+    '/api/league/1': quickActionsLeague({
+      league: {
+        draft_status: 'complete',
+        season_status: 'regular',
+        current_week: 3,
+        roster_slots: quickActionsStandardSlots,
+      },
+    }),
     [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(quickActionsFullRoster()),
   });
   renderPage();

@@ -24,10 +24,10 @@ import useQuickActions from '../model/useQuickActions';
  *
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. The action
  * tiles sit on `dash-surface2`, where ink (title) and dim (status copy) are
- * registered in tokens.contrast.test.js; the "Recommended" pill is the accent
- * chip (`Badge` accent variant), whose accent-on-accent-soft is registered over
- * that surface too. The recommended ring is a border, not text, so it composes
- * no new pairing.
+ * registered in tokens.contrast.test.js; the "Recommended" pill is the `Badge`
+ * `live` variant (accent text on the accent tint), whose accent-on-accent-soft is
+ * registered over that surface too. The recommended ring is a border, not text,
+ * so it composes no new pairing.
  *
  * This widget has NO aria-busy: its one extra read (the viewer roster, for the
  * Set Lineup recommendation) is best effort and its result is absent-until-ready
@@ -145,11 +145,7 @@ function ActionTile({ card }) {
           >
             {card.label}
           </Typography>
-          {recommended && (
-            <Badge variant="live" data-testid={`quick-action-${card.key}-recommended`}>
-              Recommended
-            </Badge>
-          )}
+          {recommended && <Badge variant="live">Recommended</Badge>}
         </Box>
         {card.status && (
           <Typography
