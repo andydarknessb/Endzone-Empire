@@ -893,6 +893,69 @@ test('matchup card: a failed detail read degrades the projected totals to a plac
   expect(card).toHaveAttribute('aria-busy', 'false');
 });
 
+// #670: the list row already carries `home_expected_final` /
+// `away_expected_final` (attachExpectedFinals). The widget now prefers those
+// over the detail read, and falls back to the detail only when either side is
+// null there (never on a bare falsy check: a legitimate 0 is a value).
+test('matchup card: list row with both expected finals present renders them and never reads the detail', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: 101.2, away_expected_final: 97.5 },
+      mpViewerPaired[1],
+    ]),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  expect(within(viewerSide).getByText('101.2')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('97.5')).toBeInTheDocument();
+  expect(card).toHaveAttribute('aria-busy', 'false');
+  // The list already answered both sides, so the detail read must never fire.
+  expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
+});
+
+test('matchup card: list row with one side null falls back to the detail read and renders its values', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: null, away_expected_final: 97.5 },
+      mpViewerPaired[1],
+    ]),
+    [MP_DETAIL_URL]: mpMatchupDetail({ homeFinal: 112.4, awayFinal: 118.9 }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  // Both sides come from the detail response once the fallback fires, not a mix
+  // of the list's non-null side and the detail's: the fallback is all-or-nothing.
+  expect(await within(viewerSide).findByText('112.4')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('118.9')).toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([u]) => u === MP_DETAIL_URL)).toBe(true);
+});
+
+test('matchup card: a list value of 0 is a real value, not a trigger for the detail read', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: 0, away_expected_final: 45.6 },
+      mpViewerPaired[1],
+    ]),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  expect(await within(viewerSide).findByText('0.0')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('45.6')).toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
+});
+
 // ==========================================================================
 // draft-grades widget (#642), the rail-top slot. Same seam as the section
 // above: add the endpoint override to a per-test `mockGetByUrl` map, no
