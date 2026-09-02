@@ -1148,8 +1148,10 @@ test('draft-grades card: a 500 shows a compact error, and the header still rende
 // busy forever would still pass a true-only assertion. The endpoint mock
 // below is a manually-resolved promise (not mockGetByUrl's `{ pending: true }`
 // marker, which never settles) so this one test can observe both the busy
-// state and the settle within it, mirroring the matchup-preview pending/
-// settled pair. "Loading" (not "pending") in the test name to match
+// state and the settle within it - a true-then-false-in-one-test shape that
+// is new to this file, needed for the reason above: only a test that also
+// checks the settled state can catch a widget that never clears aria-busy.
+// "Loading" (not "pending") in the test name to match
 // useDraftGrades' own vocabulary: that hook's `phase` reserves 'pending' for
 // the 404 no-grades-yet case (see the neighboring 404 test above), and this
 // test covers the in-flight 'loading' phase instead. Scoped with
