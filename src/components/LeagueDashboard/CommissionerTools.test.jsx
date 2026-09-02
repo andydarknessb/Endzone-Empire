@@ -1272,6 +1272,13 @@ test("the pick'em Season tab explains the automatic season and offers rollover o
   await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
   expect(screen.getByText(/weeks follow the NFL calendar/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Start New Season' })).not.toBeInTheDocument();
+  // The Season-tab heading (site 1653) is the one subtitle the six-fantasy-tab
+  // sweep above cannot reach: the Season tab replaces those tabs in a pick'em
+  // league (they are mutually exclusive). Pin it here - level 4, no stray h6 -
+  // so all sixteen sites are covered. The fixture sets no current_season, so
+  // the label renders its "Season" fallback.
+  expect(screen.getByRole('heading', { level: 4, name: 'Season' })).toBeInTheDocument();
+  expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
   unmount();
 
   const onRefresh = jest.fn();
