@@ -89,6 +89,7 @@ export default function SchedulePanel({ league, teamCount, frozen, onSave, onSta
           teamCount={teamCount}
           minimumTeams={minimumTeams}
           auctionUnavailable={auctionUnavailable}
+          market={league.market}
           onStart={onStart}
           label="Start Draft Now"
           variant="outlined"
