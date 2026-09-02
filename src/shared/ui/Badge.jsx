@@ -6,10 +6,17 @@ import { Chip } from '@mui/material';
  * mockup:
  *   - `neutral` (default): the plain `.chip` (surface2 fill, dim text).
  *   - `live`: the `.chip.live` accent state (accent text on the accent tint).
- *   - `you`: the small `.you` pill that is the League Dashboard island's viewer-row
- *     marker (#671): every row-shaped widget that shows the viewer among other
- *     Teams renders this pill on the viewer's row, and that row also carries the
- *     `data-viewer-team` attribute so the mark is never color- or text-only.
+ *   - `you`: the small `.you` pill that is the viewer-row marker for the League
+ *     Dashboard island (ADR 0020's six widget slices, page `league-dashboard`;
+ *     NOT `src/widgets/draft-order`, the older ADR 0017 island in the Draft
+ *     room, which is out of scope and keeps its own pre-#671 marker) (#671):
+ *     every row-shaped one of those widgets that shows the viewer among other
+ *     Teams renders this pill on the viewer's row. The pill's visible "You"
+ *     text is what satisfies WCAG 1.4.1 (identifiable in the accessibility
+ *     tree, not by color alone); that row separately also carries the
+ *     `data-viewer-team` attribute, identifiable to tooling, which is
+ *     invisible to assistive tech and carries no accessibility guarantee of
+ *     its own.
  *
  * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
  * The label text is whatever `children` holds; the variant is also exposed as

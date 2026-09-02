@@ -571,7 +571,9 @@ test('standings-table: in-season renders the full table, a team count, names fro
   expect(within(card).getByText('Squad 1')).toBeInTheDocument();
   expect(within(card).getByText('Squad 12')).toBeInTheDocument();
   expect(within(card).queryByText('RAW 1')).not.toBeInTheDocument();
-  // Exactly one You badge, in the viewer's own row.
+  // Exactly one You badge, in the viewer's own row - this already proves the
+  // pill is absent from every non-viewer row, not just present on the
+  // viewer's.
   const youBadges = within(card).getAllByText('You');
   expect(youBadges).toHaveLength(1);
   const youRow = within(card).getByTestId('standings-table-you-row');
@@ -583,6 +585,17 @@ test('standings-table: in-season renders the full table, a team count, names fro
   const youBadge = within(youRow).getByTestId('badge');
   expect(youBadge).toHaveAttribute('data-variant', 'you');
   expect(youBadge).toHaveTextContent('You');
+  // Exclusivity, checked directly (not just inferred from the badge count):
+  // a non-viewer row carries neither half of the marker. The attribute and
+  // the pill are two independent conditionals in the widget, so each needs
+  // its own negative - a regression that drops the isViewer guard on only
+  // one of them would otherwise pass. Row 0 is the header; row 1 is the
+  // viewer (Squad 1); row 2 is the first non-viewer row (Squad 2).
+  const tableRows = within(card).getAllByRole('row');
+  const otherRow = tableRows[2];
+  expect(within(otherRow).getByText('Squad 2')).toBeInTheDocument();
+  expect(otherRow).not.toHaveAttribute('data-viewer-team');
+  expect(within(otherRow).queryByTestId('badge')).not.toBeInTheDocument();
 });
 
 test('standings-table: in-season renders the viewer record as W-L-T and points to one decimal', async () => {
@@ -1015,15 +1028,19 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
   // (81%) instead of the roster value itself.
   expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
 
-  // The row is identifiable to assistive tech, not by color alone (WCAG
-  // 1.4.1): the shared island viewer-row marker, present only on the
-  // viewer's row (#671) - a visible "You" pill plus the row-contract
-  // attribute, not a hidden-only label.
+  // The row is identifiable in the accessibility tree and to tooling, not by
+  // color alone (WCAG 1.4.1): the shared island viewer-row marker (#671) - a
+  // visible "You" pill plus the row-contract attribute.
   expect(viewerRow).toHaveAttribute('data-viewer-team', 'true');
-  expect(rows[1]).not.toHaveAttribute('data-viewer-team');
   const youBadge = within(viewerRow).getByTestId('badge');
   expect(youBadge).toHaveAttribute('data-variant', 'you');
   expect(youBadge).toHaveTextContent('You');
+  // Exclusivity: a non-viewer row carries neither half of the marker. The
+  // attribute and the pill are two independent conditionals in the widget, so
+  // each needs its own negative - a regression that drops the isViewer guard
+  // on only one of them would otherwise pass.
+  expect(rows[1]).not.toHaveAttribute('data-viewer-team');
+  expect(within(rows[1]).queryByTestId('badge')).not.toBeInTheDocument();
 });
 
 test('draft-grades card: a 404 renders the pending copy with no error', async () => {
