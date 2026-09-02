@@ -9,16 +9,27 @@ import { assignRosterSlots } from '../../lib/rosterAssignment';
  * lands, and whether there are enough picks left to finish a legal starting
  * lineup.
  *
- * NOT role="status". The Draft room already renders one - ReadinessAnnouncer,
- * hoisted out of the rail by issue #164 so it survives a mobile tab switch -
- * and DraftBoard.test.jsx queries it with a singular getByRole, which throws
- * on a second match. A bare aria-live region is still announced by screen
- * readers but stays invisible to role queries.
+ * Carries aria-live="polite" and deliberately not the status role - a ruling
+ * (#664, 2026-09-02), not a test constraint. FeedAnnouncer's docblock names
+ * the grep that finds the Draft room's other status regions across
+ * src/components/DraftBoard/ and src/components/ChatPanel/ (six of them,
+ * plus the composer character counter #486) - this strip isn't one of them,
+ * and that is exactly the point:
  *
- * (This used to name DraftRail's own managers-ready line as the region being
- * protected. #164 stripped role/aria-live from that line, so the rail now
- * renders no status region at all; the constraint is unchanged, but the
- * element it is about moved.)
+ * (1) A polite aria-live region is announced exactly as a status region is -
+ *     status is the role whose implicit live semantics ARE polite/atomic, so
+ *     adding the role would change nothing a screen-reader user hears.
+ * (2) It would change what role-based tooling and role queries see: a
+ *     seventh region alongside six one-shot announcers plus the composer
+ *     counter, when this strip is the opposite of one-shot - a visible
+ *     summary that stays on screen for the whole draft instead of speaking
+ *     once and clearing. Presenting it as another status region would blur
+ *     that distinction for anything that counts or enumerates them by role.
+ * (3) No test asserts this strip's role either way. (The #513/#648 counting
+ *     tests in DraftBoard.test.jsx count status regions by their copy, not
+ *     their number, so adding the role here would not collide with them -
+ *     that is not why it stays off.) A later reversal needs a new ruling,
+ *     not a passing suite, to justify it.
  *
  * Provider-free (MUI only): the Draft Simulator mounts it with no providers.
  * Narrow-width chip collapsing is a `maxChips` prop rather than a media query,
