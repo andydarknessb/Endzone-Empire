@@ -396,12 +396,14 @@ async function removeLineupEntries(client, { league, teamId, playerId, now = new
  *
  * BENCH and IR rows are excluded because they never score: a bench seat is
  * not spent by a departed player, and blocking one would refuse harmless
- * saves. `position` is returned for callers and tests that want to say who
- * spent the seat; validation itself reads only `slot`.
+ * saves. Validation receives a null `player_id`, while the read surface also
+ * receives the departed player's identity so it can explain the spent seat.
  */
 async function spentStartingSlots(client, { teamId, season, week }) {
   const result = await client.query(
-    `SELECT "players"."position", "lineup_entries"."slot"
+    `SELECT "players"."position", "lineup_entries"."player_id" AS "spent_player_id",
+            "players"."name", "players"."nfl_team",
+            "players"."injury_status", "lineup_entries"."slot"
        FROM "lineup_entries"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -412,7 +414,16 @@ async function spentStartingSlots(client, { teamId, season, week }) {
         AND "team_players"."player_id" IS NULL`,
     [teamId, season, week]
   );
-  return result.rows.map((row) => ({ player_id: null, position: row.position, slot: row.slot }));
+  return result.rows.map((row) => ({
+    player_id: null,
+    id: row.spent_player_id,
+    name: row.name,
+    position: row.position,
+    nfl_team: row.nfl_team,
+    injury_status: row.injury_status,
+    slot: row.slot,
+    spent: true,
+  }));
 }
 
 /**
@@ -695,8 +706,8 @@ function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
     return {
       ...row,
       bye_week: byeWeek,
-      locked: locked.has(row.id),
-      onBye: byeWeek === selectedWeek,
+      locked: row.spent || locked.has(row.id),
+      onBye: !row.spent && byeWeek === selectedWeek,
       valid_stash: row.slot === IR && isValidStash(row),
     };
   });
@@ -739,6 +750,9 @@ async function getLineup({ leagueId, userId, week }) {
        ORDER BY "players"."position", "players"."name"`,
       [team.id, season, targetWeek]
     );
+    const spent = league.best_ball
+      ? []
+      : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
 
     const playerIds = entriesResult.rows.map((row) => row.id);
     // Load lazily because scoring.service imports lineup.service. Passing the
@@ -779,7 +793,7 @@ async function getLineup({ leagueId, userId, week }) {
       rosterSlots: settings.rosterSlots,
       benchSlots: settings.benchSlots,
       irSlots: settings.irSlots,
-      entries: annotateLineupEntries(entriesResult.rows, { locked, byeByTeam, selectedWeek: targetWeek }),
+      entries: annotateLineupEntries([...entriesResult.rows, ...spent], { locked, byeByTeam, selectedWeek: targetWeek }),
     };
   } catch (error) {
     await client.query('ROLLBACK');

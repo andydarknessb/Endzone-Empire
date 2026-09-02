@@ -72,6 +72,14 @@ test('getLineup returns league-scored current-week projections and preserves una
     { id: 2, name: 'Small Sample', position: 'WR', nfl_team: null, injury_status: null, slot: 'WR', ir_attested: false },
     { id: 3, name: 'No History', position: 'TE', nfl_team: null, injury_status: 'Q', slot: 'IR', ir_attested: true },
   ];
+  const spentEntry = {
+    spent_player_id: 44,
+    name: 'Dropped Starter',
+    position: 'QB',
+    nfl_team: 'KC',
+    injury_status: null,
+    slot: 'QB',
+  };
   const projectionCalls = [];
   t.mock.method(projectionService, 'getWeekProjections', async (options) => {
     projectionCalls.push(options);
@@ -93,6 +101,7 @@ test('getLineup returns league-scored current-week projections and preserves una
       rows: entries.map(({ id }) => ({ player_id: id })),
     })],
     [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [spentEntry] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
   ]).install(t);
 
@@ -113,6 +122,20 @@ test('getLineup returns league-scored current-week projections and preserves una
   assert.equal(lineup.entries[2].ir_attested, true);
   assert.equal(lineup.entries[0].valid_stash, false);
   assert.equal(lineup.entries[2].valid_stash, true);
+  assert.deepEqual(lineup.entries[3], {
+    player_id: null,
+    id: 44,
+    name: 'Dropped Starter',
+    position: 'QB',
+    nfl_team: 'KC',
+    injury_status: null,
+    slot: 'QB',
+    spent: true,
+    bye_week: null,
+    locked: true,
+    onBye: false,
+    valid_stash: false,
+  });
   fake.assertClean();
 });
 
