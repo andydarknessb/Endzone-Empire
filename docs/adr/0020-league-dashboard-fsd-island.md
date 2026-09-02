@@ -96,3 +96,30 @@ possible but is still not a prerequisite.
 - ADR 0017's Status line now reads "scope superseded by ADR 0020", so a reader
   following the Draft order island to the Dashboard island is routed here from
   0017 itself, not only from this ADR.
+
+## Amendment (2026-09-02, #669): `shared/lib` is a second bottom-layer directory
+
+The island gains a second shared bottom layer, `src/shared/lib`, a sibling of
+`src/shared/ui`. It holds the island's shared non-presentational code, exposes
+its public surface through `src/shared/lib/index.js` (consumers import from that
+index, never from a module file directly), and is governed by the same rule
+`shared/ui` is: it depends on nothing above it (no widget, feature, or page) and
+is reusable by any future league surface. It is the bottom of the island for
+logic the way `shared/ui` is for presentation.
+
+Its first inhabitant is `useEndpoint`, the one-GET-bound-to-a-URL read hook
+(#669). Four dashboard widget models (`my-team-summary`, `matchup-preview`,
+`draft-grades`, `quick-actions`) had each grown a private copy of it, and the
+copies had already diverged: only `draft-grades` still reported a failure's HTTP
+status, so the other three had silently inherited the absence of a capability
+the template once had. The shared hook adopts the superset shape (it reports the
+failing response's HTTP status, nullable; callers that degrade every failure
+identically ignore that field) and the four widgets now consume it.
+
+Like the rest of this island's import rules, the `shared/lib` boundary is an
+UNAUDITED convention in the sense of ADR 0010: no lint rule or guard fails when
+a consumer imports a module by its internal path instead of the index, or when
+something inside `shared/lib` reaches up into a widget, feature, or page. The
+boundary lint rule named as this ADR's follow-up would cover `shared/lib` as
+well as `shared/ui`. Until that consumer exists, the rule binds by review, not
+by a check.

@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import apiClient from '../../../api/apiClient';
+import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { teamNameLabel } from '../../../lib/teamIdentity';
 
@@ -76,35 +75,15 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  * the way the league read already has.
  */
 
-const IDLE = { status: 'loading', data: null };
-
-// One GET bound to a URL, tracking loading -> ready | error. A null url never
-// fetches, which is what keeps the chained detail read from firing with an
-// undefined matchup id while the list is still loading. Cancels on unmount /
-// url change so a late response cannot land after the widget has moved on.
-function useEndpoint(url) {
-  const [state, setState] = useState(IDLE);
-  useEffect(() => {
-    if (!url) {
-      setState(IDLE);
-      return undefined;
-    }
-    let cancelled = false;
-    setState(IDLE);
-    apiClient
-      .get(url)
-      .then((res) => {
-        if (!cancelled) setState({ status: 'ready', data: res?.data ?? null });
-      })
-      .catch(() => {
-        if (!cancelled) setState({ status: 'error', data: null });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return state;
-}
+// Both reads below use the shared useEndpoint (src/shared/lib, #669) and ignore
+// its `httpStatus` field deliberately: this widget degrades a failed read to a
+// compact error or a placeholder without distinguishing the status code. What
+// this widget DOES rely on is the shared hook's null-URL contract: a null url
+// never fetches and parks the state on `status: 'loading'` forever. That is
+// load-bearing here (the chained detail read below is deliberately gated behind
+// a null url on the happy path, and the card short-circuits on its own signal
+// BEFORE reading `detail.status`), so the "idles at 'loading'" notes throughout
+// this hook refer to that shared contract. See src/shared/lib/useEndpoint.js.
 
 export function useMatchupPreview(leagueId) {
   const { teams, viewerTeamId, league } = useLeague(leagueId);
@@ -142,8 +121,9 @@ export function useMatchupPreview(leagueId) {
 
   // Read 2 (chained fallback): the matchup detail, only once a matchup id
   // exists AND the list could not answer both sides itself. This decision is
-  // made here, before detail.status is ever consulted (see useEndpoint above):
-  // a null detailUrl idles at 'loading' forever, so treating that idle status
+  // made here, before detail.status is ever consulted (the shared useEndpoint's
+  // null-url contract, noted above): a null detailUrl idles at 'loading'
+  // forever, so treating that idle status
   // as "still loading" once the list has already answered would skeleton the
   // card and hold aria-busy forever instead of rendering the list's numbers.
   const detailUrl =
@@ -171,9 +151,9 @@ export function useMatchupPreview(leagueId) {
   // is skeletoned, holding layout), null (a placeholder) on a miss or a failed
   // detail read. `listHasBothFinals` is checked FIRST, before detail.status is
   // ever consulted: once the list has answered, detailUrl is null and
-  // detail.status idles at 'loading' forever (see useEndpoint above), so
-  // consulting it here would skeleton this number forever instead of
-  // rendering the list's value.
+  // detail.status idles at 'loading' forever, so consulting it here would
+  // skeleton this number forever instead of rendering the list's value (the
+  // shared useEndpoint's null-url contract, noted above).
   const projectedFor = (teamId) => {
     if (listHasBothFinals) {
       const raw =
