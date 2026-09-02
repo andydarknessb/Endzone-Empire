@@ -9,6 +9,7 @@ const express = require('express');
 const helmet = require('helmet');
 
 const { validateEnvironment } = require('./modules/config');
+const { assertRedisUrlForBoot } = require('./modules/bootGates');
 const { installConsoleBridge, logger } = require('./modules/logger');
 const {
   captureError,
@@ -189,8 +190,9 @@ const io = attachDraftSocket(server);
 let shutdownPromise = null;
 
 async function startServer() {
+  assertRedisUrlForBoot(process.env, { role: 'api' });
   validateEnvironment();
-  await Promise.all([io.redisReady, io.draftEventsReady]);
+  await io.redisReady;
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(PORT, '0.0.0.0', resolve);

@@ -167,7 +167,10 @@ test('sweep: with no local Socket.IO server, the committed pick is published for
   });
   t.mock.method(ioRegistry, 'getIo', () => null);
   const published = [];
-  t.mock.method(draftEvents, 'publishDraftEvent', async (event) => { published.push(event); });
+  t.mock.method(draftEvents, 'publishDraftEvent', async (event) => {
+    published.push(event);
+    return { delivered: true, transport: 'emitter' };
+  });
   const outcome = { leagueId: LEAGUE_ID, teamId: 55, player: { id: 8, name: 'Worker Pick' }, draftComplete: false };
   t.mock.method(draftService, 'draftPlayer', async () => outcome);
 
