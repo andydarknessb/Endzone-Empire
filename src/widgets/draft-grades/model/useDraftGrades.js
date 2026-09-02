@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import apiClient from '../../../api/apiClient';
+import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 
 /**
@@ -24,44 +23,15 @@ import { useLeague } from '../../../hooks/useLeague';
  * and this read should move to a `useResource` adapter.
  */
 
-const IDLE = { status: 'loading', data: null, httpStatus: null };
-
-// One GET bound to a URL, tracking loading -> ready | error, and unlike
-// #639's useEndpoint, also the HTTP status of a failure: this widget's two
-// failure modes render differently (a 404 means the draft has not produced
-// grades yet, everything else is a real failure), so the caller needs the
-// code, not just a pass/fail flag. A null url never fetches. Cancels on
-// unmount / url change so a late response cannot land after the widget has
-// moved on.
-function useEndpoint(url) {
-  const [state, setState] = useState(IDLE);
-  useEffect(() => {
-    if (!url) {
-      setState(IDLE);
-      return undefined;
-    }
-    let cancelled = false;
-    setState(IDLE);
-    apiClient
-      .get(url)
-      .then((res) => {
-        if (!cancelled) setState({ status: 'ready', data: res?.data ?? null, httpStatus: null });
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setState({ status: 'error', data: null, httpStatus: err?.response?.status ?? null });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return state;
-}
-
 export function useDraftGrades(leagueId) {
   const { teams, viewerTeamId } = useLeague(leagueId);
 
+  // draft-grades is the ONE consumer of the shared useEndpoint (src/shared/lib,
+  // #669) that reads `httpStatus`. Its two failure modes render differently: a
+  // 404 means the draft has not produced grades yet (rendered as 'pending', not
+  // an error), everything else is a real failure. The other dashboard readers
+  // ignore `httpStatus` because their failures all degrade identically; this
+  // widget is why the shared hook reports it at all.
   const grades = useEndpoint(leagueId != null ? `/api/league/${leagueId}/draft-grades` : null);
 
   // The card's own spine: 'loading' -> skeleton rows, 'pending' -> the

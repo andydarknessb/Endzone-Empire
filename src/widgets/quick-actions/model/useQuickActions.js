@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import apiClient from '../../../api/apiClient';
+import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE } from '../../../lib/leaguePhase';
 import { isPickemOnly } from '../../../lib/leagueType';
@@ -73,36 +72,12 @@ const GROUPS = [
   },
 ];
 
-const IDLE = { status: 'loading', data: null };
-
-// One GET bound to a URL, tracking loading -> ready | error. A null url never
-// fetches. This widget's own copy of the useEndpoint convention (useEndpoint has
-// diverged across the dashboard widgets, #669): it needs only ready-vs-not and
-// the payload, never the failure's status code, because a failed roster read and
-// a loading one both mean "no recommendation yet".
-function useEndpoint(url) {
-  const [state, setState] = useState(IDLE);
-  useEffect(() => {
-    if (!url) {
-      setState(IDLE);
-      return undefined;
-    }
-    let cancelled = false;
-    setState(IDLE);
-    apiClient
-      .get(url)
-      .then((res) => {
-        if (!cancelled) setState({ status: 'ready', data: res?.data ?? null });
-      })
-      .catch(() => {
-        if (!cancelled) setState({ status: 'error', data: null });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return state;
-}
+// The roster read below uses the shared useEndpoint (src/shared/lib, #669) and
+// ignores its `httpStatus` field deliberately: this widget needs only
+// ready-vs-not and the payload, never the failure's status code, because a
+// failed roster read and a loading one both mean "no recommendation yet" (the
+// recommendation is best effort). Ignoring the status is a decision, not an
+// oversight.
 
 // The league's starting-slot config, as the lineupAttention helper wants it.
 // `roster_slots` rides on the league row (SELECT leagues.*); it is jsonb, so it

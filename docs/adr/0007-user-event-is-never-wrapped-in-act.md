@@ -52,3 +52,23 @@ what keeps the same reasoning from re-deriving the same wrapper.
   nothing awaited that the test can point to.
 - The full client suite reports zero warnings of either family, so a new one is
   legible the day it appears.
+
+## Amendment (2026-09-02): the settleRefresh example is retired
+
+The Consequences section above points to "a helper such as `settleRefresh` in
+`LeagueDashboard.test.jsx`" as the worked example of awaiting a test's
+outliving work. PR #683 (#645) deleted that file with the legacy dashboard,
+and `settleRefresh` is defined nowhere else. No named settle helper of that
+shape survives anywhere in the client suite.
+
+The rule this ADR records has not changed: a test whose interaction starts
+work that outlives it awaits that work's observable result. Only the worked
+example is gone. Its surviving form is inline, with no named helper: await
+the observable result of the work the interaction started directly at the
+call site, such as the request assertion via `waitFor` or the toast text via
+`findBy`. `src/components/LeagueDashboard/CommissionerTools.test.jsx` does
+this, and its header comment cites this ADR back, so the link between rule
+and example is visible from both ends.
+
+A future named helper of the `settleRefresh` shape is fine but not required.
+The rule is "await the consequence," not "use a helper."

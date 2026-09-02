@@ -23,9 +23,13 @@ import useMatchupPreview from '../model/useMatchupPreview';
  * The matchups-list read is the card's spine: while it is in flight the card
  * holds its layout with skeletons, and if it fails the card shows one compact,
  * self-contained error and nothing else, so a failed read never touches the
- * rest of the page. The chained detail read fills the projected totals; while
- * it is in flight each number is skeletoned (and the card stays aria-busy), and
- * a miss degrades just that number to a placeholder without erroring the card.
+ * rest of the page. Each side's projected total prefers the list row's own
+ * value and falls back to a chained detail read only when the list could not
+ * answer both sides (#670; see useMatchupPreview.js for the condition). While
+ * that fallback is in flight each number is skeletoned and the card stays
+ * aria-busy; when the list already answered, nothing is in flight and the card
+ * is never busy on the totals' account. Either way, a miss or a failed detail
+ * read degrades just that number to a placeholder without erroring the card.
  */
 export default function MatchupPreview({ leagueId }) {
   const { week, status, busy, matchupId, viewer, opponent } = useMatchupPreview(leagueId);

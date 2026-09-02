@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import apiClient from '../../../api/apiClient';
+import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
 import { ordinal } from '../lib/ordinal';
@@ -38,37 +37,12 @@ import { ordinal } from '../lib/ordinal';
  *     tile is simply absent, not a placeholder.
  */
 
-const IDLE = { status: 'loading', data: null };
-
-// One GET bound to a URL, tracking loading -> ready | error. Every failure is
-// one 'error' state: the widget degrades the same way whether a read 404s or
+// Both plain reads below use the shared useEndpoint (src/shared/lib, #669) and
+// ignore its `httpStatus` field deliberately: every failure is one 'error'
+// state here, because the widget degrades the same way whether a read 404s or
 // 500s (a missing grade is a placeholder either way, a missing projection an
-// absent tile either way), so it does not distinguish the status code. A null
-// url never fetches. Cancels on unmount / url change so a late response cannot
-// land after the widget has moved on.
-function useEndpoint(url) {
-  const [state, setState] = useState(IDLE);
-  useEffect(() => {
-    if (!url) {
-      setState(IDLE);
-      return undefined;
-    }
-    let cancelled = false;
-    setState(IDLE);
-    apiClient
-      .get(url)
-      .then((res) => {
-        if (!cancelled) setState({ status: 'ready', data: res?.data ?? null });
-      })
-      .catch(() => {
-        if (!cancelled) setState({ status: 'error', data: null });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return state;
-}
+// absent tile either way). Dropping the status is a decision, not an oversight,
+// so a later reader should not wire it in expecting it to matter.
 
 const findById = (rows, teamId) =>
   (Array.isArray(rows) ? rows.find((row) => row && row.teamId === teamId) : null) || null;

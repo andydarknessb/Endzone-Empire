@@ -571,12 +571,31 @@ test('standings-table: in-season renders the full table, a team count, names fro
   expect(within(card).getByText('Squad 1')).toBeInTheDocument();
   expect(within(card).getByText('Squad 12')).toBeInTheDocument();
   expect(within(card).queryByText('RAW 1')).not.toBeInTheDocument();
-  // Exactly one You badge, in the viewer's own row.
+  // Exactly one You badge, in the viewer's own row - this already proves the
+  // pill is absent from every non-viewer row, not just present on the
+  // viewer's.
   const youBadges = within(card).getAllByText('You');
   expect(youBadges).toHaveLength(1);
   const youRow = within(card).getByTestId('standings-table-you-row');
   expect(within(youRow).getByText('You')).toBeInTheDocument();
   expect(within(youRow).getByText('Squad 1')).toBeInTheDocument();
+  // The row contract (#671): every row-shaped viewer mark carries
+  // data-viewer-team, in addition to the visible You pill.
+  expect(youRow).toHaveAttribute('data-viewer-team', 'true');
+  const youBadge = within(youRow).getByTestId('badge');
+  expect(youBadge).toHaveAttribute('data-variant', 'you');
+  expect(youBadge).toHaveTextContent('You');
+  // Exclusivity, checked directly (not just inferred from the badge count):
+  // a non-viewer row carries neither half of the marker. The attribute and
+  // the pill are two independent conditionals in the widget, so each needs
+  // its own negative - a regression that drops the isViewer guard on only
+  // one of them would otherwise pass. Row 0 is the header; row 1 is the
+  // viewer (Squad 1); row 2 is the first non-viewer row (Squad 2).
+  const tableRows = within(card).getAllByRole('row');
+  const otherRow = tableRows[2];
+  expect(within(otherRow).getByText('Squad 2')).toBeInTheDocument();
+  expect(otherRow).not.toHaveAttribute('data-viewer-team');
+  expect(within(otherRow).queryByTestId('badge')).not.toBeInTheDocument();
 });
 
 test('standings-table: in-season renders the viewer record as W-L-T and points to one decimal', async () => {
@@ -702,9 +721,14 @@ const mpLeague = (overrides = {}) =>
 
 // GET /api/league/:id/matchups?week=N - a BARE ARRAY (the real endpoint's
 // shape), carrying the raw matchups.* columns the pairing reads (id +
-// home/away_team_id). `attachExpectedFinals` also rides on the real row, but
-// the widget takes projections from the detail read, not the list, so the
-// fixture omits them.
+// home/away_team_id). `attachExpectedFinals` also rides on the real row as
+// `home_expected_final` / `away_expected_final`, which the widget now prefers
+// (#670). `mpViewerPaired` below deliberately omits both fields (`undefined`,
+// which the widget's `!= null` check treats the same as `null`): that is what
+// keeps the pre-existing tests below on the chained detail-read path. The
+// #670 tests that exercise the list-preferred path build their own row via
+// `{ ...mpViewerPaired[0], home_expected_final: ..., away_expected_final: ... }`
+// rather than adding the fields here.
 const mpMatchupsList = (rows) => ({ data: rows });
 
 // A week-1 list pairing the viewer (home, Team 3) against Team 7 as matchup 55,
@@ -893,6 +917,105 @@ test('matchup card: a failed detail read degrades the projected totals to a plac
   expect(card).toHaveAttribute('aria-busy', 'false');
 });
 
+// #670: the list row already carries `home_expected_final` /
+// `away_expected_final` (attachExpectedFinals). The widget now prefers those
+// over the detail read, and falls back to the detail only when either side is
+// null there (never on a bare falsy check: a legitimate 0 is a value).
+test('matchup card: list row with both expected finals present renders them and never reads the detail', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: 101.2, away_expected_final: 97.5 },
+      mpViewerPaired[1],
+    ]),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  expect(within(viewerSide).getByText('101.2')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('97.5')).toBeInTheDocument();
+  expect(card).toHaveAttribute('aria-busy', 'false');
+  // The list already answered both sides, so the detail read must never fire.
+  expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
+});
+
+test('matchup card: list row with one side null falls back to the detail read and renders its values', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: null, away_expected_final: 97.5 },
+      mpViewerPaired[1],
+    ]),
+    [MP_DETAIL_URL]: mpMatchupDetail({ homeFinal: 112.4, awayFinal: 118.9 }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  // Both sides come from the detail response once the fallback fires, not a mix
+  // of the list's non-null side and the detail's: the fallback is all-or-nothing.
+  expect(await within(viewerSide).findByText('112.4')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('118.9')).toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([u]) => u === MP_DETAIL_URL)).toBe(true);
+});
+
+test('matchup card: a list value of 0 is a real value, not a trigger for the detail read', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: 0, away_expected_final: 45.6 },
+      mpViewerPaired[1],
+    ]),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  expect(await within(viewerSide).findByText('0.0')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('45.6')).toBeInTheDocument();
+  expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
+});
+
+// #688: a best-ball league's list row is null on both sides by design
+// (attachExpectedFinals short-circuits on league.best_ball), and the matchup
+// detail route short-circuits on the very same flag through the very same
+// producer (expectedFinalsForWeek), so the detail read can never answer
+// either. The widget must not fire it: both sides settle straight to the
+// placeholder once the list resolves, with no detail round trip and no
+// aria-busy hang (a null detail URL would otherwise park that read on
+// 'loading' forever).
+test('matchup card: a best-ball league skips the detail read, rendering both placeholders once the list resolves', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague({
+      league: {
+        draft_status: 'complete',
+        season_status: 'regular',
+        current_week: 1,
+        best_ball: true,
+      },
+    }),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: null, away_expected_final: null },
+      mpViewerPaired[1],
+    ]),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  expect(await within(viewerSide).findByText('Not available')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('Not available')).toBeInTheDocument();
+  expect(card).toHaveAttribute('aria-busy', 'false');
+  // The detail URL must never be requested: neither read can answer for a
+  // best-ball league, so paying for the round trip buys nothing.
+  expect(apiClient.get.mock.calls.some(([u]) => u === MP_DETAIL_URL)).toBe(false);
+});
+
 // ==========================================================================
 // draft-grades widget (#642), the rail-top slot. Same seam as the section
 // above: add the endpoint override to a per-test `mockGetByUrl` map, no
@@ -1009,10 +1132,19 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
   // (81%) instead of the roster value itself.
   expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
 
-  // The row is identifiable to assistive tech, not by color alone (WCAG
-  // 1.4.1): a visually-hidden marker, present only on the viewer's row.
-  expect(within(viewerRow).getByText('Your team')).toBeInTheDocument();
-  expect(within(rows[1]).queryByText('Your team')).not.toBeInTheDocument();
+  // The row is identifiable in the accessibility tree and to tooling, not by
+  // color alone (WCAG 1.4.1): the shared island viewer-row marker (#671) - a
+  // visible "You" pill plus the row-contract attribute.
+  expect(viewerRow).toHaveAttribute('data-viewer-team', 'true');
+  const youBadge = within(viewerRow).getByTestId('badge');
+  expect(youBadge).toHaveAttribute('data-variant', 'you');
+  expect(youBadge).toHaveTextContent('You');
+  // Exclusivity: a non-viewer row carries neither half of the marker. The
+  // attribute and the pill are two independent conditionals in the widget, so
+  // each needs its own negative - a regression that drops the isViewer guard
+  // on only one of them would otherwise pass.
+  expect(rows[1]).not.toHaveAttribute('data-viewer-team');
+  expect(within(rows[1]).queryByTestId('badge')).not.toBeInTheDocument();
 });
 
 test('draft-grades card: a 404 renders the pending copy with no error', async () => {
@@ -1045,6 +1177,49 @@ test('draft-grades card: a 500 shows a compact error, and the header still rende
   expect(alert).toHaveTextContent(/could not load/i);
   expect(within(card).queryByTestId('draft-grades-pending')).not.toBeInTheDocument();
   expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
+});
+
+// #679: the owning Card computes aria-busy from `phase` (Card aria-busy=
+// {phase === 'loading'}) rather than from mount/unmount, so a widget stuck
+// busy forever would still pass a true-only assertion. The endpoint mock
+// below is a manually-resolved promise (not mockGetByUrl's `{ pending: true }`
+// marker, which never settles) so this one test can observe both the busy
+// state and the settle within it - a true-then-false-in-one-test shape that
+// is new to this file, needed for the reason above: only a test that also
+// checks the settled state can catch a widget that never clears aria-busy.
+// "Loading" (not "pending") in the test name to match
+// useDraftGrades' own vocabulary: that hook's `phase` reserves 'pending' for
+// the 404 no-grades-yet case (see the neighboring 404 test above), and this
+// test covers the in-flight 'loading' phase instead. Scoped with
+// within(card): the findAllByRole('row') check below would otherwise also
+// match standings-table's rows, which render on the same page.
+test('draft-grades card: aria-busy is true while the grades read is loading and false once it resolves', async () => {
+  let resolveGrades;
+  const gradesPromise = new Promise((resolve) => {
+    resolveGrades = resolve;
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league/1/draft-grades' || url.endsWith('/api/league/1/draft-grades')) {
+      return gradesPromise;
+    }
+    if (url === '/api/league/1' || url.endsWith('/api/league/1')) {
+      return Promise.resolve(draftGradesRailLeague());
+    }
+    return Promise.resolve({ data: [] });
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  expect(within(card).getAllByTestId('draft-grades-skeleton').length).toBeGreaterThan(0);
+  expect(card).toHaveAttribute('aria-busy', 'true');
+
+  await act(async () => {
+    resolveGrades(draftGradesRailResponse());
+    await gradesPromise;
+  });
+
+  await within(card).findAllByRole('row');
+  expect(card).toHaveAttribute('aria-busy', 'false');
 });
 
 // ==========================================================================
