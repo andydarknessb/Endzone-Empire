@@ -1,11 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const axios = require('axios');
+const adpService = require('../services/adp.service');
 const {
   normalizeAdpPosition,
   normalizeAdpEntry,
   buildAdpUpdates,
-} = require('../services/adp.service');
+  syncAdp,
+  MARKET_FLOOR,
+  MARKET_STALE_DAYS,
+} = adpService;
 const { NFL_TEAM_FULL_NAMES } = require('../services/nflTeam');
+const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 
 test('normalizeAdpPosition maps FFC PK to our K, passes others through', () => {
   assert.equal(normalizeAdpPosition('PK'), 'K');
@@ -127,4 +133,87 @@ test('an IDP player never inherits a same-named offensive player\'s ADP', () => 
     [{ name: 'Justin Jefferson', nameKey: 'justin jefferson', position: 'WR', teamAbbr: 'MIN', adp: 13.7 }]
   );
   assert.deepEqual(updates, [{ id: 61, adp: 13.7 }]); // the WR only
+});
+
+// ---- the wipe guard + data_sync_runs record (#747) -------------------------
+
+// The exported floor is the market-health threshold every gate reads: below it
+// the ADP job refuses to write and the draft refuses to start (#747, decision 2).
+test('MARKET_FLOOR and MARKET_STALE_DAYS are exported numbers', () => {
+  assert.equal(MARKET_FLOOR, 100);
+  assert.equal(MARKET_STALE_DAYS, 7);
+});
+
+// A FFC "Success" body of `count` distinct, well-formed players. Each row
+// normalizes to a usable entry, so entries.length === count and the guard reads
+// count directly.
+const ffcBody = (count) => ({
+  status: 'Success',
+  players: Array.from({ length: count }, (_, i) => ({
+    name: `Player ${i + 1}`,
+    position: 'RB',
+    team: 'KC',
+    adp: i + 1,
+  })),
+});
+
+function stubFfc(t, body) {
+  t.mock.method(axios, 'create', () => ({ get: async () => ({ data: body }) }));
+}
+
+const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
+// The INSERT is ("job","started_at","finished_at","ok","detail") with values
+// ($1,$2,now(),$3,$4::jsonb): ok is params[2], the detail JSON is params[3].
+const runOk = (call) => call.params[2];
+const runDetail = (call) => JSON.parse(call.params[3]);
+
+test('syncAdp wipe guard: a thin Success body writes nothing to players and records ok=false', async (t) => {
+  // The point of the ticket: a Success body too short to be a real market must
+  // not be allowed to NULL every ADP. 50 usable entries is below MARKET_FLOOR.
+  stubFfc(t, ffcBody(MARKET_FLOOR - 50));
+  const fake = createFakePool([
+    // No players SELECT/UPDATE handler on purpose: if the guard let execution
+    // reach either, fakePool throws "unexpected query" and this test goes red.
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const result = await syncAdp();
+
+  assert.equal(result.ok, false);
+  assert.equal(fake.matching(update('players')).length, 0, 'the market must not be wiped');
+  assert.equal(fake.matching(select('players')).length, 0, 'a refused run does not even read the roster');
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1, 'exactly one run recorded');
+  assert.equal(runOk(runs[0]), false);
+  assert.equal(runDetail(runs[0]).adpPlayers, MARKET_FLOOR - 50, 'the thin count is recorded for diagnosis');
+});
+
+test('syncAdp on a full Success body refreshes players and records ok=true with the matched count', async (t) => {
+  // 200 usable entries clears MARKET_FLOOR, so the reset-and-set runs. Lowering
+  // this fixture below MARKET_FLOOR (e.g. to 99) trips the guard above instead,
+  // turning the ok=true assertion red - the guard's other half.
+  stubFfc(t, ffcBody(200));
+  const fake = createFakePool([
+    [select('players'), () => ({
+      rows: [
+        { id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' },
+        { id: 2, name: 'Player 2', position: 'RB', nfl_team: 'KC' },
+      ],
+    })],
+    [update('players'), () => ({ rows: [], rowCount: 2 })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const result = await syncAdp();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.playersMatched, 2);
+  // The reset-and-set: one NULL wipe and one bulk set, both after the guard.
+  assert.equal(fake.matching(/^UPDATE "players" SET "adp" = NULL/).length, 1);
+  assert.equal(fake.matching(/^UPDATE "players" p SET "adp"/).length, 1);
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1);
+  assert.equal(runOk(runs[0]), true);
+  assert.equal(runDetail(runs[0]).matched, 2, 'the matched count is recorded');
+  assert.equal(runDetail(runs[0]).adpPlayers, 200);
 });
