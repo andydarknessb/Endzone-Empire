@@ -50,12 +50,17 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *     that is the fallback's justification for that one cause, and it is why
  *     the two are not interchangeable even though they name the same field.
  *
- *     This fallback is NOT a dead-code prediction: a best-ball league's list
- *     carries null on both sides permanently, by design (`league.best_ball`
- *     short-circuits attachExpectedFinals every time), so for a best-ball
- *     league the fallback is the ONLY source these values will ever have.
- *     There is no future state of the list in which every team on every week
- *     answers non-null; do not delete this fallback on that assumption.
+ *     A best-ball league is the one cause the fallback cannot help with:
+ *     the matchup detail route computes its totals through the very same
+ *     producer, `expectedFinalsForWeek` (expectedFinal.service.js), which
+ *     short-circuits on `league.best_ball` exactly like the list's
+ *     `attachExpectedFinals` does. So for a best-ball league NEITHER read
+ *     ever answers; firing the detail read there only pays for a transaction
+ *     that materializes both lineups and delivers nothing the list did not
+ *     already deliver. The widget skips the fallback for that case (#688):
+ *     the best-ball decision is made the same place and the same way as the
+ *     `listHasBothFinals` check below, before `detail.status` is ever
+ *     consulted.
  *
  *     A miss or a failed detail read degrades just the number to a placeholder
  *     rather than erroring the card, the way the spine/degrade split works in
@@ -119,15 +124,22 @@ export function useMatchupPreview(leagueId) {
     myMatchup.home_expected_final != null &&
     myMatchup.away_expected_final != null;
 
+  // #688: a best-ball league's detail read can never answer either (same
+  // producer, same short-circuit as the list, see the docblock above), so the
+  // fallback is skipped outright. Treat a missing flag as false, so a fixture
+  // that predates this field keeps its current behavior.
+  const isBestBall = !!league?.best_ball;
+
   // Read 2 (chained fallback): the matchup detail, only once a matchup id
-  // exists AND the list could not answer both sides itself. This decision is
-  // made here, before detail.status is ever consulted (the shared useEndpoint's
-  // null-url contract, noted above): a null detailUrl idles at 'loading'
-  // forever, so treating that idle status
-  // as "still loading" once the list has already answered would skeleton the
-  // card and hold aria-busy forever instead of rendering the list's numbers.
+  // exists, the list could not answer both sides itself, AND the league is
+  // not best-ball. This decision is made here, before detail.status is ever
+  // consulted (the shared useEndpoint's null-url contract, noted above): a
+  // null detailUrl idles at 'loading' forever, so treating that idle status
+  // as "still loading" once the list has already answered (or the league is
+  // best-ball, where no read will ever answer) would skeleton the card and
+  // hold aria-busy forever instead of rendering the list's numbers.
   const detailUrl =
-    leagueId != null && matchupId != null && !listHasBothFinals
+    leagueId != null && matchupId != null && !listHasBothFinals && !isBestBall
       ? `/api/league/${leagueId}/matchups/${matchupId}`
       : null;
   const detail = useEndpoint(detailUrl);
@@ -153,7 +165,10 @@ export function useMatchupPreview(leagueId) {
   // ever consulted: once the list has answered, detailUrl is null and
   // detail.status idles at 'loading' forever, so consulting it here would
   // skeleton this number forever instead of rendering the list's value (the
-  // shared useEndpoint's null-url contract, noted above).
+  // shared useEndpoint's null-url contract, noted above). `isBestBall` is
+  // checked next, for the same reason (#688): detailUrl is null there too, so
+  // reaching detail.status would skeleton the number forever instead of
+  // resolving straight to the placeholder.
   const projectedFor = (teamId) => {
     if (listHasBothFinals) {
       const raw =
@@ -162,6 +177,7 @@ export function useMatchupPreview(leagueId) {
           : Number(myMatchup.away_expected_final);
       return { loading: false, value: Number.isFinite(raw) ? raw.toFixed(1) : null };
     }
+    if (isBestBall) return { loading: false, value: null };
     if (detail.status === 'loading') return { loading: true, value: null };
     const sides = detail.status === 'ready' && detail.data ? [detail.data.home, detail.data.away] : [];
     const side = sides.find((s) => s && s.teamId === teamId) || null;
@@ -188,13 +204,15 @@ export function useMatchupPreview(leagueId) {
     status === 'ready' ? { ...identityFor(opponentId), projected: projectedFor(opponentId) } : null;
 
   // aria-busy while a layout-holding read is in flight: the list spine, and (only
-  // when the list did not already answer both sides, #670) the chained detail
-  // read whose projected numbers are skeletoned (carry-over #2). Checking
-  // `listHasBothFinals` before `detail.status` matters: with the fallback
-  // skipped, detailUrl is null and detail.status idles at 'loading' forever, so
-  // consulting it unconditionally here would keep aria-busy true forever.
+  // when the list did not already answer both sides, #670, and the league is
+  // not best-ball, #688) the chained detail read whose projected numbers are
+  // skeletoned (carry-over #2). Checking `listHasBothFinals` and `isBestBall`
+  // before `detail.status` matters: with the fallback skipped, detailUrl is
+  // null and detail.status idles at 'loading' forever, so consulting it
+  // unconditionally here would keep aria-busy true forever.
   const busy =
-    status === 'loading' || (status === 'ready' && !listHasBothFinals && detail.status === 'loading');
+    status === 'loading' ||
+    (status === 'ready' && !listHasBothFinals && !isBestBall && detail.status === 'loading');
 
   return { week, status, busy, matchupId, viewer, opponent };
 }
