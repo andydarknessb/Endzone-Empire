@@ -325,6 +325,11 @@ function MatchupDetail() {
   const hasRecordedScore = homeScore !== 0 || awayScore !== 0;
   // Live scoring only while the season is being played (in season or in the
   // playoffs), never pre-draft, drafting or after the season completes.
+  // Best ball sets no lineup, so nothing is ever left on the bench and the
+  // line is hidden rather than printed as a zero (ADR 0023). Until the league
+  // is known the line stays hidden too: a standard league's number waits one
+  // fetch, a best-ball league's zero never flashes.
+  const showBenchLeft = !!league && !league.best_ball;
   const showLive = !!matchup
     && !matchup.final
     && isSeasonLive(league)
@@ -467,7 +472,7 @@ function MatchupDetail() {
                     <Typography variant="stat" sx={{ mb: 0.5, fontSize: '1.125rem' }}>
                       {col.score}
                     </Typography>
-                    {matchup.final && col.benchLeft != null && (
+                    {matchup.final && showBenchLeft && col.benchLeft != null && (
                       <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
                         Left {col.benchLeft} on the bench
                       </Typography>

@@ -107,6 +107,16 @@ test('defaults to half-PPR and updates every points readout when the format chan
   expect(screen.getByText('19.6')).toBeInTheDocument(); // wk1 standard
 });
 
+test('nests the sparkline title one level below the Game log section (h2 > h3)', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  // "Game log" is the h2 section; the "Points by week" sparkline card sits
+  // inside that section, so it must be h3, not the h2 sibling #721 chose.
+  expect(screen.getByRole('heading', { level: 2, name: 'Game log' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'Points by week' })).toBeInTheDocument();
+});
+
 test('stat labels expose the shared FPTS/G definition and preserve the ADP definition', async () => {
   renderPage();
   await screen.findByRole('heading', { name: 'Alpha Back' });

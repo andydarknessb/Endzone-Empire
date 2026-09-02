@@ -619,9 +619,11 @@ async function weekKickoffs(client, { season, week, kickoffCache = null }) {
  * A player with no game that week is ABSENT from the map rather than present
  * with a null, so a caller cannot mistake "no game" for a kickoff instant.
  *
- * The only read of `nfl_games` on the scoring path: the scoring service asks
- * this module rather than joining the schedule itself, so there is one place
- * that knows how a week's games are found and one place for #227 to change.
+ * The scoring path reaches `nfl_games` only through this module, here and
+ * through `playersNotHeldAtLastKickoff` below, both over `weekKickoffs`: the
+ * scoring service asks rather than joining the schedule itself, so there is
+ * one place that knows how a week's games are found and one place for #227
+ * to change.
  */
 async function playerKickoffs(client, { season, week, players, kickoffCache = null }) {
   const kickoffs = await weekKickoffs(client, { season, week, kickoffCache });
@@ -676,6 +678,60 @@ async function playersNotHeldAtKickoff(client, { teamId, season, week, players, 
   const scheduled = players
     .map((player) => ({ id: player.id, kickoff: kickoffs.get(player.id) }))
     .filter((player) => player.kickoff !== undefined);
+  return playersNotHeldAt(client, { teamId, scheduled });
+}
+
+/**
+ * Of these players, the ones this team held NO tenure over at the WEEK'S
+ * LAST kickoff (#635, ADR 0022). The second half of the best-ball
+ * population rule, and best ball's alone.
+ *
+ * Best ball has no slot occupancy to bound a week's pool. A player dropped
+ * after his own game keeps his row (#197 spares it), his replacement
+ * materializes another, and `playersNotHeldAtKickoff` passes both because
+ * each tenure covered its own player's kickoff. Every post-kickoff
+ * drop-and-replace therefore added one more scored body to the pool
+ * `optimalLineup` picks from, never one fewer. The bound is
+ * the roster the team carried through the week's last kickoff: a candidate
+ * must have been held then as well as at his own kickoff.
+ *
+ * The instant is the LATEST kickoff on the week's schedule, over every game
+ * that week and not only the candidates' own, so the answer does not move
+ * with the roster being asked about. A player with NO GAME ROW that week is
+ * never returned, for the reason `playersNotHeldAtKickoff` gives: absence
+ * stays absence. An empty schedule excludes nobody.
+ *
+ * A standard league never asks this. There the dropped starter's surviving
+ * row still occupies his slot, so the pool is bounded by slot occupancy and
+ * the week as played keeps him (#190).
+ */
+async function playersNotHeldAtLastKickoff(client, { teamId, season, week, players, kickoffCache = null }) {
+  const schedule = await weekKickoffs(client, { season, week, kickoffCache });
+  let last = null;
+  for (const at of schedule.values()) {
+    const time = new Date(at).getTime();
+    if (last === null || time > last) last = time;
+  }
+  // No schedule, or one whose kickoffs do not parse: nothing to be held at,
+  // so nobody is excluded (an Invalid Date would otherwise reach pg and roll
+  // back the whole scoring pass).
+  if (!Number.isFinite(last)) return new Set();
+  const lastKickoff = new Date(last);
+  const scheduled = (players || [])
+    .filter((player) => {
+      const team = scheduleKeyFor(player);
+      return team !== null && schedule.has(team);
+    })
+    .map((player) => ({ id: player.id, kickoff: lastKickoff }));
+  return playersNotHeldAt(client, { teamId, scheduled });
+}
+
+/**
+ * The tenure predicate itself, shared by the two questions above: of these
+ * (player, instant) pairs, the player ids this team held NO tenure over at
+ * that instant. The SQL lives once so the two questions cannot drift.
+ */
+async function playersNotHeldAt(client, { teamId, scheduled }) {
   if (scheduled.length === 0) return new Set();
   const result = await client.query(
     `SELECT "kickoffs"."player_id"
@@ -690,6 +746,42 @@ async function playersNotHeldAtKickoff(client, { teamId, season, week, players, 
     [teamId, scheduled.map((p) => p.id), scheduled.map((p) => p.kickoff)]
   );
   return new Set(result.rows.map((row) => row.player_id));
+}
+
+/**
+ * The week AS PLAYED: of this team's lineup rows for the week, the ones the
+ * score of record counts. A row survives only if a tenure of this team
+ * covered its player's own kickoff (#228), and in best ball only if one also
+ * covered the week's LAST kickoff (#635, ADR 0022). A player with no game
+ * that week is never excluded.
+ *
+ * This is the ONE population every reading of a settled week goes through:
+ * the settle pass and the re-score of a final week (`scoreMatchups`), and
+ * hindsight (#736). It lives here, beside the two questions it asks, so a
+ * consumer cannot grow a second population that merely happens to agree
+ * with the score of record today and drifts from it tomorrow; that is how
+ * hindsight came to score every row of a settled week. A LIVE week is the
+ * one reading this does not govern: it joins the current roster instead.
+ *
+ * `rows` carry `player_id` and `nfl_team` (the schedule key, folded through
+ * the same predicate as the lineup lock). `client` is anything with a
+ * `query`, so the pool serves outside a transaction.
+ */
+async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache: sharedCache = null }) {
+  if (rows.length === 0) return rows;
+  // Both questions read the week's schedule; within one call it is one
+  // answer, so a caller with no pass-wide cache still reads it once (#261).
+  const kickoffCache = sharedCache || new Map();
+  const playersOf = (list) => list.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team }));
+  const notHeldAtOwn = await playersNotHeldAtKickoff(client, {
+    teamId, season, week, players: playersOf(rows), kickoffCache,
+  });
+  const held = rows.filter((row) => !notHeldAtOwn.has(row.player_id));
+  if (!league.best_ball || held.length === 0) return held;
+  const notHeldThrough = await playersNotHeldAtLastKickoff(client, {
+    teamId, season, week, players: playersOf(held), kickoffCache,
+  });
+  return held.filter((row) => !notHeldThrough.has(row.player_id));
 }
 
 /**
@@ -1036,6 +1128,8 @@ module.exports = {
   restoreInterruptedStash,
   lockedPlayerIds,
   playersNotHeldAtKickoff,
+  playersNotHeldAtLastKickoff,
+  rowsHeldAsPlayed,
   annotateLineupEntries,
   getLineup,
   setLineup,

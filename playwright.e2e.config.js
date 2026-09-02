@@ -15,7 +15,15 @@ module.exports = defineConfig({
     : {
         command: 'npm run client',
         url: 'http://127.0.0.1:4173',
-        reuseExistingServer: !process.env.CI,
+        // #196: default to NOT reusing whatever is already on 4173. Nothing binds this port
+        // by hand (npm run client is react-scripts start, which lands on 5000/3000); the
+        // realistic occupant is a concurrent or leftover Playwright-managed server from
+        // another worktree of this repo. Reusing it silently can report green about code it
+        // never opened. CI is unaffected: process.env.CI is set there, so it always starts
+        // its own server regardless of this flag. Locally, opt in on purpose by setting
+        // E2E_REUSE_SERVER to exactly "1" if you intentionally keep a client running; any
+        // other value (including "0" or "false") leaves the safe default in place.
+        reuseExistingServer: process.env.CI ? false : process.env.E2E_REUSE_SERVER === '1',
         timeout: 120_000,
         env: { BROWSER: 'none', HOST: '0.0.0.0', PORT: '4173' },
       },

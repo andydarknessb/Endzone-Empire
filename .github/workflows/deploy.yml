@@ -20,6 +20,17 @@ on:
         required: false
         type: boolean
         default: false
+      worker_only:
+        # Recover a worker deploy that timed out or was mis-configured (for
+        # example before RENDER_WEB_SERVICE_ID was set) WITHOUT a second full
+        # web build. When true the web hook, the API readiness wait and the
+        # client build hook are skipped; the web-deploy wait, the worker hook
+        # and the worker verify still run (this implies deploy_worker). The web
+        # is already live at the commit, so the web-deploy wait clears fast.
+        description: Re-dispatch only the worker (skip the web and client build); implies deploy_worker
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,13 +45,24 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      # The Render deploy poller (scripts/ci/wait-for-render-deploy.js, #733)
+      # runs on the runner, so the promoted commit must be checked out and a
+      # Node with global fetch set up. The poller is dependency-free, so no
+      # `npm ci` is needed.
+      - name: Check out the promoted commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
       - name: Trigger production API deploy
+        if: ${{ !inputs.worker_only }}
         env:
           RENDER_HOOK: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}
         run: |
           test -n "$RENDER_HOOK"
           curl --fail --silent --show-error --request POST "$RENDER_HOOK"
       - name: Wait for production API readiness
+        if: ${{ !inputs.worker_only }}
         env:
           API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: |
@@ -51,29 +73,8 @@ jobs:
             sleep 10
           done
           exit 1
-      - name: Trigger production worker deploy
-        if: ${{ inputs.deploy_worker }}
-        env:
-          API_URL: ${{ vars.PRODUCTION_API_URL }}
-          RENDER_WORKER_HOOK: ${{ secrets.RENDER_WORKER_DEPLOY_HOOK }}
-        run: |
-          test -n "$RENDER_WORKER_HOOK"
-          # The worker's heartbeat writes a column the WEB service's
-          # preDeployCommand migration creates, so the worker may deploy only
-          # after the web is live AT THIS COMMIT - readyz being green alone
-          # proves nothing, the old instance also answers 200.
-          for attempt in $(seq 1 60); do
-            release=$(curl --fail --silent "$API_URL/api/health/readyz" 2>/dev/null | jq -r '.release' 2>/dev/null || echo unknown)
-            if [ "$release" = "$GITHUB_SHA" ]; then
-              curl --fail --silent --show-error --request POST "$RENDER_WORKER_HOOK"
-              exit 0
-            fi
-            echo "attempt $attempt: web release=$release (want $GITHUB_SHA before the worker deploys)"
-            sleep 10
-          done
-          echo "web never reached the dispatched commit; worker deploy NOT triggered"
-          exit 1
       - name: Trigger production client build
+        if: ${{ !inputs.worker_only }}
         env:
           NETLIFY_HOOK: ${{ secrets.NETLIFY_PRODUCTION_BUILD_HOOK }}
         run: |
@@ -92,29 +93,49 @@ jobs:
             sleep 10
           done
           exit 1
+      - name: Trigger production worker deploy
+        if: ${{ inputs.deploy_worker || inputs.worker_only }}
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WEB_SERVICE_ID: ${{ vars.RENDER_WEB_SERVICE_ID }}
+          RENDER_WORKER_HOOK: ${{ secrets.RENDER_WORKER_DEPLOY_HOOK }}
+        run: |
+          test -n "$RENDER_API_KEY"
+          test -n "$RENDER_WEB_SERVICE_ID"
+          test -n "$RENDER_WORKER_HOOK"
+          # The worker's heartbeat writes a column the WEB service's
+          # preDeployCommand migration creates, so the worker may deploy only
+          # after the web is live AT THIS COMMIT - readyz being green alone
+          # proves nothing, the old instance also answers 200.
+          #
+          # The poller watches the WEB service's Render deploy for this commit:
+          # it fails fast on a terminal-failed build, waits through a slow one
+          # (up to the 45-minute ceiling), and returns 0 only once that deploy
+          # is live AND readyz reports the SHA - the final gate before the hook,
+          # so the worker never deploys against the old web instance.
+          node scripts/ci/wait-for-render-deploy.js \
+            --service "$RENDER_WEB_SERVICE_ID" \
+            --sha "$GITHUB_SHA" \
+            --readyz "$API_URL/api/health/readyz" \
+            --ceiling-ms 2700000 \
+            --interval-ms 15000
+          curl --fail --silent --show-error --request POST "$RENDER_WORKER_HOOK"
       - name: Verify worker release SHA via the Render API
-        if: ${{ inputs.deploy_worker }}
+        if: ${{ inputs.deploy_worker || inputs.worker_only }}
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_WORKER_SERVICE_ID: ${{ vars.RENDER_WORKER_SERVICE_ID }}
         run: |
           test -n "$RENDER_API_KEY"
           test -n "$RENDER_WORKER_SERVICE_ID"
-          for attempt in $(seq 1 60); do
-            # Tolerate transient API failures: a failed poll is one attempt
-            # spent, not the verdict.
-            latest=$(curl --fail --silent \
-              --header "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/services/$RENDER_WORKER_SERVICE_ID/deploys?limit=1" \
-              2>/dev/null || echo '[]')
-            status=$(echo "$latest" | jq -r '.[0].deploy.status' 2>/dev/null || echo unknown)
-            sha=$(echo "$latest" | jq -r '.[0].deploy.commit.id' 2>/dev/null || echo unknown)
-            if [ "$status" = "live" ] && [ "$sha" = "$GITHUB_SHA" ]; then
-              echo "worker live at $sha"
-              exit 0
-            fi
-            echo "attempt $attempt: worker deploy status=$status sha=$sha (want live at $GITHUB_SHA)"
-            sleep 10
-          done
-          echo "worker never reached live at the dispatched commit"
-          exit 1
+          # Same poller against the WORKER service. --no-readyz opts out of the
+          # readyz SHA gate deliberately (the worker serves no HTTP): it waits
+          # for the worker's Render deploy for this commit to be live, or fails
+          # on a terminal-failed one.
+          node scripts/ci/wait-for-render-deploy.js \
+            --service "$RENDER_WORKER_SERVICE_ID" \
+            --sha "$GITHUB_SHA" \
+            --no-readyz \
+            --ceiling-ms 2700000 \
+            --interval-ms 15000

@@ -91,6 +91,9 @@ const HELD_ALL_SEASON = '2026-10-01T00:00:00.000Z';
 // Thursday player that instant is already past his own kickoff, which is why
 // `lineup_entries.created_at` could never be read against kickoff on its own.
 const THURSDAY_KICKOFF = '2026-10-22T00:20:00.000Z';
+// Between the Thursday game and the Sunday slate: after one kickoff, before
+// the week's last (#635).
+const FRIDAY = '2026-10-23T12:00:00.000Z';
 const FIRST_MATERIALIZE = '2026-10-25T17:05:00.000Z';
 
 const ROSTER_SLOTS = [
@@ -556,6 +559,220 @@ test('#227 best ball: a DEF UNIT acquired BEFORE its game still counts', async (
 
   assert.equal(awayScoreOf(world.state), 15,
     'Team B held him when the Broncos kicked off, so his 5 are part of the week as played');
+  world.fake.assertClean();
+});
+
+/* ------------------------------------------------------------------ *
+ * Best ball: the pool is the roster held at the week's last kickoff   *
+ * (#635, ADR 0022)                                                    *
+ * ------------------------------------------------------------------ */
+
+test('#635 best ball: a player dropped after his Thursday game and replaced does not score beside his replacement', async (t) => {
+  // Team B held THURSDAY_MAN through his Thursday game, cut him on Friday
+  // and picked up ACQUIRED for Sunday. Both rows survive into the settle
+  // pass (#197 spares the Thursday row, the acquisition materializes the
+  // Sunday one) and the #228 exclusion passes both: each tenure covered its
+  // player's own kickoff. Without a bound, the churned seat scores BOTH
+  // bodies (10 + 30) against a stand-pat opponent who could only ever field
+  // one. Ruling (#635): a best-ball candidate must also have been held at
+  // the week's LAST kickoff, so the Thursday man is out and the week settles
+  // on the roster the manager actually carried through Sunday.
+  const world = createWorld({
+    bestBall: true,
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN },
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN, season: SEASON, week: WEEK, slot: 'BENCH', ir_attested: false },
+    ],
+  });
+  world.fake.install(t);
+
+  const dropped = await drop(world.fake, world.state, { playerId: THURSDAY_MAN, at: FRIDAY });
+  assert.equal(dropped.removedCurrentWeek, false, 'his Thursday row is spared: he had played while held');
+  await acquire(world.fake, world.state, { playerId: ACQUIRED, at: FRIDAY });
+  assert.deepEqual(
+    world.entriesFor(TEAM_B, SEASON, WEEK).map((e) => e.player_id).sort(),
+    [ACQUIRED, THURSDAY_MAN].sort(),
+    'both bodies have a row in the week, which is the shape the bound exists for'
+  );
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 30,
+    'only the replacement, held at the week\'s last kickoff, is in the pool');
+  world.fake.assertClean();
+});
+
+test('#635 best ball: a Thursday player cut on Friday with no replacement scores nothing', async (t) => {
+  // The cost of the ruling, stated so nobody mistakes it for a defect: the
+  // live path already showed this manager 0 all Sunday (it joins the current
+  // roster), and the score of record now agrees with it rather than moving
+  // at advance.
+  const world = createWorld({
+    bestBall: true,
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN },
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN, season: SEASON, week: WEEK, slot: 'BENCH', ir_attested: false },
+    ],
+  });
+  world.fake.install(t);
+
+  await drop(world.fake, world.state, { playerId: THURSDAY_MAN, at: FRIDAY });
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 0,
+    'released before the week\'s last kickoff, so not part of the best-ball pool');
+  assert.equal(homeScoreOf(world.state), 8, 'the opponent is untouched');
+  world.fake.assertClean();
+});
+
+test('#635 best ball: a player held through the week\'s last kickoff is not touched by the bound', async (t) => {
+  // The control for the new predicate: the ordinary case must still count.
+  // Team B stands pat on THURSDAY_MAN all week.
+  const world = createWorld({
+    bestBall: true,
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN },
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN, season: SEASON, week: WEEK, slot: 'BENCH', ir_attested: false },
+    ],
+  });
+  world.fake.install(t);
+
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 10, 'held at Thursday kickoff and at Sunday\'s: he scores');
+  world.fake.assertClean();
+});
+
+test('#635 standard: the last-kickoff bound is best ball\'s alone; a Thursday starter cut on Friday still scores', async (t) => {
+  // Same moves as the first #635 case, in a standard league. Here the
+  // dropped starter's surviving row still occupies his slot (#627/#631 count
+  // it as spent), so the pool is already bounded by slot occupancy and the
+  // week as played keeps his points (#190).
+  const world = createWorld({
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN },
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+    ],
+  });
+  world.fake.install(t);
+
+  await drop(world.fake, world.state, { playerId: THURSDAY_MAN, at: FRIDAY });
+  await acquire(world.fake, world.state, { playerId: ACQUIRED, at: FRIDAY });
+  await advanceWeek(world.state);
+
+  assert.equal(awayScoreOf(world.state), 10,
+    'the Thursday starter is the week as played; the Friday pickup sits on the bench');
+  world.fake.assertClean();
+});
+
+test('#635 best ball: a player traded away after his game scores for neither side that week', async (t) => {
+  // A trade is a drop on one side and an acquisition on the other at one
+  // instant (ADR 0006). The giving team was not holding him at the week's
+  // last kickoff (this rule); the receiving team did not hold him at his own
+  // (#228). So his Thursday points settle for nobody, which is what live
+  // scoring showed the giving team all Sunday. Team B sends THURSDAY_MAN to
+  // Team A for QB_A on Friday.
+  const world = createWorld({
+    bestBall: true,
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN },
+      { team_id: TEAM_B, player_id: ACQUIRED },
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, ACQUIRED, new Date(HELD_ALL_SEASON)),
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN, season: SEASON, week: WEEK, slot: 'BENCH', ir_attested: false },
+      { team_id: TEAM_B, player_id: ACQUIRED, season: SEASON, week: WEEK, slot: 'BENCH', ir_attested: false },
+    ],
+  });
+  world.fake.install(t);
+
+  await drop(world.fake, world.state, { teamId: TEAM_B, playerId: THURSDAY_MAN, at: FRIDAY });
+  await acquire(world.fake, world.state, { teamId: TEAM_A, playerId: THURSDAY_MAN, at: FRIDAY });
+  await drop(world.fake, world.state, { teamId: TEAM_A, playerId: QB_A, at: FRIDAY });
+  await acquire(world.fake, world.state, { teamId: TEAM_B, playerId: QB_A, at: FRIDAY });
+
+  await advanceWeek(world.state);
+
+  assert.equal(homeScoreOf(world.state), 0,
+    'Team A acquired him after his game (#228) and sent its Sunday QB away before his');
+  assert.equal(awayScoreOf(world.state), 38,
+    'Team B: the RB it held all week plus the QB it received before Sunday, not the Thursday man it sent away');
+  world.fake.assertClean();
+});
+
+test('#635 the bound is one rule on both populations: the settled score survives a correction sweep after a re-add', async (t) => {
+  // The same escalation #190 answers, asked of the new exclusion. The
+  // dropped man's row is still in lineup_entries when the week goes final,
+  // and a later re-add reopens a tenure. `correction.service` then re-scores
+  // the final week with no settle flag. The re-add's tenure began after the
+  // week's last kickoff, so the answer does not move.
+  const world = createWorld({
+    bestBall: true,
+    teamPlayers: [
+      { team_id: TEAM_A, player_id: QB_A },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN },
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+    ],
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: QB_A, season: SEASON, week: WEEK, slot: 'QB', ir_attested: false },
+      { team_id: TEAM_B, player_id: THURSDAY_MAN, season: SEASON, week: WEEK, slot: 'BENCH', ir_attested: false },
+    ],
+  });
+  world.fake.install(t);
+
+  await drop(world.fake, world.state, { playerId: THURSDAY_MAN, at: FRIDAY });
+  await acquire(world.fake, world.state, { playerId: ACQUIRED, at: FRIDAY });
+  await advanceWeek(world.state);
+  assert.equal(awayScoreOf(world.state), 30, 'settled on the replacement alone');
+  assert.equal(world.state.matchups[0].final, true, 'and the week is final');
+
+  await acquire(world.fake, world.state, { playerId: THURSDAY_MAN, at: LATER_STILL });
+  const correction = await correctLeagueWeek({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(awayScoreOf(world.state), 30, 'the re-add reopened a tenure that began after the last kickoff');
+  assert.deepEqual(correction.changes, [], 'nothing to announce');
+  assert.equal(world.state.notifications.length, 0, 'no stat-correction notification');
   world.fake.assertClean();
 });
 
