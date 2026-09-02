@@ -27,6 +27,7 @@ const {
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
 const { isMember, joinLeague } = require('../services/leagueMembership.service');
+const { getMarketStatus } = require('../services/adp.service');
 const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
@@ -387,6 +388,13 @@ router.get('/:id', async (req, res) => {
     });
     // Only a commissioner should see the invite code
     if (!league.is_commissioner) delete league.invite_code;
+    // The player market's observable state (#748): how many players carry an
+    // ADP, the floor, the last successful sync, and staleness. Not gated on
+    // is_commissioner the way invite_code is above - the control that reads it
+    // (DraftStartControl) is already commissioner-scoped at the call site, so
+    // there is nothing sensitive here for a plain member to see and no second
+    // gate to keep in sync with the first.
+    league.market = await getMarketStatus();
     // Derived from the ROWS rather than from what this viewer was served, so
     // the flag says the same thing to a member as to a commissioner: a team is
     // flagged exactly when a grant names it. Team identity on both sides of
