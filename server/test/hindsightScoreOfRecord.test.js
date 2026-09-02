@@ -326,6 +326,49 @@ test('#736 control, standard: the last-kickoff bound is best ball\'s alone; a Th
 });
 
 /* ------------------------------------------------------------------ *
+ * #741: a standard league's IR occupant is not an optimal starter.    *
+ * The advisor never advises moving a man off IR before his kickoff,   *
+ * and the settle pass never counts an IR row, so hindsight must not    *
+ * offer his points as left on the bench. Standard and best ball agree. *
+ * ------------------------------------------------------------------ */
+
+test('#741 standard: an IR occupant is never an optimal starter, so his points are not left on the bench', async (t) => {
+  // Standard league, one QB slot and one RB slot. The QB started and scored
+  // 10; a 30-point RB sits on IR, held at his own kickoff so the tenure rule
+  // (#228) keeps him in the as-played pool. The ONLY thing that must keep him
+  // out of the optimal-lineup candidates is his IR slot. Before this ticket
+  // the standard branch dropped IR from `actualPoints` but still pushed the
+  // row into the candidate pool, so optimal read 40 and the recap named a
+  // 30-point "bench blunder" for a man the advisor would never have started.
+  const world = settledWorld({
+    bestBall: false,
+    awayScore: 10,
+    lineupEntries: [
+      row(TEAM_A, QB_A, 'QB'),
+      row(TEAM_B, THURSDAY_MAN, 'QB'),
+      row(TEAM_B, ACQUIRED, 'IR'),
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, ACQUIRED, new Date(HELD_ALL_SEASON)),
+    ],
+  });
+  world.fake.install(t);
+
+  const h = await weekHindsight({ leagueId: LEAGUE_ID, teamId: TEAM_B, season: SEASON, week: WEEK });
+
+  assert.equal(h.actualPoints, 10, 'the IR row never counted toward the score of record');
+  assert.equal(h.optimalPoints, 10, 'and could not have, so optimal is the started QB alone');
+  assert.equal(h.pointsLeftOnBench, 0);
+  assert.ok(!h.optimalStarters.some((s) => s.playerId === ACQUIRED),
+    'the IR stash is not named an optimal starter');
+  // Control: re-add the IR row to the candidate pool (the pre-fix standard
+  // path, or flipping this row to BENCH) and optimal climbs to 40 with the
+  // stash named a starter - which is exactly the #736 standard control above.
+});
+
+/* ------------------------------------------------------------------ *
  * #739: hindsight prices the week under the LEAGUE's rules, not the   *
  * stored default-rules fantasy_points column.                         *
  * ------------------------------------------------------------------ */
