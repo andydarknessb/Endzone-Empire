@@ -33,8 +33,8 @@ export default function DraftTypePanel({ league, frozen, onSave, saving, onDirty
       </FormControl>
       {draftType === 'auction' && <Alert severity="info">Settings only. Live salary-cap drafts are coming soon. Scheduling and immediate start are unavailable.</Alert>}
       {draftType !== 'auction' && <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Draft rotation</Typography>
-        <ToggleButtonGroup exclusive value={draftRotation} disabled={frozen} onChange={(event, value) => value && setDraftRotation(value)} size="small">
+        <Typography variant="subtitle2" component="p" id="draft-rotation-label" sx={{ mb: 1 }}>Draft rotation</Typography>
+        <ToggleButtonGroup exclusive value={draftRotation} disabled={frozen} onChange={(event, value) => value && setDraftRotation(value)} size="small" aria-labelledby="draft-rotation-label">
           <ToggleButton value="snake">Snake</ToggleButton><ToggleButton value="linear">Linear</ToggleButton>
         </ToggleButtonGroup>
       </Box>}
