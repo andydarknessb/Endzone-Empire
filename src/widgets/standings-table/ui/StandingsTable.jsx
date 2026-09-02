@@ -107,16 +107,22 @@ function StandingsRow({ row, preseason }) {
         // ink-on-surface2 pairing), so it stands out without composing a new
         // contrast pairing.
         backgroundColor: row.isViewer ? 'var(--dash-surface2)' : 'transparent',
-        '& > td': { borderTop: '1px solid var(--dash-line)' },
+        '& > td, & > th': { borderTop: '1px solid var(--dash-line)' },
       }}
     >
       <BodyCell align="right" muted>{row.rank}</BodyCell>
-      <BodyCell>
+      {/* The Team cell is the row's header (th scope="row"), so a screen reader
+          navigating to any stat cell hears which team it belongs to, and each
+          stat value has row context, not just a column name. */}
+      <BodyCell asRowHeader>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
-          {/* The avatar carries the Team name as its accessible name; TeamAvatar
-              itself is aria-hidden (#327), so the name rides on this labelled
-              wrapper and the visible name text sits beside it. */}
-          <Box role="img" aria-label={row.teamName} sx={{ flex: 'none', display: 'flex' }}>
+          {/* The avatar is decorative here: the visible name text beside it (and
+              this cell as the row header) already carries the Team identity, so
+              unlike the my-team hero (#327) the avatar is NOT given a redundant
+              accessible name that would double the team's name in every row.
+              TeamAvatar is itself aria-hidden, so a plain wrapper leaves it out
+              of the a11y tree. */}
+          <Box sx={{ flex: 'none', display: 'flex' }}>
             <TeamAvatar
               name={row.teamName}
               avatarUrl={row.avatarUrl}
@@ -171,15 +177,19 @@ function HeadCell({ children, align = 'left' }) {
   );
 }
 
-function BodyCell({ children, align = 'left', muted = false }) {
+function BodyCell({ children, align = 'left', muted = false, asRowHeader = false }) {
   return (
     <Box
-      component="td"
+      component={asRowHeader ? 'th' : 'td'}
+      {...(asRowHeader ? { scope: 'row' } : {})}
       sx={{
         textAlign: align,
         px: 1.5,
         py: 1.25,
         fontSize: '13.5px',
+        // A th defaults to bold; the inner name span and badge set their own
+        // weight, so keep the cell itself at the normal body weight.
+        fontWeight: 400,
         fontVariantNumeric: 'tabular-nums',
         color: muted ? 'var(--dash-dim)' : 'var(--dash-ink)',
         whiteSpace: 'nowrap',
