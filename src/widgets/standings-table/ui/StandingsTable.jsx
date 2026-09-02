@@ -102,6 +102,7 @@ function StandingsRow({ row, preseason }) {
     <Box
       component="tr"
       data-testid={row.isViewer ? 'standings-table-you-row' : undefined}
+      data-viewer-team={row.isViewer || undefined}
       sx={{
         // The viewer's row is highlighted with the surface2 tier (a registered
         // ink-on-surface2 pairing), so it stands out without composing a new

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Table, TableBody, TableCell, TableRow, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Card, GradeChip, Skeleton } from '../../../shared/ui';
+import { Badge, Card, GradeChip, Skeleton } from '../../../shared/ui';
 import useDraftGrades from '../model/useDraftGrades';
 
 /**
@@ -24,14 +24,12 @@ import useDraftGrades from '../model/useDraftGrades';
  * number the sighted reader sees as 1,284 - so it carries the same "N of max"
  * reading a sighted user gets from the number beside the bar.
  *
- * The viewer's row gets the accent background/border (color only, as the
- * mockup has it) plus a visually-hidden "Your team" marker in the name cell,
- * so the row is identifiable in the accessibility tree, not only by color
- * (WCAG 1.4.1). This diverges from the `data-viewer-team` / no-label
- * convention #182 set for PowerRankings and Pick'em standings: this ticket
- * asked for the accent row, the risk review added the non-color marker for
- * WCAG 1.4.1, and #182 left open whether the same treatment belongs on other
- * league-shared tables, without deciding it for this one.
+ * The viewer's row carries the visible `Badge variant="you"` pill (the League
+ * Dashboard island's shared viewer-row marker, per #671) in the name cell,
+ * plus the row's `data-viewer-team` attribute, so the row is identifiable in
+ * the accessibility tree and to tooling, not only by color (WCAG 1.4.1). The
+ * accent row background/border stays as a redundant visual cue rather than
+ * the sole marker. #671 decided the question #182 left open for this table.
  *
  * The card owns its one read (the draft-grades endpoint) and is the region
  * that owns it, so it carries `aria-busy` while that read is in flight
@@ -94,6 +92,7 @@ export default function DraftGrades({ leagueId }) {
                 <TableRow
                   key={row.teamId}
                   data-testid={`draft-grades-row-${row.teamId}`}
+                  data-viewer-team={isViewer || undefined}
                   sx={
                     isViewer
                       ? {
@@ -109,11 +108,7 @@ export default function DraftGrades({ leagueId }) {
                       <Box component="span" sx={{ fontSize: '13.5px', color: 'var(--dash-ink)' }}>
                         {row.teamName}
                       </Box>
-                      {isViewer && (
-                        <Box component="span" sx={visuallyHidden}>
-                          Your team
-                        </Box>
-                      )}
+                      {isViewer && <Badge variant="you">You</Badge>}
                     </Box>
                   </TableCell>
                   <TableCell align="right" sx={{ borderBottom: '1px solid var(--dash-line)' }}>
