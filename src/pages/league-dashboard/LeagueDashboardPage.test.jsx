@@ -580,8 +580,8 @@ test('standings-table: in-season renders the full table, a team count, names fro
   // The row contract (#671): every row-shaped viewer mark carries
   // data-viewer-team, in addition to the visible You pill.
   expect(youRow).toHaveAttribute('data-viewer-team', 'true');
-  const youBadge = youRow.querySelector('[data-variant="you"]');
-  expect(youBadge).not.toBeNull();
+  const youBadge = within(youRow).getByTestId('badge');
+  expect(youBadge).toHaveAttribute('data-variant', 'you');
   expect(youBadge).toHaveTextContent('You');
 });
 
@@ -1021,8 +1021,8 @@ test('draft-grades card: heading, Roster value tail, 12 rows in rank order with 
   // attribute, not a hidden-only label.
   expect(viewerRow).toHaveAttribute('data-viewer-team', 'true');
   expect(rows[1]).not.toHaveAttribute('data-viewer-team');
-  const youBadge = viewerRow.querySelector('[data-variant="you"]');
-  expect(youBadge).not.toBeNull();
+  const youBadge = within(viewerRow).getByTestId('badge');
+  expect(youBadge).toHaveAttribute('data-variant', 'you');
   expect(youBadge).toHaveTextContent('You');
 });
 
