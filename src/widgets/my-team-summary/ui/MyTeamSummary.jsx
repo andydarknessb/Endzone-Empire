@@ -35,7 +35,12 @@ export default function MyTeamSummary({ leagueId }) {
 
   // The card is the region that owns these fetches (Skeleton.jsx: the loading
   // state is announced by the owning card, not by each aria-hidden shape), so
-  // it carries aria-busy while any of its data is still loading.
+  // it carries aria-busy while the reads that hold the card's layout with
+  // skeletons are still loading: the standings spine and the draft-grades tiles
+  // (draftGrade and rosterValue are the one draft-grades read). The
+  // power-rankings read is deliberately NOT folded in - its projected-finish
+  // tile is absent until ready rather than skeletoned (AC ties skeletons to the
+  // standings spine), so it holds no layout for aria-busy to report over.
   const busy = spine === 'loading' || draftGrade.loading || rosterValue.loading;
 
   return (
