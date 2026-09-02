@@ -1649,6 +1649,10 @@ test('commissioner-panel: the League administration disclosure wires aria-expand
   expect(toggle).toHaveAttribute('aria-expanded', 'true');
   expect(toggle).toHaveAttribute('aria-controls', 'commissioner-panel-administration');
   const region = await screen.findByTestId('commissioner-panel-administration');
+  // Tie aria-controls to the region it actually names, not just to a matching
+  // literal: this is what would catch the region's id drifting or vanishing
+  // while its data-testid (a test-only hook) stayed put.
+  expect(region).toHaveAttribute('id', toggle.getAttribute('aria-controls'));
   expect(within(region).getByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
 
   await userEvent.click(toggle);
