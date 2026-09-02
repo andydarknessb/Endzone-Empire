@@ -20,8 +20,9 @@ knows nothing about any team. A rule about one team's roster belongs to
 the act that drafts for that team. Autopick now walks three deterministic
 phases: the queue, then Best available among players who fill a Starting
 need, then Best available among everyone else, with kickers and defenses
-held to the last three rounds unless they are all that remains. "Fills a
-Starting need" is computed exactly (maximum matching against the league's
+held to the last three rounds unless the team has no more picks left than
+open Starting needs (then the need phase fills them) or they are all that
+remains. "Fills a Starting need" is computed exactly (maximum matching against the league's
 starting-slot instances), because commissioner roster_slots can overlap
 without nesting and a greedy scan strands players.
 

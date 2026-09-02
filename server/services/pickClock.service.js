@@ -268,16 +268,19 @@ async function armInPlace(client, { leagueId, clockSeconds }) {
  *      startingNeed.js);
  *   3. Best available among everyone else.
  * Best available (ADP, then last completed season's points, then name; never
- * database id) is the comparator inside every phase, shared with the Draft Sim's
- * pool via bestAvailable.service.js's compareBestAvailable.
+ * database id) is the comparator inside the need and bench phases (phase 1, the
+ * queue, orders by the team's own stated rank instead), shared with the Draft
+ * Sim's pool via bestAvailable.service.js's compareBestAvailable.
  *
  * Kickers and defenses are held out of phases 2 and 3 until the last three
  * rounds (startingNeed.KICKER_DEFENSE_WINDOW_ROUNDS), UNLESS the must-fill guard
  * fires: when the team has no more picks remaining than open Starting needs,
- * phase 2 is the only phase and includes K/DEF, because every remaining pick
- * must fill a need. A data problem (thin ADP) never refuses here - the phases
- * fall through to points then name, and a board that the filters would empty
- * falls back to raw Best available rather than stalling (#602, ADR 0026).
+ * every remaining pick must fill a need, so K/DEF join the need phase and it
+ * leads. A data problem (thin ADP) never refuses here - the phases fall through
+ * to points then name, and the full board always follows as a fallback tail so
+ * a sniped or cap-blocked candidate degrades to a pick rather than stalling
+ * (#602, ADR 0026): even the must-fill path keeps that tail, so losing its one
+ * or two K/DEF rows between here and the pick does not walk into escalation.
  *
  * Internal to this module: the ordering contracts are exercised through the
  * sweep interface (server/test/pickClock.sweep.test.js), not a test-only export
@@ -307,18 +310,24 @@ function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRo
   const mustFill = openNeeds > 0 && picksRemaining <= openNeeds;
   const kdOpen = currentRound > rounds - startingNeed.KICKER_DEFENSE_WINDOW_ROUNDS;
 
-  // Must-fill: phase 2 only, K/DEF included. If nothing available actually fills
-  // a need (the needs' positions are exhausted), fall through to the normal
-  // phases rather than pausing a draft that still has draftable players.
-  if (mustFill) {
-    const mustFillers = rest.filter((r) => fills(r.position)).sort(byBestAvailable);
-    if (mustFillers.length > 0) return [...queued, ...mustFillers];
-  }
-
+  // The normal K/DEF-windowed phases: need first, then bench.
   const board = kdOpen ? rest : rest.filter((r) => !isKickerOrDefense(r));
   const needFillers = board.filter((r) => fills(r.position)).sort(byBestAvailable);
   const bench = board.filter((r) => !fills(r.position)).sort(byBestAvailable);
-  let phased = [...needFillers, ...bench];
+
+  let phased;
+  if (mustFill) {
+    // Every remaining pick must fill a need, so the need phase includes K/DEF
+    // and leads. The normal phases follow as a fallback tail (deduped): if the
+    // must-fillers are sniped or cap-blocked (409) between here and the pick,
+    // autopick still degrades to a draftable player instead of escalating with
+    // players left on the board (ADR 0026). Never an early return.
+    const mustFillers = rest.filter((r) => fills(r.position)).sort(byBestAvailable);
+    const seen = new Set(mustFillers);
+    phased = [...mustFillers, ...needFillers.filter((r) => !seen.has(r)), ...bench.filter((r) => !seen.has(r))];
+  } else {
+    phased = [...needFillers, ...bench];
+  }
 
   // Never refuse while a player is draftable (ADR 0026): if the phase filters
   // emptied a non-empty board (only K/DEF remain before their window), degrade

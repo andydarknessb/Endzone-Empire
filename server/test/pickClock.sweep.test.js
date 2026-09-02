@@ -258,6 +258,36 @@ test('sweep: control - the same league with roster_slots [] takes the raw Best a
   assert.deepEqual(attempts, [300], 'no starting slots => raw Best available, the lowest-ADP WR');
 });
 
+test('sweep: must-fill with its need-fillers sniped falls to the tail, not to escalation', async (t) => {
+  // The must-fill guard fires (two open needs, K and DEF; two picks remaining),
+  // but both K/DEF are sniped between candidate selection and the pick. The
+  // normal phases ride along as a fallback tail (ADR 0026), so autopick degrades
+  // to the draftable WR instead of walking into escalateNothingDraftable with a
+  // player still on the board. Red tell: an early `return [...queued,
+  // ...mustFillers]` drops the WR and this drafts nothing (755-f1).
+  const wr = { id: 400, name: 'Fallback WR', adp: '1.0', position: 'WR', queue_rank: null, last_season_points: null };
+  const k = { id: 401, name: 'A Kicker', adp: '50.0', position: 'K', queue_rank: null, last_season_points: null };
+  const def = { id: 402, name: 'A Defense', adp: '60.0', position: 'DEF', queue_rank: null, last_season_points: null };
+  // current_pick 13 => round 14 of 15 (single team), two picks remain and no
+  // keepers, so picks-remaining is 2 against the two open needs (K, DEF).
+  const league = { ...SWEEP_LEAGUE, current_pick: 13, draft_rounds: 15, roster_slots: MINNEAPPLE_ROSTER_SLOTS };
+  // QB, RBx2, WRx2, TE, FLEX(RB) filled (7 starters); K and DEF are the two open
+  // needs, matching the two remaining picks so the must-fill guard fires.
+  const roster = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'RB'];
+  installSweepPool(t, {
+    candidates: [wr, k, def],
+    league,
+    team: { id: 55, owner_id: 7, autodraft: true },
+    rosterPositions: roster,
+  });
+  const attempts = recordAttempts(t, { snipe: [401, 402] });
+
+  const outcomes = await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [401, 402, 400], 'K then DEF sniped, then the WR from the fallback tail');
+  assert.deepEqual(outcomes, [{ leagueId: LEAGUE_ID, playerId: 400 }], 'the WR is drafted, not an escalation');
+});
+
 // --- the worker broadcast path: no local Socket.IO server --------------------
 // Ported from the superseded autopick service suite: this is the arm the worker
 // actually takes. The worker process has no local Socket.IO server, so

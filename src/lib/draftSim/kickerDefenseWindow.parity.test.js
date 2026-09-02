@@ -34,7 +34,10 @@ test('the sim and the server hold K/DEF to the same last-N-rounds window', () =>
   const simWindow = extract(
     readSource('cpuBrain.js'),
     'the rounds window in kickersAndDefensesOpen',
-    /kickersAndDefensesOpen[\s\S]*?state\.rounds\s*-\s*(\d+)/
+    // Anchor to the DECLARATION, not the bare identifier: a docblock mention of
+    // kickersAndDefensesOpen earlier in the file would otherwise start the scan
+    // there and capture the first state.rounds - N in the gap (755-f4).
+    /export function kickersAndDefensesOpen[\s\S]*?state\.rounds\s*-\s*(\d+)/
   );
   expect(simWindow).toBe(serverWindow);
 });
