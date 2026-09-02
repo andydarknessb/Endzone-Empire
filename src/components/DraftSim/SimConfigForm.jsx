@@ -104,7 +104,7 @@ function SimConfigForm({ onStart, loading = false, error = false, savedSummary =
                     sx={{ p: 2, height: '100%', alignItems: 'flex-start' }}
                   >
                     <Stack spacing={0.75} alignItems="flex-start">
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                      <Typography variant="subtitle1" component="span" sx={{ fontWeight: 700 }}>
                         {option.name}
                       </Typography>
                       <Typography variant="body2" sx={{ color: 'text.secondary' }}>

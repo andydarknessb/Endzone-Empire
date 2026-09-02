@@ -28,11 +28,11 @@ export default function DraftOrderPanel({ league, teams, frozen, onSave, onSetOr
       {frozen && <Alert severity="info">Draft order is locked once the draft starts.</Alert>}
       {!frozen && insufficientTeams && <Alert severity="info">Add at least 2 teams to set a draft order.</Alert>}
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Button variant="outlined" disabled={frozen || saving || insufficientTeams} onClick={onRandomize}>Randomize order</Button><Button variant="contained" disabled={frozen || saving || insufficientTeams} onClick={() => onSetOrder(order.map((team) => team.id))}>Save order</Button></Box>
-      <Typography variant="subtitle2">Round 1 order</Typography>
+      <Typography variant="subtitle2" component="h5">Round 1 order</Typography>
       <SortableTeamList items={labels(order.map((team) => team.id))} onChange={(rows) => setOrder(rows.map((row) => teamMap.get(String(row.id))))} disabled={frozen} />
-      <Typography variant="subtitle2">Rotation preview</Typography>
+      <Typography variant="subtitle2" component="h5">Rotation preview</Typography>
       {[1, 2, 3].map((round) => <Typography key={round} variant="body2">Round {round}: {labels(overrides[round] || effectiveOrder(order, league.draft_rotation || 'snake', round).map((team) => team.id)).map((team) => team.label).join(' · ') || 'Set the round 1 order first'}</Typography>)}
-      <Typography variant="subtitle2">Round overrides</Typography>
+      <Typography variant="subtitle2" component="h5">Round overrides</Typography>
       {/* Only rounds that will actually be drafted: the IR slot costs none
           (#96), and once the draft is active this is the fixed value, not a
           live recomputation (ADR 0005). */}
