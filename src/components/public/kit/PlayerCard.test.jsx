@@ -19,14 +19,17 @@ describe('PlayerCard name truncation', () => {
 
     const nameEl = screen.getByText(LONG_NAME);
 
-    // Must stay out of the heading tree. Before #721 the name was an <h6>; the
-    // fix restores block formatting without reintroducing a heading.
+    // Must stay out of the heading tree. This also rejects the tempting wrong
+    // fix of component="h6": an <h6> is a block box too, so it would make noWrap
+    // work again, but it would put the player name in the heading outline. In
+    // the themed app the name has always been a block <p> (the theme maps
+    // subtitle2 -> p), never a heading, so a non-heading block is the target.
     expect(screen.queryByRole('heading')).toBeNull();
-    expect(nameEl.tagName).not.toMatch(/^H[1-6]$/);
 
     // Must be a block box. This is the assertion that fails on the broken
     // component="span" state and passes only once the element is a block
-    // element (component="p" -> <p>).
+    // element (component="p" -> <p>); it also subsumes the not-a-heading check
+    // above, since <p> is not h1-h6.
     expect(nameEl.tagName).toBe('P');
 
     // The truncation styling is still requested on the element.
