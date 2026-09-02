@@ -682,8 +682,9 @@ that began after kickoff and one that ended before it are both excluded; a
 player with no game that week is never excluded. The same predicate governs a
 re-score of a final week. In best ball a candidate must also have been held at
 the week's last kickoff: a player dropped after his own game but before the
-week's last kickoff does not score (ADR 0022). Distinct from live scoring (the
-current roster, every few minutes).
+week's last kickoff does not score (ADR 0022). Hindsight reads the same
+population (ADR 0023). Distinct from live scoring (the current roster, every
+few minutes).
 _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:

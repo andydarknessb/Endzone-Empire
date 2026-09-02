@@ -48,7 +48,8 @@ Consequences).
   that week: he leaves the optimal lineup, as he left the score of record.
 - A best-ball team's hindsight reports actual equal to optimal and zero left
   on the bench. The matchup page hides the bench line in best ball rather
-  than printing a zero that carries no information. The lineup page's
+  than printing a zero that carries no information, and hides it until the
+  league is known so that zero never flashes. The lineup page's
   season bench total still shows, as a zero, in best ball: ruled out of
   scope on 2026-09-02, the matchup page being the one surface this ADR
   changes.

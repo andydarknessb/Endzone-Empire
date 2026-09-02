@@ -457,6 +457,10 @@ async function isWeekFinal({ leagueId, season, week }) {
  * bench", and in best ball the optimal lineup over that pool IS the score of
  * record, so a best-ball team's actual is its optimal and nothing is ever
  * left on a bench nobody sets. The recap's blunder pick reads this number.
+ *
+ * IR: a best-ball IR occupant stays out of the pool, as in the settle pass.
+ * A standard league's IR row still enters it as a candidate; whether it
+ * should is #741.
  */
 async function weekHindsight({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
@@ -480,26 +484,29 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
     league, teamId, season, week, rows: entriesResult.rows,
   });
 
-  let actualPoints = 0;
+  let startedPoints = 0;
   const pointsFor = new Map();
   const players = [];
   const nameById = new Map();
   for (const row of asPlayed) {
     const points = Number(row.fantasy_points) || 0;
     nameById.set(row.player_id, row.name);
-    if (row.slot !== BENCH && row.slot !== IR) actualPoints += points;
-    // Best ball: IR occupants stay stashed and never enter the pool.
-    if (league.best_ball && row.slot === IR) continue;
+    // Best ball: IR occupants stay stashed and never enter the pool, and the
+    // slots the rows carry mean nothing, so no started total is kept.
+    if (league.best_ball) {
+      if (row.slot === IR) continue;
+    } else if (row.slot !== BENCH && row.slot !== IR) {
+      startedPoints += points;
+    }
     pointsFor.set(row.player_id, points);
     players.push({ playerId: row.player_id, position: row.position });
   }
-  actualPoints = round2(actualPoints);
 
   const settings = parseLineupSettings(league);
   const optimal = optimalLineup(players, settings.rosterSlots, pointsFor);
   const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
   const optimalPoints = optimal.total;
-  if (league.best_ball) actualPoints = optimalPoints;
+  const actualPoints = league.best_ball ? optimalPoints : round2(startedPoints);
   const pointsLeftOnBench = Math.max(0, round2(optimalPoints - actualPoints));
 
   return { teamId, week, actualPoints, optimalPoints, pointsLeftOnBench, optimalStarters };

@@ -8,13 +8,14 @@ const { weekHindsight } = require('../services/decision.service');
  * Issue #736: hindsight over a SETTLED week must not contradict the score of
  * record.
  *
- * `weekHindsight` runs `optimalLineup` over every `lineup_entries` row of the
- * week with no tenure exclusion: neither the own-kickoff rule (#228) nor the
- * last-kickoff rule best ball carries (#635, ADR 0022). The settle pass
- * applies both, so for any team that churned after a kickoff the two numbers
- * disagree. In best ball the optimal lineup IS the score of record, so the
- * disagreement is visible on the matchup recap and the weekly recap names a
- * phantom "bench blunder".
+ * Before #736, `weekHindsight` ran `optimalLineup` over every `lineup_entries`
+ * row of the week with no tenure exclusion: neither the own-kickoff rule
+ * (#228) nor the last-kickoff rule best ball carries (#635, ADR 0022). The
+ * settle pass applies both, so for any team that churned after a kickoff the
+ * two numbers disagreed. In best ball the optimal lineup IS the score of
+ * record, so the disagreement showed on the matchup page and the weekly recap
+ * named a phantom "bench blunder". Hindsight now reads the settle pass's
+ * population (ADR 0023); these tests hold it there.
  *
  * The fixture is the #635 churn case from settleScoreOfRecord.test.js, seeded
  * AFTER the advance rather than replayed: that suite proves the settle pass
@@ -181,7 +182,7 @@ test('#736 best ball: a settled team never has points left on the bench (the opt
     'the recap\'s "bench blunder" is this number; a best-ball team cannot leave points on a bench it does not set');
 });
 
-test('#736 standard: hindsight counts a player acquired AFTER his game, whom the settle pass excluded (#228)', async (t) => {
+test('#736 standard: a player acquired AFTER his game, whom the settle pass excluded (#228), is not left on the bench', async (t) => {
   // Same gap, standard league, own-kickoff rule: Team B picked up ACQUIRED on
   // Monday, after the Eagles played. The settle pass excluded him (#228) and
   // the week settled on the Thursday man alone at 10. Hindsight tells the
@@ -205,6 +206,34 @@ test('#736 standard: hindsight counts a player acquired AFTER his game, whom the
   const h = await weekHindsight({ leagueId: LEAGUE_ID, teamId: TEAM_B, season: SEASON, week: WEEK });
 
   assert.equal(h.optimalPoints, 10, 'a post-game pickup was never startable, so he is not an optimal starter');
+  assert.equal(h.pointsLeftOnBench, 0);
+});
+
+test('#736 standard: a post-game pickup seated in a STARTING slot leaves actual as well as optimal', async (t) => {
+  // The settle pass selects starters and then applies the exclusion, so a
+  // pickup seated in a starting slot after his game contributed nothing to
+  // the score of record (#190). Hindsight's actual is the same sum: it does
+  // not credit him and then report the credit as nothing left on the bench.
+  const world = settledWorld({
+    bestBall: false,
+    awayScore: 10,
+    lineupEntries: [
+      row(TEAM_A, QB_A, 'QB'),
+      row(TEAM_B, THURSDAY_MAN, 'QB'),
+      row(TEAM_B, ACQUIRED, 'RB'),
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, ACQUIRED, new Date(AFTER_GAMES)),
+    ],
+  });
+  world.fake.install(t);
+
+  const h = await weekHindsight({ leagueId: LEAGUE_ID, teamId: TEAM_B, season: SEASON, week: WEEK });
+
+  assert.equal(h.actualPoints, scoreOfRecord(world), 'actual is what the score of record counted');
+  assert.equal(h.optimalPoints, 10);
   assert.equal(h.pointsLeftOnBench, 0);
 });
 
