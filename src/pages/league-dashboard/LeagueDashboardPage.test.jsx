@@ -702,9 +702,14 @@ const mpLeague = (overrides = {}) =>
 
 // GET /api/league/:id/matchups?week=N - a BARE ARRAY (the real endpoint's
 // shape), carrying the raw matchups.* columns the pairing reads (id +
-// home/away_team_id). `attachExpectedFinals` also rides on the real row, but
-// the widget takes projections from the detail read, not the list, so the
-// fixture omits them.
+// home/away_team_id). `attachExpectedFinals` also rides on the real row as
+// `home_expected_final` / `away_expected_final`, which the widget now prefers
+// (#670). `mpViewerPaired` below deliberately omits both fields (`undefined`,
+// which the widget's `!= null` check treats the same as `null`): that is what
+// keeps the pre-existing tests below on the chained detail-read path. The
+// #670 tests that exercise the list-preferred path build their own row via
+// `{ ...mpViewerPaired[0], home_expected_final: ..., away_expected_final: ... }`
+// rather than adding the fields here.
 const mpMatchupsList = (rows) => ({ data: rows });
 
 // A week-1 list pairing the viewer (home, Team 3) against Team 7 as matchup 55,
