@@ -404,7 +404,7 @@ function LeagueManagement() {
                 role="status"
                 aria-live="polite"
               >
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{preview.name}</Typography>
+                <Typography variant="subtitle1" component="p" sx={{ fontWeight: 700 }}>{preview.name}</Typography>
                 <LeagueTypeChips league={preview} sx={{ my: 1 }} />
                 {/*
                   #209: occupancy and commissioner attribution used to share

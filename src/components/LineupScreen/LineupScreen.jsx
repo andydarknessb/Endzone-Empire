@@ -181,6 +181,7 @@ function factorChipsFor(side) {
 // target regardless of position.
 function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
   if (selectedEntry.locked && !canResolveLockedIrStash(selectedEntry, slotType)) return false;
+  if (targetEntry?.spent) return false;
   if (!targetEntry) {
     return isEligibleForSlot(
       selectedEntry.position,
@@ -429,6 +430,7 @@ export function LineupEditor({
     // this is a best-ball league.
     if (leagueUnsettled) return;
     if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType)) return;
+    if (entry?.spent) return;
 
     if (entry && entry.locked && (bestBall || !canResolveLockedIrStash(entry, 'BENCH'))) {
       notify("Locked players can't be moved", { severity: 'warning' });
@@ -512,11 +514,13 @@ export function LineupEditor({
     const isCurrentWeek = lineup?.week === lineup?.currentWeek;
     const canManageRoster = Boolean(rosterPlayer && isCurrentWeek && typeof refreshRoster === 'function');
     const assignmentDisabledByBestBall = bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType);
+    const isSpent = Boolean(entry?.spent);
     // Every row is inert while the league isn't known yet (#217) — the same
     // disabled treatment a locked slot already gets, not just the slots a
     // best-ball league would manage.
     const disabled = leagueUnsettled
       || (assignmentDisabledByBestBall && !canManageRoster)
+      || isSpent
       || (showEligibility && !eligible);
     const isEmpty = !entry;
     const byeWeek = rosterPlayer?.bye_week ?? entry?.bye_week;
@@ -536,7 +540,7 @@ export function LineupEditor({
           border: '1px solid',
           borderStyle: isEmpty ? 'dashed' : 'solid',
           borderColor:
-            showEligibility && eligible ? 'primary.main' : isEmpty ? 'text.secondary' : 'divider',
+            showEligibility && eligible ? 'primary.main' : isSpent ? 'warning.main' : isEmpty ? 'text.secondary' : 'divider',
           borderRadius: 1,
           mb: 1,
           ...(showEligibility && eligible && { bgcolor: 'var(--accent-soft)' }),
@@ -577,6 +581,11 @@ export function LineupEditor({
                     {acquiredDate && `Acquired ${acquiredDate}`}
                   </Typography>
                 )}
+                {isSpent && (
+                  <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>
+                    Played before being dropped
+                  </Typography>
+                )}
               </Box>
               <InjuryBadge status={entry.injury_status ?? rosterPlayer?.injury_status} />
               {slotType === 'IR' && entry.ir_attested && (
@@ -591,7 +600,8 @@ export function LineupEditor({
                   color={lineup && lineup.week === lineup.currentWeek ? 'error' : 'warning'}
                 />
               )}
-              {entry.locked && <Chip label="LOCKED" size="small" color="error" />}
+              {isSpent && <Chip label="SPENT" size="small" color="warning" />}
+              {entry.locked && !isSpent && <Chip label="LOCKED" size="small" color="error" />}
               {canManageRoster && (
                 <Stack direction="row" spacing={0.5} alignItems="center">
                   <Tooltip title="Start a trade">
@@ -847,7 +857,7 @@ export function LineupEditor({
           <Typography variant="h4" component="h2" sx={{ mb: 1 }}>
             {heading}
           </Typography>
-          <Typography variant="subtitle1" sx={{ mb: 1, color: 'text.secondary' }}>
+          <Typography variant="subtitle1" component="p" sx={{ mb: 1, color: 'text.secondary' }}>
             Week {lineup.week}
           </Typography>
           {bestBall && (
@@ -1029,7 +1039,7 @@ export function LineupEditor({
 
                   {openSlotFills.length > 0 && (
                     <Box sx={{ mt: 1 }} data-testid="lineup-open-slot-fills">
-                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                      <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
                         Empty starting slots
                       </Typography>
                       {openSlotFills.map((fill) => (

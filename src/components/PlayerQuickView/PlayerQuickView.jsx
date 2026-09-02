@@ -65,7 +65,7 @@ function ComparisonCard({ summary }) {
   const line = comparisonLine(summary);
   return (
     <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
-      <Typography variant="subtitle2" noWrap>{line.player?.name}</Typography>
+      <Typography variant="subtitle2" component="p" noWrap>{line.player?.name}</Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         <AbbreviationTooltip term="Projected" />: {line.projected ?? '-'}
       </Typography>
@@ -94,8 +94,8 @@ function StatCardList({ label, rows }) {
       {rows.map((row) => (
         <Card key={row.key} variant="outlined" role="listitem" sx={{ p: 1.5 }}>
           <Stack direction="row" alignItems="baseline" justifyContent="space-between" spacing={1}>
-            {/* component="div" on purpose: subtitle2 renders <h6> by default, and we
-                don't want a heading per week competing with the dialog title. */}
+            {/* The weekly card title is data, not a dialog section, so it stays
+                a block rather than entering the heading outline. */}
             <Typography variant="subtitle2" component="div" sx={{ fontWeight: 700 }}>
               {row.title}
             </Typography>
@@ -581,7 +581,7 @@ function PlayerQuickView({
 
             {pinnedComparison && pinnedComparison.player?.id !== player.id && (
               <Box component="section" aria-label="Player comparison" data-testid="player-comparison" sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>Comparison</Typography>
+                <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>Comparison</Typography>
                 <Box
                   sx={{
                     display: 'grid',

@@ -36,3 +36,14 @@ test.each(['snake', 'autopick', 'offline'])('supports rotation for %s drafts', (
 
   expect(onSave).toHaveBeenCalledWith({ draftType, draftRotation: 'linear' }, 'Draft type saved');
 });
+
+// ADR 0021 / #695: "Draft rotation" names exactly one ToggleButtonGroup, so
+// it is the group's label (component="p" + id + aria-labelledby) rather than
+// a heading — no h5/h6 is introduced, and a bare render (no ThemeProvider)
+// has no stray h6 either.
+test('labels the draft rotation toggle group and introduces no heading', () => {
+  renderPanel('snake');
+
+  expect(screen.getByRole('group', { name: 'Draft rotation' })).toBeInTheDocument();
+  expect(screen.queryAllByRole('heading')).toHaveLength(0);
+});

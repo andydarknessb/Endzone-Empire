@@ -399,6 +399,37 @@ test('renders starters grouped by slot, bench section, and empty slot rows', asy
   expect(within(screen.getByTestId('lineup-bench')).getAllByText('Empty')).toHaveLength(4);
 });
 
+test('shows an off-roster as-played starter as spent and keeps its slot unavailable', async () => {
+  mockGetAll({
+    data: lineupResponse({
+      entries: [
+        ...lineupResponse().entries.filter((entry) => entry.slot !== 'QB'),
+        {
+          id: 99,
+          name: 'Departed Quarterback',
+          position: 'QB',
+          nfl_team: 'Kansas City Chiefs',
+          slot: 'QB',
+          spent: true,
+          locked: true,
+          onBye: false,
+        },
+      ],
+    }),
+  });
+
+  renderScreen();
+
+  await screen.findByText('Departed Quarterback');
+  const row = screen.getByTestId('slot-row-QB-0');
+  expect(within(row).getByText('Played before being dropped')).toBeInTheDocument();
+  expect(within(row).getByText('SPENT')).toBeInTheDocument();
+  expect(row).toHaveAttribute('aria-disabled', 'true');
+
+  fireEvent.click(row);
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
 test('numbers repeated starter slots and keeps the Bench independently scrollable', async () => {
   mockGetAll({ data: lineupResponse() });
 

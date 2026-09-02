@@ -103,18 +103,79 @@ beforeEach(() => {
 // #682: the title used to render <h6>, directly under the commissioner-panel
 // Card's <h2>, skipping heading levels 3-5 (axe heading-order). It now renders
 // <h3> via `component="h3"` while keeping the `h6` type scale via `variant`,
-// so this only proves the title's own level and visual style - not that the
-// panel's whole heading sequence is contiguous. It is not: 16 `subtitle2`
-// section labels elsewhere in this component (e.g. "Trade Deadline", "Waiver
-// System Type") still render as <h6> by MUI's default variantMapping, which
-// after this fix skip levels 4-5 under this title. That sweep is #695, not
-// this ticket - see the CommissionerTools doc comment for why it isn't done
-// here.
+// so this proves the title's own level and visual style. Per ADR 0021 (#695
+// ticket 1) the subtitle variants carry a type scale only and never a heading
+// level; #695 ticket 2 (this file's sweep) made every subtitle below explicit,
+// section subtitles as <h4> and single-control-group labels as <p>, which the
+// heading-level tests further down cover.
 test('the title renders as a level-3 heading, keeping its h6 visual style', async () => {
   renderTools();
   const heading = screen.getByRole('heading', { level: 3, name: 'Commissioner Tools' });
   expect(heading.tagName).toBe('H3');
   expect(heading).toHaveClass('MuiTypography-h6');
+});
+
+// #695 ticket 2 / ADR 0021. Heading levels are explicit: each subtitle now
+// sets its own element rather than inheriting MUI's default <h6>. This test is
+// what makes that observable, and the ADR spells out why it can be: the shared
+// renderWithProviders mounts no theme, so a subtitle left without a `component`
+// would STILL resolve MUI's built-in <h6> here - the default remap lives in
+// the theme this harness omits. So any <h6> that appears on any tab is a real
+// missed site, not a harness artifact. Section subtitles are <h4> (one level
+// under the h3 title); the two single-control-group labels on the Waivers tab
+// are <p>, so that tab carries no heading below the title and is the one tab
+// with no section h4.
+const TABS_WITH_SECTION = [
+  ['General Settings', true],
+  ['Roster Settings', true],
+  ['Scoring Settings', true],
+  ['Playoffs & Schedule', true],
+  ['Waivers & Trades', false],
+  ['System Overrides', true],
+];
+
+test('no tab drops a stray level-6 heading, and every tab with a section exposes a level-4 heading', async () => {
+  mockScoringRules();
+  renderTools();
+
+  for (const [name, hasSection] of TABS_WITH_SECTION) {
+    await userEvent.click(screen.getByRole('tab', { name }));
+    // Scoring's category sections render only after its defaults GET resolves.
+    if (name === 'Scoring Settings') await screen.findByText('Passing');
+
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+    // queryAllByRole (not getAllByRole) so the Waivers tab, which has no
+    // section heading at all, returns [] rather than throwing; a section tab
+    // must carry at least one h4, the Waivers tab at least zero.
+    expect(screen.queryAllByRole('heading', { level: 4 }).length).toBeGreaterThanOrEqual(hasSection ? 1 : 0);
+  }
+});
+
+// Criterion: the explicit level does not disturb the type scale. A section
+// subtitle is a real <h4> element AND keeps the subtitle2 class it always had.
+test('a section subtitle is a level-4 heading that keeps the subtitle2 type scale', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  const heading = screen.getByRole('heading', { level: 4, name: 'Starting Lineup Slots' });
+  expect(heading.tagName).toBe('H4');
+  expect(heading).toHaveClass('MuiTypography-subtitle2');
+});
+
+// The two single-control-group subtitles are labels, not headings: each is a
+// <p> whose id is the RadioGroup's aria-labelledby, so the group's accessible
+// name equals the label text. A screen-reader user hears "Waiver System Type,
+// radio group" instead of an unnamed group, and no stray heading lands in the
+// outline.
+test('the Waiver and Trade Review radio groups take their accessible name from their label', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Waivers & Trades' }));
+
+  expect(screen.getByRole('radiogroup', { name: 'Waiver System Type' })).toBeInTheDocument();
+  expect(screen.getByRole('radiogroup', { name: 'Trade Review System' })).toBeInTheDocument();
+  // And neither label leaked into the heading outline as an <h4>/<h6>.
+  expect(screen.queryByRole('heading', { name: 'Waiver System Type' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Trade Review System' })).not.toBeInTheDocument();
 });
 
 test('renders all six tabs, defaulting to General Settings', async () => {

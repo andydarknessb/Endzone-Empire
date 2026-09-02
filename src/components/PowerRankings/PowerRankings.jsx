@@ -92,7 +92,7 @@ function HighlightCard({ label, team, change, up }) {
               <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 {label}
               </Typography>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+              <Typography variant="subtitle1" component="p" noWrap sx={{ fontWeight: 600, lineHeight: 1.2 }}>
                 {team.name}
               </Typography>
             </Box>
@@ -227,7 +227,7 @@ function PowerRankings() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
         <Typography id="power-rankings-table-heading" variant="h4">Power Rankings</Typography>
         {payload && (
-          <Typography variant="subtitle1" sx={{ color: 'text.secondary' }}>
+          <Typography variant="subtitle1" component="p" sx={{ color: 'text.secondary' }}>
             Season {payload.season} · Week {payload.week}
           </Typography>
         )}
@@ -307,7 +307,7 @@ function PowerRankings() {
                         }}
                       >
                         <TeamAvatar name={team.name} avatarUrl={team.avatarUrl} avatarStaticUrl={team.avatarStaticUrl} size={32} />
-                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                        <Typography variant="subtitle1" component="p" sx={{ fontWeight: 600 }}>
                           #{team.rank} {team.name}
                         </Typography>
                         <MovementCell change={team.change} />

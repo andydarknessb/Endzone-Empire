@@ -85,6 +85,22 @@ describe('SimConfigForm', () => {
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ clockSeconds: 0 }));
   });
 
+  // ADR 0021 / #704: "League format" and "Pick clock" already carry
+  // component="h2" (ticket 1, out of scope here). The option name inside
+  // each format card names a selectable card, not a document heading — the
+  // CardActionArea's own aria-label ("Standard format", asserted above) is
+  // its accessible name, so the option-name Typography is component="span"
+  // and introduces no heading. A bare render (no ThemeProvider) must show no
+  // stray h6.
+  it('has an h2 for each section title and no heading for the card option name', () => {
+    render(<SimConfigForm onStart={jest.fn()} />);
+
+    expect(screen.getByRole('heading', { level: 2, name: 'League format' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Pick clock' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Standard' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+  });
+
   it('disables the start button while the pool is loading', () => {
     render(<SimConfigForm onStart={jest.fn()} loading />);
     expect(screen.getByRole('button', { name: 'Loading players…' })).toBeDisabled();

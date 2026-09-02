@@ -107,6 +107,7 @@ export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, hom
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
         <Typography
           variant="subtitle1"
+          component="span"
           noWrap
           sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', minWidth: 0 }}
         >
@@ -550,7 +551,7 @@ export function BenchWhatIf({ whatIf, hasRoster, open, onToggle }) {
     <Paper sx={{ p: 2, mb: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Box>
-          <Typography variant="subtitle2">Bench what-if</Typography>
+          <Typography variant="subtitle2" component="h3">Bench what-if</Typography>
           <Typography variant="caption" sx={{ color: delta > 0 ? 'warning.main' : 'text.secondary' }}>
             {delta > 0
               ? `+${delta.toFixed(1)} still on your bench`
