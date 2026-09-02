@@ -2,10 +2,21 @@
  * Roster shapes and slot-eligibility rules for the Draft Simulator.
  *
  * SYNC OBLIGATION (repo convention — see src/lib/positionCapsFeasibility.js):
- *   - POSITION_GROUPS, expandEligibility, slotEligible and DEFAULT_ROSTER_SLOTS
- *     are hand-mirrored from server/services/lineup.service.js. There is no
- *     shared module between client and server in this repo; if the server's
- *     group membership or slot-eligibility semantics change, change them here.
+ *   - POSITION_GROUPS, expandEligibility and slotEligible are hand-mirrored
+ *     from server/services/lineup.service.js; if the server's group
+ *     membership or slot-eligibility semantics change, change them here too.
+ *     There is no shared module between client and server in this repo at
+ *     runtime (react-scripts's ModuleScopePlugin confines runtime imports to
+ *     src/), and these three carry no pin: nothing in the test suite would
+ *     notice a miss.
+ *   - DEFAULT_ROSTER_SLOTS is hand-mirrored from the pure leaf
+ *     server/services/rosterSlots.js, the server's single source for this
+ *     shape. It is likewise a hand-kept copy at runtime for the same
+ *     ModuleScopePlugin reason, but unlike the three above it is pinned
+ *     equal to the leaf by a test, templates.parity.test.js, which jest can
+ *     run across that line even though the build can't. If the server's
+ *     default roster shape changes, change it here too; the test will catch
+ *     a miss.
  *   - LEAGUE_TEMPLATES mirrors LINEUP_TEMPLATES in
  *     src/components/LeagueDashboard/CommissionerTools.jsx (Standard /
  *     Superflex / IDP starter) so a mock draft's roster shape is one a
@@ -34,7 +45,10 @@ export const IDP_POSITIONS = [
 
 export const BENCH = 'BENCH';
 
-/** Mirrors lineup.service.js DEFAULT_ROSTER_SLOTS. */
+/**
+ * Mirrors server/services/rosterSlots.js DEFAULT_ROSTER_SLOTS, pinned equal
+ * to it by templates.parity.test.js.
+ */
 export const DEFAULT_ROSTER_SLOTS = [
   { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
   { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },

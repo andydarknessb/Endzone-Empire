@@ -22,15 +22,14 @@
  *   - src/lib/lineupAttention.js's `DEFAULT_STARTER_SLOT_ORDER` (the starter
  *     KEYS only) is PINNED to this module by lineupAttention.parity.test.js.
  *   - src/lib/draftSim/templates.js exports a THIRD, byte-identical
- *     `DEFAULT_ROSTER_SLOTS`. It is NOT pinned by anything, and its comment
- *     still cites lineup.service.js for a value that no longer lives there, so
- *     this extraction leaves that citation stale. Pinning it is out of scope
- *     here and tracked by #692; it is named rather than hidden so an author
- *     changing this shape knows templates.js will not follow on its own.
+ *     `DEFAULT_ROSTER_SLOTS`. It is PINNED to this module by
+ *     src/lib/draftSim/templates.parity.test.js (#692), which compares the
+ *     two whole-object and in order, not just by key: this copy also carries
+ *     `count` and `eligiblePositions`, so a drift in either is real.
  *
  * So do not treat this as the only copy: changing the contents here does not
- * propagate to templates.js, and only the lineupAttention mirror has a test
- * that will notice.
+ * propagate to templates.js, but both client mirrors now have a test that
+ * will notice.
  */
 
 const DEFAULT_ROSTER_SLOTS = [
