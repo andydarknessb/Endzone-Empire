@@ -9,9 +9,9 @@ import { nextAnnouncement } from './announcerRepeat';
  * The Draft room's combined-feed announcer (#445 AC2): one persistent, visually
  * hidden polite region that speaks a CONCISE summary when a human message
  * arrives live. It follows the room's established idiom exactly - the room's
- * other visually-hidden status regions (ReadinessAnnouncer #164, the countdown
- * #117, ComposerCharacterCount #486) mount a Box with role="status" /
- * aria-live="polite", styled visuallyHidden, and only change its TEXT.
+ * other visually-hidden status regions (e.g. ReadinessAnnouncer #164, the
+ * countdown #117) mount a Box with role="status" / aria-live="polite", styled
+ * visuallyHidden, and only change its TEXT.
  *
  * IT NO LONGER ANNOUNCES PICKS (#513). Picks moved to the room-level
  * PickAnnouncer, mounted in the Draft room's chrome so a committed Pick is heard
@@ -23,18 +23,27 @@ import { nextAnnouncement } from './announcerRepeat';
  *
  * WHY A SEPARATE POLITE REGION, AND WHO IT ACTUALLY SHARES A PHASE WITH. The
  * room's other polite regions are phase-separated: readiness (#164) and the
- * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed and
- * the active-phase regions belong to an ACTIVE one, and a draft is one or the
- * other, never both. Do not hand-enumerate the active-phase regions here - that
- * list has gone stale before (#654): `git grep -nF 'role="status"' src/components/DraftBoard/ src/components/ChatPanel/`
- * finds them all (ChatPanel is part of the room - DraftRoomChat.jsx imports
- * ChatConversation from it, which is where ComposerCharacterCount #486 lives),
- * each on its own axis, none folding into another. This one still earns its
- * place rather than folding into any of them:
+ * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed
+ * and its active-phase siblings belong to an ACTIVE one, and a draft is one
+ * or the other, never both. Do not hand-enumerate this feed's active-phase
+ * siblings here - that list has gone stale before (#654):
+ * `git grep -nF 'role="status"' src/components/DraftBoard/ src/components/ChatPanel/`
+ * (ChatPanel is part of the room - DraftRoomChat.jsx imports ChatConversation
+ * from it, which is where ComposerCharacterCount #486 lives) surfaces most of
+ * them, but READ WHAT IT RETURNS rather than trusting the count: it also
+ * matches ReadinessAnnouncer's source even though that component renders null
+ * outside the PENDING phase (railCompositionFor), and it structurally cannot
+ * see RosterNeedsStrip (src/components/RosterPanel/, mounted in the ACTIVE
+ * rail composition, railComposition.js) - that region is deliberately
+ * `aria-live="polite"` WITHOUT `role="status"`, because the room already has
+ * one role="status" claim (ReadinessAnnouncer) and DraftBoard.test.jsx queries
+ * it with a singular getByRole, which throws on a second match. Each region is
+ * on its own axis, none folding into another. This one still earns its place
+ * rather than folding into any of them:
  *
- *  - It carries a DIFFERENT axis: human-message arrival, which neither the
- *    counter nor the banner announces. Folding it into one would make that
- *    region speak two unrelated things.
+ *  - It carries a DIFFERENT axis: human-message arrival, which neither
+ *    ComposerCharacterCount (#486) nor LiveDraftBanner announces. Folding it
+ *    into either would make that region speak two unrelated things.
  *  - It fires on a live arrival, identified by the NEWEST entry advancing the
  *    shared per-league seq past the highest we have announced. A render that does
  *    not change the tail says nothing, and there is no timer and no debounce, so
