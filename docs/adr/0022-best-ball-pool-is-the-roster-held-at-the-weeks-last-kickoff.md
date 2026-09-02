@@ -72,5 +72,5 @@ scoring every row of a settled week, disagreeing with the score of record in
 best ball, and tracked as #736. That gap is closed by ADR 0023: hindsight
 reads the settle pass's population through the one helper that applies both
 exclusions, so the bound this ADR records governs hindsight as well, and in
-best ball a team's hindsight actual is its score of record. Nothing above
-this line has changed.
+best ball a team's hindsight actual is its optimal over that same pool.
+Pricing is a separate question (#739). Nothing above this line has changed.

@@ -1740,7 +1740,8 @@ async function generateMatchups({ leagueId, season, week }) {
  *
  * What makes one rule sufficient here, where it was not before, is that the
  * exclusion reads a recorded fact rather than the current roster. That
- * argument belongs with the predicate and is made once, on `heldRows` below.
+ * argument belongs with the predicate and is made once, on `heldRows` below
+ * and on `rowsHeldAsPlayed` in lineup.service, which `heldRows` delegates to.
  *
  * So do not reintroduce a `!isFinal` guard on the exclusion, and do not add a
  * second population that happens to agree with this one. Both have been tried

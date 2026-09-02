@@ -21,8 +21,10 @@ We decide that hindsight reads the week as played: the same population the
 settle pass counts, through the same helper, with both exclusions. A player
 the score of record did not count cannot have been left on the bench. In
 best ball the lineup that scored is the best lineup available, so a team's
-actual is its score of record and nothing is ever left on the bench; the
-recap's blunder pick therefore never names a best-ball team.
+actual is its optimal over that pool and nothing is ever left on the bench;
+the recap's blunder pick therefore never names a best-ball team. This
+decides the population only; pricing is left where it is (see
+Consequences).
 
 ## Considered options
 
@@ -46,11 +48,20 @@ recap's blunder pick therefore never names a best-ball team.
   that week: he leaves the optimal lineup, as he left the score of record.
 - A best-ball team's hindsight reports actual equal to optimal and zero left
   on the bench. The matchup page hides the bench line in best ball rather
-  than printing a zero that carries no information.
+  than printing a zero that carries no information. The lineup page's
+  season bench total still shows, as a zero, in best ball: ruled out of
+  scope on 2026-09-02, the matchup page being the one surface this ADR
+  changes.
+- A recap is written once, at advance, so a best-ball recap stored before
+  this shipped keeps whatever blunder it named. Shipped before the 2026
+  season's first settle, that set is empty.
 - The population helper is the one place both exclusions live. A new reader of
   a settled week calls it or is wrong; it does not ask the predicates itself.
 - Pricing is NOT decided here. Hindsight still reads the stored per-player
   points, which are written under the default scoring rules, while the settle
   pass prices under the league's. In a custom-scoring league the two can
   still differ by pricing alone; that is #739 and needs its own ruling.
+- IR is dropped from the best-ball pool, as the settle pass drops it. In a
+  standard league an IR occupant still enters hindsight's pool as a candidate
+  starter; pre-existing, ruled separately as #741.
 - ADR 0022's last consequence is amended to point here.

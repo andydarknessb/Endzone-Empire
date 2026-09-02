@@ -32,6 +32,7 @@ const TEAM_B = 20;
 const QB_A = 1; // Team A's QB, 8.0, Chiefs, Sunday
 const ACQUIRED = 4; // RB, 30.0, Eagles, Sunday; picked up FRIDAY
 const THURSDAY_MAN = 8; // QB, 10.0, Ravens, Thursday; cut FRIDAY
+const IR_STASH = 9; // RB, 50.0, Bills, Sunday; held all season, parked on IR
 
 const HELD_ALL_SEASON = '2026-08-01T00:00:00.000Z';
 const THURSDAY_KICKOFF = '2026-10-23T00:15:00.000Z';
@@ -48,12 +49,14 @@ const PLAYER = new Map([
   [QB_A, { name: 'QB A', position: 'QB', nfl_team: 'Chiefs', fantasy_points: 8 }],
   [ACQUIRED, { name: 'Acquired RB', position: 'RB', nfl_team: 'Eagles', fantasy_points: 30 }],
   [THURSDAY_MAN, { name: 'Thursday Man', position: 'QB', nfl_team: 'Ravens', fantasy_points: 10 }],
+  [IR_STASH, { name: 'IR Stash', position: 'RB', nfl_team: 'Bills', fantasy_points: 50 }],
 ]);
 
 const SCHEDULE = {
   Chiefs: new Date(KICKOFF),
   Eagles: new Date(KICKOFF),
   Ravens: new Date(THURSDAY_KICKOFF),
+  Bills: new Date(KICKOFF),
 };
 
 /**
@@ -136,6 +139,36 @@ test('#736 best ball: hindsight for a settled week agrees with the score of reco
 
   assert.equal(h.optimalPoints, scoreOfRecord(world),
     'the Thursday man was not held at the week\'s last kickoff, so he is not in the pool the score of record was settled from');
+  assert.equal(world.fake.matching(/FROM "nfl_games"/).length, 1,
+    'both kickoff questions are answered from one read of the week\'s schedule (#261)');
+});
+
+test('#736 best ball: an IR occupant stays stashed and never enters the hindsight pool', async (t) => {
+  // The settle pass filters IR out of the best-ball pool after both tenure
+  // exclusions; hindsight reads the same pool, so a 50-point stash cannot
+  // become an optimal starter beside the 30-point replacement.
+  const world = settledWorld({
+    bestBall: true,
+    awayScore: 30,
+    lineupEntries: [
+      row(TEAM_A, QB_A, 'QB'),
+      row(TEAM_B, THURSDAY_MAN, 'BENCH'),
+      row(TEAM_B, ACQUIRED, 'BENCH'),
+      row(TEAM_B, IR_STASH, 'IR'),
+    ],
+    tenures: [
+      tenure(TEAM_A, QB_A, new Date(HELD_ALL_SEASON)),
+      tenure(TEAM_B, THURSDAY_MAN, new Date(HELD_ALL_SEASON), new Date(FRIDAY)),
+      tenure(TEAM_B, ACQUIRED, new Date(FRIDAY)),
+      tenure(TEAM_B, IR_STASH, new Date(HELD_ALL_SEASON)),
+    ],
+  });
+  world.fake.install(t);
+
+  const h = await weekHindsight({ leagueId: LEAGUE_ID, teamId: TEAM_B, season: SEASON, week: WEEK });
+
+  assert.equal(h.optimalPoints, 30);
+  assert.ok(!h.optimalStarters.some((s) => s.playerId === IR_STASH), 'the stash is not a starter');
 });
 
 test('#736 best ball: a settled team never has points left on the bench (the optimal lineup IS the score of record)', async (t) => {

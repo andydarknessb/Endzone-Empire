@@ -704,10 +704,10 @@ _Avoid_: PMR (in prose), players left, yet to play
 
 **Hindsight**:
 A settled week re-read against the best legal lineup its team could have
-started from the week as played: the same players the settle pass counted,
-so hindsight never disagrees with the score of record. What the team started
-against that lineup is the points left on the bench. In best ball the two
-lineups are one and nothing is ever left (ADR 0023).
+started from the week as played, the same players the settle pass read, with
+the gap between what it started and that lineup being the points left on the
+bench. In best ball the two lineups are one and nothing is ever left (ADR
+0023).
 _Avoid_: what-if (the live, in-progress counterpart), regret (the holdout
 study's measure of the same gap), optimal lineup (the thing hindsight
 compares against, not the comparison)

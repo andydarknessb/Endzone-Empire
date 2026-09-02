@@ -767,8 +767,11 @@ async function playersNotHeldAt(client, { teamId, scheduled }) {
  * the same predicate as the lineup lock). `client` is anything with a
  * `query`, so the pool serves outside a transaction.
  */
-async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache = null }) {
+async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache: sharedCache = null }) {
   if (rows.length === 0) return rows;
+  // Both questions read the week's schedule; within one call it is one
+  // answer, so a caller with no pass-wide cache still reads it once (#261).
+  const kickoffCache = sharedCache || new Map();
   const playersOf = (list) => list.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team }));
   const notHeldAtOwn = await playersNotHeldAtKickoff(client, {
     teamId, season, week, players: playersOf(rows), kickoffCache,
