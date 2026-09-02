@@ -1662,6 +1662,51 @@ test('commissioner-panel: expanding League administration mounts the legacy comm
   expect(await within(card).findByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
 });
 
+test('commissioner-panel: the League administration disclosure wires aria-expanded/aria-controls to the region it mounts (#694)', async () => {
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  const toggle = within(card).getByRole('button', { name: /league administration/i });
+
+  // Collapsed: aria-expanded is false, aria-controls is ABSENT (not merely
+  // empty) because the region only exists while open - a static reference
+  // would dangle collapsed - and no element with the region's id is mounted.
+  // Checked by id, not only by data-testid: a testid-only check would miss
+  // the id itself dropping or drifting while the (test-only) testid held.
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(toggle).not.toHaveAttribute('aria-controls');
+  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
+  // The ruling's collapsed clause is stated in terms of the region's id
+  // specifically; the testid check above is not a substitute for it.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
+
+  await userEvent.click(toggle);
+
+  // Expanded: aria-controls now names the mounted region's id, and that
+  // region contains the legacy tools' own heading.
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(toggle).toHaveAttribute('aria-controls', 'commissioner-panel-administration');
+  const region = await screen.findByTestId('commissioner-panel-administration');
+  // Tie aria-controls to the region it actually names, not just to a matching
+  // literal: this is what would catch the region's id drifting or vanishing
+  // while its data-testid (a test-only hook) stayed put.
+  expect(region).toHaveAttribute('id', toggle.getAttribute('aria-controls'));
+  expect(within(region).getByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
+
+  await userEvent.click(toggle);
+
+  // Collapsed again: back to the same wiring, the region unmounted and the
+  // reference gone.
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(toggle).not.toHaveAttribute('aria-controls');
+  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
+  // See the first collapsed phase above: checked by id, not only by testid.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
+});
+
 // ==========================================================================
 // Route cutover + parity (#645), the ninth slice. This section proves the
 // composition the cutover adds: the four legacy surfaces (chat launcher, recap,
