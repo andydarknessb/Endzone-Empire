@@ -1237,3 +1237,198 @@ test("quick-actions: a pick'em-only in-season fixture shows only Pick'em, Activi
   const pickemTile = within(card).getByTestId('quick-action-pickem');
   expect(within(pickemTile).getByText('Recommended')).toBeInTheDocument();
 });
+
+// ==========================================================================
+// commissioner-panel widget (#644) + advance-week feature, the rail slot below
+// draft grades. Commissioner-only: the panel renders only when the league
+// payload's `is_commissioner` flag is true (the same field useQuickActions
+// gates its commissionerOnly card on), never on invite_code, which the shell
+// gates CopyInvite on and which is a different question. Same test seam as the
+// sections above: this ticket registers advance-week on `apiClient.post` and
+// its own fixture builders without editing anything already here.
+//
+// SLUG every fixture identifier with `commissionerPanel` (namespace fence,
+// #643 addendum). SCOPE per-widget value assertions with within(card); the
+// MUI confirm dialog portals to document.body, so its text is reached with a
+// page-level `screen`/`within(dialog)`, deliberately outside the card.
+//
+// AC3 is a CROSS-WIDGET assertion measured across the page dispatcher, not the
+// card: my-team-summary and standings-table share one week-keyed standings read
+// (#641), so one page load is ONE standings GET and a successful advance is TWO
+// total, via the league refetch re-keying week 1 -> 2. The advance action does
+// no standings read of its own; adding one to "make the count come out" is the
+// exact mistake the release review warned against.
+
+const commissionerPanelTeams = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    teamId: i + 1,
+    id: i + 1,
+    name: `Team ${i + 1}`,
+    teamName: `Team ${i + 1}`,
+    avatar_url: null,
+    avatar_static_url: null,
+  }));
+
+// A fantasy league in season whose viewer (teamId 1) is the commissioner.
+const commissionerPanelLeague = (overrides = {}) =>
+  leagueDetail({
+    league: {
+      draft_status: 'complete',
+      season_status: 'regular',
+      current_week: 1,
+      is_commissioner: true,
+      ...overrides,
+    },
+    teams: commissionerPanelTeams(12),
+    viewerTeamId: 1,
+  });
+
+// The same league seen by a plain member: is_commissioner false. It still
+// carries an invite_code to prove the panel gates on the flag and not on the
+// code the shell's CopyInvite reads (release-review finding: the two gates
+// disagree).
+const commissionerPanelMemberLeague = (overrides = {}) =>
+  commissionerPanelLeague({ is_commissioner: false, invite_code: 'member123', ...overrides });
+
+// A pick'em-only league whose viewer is the commissioner: the panel renders,
+// but week advancement is the scheduler's job, so no advance control.
+const commissionerPanelPickemLeague = (overrides = {}) =>
+  leagueDetail({
+    league: {
+      pickem_only: true,
+      draft_status: 'pending',
+      season_status: 'regular',
+      current_week: 6,
+      is_commissioner: true,
+      ...overrides,
+    },
+    teams: commissionerPanelTeams(20),
+    viewerTeamId: 1,
+  });
+
+const commissionerPanelAdvanceUrl = '/api/scoring/league/1/advance-week';
+
+test('commissioner-panel: a member sees no panel, no chip, no advance button, and no legacy tool heading', async () => {
+  mockGetByUrl({ '/api/league/1': commissionerPanelMemberLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(screen.queryByTestId('commissioner-panel')).not.toBeInTheDocument();
+  // The panel's card title is the only rendered "Commissioner" text on the
+  // page; a member never sees it (verified absence, release review).
+  expect(screen.queryByText('Commissioner')).not.toBeInTheDocument();
+  expect(screen.queryByText('Only you see this')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
+  // A legacy commissioner-tools heading (mounted only behind the disclosure,
+  // and only in a commissioner panel) is absent entirely.
+  expect(screen.queryByRole('heading', { name: 'Commissioner Tools' })).not.toBeInTheDocument();
+});
+
+test('commissioner-panel: week 1 renders the chip, the consequence sentence, and an Advance to Week 2 button; Cancel posts nothing', async () => {
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  expect(within(card).getByText('Only you see this')).toBeInTheDocument();
+  // The sentence names the current week and the next one (scoped to the card;
+  // the dialog restates the same consequence, portaled out of the card).
+  expect(
+    within(card).getByText("Advancing closes Week 1 matchups and opens Week 2. You'll be asked to confirm.")
+  ).toBeInTheDocument();
+
+  const advanceButton = within(card).getByRole('button', { name: 'Advance to Week 2' });
+  await userEvent.click(advanceButton);
+
+  // The confirm dialog restates the consequence (naming both weeks).
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText(/closes Week 1 matchups and opens Week 2/i)).toBeInTheDocument();
+
+  await userEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  // Cancel posts nothing.
+  expect(apiClient.post).not.toHaveBeenCalled();
+});
+
+test('commissioner-panel: Confirm posts once to advance-week; the league refetch to week 2 causes a second standings GET (1 -> 2) and offers Advance to Week 3', async () => {
+  apiClient.post.mockResolvedValue({ data: {} });
+  mockGetByUrl({
+    '/api/league/1': commissionerPanelLeague({ current_week: 1 }),
+    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  // One page load = one standings GET: my-team-summary and standings-table
+  // dedupe onto the shared week-keyed read (#641).
+  await waitFor(() => expect(standingsTableGetCount()).toBe(1));
+
+  await userEvent.click(within(card).getByRole('button', { name: 'Advance to Week 2' }));
+  const dialog = await screen.findByRole('dialog');
+
+  // The league now reports week 2, so the post-advance refetch re-keys the
+  // shared standings read; re-point the dispatcher before confirming.
+  mockGetByUrl({
+    '/api/league/1': commissionerPanelLeague({ current_week: 2 }),
+    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
+  });
+  await userEvent.click(within(dialog).getByRole('button', { name: /confirm/i }));
+
+  // Exactly one POST, to the advance-week URL, with no body (as the legacy path).
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
+  expect(apiClient.post).toHaveBeenCalledWith(commissionerPanelAdvanceUrl);
+
+  // The action's only job was to land the league refetch; the standings read
+  // follows from the week key changing. Second GET, not a third.
+  await waitFor(() => expect(standingsTableGetCount()).toBe(2));
+
+  // The panel now offers the following week.
+  expect(await within(card).findByRole('button', { name: 'Advance to Week 3' })).toBeInTheDocument();
+});
+
+test('commissioner-panel: a 409 from advance-week shows the server message verbatim in an alert region and leaves the button usable', async () => {
+  // The exact draft-not-finished sentence the phase gate returns (server's
+  // SEASON_BEFORE_DRAFT_MESSAGE). The panel must render what the server sent,
+  // not a message of its own built from the status code.
+  const serverMessage =
+    'the draft has not finished; schedule and scoring are available once it completes';
+  apiClient.post.mockRejectedValue({ response: { status: 409, data: { error: serverMessage } } });
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  await userEvent.click(within(card).getByRole('button', { name: 'Advance to Week 2' }));
+  const dialog = await screen.findByRole('dialog');
+  await userEvent.click(within(dialog).getByRole('button', { name: /confirm/i }));
+
+  const alert = await within(card).findByRole('alert');
+  expect(alert).toHaveTextContent(serverMessage);
+  // The button stays usable so the commissioner can retry once the draft ends.
+  expect(within(card).getByRole('button', { name: 'Advance to Week 2' })).toBeEnabled();
+});
+
+test("commissioner-panel: a pick'em-only commissioner sees the panel but no advance control", async () => {
+  mockGetByUrl({ '/api/league/1': commissionerPanelPickemLeague() });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  expect(within(card).getByText('Only you see this')).toBeInTheDocument();
+  // Week advancement in a pick'em-only league is the scheduler's job.
+  expect(within(card).queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
+});
+
+test('commissioner-panel: expanding League administration mounts the legacy commissioner tools', async () => {
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  // Collapsed by default: the legacy tools are not mounted, so their heading is
+  // absent until the disclosure is opened.
+  expect(within(card).queryByRole('heading', { name: 'Commissioner Tools' })).not.toBeInTheDocument();
+
+  await userEvent.click(within(card).getByRole('button', { name: /league administration/i }));
+
+  // One of the legacy tools' known headings now renders (CommissionerTools's own
+  // "Commissioner Tools" header), composed as-is with the props the legacy page
+  // gives it.
+  expect(await within(card).findByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
+});
