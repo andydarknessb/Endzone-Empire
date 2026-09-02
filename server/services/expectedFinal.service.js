@@ -3,6 +3,7 @@ const projectionService = require('./projection.service');
 const { availabilityFor } = require('./projectionModel');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { optimalLineup, parseLineupSettings } = require('./lineup.service');
 
 /**
  * Expected final (CONTEXT.md, Scoring and the week): a starter's, or a
@@ -35,9 +36,9 @@ const { normalizeNflTeam } = require('./nflTeam');
  *    progress. A starter on bye has no game and is final at his points. A
  *    starter with points on the board is in progress whatever the table
  *    says, since points prove the game began.
- *  - Best-ball leagues have no starters by design (every entry sits on
- *    BENCH) and answer null; their optimal-lineup expected final is a
- *    named follow-up.
+ *  - Best-ball leagues use every current non-IR candidate, then choose the
+ *    optimal legal lineup on per-player expected finals. That makes the
+ *    figure converge with best-ball scoring once every game is final.
  *  - Best-effort: a failed projection read answers no expected final at
  *    all (an empty result) rather than failing the caller. A figure built
  *    from actual points alone would read as a forecast of zero for every
@@ -97,22 +98,22 @@ function gameStateFor({ liveStatus, kickoffAt, onBye, points, now }) {
  * Returns a Map<teamId, { expectedFinal, playersRemaining, starters }> with
  * an entry only for teams that have at least one starter row; `starters` is
  * an array of { playerId, projection, points, gameState, expectedFinal }
- * for callers that show per-player figures. Best-ball leagues get an empty
- * Map. `db` may be a pool or a checked-out client.
+ * for callers that show per-player figures. Best-ball entries contain the
+ * optimizer's chosen lineup. `db` may be a pool or a checked-out client.
  */
 async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool, now = new Date() }) {
   const result = new Map();
   const ids = [...new Set((teamIds || []).map(Number).filter(Number.isFinite))];
-  if (!league || league.best_ball || ids.length === 0) return result;
+  if (!league || ids.length === 0) return result;
   // Required lazily: scoring.service reads this module from inside its own
   // live-score pass, so a top-level require in both directions would leave
   // one side with an empty export object at load time.
   const { rulesForLeague, calculateFantasyPoints } = require('./scoring.service');
   const rules = rulesForLeague(league);
 
-  const starterRows = await db.query(
+  const candidateRows = await db.query(
     `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id",
-            "players"."nfl_team", "players"."injury_status", "player_stats"."stats"
+            "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -121,13 +122,13 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
        AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
      WHERE "lineup_entries"."team_id" = ANY($1)
        AND "lineup_entries"."season" = $2 AND "lineup_entries"."week" = $3
-       AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
+       AND "lineup_entries"."slot" ${league.best_ball ? "!= 'IR'" : "NOT IN ('BENCH', 'IR')"}`,
     [ids, season, week]
   );
-  if (starterRows.rows.length === 0) return result;
+  if (candidateRows.rows.length === 0) return result;
 
-  const playerIds = [...new Set(starterRows.rows.map((r) => r.player_id))];
-  const nflTeams = [...new Set(starterRows.rows.map((r) => r.nfl_team).filter(Boolean))];
+  const playerIds = [...new Set(candidateRows.rows.map((r) => r.player_id))];
+  const nflTeams = [...new Set(candidateRows.rows.map((r) => r.nfl_team).filter(Boolean))];
 
   const [projections, byeByTeam, liveRows, scheduleRows] = await Promise.all([
     projectionService
@@ -165,7 +166,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   const kickoffByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.kickoff_at]));
 
   const byTeam = new Map();
-  for (const row of starterRows.rows) {
+  for (const row of candidateRows.rows) {
     const team = normalizeNflTeam(row.nfl_team);
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
     const availability = availabilityFor({ injuryStatus: row.injury_status, onBye });
@@ -186,6 +187,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     });
     const starter = {
       playerId: row.player_id,
+      position: row.position,
       projection,
       points: round2(points),
       gameState,
@@ -196,7 +198,16 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     byTeam.get(row.team_id).push(starter);
   }
 
-  for (const [teamId, starters] of byTeam) {
+  for (const [teamId, candidates] of byTeam) {
+    const starters = league.best_ball
+      ? (() => {
+        const { rosterSlots } = parseLineupSettings(league);
+        const pointsFor = new Map(candidates.map((candidate) => [candidate.playerId, candidate.rawExpectedFinal]));
+        const { starters: chosen } = optimalLineup(candidates, rosterSlots, pointsFor);
+        const byPlayerId = new Map(candidates.map((candidate) => [candidate.playerId, candidate]));
+        return chosen.map(({ playerId }) => byPlayerId.get(playerId));
+      })()
+      : candidates;
     result.set(Number(teamId), {
       expectedFinal: round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)),
       playersRemaining: starters.filter((s) => s.gameState !== 'final').length,
@@ -210,7 +221,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
  * Decorate matchup list rows with `home_expected_final`, `away_expected_final`,
  * `home_players_remaining` and `away_players_remaining` (number or null).
  * Final matchups carry null and never read projections: their result is the
- * score. Rows for a (season, week) with no starter rows carry null too, which
+ * score. Rows for a (season, week) with no lineup rows carry null too, which
  * is what an untouched future week looks like. Best-effort: a failed read
  * leaves nulls and the list still answers.
  */
@@ -223,7 +234,7 @@ async function attachExpectedFinals(rows, { league, db = pool, now = new Date() 
     away_players_remaining: null,
   }));
   const open = out.filter((m) => !m.final);
-  if (open.length === 0 || !league || league.best_ball) return out;
+  if (open.length === 0 || !league) return out;
 
   const groups = new Map();
   for (const m of open) {

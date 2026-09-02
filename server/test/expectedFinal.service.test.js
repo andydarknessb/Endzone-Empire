@@ -72,11 +72,11 @@ const LEAGUE = { id: 5, scoring_preset: 'half_ppr', best_ball: false };
 // Team 20: RB on bye (proj 9.0 counts 0, final), K ruled Out (proj 8.0
 // counts 0, game in progress with no points).
 const STARTERS = [
-  { team_id: 10, player_id: 1, nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } }, // 22.5
-  { team_id: 10, player_id: 2, nfl_team: 'BUF', injury_status: 'Q', stats: { rushingYards: 40 } }, // 4.0
-  { team_id: 10, player_id: 3, nfl_team: 'Philadelphia Eagles', injury_status: null, stats: null },
-  { team_id: 20, player_id: 4, nfl_team: 'Ghosts', injury_status: null, stats: null }, // no game this week
-  { team_id: 20, player_id: 5, nfl_team: 'DAL', injury_status: 'O', stats: null },
+  { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } }, // 22.5
+  { team_id: 10, player_id: 2, position: 'RB', nfl_team: 'BUF', injury_status: 'Q', stats: { rushingYards: 40 } }, // 4.0
+  { team_id: 10, player_id: 3, position: 'WR', nfl_team: 'Philadelphia Eagles', injury_status: null, stats: null },
+  { team_id: 20, player_id: 4, position: 'RB', nfl_team: 'Ghosts', injury_status: null, stats: null }, // no game this week
+  { team_id: 20, player_id: 5, position: 'K', nfl_team: 'DAL', injury_status: 'O', stats: null },
 ];
 const PROJECTIONS = new Map([
   [1, { points: 19.0 }],
@@ -162,17 +162,43 @@ test('the projection run is asked once for the union of every starter under the 
   assert.deepEqual([...args.playerIds].sort(), [1, 2, 3, 4, 5]);
 });
 
-test('a team with no starter rows is absent and a best-ball league never reads lineups', async (t) => {
+test('a team with no starter rows is absent', async (t) => {
   const fake = weekPool(t, { starters: STARTERS.filter((s) => s.team_id === 10) });
   const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
   assert.ok(byTeam.has(10));
   assert.equal(byTeam.has(20), false);
 
-  const bestBall = await expectedFinalsForWeek({
-    league: { ...LEAGUE, best_ball: true }, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
-  });
-  assert.equal(bestBall.size, 0);
-  assert.equal(fake.matching(/lineup_entries/).length, 1, 'best-ball never reads lineups');
+});
+
+test('best ball optimizes per-player expected finals rather than raw projections', async (t) => {
+  const candidates = [
+    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: { passingYards: 750 } },
+    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'Philadelphia Eagles', injury_status: null, stats: null },
+  ];
+  const projections = new Map([[6, { points: 10 }], [7, { points: 20 }]]);
+  const league = {
+    ...LEAGUE,
+    best_ball: true,
+    roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+  };
+  const fake = weekPool(t, { starters: candidates, projections });
+
+  const byTeam = await expectedFinalsForWeek({ league, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW });
+  const team = byTeam.get(10);
+
+  // Player 6 already has 30 points in progress. Raw projections would choose
+  // player 7 (20), while expected finals correctly choose player 6 (30).
+  assert.equal(team.expectedFinal, 30);
+  assert.equal(team.playersRemaining, 1);
+  assert.deepEqual(team.starters.map((starter) => starter.playerId), [6]);
+  assert.deepEqual(projectionService.getWeeklyProjections.mock.calls[0].arguments[0].playerIds.sort(), [6, 7]);
+
+  const decorated = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league, db: fake, now: NOW }
+  );
+  assert.equal(decorated[0].home_expected_final, 30);
+  assert.equal(decorated[0].home_players_remaining, 1);
 });
 
 test('a projection outage answers no expected final rather than a forecast of zero', async (t) => {

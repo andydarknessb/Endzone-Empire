@@ -662,8 +662,8 @@ router.get('/:id/matchups', async (req, res) => {
       params
     );
     // Each side's expected final and players remaining ride on the list row
-    // so Game Center's cards can show them (null on final matchups, on
-    // best-ball leagues and on teams with no lineup for the week; see
+    // so Game Center's cards can show them (null on final matchups and on
+    // teams with no lineup for the week; see
     // expectedFinal.service). The league row is fetched only when an open
     // matchup exists, since it is what the weekly projection scores under.
     const { attachExpectedFinals } = require('../services/expectedFinal.service');
