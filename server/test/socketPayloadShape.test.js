@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { STATE_ROOT_CLEAN } = require('./helpers/draftStatePins');
 const { createSocketHarness } = require('./helpers/socketHarness');
 const { getIo, setIo } = require('../modules/io');
 const { TEAM_IDENTITY_FIELDS } = require('../services/teamIdentity');
@@ -414,7 +415,6 @@ function draftStateFake(t) {
   ]).install(t);
 }
 
-const STATE_ROOT_CLEAN = ['league', 'onTheClock', 'picks', 'teams'];
 const STATE_TEAM_CLEAN = [
   'autodraft', 'draft_position', 'draft_ready', 'id', 'name', TEAM_ID, TEAM_NAME,
 ];

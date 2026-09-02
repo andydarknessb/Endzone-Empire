@@ -2,6 +2,15 @@
 
 Status: accepted (2026-09-02)
 
+Rollout is in two steps. This ticket (#744) ships the transport the decision
+rests on: a hardened, fail-fast draft publisher with a bounded, reported
+publish; the `@socket.io/redis-emitter` in place of the custom relay; and the
+production boot gates. The single Draft room broadcast adapter
+(`server/modules/draftRoomBroadcast.js`), the fold of every room-wide emit into
+it, the deletion of the broadcast helpers, and its construction at boot are
+#745. Sentences below that describe that end state are marked "(#745)";
+everything unmarked ships in #744.
+
 Every room-wide event a Draft room receives (a Pick, a Draft activity entry,
 completion, a roster change, a state refresh) is emitted today from five
 helpers and ten inline `io.to(...).emit` sites across the API and the worker,
@@ -12,14 +21,17 @@ uses node-redis defaults, so a publish during a disconnect queues or hangs
 rather than failing. In production the worker never has a Socket.IO server,
 so the two silent helpers drop every worker-side lifecycle event (a scheduled
 autostart's "Draft started" entry among them), and the other three cannot
-tell delivery from loss. We introduce one Draft room broadcast adapter
-(`server/modules/draftRoomBroadcast.js`) with a named-method interface (pick
-landed, activity appended, draft completed, roster changed, state changed)
-that is the only code allowed to emit a room-wide Draft event. It is
-constructed at boot with its process's transport, `io` in the API and a
-`@socket.io/redis-emitter` in the worker, and it either hands the event to
-that transport or reports the failure through pino and Sentry. It is never a
-no-op.
+tell delivery from loss. The decision is one Draft room broadcast adapter
+(`server/modules/draftRoomBroadcast.js`, #745) with a named-method interface
+(pick landed, activity appended, draft completed, roster changed, state
+changed) that will be the only code allowed to emit a room-wide Draft event. It
+will be constructed at boot with its process's transport, `io` in the API and a
+`@socket.io/redis-emitter` in the worker, and either hand the event to that
+transport or report the failure through pino and Sentry; it is never a no-op.
+This ticket (#744) puts that transport underneath: the worker's
+`@socket.io/redis-emitter`, the hardened publisher and the boot gates, with the
+custom relay removed and its draft events already routed through a thin shim
+that reports every failure.
 
 ## Why
 
@@ -47,10 +59,13 @@ no-op.
   snapshot from the same database post-commit, and the adapter has one
   interface over one transport shape in each process.
 - **Honesty is a property of the whole path.** An adapter that reports
-  failures over a transport that hangs reports nothing. The publisher runs
-  with the offline queue disabled, a bounded publish (2 seconds, a named
-  constant), and a connection promise that is dropped on a fatal client
-  error instead of being handed back dead to every later caller.
+  failures over a transport that hangs reports nothing. The draft publisher
+  runs on its own client with the offline queue disabled (the shared
+  `@socket.io/redis-adapter` client keeps the default queue, since the adapter
+  publishes un-awaited and a rejection there would be unhandled), a bounded
+  publish (2 seconds, a named constant), and a connection promise that is
+  dropped on a fatal client error instead of being handed back dead to every
+  later caller.
 
 ## Considered and rejected
 
@@ -76,18 +91,20 @@ no-op.
 
 ## Consequences
 
-- Every room-wide Draft emit in `server/` goes through the adapter; a
-  source-form test asserts it. The per-socket join snapshot, `draft:presence`
-  and League chat delivery (ADR 0012) stay outside it.
+- Every room-wide Draft emit in `server/` will go through the adapter,
+  asserted by a source-form test (#745). The per-socket join snapshot,
+  `draft:presence` and League chat delivery (ADR 0012) stay outside it.
 - A delivery failure is one pino error and one Sentry event per failure, with
   no dedupe or rate limit; Sentry groups them. A draft produces a few hundred
   events at most.
 - In production, a process without `REDIS_URL` refuses to boot. A worker
   whose Redis connect fails at boot still boots (it also runs scoring and
-  sync) and reports the first failed publish through the adapter.
-- `draftActivityBroadcast.js`, `rosterAvailabilityBroadcast.js`, the two
-  helpers in `pickClock.service.js`, `draftStart`'s own state broadcast, and
-  the custom relay in `draftEvents.js` are deleted. The test asserting "no io
-  emits nothing" dies with them.
+  sync) and reports the first failed publish through the transport.
+- The custom relay in `draftEvents.js` (its subscriber, its allowlist and the
+  API-side `draft:state` re-derive) is deleted in #744, and the test asserting
+  "no io emits nothing" for it dies with it. `draftActivityBroadcast.js`,
+  `rosterAvailabilityBroadcast.js`, the two helpers in `pickClock.service.js`
+  and `draftStart`'s own state broadcast fold into the adapter and delete in
+  #745.
 - #614's future API-to-worker signal rides the hardened client on its own
   plain channel and is unaffected by the emitter.

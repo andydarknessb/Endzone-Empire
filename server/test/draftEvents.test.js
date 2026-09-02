@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { createFakePool } = require('./helpers/fakePool');
+const { STATE_ROOT_CLEAN } = require('./helpers/draftStatePins');
 const redis = require('../modules/redis');
 const sentry = require('../modules/sentry');
 const draftEvents = require('../modules/draftEvents');
@@ -12,7 +13,7 @@ const draftEvents = require('../modules/draftEvents');
 // Each case below carries the negative control the criterion names, asserted.
 
 test('with no Redis client, publishDraftEvent reports the failure (never a bare boolean)', async (t) => {
-  t.mock.method(redis, 'getRedisClient', async () => null);
+  t.mock.method(redis, 'getDraftPublisher', async () => null);
   const captured = [];
   t.mock.method(sentry, 'captureError', (err, ctx) => captured.push({ err, ctx }));
 
@@ -35,7 +36,7 @@ test('with no Redis client, publishDraftEvent reports the failure (never a bare 
 
 test('a publish that outlasts DRAFT_PUBLISH_TIMEOUT_MS rejects on the bound and reports', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  t.mock.method(redis, 'getRedisClient', async () => ({ publish: async () => {} }));
+  t.mock.method(redis, 'getDraftPublisher', async () => ({ publish: async () => {} }));
   // A fake emitter whose emit never resolves: only the bound can end this.
   t.mock.method(draftEvents, 'buildEmitter', () => ({ emit: () => new Promise(() => {}) }));
   const captured = [];
@@ -59,7 +60,7 @@ test('a publish that outlasts DRAFT_PUBLISH_TIMEOUT_MS rejects on the bound and 
 
 test('negative control: a publish resolving within the bound is delivered (the bound is what fired above)', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  t.mock.method(redis, 'getRedisClient', async () => ({ publish: async () => {} }));
+  t.mock.method(redis, 'getDraftPublisher', async () => ({ publish: async () => {} }));
   const belowBound = redis.DRAFT_PUBLISH_TIMEOUT_MS - 500;
   // Same code path, but now the publish beats the bound.
   t.mock.method(draftEvents, 'buildEmitter', () => ({
@@ -103,13 +104,24 @@ test('a fatal client error after connect drops the cached client so the next cal
   const first = await redis.getRedisClient();
   assert.equal(first, clients[0]);
 
-  // A fatal error tears the socket down (isOpen false), then surfaces as 'error'.
+  // Kept-cache control (pins the healthy half): a second call with a live client
+  // returns the SAME client, and a NON-fatal error (isOpen still true) does not
+  // drop the cache. Without these, dropping on any error, or not caching at all,
+  // would still pass the reconnect assertion below (review 751-f3).
+  assert.equal(await redis.getRedisClient(), first, 'a healthy client is reused');
+  first.emit('error', new Error('transient blip')); // isOpen still true
+  assert.equal(await redis.getRedisClient(), first, 'a non-fatal error keeps the cache');
+  assert.equal(created, 1, 'no reconnect happened for the healthy or non-fatal cases');
+
+  // A fatal error tears the socket down (isOpen false), then surfaces as 'error',
+  // dropping the cache so the next call reconnects to a new client.
   first.isOpen = false;
   first.emit('error', new Error('ECONNRESET'));
 
   const second = await redis.getRedisClient();
   assert.equal(second, clients[1]);
   assert.notEqual(second, first);
+  assert.equal(created, 2, 'exactly one reconnect, on the fatal error');
 });
 
 test('a draft:state publish emits the in-process snapshot, keyed to the socketPayloadShape draft:state pins', async (t) => {
@@ -132,7 +144,7 @@ test('a draft:state publish emits the in-process snapshot, keyed to the socketPa
     [/FROM "draft_picks" JOIN "players"/, () => ({ rows: [] })],
   ]).install(t);
 
-  t.mock.method(redis, 'getRedisClient', async () => ({ publish: async () => {} }));
+  t.mock.method(redis, 'getDraftPublisher', async () => ({ publish: async () => {} }));
   let emitted;
   t.mock.method(draftEvents, 'buildEmitter', () => ({
     emit: async (room, event, payload) => { emitted = { room, event, payload }; },
@@ -147,7 +159,7 @@ test('a draft:state publish emits the in-process snapshot, keyed to the socketPa
   assert.equal(result.delivered, true);
   assert.equal(emitted.room, 'league:1');
   assert.equal(emitted.event, 'draft:state');
-  assert.deepEqual(Object.keys(emitted.payload).sort(), ['league', 'onTheClock', 'picks', 'teams']);
+  assert.deepEqual(Object.keys(emitted.payload).sort(), [...STATE_ROOT_CLEAN].sort());
   // The in-process snapshot shipped, not the caller's payload.
   assert.equal('ignoredByShape' in emitted.payload, false);
 });

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { assertRedisUrlForBoot } = require('../modules/bootGates');
+const bootGates = require('../modules/bootGates');
+const { assertRedisUrlForBoot } = bootGates;
 
 // A production process without REDIS_URL refuses to boot; any non-production
 // NODE_ENV keeps working without Redis (#744, ADR 0025). The gate is the sole
@@ -61,4 +62,41 @@ test('the API startup function rejects in production without REDIS_URL (gate wir
   // The gate is the first statement, so it rejects before validateEnvironment,
   // io.redisReady or server.listen; in NODE_ENV=test it does not fire.
   await assert.rejects(startServer(), /REDIS_URL/);
+});
+
+// The pair above proves the production-rejects half against the real startup
+// functions. These two prove the OTHER half without booting the scheduler/DB:
+// each startup calls the gate first, with the process env, so in any
+// environment the gate (already shown above not to fire in non-production) is
+// what decides. A mis-wiring that skipped it or hardcoded a throw fails here.
+test('startWorker calls the boot gate first, with the process env (wiring, no boot)', async (t) => {
+  const restore = stashEnv(['NODE_ENV', 'REDIS_URL']);
+  t.after(restore);
+  const calls = [];
+  const sentinel = new Error('boot-gate-sentinel');
+  t.mock.method(bootGates, 'assertRedisUrlForBoot', (env, opts) => { calls.push({ env, opts }); throw sentinel; });
+  const { startWorker } = require('../worker');
+
+  process.env.NODE_ENV = 'test';
+  delete process.env.REDIS_URL;
+  await assert.rejects(startWorker(), /boot-gate-sentinel/); // aborts at the gate, before any I/O
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].env, process.env);
+  assert.deepEqual(calls[0].opts, { role: 'worker' });
+});
+
+test('startServer calls the boot gate first, with the process env (wiring, no boot)', async (t) => {
+  const restore = stashEnv(['NODE_ENV', 'REDIS_URL']);
+  t.after(restore);
+  const calls = [];
+  const sentinel = new Error('boot-gate-sentinel');
+  t.mock.method(bootGates, 'assertRedisUrlForBoot', (env, opts) => { calls.push({ env, opts }); throw sentinel; });
+  const { startServer } = require('../server');
+
+  process.env.NODE_ENV = 'test';
+  delete process.env.REDIS_URL;
+  await assert.rejects(startServer(), /boot-gate-sentinel/); // aborts at the gate, before any I/O
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].env, process.env);
+  assert.deepEqual(calls[0].opts, { role: 'api' });
 });

@@ -387,10 +387,11 @@ async function autoPick({ leagueId }) {
   // path commits a Pick or arms a clock for the now-paused draft.
   const escalation = await escalateNothingDraftable({ leagueId });
   if (escalation) {
-    // The worker has no local Socket.IO server; emitDraftEvent publishes to the
-    // API relay when io is null (the same path the committed-pick and completion
-    // broadcasts take). broadcastDraftState refreshes the paused clock; in the
-    // worker it likewise publishes an event name for the relay to re-derive.
+    // The worker has no local Socket.IO server; emitDraftEvent publishes over the
+    // Draft room transport when io is null (the same path the committed-pick and
+    // completion broadcasts take). broadcastDraftState refreshes the paused clock;
+    // in the worker it likewise publishes draft:state, whose snapshot the shim
+    // computes in-process (#744).
     await emitDraftEvent(leagueId, 'draft:activity', escalation.activity);
     await broadcastDraftState(leagueId);
   }

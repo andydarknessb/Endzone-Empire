@@ -19,7 +19,7 @@ const sentry = require('./sentry');
 function buildEmitter(client) {
   return {
     emit(room, event, payload) {
-      let publish = Promise.resolve();
+      let publish = null;
       const capturingClient = {
         publish: (channel, message) => {
           publish = Promise.resolve(client.publish(channel, message));
@@ -27,8 +27,12 @@ function buildEmitter(client) {
         },
       };
       // The BroadcastOperator's emit calls capturingClient.publish synchronously,
-      // setting `publish` to the real publish promise before it returns.
+      // setting `publish` to the real publish promise before it returns. If a
+      // future emitter version defers, batches, or short-circuits on an empty
+      // room and never calls publish, `publish` stays null and we throw rather
+      // than silently reporting a delivery that never happened (review 751-f5).
       new Emitter(capturingClient).to(room).emit(event, payload);
+      if (!publish) throw new Error('emitter did not publish the draft event');
       return publish;
     },
   };
@@ -59,7 +63,7 @@ function withTimeout(promise, ms) {
  */
 async function publishDraftEvent({ leagueId, event, payload }) {
   try {
-    const client = await redis.getRedisClient();
+    const client = await redis.getDraftPublisher();
     if (!client) throw new Error('no Redis client for draft room publish');
 
     let body = payload;
