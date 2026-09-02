@@ -5,6 +5,9 @@ const draftEvents = require('../modules/draftEvents');
 const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
+const startingNeed = require('./startingNeed');
+const { parseLineupSettings } = require('./lineup.service');
+const { draftRounds } = require('./rosterShape');
 // draftActivity requires only teamIdentity, so there is no cycle back to this
 // module (unlike draft.service, required lazily in autoPick): a top-level
 // require is safe.
@@ -26,9 +29,10 @@ const { appendLifecycleActivity, STALLED } = require('./draftActivity');
  * an observer never sees a new turn without its clock.
  *
  * The module also OWNS EXPIRY (#600): the sweep entry point below is the only
- * thing that concludes a clock expired, and the Autopick act it drives (queue
- * first, then best available, with the snipe retry) and the consecutive-timeout
- * streak live here too. The clock re-arm on a committed autopick still rides the
+ * thing that concludes a clock expired, and the Autopick act it drives (the
+ * queue first, then Best available among players who fill a Starting need, then
+ * Best available among everyone else, with the snipe retry - ADR 0026) and the
+ * consecutive-timeout streak live here too. The clock re-arm on a committed autopick still rides the
  * pick-landed event through draft.service.draftPlayer, so expiry and arming
  * share the one policy. draft.service is required lazily inside autoPick because
  * it requires this module in turn (ADR 0018); a top-level require would capture
@@ -255,25 +259,108 @@ async function armInPlace(client, { leagueId, clockSeconds }) {
 // --- Expiry: the Autopick act and the sweep (#600, ADR 0018) -----------------
 
 /**
- * Order candidates for one team's autopick: its own queue first (by the team's
- * stated rank), then best available (CONTEXT.md) - ADP, then last completed
- * season's points, then name. Never database id. Shared with the Draft Sim's
- * pool via bestAvailable.service.js's compareBestAvailable. Internal to this
- * module: the ordering contracts are exercised through the sweep interface
- * (server/test/pickClock.sweep.test.js), not a test-only export (ADR 0018).
+ * Order candidates for one team's autopick through the need-aware phases
+ * (CONTEXT.md Autopick, ADR 0026):
+ *   1. the team's own queue first, by the team's stated rank - SOVEREIGN, never
+ *      position-filtered (a queued sixth quarterback is still honored);
+ *   2. Best available among players who FILL A STARTING NEED (adding them raises
+ *      the team's filled-starter count, computed by exact matching in
+ *      startingNeed.js);
+ *   3. Best available among everyone else.
+ * Best available (ADP, then last completed season's points, then name; never
+ * database id) is the comparator inside every phase, shared with the Draft Sim's
+ * pool via bestAvailable.service.js's compareBestAvailable.
+ *
+ * Kickers and defenses are held out of phases 2 and 3 until the last three
+ * rounds (startingNeed.KICKER_DEFENSE_WINDOW_ROUNDS), UNLESS the must-fill guard
+ * fires: when the team has no more picks remaining than open Starting needs,
+ * phase 2 is the only phase and includes K/DEF, because every remaining pick
+ * must fill a need. A data problem (thin ADP) never refuses here - the phases
+ * fall through to points then name, and a board that the filters would empty
+ * falls back to raw Best available rather than stalling (#602, ADR 0026).
+ *
+ * Internal to this module: the ordering contracts are exercised through the
+ * sweep interface (server/test/pickClock.sweep.test.js), not a test-only export
+ * (ADR 0018).
  */
-function compareAutopickCandidates(a, b) {
-  const aQueued = a.queue_rank != null;
-  const bQueued = b.queue_rank != null;
-  if (aQueued !== bQueued) return aQueued ? -1 : 1;
-  if (aQueued) return a.queue_rank - b.queue_rank;
-  return bestAvailable.compareBestAvailable(a, b);
+function orderAutopickCandidates(rows, { rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining }) {
+  const isKickerOrDefense = (row) => row.position === 'K' || row.position === 'DEF';
+  const byBestAvailable = (a, b) => bestAvailable.compareBestAvailable(a, b);
+
+  // Phase 1: the queue, sovereign and never position-filtered.
+  const queued = rows.filter((r) => r.queue_rank != null).sort((a, b) => a.queue_rank - b.queue_rank);
+  const rest = rows.filter((r) => r.queue_rank == null);
+
+  // Fills-a-need depends only on the candidate's position, so answer it once per
+  // distinct position rather than once per candidate.
+  const fillsByPosition = new Map();
+  const fills = (position) => {
+    if (!fillsByPosition.has(position)) {
+      fillsByPosition.set(position, startingNeed.fillsStartingNeed({
+        rosterSlots, roster: rosterPositions, candidatePosition: position,
+      }));
+    }
+    return fillsByPosition.get(position);
+  };
+
+  const openNeeds = startingNeed.openStartingNeeds({ rosterSlots, roster: rosterPositions });
+  const mustFill = openNeeds > 0 && picksRemaining <= openNeeds;
+  const kdOpen = currentRound > rounds - startingNeed.KICKER_DEFENSE_WINDOW_ROUNDS;
+
+  // Must-fill: phase 2 only, K/DEF included. If nothing available actually fills
+  // a need (the needs' positions are exhausted), fall through to the normal
+  // phases rather than pausing a draft that still has draftable players.
+  if (mustFill) {
+    const mustFillers = rest.filter((r) => fills(r.position)).sort(byBestAvailable);
+    if (mustFillers.length > 0) return [...queued, ...mustFillers];
+  }
+
+  const board = kdOpen ? rest : rest.filter((r) => !isKickerOrDefense(r));
+  const needFillers = board.filter((r) => fills(r.position)).sort(byBestAvailable);
+  const bench = board.filter((r) => !fills(r.position)).sort(byBestAvailable);
+  let phased = [...needFillers, ...bench];
+
+  // Never refuse while a player is draftable (ADR 0026): if the phase filters
+  // emptied a non-empty board (only K/DEF remain before their window), degrade
+  // to the raw Best available instead of stalling.
+  if (phased.length === 0 && rest.length > 0) phased = [...rest].sort(byBestAvailable);
+
+  return [...queued, ...phased];
+}
+
+/**
+ * Picks remaining for the on-clock team (ADR 0026): the count of pick numbers
+ * from the current pick through the last round that the draft order assigns to
+ * this team and that no draft_picks row already occupies (keeper picks are
+ * pre-inserted). current_pick is 0-based; draft_picks.pick_number is 1-based,
+ * so it is shifted to the 0-based index space the rotation math uses. Includes
+ * the pick being made now, so "picks remaining <= open needs" reads as "no more
+ * picks than needs".
+ */
+async function countPicksRemaining({ leagueId, league, teams, teamId, rounds }) {
+  const totalPicks = rounds * teams.length;
+  if (totalPicks <= 0) return 0;
+  const takenRes = await pool.query(
+    `SELECT "pick_number" FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" >= $2`,
+    [leagueId, league.current_pick + 1]
+  );
+  const taken = new Set(takenRes.rows.map((r) => r.pick_number - 1));
+  const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
+  let remaining = 0;
+  for (let n = league.current_pick; n < totalPicks; n++) {
+    if (taken.has(n)) continue;
+    const team = teamForPick(n, teams, rotationOpts);
+    if (team && team.id === teamId) remaining += 1;
+  }
+  return remaining;
 }
 
 /**
  * Server-side auto-pick for an expired clock: the team on the clock drafts
- * automatically - first eligible player from its pre-draft queue, otherwise
- * best available (CONTEXT.md). The committed pick re-arms the next team's clock
+ * automatically through the need-aware phases (CONTEXT.md Autopick, ADR 0026) -
+ * the queue first, then Best available among players who fill a Starting need,
+ * then Best available among everyone else (see orderAutopickCandidates). The
+ * committed pick re-arms the next team's clock
  * through draft.service.draftPlayer -> onPickLanded, so expiry never writes the
  * deadline directly; it goes through the same arming policy as every other event.
  *
@@ -322,7 +409,7 @@ async function autoPick({ leagueId }) {
 
   const lastSeason = await lastCompletedNflSeason();
   const candidatesRes = await pool.query(
-    `SELECT "players"."id", "players"."name", "players"."adp",
+    `SELECT "players"."id", "players"."name", "players"."adp", "players"."position",
             "draft_queue"."rank" AS "queue_rank",
             "season_points"."fantasy_points" AS "last_season_points"
      FROM "players"
@@ -335,9 +422,30 @@ async function autoPick({ leagueId }) {
      WHERE "team_players"."id" IS NULL`,
     [leagueId, onTheClock.id, lastSeason]
   );
-  const candidates = [...candidatesRes.rows]
-    .sort(compareAutopickCandidates)
-    .slice(0, AUTOPICK_CANDIDATE_LIMIT);
+
+  // Need-aware ordering context (ADR 0026). The on-clock team's current
+  // starting-eligible positions and the league's starting slots decide which
+  // candidates fill a Starting need; the round and picks-remaining decide the
+  // K/DEF window and the must-fill guard. All of it is read here and handed to
+  // the pure ordering below.
+  const rosterRes = await pool.query(
+    `SELECT "players"."position"
+     FROM "team_players"
+     JOIN "players" ON "players"."id" = "team_players"."player_id"
+     WHERE "team_players"."league_id" = $1 AND "team_players"."team_id" = $2`,
+    [leagueId, onTheClock.id]
+  );
+  const rosterPositions = rosterRes.rows.map((row) => row.position);
+  const { rosterSlots } = parseLineupSettings(league);
+  const rounds = draftRounds(league);
+  const currentRound = teams.length > 0 ? Math.floor(league.current_pick / teams.length) + 1 : 1;
+  const picksRemaining = await countPicksRemaining({
+    leagueId, league, teams, teamId: onTheClock.id, rounds,
+  });
+
+  const candidates = orderAutopickCandidates(candidatesRes.rows, {
+    rosterSlots, rosterPositions, currentRound, draftRounds: rounds, picksRemaining,
+  }).slice(0, AUTOPICK_CANDIDATE_LIMIT);
 
   for (const candidate of candidates) {
     try {
