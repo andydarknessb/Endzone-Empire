@@ -988,3 +988,248 @@ test('draft-grades card: a 500 shows a compact error, and the header still rende
   expect(within(card).queryByTestId('draft-grades-pending')).not.toBeInTheDocument();
   expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
 });
+
+// ==========================================================================
+// quick-actions widget (#643), the full-width section below the main grid.
+// Same seam as the sections above: this ticket registers its own endpoint
+// (the viewer roster) on `mockGetByUrl` and its own fixture builders without
+// editing anything already here.
+//
+// Every identifier this section adds is slug-prefixed (`quickActions*`,
+// `quick-action(s)-*`) so a sibling ticket appending its own section here can
+// never collide silently with one of ours. Per-widget value assertions are
+// scoped with within(card) (the widget's own `quick-actions` card) or
+// within(tile) (one action link): "Set Lineup" is also rendered as a link by
+// matchup-preview above, and "Recommended" would collide across cards, so a
+// page-wide query for either would throw on multiple matches. The one
+// deliberately page-wide assertion is AC2's negative ("no Recommended anywhere
+// on an in-season member page"), which is exactly a page-level claim.
+//
+// AC5 scope note: a pick'em-only league still renders the my-team, matchup,
+// standings and draft-grades cards today (their pick'em gating is #645's
+// cutover job, not this ticket). "Shows only Pick'em, Activity, History and
+// League Rules" is a claim about THIS widget's own card list, so it is scoped
+// with within(card).
+// ==========================================================================
+
+// The viewer (teamId 1) plus one opponent, carrying the canonical `teamName`.
+const quickActionsTeams = [
+  { teamId: 1, id: 1, teamName: 'MyBallsHurts' },
+  { teamId: 2, id: 2, teamName: 'Terrific T' },
+];
+
+// An in-season fantasy league whose viewer (teamId 1) owns a Team. Overrides
+// pass straight through to leagueDetail (league columns, teams, viewerTeamId).
+const quickActionsLeague = (overrides = {}) =>
+  leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+    teams: quickActionsTeams,
+    viewerTeamId: 1,
+    ...overrides,
+  });
+
+// The standard 9-starter roster shape, as the league row's `roster_slots`
+// jsonb. Only needed by the empty-starting-slot assertion (AC3); the bye
+// assertions read it off the default starter order, so they omit it.
+const quickActionsStandardSlots = [
+  { key: 'QB', count: 1 },
+  { key: 'RB', count: 2 },
+  { key: 'WR', count: 2 },
+  { key: 'TE', count: 1 },
+  { key: 'FLEX', count: 1 },
+  { key: 'K', count: 1 },
+  { key: 'DEF', count: 1 },
+];
+
+// GET /api/team/roster?leagueId=1 - a BARE ARRAY of roster rows (the real
+// endpoint's shape). The widget reads only `lineup_slot` and `bye_week`.
+const quickActionsRosterResponse = (rows) => ({ data: rows });
+
+// A full standard starting lineup: one player per starting slot instance of
+// quickActionsStandardSlots. Nobody is on the CURRENT week's bye. DEF One
+// deliberately carries an OFF-week bye (bye_week 5, never the fixtures'
+// current_week 3): a widget that counted "any non-null bye_week" instead of the
+// current week would flag it, so its presence in the no-current-week-bye cases
+// pins the comparison to the current week.
+const quickActionsFullRoster = () => [
+  { id: 11, name: 'QB One', lineup_slot: 'QB', bye_week: null },
+  { id: 12, name: 'RB One', lineup_slot: 'RB', bye_week: null },
+  { id: 13, name: 'RB Two', lineup_slot: 'RB', bye_week: null },
+  { id: 14, name: 'WR One', lineup_slot: 'WR', bye_week: null },
+  { id: 15, name: 'WR Two', lineup_slot: 'WR', bye_week: null },
+  { id: 16, name: 'TE One', lineup_slot: 'TE', bye_week: null },
+  { id: 17, name: 'FLEX One', lineup_slot: 'FLEX', bye_week: null },
+  { id: 18, name: 'K One', lineup_slot: 'K', bye_week: null },
+  { id: 19, name: 'DEF One', lineup_slot: 'DEF', bye_week: 5 },
+];
+
+const QUICK_ACTIONS_ROSTER_URL = '/api/team/roster?leagueId=1';
+
+test('quick-actions: in-season fantasy member renders Play/Moves/League labels with counts and cards linking to league sub-routes', async () => {
+  mockGetByUrl({ '/api/league/1': quickActionsLeague() });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  // Group labels carry the visible-card count (no Draft Settings for a member,
+  // so League is 4).
+  expect(within(card).getByText('Play · 4')).toBeInTheDocument();
+  expect(within(card).getByText('Moves · 2')).toBeInTheDocument();
+  expect(within(card).getByText('League · 4')).toBeInTheDocument();
+  expect(within(card).queryByRole('link', { name: /Draft Settings/ })).not.toBeInTheDocument();
+
+  // Each card is a link whose href ends in the expected league sub-route
+  // (scoped to this widget: matchup-preview also renders a "Set Lineup" link).
+  const expectedRoutes = {
+    draft: /\/league\/1\/draft$/,
+    lineup: /\/league\/1\/lineup$/,
+    'game-center': /\/league\/1\/game-center$/,
+    pickem: /\/league\/1\/pickem$/,
+    waivers: /\/league\/1\/waivers$/,
+    trades: /\/league\/1\/trades$/,
+    activity: /\/league\/1\/activity$/,
+    'power-rankings': /\/league\/1\/power-rankings$/,
+    history: /\/league\/1\/history$/,
+    rules: /\/league\/1\/rules$/,
+  };
+  Object.entries(expectedRoutes).forEach(([key, route]) => {
+    const tile = within(card).getByTestId(`quick-action-${key}`);
+    expect(tile.getAttribute('href')).toMatch(route);
+  });
+});
+
+test('quick-actions: a commissioner fixture adds Draft Settings and the League count becomes 5', async () => {
+  mockGetByUrl({ '/api/league/1': quickActionsLeague({ league: { draft_status: 'complete', season_status: 'regular', current_week: 3, is_commissioner: true } }) });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  expect(within(card).getByText('League · 5')).toBeInTheDocument();
+  const draftSettings = within(card).getByTestId('quick-action-draft-settings');
+  expect(draftSettings.getAttribute('href')).toMatch(/\/league\/1\/draft-settings$/);
+});
+
+test('quick-actions: two starters on a current-week bye mark Set Lineup Recommended with the bye copy', async () => {
+  const roster = quickActionsFullRoster().map((row) =>
+    row.lineup_slot === 'QB' || row.id === 12 ? { ...row, bye_week: 3 } : row
+  );
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague(),
+    [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(roster),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  const tile = within(card).getByTestId('quick-action-lineup');
+  // The recommendation lands once the roster read resolves.
+  expect(await within(tile).findByText('Recommended')).toBeInTheDocument();
+  expect(within(tile).getByText('2 starters on bye · fix before Sunday')).toBeInTheDocument();
+});
+
+test('quick-actions: a full roster with no current-week byes shows no Recommended anywhere on an in-season member page', async () => {
+  // roster_slots is supplied so the empty-slot half of the recommendation is
+  // LIVE here, not inert: with the required slots known, an empty roster would
+  // read 9 empty slots and recommend. A full roster is therefore the reason
+  // there is no recommendation, not a coincidence of missing config. The full
+  // roster also carries DEF One's off-week bye (bye_week 5 vs current_week 3),
+  // so this asserts the widget counts current-week byes only.
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague({
+      league: {
+        draft_status: 'complete',
+        season_status: 'regular',
+        current_week: 3,
+        roster_slots: quickActionsStandardSlots,
+      },
+    }),
+    [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(quickActionsFullRoster()),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  const tile = within(card).getByTestId('quick-action-lineup');
+  // Wait for the roster read to resolve into the plain Set Lineup copy, so the
+  // absence assertion below is not merely racing an unresolved read.
+  expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
+  // A page-level claim on purpose: no card, in this widget or any sibling on the
+  // in-season member page, renders "Recommended".
+  expect(screen.queryByText('Recommended')).not.toBeInTheDocument();
+});
+
+test('quick-actions: a starter missing from a slot the league requires marks Set Lineup Recommended and names the empty-slot count', async () => {
+  // Standard slots require two WRs; drop one so a single WR fills the slot.
+  const roster = quickActionsFullRoster().filter((row) => row.id !== 15);
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague({
+      league: {
+        draft_status: 'complete',
+        season_status: 'regular',
+        current_week: 3,
+        roster_slots: quickActionsStandardSlots,
+      },
+    }),
+    [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(roster),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  const tile = within(card).getByTestId('quick-action-lineup');
+  expect(await within(tile).findByText('Recommended')).toBeInTheDocument();
+  expect(within(tile).getByText('1 empty starting slot')).toBeInTheDocument();
+});
+
+test('quick-actions: a 500 from the roster read leaves every card rendered and none in an error state', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague(),
+    [QUICK_ACTIONS_ROSTER_URL]: { reject: { response: { status: 500 } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  const tile = within(card).getByTestId('quick-action-lineup');
+  // Set Lineup renders its plain copy (the recommendation is best effort), and
+  // the failed read never surfaces an error.
+  expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
+  expect(within(tile).queryByText('Recommended')).not.toBeInTheDocument();
+  expect(within(card).queryByRole('alert')).not.toBeInTheDocument();
+  // Every group's cards still render.
+  ['draft', 'lineup', 'game-center', 'pickem', 'waivers', 'trades', 'activity', 'power-rankings', 'history', 'rules'].forEach((key) => {
+    expect(within(card).getByTestId(`quick-action-${key}`)).toBeInTheDocument();
+  });
+});
+
+test('quick-actions: a drafting-phase fixture marks Draft Room Recommended', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague({ league: { draft_status: 'active', season_status: 'regular', current_week: 3 } }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  const tile = within(card).getByTestId('quick-action-draft');
+  expect(within(tile).getByText('Recommended')).toBeInTheDocument();
+  expect(within(tile).getByText('Draft is live now · make your picks')).toBeInTheDocument();
+});
+
+test("quick-actions: a pick'em-only in-season fixture shows only Pick'em, Activity, History and League Rules and marks Pick'em Recommended", async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsLeague({
+      league: { pickem_only: true, draft_status: 'pending', season_status: 'regular', current_week: 6 },
+    }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('quick-actions');
+  // The only cards in this widget's list are the four non-fantasy ones.
+  expect(within(card).getByTestId('quick-action-pickem')).toBeInTheDocument();
+  expect(within(card).getByTestId('quick-action-activity')).toBeInTheDocument();
+  expect(within(card).getByTestId('quick-action-history')).toBeInTheDocument();
+  expect(within(card).getByTestId('quick-action-rules')).toBeInTheDocument();
+  // The fantasy-only cards (and the Moves group) are gone.
+  ['draft', 'lineup', 'game-center', 'waivers', 'trades', 'power-rankings', 'draft-settings'].forEach((key) => {
+    expect(within(card).queryByTestId(`quick-action-${key}`)).not.toBeInTheDocument();
+  });
+  expect(within(card).getByText('Play · 1')).toBeInTheDocument();
+  expect(within(card).getByText('League · 3')).toBeInTheDocument();
+  expect(within(card).queryByText(/^Moves ·/)).not.toBeInTheDocument();
+  // Pick'em carries the highlight a pick'em-only in-season league gives it.
+  const pickemTile = within(card).getByTestId('quick-action-pickem');
+  expect(within(pickemTile).getByText('Recommended')).toBeInTheDocument();
+});
