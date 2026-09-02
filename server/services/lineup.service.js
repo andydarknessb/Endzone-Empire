@@ -1,4 +1,8 @@
 const pool = require('../modules/pool');
+// DEFAULT_ROSTER_SLOTS lives in a pure leaf (no load-time require) so the client
+// parity test can read it without pulling pg into jsdom (#677); re-exported below
+// so every existing consumer resolves the identical reference unchanged.
+const { DEFAULT_ROSTER_SLOTS } = require('./rosterSlots');
 const { isPickemOnly, PICKEM_ONLY_MESSAGE } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { computeByeWeeks } = require('./bye.service');
@@ -27,16 +31,6 @@ const POSITION_GROUPS = {
   LB: ['LB', 'ILB', 'OLB'],
   DB: ['DB', 'CB', 'S', 'FS', 'SS'],
 };
-
-const DEFAULT_ROSTER_SLOTS = [
-  { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
-  { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
-  { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
-  { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
-  { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
-  { key: 'K', label: 'K', count: 1, eligiblePositions: ['K'] },
-  { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
-];
 
 /** A slot's eligiblePositions, with any group key (DL/LB/DB) expanded to its member positions. */
 function expandEligibility(eligiblePositions) {
