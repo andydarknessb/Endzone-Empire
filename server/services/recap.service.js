@@ -215,6 +215,10 @@ async function generateWeeklyRecap({ leagueId, season, week }) {
   // not the column.
   let waiverSteal = null;
   try {
+    // No league row is not a reason to price the steal under the default
+    // rules - that is the exact miscount #739 exists to stop. Without the
+    // league's rules there is no league-priced steal to name, so leave it null.
+    if (!league) throw new Error('league not found; cannot price the waiver steal under its rules');
     const stealResult = await pool.query(
       `SELECT "players"."name" AS "player", "teams"."name" AS "team",
               "player_stats"."stats" AS "stats"

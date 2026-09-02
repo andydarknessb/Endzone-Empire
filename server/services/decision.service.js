@@ -454,8 +454,10 @@ async function isWeekFinal({ leagueId, season, week }) {
 
 /**
  * Actual vs. optimal lineup for one FINAL week: actual = the team's starters'
- * fantasy_points; optimal = optimalLineup() over the week AS PLAYED using
- * their actual fantasy_points.
+ * points; optimal = optimalLineup() over the week AS PLAYED using their actual
+ * points. Each player-week is priced from `player_stats.stats` under this
+ * league's rules (the settle pass's pricer, #739, ADR 0024), never the stored
+ * default-rules `fantasy_points` column.
  *
  * The pool is the settle pass's, read through `rowsHeldAsPlayed` (#736): a
  * row counts only if a tenure of this team covered its player's own kickoff
@@ -525,7 +527,9 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
 /**
  * LIVE (in-progress week) counterpart to weekHindsight: actual points so far
  * vs. the best legal lineup achievable from here, using each player's CURRENT
- * fantasy_points. Read-only — it never changes a lineup.
+ * points priced from `player_stats.stats` under this league's rules (the
+ * settle pass's pricer, #739, ADR 0024), not the stored default-rules
+ * `fantasy_points` column. Read-only — it never changes a lineup.
  *
  * Locks are respected: a player whose real game has kicked off can't be moved,
  * so locked players are excluded from swap suggestions entirely. The returned

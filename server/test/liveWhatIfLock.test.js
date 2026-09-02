@@ -159,8 +159,10 @@ test('#739 liveWhatIf prices the live week under the league rules, not the store
     rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
     scoringRules: { receiving: { reception: 1 } },
     entries: [
-      { ...RB_STARTER, slot: 'RB', stats: { rushingYards: 100 } }, // 10 under either rule
-      { ...RB_BENCH, slot: 'BENCH', stats: { receptions: 20 } }, // default 10, full PPR 20
+      // The stored column holds the half-PPR DEFAULT price for both; the
+      // reader must ignore it and price `stats` under the league's rules.
+      { ...RB_STARTER, slot: 'RB', stats: { rushingYards: 100 }, fantasy_points: 10 }, // 10 under either rule
+      { ...RB_BENCH, slot: 'BENCH', stats: { receptions: 20 }, fantasy_points: 10 }, // default 10, full PPR 20
     ],
     kickedOff: [],
   });
