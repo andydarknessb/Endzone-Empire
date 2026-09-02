@@ -28,8 +28,12 @@
  *     `count` and `eligiblePositions`, so a drift in either is real.
  *
  * So do not treat this as the only copy: changing the contents here does not
- * propagate to templates.js, but both client mirrors now have a test that
- * will notice.
+ * propagate to templates.js, and only templates.js has a test that will
+ * notice — lineupAttention.parity.test.js pins keys only, so a count or
+ * eligiblePositions drift passes it silently. There is also a third,
+ * unnamed and unpinned client copy: STANDARD_LINEUP in
+ * src/components/LeagueDashboard/CommissionerTools.jsx (same seven slots,
+ * minus `label`), out of scope for #692.
  */
 
 const DEFAULT_ROSTER_SLOTS = [
