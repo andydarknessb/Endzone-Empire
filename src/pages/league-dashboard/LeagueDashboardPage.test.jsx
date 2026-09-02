@@ -446,7 +446,7 @@ const matchupLeague = (overrides = {}) =>
     ...overrides,
   });
 
-// GET /api/league/:id/matchups?week=N — a BARE ARRAY (the real endpoint's
+// GET /api/league/:id/matchups?week=N - a BARE ARRAY (the real endpoint's
 // shape), carrying the raw matchups.* columns the pairing reads (id +
 // home/away_team_id). `attachExpectedFinals` also rides on the real row, but
 // the widget takes projections from the detail read, not the list, so the
@@ -466,7 +466,7 @@ const viewerUnpaired = [
   { id: 57, week: 1, season: 2026, home_team_id: 8, away_team_id: 2, final: false },
 ];
 
-// GET /api/league/:id/matchups/:matchupId — detail. The widget reads only each
+// GET /api/league/:id/matchups/:matchupId - detail. The widget reads only each
 // side's `expectedFinal` here (the field the matchup detail page renders under
 // a "Projected" label); names + avatars come from teams[], never the detail's
 // off-contract `name` column, so the fixture's names are deliberately wrong.
