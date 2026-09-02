@@ -4,6 +4,13 @@ import ScoringRulesView from './ScoringRulesView';
 import RosterRulesView from './RosterRulesView';
 import WaiverTradeRulesView from './WaiverTradeRulesView';
 import PlayoffRulesView from './PlayoffRulesView';
+import PickemRulesView from './PickemRulesView';
+import { clearPickemSettingsCache, setPickemSettings } from '../../hooks/usePickemSettings';
+
+// Each view's section titles are the level below "League Rules" (h4, in
+// LeagueRules.jsx) since none of these views nest a card or tab heading of
+// their own between the page title and the section titles (#703).
+const SECTION_HEADING_LEVEL = 5;
 
 const DEFAULTS = {
   passing: { yards: 0.04, touchdowns: 4 },
@@ -79,6 +86,16 @@ describe('ScoringRulesView', () => {
     expect(screen.getByText('Per yard over min')).toBeInTheDocument();
   });
 
+  it('gives each category title an explicit heading level, one below the page title, and keeps the subtitle1 type scale', () => {
+    render(<ScoringRulesView league={{ scoring_preset: 'standard', dp_enabled: true }} defaults={DEFAULTS} />);
+    const passingHeading = screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Passing' });
+    expect(passingHeading).toBeInTheDocument();
+    expect(passingHeading).toHaveClass('MuiTypography-subtitle1');
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Individual Defense (IDP)' })).toBeInTheDocument();
+    // No stray level-6 heading is left behind now that these are no longer h6.
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+  });
+
   it('flags a league whose rules were overridden', () => {
     render(
       <ScoringRulesView
@@ -120,6 +137,12 @@ describe('RosterRulesView', () => {
     render(<RosterRulesView league={{ ...league, position_caps: {} }} />);
     expect(screen.getByText(/No position limits/)).toBeInTheDocument();
   });
+
+  it('gives its section title an explicit heading level, one below the page title', () => {
+    render(<RosterRulesView league={league} />);
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Draft position limits' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+  });
 });
 
 describe('WaiverTradeRulesView', () => {
@@ -139,6 +162,13 @@ describe('WaiverTradeRulesView', () => {
     expect(screen.getByText('$200')).toBeInTheDocument();
     expect(screen.getByText('League vote (4)')).toBeInTheDocument();
     expect(screen.getByText(/Transactions are currently locked/)).toBeInTheDocument();
+  });
+
+  it('gives its two section titles an explicit heading level, one below the page title', () => {
+    render(<WaiverTradeRulesView league={{ waiver_type: 'priority', waiver_period_hours: 24, trade_review_hours: 24, trade_veto_votes: 0 }} />);
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Waivers' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Trades' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
   });
 });
 
@@ -162,5 +192,32 @@ describe('PlayoffRulesView', () => {
     expect(screen.getByText('Playoffs')).toBeInTheDocument();
     rerender(<PlayoffRulesView league={{ draft_status: 'complete', season_status: 'complete' }} />);
     expect(screen.getByText('Complete')).toBeInTheDocument();
+  });
+
+  it('gives its two section titles an explicit heading level, one below the page title', () => {
+    render(<PlayoffRulesView league={{
+      regular_season_weeks: 13, playoff_teams: 8, playoff_consolation: false,
+      keepers_enabled: true, keeper_count: 2,
+    }} />);
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Season shape' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Keepers' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
+  });
+});
+
+describe('PickemRulesView', () => {
+  beforeEach(() => {
+    clearPickemSettingsCache();
+    // The rules view reads the same cached settings the Pick'em page does, so
+    // seeding the cache is enough — no request of its own (see LeagueRules.test.jsx).
+    setPickemSettings(1, { enabled: true, mode: 'straight', isCommissioner: false });
+  });
+
+  it('gives its three section titles an explicit heading level, one below the page title', () => {
+    render(<PickemRulesView league={{ id: 1 }} />);
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Scoring' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Picks' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: SECTION_HEADING_LEVEL, name: 'Season' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
   });
 });

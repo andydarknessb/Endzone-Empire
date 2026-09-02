@@ -71,7 +71,7 @@ const CategorySection = React.forwardRef(function CategorySection({ category, va
 
   return (
     <Box component="section" ref={ref} aria-labelledby={sectionId(category)} sx={{ mb: 4, scrollMarginTop: 16 }}>
-      <Typography id={sectionId(category)} variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+      <Typography id={sectionId(category)} variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>
         {label}
       </Typography>
       {scalars.length > 0 && (

@@ -56,7 +56,7 @@ export default function RosterRulesView({ league }) {
       </Box>
 
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>Draft position limits</Typography>
+        <Typography variant="subtitle1" component="h5" sx={{ fontWeight: 600, mb: 1 }}>Draft position limits</Typography>
         {cappedPositions.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
             No position limits. You can draft any mix of positions.
