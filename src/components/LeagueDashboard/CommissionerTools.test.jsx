@@ -8,6 +8,11 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import CommissionerTools from './CommissionerTools';
+// Imported the way templates.parity.test.js reads the server leaf: rosterSlots
+// is a pure value module with no load-time require, so jsdom can pull it in
+// without dragging the pg pool into the bundle. This is the authority the
+// Standard template's rendered rows are pinned to below.
+import { DEFAULT_ROSTER_SLOTS as SERVER_DEFAULT_ROSTER_SLOTS } from '../../../server/services/rosterSlots';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -397,6 +402,45 @@ test('Add Slot appends an empty slot row for the commissioner to configure', asy
 
   await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
   expect(screen.getAllByLabelText('Slot Name')).toHaveLength(3);
+});
+
+// The Standard template is no longer a hand-kept literal in this file; it is
+// derived from the pinned client DEFAULT_ROSTER_SLOTS (templates.js), which is
+// held equal whole-object to the server leaf by templates.parity.test.js. This
+// pins the actual rendered form rows back to the server leaf independently, so
+// a drift between templates.js and the server standard shape fails here too,
+// not only in the draftSim parity test. Keys and counts, in order.
+test('stamping the Standard template renders the server leaf standard slots, in order', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+
+  const renderedKeys = screen.getAllByLabelText('Slot Name').map((input) => input.value);
+  const renderedCounts = screen.getAllByLabelText('Count').map((input) => Number(input.value));
+
+  expect(renderedKeys).toEqual(SERVER_DEFAULT_ROSTER_SLOTS.map((slot) => slot.key));
+  expect(renderedCounts).toEqual(SERVER_DEFAULT_ROSTER_SLOTS.map((slot) => slot.count));
+});
+
+// `label` rides along in form state (the derived slots carry it) but the save
+// handler picks exactly key/count/eligiblePositions, so it never reaches the
+// roster settings API. Assert the posted slots equal the server standard shape
+// minus `label`, and carry no `label` key at all.
+test('saving after stamping the Standard template posts slots with no label key', async () => {
+  apiClient.put.mockResolvedValue({});
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  const body = apiClient.put.mock.calls.at(-1)[1];
+  expect(body.rosterSlots).toEqual(
+    SERVER_DEFAULT_ROSTER_SLOTS.map(({ key, count, eligiblePositions }) => ({ key, count, eligiblePositions }))
+  );
+  body.rosterSlots.forEach((slot) => expect(slot).not.toHaveProperty('label'));
 });
 
 // --- Scoring Settings ---

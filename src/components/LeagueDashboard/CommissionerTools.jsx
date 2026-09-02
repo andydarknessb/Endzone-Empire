@@ -51,6 +51,7 @@ import {
   deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE, removability, removeRefusalMessage,
 } from '../../lib/leaguePhase';
 import { teamNameLabel } from '../../lib/teamIdentity';
+import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -610,26 +611,25 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
 // One-click lineup templates: known-good slot arrays a commissioner can stamp
 // in instead of hand-building rows. Applying one only replaces the local form
 // state — nothing is saved until Save Roster Settings.
-const STANDARD_LINEUP = [
-  { key: 'QB', count: 1, eligiblePositions: ['QB'] },
-  { key: 'RB', count: 2, eligiblePositions: ['RB'] },
-  { key: 'WR', count: 2, eligiblePositions: ['WR'] },
-  { key: 'TE', count: 1, eligiblePositions: ['TE'] },
-  { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
-  { key: 'K', count: 1, eligiblePositions: ['K'] },
-  { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
-];
+//
+// The base seven starting slots are the pinned client copy of the standard
+// roster shape (src/lib/draftSim/templates.js's DEFAULT_ROSTER_SLOTS, held
+// equal whole-object to the server leaf server/services/rosterSlots.js by
+// templates.parity.test.js), not a fourth hand-kept copy. Those slots carry a
+// `label` field the roster form does not use: the rows read key/count/
+// eligiblePositions and the save handler picks exactly those three before
+// posting, so `label` rides along in form state but never reaches the API.
 const LINEUP_TEMPLATES = [
-  { name: 'Standard', slots: STANDARD_LINEUP, dpEnabled: false },
+  { name: 'Standard', slots: DEFAULT_ROSTER_SLOTS, dpEnabled: false },
   {
     name: 'Superflex',
-    slots: [...STANDARD_LINEUP, { key: 'SFLX', count: 1, eligiblePositions: ['QB', 'RB', 'WR', 'TE'] }],
+    slots: [...DEFAULT_ROSTER_SLOTS, { key: 'SFLX', count: 1, eligiblePositions: ['QB', 'RB', 'WR', 'TE'] }],
     dpEnabled: false,
   },
   {
     name: 'IDP starter',
     slots: [
-      ...STANDARD_LINEUP,
+      ...DEFAULT_ROSTER_SLOTS,
       { key: 'DL', count: 1, eligiblePositions: ['DL'] },
       { key: 'LB', count: 1, eligiblePositions: ['LB'] },
       { key: 'DB', count: 1, eligiblePositions: ['DB'] },
