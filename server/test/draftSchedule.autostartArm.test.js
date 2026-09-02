@@ -52,6 +52,8 @@ const dueStartLeagueRow = (over = {}) => ({
 function workerStartPool(t, { leagueRow = dueStartLeagueRow(), onAutoPickRead } = {}) {
   const fake = createFakePool([
     [/^SELECT "id", "name", "owner_id", "draft_status", "draft_date"/, () => ({ rows: [leagueRow] })],
+    // The market gate's count (#747): a loaded market so the action stays 'start'.
+    [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
     [/^SELECT "owner_id" FROM "teams"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => {
@@ -192,6 +194,8 @@ function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keep
   return createFakePool([
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
+    // The market gate's count (#747): a loaded market so start is not refused.
+    [select('players'), () => ({ rows: [{ n: 500 }] })],
     [update('leagues'), (text, params) => {
       if (/'complete'/.test(text)) row.draft_status = 'complete';
       else if (/'active'/.test(text)) row.draft_status = 'active';

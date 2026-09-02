@@ -2,20 +2,25 @@ const pool = require('../modules/pool');
 const { notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySideWhereSql } = require('./leagueType');
+const { MARKET_FLOOR } = require('./adp.service');
 const pickClock = require('./pickClock.service');
 
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * Pure: given a pending league, its current team count, and the current time,
- * decide the single scheduled-draft action that is due right now.
- * Returns one of: 'start', 'auction_unsupported', 'understaffed', 'remind_1h',
- * 'remind_24h', or null.
+ * Pure: given a pending league, its current team count, the current time, and
+ * the global count of players carrying an ADP, decide the single scheduled-draft
+ * action that is due right now.
+ * Returns one of: 'start', 'auction_unsupported', 'understaffed', 'no_market',
+ * 'remind_1h', 'remind_24h', or null.
  *
  * league fields used: draft_status, draft_date, draft_type, min_teams,
  * draft_reminder_stage (0 none / 1 24h / 2 1h), draft_autostart_failed.
+ *
+ * marketCount defaults to Infinity so a caller that does not supply it never
+ * trips the market gate (the pre-#747 three-argument behaviour).
  */
-function scheduledDraftAction(league, teamCount, now) {
+function scheduledDraftAction(league, teamCount, now, marketCount = Infinity) {
   if (league.draft_status !== 'pending' || !league.draft_date) return null;
   const ms = new Date(league.draft_date).getTime() - now.getTime();
   if (ms <= 0) {
@@ -24,12 +29,28 @@ function scheduledDraftAction(league, teamCount, now) {
     if (league.draft_type === 'auction') {
       return league.draft_autostart_failed ? null : 'auction_unsupported';
     }
-    if (teamCount >= league.min_teams) return 'start';
-    return league.draft_autostart_failed ? null : 'understaffed';
+    if (teamCount < league.min_teams) {
+      return league.draft_autostart_failed ? null : 'understaffed';
+    }
+    // Staffed and due, but the market has not loaded (#747, decision 7): refuse
+    // the auto-start where a commissioner can still act, flagging once like
+    // understaffed rather than spinning every tick. The floor is checked after
+    // staffing so a league that is both short and market-less is nudged to add
+    // teams first.
+    if (marketCount < MARKET_FLOOR) {
+      return league.draft_autostart_failed ? null : 'no_market';
+    }
+    return 'start';
   }
   if (ms <= HOUR_MS && league.draft_reminder_stage < 2) return 'remind_1h';
   if (ms <= 24 * HOUR_MS && league.draft_reminder_stage < 1) return 'remind_24h';
   return null;
+}
+
+/** The global count of players carrying an ADP, the market gate's input (#747). */
+async function getMarketAdpCount() {
+  const res = await pool.query(`SELECT COUNT(*)::int AS n FROM "players" WHERE "adp" IS NOT NULL`);
+  return res.rows[0].n;
 }
 
 /** Best-effort web push to a league's owners who still want draft reminders. */
@@ -62,12 +83,17 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
        AND ${fantasySideWhereSql()}`
   );
 
+  // The market is one global column (#747), so read its count once per tick and
+  // feed it to every league's decision - but only when there is at least one
+  // pending-with-a-date league to decide about.
+  const marketCount = leaguesResult.rows.length > 0 ? await getMarketAdpCount() : Infinity;
+
   const actions = [];
   for (const league of leaguesResult.rows) {
-    const action = scheduledDraftAction(league, league.team_count, now);
+    const action = scheduledDraftAction(league, league.team_count, now, marketCount);
     if (!action) continue;
     try {
-      await runAction(league, action);
+      await runAction(league, action, marketCount);
       actions.push({ leagueId: league.id, action });
     } catch (err) {
       console.error('scheduled draft %s failed for league %s:', action, league.id, err.message);
@@ -76,7 +102,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
   return actions;
 }
 
-async function runAction(league, action) {
+async function runAction(league, action, marketCount = Infinity) {
   // 'start' delegates entirely to draftStart.service's startDraft(), which
   // does its own fresh SELECT ... FOR UPDATE + re-validation — running that
   // under this function's own lock too would have the two connections
@@ -95,13 +121,32 @@ async function runAction(league, action) {
       [league.id]
     );
     const row = fresh.rows[0];
-    // Recompute against the locked row; bail if the situation changed.
-    if (!row || scheduledDraftAction({ ...row, draft_status: row.draft_status }, row.team_count, new Date()) !== action) {
+    // Recompute against the locked row; bail if the situation changed. The
+    // market count is global (#747), so the same value the tick read is carried
+    // into the recompute rather than re-queried under the lock.
+    if (!row || scheduledDraftAction({ ...row, draft_status: row.draft_status }, row.team_count, new Date(), marketCount) !== action) {
       await client.query('ROLLBACK');
       return;
     }
 
-    if (action === 'understaffed') {
+    if (action === 'no_market') {
+      // Staffed and due, but the market has not loaded (#747). Flag once and tell
+      // the commissioners with a NEW notification type (draft_no_market, free
+      // text, no client switch) so it is not conflated with understaffing.
+      await client.query(
+        `UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = $1`,
+        [league.id]
+      );
+      await notifyCommissioners(client, {
+        leagueId: league.id,
+        ownerId: league.owner_id,
+        type: 'draft_no_market',
+        message: `${league.name} couldn't auto-start: the player market has not loaded `
+          + `(${marketCount} of ${MARKET_FLOOR} players carry an ADP). `
+          + 'Ask your admin to run the ADP sync, then start the draft manually or reschedule.',
+        data: { url: `/#/league/${league.id}` },
+      });
+    } else if (action === 'understaffed') {
       await client.query(
         `UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = $1`,
         [league.id]
