@@ -71,7 +71,10 @@ export default function CommissionerPanel({ leagueId }) {
             variant="text"
             onClick={() => setAdminOpen((open) => !open)}
             aria-expanded={adminOpen}
-            aria-controls="commissioner-panel-administration"
+            // Names the region only while it exists (the tools mount on expand),
+            // matching the disclosure convention in EmojiPicker / GifComposer; a
+            // static reference here would dangle whenever the panel is collapsed.
+            aria-controls={adminOpen ? 'commissioner-panel-administration' : undefined}
             endIcon={
               <ExpandMoreIcon
                 sx={{

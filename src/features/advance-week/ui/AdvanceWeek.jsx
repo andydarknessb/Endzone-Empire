@@ -108,10 +108,19 @@ export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
         </Alert>
       )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} aria-labelledby="advance-week-dialog-title">
+      {/* aria-describedby names the consequence sentence, not only the title:
+          MUI moves focus to the first action (Cancel) on open, so without it a
+          screen reader announces the dialog name and the focused button but not
+          the "cannot be undone" warning, and this action is irreversible. */}
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        aria-labelledby="advance-week-dialog-title"
+        aria-describedby="advance-week-dialog-description"
+      >
         <DialogTitle id="advance-week-dialog-title">{`Advance to Week ${nextWeek}?`}</DialogTitle>
         <DialogContent>
-          <DialogContentText>
+          <DialogContentText id="advance-week-dialog-description">
             {`This closes Week ${currentWeek} matchups and opens Week ${nextWeek}. Week ${currentWeek} is scored as played, and this cannot be undone from here.`}
           </DialogContentText>
         </DialogContent>
