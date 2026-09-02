@@ -21,9 +21,9 @@ describe('PlayerCard name truncation', () => {
 
     // Must stay out of the heading tree. This also rejects the tempting wrong
     // fix of component="h6": an <h6> is a block box too, so it would make noWrap
-    // work again, but it would put the player name in the heading outline. In
-    // the themed app the name has always been a block <p> (the theme maps
-    // subtitle2 -> p), never a heading, so a non-heading block is the target.
+    // work again, but it would put the player name in the heading outline.
+    // Since #711 the theme maps subtitle2 to p, so in the themed app the name is
+    // a block <p> and not a heading; that is the target here.
     expect(screen.queryByRole('heading')).toBeNull();
 
     // Must be a block box. This is the assertion that fails on the broken
