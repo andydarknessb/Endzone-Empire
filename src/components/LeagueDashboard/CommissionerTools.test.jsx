@@ -95,6 +95,23 @@ beforeEach(() => {
   mockGetByUrl();
 });
 
+// #682: the title used to render <h6>, directly under the commissioner-panel
+// Card's <h2>, skipping heading levels 3-5 (axe heading-order). It now renders
+// <h3> via `component="h3"` while keeping the `h6` type scale via `variant`,
+// so this only proves the title's own level and visual style - not that the
+// panel's whole heading sequence is contiguous. It is not: 16 `subtitle2`
+// section labels elsewhere in this component (e.g. "Trade Deadline", "Waiver
+// System Type") still render as <h6> by MUI's default variantMapping, which
+// after this fix skip levels 4-5 under this title. That sweep is #695, not
+// this ticket - see the CommissionerTools doc comment for why it isn't done
+// here.
+test('the title renders as a level-3 heading, keeping its h6 visual style', async () => {
+  renderTools();
+  const heading = screen.getByRole('heading', { level: 3, name: 'Commissioner Tools' });
+  expect(heading.tagName).toBe('H3');
+  expect(heading).toHaveClass('MuiTypography-h6');
+});
+
 test('renders all six tabs, defaulting to General Settings', async () => {
   renderTools();
   // MUI's Tabs indicator repositions via a MutationObserver after mount (see

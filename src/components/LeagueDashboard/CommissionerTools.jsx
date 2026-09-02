@@ -1701,6 +1701,15 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
   return (
     <Paper sx={{ mt: 3 }}>
       <Box sx={{ p: 2, pb: 0 }}>
+        {/* #682: this title sits directly under the commissioner-panel Card's
+            <h2> and used to render <h6> itself, skipping levels 3-5 (axe
+            heading-order). `component="h3"` fixes this title's own level
+            while `variant="h6"` keeps its visual style unchanged. It does NOT
+            make the panel's whole heading sequence contiguous: the
+            `variant="subtitle2"` labels below (Trade Deadline, Waiver System
+            Type, etc.) still render <h6> by MUI's default variantMapping, so
+            they now skip levels 4-5 under this h3. That sweep, and whether
+            each of those 16 sites should be a heading at all, is #695. */}
         <Typography variant="h6" component="h3">Commissioner Tools</Typography>
       </Box>
       <Tabs
