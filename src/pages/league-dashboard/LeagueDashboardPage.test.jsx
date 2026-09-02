@@ -638,3 +638,157 @@ test('matchup card: a failed detail read degrades the projected totals to a plac
   // The detail read has settled, so the card is no longer busy.
   expect(card).toHaveAttribute('aria-busy', 'false');
 });
+
+// ==========================================================================
+// draft-grades widget (#642), the rail-top slot. Same seam as the section
+// above: add the endpoint override to a per-test `mockGetByUrl` map, no
+// shared setup changes.
+//
+// This widget reads the SAME /api/league/:id/draft-grades endpoint as
+// my-team-summary above, and AC1 pins the very values (grade C, roster value
+// 1,284) that #639's fixture already renders inside its own card. Every
+// value assertion here is scoped with within(card) (the widget's own card)
+// or within(row) (one row of it), never a page-wide getBy*/findBy*, so this
+// section never collides with the section above it or with a sibling ticket
+// rendering the same numbers.
+// ==========================================================================
+
+// 12 Teams, matching the dashboard-concept mockup's Draft Grades rail: the
+// viewer (teamId 1) sits at rank 6 with grade C and roster value 1,284, and
+// the top roster value (1,592) belongs to a different Team. `teamName` is the
+// canonical Team-identity field (teamIdentity.js); `name` here is the raw
+// column the league route also leaks (carry-over comment #5) and must NOT be
+// what the card renders.
+const draftGradesRailTeams = [
+  { teamId: 2, id: 2, teamName: 'Terrific T', name: 'raw-2' },
+  { teamId: 3, id: 3, teamName: 'Mike Mike Mike', name: 'raw-3' },
+  { teamId: 4, id: 4, teamName: 'Nanagoat', name: 'raw-4' },
+  { teamId: 5, id: 5, teamName: 'Lo Expectations', name: 'raw-5' },
+  { teamId: 6, id: 6, teamName: 'Fourth and Slong', name: 'raw-6' },
+  { teamId: 1, id: 1, teamName: 'MyBallsHurts', name: 'raw-1' },
+  { teamId: 7, id: 7, teamName: 'Skattebo Stans', name: 'raw-7' },
+  { teamId: 8, id: 8, teamName: 'Bussin Team', name: 'raw-8' },
+  { teamId: 9, id: 9, teamName: 'Team Ramrod', name: 'raw-9' },
+  { teamId: 10, id: 10, teamName: 'Keep My Team Name', name: 'raw-10' },
+  { teamId: 11, id: 11, teamName: 'Hank Da Tank', name: 'raw-11' },
+  { teamId: 12, id: 12, teamName: 'Bigpapa6', name: 'raw-12' },
+];
+
+const draftGradesRailLeague = (overrides = {}) =>
+  leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+    teams: draftGradesRailTeams,
+    viewerTeamId: 1,
+    ...overrides,
+  });
+
+// GET /api/league/:id/draft-grades, 12 rows in rank order (the server already
+// ranks best-first). Each row's `name` is a decoy raw column deliberately
+// different from the matching Team's `teamName` above, so a test that reads
+// it by mistake fails loudly instead of passing by coincidence.
+const draftGradesRailResponse = () => ({
+  data: {
+    computedAt: '2026-09-01T00:00:00.000Z',
+    grades: [
+      { teamId: 2, name: 'raw-2', grade: 'A', rosterValue: 1592, rank: 1 },
+      { teamId: 3, name: 'raw-3', grade: 'A', rosterValue: 1548, rank: 2 },
+      { teamId: 4, name: 'raw-4', grade: 'A', rosterValue: 1501, rank: 3 },
+      { teamId: 5, name: 'raw-5', grade: 'A', rosterValue: 1477, rank: 4 },
+      { teamId: 6, name: 'raw-6', grade: 'B', rosterValue: 1390, rank: 5 },
+      { teamId: 1, name: 'raw-1', grade: 'C', rosterValue: 1284, rank: 6 },
+      { teamId: 7, name: 'raw-7', grade: 'C', rosterValue: 1241, rank: 7 },
+      { teamId: 8, name: 'raw-8', grade: 'D', rosterValue: 1144, rank: 8 },
+      { teamId: 9, name: 'raw-9', grade: 'D', rosterValue: 1120, rank: 9 },
+      { teamId: 10, name: 'raw-10', grade: 'D', rosterValue: 1082, rank: 10 },
+      { teamId: 11, name: 'raw-11', grade: 'F', rosterValue: 968, rank: 11 },
+      { teamId: 12, name: 'raw-12', grade: 'F', rosterValue: 902, rank: 12 },
+    ],
+  },
+});
+
+test('draft-grades card: heading, Roster value tail, 12 rows in rank order with Team names from teams[]', async () => {
+  mockGetByUrl({
+    '/api/league/1': draftGradesRailLeague(),
+    '/api/league/1/draft-grades': draftGradesRailResponse(),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
+  expect(within(card).getByText('Roster value')).toBeInTheDocument();
+
+  // Rank order (response order), read from teams[] rather than the grades
+  // response's own (decoy) `name` field.
+  const expectedOrder = [
+    'Terrific T',
+    'Mike Mike Mike',
+    'Nanagoat',
+    'Lo Expectations',
+    'Fourth and Slong',
+    'MyBallsHurts',
+    'Skattebo Stans',
+    'Bussin Team',
+    'Team Ramrod',
+    'Keep My Team Name',
+    'Hank Da Tank',
+    'Bigpapa6',
+  ];
+  const rows = await within(card).findAllByRole('row');
+  expect(rows).toHaveLength(12);
+  expectedOrder.forEach((name, i) => {
+    expect(within(rows[i]).getByText(name)).toBeInTheDocument();
+  });
+  // None of the decoy raw names ever render.
+  expect(within(card).queryByText(/^raw-/)).not.toBeInTheDocument();
+
+  // The viewer's own row (teamId 1): scoped to that row so its "C" chip and
+  // "1,284" value cannot collide with my-team-summary's card above, which
+  // renders the same grade and value for the same viewer.
+  const viewerRow = within(card).getByTestId('draft-grades-row-1');
+  expect(within(viewerRow).getByRole('img', { name: 'Grade C' })).toBeInTheDocument();
+  expect(within(viewerRow).getByText('1,284')).toBeInTheDocument();
+
+  const bar = within(viewerRow).getByRole('progressbar');
+  expect(bar).toHaveAttribute('aria-valuenow', '1284');
+  expect(bar).toHaveAttribute('aria-valuemax', '1592');
+  // Without aria-valuetext, AT reads the value as a percentage of min/max
+  // (81%) instead of the roster value itself.
+  expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
+
+  // The row is identifiable to assistive tech, not by color alone (WCAG
+  // 1.4.1): a visually-hidden marker, present only on the viewer's row.
+  expect(within(viewerRow).getByText('Your team')).toBeInTheDocument();
+  expect(within(rows[1]).queryByText('Your team')).not.toBeInTheDocument();
+});
+
+test('draft-grades card: a 404 renders the pending copy with no error', async () => {
+  mockGetByUrl({
+    '/api/league/1': draftGradesRailLeague(),
+    '/api/league/1/draft-grades': { reject: { response: { status: 404 } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  expect(await within(card).findByTestId('draft-grades-pending')).toHaveTextContent(
+    'Draft grades arrive once the draft is complete.'
+  );
+  expect(within(card).queryByRole('alert')).not.toBeInTheDocument();
+  expect(within(card).queryByTestId('draft-grades-error')).not.toBeInTheDocument();
+  // The card's own header still renders even when the read fails.
+  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
+});
+
+test('draft-grades card: a 500 shows a compact error, and the header still renders', async () => {
+  mockGetByUrl({
+    '/api/league/1': draftGradesRailLeague(),
+    '/api/league/1/draft-grades': { reject: { response: { status: 500, data: { error: 'boom' } } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  const alert = await within(card).findByRole('alert');
+  expect(alert).toHaveAttribute('data-testid', 'draft-grades-error');
+  expect(alert).toHaveTextContent(/could not load/i);
+  expect(within(card).queryByTestId('draft-grades-pending')).not.toBeInTheDocument();
+  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
+});

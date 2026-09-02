@@ -294,6 +294,12 @@ const PAIRINGS = [
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a stat tile', 'dash-surface2'),
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the raised tile', 'dash-surface3'),
   pairing('dash-faint', 'dash-accent-soft', AA_TEXT, 'the me-row rank cell on the accent tint over a card (the only guarded tinted-faint backdrop)', 'dash-surface'),
+  // draft-grades widget (#642): the roster-value number in the viewer's own
+  // (tinted) row. First dim-on-tint consumer in this group; the guidance
+  // above warns dim fails the tint on the raised tile (dash-surface3), but
+  // this widget's tint is only ever painted on the card itself
+  // (dash-surface), where it clears AA_TEXT (5.15 light / 5.36 dark).
+  pairing('dash-dim', 'dash-accent-soft', AA_TEXT, 'the draft-grades roster value on the accent tint over a card', 'dash-surface'),
   // GradeChip: the fixed dark `dash-on-grade` letter on each of the five grade
   // fills. AA_TEXT since the letter is small (a 26px round chip, ~14px glyph).
   pairing('dash-on-grade', 'dash-grade-a', AA_TEXT, 'grade A chip letter'),
