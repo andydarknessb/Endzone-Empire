@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import Typography from '@mui/material/Typography';
 import AppThemeProvider, { useThemeMode, buildTheme, initialMode } from './AppThemeProvider';
 import { colorTokens } from './tokens';
 
@@ -76,4 +77,59 @@ test.each(['light', 'dark'])('%s theme gives every table row an opaque base back
   const rowOverrides = theme.components.MuiTableBody.styleOverrides.root;
 
   expect(rowOverrides['& .MuiTableRow-root'].backgroundColor).toBe(c.surface);
+});
+
+// #701: subtitle1/subtitle2 carry type scale only. The theme's MuiTypography
+// variantMapping renders them as <p> by default (MUI's default is <h6>), so an
+// unqualified subtitle never injects a stray level-6 heading into the a11y
+// tree; heading levels are always explicit via `component` (see the ADR).
+// These render THROUGH AppThemeProvider on purpose: the shared
+// renderWithProviders does not mount the theme, so a bare render would still
+// resolve MUI's default <h6> and prove nothing about the policy.
+describe('subtitle variants default to <p> under the theme (#701)', () => {
+  test('subtitle1 renders <p> and keeps its MuiTypography-subtitle1 type scale', () => {
+    render(
+      <AppThemeProvider>
+        <Typography variant="subtitle1">Subtitle one</Typography>
+      </AppThemeProvider>
+    );
+
+    const el = screen.getByText('Subtitle one');
+    expect(el.tagName).toBe('P');
+    expect(el).toHaveClass('MuiTypography-subtitle1');
+  });
+
+  test('subtitle2 renders <p> and keeps its MuiTypography-subtitle2 type scale', () => {
+    render(
+      <AppThemeProvider>
+        <Typography variant="subtitle2">Subtitle two</Typography>
+      </AppThemeProvider>
+    );
+
+    const el = screen.getByText('Subtitle two');
+    expect(el.tagName).toBe('P');
+    expect(el).toHaveClass('MuiTypography-subtitle2');
+  });
+
+  test('an explicit component still wins over the subtitle default', () => {
+    render(
+      <AppThemeProvider>
+        <Typography variant="subtitle2" component="h3">Explicit heading</Typography>
+      </AppThemeProvider>
+    );
+
+    expect(screen.getByText('Explicit heading').tagName).toBe('H3');
+  });
+
+  test('other variants keep their default mapping (h6 stays H6, body1 stays P)', () => {
+    render(
+      <AppThemeProvider>
+        <Typography variant="h6">Real heading</Typography>
+        <Typography variant="body1">Body copy</Typography>
+      </AppThemeProvider>
+    );
+
+    expect(screen.getByText('Real heading').tagName).toBe('H6');
+    expect(screen.getByText('Body copy').tagName).toBe('P');
+  });
 });
