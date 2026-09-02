@@ -5,6 +5,7 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { invalidate } from '../../lib/resourceCache';
+import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import LeagueDashboardPage from './index';
 
 // The page reads the league through the shared apiClient (via useLeague ->
@@ -17,6 +18,57 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
+// The four legacy surfaces the cutover (#645) composes "as-is" are mocked as
+// lightweight stand-ins: each has its own dedicated test file, carries its own
+// socket/Redux/self-fetching machinery, and is composed here only for its
+// presence and the conditions it mounts under. Mocking them keeps this page
+// test on the ONE apiClient seam above (no socket mock, no pick'em cache setup)
+// and isolates what the cutover actually adds: the composition gating and the
+// page's own chat launcher/badge markup, which stay real below.
+//
+// The chat panel stand-in reports `mockChatUnread` up through onUnreadChange on
+// mount, so a test can drive the launcher's badge without reaching into the
+// closed persistent drawer (whose paper MUI hides while closed).
+let mockChatUnread = 0;
+jest.mock('../../components/ChatPanel/ChatPanel', () => {
+  const ReactLib = require('react');
+  function MockChatPanel({ onUnreadChange }) {
+    ReactLib.useEffect(() => {
+      if (onUnreadChange) onUnreadChange(mockChatUnread);
+    }, [onUnreadChange]);
+    return ReactLib.createElement('div', { 'data-testid': 'mock-chat-panel' });
+  }
+  return { __esModule: true, default: MockChatPanel };
+});
+jest.mock('../../components/RecapCard/RecapCard', () => {
+  const ReactLib = require('react');
+  return {
+    __esModule: true,
+    default: ({ leagueId }) =>
+      ReactLib.createElement('div', { 'data-testid': 'recap-card' }, `recap ${leagueId}`),
+  };
+});
+jest.mock('../../components/TrophyCase/TrophyCase', () => {
+  const ReactLib = require('react');
+  return {
+    __esModule: true,
+    default: ({ leagueId }) =>
+      ReactLib.createElement('div', { 'data-testid': 'trophy-case' }, `trophies ${leagueId}`),
+  };
+});
+jest.mock('../../components/LeaguePickem/PickemStandings', () => {
+  const ReactLib = require('react');
+  return {
+    __esModule: true,
+    default: ({ leagueId, season }) =>
+      ReactLib.createElement(
+        'div',
+        { 'data-testid': 'pickem-standings' },
+        `pickem ${leagueId} ${String(season)}`
+      ),
+  };
+});
+
 beforeEach(() => {
   // Clear ALL shared resource caches (ADR 0004), not the league alone: the
   // dashboard widgets read cached resources that are module state and outlive a
@@ -27,6 +79,8 @@ beforeEach(() => {
   invalidate(undefined, { reload: false });
   // The copy-invite feature writes to the clipboard; jsdom has none by default.
   Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
+  // The chat stand-in reports no unread by default; the badge test opts in.
+  mockChatUnread = 0;
 });
 
 afterEach(() => {
@@ -1431,4 +1485,268 @@ test('commissioner-panel: expanding League administration mounts the legacy comm
   // "Commissioner Tools" header), composed as-is with the props the legacy page
   // gives it.
   expect(await within(card).findByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
+});
+
+// ==========================================================================
+// Route cutover + parity (#645), the ninth slice. This section proves the
+// composition the cutover adds: the four legacy surfaces (chat launcher, recap,
+// trophy case, pick'em standings) mount under the same conditions the legacy
+// page used, the fantasy vs pick'em-only bodies differ, live team identity
+// writes through to every widget, and a widget's failed read never blanks the
+// page. The four legacy surfaces are the mocked stand-ins declared at the top
+// of this file; the widget slices and the page's own chat launcher markup are
+// real. Fixtures are slugged `cutover*` (namespace fence, #643 addendum).
+// ==========================================================================
+
+// Count of GETs to the shared league detail URL: AC4's "no second league GET".
+const cutoverLeagueGetCount = () =>
+  apiClient.get.mock.calls.filter(([url]) => url === '/api/league/1').length;
+
+// GETs that only a fantasy slice makes: scoring standings, matchups, or draft
+// grades. AC3 requires a pick'em-only page to fire none of them.
+const cutoverFantasyGets = () =>
+  apiClient.get.mock.calls
+    .map(([url]) => url)
+    .filter(
+      (url) =>
+        typeof url === 'string' &&
+        (/\/api\/scoring\/league\/\d+\/standings/.test(url) ||
+          /\/api\/league\/\d+\/matchups(\?|\/|$)/.test(url) ||
+          /\/api\/league\/\d+\/draft-grades/.test(url))
+    );
+
+test('cutover: a fantasy member composes the chat launcher, recap and trophy case alongside the five member widget slices', async () => {
+  // inSeasonLeague() is a member (is_commissioner false, no invite_code) with a
+  // draft-complete, in-season, 12-team league.
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+
+  // Five of the six widget slices render for a member; the sixth, the
+  // commissioner panel, mounts in the rail but returns null for a non-
+  // commissioner by #644's design, so its own card is absent.
+  expect(screen.getByTestId('slot-my-team')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-matchup-preview')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-standings')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-draft-grades')).toBeInTheDocument();
+  expect(screen.getByTestId('dashboard-quick-actions')).toBeInTheDocument();
+  expect(screen.queryByTestId('commissioner-panel')).not.toBeInTheDocument();
+
+  // The composed-as-is fantasy surfaces.
+  expect(screen.getByTestId('recap-card')).toBeInTheDocument();
+  expect(screen.getByTestId('trophy-case')).toBeInTheDocument();
+  // Pick'em standings never mount on a fantasy league.
+  expect(screen.queryByTestId('pickem-standings')).not.toBeInTheDocument();
+
+  // The chat launcher renders for every member, with no unread badge yet.
+  expect(screen.getByRole('button', { name: 'Open league chat' })).toBeInTheDocument();
+});
+
+test('cutover: the chat launcher carries the unread count the chat panel reports', async () => {
+  // The chat stand-in reports this on mount, standing in for messages that
+  // arrived while the drawer was closed.
+  mockChatUnread = 3;
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  // The launcher's accessible name carries the count (so a screen-reader user
+  // hears it without opening the drawer) and the badge shows it.
+  const launcher = await screen.findByRole('button', {
+    name: 'Open league chat, 3 unread messages',
+  });
+  expect(within(launcher).getByText('3')).toBeInTheDocument();
+});
+
+test("cutover: a pick'em-only member shows pick'em standings and the Pick'em action, omits every fantasy slice, and fires no fantasy read", async () => {
+  // pickemOnlyLeague() is a member, pickem_only, in season at week 6.
+  mockGetByUrl({ '/api/league/1': pickemOnlyLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+
+  // The pick'em body stands in for the fantasy hero/main grid.
+  expect(screen.getByTestId('pickem-standings')).toBeInTheDocument();
+  // The Pick'em action, from the quick-actions widget (which trims itself to
+  // the pick'em surfaces).
+  const quickActions = screen.getByTestId('quick-actions');
+  expect(within(quickActions).getByTestId('quick-action-pickem')).toBeInTheDocument();
+  // The trophy case is common to both league kinds: a completed pick'em season
+  // earns a pickem_champion trophy, so gating it on fantasy would drop it.
+  expect(screen.getByTestId('trophy-case')).toBeInTheDocument();
+
+  // No fantasy slices, no fantasy layout regions, no recap, no advance control.
+  expect(screen.queryByTestId('dashboard-hero')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('dashboard-main')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-my-team')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-matchup-preview')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-standings')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-draft-grades')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('recap-card')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
+
+  // The dispatcher recorded no scoring-standings, matchups or draft-grades GET.
+  expect(cutoverFantasyGets()).toEqual([]);
+});
+
+// A fantasy league whose teams[] both the standings table and the draft-grades
+// rail read (each joins its response rows to teams[] by teamId and renders
+// teamName). Team 7 is 'Skattebo Stans' in both until a profile update renames
+// it. Reuses the draft-grades rail fixtures established earlier in this file.
+const cutoverLiveIdentityMocks = {
+  '/api/league/1': draftGradesRailLeague(),
+  '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
+  '/api/league/1/draft-grades': draftGradesRailResponse(),
+};
+
+test('cutover: a team-profile rename writes through to the standings and draft-grades rows with no second league GET', async () => {
+  mockGetByUrl(cutoverLiveIdentityMocks);
+  renderPage();
+
+  const standingsCard = await screen.findByTestId('standings-table');
+  const draftGradesCard = await screen.findByTestId('draft-grades');
+  // Team 7's canonical name renders in both widgets, each read from teams[].
+  await within(standingsCard).findByText('Skattebo Stans');
+  const gradesRow7 = within(draftGradesCard).getByTestId('draft-grades-row-7');
+  expect(within(gradesRow7).getByText('Skattebo Stans')).toBeInTheDocument();
+
+  // The single league GET that fed both widgets (they dedupe on the shared
+  // useLeague entry).
+  expect(cutoverLeagueGetCount()).toBe(1);
+
+  // Another manager's session publishes a rename for Team 7.
+  act(() => {
+    publishTeamProfileUpdate({ leagueId: 1, teamId: 7, name: 'Renamed Seven' });
+  });
+
+  // Both rows re-render with the new name, from the shared teams[] write-through.
+  await within(standingsCard).findByText('Renamed Seven');
+  await within(gradesRow7).findByText('Renamed Seven');
+  expect(within(standingsCard).queryByText('Skattebo Stans')).not.toBeInTheDocument();
+  expect(within(gradesRow7).queryByText('Skattebo Stans')).not.toBeInTheDocument();
+
+  // The write-through made no request: still exactly one league GET.
+  expect(cutoverLeagueGetCount()).toBe(1);
+});
+
+test('cutover: a standings 500 errors the my-team card while matchup, draft grades, quick actions and the header render', async () => {
+  // Everything resolves except the shared standings read, which 500s. Per #641
+  // that one read feeds both my-team and the standings table, so both surface an
+  // error; AC5 only claims the other four surfaces stay normal, which they do.
+  // The matchups list is left to the dispatcher's empty fallback, so matchup
+  // preview settles on its own honest empty state, not an error.
+  mockGetByUrl({
+    '/api/league/1': draftGradesRailLeague(),
+    '/api/scoring/league/1/standings': { reject: { response: { status: 500 } } },
+    '/api/league/1/draft-grades': draftGradesRailResponse(),
+  });
+  renderPage();
+
+  // Header renders normally.
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+
+  // The my-team card shows its own compact error.
+  const myTeam = await screen.findByTestId('my-team-summary');
+  expect(await within(myTeam).findByTestId('my-team-error')).toBeInTheDocument();
+
+  // Matchup preview renders (no error) rather than being blanked by the
+  // standings failure.
+  const matchup = screen.getByTestId('matchup-preview');
+  expect(within(matchup).queryByTestId('matchup-preview-error')).not.toBeInTheDocument();
+
+  // Draft grades render their rail (no error).
+  const draftGrades = screen.getByTestId('draft-grades');
+  expect(await within(draftGrades).findByTestId('draft-grades-row-1')).toBeInTheDocument();
+  expect(within(draftGrades).queryByTestId('draft-grades-error')).not.toBeInTheDocument();
+
+  // Quick actions render.
+  expect(screen.getByTestId('quick-actions')).toBeInTheDocument();
+});
+
+// A pre-draft fantasy league with a scheduled draft. draft_status 'pending'
+// derives to the pre-draft phase; draft_date is a far-future instant so the
+// countdown never expires mid-test.
+const cutoverPreDraftLeague = (overrides = {}) =>
+  leagueDetail({
+    league: {
+      draft_status: 'pending',
+      draft_date: '2099-09-01T18:00:00.000Z',
+      draft_timezone: 'America/New_York',
+      ...overrides,
+    },
+    teams: buildTeams(8),
+  });
+
+test('cutover: a pre-draft fantasy league with a draft_date renders the draft countdown; nothing else does', async () => {
+  mockGetByUrl({ '/api/league/1': cutoverPreDraftLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const countdown = screen.getByTestId('slot-draft-countdown');
+  // It is the real Countdown in its full variant, not an empty box: the
+  // add-to-calendar control renders because leagueId and leagueName are passed.
+  expect(within(countdown).getByRole('button', { name: 'Add to calendar' })).toBeInTheDocument();
+});
+
+test('cutover: no draft countdown once the draft_date is absent, past pre-draft, or pick\'em-only', async () => {
+  // Pre-draft but no date set: the surface is gated off (matches legacy).
+  mockGetByUrl({ '/api/league/1': preDraftLeague() });
+  const { unmount } = renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
+  unmount();
+
+  // In season (past pre-draft): gated off even with a date present.
+  invalidate(undefined, { reload: false });
+  mockGetByUrl({ '/api/league/1': inSeasonLeague({ draft_date: '2099-09-01T18:00:00.000Z' }) });
+  const { unmount: unmount2 } = renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
+  unmount2();
+
+  // Pick'em-only: no draft at all.
+  invalidate(undefined, { reload: false });
+  mockGetByUrl({ '/api/league/1': pickemOnlyLeague({ draft_date: '2099-09-01T18:00:00.000Z' }) });
+  renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
+});
+
+// A pre-draft fantasy league whose viewer (teamId 1) is the commissioner, so
+// the commissioner panel can disclose the legacy CommissionerTools. Team 7
+// carries a raw `name` deliberately different from its canonical `teamName`, so
+// the test can prove the write-through patches the raw column CommissionerTools
+// renders (its removable-teams list), not only the teamName the widgets read.
+const cutoverCommissionerTeams = [
+  { teamId: 1, id: 1, name: 'Owner Raw', teamName: 'Owner Canon', avatar_url: null, avatar_static_url: null },
+  { teamId: 7, id: 7, name: 'RawSeven', teamName: 'CanonSeven', avatar_url: null, avatar_static_url: null },
+  { teamId: 8, id: 8, name: 'RawEight', teamName: 'CanonEight', avatar_url: null, avatar_static_url: null },
+];
+
+test('cutover: a team-profile rename also patches the raw name column CommissionerTools reads', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'pending', is_commissioner: true },
+      teams: cutoverCommissionerTeams,
+      viewerTeamId: 1,
+    }),
+  });
+  renderPage();
+
+  const panel = await screen.findByTestId('commissioner-panel');
+  await userEvent.click(within(panel).getByRole('button', { name: /league administration/i }));
+
+  // CommissionerTools' removable-teams list renders each team's RAW name (Team 7
+  // is removable: not the viewer's own team, pre-draft so the list is live).
+  expect(await within(panel).findByRole('button', { name: 'Remove RawSeven' })).toBeInTheDocument();
+
+  // Another manager renames Team 7.
+  act(() => {
+    publishTeamProfileUpdate({ leagueId: 1, teamId: 7, name: 'Renamed Seven' });
+  });
+
+  // The raw column updates live in the commissioner tools, as it did on the
+  // legacy page (the write-through patches both `name` and `teamName`).
+  expect(await within(panel).findByRole('button', { name: 'Remove Renamed Seven' })).toBeInTheDocument();
+  expect(within(panel).queryByRole('button', { name: 'Remove RawSeven' })).not.toBeInTheDocument();
 });
