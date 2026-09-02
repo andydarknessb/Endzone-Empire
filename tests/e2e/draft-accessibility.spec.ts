@@ -175,9 +175,27 @@ test.describe('Draft room accessibility (#445)', () => {
     const log = page.getByRole('log', { name: 'League Chat' });
     await expect(log).toBeVisible();
 
-    // Scroll up into older content (fires the scroll handler that records the
-    // reader is no longer at the bottom).
-    await log.evaluate((el) => { el.scrollTop = 0; });
+    // Scroll up into older content. Assigning scrollTop only QUEUES a scroll
+    // event for the next rendering frame; it does not run the handler that
+    // flips atBottomRef synchronously. Under CPU contention no frame need
+    // elapse before the next page.evaluate below delivers the 26th message,
+    // so the handler must be fired explicitly, in this same round trip, to
+    // guarantee atBottomRef is false before that message lands.
+    await log.evaluate((el) => {
+      // Precondition the jump control depends on: the log overflows by MORE
+      // than handleScroll's own at-bottom tolerance (ChatConversation.jsx:293,
+      // atBottom = scrollHeight - scrollTop - clientHeight <= 24). Mirroring
+      // that 24px threshold here, not just checking for zero overflow, matters
+      // because with scrollTop driven to 0, atBottom is still true whenever
+      // overflow is 24px or less - a layout change that leaves the log in that
+      // marginal band would otherwise slip past this guard and die later on
+      // the missing jump button instead of failing here with a clear message.
+      if (el.scrollHeight - el.clientHeight <= 24) {
+        throw new Error(`log does not overflow past the 24px at-bottom tolerance: scrollHeight=${el.scrollHeight} clientHeight=${el.clientHeight}`);
+      }
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll'));
+    });
 
     // A new message arrives while they read: the N-new affordance appears.
     await deliver(page, 'chat:message', chatMsg(26, 'Ridge Runners', 'over here'));
