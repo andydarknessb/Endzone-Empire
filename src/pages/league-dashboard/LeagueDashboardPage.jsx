@@ -8,6 +8,7 @@ import MyTeamSummary from '../../widgets/my-team-summary';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StandingsTable from '../../widgets/standings-table';
 import DraftGrades from '../../widgets/draft-grades';
+import CommissionerPanel from '../../widgets/commissioner-panel';
 import QuickActions from '../../widgets/quick-actions';
 import {
   deriveLeaguePhase,
@@ -173,10 +174,16 @@ export default function LeagueDashboardPage() {
           data-testid="dashboard-rail"
           sx={{ display: 'grid', gap: '22px' }}
         >
-          {/* Rail top: draft grades (#642). The commissioner panel is a later
-              slot in this same rail; this widget composes above it. */}
+          {/* Rail top: draft grades (#642). The commissioner panel composes
+              below it in this same rail. */}
           <Box data-testid="slot-draft-grades">
             <DraftGrades leagueId={leagueId} />
+          </Box>
+          {/* Rail: commissioner panel (#644). Renders nothing for a member; a
+              commissioner sees the advance-week control and the legacy league
+              administration behind a disclosure. */}
+          <Box data-testid="slot-commissioner-panel">
+            <CommissionerPanel leagueId={leagueId} />
           </Box>
         </Box>
       </Box>
