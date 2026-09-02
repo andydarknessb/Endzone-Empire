@@ -310,25 +310,25 @@ test('every card — hero and list — links directly to its box score, no inter
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/3/matchups/5');
 });
 
-// The league matchups list carries each side's projected starter total
-// (home_projected_total / away_projected_total, null when the team has no
+// The league matchups list carries each side's expected final
+// (home_expected_final / away_expected_final, null when the team has no
 // lineup for the week or the matchup is final). Both the hero card and the
 // League Matchups cards show it, and the hero's win probability is shaped by
 // the real totals rather than a pair of zeros.
-test('shows projected totals from the matchups payload on the hero card and league matchup cards', async () => {
+test('shows expected finals from the matchups payload on the hero card and league matchup cards', async () => {
   mockApi({
     matchups: [
       matchup({
         id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival',
-        home_score: 30, away_score: 20, home_projected_total: 100, away_projected_total: 140,
+        home_score: 30, away_score: 20, home_expected_final: 100, away_expected_final: 140,
       }),
       matchup({
         id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B',
-        home_projected_total: 112.36, away_projected_total: null,
+        home_expected_final: 112.36, away_expected_final: null,
       }),
       matchup({
         id: 3, week: 1, home_team_id: 50, away_team_id: 60, home_team_name: 'Done A', away_team_name: 'Done B',
-        home_score: 90, away_score: 80, final: true, home_projected_total: null, away_projected_total: null,
+        home_score: 90, away_score: 80, final: true, home_expected_final: null, away_expected_final: null,
       }),
     ],
     league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
@@ -348,4 +348,60 @@ test('shows projected totals from the matchups payload on the hero card and leag
   // matchup keeps the dash; a final matchup shows no projection line at all.
   expect(screen.getByText('Proj: 112.4')).toBeInTheDocument();
   expect(screen.getAllByText('Proj: -')).toHaveLength(1);
+});
+
+// Expected final (CONTEXT.md) moves with the games: the score sync's
+// scores:updated event carries each side's expected final and players
+// remaining alongside the scores, and the hero card, its PMR line and the
+// league cards all follow it without a refetch. An event from an older
+// server that lacks those fields leaves the loaded values in place.
+test('scores:updated moves the expected finals and players remaining on the hero and league cards', async () => {
+  mockApi({
+    matchups: [
+      matchup({
+        id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival',
+        home_score: 0, away_score: 0, home_expected_final: 100, away_expected_final: 140,
+        home_players_remaining: 9, away_players_remaining: 9,
+      }),
+      matchup({
+        id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B',
+        home_expected_final: 80, away_expected_final: 70, home_players_remaining: 9, away_players_remaining: 9,
+      }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
+    rosters: [],
+    viewerTeamId: 10,
+  });
+
+  renderScreen(1, { user: { id: 1 } });
+  expect(await screen.findByText('Your Matchup · Week 1')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 100.0')).toBeInTheDocument();
+  expect(screen.getAllByText(/PMR/)).toHaveLength(2);
+  expect(screen.getAllByText(/: 9$/)).toHaveLength(2);
+
+  act(() => {
+    socketHandlers['scores:updated']({
+      leagueId: 1,
+      week: 1,
+      scored: [
+        {
+          matchupId: 1, homeTeamId: 10, awayTeamId: 20, homeScore: 41.2, awayScore: 55.9,
+          homeExpectedFinal: 104.6, awayExpectedFinal: 131.3, homePlayersRemaining: 5, awayPlayersRemaining: 4,
+        },
+        // Older-server shape: scores only. Other A / Other B keep their loaded forecast.
+        { matchupId: 2, homeTeamId: 30, awayTeamId: 40, homeScore: 12, awayScore: 3 },
+      ],
+      plays: [],
+    });
+  });
+
+  expect(screen.getByText('Proj: 104.6')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 131.3')).toBeInTheDocument();
+  expect(screen.getByText(/: 5$/)).toBeInTheDocument();
+  expect(screen.getByText(/: 4$/)).toBeInTheDocument();
+  expect(screen.getByText('Proj: 80.0')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 70.0')).toBeInTheDocument();
+  expect(screen.getByText('Other A (12)')).toBeInTheDocument();
+  // Win probability follows the new expected finals: 41.2 + 63.4 vs 55.9 + 75.4 -> margin -26.7.
+  expect(screen.getByLabelText('Win probability: My Team 25%, Rival 75%')).toBeInTheDocument();
 });

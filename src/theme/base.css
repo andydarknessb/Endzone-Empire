@@ -21,6 +21,45 @@
   font-display: swap;
 }
 
+/* League Dashboard type faces (ADR 0020), self-hosted latin woff2 beside the
+   pixel font above, each with its SIL OFL license alongside the file. No
+   runtime request to Google Fonts. The token stacks in tokens.js
+   (--dash-font-display / --dash-font-body) name the fallbacks; font-display
+   swap keeps those fallbacks visible during the first paint. */
+
+/* Barlow Condensed (display face) as three static weights. */
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('../assets/fonts/BarlowCondensed-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('../assets/fonts/BarlowCondensed-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('../assets/fonts/BarlowCondensed-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Archivo (body face) is a variable font spanning the weights the dashboard
+   uses (400, 500, 600, 700), so one file serves the whole range. */
+@font-face {
+  font-family: 'Archivo';
+  src: url('../assets/fonts/Archivo-Variable.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 html,
 body,
 #react-root {

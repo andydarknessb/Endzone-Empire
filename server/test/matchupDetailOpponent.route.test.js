@@ -65,13 +65,17 @@ const MATCHUP_ROW = {
  */
 async function getHomeStarter(t, { starterRow, scheduleRows }) {
   t.mock.method(scoringService, 'rulesForLeague', () => ({}));
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  // The route reads the weekly (league-aware) run through expectedFinal.service
+  // and for bench rows; neither matters to the opponent question.
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   createFakePool([
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr' }] })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
     [/FROM "nfl_games"/, () => ({ rows: scheduleRows })],
     [/"lineup_entries"\."slot" = \$4/, () => ({ rows: [] })], // BENCH, both teams
     [/"lineup_entries"\."slot" NOT IN/, (text, params) => ({

@@ -34,19 +34,24 @@ export function homeWinProbability({
 
 /**
  * Convenience wrapper from the matchup shape: current scores plus each team's
- * projectedTotal. Returns { home, away } probabilities summing to 1.
+ * expected final (CONTEXT.md: projection until kickoff, points plus the
+ * floored shortfall while in progress, points once final; summed over the
+ * starters). Because the shortfall is floored per starter server-side, the
+ * remaining points here are simply expected final minus score, and a side
+ * whose expected final is unknown (null) is treated as having nothing left
+ * to add. Returns { home, away } probabilities summing to 1.
  */
 export function matchupWinProbability({
   homeScore,
   awayScore,
-  homeProjectedTotal,
-  awayProjectedTotal,
+  homeExpectedFinal,
+  awayExpectedFinal,
 }) {
   const home = homeWinProbability({
     homeScore,
     awayScore,
-    homeRemaining: remainingPoints(homeProjectedTotal, homeScore),
-    awayRemaining: remainingPoints(awayProjectedTotal, awayScore),
+    homeRemaining: remainingPoints(homeExpectedFinal, homeScore),
+    awayRemaining: remainingPoints(awayExpectedFinal, awayScore),
   });
   return { home, away: 1 - home };
 }

@@ -147,7 +147,7 @@ function reducer(state, action) {
  * codes and no code included - leaves them standing (#230, the codes renamed
  * to SCREAMING_SNAKE in #265, and the join handler below for why).
  */
-export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
+export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [error, setError] = useState(null);
   const [viewerTeamId, setViewerTeamId] = useState(null);
@@ -182,10 +182,22 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
   // its 'draft:picked' handler calling the current callback instead of a
   // stale one closed over at mount.
   const onPickLandedRef = useRef(onPickLanded);
+  // The same ref idiom for the live draft:activity seam (#648): the socket effect
+  // is registered once per leagueId, so its 'draft:activity' handler must call
+  // the CURRENT callback, not a stale one closed over at mount. This is how the
+  // room-level stall announcer is fed - live only, off the socket event, never
+  // off draft:state - so the opening backlog and reconnect snapshots (which reach
+  // the client on draft:state and the feed's REST fetch, never here) cannot be
+  // replayed as a live freeze.
+  const onDraftActivityRef = useRef(onDraftActivity);
 
   useEffect(() => {
     onPickLandedRef.current = onPickLanded;
   }, [onPickLanded]);
+
+  useEffect(() => {
+    onDraftActivityRef.current = onDraftActivity;
+  }, [onDraftActivity]);
 
   useEffect(() => {
     // Which Team the viewer holds is a fact about THIS league, so it is torn
@@ -291,6 +303,19 @@ export default function useDraftSocket(leagueId, { onPickLanded } = {}) {
 
     newSocket.on('draft:complete', () => {
       dispatch({ type: 'complete' });
+    });
+
+    // The live Draft-activity lifecycle stream (#437): the server broadcasts a
+    // stall (#602), resume, completion and other lifecycle entries to the league
+    // room on this event (draftActivityBroadcast). The room reads it live off the
+    // seam below for the room-level stall announcer (#648), which must be heard on
+    // every tab and in both layouts, not only where the chat feed is mounted. It
+    // is deliberately NOT dispatched into the reducer and NOT seeded from
+    // draft:state: nothing here touches the draft snapshot, and a stall present
+    // only in the opening backlog (draft:state / the feed's REST fetch) never
+    // reaches this handler, so it is never announced as a live freeze on join.
+    newSocket.on('draft:activity', (entry) => {
+      onDraftActivityRef.current?.(entry);
     });
 
     return () => {
