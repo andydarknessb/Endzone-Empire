@@ -682,8 +682,9 @@ that began after kickoff and one that ended before it are both excluded; a
 player with no game that week is never excluded. The same predicate governs a
 re-score of a final week. In best ball a candidate must also have been held at
 the week's last kickoff: a player dropped after his own game but before the
-week's last kickoff does not score (ADR 0022). Distinct from live scoring (the
-current roster, every few minutes).
+week's last kickoff does not score (ADR 0022). Hindsight reads the same
+population (ADR 0023). Distinct from live scoring (the current roster, every
+few minutes).
 _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:
@@ -701,6 +702,16 @@ _Avoid_: live projection, pace, projected total (once games have started)
 The count of a team's starters whose NFL games have not finished this week. A
 starter whose game has not kicked off counts.
 _Avoid_: PMR (in prose), players left, yet to play
+
+**Hindsight**:
+A settled week re-read against the best legal lineup its team could have
+started from the week as played, the same players the settle pass read, with
+the gap between what it started and that lineup being the points left on the
+bench. In best ball the two lineups are one and nothing is ever left (ADR
+0023).
+_Avoid_: what-if (the live, in-progress counterpart), regret (the holdout
+study's measure of the same gap), optimal lineup (the thing hindsight
+compares against, not the comparison)
 
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly

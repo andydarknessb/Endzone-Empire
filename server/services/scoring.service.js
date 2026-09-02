@@ -4,7 +4,7 @@ const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { tank01Get } = require('../modules/tank01Client');
 const {
   materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
-  playersNotHeldAtKickoff, playersNotHeldAtLastKickoff,
+  rowsHeldAsPlayed,
 } = require('./lineup.service');
 const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR, normalizeNflTeam } = require('./nflTeam');
 const { getIo } = require('../modules/io');
@@ -1740,7 +1740,8 @@ async function generateMatchups({ leagueId, season, week }) {
  *
  * What makes one rule sufficient here, where it was not before, is that the
  * exclusion reads a recorded fact rather than the current roster. That
- * argument belongs with the predicate and is made once, on `heldRows` below.
+ * argument belongs with the predicate and is made once, on `heldRows` below
+ * and on `rowsHeldAsPlayed` in lineup.service, which `heldRows` delegates to.
  *
  * So do not reintroduce a `!isFinal` guard on the exclusion, and do not add a
  * second population that happens to agree with this one. Both have been tried
@@ -1807,38 +1808,20 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
      * Note what is NOT here: no `nfl_games` join. The kickoff question belongs
      * to the module that owns the schedule and the lineup lock, so #227 has
      * one place to fix rather than one per consumer.
+     *
+     * Best ball carries a second exclusion on the same two populations
+     * (#635, ADR 0022): of the rows the first kept, the ones a tenure of this
+     * team still covered at the week's LAST kickoff. Same recorded fact, same
+     * append-and-close argument. Never applied to a standard league, whose
+     * pool is bounded by slot occupancy.
+     *
+     * Both live in `rowsHeldAsPlayed`, in lineup.service beside the
+     * predicate, because hindsight reads the same settled week (#736) and a
+     * second population here would be one more thing to keep agreeing.
      */
     const heldRows = async (rows, teamId, asPlayed) => {
-      if (!asPlayed || rows.length === 0) return rows;
-      const notHeld = await playersNotHeldAtKickoff(client, {
-        teamId,
-        season,
-        week,
-        players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
-        kickoffCache,
-      });
-      return rows.filter((row) => !notHeld.has(row.player_id));
-    };
-
-    /**
-     * Best ball's second exclusion on the same two populations (#635, ADR
-     * 0022): of the rows `heldRows` kept, the ones a tenure of this team
-     * still covered at the week's LAST kickoff. Same recorded fact, same
-     * append-and-close argument, so it answers the same way at settle, at
-     * finality and after any later move. Never applied to a live week, which
-     * already reads the current roster, and never to a standard league,
-     * whose pool is bounded by slot occupancy.
-     */
-    const heldThroughWeek = async (rows, teamId, asPlayed) => {
-      if (!asPlayed || rows.length === 0) return rows;
-      const notHeld = await playersNotHeldAtLastKickoff(client, {
-        teamId,
-        season,
-        week,
-        players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
-        kickoffCache,
-      });
-      return rows.filter((row) => !notHeld.has(row.player_id));
+      if (!asPlayed) return rows;
+      return rowsHeldAsPlayed(client, { league, teamId, season, week, rows, kickoffCache });
     };
 
     const teamScore = async (teamId, asPlayed) => {
@@ -1865,8 +1848,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
              AND "lineup_entries"."week" = $3`,
           [teamId, season, week]
         );
-        const held = await heldRows(r.rows, teamId, asPlayed);
-        const candidateRows = (await heldThroughWeek(held, teamId, asPlayed))
+        const candidateRows = (await heldRows(r.rows, teamId, asPlayed))
           .filter((row) => row.slot !== 'IR');
         const candidates = candidateRows.map((row) => ({ playerId: row.player_id, position: row.position }));
         const pointsFor = new Map(

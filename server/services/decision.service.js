@@ -447,8 +447,20 @@ async function isWeekFinal({ leagueId, season, week }) {
 
 /**
  * Actual vs. optimal lineup for one FINAL week: actual = the team's starters'
- * fantasy_points; optimal = optimalLineup() over every rostered player that
- * week using their actual fantasy_points.
+ * fantasy_points; optimal = optimalLineup() over the week AS PLAYED using
+ * their actual fantasy_points.
+ *
+ * The pool is the settle pass's, read through `rowsHeldAsPlayed` (#736): a
+ * row counts only if a tenure of this team covered its player's own kickoff
+ * (#228), and in best ball the week's last kickoff too (#635, ADR 0022). A
+ * post-game pickup was never startable, so he cannot have been "left on the
+ * bench", and in best ball the optimal lineup over that pool IS the score of
+ * record, so a best-ball team's actual is its optimal and nothing is ever
+ * left on a bench nobody sets. The recap's blunder pick reads this number.
+ *
+ * IR: a best-ball IR occupant stays out of the pool, as in the settle pass.
+ * A standard league's IR row still enters it as a candidate; whether it
+ * should is #741.
  */
 async function weekHindsight({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
@@ -458,7 +470,7 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
 
   const entriesResult = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
-            "lineup_entries"."slot",
+            "players"."nfl_team", "lineup_entries"."slot",
             COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points"
      FROM "lineup_entries"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -468,24 +480,33 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
        AND "lineup_entries"."week" = $3`,
     [teamId, season, week]
   );
+  const asPlayed = await lineupService.rowsHeldAsPlayed(pool, {
+    league, teamId, season, week, rows: entriesResult.rows,
+  });
 
-  let actualPoints = 0;
+  let startedPoints = 0;
   const pointsFor = new Map();
   const players = [];
   const nameById = new Map();
-  for (const row of entriesResult.rows) {
+  for (const row of asPlayed) {
     const points = Number(row.fantasy_points) || 0;
+    nameById.set(row.player_id, row.name);
+    // Best ball: IR occupants stay stashed and never enter the pool, and the
+    // slots the rows carry mean nothing, so no started total is kept.
+    if (league.best_ball) {
+      if (row.slot === IR) continue;
+    } else if (row.slot !== BENCH && row.slot !== IR) {
+      startedPoints += points;
+    }
     pointsFor.set(row.player_id, points);
     players.push({ playerId: row.player_id, position: row.position });
-    nameById.set(row.player_id, row.name);
-    if (row.slot !== BENCH && row.slot !== IR) actualPoints += points;
   }
-  actualPoints = round2(actualPoints);
 
   const settings = parseLineupSettings(league);
   const optimal = optimalLineup(players, settings.rosterSlots, pointsFor);
   const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
   const optimalPoints = optimal.total;
+  const actualPoints = league.best_ball ? optimalPoints : round2(startedPoints);
   const pointsLeftOnBench = Math.max(0, round2(optimalPoints - actualPoints));
 
   return { teamId, week, actualPoints, optimalPoints, pointsLeftOnBench, optimalStarters };
