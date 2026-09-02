@@ -48,6 +48,25 @@
  *
  * Run: `npm run check:adr-immutability` (its own test first, then the guard).
  *
+ * HOW TO PROVE THE GUARD FIRES: do not tamper the `Status:` line as a manual
+ * control -- it is the one exempt edit, so it stays green, which looks
+ * identical to a guard that never ran. To see it fail, edit any OTHER body
+ * line of an ADR that exists on your base ref; the guard names the file and
+ * the line. The test file already proves both directions, so read those
+ * instead of tampering by hand:
+ *   - compareAdr: rewriting a body line is a violation naming the line (the
+ *     blind spot this guard closes)
+ *   - evaluate: a deliberate rewrite in one of several ADRs is reported for
+ *     that file only (proves the check can fail)
+ * In the success message, the examined count is the control value, not the
+ * checkmark: a run that examined zero ADRs still prints the tick, so a zero
+ * there means ADR_BASE_REF or the docs/adr/ directory is wrong, not that
+ * nothing changed. For a local control, diff against your branch's own base
+ * (`HEAD` for an uncommitted tamper, or the merge-base with
+ * `origin/integration`) rather than `origin/integration` itself: a branch
+ * that is behind the base ref reports every ADR it lacks as "deleted or
+ * renamed," which is correct but is not the thing being tested.
+ *
  * WIRED INTO CI: the test-build job in .github/workflows/ci.yml runs it right
  * after `npm run check:adr-uniqueness`, with ADR_BASE_REF set as described.
  */
