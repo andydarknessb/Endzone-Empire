@@ -211,7 +211,8 @@ _Avoid_: roster setting (narrower), fantasy setting
 
 **Best ball**:
 A league mode in which nobody sets a lineup: each week the best legal lineup a
-team could have started is the one that scores.
+team could have started is the one that scores. Once the week settles, the
+pool is the roster held through the week's last kickoff (ADR 0022).
 _Avoid_: auto-lineup
 
 ### The NFL layer
@@ -679,8 +680,10 @@ entries as played and excludes a player unless one of the team's tenures covered
 his game's kickoff: began at or before it and had not ended by it. A tenure
 that began after kickoff and one that ended before it are both excluded; a
 player with no game that week is never excluded. The same predicate governs a
-re-score of a final week. Distinct from live scoring (the current roster, every
-few minutes).
+re-score of a final week. In best ball a candidate must also have been held at
+the week's last kickoff: a player dropped after his own game but before the
+week's last kickoff does not score (ADR 0022). Distinct from live scoring (the
+current roster, every few minutes).
 _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:

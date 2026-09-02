@@ -4,7 +4,7 @@ const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { tank01Get } = require('../modules/tank01Client');
 const {
   materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
-  playersNotHeldAtKickoff,
+  playersNotHeldAtKickoff, playersNotHeldAtLastKickoff,
 } = require('./lineup.service');
 const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR, normalizeNflTeam } = require('./nflTeam');
 const { getIo } = require('../modules/io');
@@ -1748,7 +1748,14 @@ async function generateMatchups({ leagueId, season, week }) {
  *
  * Best-ball leagues ignore the slots owners set: the score is the OPTIMAL
  * legal lineup over that week's players (same three population rules),
- * computed server-side every time - there is no lineup to manage.
+ * computed server-side every time - there is no lineup to manage. Their
+ * as-played population carries ONE MORE exclusion (#635, ADR 0022): a
+ * candidate must also have been held at the week's LAST kickoff. Best ball
+ * has no slot occupancy, so without it a player dropped after his Thursday
+ * game and the replacement picked up for Sunday were both candidates, and
+ * each churn cycle handed `optimalLineup` one more body than a roster seat
+ * can field, never one fewer. The live path already scores the current roster, so this makes
+ * the score of record agree with what the manager watched on Sunday.
  */
 async function scoreMatchups({ leagueId, season, week, plays = [], settle = false }) {
   const client = await pool.connect();
@@ -1813,6 +1820,27 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       return rows.filter((row) => !notHeld.has(row.player_id));
     };
 
+    /**
+     * Best ball's second exclusion on the same two populations (#635, ADR
+     * 0022): of the rows `heldRows` kept, the ones a tenure of this team
+     * still covered at the week's LAST kickoff. Same recorded fact, same
+     * append-and-close argument, so it answers the same way at settle, at
+     * finality and after any later move. Never applied to a live week, which
+     * already reads the current roster, and never to a standard league,
+     * whose pool is bounded by slot occupancy.
+     */
+    const heldThroughWeek = async (rows, teamId, asPlayed) => {
+      if (!asPlayed || rows.length === 0) return rows;
+      const notHeld = await playersNotHeldAtLastKickoff(client, {
+        teamId,
+        season,
+        week,
+        players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+        kickoffCache,
+      });
+      return rows.filter((row) => !notHeld.has(row.player_id));
+    };
+
     const teamScore = async (teamId, asPlayed) => {
       if (!asPlayed) {
         await materializeLineup(client, { leagueId, teamId, season, week, league });
@@ -1822,8 +1850,9 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
         : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
            AND "team_players"."player_id" = "lineup_entries"."player_id"`;
       if (league.best_ball) {
-        // Best ball: every active rostered player counts as a candidate; IR
-        // occupants remain stashed and do not participate in scoring.
+        // Best ball: every player held through the week counts as a candidate
+        // (as played: held at his own kickoff AND at the week's last, #635);
+        // IR occupants remain stashed and do not participate in scoring.
         const r = await client.query(
           `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
                   "players"."position", "players"."nfl_team", "player_stats"."stats"
@@ -1836,7 +1865,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
              AND "lineup_entries"."week" = $3`,
           [teamId, season, week]
         );
-        const candidateRows = (await heldRows(r.rows, teamId, asPlayed))
+        const held = await heldRows(r.rows, teamId, asPlayed);
+        const candidateRows = (await heldThroughWeek(held, teamId, asPlayed))
           .filter((row) => row.slot !== 'IR');
         const candidates = candidateRows.map((row) => ({ playerId: row.player_id, position: row.position }));
         const pointsFor = new Map(
