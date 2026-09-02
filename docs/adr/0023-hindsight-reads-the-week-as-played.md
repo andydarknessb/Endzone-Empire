@@ -66,3 +66,13 @@ Consequences).
   standard league an IR occupant still enters hindsight's pool as a candidate
   starter; pre-existing, ruled separately as #741.
 - ADR 0022's last consequence is amended to point here.
+
+## Amendment (2026-09-02, #739)
+
+The pricing consequence left open above is now decided. #739 rules that a
+league-scoped reader prices `player_stats.stats` under `rulesForLeague(league)`,
+the settle pass's own pricer and rules object, and never presents the stored
+`fantasy_points` column (the default-rules price) as a league's number. So in a
+custom-scoring league hindsight's actual and optimal are league-priced, and in
+best ball hindsight's actual (= optimal) equals the settled score under the
+league's rules rather than differing from it by pricing. See ADR 0024.
