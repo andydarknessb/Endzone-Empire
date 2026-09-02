@@ -411,3 +411,207 @@ test('my-team card: a standings 500 shows a compact error inside the card while 
   const card = screen.getByTestId('my-team-summary');
   expect(within(card).getByText('MyBallsHurts')).toBeInTheDocument();
 });
+
+// ==========================================================================
+// matchup-preview widget (#640), the hero-right slot. Same seam as the
+// sections above: this ticket registers its own endpoints on `mockGetByUrl`
+// and its own fixture builders without editing anything already here.
+//
+// SCOPE EVERY VALUE ASSERTION with within(card): the viewer's Team name and
+// avatar are rendered by my-team-summary (hero-left) too, so a page-wide query
+// for 'MyBallsHurts' would throw on multiple matches. Page-level chrome (the
+// header chips) stays page-scoped on purpose.
+//
+// This widget makes a CHAINED read the earlier sections did not: a matchups
+// list read, then a detail read for the matchup it selects. The detail URL
+// depends on the first response, so the tests below prove the second read never
+// fires with a null id, and that the list read happens exactly once.
+// ==========================================================================
+
+// teamId 3 is the viewer, 7 the opponent. `teamName` is the canonical Team
+// identity field (teamIdentity.js), kept distinct from the league name
+// ('MinneApple') so a test can prove the card reads teams[], not the league.
+const matchupTeams = [
+  { teamId: 3, id: 3, teamName: 'MyBallsHurts', avatar_url: null, avatar_static_url: null },
+  { teamId: 7, id: 7, teamName: 'Terrific T', avatar_url: null, avatar_static_url: null },
+];
+
+// A week-1 in-season league whose viewer (id 3) owns a named Team. Overrides
+// pass straight through to leagueDetail (league columns, teams, viewerTeamId).
+const matchupLeague = (overrides = {}) =>
+  leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 1 },
+    teams: matchupTeams,
+    viewerTeamId: 3,
+    ...overrides,
+  });
+
+// GET /api/league/:id/matchups?week=N — a BARE ARRAY (the real endpoint's
+// shape), carrying the raw matchups.* columns the pairing reads (id +
+// home/away_team_id). `attachExpectedFinals` also rides on the real row, but
+// the widget takes projections from the detail read, not the list, so the
+// fixture omits them.
+const matchupsList = (rows) => ({ data: rows });
+
+// A week-1 list pairing the viewer (home, Team 3) against Team 7 as matchup 55,
+// plus one unrelated matchup so the pick is a real find, not the only row.
+const viewerPaired = [
+  { id: 55, week: 1, season: 2026, home_team_id: 3, away_team_id: 7, final: false },
+  { id: 56, week: 1, season: 2026, home_team_id: 5, away_team_id: 9, final: false },
+];
+
+// A week-1 list in which the viewer (Team 3) appears nowhere.
+const viewerUnpaired = [
+  { id: 56, week: 1, season: 2026, home_team_id: 5, away_team_id: 9, final: false },
+  { id: 57, week: 1, season: 2026, home_team_id: 8, away_team_id: 2, final: false },
+];
+
+// GET /api/league/:id/matchups/:matchupId — detail. The widget reads only each
+// side's `expectedFinal` here (the field the matchup detail page renders under
+// a "Projected" label); names + avatars come from teams[], never the detail's
+// off-contract `name` column, so the fixture's names are deliberately wrong.
+const matchupDetail = ({ homeFinal = 112.4, awayFinal = 118.9 } = {}) => ({
+  data: {
+    viewerTeamId: 3,
+    matchup: { id: 55, week: 1, season: 2026, home_team_id: 3, away_team_id: 7 },
+    home: { teamId: 3, name: 'WRONG home name', expectedFinal: homeFinal, starters: [], bench: [] },
+    away: { teamId: 7, name: 'WRONG away name', expectedFinal: awayFinal, starters: [], bench: [] },
+  },
+});
+
+const MATCHUP_LIST_URL = '/api/league/1/matchups?week=1';
+const MATCHUP_DETAIL_URL = '/api/league/1/matchups/55';
+
+test('matchup card: heading, both Team names from teams[], and each projected total beside a Projected label', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague(),
+    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
+    [MATCHUP_DETAIL_URL]: matchupDetail(),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(within(card).getByRole('heading', { name: 'Week 1 Matchup' })).toBeInTheDocument();
+
+  // Each side is scoped so the viewer's number sits beside the viewer's name and
+  // its own "Projected" label, and likewise the opponent's. findBy waits for the
+  // list spine to resolve and the pairing to render.
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  // Names come from teams[] (teamName), matched by id, NOT the detail's name.
+  expect(within(viewerSide).getByText('MyBallsHurts')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('Terrific T')).toBeInTheDocument();
+  // The projected totals arrive on the chained detail read.
+  expect(await within(viewerSide).findByText('112.4')).toBeInTheDocument();
+  expect(within(viewerSide).getByText('Projected')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('118.9')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('Projected')).toBeInTheDocument();
+});
+
+test('matchup card: Compare rosters and Set Lineup are links to the matchup detail and lineup pages', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague(),
+    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
+    [MATCHUP_DETAIL_URL]: matchupDetail(),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const compare = await within(card).findByRole('link', { name: 'Compare rosters' });
+  const setLineup = within(card).getByRole('link', { name: 'Set Lineup' });
+  // The matchup id (55) rides on the Compare-rosters href; Set Lineup is fixed.
+  expect(compare.getAttribute('href')).toMatch(/\/league\/1\/matchups\/55$/);
+  expect(setLineup.getAttribute('href')).toMatch(/\/league\/1\/lineup$/);
+});
+
+test('matchup card: with no matchup for the viewer this week, the card reads "No matchup this week" and has no links', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague(),
+    [MATCHUP_LIST_URL]: matchupsList(viewerUnpaired),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(await within(card).findByText('No matchup this week')).toBeInTheDocument();
+  expect(within(card).queryByRole('link', { name: 'Compare rosters' })).not.toBeInTheDocument();
+  expect(within(card).queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
+  // The chained detail read must NOT fire with a null id when there is no pick.
+  expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
+});
+
+test('matchup card: a 500 from the matchups list shows a compact error in the card while my-team and the header still render', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague(),
+    [MATCHUP_LIST_URL]: { reject: { response: { status: 500, data: { error: 'boom' } } } },
+  });
+  renderPage();
+
+  const alert = await screen.findByTestId('matchup-preview-error');
+  expect(alert).toHaveTextContent(/could not load/i);
+  // The failed read is self-contained: the sibling widget and the page header
+  // chips (page-level chrome, so page-scoped on purpose) still render.
+  expect(screen.getByTestId('my-team-summary')).toBeInTheDocument();
+  expect(screen.getByText('2 Teams')).toBeInTheDocument();
+  expect(screen.getByText('Week 1 · In season')).toBeInTheDocument();
+});
+
+test('matchup card: exactly one matchups-list GET is made, and it carries the current week', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague(),
+    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
+    [MATCHUP_DETAIL_URL]: matchupDetail(),
+  });
+  renderPage();
+
+  // Wait for the chained detail read to land so any re-render that would double
+  // the list request has already had its chance before we count.
+  const card = await screen.findByTestId('matchup-preview');
+  await within(card).findByText('112.4');
+  const listGets = apiClient.get.mock.calls.filter(([u]) => u.includes('/matchups?week='));
+  expect(listGets).toHaveLength(1);
+  expect(listGets[0][0]).toContain('week=1');
+});
+
+test('matchup card: with no current week the card reads "No matchup this week" and requests no matchups list', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: null },
+    }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(await within(card).findByText('No matchup this week')).toBeInTheDocument();
+  // No week, so the null-url convention keeps the spine read from ever firing.
+  expect(apiClient.get.mock.calls.some(([u]) => u.includes('/matchups'))).toBe(false);
+});
+
+test('matchup card: while the matchups list is pending the card holds layout with skeletons and is aria-busy', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague(),
+    [MATCHUP_LIST_URL]: { pending: true },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(within(card).getAllByTestId('matchup-skeleton').length).toBeGreaterThan(0);
+  // The card (the region that owns the fetch) announces the loading state; the
+  // skeleton shapes themselves are aria-hidden.
+  expect(card).toHaveAttribute('aria-busy', 'true');
+});
+
+test('matchup card: while the detail read is pending the pairing shows with skeletoned totals and stays aria-busy', async () => {
+  mockGetByUrl({
+    '/api/league/1': matchupLeague(),
+    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
+    [MATCHUP_DETAIL_URL]: { pending: true },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  // Identity is up from the list + teams[] while the projected totals wait on
+  // the chained read, so the card is still layout-busy.
+  expect(await within(card).findByText('MyBallsHurts')).toBeInTheDocument();
+  expect(within(card).getAllByTestId('matchup-skeleton').length).toBeGreaterThan(0);
+  expect(card).toHaveAttribute('aria-busy', 'true');
+});
