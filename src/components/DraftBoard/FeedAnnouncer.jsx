@@ -26,9 +26,11 @@ import { nextAnnouncement } from './announcerRepeat';
  * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed and
  * the active-phase regions belong to an ACTIVE one, and a draft is one or the
  * other, never both. Do not hand-enumerate the active-phase regions here - that
- * list has gone stale before (#654): `git grep -nF 'role="status"' src/components/DraftBoard/`
- * finds them all, each on its own axis, none folding into another. This one
- * still earns its place rather than folding into any of them:
+ * list has gone stale before (#654): `git grep -nF 'role="status"' src/components/DraftBoard/ src/components/ChatPanel/`
+ * finds them all (ChatPanel is part of the room - DraftRoomChat.jsx imports
+ * ChatConversation from it, which is where ComposerCharacterCount #486 lives),
+ * each on its own axis, none folding into another. This one still earns its
+ * place rather than folding into any of them:
  *
  *  - It carries a DIFFERENT axis: human-message arrival, which neither the
  *    counter nor the banner announces. Folding it into one would make that
