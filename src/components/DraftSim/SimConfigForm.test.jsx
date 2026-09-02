@@ -86,8 +86,10 @@ describe('SimConfigForm', () => {
   });
 
   // ADR 0021 / #704: "League format" and "Pick clock" already carry
-  // component="h2" (ticket 1, out of scope here). The option name inside
-  // each format card names a selectable card, not a document heading — the
+  // component="h2" from the original mock-draft-sim feature commit
+  // (85e51b6d, 2026-07-26) - they predate #695/#701 and are on #704's
+  // out-of-scope list, not this ticket's work. The option name inside each
+  // format card names a selectable card, not a document heading — the
   // CardActionArea's own aria-label ("Standard format", asserted above) is
   // its accessible name, so the option-name Typography is component="span"
   // and introduces no heading. A bare render (no ThemeProvider) must show no

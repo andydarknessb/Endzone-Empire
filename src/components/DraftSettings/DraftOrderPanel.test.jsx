@@ -48,12 +48,14 @@ test('offers every round in the draft roster size, including round 19', () => {
   expect(screen.queryByText('Round 20')).not.toBeInTheDocument();
 });
 
-// ADR 0021: subtitle Typography has no explicit component when bare-rendered
-// (no ThemeProvider, so no variantMapping default) resolves to <h6>. These
-// three section titles get component="h5", one level below the Draft
-// Settings page's own <Typography variant="h4"> title, so a bare render
-// must show no stray h6 and a real h5 for each.
-test('gives its three section titles an explicit h5, one level below the Draft Settings page title, and no stray h6', () => {
+// ADR 0021: a bare render here has no AppThemeProvider (src/theme/AppThemeProvider.jsx:73),
+// so any subtitle Typography without an explicit component still resolves
+// to <h6> by MUI's own default variantMapping. These three section titles
+// get component="h5" here - one level below the Draft Settings page's own
+// <Typography variant="h4"> title at DraftSettings.jsx:212, which this
+// standalone panel render does not mount (see #704) - so a bare render must
+// show no stray h6 and a real h5 for each.
+test('gives its three section titles an explicit h5, and no stray h6', () => {
   renderPanel([
     { id: 1, name: 'Team One', draft_position: 1 },
     { id: 2, name: 'Team Two', draft_position: 2 },
