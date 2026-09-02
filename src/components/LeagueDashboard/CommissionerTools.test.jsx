@@ -144,9 +144,10 @@ test('no tab drops a stray level-6 heading, and every tab with a section exposes
     if (name === 'Scoring Settings') await screen.findByText('Passing');
 
     expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
-    if (hasSection) {
-      expect(screen.getAllByRole('heading', { level: 4 }).length).toBeGreaterThanOrEqual(1);
-    }
+    // queryAllByRole (not getAllByRole) so the Waivers tab, which has no
+    // section heading at all, returns [] rather than throwing; a section tab
+    // must carry at least one h4, the Waivers tab at least zero.
+    expect(screen.queryAllByRole('heading', { level: 4 }).length).toBeGreaterThanOrEqual(hasSection ? 1 : 0);
   }
 });
 
