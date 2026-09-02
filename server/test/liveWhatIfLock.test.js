@@ -146,6 +146,62 @@ test('#227 liveWhatIf asks lineup.service for the lock rather than joining the s
   fake.assertClean();
 });
 
+/* ------------------------------------------------------------------ *
+ * #741: liveWhatIf never proposes a swap onto an IR occupant.          *
+ * A man on IR could only start by being moved off IR before kickoff,   *
+ * and no part of the product advises that move (the start/sit advisor  *
+ * excludes IR outright, the settle pass never counts it). So even an    *
+ * unlocked IR occupant out-scoring a starter is not an actionable swap. *
+ * ------------------------------------------------------------------ */
+
+const IR_RB_STARTER = { player_id: 5, name: 'Starter RB', position: 'RB', nfl_team: 'Chiefs' };
+const IR_RB_STASH = { player_id: 6, name: 'IR RB', position: 'RB', nfl_team: 'Eagles' };
+const ONE_RB_SLOT = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
+
+test('#741 liveWhatIf will not suggest swapping a starter for an unlocked IR occupant', async (t) => {
+  // Standard league, one RB slot. The starter is scoring 10; a 30-point RB
+  // sits on IR and NOBODY has kicked off, so the only thing that can suppress
+  // this swap is the IR rule, not the lock. Before this ticket the IR row
+  // entered the candidate pool and the optimizer promoted him.
+  const fake = whatIfWorld(t, {
+    rosterSlots: ONE_RB_SLOT,
+    entries: [
+      { ...IR_RB_STARTER, slot: 'RB', stats: { rushingYards: 100 } }, // 10
+      { ...IR_RB_STASH, slot: 'IR', stats: { rushingYards: 300 } }, // 30, but on IR
+    ],
+    kickedOff: [],
+  });
+
+  const result = await runWhatIf();
+
+  assert.deepEqual(result.swaps, [],
+    'a man on IR was never startable, so promoting him is not an actionable swap');
+  assert.equal(result.delta, 0);
+  assert.equal(result.actualPoints, 10, 'the IR occupant does not count toward actual');
+  fake.assertClean();
+});
+
+test('#741 control: the same fixture with the row on the BENCH does produce the swap', async (t) => {
+  // Proves the fixture is otherwise a real upgrade: only the IR slot suppresses
+  // it. Move the 30-point RB to BENCH and the optimizer promotes him.
+  const fake = whatIfWorld(t, {
+    rosterSlots: ONE_RB_SLOT,
+    entries: [
+      { ...IR_RB_STARTER, slot: 'RB', stats: { rushingYards: 100 } }, // 10
+      { ...IR_RB_STASH, slot: 'BENCH', stats: { rushingYards: 300 } }, // 30 on the bench
+    ],
+    kickedOff: [],
+  });
+
+  const result = await runWhatIf();
+
+  assert.equal(result.swaps.length, 1, 'a bench RB out-scoring the starter is an actionable upgrade');
+  assert.equal(result.swaps[0].in.points, 30);
+  assert.equal(result.swaps[0].out.points, 10);
+  assert.equal(result.delta, 20);
+  fake.assertClean();
+});
+
 test('#739 liveWhatIf prices the live week under the league rules, not the stored column', async (t) => {
   // Full PPR. The bench RB's twenty catches make him worth 20 under the
   // league's rules but only 10 under the half-PPR default column. Under the
