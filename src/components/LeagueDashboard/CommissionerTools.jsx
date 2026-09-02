@@ -1701,7 +1701,7 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
   return (
     <Paper sx={{ mt: 3 }}>
       <Box sx={{ p: 2, pb: 0 }}>
-        <Typography variant="h6">Commissioner Tools</Typography>
+        <Typography variant="h6" component="h3">Commissioner Tools</Typography>
       </Box>
       <Tabs
         value={tab}
