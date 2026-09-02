@@ -31,13 +31,26 @@ const MARKET_STALE_DAYS = 7;
  * worker sync and the manual admin trigger both land here, and getSchedulerStatus
  * reports the latest. One INSERT at the end of a run records the whole thing -
  * started_at is captured before the upstream fetch, finished_at defaults to now().
+ *
+ * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
+ * outcome of a run: the market may have been refreshed correctly, and a thrown
+ * observability write would turn that into a 500 to the admin and stop the
+ * scheduler from day-stamping (re-running the full sync every tick). This also
+ * covers the carve-out window - the migration that creates data_sync_runs is
+ * applied by the maintainer, so the table may not exist yet when this code is
+ * live. Swallowing here (rather than at each call site) keeps every caller
+ * uniformly best-effort with no chance of the asymmetry creeping back.
  */
 async function recordAdpRun({ startedAt, ok, detail }) {
-  await pool.query(
-    `INSERT INTO "data_sync_runs" ("job", "started_at", "finished_at", "ok", "detail")
-     VALUES ($1, $2, now(), $3, $4::jsonb)`,
-    ['adp', startedAt, ok, detail ? JSON.stringify(detail) : null]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO "data_sync_runs" ("job", "started_at", "finished_at", "ok", "detail")
+       VALUES ($1, $2, now(), $3, $4::jsonb)`,
+      ['adp', startedAt, ok, detail ? JSON.stringify(detail) : null]
+    );
+  } catch (err) {
+    console.error('data_sync_runs record failed for adp (run outcome unaffected):', err.message);
+  }
 }
 
 function adpClient() {
@@ -145,15 +158,13 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
     if (year) params.year = year;
     resp = await api.get(`/${fmt}`, { params });
   } catch (err) {
-    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'fetch_failed', message: err.message } })
-      .catch(() => {});
+    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'fetch_failed', message: err.message } });
     throw err;
   }
 
   const body = resp.data || {};
   if (body.status !== 'Success' || !Array.isArray(body.players)) {
-    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'bad_response', status: body.status ?? null } })
-      .catch(() => {});
+    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'bad_response', status: body.status ?? null } });
     const err = new Error(`unexpected ADP response (status=${body.status})`);
     err.statusCode = 502;
     throw err;

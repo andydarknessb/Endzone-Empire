@@ -217,3 +217,21 @@ test('syncAdp on a full Success body refreshes players and records ok=true with 
   assert.equal(runDetail(runs[0]).matched, 2, 'the matched count is recorded');
   assert.equal(runDetail(runs[0]).adpPlayers, 200);
 });
+
+test('a failed data_sync_runs record never masks a correctly refreshed market', async (t) => {
+  // The record is best-effort observability. If it throws (e.g. the carve-out
+  // migration has not landed yet, so the table does not exist), the market was
+  // still refreshed: syncAdp must resolve ok, not surface a 500 to the admin
+  // and not stop the scheduler day-stamping.
+  stubFfc(t, ffcBody(200));
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    [update('players'), () => ({ rows: [], rowCount: 1 })],
+    [insert('data_sync_runs'), () => { throw new Error('relation "data_sync_runs" does not exist'); }],
+  ]).install(t);
+
+  const result = await syncAdp();
+
+  assert.equal(result.ok, true, 'the refresh outcome is unaffected by a record failure');
+  assert.equal(fake.matching(/^UPDATE "players" p SET "adp"/).length, 1, 'the market was actually refreshed');
+});
