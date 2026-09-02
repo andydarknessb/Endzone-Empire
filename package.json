@@ -18,6 +18,7 @@
     "@sentry/node": "^10.71.0",
     "@sentry/react": "^10.71.0",
     "@socket.io/redis-adapter": "^8.3.0",
+    "@socket.io/redis-emitter": "5.1.0",
     "@supabase/supabase-js": "^2.112.4",
     "axios": "^1.19.0",
     "bcryptjs": "^2.4.3",
@@ -125,7 +126,6 @@
   "devDependencies": {
     "@babel/parser": "8.0.4",
     "@playwright/test": "^1.62.1",
-    "react-scripts": "^5.0.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -134,6 +134,7 @@
     "jest-util": "^30.4.1",
     "nodemon": "^3.1.9",
     "postcss": "8.5.26",
+    "react-scripts": "^5.0.1",
     "redux-mock-store": "^1.5.5",
     "source-map-explorer": "^2.5.3",
     "supertest": "^7.2.2",
