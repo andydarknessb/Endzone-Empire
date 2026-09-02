@@ -206,14 +206,23 @@ test('lays out the hero and main grid regions as empty landmarks', async () => {
 // (#640-#643) appends its own section like this one: add the endpoints it reads
 // to `mockGetByUrl` (a per-test `overrides` map, so no shared setup changes)
 // and its own fixture builders, without editing the seam above.
+//
+// SCOPE EVERY VALUE ASSERTION to the widget under test with within(card): a
+// grade letter, a roster value and a Team name are all rendered by sibling
+// widgets on this same page (#640/#641 render the viewer's Team name, #642 a
+// grade + roster value per team), and get*/find* throw on multiple matches, so
+// a page-wide getByText for one of those turns green here but hard-fails in a
+// sibling's PR. Page-level chrome (the header chips) stays page-scoped on
+// purpose; only the per-widget values are scoped.
 // ==========================================================================
 
-// The viewer (teamId 1) plus one opponent. The Team name is distinct from the
-// league name ('MinneApple') so a test can prove the card reads the viewer's
-// Team from teams[], not the league or a user payload.
+// The viewer (teamId 1) plus one opponent. `teamName` is the canonical Team
+// identity field (teamIdentity.js), distinct from the league name
+// ('MinneApple') so a test can prove the card reads the viewer's Team from
+// teams[], not the league or a user payload.
 const myTeams = [
-  { teamId: 1, id: 1, name: 'MyBallsHurts' },
-  { teamId: 2, id: 2, name: 'Terrific T' },
+  { teamId: 1, id: 1, teamName: 'MyBallsHurts' },
+  { teamId: 2, id: 2, teamName: 'Terrific T' },
 ];
 
 // An in-season league whose viewer owns a named Team. Overrides pass straight
@@ -274,8 +283,9 @@ test('my-team card shows the viewer Team name from teams[] with a You badge and 
   expect(within(card).getByText('MyBallsHurts')).toBeInTheDocument();
   expect(within(card).getByText('You')).toBeInTheDocument();
   // The avatar's accessible name is the Team name (it rides on the labelled
-  // wrapper, since TeamAvatar itself is aria-hidden).
-  expect(screen.getByRole('img', { name: 'MyBallsHurts' })).toBeInTheDocument();
+  // wrapper, since TeamAvatar itself is aria-hidden). Scoped to the card:
+  // sibling widgets render the viewer's avatar too.
+  expect(within(card).getByRole('img', { name: 'MyBallsHurts' })).toBeInTheDocument();
 });
 
 test('my-team card: draft-grades fixture fills the grade and roster-value tiles', async () => {
@@ -285,9 +295,11 @@ test('my-team card: draft-grades fixture fills the grade and roster-value tiles'
   });
   renderPage();
 
-  await screen.findByTestId('my-team-summary');
-  expect(await screen.findByText('C')).toBeInTheDocument();
-  expect(screen.getByText('1,284')).toBeInTheDocument();
+  const card = await screen.findByTestId('my-team-summary');
+  // Scoped to the card: #642 renders a grade letter and a roster value for
+  // every team, so a page-wide query would match many.
+  expect(await within(card).findByText('C')).toBeInTheDocument();
+  expect(within(card).getByText('1,284')).toBeInTheDocument();
 });
 
 test('my-team card: a 404 from draft-grades leaves the grade and value tiles as placeholders with no digits', async () => {
@@ -373,8 +385,11 @@ test('my-team card: while standings are pending the card holds its layout with s
 
   // The league resolves and the card mounts; its identity is up while the
   // standings spine is still in flight, so the data region is skeletons.
-  await screen.findByTestId('my-team-summary');
-  expect(screen.getAllByTestId('my-team-skeleton').length).toBeGreaterThan(0);
+  const card = await screen.findByTestId('my-team-summary');
+  expect(within(card).getAllByTestId('my-team-skeleton').length).toBeGreaterThan(0);
+  // The card (the region that owns the fetch) announces the loading state to
+  // assistive tech, since the skeleton shapes themselves are aria-hidden.
+  expect(card).toHaveAttribute('aria-busy', 'true');
 });
 
 test('my-team card: a standings 500 shows a compact error inside the card while the page header chips still render', async () => {
@@ -387,9 +402,12 @@ test('my-team card: a standings 500 shows a compact error inside the card while 
   // The compact error is self-contained in the card.
   const alert = await screen.findByTestId('my-team-error');
   expect(alert).toHaveTextContent(/could not load/i);
-  // The rest of the page is untouched: the league header chips and the viewer
-  // identity still render.
+  // The rest of the page is untouched: the league header chips (page-level
+  // chrome, so page-scoped on purpose) still render...
   expect(screen.getByText('2 Teams')).toBeInTheDocument();
   expect(screen.getByText('Week 3 · In season')).toBeInTheDocument();
-  expect(screen.getByText('MyBallsHurts')).toBeInTheDocument();
+  // ...and the viewer identity still renders inside the card (scoped: siblings
+  // render the viewer's Team name too).
+  const card = screen.getByTestId('my-team-summary');
+  expect(within(card).getByText('MyBallsHurts')).toBeInTheDocument();
 });

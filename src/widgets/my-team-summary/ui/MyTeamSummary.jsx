@@ -33,8 +33,13 @@ export default function MyTeamSummary({ leagueId }) {
   // slot stays empty rather than inventing an identity.
   if (!identity) return null;
 
+  // The card is the region that owns these fetches (Skeleton.jsx: the loading
+  // state is announced by the owning card, not by each aria-hidden shape), so
+  // it carries aria-busy while any of its data is still loading.
+  const busy = spine === 'loading' || draftGrade.loading || rosterValue.loading;
+
   return (
-    <Card data-testid="my-team-summary" sx={{ p: 2.5 }}>
+    <Card data-testid="my-team-summary" aria-busy={busy} sx={{ p: 2.5 }}>
       <Box sx={{ display: 'grid', gap: 2 }}>
         {/* Identity: avatar, Team name + You pill, and the secondary line. */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75 }}>

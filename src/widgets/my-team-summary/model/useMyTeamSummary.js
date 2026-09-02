@@ -19,19 +19,26 @@ import { ordinal } from '../lib/ordinal';
  *   - Record and current rank come from the scoring standings read. The
  *     standings read is the widget's SPINE: its loading state drives the card's
  *     skeletons and its failure drives the card's compact error, so a failed
- *     summary never touches the rest of the page.
+ *     summary never touches the rest of the page. Standings and power-rankings
+ *     are both plain reads here rather than shared-cache resources ONLY because
+ *     this widget mounts each once (ADR 0004): both endpoints are on the
+ *     service-worker allowlist, so the moment a second consumer of either lands
+ *     on this page (e.g. #641's standings table) that read must move to
+ *     useResource, the way the league read already has.
  *   - Draft grade and roster value come from the league draft-grades read. When
  *     it 404s (grades not generated yet) both tiles degrade to a placeholder
  *     with no number, rather than erroring the card.
- *   - Projected finish is a plain, uncached read of the power-rankings endpoint
- *     (ADR 0004: one mount, not a shared resource). It 404s until first
- *     computed; until then the tile is simply absent, not a placeholder.
+ *   - Projected finish is a plain read of the power-rankings endpoint (see the
+ *     one-mount trigger above). It 404s until first computed; until then the
+ *     tile is simply absent, not a placeholder.
  */
 
-const IDLE = { status: 'loading', data: null, statusCode: null };
+const IDLE = { status: 'loading', data: null };
 
-// One GET bound to a URL, tracking loading -> ready | error and the HTTP
-// status of a failure (so a 404 can be told from a 500 by the caller). A null
+// One GET bound to a URL, tracking loading -> ready | error. Every failure is
+// one 'error' state: the widget degrades the same way whether a read 404s or
+// 500s (a missing grade is a placeholder either way, a missing projection an
+// absent tile either way), so it does not distinguish the status code. A null
 // url never fetches. Cancels on unmount / url change so a late response cannot
 // land after the widget has moved on.
 function useEndpoint(url) {
@@ -46,12 +53,10 @@ function useEndpoint(url) {
     apiClient
       .get(url)
       .then((res) => {
-        if (!cancelled) setState({ status: 'ready', data: res?.data ?? null, statusCode: 200 });
+        if (!cancelled) setState({ status: 'ready', data: res?.data ?? null });
       })
-      .catch((err) => {
-        if (!cancelled) {
-          setState({ status: 'error', data: null, statusCode: err?.response?.status ?? null });
-        }
+      .catch(() => {
+        if (!cancelled) setState({ status: 'error', data: null });
       });
     return () => {
       cancelled = true;
@@ -86,11 +91,15 @@ export function useMyTeamSummary(leagueId) {
       ? teams.find((t) => t && t.teamId === viewerTeamId) || null
       : null;
 
+  // `teamName` is the canonical Team-identity field on every league-shared
+  // contract (teamIdentity.js: teamId + teamName, camelCase, enforced by
+  // TEAM_IDENTITY_FIELDS); the avatar rides as the raw snake_case columns the
+  // league-detail route serializes (avatar_url / avatar_static_url).
   const identity = viewerTeam
     ? {
-        name: viewerTeam.name,
-        avatarUrl: viewerTeam.avatarUrl ?? viewerTeam.avatar_url ?? null,
-        avatarStaticUrl: viewerTeam.avatarStaticUrl ?? viewerTeam.avatar_static_url ?? null,
+        name: viewerTeam.teamName,
+        avatarUrl: viewerTeam.avatar_url ?? null,
+        avatarStaticUrl: viewerTeam.avatar_static_url ?? null,
       }
     : null;
 
@@ -117,8 +126,9 @@ export function useMyTeamSummary(leagueId) {
     loading: grades.status === 'loading',
     unavailable: gradesUnavailable,
     letter: rawGrade || null,
-    // A-F map to a legible grade-as-text token; anything else falls back to ink.
-    gradeKey: /^[A-F]$/i.test(rawGrade) ? rawGrade.toUpperCase() : null,
+    // The five real grades map to a legible grade-as-text token; anything else
+    // (including a stray 'E', which has no token) falls back to ink.
+    gradeKey: /^[ABCDF]$/i.test(rawGrade) ? rawGrade.toUpperCase() : null,
   };
   const rosterValue = {
     loading: grades.status === 'loading',
