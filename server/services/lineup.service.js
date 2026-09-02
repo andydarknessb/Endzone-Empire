@@ -619,9 +619,11 @@ async function weekKickoffs(client, { season, week, kickoffCache = null }) {
  * A player with no game that week is ABSENT from the map rather than present
  * with a null, so a caller cannot mistake "no game" for a kickoff instant.
  *
- * The only read of `nfl_games` on the scoring path: the scoring service asks
- * this module rather than joining the schedule itself, so there is one place
- * that knows how a week's games are found and one place for #227 to change.
+ * The scoring path reaches `nfl_games` only through this module, here and
+ * through `playersNotHeldAtLastKickoff` below, both over `weekKickoffs`: the
+ * scoring service asks rather than joining the schedule itself, so there is
+ * one place that knows how a week's games are found and one place for #227
+ * to change.
  */
 async function playerKickoffs(client, { season, week, players, kickoffCache = null }) {
   const kickoffs = await weekKickoffs(client, { season, week, kickoffCache });
@@ -676,6 +678,60 @@ async function playersNotHeldAtKickoff(client, { teamId, season, week, players, 
   const scheduled = players
     .map((player) => ({ id: player.id, kickoff: kickoffs.get(player.id) }))
     .filter((player) => player.kickoff !== undefined);
+  return playersNotHeldAt(client, { teamId, scheduled });
+}
+
+/**
+ * Of these players, the ones this team held NO tenure over at the WEEK'S
+ * LAST kickoff (#635, ADR 0022). The second half of the best-ball
+ * population rule, and best ball's alone.
+ *
+ * Best ball has no slot occupancy to bound a week's pool. A player dropped
+ * after his own game keeps his row (#197 spares it), his replacement
+ * materializes another, and `playersNotHeldAtKickoff` passes both because
+ * each tenure covered its own player's kickoff. Every post-kickoff
+ * drop-and-replace therefore added one more scored body to the pool
+ * `optimalLineup` picks from, never one fewer. The bound is
+ * the roster the team carried through the week's last kickoff: a candidate
+ * must have been held then as well as at his own kickoff.
+ *
+ * The instant is the LATEST kickoff on the week's schedule, over every game
+ * that week and not only the candidates' own, so the answer does not move
+ * with the roster being asked about. A player with NO GAME ROW that week is
+ * never returned, for the reason `playersNotHeldAtKickoff` gives: absence
+ * stays absence. An empty schedule excludes nobody.
+ *
+ * A standard league never asks this. There the dropped starter's surviving
+ * row still occupies his slot, so the pool is bounded by slot occupancy and
+ * the week as played keeps him (#190).
+ */
+async function playersNotHeldAtLastKickoff(client, { teamId, season, week, players, kickoffCache = null }) {
+  const schedule = await weekKickoffs(client, { season, week, kickoffCache });
+  let last = null;
+  for (const at of schedule.values()) {
+    const time = new Date(at).getTime();
+    if (last === null || time > last) last = time;
+  }
+  // No schedule, or one whose kickoffs do not parse: nothing to be held at,
+  // so nobody is excluded (an Invalid Date would otherwise reach pg and roll
+  // back the whole scoring pass).
+  if (!Number.isFinite(last)) return new Set();
+  const lastKickoff = new Date(last);
+  const scheduled = (players || [])
+    .filter((player) => {
+      const team = scheduleKeyFor(player);
+      return team !== null && schedule.has(team);
+    })
+    .map((player) => ({ id: player.id, kickoff: lastKickoff }));
+  return playersNotHeldAt(client, { teamId, scheduled });
+}
+
+/**
+ * The tenure predicate itself, shared by the two questions above: of these
+ * (player, instant) pairs, the player ids this team held NO tenure over at
+ * that instant. The SQL lives once so the two questions cannot drift.
+ */
+async function playersNotHeldAt(client, { teamId, scheduled }) {
   if (scheduled.length === 0) return new Set();
   const result = await client.query(
     `SELECT "kickoffs"."player_id"
@@ -1036,6 +1092,7 @@ module.exports = {
   restoreInterruptedStash,
   lockedPlayerIds,
   playersNotHeldAtKickoff,
+  playersNotHeldAtLastKickoff,
   annotateLineupEntries,
   getLineup,
   setLineup,
