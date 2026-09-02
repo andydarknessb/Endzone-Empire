@@ -40,15 +40,13 @@ exposed through PostgREST's anonymous RPC surface. No anonymously executable
 `live_game_states` is the only intended anonymous Realtime data relation. Its
 RLS policy is the same public-read policy described above.
 
-## Remaining platform check
+## Edge Functions
 
-The Edge Functions endpoint does not provide an anonymous function inventory:
-`/functions/v1/` returns 404, which proves neither presence nor absence of a
-named deployed function. Before treating this audit as a permanent clean bill
-of health, an organization or project owner must export the Supabase Dashboard
-or Management API Edge Functions list and record that no function is public
-without an application-authentication check. That inventory was not available
-to this audit's database and service-role credentials.
+The project-owner Management API inventory was run on 2026-09-02 after the
+database/service-role audit. It returned an empty `functions` list, so this
+project has no deployed Edge Function endpoint to expose anonymously. The
+anonymous `/functions/v1/` 404 therefore agrees with the authoritative
+inventory, rather than standing as incomplete evidence.
 
 ## Recheck trigger
 
