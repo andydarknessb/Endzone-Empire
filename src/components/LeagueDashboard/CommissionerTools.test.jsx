@@ -144,10 +144,14 @@ test('no tab drops a stray level-6 heading, and every tab with a section exposes
     if (name === 'Scoring Settings') await screen.findByText('Passing');
 
     expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
-    // queryAllByRole (not getAllByRole) so the Waivers tab, which has no
-    // section heading at all, returns [] rather than throwing; a section tab
-    // must carry at least one h4, the Waivers tab at least zero.
-    expect(screen.queryAllByRole('heading', { level: 4 }).length).toBeGreaterThanOrEqual(hasSection ? 1 : 0);
+    // Exact, not clamped: a section tab shows at least one h4; the Waivers tab
+    // shows none, because its two subtitles are single-control-group labels
+    // rendered as <p> (aria-labelledby'd to their RadioGroups), not headings.
+    // Asserting "has an h4" EQUALS "is a section tab" pins the Waivers=zero-h4
+    // property too, so a label leaking back into the outline as a heading, or a
+    // section tab losing all its h4s, fails here. One unconditional expect
+    // keeps clear of jest/no-conditional-expect.
+    expect(screen.queryAllByRole('heading', { level: 4 }).length > 0).toBe(hasSection);
   }
 });
 
@@ -1267,6 +1271,13 @@ test("the pick'em Season tab explains the automatic season and offers rollover o
   await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
   expect(screen.getByText(/weeks follow the NFL calendar/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Start New Season' })).not.toBeInTheDocument();
+  // The Season-tab heading (site 1653) is the one subtitle the six-fantasy-tab
+  // sweep above cannot reach: the Season tab replaces those tabs in a pick'em
+  // league (they are mutually exclusive). Pin it here - level 4, no stray h6 -
+  // so all sixteen sites are covered. The fixture sets no current_season, so
+  // the label renders its "Season" fallback.
+  expect(screen.getByRole('heading', { level: 4, name: 'Season' })).toBeInTheDocument();
+  expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
   unmount();
 
   const onRefresh = jest.fn();
