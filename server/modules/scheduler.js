@@ -482,7 +482,7 @@ async function getSchedulerStatus() {
   try {
     const res = await pool.query(
       `SELECT "finished_at", "ok", "detail" FROM "data_sync_runs"
-       WHERE "job" = 'adp' ORDER BY "finished_at" DESC NULLS LAST, "id" DESC LIMIT 1`
+       WHERE "job" = 'adp' ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
     );
     const row = res.rows[0];
     if (row) {
@@ -493,6 +493,11 @@ async function getSchedulerStatus() {
       };
     }
   } catch (err) {
+    // Never throw (health probes and the worker heartbeat depend on it), but do
+    // not degrade silently: a permanently broken read (dropped table, a
+    // permission change) would otherwise be indistinguishable from "no run yet"
+    // (#747 review 750-f4).
+    console.warn('getSchedulerStatus: data_sync_runs read failed, reporting lastAdpSync=null:', err.message);
     lastAdpSync = null;
   }
   return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync };

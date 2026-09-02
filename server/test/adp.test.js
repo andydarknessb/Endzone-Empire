@@ -162,8 +162,9 @@ function stubFfc(t, body) {
 }
 
 const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
-// The INSERT is ("job","started_at","finished_at","ok","detail") with values
-// ($1,$2,now(),$3,$4::jsonb): ok is params[2], the detail JSON is params[3].
+// The INSERT is ("job","started_at","ok","detail") with values ($1,$2,$3,$4::jsonb)
+// - finished_at is left to the column DEFAULT - so ok is params[2] and the detail
+// JSON is params[3].
 const runOk = (call) => call.params[2];
 const runDetail = (call) => JSON.parse(call.params[3]);
 

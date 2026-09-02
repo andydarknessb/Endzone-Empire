@@ -15,14 +15,14 @@ const IDP_POSITION_SET = new Set(IDP_POSITIONS);
 const FFC_BASE = 'https://fantasyfootballcalculator.com/api/v1/adp';
 const VALID_FORMATS = new Set(['standard', 'ppr', 'half-ppr', '2qb', 'dynasty', 'rookie']);
 
-// The market-health thresholds every gate reads (#747). MARKET_FLOOR is the
-// count of players carrying an ADP below which the market is treated as absent:
-// the wipe guard refuses to write a Success body with fewer usable entries, and
-// draft start refuses (draftStart.service, draftSchedule.service) when fewer
-// than this many players carry a non-null adp. MARKET_STALE_DAYS is the age (in
-// days since the last ok run) past which the market is surfaced as stale; unlike
-// the floor it warns rather than blocks. Both are exported so no gate hardcodes
-// the number.
+// The market-health thresholds (#747). MARKET_FLOOR is the count of players
+// carrying an ADP below which the market is treated as absent, and it is the one
+// every gate reads: the wipe guard refuses a Success body with fewer usable
+// entries, and draft start (draftStart.service, draftSchedule.service) refuses
+// when fewer than this many players carry a non-null adp. MARKET_STALE_DAYS is
+// the age (in days since the last ok run) past which the market is meant to read
+// as stale; it is exported here so no gate hardcodes the number, and the sibling
+// UI ticket will surface staleness from it. Nothing consumes it yet.
 const MARKET_FLOOR = 100;
 const MARKET_STALE_DAYS = 7;
 
@@ -30,7 +30,8 @@ const MARKET_STALE_DAYS = 7;
  * Append one observable row to data_sync_runs for an ADP run (#747): the daily
  * worker sync and the manual admin trigger both land here, and getSchedulerStatus
  * reports the latest. One INSERT at the end of a run records the whole thing -
- * started_at is captured before the upstream fetch, finished_at defaults to now().
+ * started_at is captured before the upstream fetch, and finished_at is left to
+ * the column DEFAULT (now()), the instant of the write.
  *
  * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
  * outcome of a run: the market may have been refreshed correctly, and a thrown
@@ -44,8 +45,8 @@ const MARKET_STALE_DAYS = 7;
 async function recordAdpRun({ startedAt, ok, detail }) {
   try {
     await pool.query(
-      `INSERT INTO "data_sync_runs" ("job", "started_at", "finished_at", "ok", "detail")
-       VALUES ($1, $2, now(), $3, $4::jsonb)`,
+      `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "detail")
+       VALUES ($1, $2, $3, $4::jsonb)`,
       ['adp', startedAt, ok, detail ? JSON.stringify(detail) : null]
     );
   } catch (err) {
@@ -179,6 +180,15 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   // Wipe guard: refuse to reset the market from a body too thin to be a real
   // one. Recorded as a failed run; players is left untouched (and unread).
   if (entries.length < MARKET_FLOOR) {
+    // Log the refusal HERE, not only through recordAdpRun. That record is
+    // best-effort, and during the carve-out window before the migration is
+    // applied data_sync_runs does not exist, so the INSERT is swallowed. Without
+    // this line a market-emptying upstream body would be refused with no record
+    // anywhere, while the draft-start gate blocks starts league-wide - drafts
+    // failing everywhere with an unlogged cause (#747 review 750-f1).
+    console.warn(
+      `ADP sync refused: ${entries.length} usable entries is below the ${MARKET_FLOOR}-player market floor; players left unchanged`
+    );
     await recordAdpRun({ startedAt, ok: false, detail: { reason: 'thin_market', adpPlayers: entries.length } });
     return {
       ok: false,
