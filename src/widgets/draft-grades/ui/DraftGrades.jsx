@@ -27,10 +27,11 @@ import useDraftGrades from '../model/useDraftGrades';
  * The viewer's row gets the accent background/border (color only, as the
  * mockup has it) plus a visually-hidden "Your team" marker in the name cell,
  * so the row is identifiable in the accessibility tree, not only by color
- * (WCAG 1.4.1). This is a widget-local choice, not the `data-viewer-team` /
- * no-label convention #182 set for PowerRankings and Pick'em standings: #182
- * scoped itself to those two surfaces and left every other one ("#113's
- * surfaces decide that for themselves") to choose its own treatment.
+ * (WCAG 1.4.1). This diverges from the `data-viewer-team` / no-label
+ * convention #182 set for PowerRankings and Pick'em standings: this ticket
+ * asked for the accent row, the risk review added the non-color marker for
+ * WCAG 1.4.1, and #182 left open whether the same treatment belongs on other
+ * league-shared tables, without deciding it for this one.
  *
  * The card owns its one read (the draft-grades endpoint) and is the region
  * that owns it, so it carries `aria-busy` while that read is in flight
