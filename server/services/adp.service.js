@@ -15,6 +15,45 @@ const IDP_POSITION_SET = new Set(IDP_POSITIONS);
 const FFC_BASE = 'https://fantasyfootballcalculator.com/api/v1/adp';
 const VALID_FORMATS = new Set(['standard', 'ppr', 'half-ppr', '2qb', 'dynasty', 'rookie']);
 
+// The market-health thresholds (#747). MARKET_FLOOR is the count of players
+// carrying an ADP below which the market is treated as absent, and it is the one
+// every gate reads: the wipe guard refuses a Success body with fewer usable
+// entries, and draft start (draftStart.service, draftSchedule.service) refuses
+// when fewer than this many players carry a non-null adp. MARKET_STALE_DAYS is
+// the age (in days since the last ok run) past which the market is meant to read
+// as stale; it is exported here so no gate hardcodes the number, and the sibling
+// UI ticket will surface staleness from it. Nothing consumes it yet.
+const MARKET_FLOOR = 100;
+const MARKET_STALE_DAYS = 7;
+
+/**
+ * Append one observable row to data_sync_runs for an ADP run (#747): the daily
+ * worker sync and the manual admin trigger both land here, and getSchedulerStatus
+ * reports the latest. One INSERT at the end of a run records the whole thing -
+ * started_at is captured before the upstream fetch, and finished_at is left to
+ * the column DEFAULT (now()), the instant of the write.
+ *
+ * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
+ * outcome of a run: the market may have been refreshed correctly, and a thrown
+ * observability write would turn that into a 500 to the admin and stop the
+ * scheduler from day-stamping (re-running the full sync every tick). This also
+ * covers the carve-out window - the migration that creates data_sync_runs is
+ * applied by the maintainer, so the table may not exist yet when this code is
+ * live. Swallowing here (rather than at each call site) keeps every caller
+ * uniformly best-effort with no chance of the asymmetry creeping back.
+ */
+async function recordAdpRun({ startedAt, ok, detail }) {
+  try {
+    await pool.query(
+      `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "detail")
+       VALUES ($1, $2, $3, $4::jsonb)`,
+      ['adp', startedAt, ok, detail ? JSON.stringify(detail) : null]
+    );
+  } catch (err) {
+    console.error('data_sync_runs record failed for adp (run outcome unaffected):', err.message);
+  }
+}
+
 function adpClient() {
   return axios.create({ baseURL: FFC_BASE, timeout: 15000 });
 }
@@ -94,15 +133,39 @@ function buildAdpUpdates(players, entries) {
  * set to its matched value or reset to null (so a player who fell out of the
  * top ~200 since last run stops showing a stale ADP). Defaults to half-PPR,
  * 12-team, current season.
+ *
+ * ONE MARKET FOR EVERY LEAGUE. This app syncs a single global column in the
+ * half-PPR, 12-team format regardless of any league's own scoring, because the
+ * ADP is a market reference (CONTEXT.md), not a league-specific ranking.
+ * Per-format ADP is a separate product question and is deliberately not built
+ * here (#747, decision 6).
+ *
+ * THE WIPE GUARD (#747, decision 5). The refresh NULLs every ADP before setting
+ * the matched values, so a Success body with too few players would empty the
+ * whole market. A body with fewer than MARKET_FLOOR usable entries is therefore
+ * treated as a failed run: nothing is written to players, and the run is
+ * recorded ok = false with the thin count in detail. The NULL-then-set runs
+ * only after the guard passes. Every run - refused, succeeded, or thrown -
+ * appends one data_sync_runs row so freshness and health can observe it.
  */
 async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   const fmt = VALID_FORMATS.has(format) ? format : 'half-ppr';
-  const api = adpClient();
-  const params = { teams };
-  if (year) params.year = year;
-  const resp = await api.get(`/${fmt}`, { params });
+  const startedAt = new Date();
+
+  let resp;
+  try {
+    const api = adpClient();
+    const params = { teams };
+    if (year) params.year = year;
+    resp = await api.get(`/${fmt}`, { params });
+  } catch (err) {
+    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'fetch_failed', message: err.message } });
+    throw err;
+  }
+
   const body = resp.data || {};
   if (body.status !== 'Success' || !Array.isArray(body.players)) {
+    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'bad_response', status: body.status ?? null } });
     const err = new Error(`unexpected ADP response (status=${body.status})`);
     err.statusCode = 502;
     throw err;
@@ -112,6 +175,31 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   for (const raw of body.players) {
     const e = normalizeAdpEntry(raw);
     if (e) entries.push(e);
+  }
+
+  // Wipe guard: refuse to reset the market from a body too thin to be a real
+  // one. Recorded as a failed run; players is left untouched (and unread).
+  if (entries.length < MARKET_FLOOR) {
+    // Log the refusal HERE, not only through recordAdpRun. That record is
+    // best-effort, and during the carve-out window before the migration is
+    // applied data_sync_runs does not exist, so the INSERT is swallowed. Without
+    // this line a market-emptying upstream body would be refused with no record
+    // anywhere, while the draft-start gate blocks starts league-wide - drafts
+    // failing everywhere with an unlogged cause (#747 review 750-f1).
+    console.warn(
+      `ADP sync refused: ${entries.length} usable entries is below the ${MARKET_FLOOR}-player market floor; players left unchanged`
+    );
+    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'thin_market', adpPlayers: entries.length } });
+    return {
+      ok: false,
+      skipped: true,
+      reason: 'thin_market',
+      format: fmt,
+      teams,
+      adpPlayers: entries.length,
+      playersMatched: 0,
+      playersUpdated: 0,
+    };
   }
 
   const players = await pool.query(`SELECT "id", "name", "position", "nfl_team" FROM "players"`);
@@ -129,7 +217,16 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
       [updates.map((u) => u.id), updates.map((u) => u.adp)]
     );
   }
-  return { format: fmt, teams, adpPlayers: entries.length, playersMatched: updates.length, playersUpdated: updates.length };
+
+  await recordAdpRun({ startedAt, ok: true, detail: { adpPlayers: entries.length, matched: updates.length } });
+  return {
+    ok: true,
+    format: fmt,
+    teams,
+    adpPlayers: entries.length,
+    playersMatched: updates.length,
+    playersUpdated: updates.length,
+  };
 }
 
 module.exports = {
@@ -137,4 +234,6 @@ module.exports = {
   normalizeAdpEntry,
   buildAdpUpdates,
   syncAdp,
+  MARKET_FLOOR,
+  MARKET_STALE_DAYS,
 };

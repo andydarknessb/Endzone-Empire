@@ -150,6 +150,79 @@ test('tickUnlocked registers the daily injury sync duty', () => {
   assert.match(tickBody, /await runDailyInjurySync\(\);/);
 });
 
+// ---- daily ADP sync (#747) --------------------------------------------------
+
+test('runDailyAdpSync runs once per local day and retries a thrown day', async (t) => {
+  // Same day-stamp-after-success contract as the injury sync, but with no
+  // credential gate: FFC is free and keyless, so the ADP job runs all year.
+  const adp = require('../services/adp.service');
+  let calls = 0;
+  let fail = false;
+  t.mock.method(adp, 'syncAdp', async () => {
+    calls += 1;
+    if (fail) throw new Error('FFC unavailable');
+    return { ok: true, playersUpdated: 180 };
+  });
+
+  const firstDay = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyAdpSync({ now: firstDay }), { ok: true, playersUpdated: 180 });
+  // A second tick the same local day does not run it again.
+  assert.equal(await scheduler.runDailyAdpSync({ now: firstDay }), null);
+
+  fail = true;
+  const nextDay = new Date('2026-08-21T12:00:00-05:00');
+  // A throw does not stamp the day: the next tick retries.
+  await assert.rejects(scheduler.runDailyAdpSync({ now: nextDay }), /FFC unavailable/);
+  fail = false;
+  assert.deepEqual(await scheduler.runDailyAdpSync({ now: nextDay }), { ok: true, playersUpdated: 180 });
+  // ...and once it succeeds, the day is stamped so it does not run a third time.
+  assert.equal(await scheduler.runDailyAdpSync({ now: nextDay }), null);
+  assert.equal(calls, 3);
+});
+
+test('tickUnlocked runs the daily ADP sync in its own containment, so a throw does not stop the duties after it', () => {
+  // The duty is contained exactly like runDailyInjurySync: a thrown ADP sync is
+  // caught and logged, and the rest of the tick still runs (a source-order pin
+  // in the same spirit as the injury-duty test above).
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
+});
+
+test('getSchedulerStatus reports the latest ADP run, and null when none has run', async (t) => {
+  const noRuns = createFakePool([
+    [/FROM "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+  assert.equal((await scheduler.getSchedulerStatus()).lastAdpSync, null);
+  noRuns.assertClean();
+
+  t.mock.restoreAll();
+  createFakePool([
+    [/FROM "data_sync_runs"/, () => ({
+      rows: [{ finished_at: '2026-09-02T06:00:00.000Z', ok: true, detail: { matched: 182, adpPlayers: 200 } }],
+    })],
+  ]).install(t);
+  assert.deepEqual((await scheduler.getSchedulerStatus()).lastAdpSync, {
+    finishedAt: '2026-09-02T06:00:00.000Z',
+    ok: true,
+    matched: 182,
+  });
+});
+
+test('getSchedulerStatus never throws when the data_sync_runs read fails', async (t) => {
+  createFakePool([
+    [/FROM "data_sync_runs"/, () => { throw new Error('relation "data_sync_runs" does not exist'); }],
+  ]).install(t);
+  // Health probes and the worker heartbeat depend on this never throwing.
+  const status = await scheduler.getSchedulerStatus();
+  assert.equal(status.lastAdpSync, null);
+});
+
 // ---- scoring is decoupled from syncing -------------------------------------
 
 test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', async (t) => {

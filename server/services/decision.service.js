@@ -21,6 +21,13 @@ const {
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { normalizeNflTeam } = require('./nflTeam');
+// The ONE pricer the settle pass uses (scoring.service). Hindsight and the
+// live what-if price a player-week the identical way the score of record does
+// - `calculateFantasyPoints(stats, rulesForLeague(league))` - so a
+// custom-scoring league's advisors never contradict its settled score (#739,
+// ADR 0024). They read `player_stats.stats`, never the stored
+// `fantasy_points` column, which is the DEFAULT-rules price.
+const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -447,8 +454,10 @@ async function isWeekFinal({ leagueId, season, week }) {
 
 /**
  * Actual vs. optimal lineup for one FINAL week: actual = the team's starters'
- * fantasy_points; optimal = optimalLineup() over the week AS PLAYED using
- * their actual fantasy_points.
+ * points; optimal = optimalLineup() over the week AS PLAYED using their actual
+ * points. Each player-week is priced from `player_stats.stats` under this
+ * league's rules (the settle pass's pricer, #739, ADR 0024), never the stored
+ * default-rules `fantasy_points` column.
  *
  * The pool is the settle pass's, read through `rowsHeldAsPlayed` (#736): a
  * row counts only if a tenure of this team covered its player's own kickoff
@@ -458,9 +467,15 @@ async function isWeekFinal({ leagueId, season, week }) {
  * record, so a best-ball team's actual is its optimal and nothing is ever
  * left on a bench nobody sets. The recap's blunder pick reads this number.
  *
- * IR: a best-ball IR occupant stays out of the pool, as in the settle pass.
- * A standard league's IR row still enters it as a candidate; whether it
- * should is #741.
+ * IR: an IR occupant is never a candidate starter, in any league type, as in
+ * the settle pass and the start/sit advisor (#741). Nothing in the product ever
+ * advises STARTING an IR occupant (the start/sit advisor excludes IR outright),
+ * so his points are never reported as left on the bench. The product does nag a
+ * stale designation (digest) and refuse a lineup save that keeps an ineligible
+ * player on IR (lineup.service), but that compels moving him OFF IR for
+ * eligibility, never onto a starting slot; a stash that scored means his
+ * designation was stale, not that he was startable. The best-ball and standard
+ * branches treat IR identically.
  */
 async function weekHindsight({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
@@ -470,8 +485,7 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
 
   const entriesResult = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
-            "players"."nfl_team", "lineup_entries"."slot",
-            COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points"
+            "players"."nfl_team", "lineup_entries"."slot", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
      LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
@@ -484,18 +498,29 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
     league, teamId, season, week, rows: entriesResult.rows,
   });
 
+  // Price each row through the settle pass's pricer under THIS league's rules,
+  // not the stored default-rules `fantasy_points` column (#739). A row with no
+  // `player_stats` match prices at 0, as the old COALESCE did.
+  const rules = rulesForLeague(league);
   let startedPoints = 0;
   const pointsFor = new Map();
   const players = [];
   const nameById = new Map();
   for (const row of asPlayed) {
-    const points = Number(row.fantasy_points) || 0;
+    // An IR occupant is never a candidate starter, in any league type (#741):
+    // nothing in the product advises STARTING him (the start/sit advisor
+    // excludes IR), and the settle pass never counts him. Skip him before he can
+    // enter the optimal-lineup pool or the started total.
+    if (row.slot === IR) continue;
+    const points = calculateFantasyPoints(row.stats, rules);
     nameById.set(row.player_id, row.name);
-    // Best ball: IR occupants stay stashed and never enter the pool, and the
-    // slots the rows carry mean nothing, so no started total is kept.
-    if (league.best_ball) {
-      if (row.slot === IR) continue;
-    } else if (row.slot !== BENCH && row.slot !== IR) {
+    // Standard: only rows in a starting slot count toward the started total;
+    // benched rows stay candidates for the optimal lineup. This test is only
+    // `row.slot !== BENCH`, so it depends on the IR skip above having already
+    // dropped IR rows; relocate or guard that skip and an IR row would count
+    // here again, reintroducing this ticket's defect. Best ball keeps no started
+    // total (its actual is its optimal over the whole pool).
+    if (!league.best_ball && row.slot !== BENCH) {
       startedPoints += points;
     }
     pointsFor.set(row.player_id, points);
@@ -515,7 +540,9 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
 /**
  * LIVE (in-progress week) counterpart to weekHindsight: actual points so far
  * vs. the best legal lineup achievable from here, using each player's CURRENT
- * fantasy_points. Read-only — it never changes a lineup.
+ * points priced from `player_stats.stats` under this league's rules (the
+ * settle pass's pricer, #739, ADR 0024), not the stored default-rules
+ * `fantasy_points` column. Read-only — it never changes a lineup.
  *
  * Locks are respected: a player whose real game has kicked off can't be moved,
  * so locked players are excluded from swap suggestions entirely. The returned
@@ -542,8 +569,7 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
 
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
-            "players"."nfl_team", "lineup_entries"."slot",
-            COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points"
+            "players"."nfl_team", "lineup_entries"."slot", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
      LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
@@ -559,6 +585,11 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   });
   for (const row of rows.rows) row.locked = locked.has(row.player_id);
 
+  // Same in-progress `stats` jsonb the box-score sync refreshes every few
+  // minutes, priced under the league's rules by the settle pass's pricer, not
+  // the default-rules `fantasy_points` column (#739). Live cadence is
+  // unchanged: the column and the jsonb move together.
+  const rules = rulesForLeague(league);
   let actualPoints = 0;
   const pointsFor = new Map();
   const nameById = new Map();
@@ -568,11 +599,16 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   const candidatePool = [];
   const currentStarterIds = new Set();
   for (const row of rows.rows) {
-    const points = Number(row.fantasy_points) || 0;
+    // An IR occupant is never a swap candidate, locked or not (#741): nothing in
+    // the product advises STARTING him (the start/sit advisor excludes IR, the
+    // settle pass never counts him). He is neither a starter nor a candidate
+    // here, and his points do not count toward actual.
+    if (row.slot === IR) continue;
+    const points = calculateFantasyPoints(row.stats, rules);
     pointsFor.set(row.player_id, points);
     nameById.set(row.player_id, row.name);
     lockedById.set(row.player_id, row.locked === true);
-    const isStarter = row.slot !== BENCH && row.slot !== IR;
+    const isStarter = row.slot !== BENCH;
     if (isStarter) {
       actualPoints += points;
       currentStarterIds.add(row.player_id);

@@ -37,24 +37,32 @@ const DEF_BENCH = {
 };
 
 /**
- * @param entries   the team's lineup rows, with the live `fantasy_points` the
- *                  population query returns.
+ * @param entries   the team's lineup rows, each carrying the raw `stats` the
+ *                  population query now returns (#739); the reader prices them
+ *                  under the league's rules.
  * @param kickedOff the teams whose game has started, in the SCHEDULE's
  *                  vocabulary (Tank01 abbreviations). Never the player's own
  *                  `nfl_team` string: seeding the player's spelling into the
  *                  schedule is exactly what would make these tests prove
  *                  nothing about #227.
+ * @param rosterSlots the league's starting slots (defaults to one DEF slot).
+ * @param scoringRules the league's scoring_rules (defaults to the defaults).
  */
-function whatIfWorld(t, { entries, kickedOff }) {
+function whatIfWorld(t, {
+  entries, kickedOff,
+  rosterSlots = [{ key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] }],
+  scoringRules = null,
+}) {
   return createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: LEAGUE_ID,
         current_season: SEASON,
         current_week: WEEK,
-        roster_slots: [{ key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] }],
+        roster_slots: rosterSlots,
         bench_slots: 5,
         ir_slots: 1,
+        scoring_rules: scoringRules,
       }],
     })],
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ ok: 1 }] })],
@@ -83,8 +91,8 @@ test('#227 liveWhatIf will not suggest moving a DEF unit whose game has kicked o
   // his team DEN; his own row says "Denver Broncos".
   const fake = whatIfWorld(t, {
     entries: [
-      { ...DEF_STARTER, slot: 'DEF', fantasy_points: 2 },
-      { ...DEF_BENCH, slot: 'BENCH', fantasy_points: 20 },
+      { ...DEF_STARTER, slot: 'DEF', stats: { sack: 2 } },
+      { ...DEF_BENCH, slot: 'BENCH', stats: { sack: 20 } },
     ],
     kickedOff: ['DEN'],
   });
@@ -102,8 +110,8 @@ test('#227 liveWhatIf still suggests the swap before the DEF unit kicks off', as
   // must make a DEF unit ORDINARY here, not permanently unsuggestible.
   const fake = whatIfWorld(t, {
     entries: [
-      { ...DEF_STARTER, slot: 'DEF', fantasy_points: 2 },
-      { ...DEF_BENCH, slot: 'BENCH', fantasy_points: 20 },
+      { ...DEF_STARTER, slot: 'DEF', stats: { sack: 2 } },
+      { ...DEF_BENCH, slot: 'BENCH', stats: { sack: 20 } },
     ],
     kickedOff: [],
   });
@@ -120,7 +128,7 @@ test('#227 liveWhatIf asks lineup.service for the lock rather than joining the s
   // to fix and they can drift apart again - which is how this one survived
   // the first four being found.
   const fake = whatIfWorld(t, {
-    entries: [{ ...DEF_STARTER, slot: 'DEF', fantasy_points: 2 }],
+    entries: [{ ...DEF_STARTER, slot: 'DEF', stats: { sack: 2 } }],
     kickedOff: ['DEN'],
   });
 
@@ -135,5 +143,92 @@ test('#227 liveWhatIf asks lineup.service for the lock rather than joining the s
   assert.equal(scheduleReads.length, 1, 'exactly one schedule read on this path');
   assert.match(scheduleReads[0].text, /^SELECT "nfl_team" FROM "nfl_games"/,
     'and it is lineup.service\'s own lock predicate');
+  fake.assertClean();
+});
+
+/* ------------------------------------------------------------------ *
+ * #741: liveWhatIf never proposes a swap onto an IR occupant.          *
+ * A man on IR could only start by being moved off IR before kickoff,   *
+ * and no part of the product advises that move (the start/sit advisor  *
+ * excludes IR outright, the settle pass never counts it). So even an    *
+ * unlocked IR occupant out-scoring a starter is not an actionable swap. *
+ * ------------------------------------------------------------------ */
+
+const IR_RB_STARTER = { player_id: 5, name: 'Starter RB', position: 'RB', nfl_team: 'Chiefs' };
+const IR_RB_STASH = { player_id: 6, name: 'IR RB', position: 'RB', nfl_team: 'Eagles' };
+const ONE_RB_SLOT = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
+
+test('#741 liveWhatIf will not suggest swapping a starter for an unlocked IR occupant', async (t) => {
+  // Standard league, one RB slot. The starter is scoring 10; a 30-point RB
+  // sits on IR and NOBODY has kicked off, so the only thing that can suppress
+  // this swap is the IR rule, not the lock. Before this ticket the IR row
+  // entered the candidate pool and the optimizer promoted him.
+  const fake = whatIfWorld(t, {
+    rosterSlots: ONE_RB_SLOT,
+    entries: [
+      { ...IR_RB_STARTER, slot: 'RB', stats: { rushingYards: 100 } }, // 10
+      { ...IR_RB_STASH, slot: 'IR', stats: { rushingYards: 300 } }, // 30, but on IR
+    ],
+    kickedOff: [],
+  });
+
+  const result = await runWhatIf();
+
+  assert.deepEqual(result.swaps, [],
+    'a man on IR was never startable, so promoting him is not an actionable swap');
+  assert.equal(result.delta, 0);
+  assert.equal(result.actualPoints, 10, 'the IR occupant does not count toward actual');
+  fake.assertClean();
+});
+
+test('#741 control: the same fixture with the row on the BENCH does produce the swap', async (t) => {
+  // Proves the fixture is otherwise a real upgrade: only the IR slot suppresses
+  // it. Move the 30-point RB to BENCH and the optimizer promotes him.
+  const fake = whatIfWorld(t, {
+    rosterSlots: ONE_RB_SLOT,
+    entries: [
+      { ...IR_RB_STARTER, slot: 'RB', stats: { rushingYards: 100 } }, // 10
+      { ...IR_RB_STASH, slot: 'BENCH', stats: { rushingYards: 300 } }, // 30 on the bench
+    ],
+    kickedOff: [],
+  });
+
+  const result = await runWhatIf();
+
+  assert.equal(result.swaps.length, 1, 'a bench RB out-scoring the starter is an actionable upgrade');
+  assert.equal(result.swaps[0].in.points, 30);
+  assert.equal(result.swaps[0].out.points, 10);
+  assert.equal(result.delta, 20);
+  fake.assertClean();
+});
+
+test('#739 liveWhatIf prices the live week under the league rules, not the stored column', async (t) => {
+  // Full PPR. The bench RB's twenty catches make him worth 20 under the
+  // league's rules but only 10 under the half-PPR default column. Under the
+  // column he does not out-score the 10-point starter and no swap is offered;
+  // under the league's rules he does, and the delta is league-priced. The
+  // stats-versus-column split is the point (#739): a reader on the column
+  // would return actualPoints 10 with zero swaps.
+  const RB_STARTER = { player_id: 3, name: 'Rush RB', position: 'RB', nfl_team: 'Chiefs' };
+  const RB_BENCH = { player_id: 4, name: 'PPR RB', position: 'RB', nfl_team: 'Eagles' };
+  const fake = whatIfWorld(t, {
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    scoringRules: { receiving: { reception: 1 } },
+    entries: [
+      // The stored column holds the half-PPR DEFAULT price for both; the
+      // reader must ignore it and price `stats` under the league's rules.
+      { ...RB_STARTER, slot: 'RB', stats: { rushingYards: 100 }, fantasy_points: 10 }, // 10 under either rule
+      { ...RB_BENCH, slot: 'BENCH', stats: { receptions: 20 }, fantasy_points: 10 }, // default 10, full PPR 20
+    ],
+    kickedOff: [],
+  });
+
+  const result = await runWhatIf();
+
+  assert.equal(result.actualPoints, 10, 'the starter, priced under the league rules');
+  assert.equal(result.swaps.length, 1, 'full PPR makes the bench RB an upgrade the column would have hidden');
+  assert.equal(result.swaps[0].in.points, 20, 'the bench RB is worth his twenty catches, not the column\'s ten');
+  assert.equal(result.swaps[0].out.points, 10);
+  assert.equal(result.delta, 10);
   fake.assertClean();
 });

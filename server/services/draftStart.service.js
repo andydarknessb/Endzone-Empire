@@ -4,6 +4,7 @@ const { DraftError } = require('./draft.service');
 const { startPlan } = require('./draftValidation.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
+const { MARKET_FLOOR } = require('./adp.service');
 const { appendLifecycleActivity, DRAFT_START, COMPLETE } = require('./draftActivity');
 const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
 // The Pick clock module owns arming (ADR 0018): the draft-started event fixes
@@ -81,6 +82,26 @@ async function startDraft({ leagueId, userId = null }) {
     const actorTeam = actorRow ? { id: actorRow.id, name: actorRow.name } : null;
     if (!meetsMinimum(teams.length, league.min_teams)) {
       throw new DraftError(409, `need at least ${league.min_teams} teams to start the draft (currently ${teams.length})`);
+    }
+
+    // The market gate (#747, decision 7): refuse to start when fewer than
+    // MARKET_FLOOR players carry an ADP. Without a loaded market, autopicks
+    // silently fall back to last season's points, so start is refused HERE -
+    // where a human is present and can run the sync - for every trigger
+    // (manual, socket, and, as a backstop, the scheduler). The scheduler
+    // normally refuses earlier with its own 'no_market' action; this is the
+    // invariant that also catches a market that thinned after that check.
+    const market = await client.query(
+      `SELECT COUNT(*)::int AS n FROM "players" WHERE "adp" IS NOT NULL`
+    );
+    const marketCount = market.rows[0].n;
+    if (marketCount < MARKET_FLOOR) {
+      throw new DraftError(
+        409,
+        `The player market has not loaded (${marketCount} of ${MARKET_FLOOR} players carry an ADP), `
+          + "so autopicks would fall back to last season's points. "
+          + 'Ask your admin to run the ADP sync, then start the draft.'
+      );
     }
 
     let keepers = [];

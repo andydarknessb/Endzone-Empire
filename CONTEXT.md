@@ -471,7 +471,9 @@ cost of a draft pick.
 
 **ADP**:
 Average draft position: where the wider fantasy market drafts a player. A market
-reference, deliberately distinct from this app's own ranking of him.
+reference, deliberately distinct from this app's own ranking of him. One market
+serves every league: half-PPR, twelve teams, refreshed daily, and a league
+cannot start its draft while fewer than a hundred players carry one.
 _Avoid_: rank, position rank
 
 **Draft grade**:
@@ -708,7 +710,10 @@ A settled week re-read against the best legal lineup its team could have
 started from the week as played, the same players the settle pass read, with
 the gap between what it started and that lineup being the points left on the
 bench. In best ball the two lineups are one and nothing is ever left (ADR
-0023).
+0023). It is priced under the league's own scoring rules, the same pricer the
+settle pass uses, not the stored default-rules `fantasy_points` column (ADR
+0024). An IR occupant is never left on the bench: he is not a candidate starter
+in any league type, matching the settle pass and the start/sit advisor (#741).
 _Avoid_: what-if (the live, in-progress counterpart), regret (the holdout
 study's measure of the same gap), optimal lineup (the thing hindsight
 compares against, not the comparison)

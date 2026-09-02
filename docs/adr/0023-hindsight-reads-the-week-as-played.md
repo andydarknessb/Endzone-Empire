@@ -66,3 +66,30 @@ Consequences).
   standard league an IR occupant still enters hindsight's pool as a candidate
   starter; pre-existing, ruled separately as #741.
 - ADR 0022's last consequence is amended to point here.
+
+## Amendment (2026-09-02, #739)
+
+The pricing consequence left open above is now decided. #739 rules that a
+league-scoped reader prices `player_stats.stats` under `rulesForLeague(league)`,
+the settle pass's own pricer and rules object, and never presents the stored
+`fantasy_points` column (the default-rules price) as a league's number. So in a
+custom-scoring league hindsight's actual and optimal are league-priced, and in
+best ball hindsight's actual (= optimal) equals the settled score under the
+league's rules rather than differing from it by pricing. See ADR 0024.
+
+## Amendment (2026-09-02, #741)
+
+The IR consequence left open above is now decided. An IR occupant is never a
+candidate starter in hindsight, in any league type. The standard-league
+behaviour the original consequence recorded (an IR row entering hindsight's pool
+as a candidate starter) is removed: hindsight and live what-if now mirror the
+settle pass and the start/sit advisor, which never count or offer an IR row.
+The ruling (Cory, 2026-09-02): an IR occupant could only have started by being
+moved off IR before his kickoff, and no part of the product advises that move, so
+naming him a bench blunder is the advisor disagreeing with itself (the defect
+#227 removed from the lock). A stash that scored means his injury designation was
+stale, not that the manager blundered. The best-ball and standard branches of
+`weekHindsight` now treat IR identically, and `liveWhatIf` never places an IR
+occupant in its candidate pool, locked or not. The settle pass's scores are
+unchanged; only which rows enter hindsight's and live what-if's candidate pools
+changed.

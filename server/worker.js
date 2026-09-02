@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const pool = require('./modules/pool');
 const { validateEnvironment } = require('./modules/config');
+const bootGates = require('./modules/bootGates');
 const { installConsoleBridge, logger } = require('./modules/logger');
 const { initSentry, captureError, flushSentry } = require('./modules/sentry');
 const { startScheduler, stopScheduler, getSchedulerStatus } = require('./modules/scheduler');
@@ -18,7 +19,7 @@ let stopping = false;
 installConsoleBridge();
 
 async function heartbeat() {
-  const scheduler = getSchedulerStatus();
+  const scheduler = await getSchedulerStatus();
   const live = getLiveGameEngineStatus();
   await recordWorkerHeartbeat({
     name: 'jobs',
@@ -27,6 +28,7 @@ async function heartbeat() {
 }
 
 async function startWorker() {
+  bootGates.assertRedisUrlForBoot(process.env, { role: 'worker' });
   validateEnvironment(process.env, { worker: true });
   initSentry();
   await heartbeat();

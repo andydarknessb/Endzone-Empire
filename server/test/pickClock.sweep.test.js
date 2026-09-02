@@ -156,18 +156,21 @@ test('sweep: after a snipe, falls through to the next best candidate, never to t
 // --- the worker broadcast path: no local Socket.IO server --------------------
 // Ported from the superseded autopick service suite: this is the arm the worker
 // actually takes. The worker process has no local Socket.IO server, so
-// emitDraftEvent publishes the committed pick to Redis for the API-side relay
-// (the production path for every autopick broadcast), rather than emitting
-// in-process. Pinning the exact envelope keeps a future edit from dropping or
-// reshaping it.
+// emitDraftEvent publishes the committed pick over the Draft room transport (the
+// @socket.io/redis-emitter, fanned out by the redis-adapter the API runs, #744),
+// rather than emitting in-process. Pinning the exact envelope keeps a future
+// edit from dropping or reshaping it.
 
-test('sweep: with no local Socket.IO server, the committed pick is published for the API relay', async (t) => {
+test('sweep: with no local Socket.IO server, the committed pick is published over the room transport', async (t) => {
   installSweepPool(t, {
     candidates: [{ id: 8, name: 'Worker Pick', adp: '1.0', queue_rank: null, last_season_points: null }],
   });
   t.mock.method(ioRegistry, 'getIo', () => null);
   const published = [];
-  t.mock.method(draftEvents, 'publishDraftEvent', async (event) => { published.push(event); });
+  t.mock.method(draftEvents, 'publishDraftEvent', async (event) => {
+    published.push(event);
+    return { delivered: true, transport: 'emitter' };
+  });
   const outcome = { leagueId: LEAGUE_ID, teamId: 55, player: { id: 8, name: 'Worker Pick' }, draftComplete: false };
   t.mock.method(draftService, 'draftPlayer', async () => outcome);
 

@@ -53,7 +53,7 @@ router.get('/overview', async (req, res) => {
       leagues: leaguesByStatus.rows,
       recentSignups: recentSignups.rows,
       sync: {
-        scheduler: getSchedulerStatus(),
+        scheduler: await getSchedulerStatus(),
         liveGameEngine: getLiveGameEngineStatus(),
         statsCoverage: statsCoverage.rows[0],
         rapidApiConfigured: Boolean(process.env.RAPID_API_KEY && process.env.RAPID_API_HOST),
