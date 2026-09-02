@@ -266,11 +266,50 @@ async function getStandings({ leagueId }) {
 }
 
 /**
+ * Give every team in a matchup of the week that just opened its lineup rows
+ * now, rather than at the first score sync or the first lineup view. Until
+ * this ran, a team nobody had touched had no starters to sum, so its Game
+ * Center card showed a dash where every other card showed an expected
+ * final. Best-effort and after the advance has committed: a seed problem
+ * on one roster, or no connection to spare, must not undo a week advance
+ * or turn it into an error, so everything here, the connection included,
+ * runs inside the guard, in its own transaction, and logs rather than
+ * throws. A week with no matchups (a season that just completed) has
+ * nothing to do. Required lazily: lineup.service is loaded by paths that
+ * also load this module.
+ */
+async function materializeNewWeekLineups({ leagueId, season, week, league }) {
+  let client = null;
+  try {
+    const { materializeLineup } = require('./lineup.service');
+    client = await pool.connect();
+    const nextMatchups = await client.query(
+      `SELECT "home_team_id", "away_team_id" FROM "matchups"
+       WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
+      [leagueId, season, week]
+    );
+    const teamIds = [...new Set(nextMatchups.rows.flatMap((m) => [m.home_team_id, m.away_team_id]))];
+    if (teamIds.length === 0) return;
+    await client.query('BEGIN');
+    for (const teamId of teamIds) {
+      await materializeLineup(client, { leagueId, teamId, season, week, league });
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('new-week lineups not materialized', { leagueId, week, error: error.message });
+  } finally {
+    if (client) client.release();
+  }
+}
+
+/**
  * Close out the league's current week and advance: mark the week's matchups
  * final, then either schedule the next playoff round (regular season over),
  * advance the bracket, or crown a champion. Scores must already be computed
  * (scoring.service) before calling this. Transactional; commissioner- or
- * scheduler-driven.
+ * scheduler-driven. Once committed, the new week's lineups are seeded
+ * (materializeNewWeekLineups), best-effort.
  */
 async function finalizeWeekAndAdvance({ leagueId }) {
   const client = await pool.connect();
@@ -409,6 +448,7 @@ async function finalizeWeekAndAdvance({ leagueId }) {
     }
 
     await client.query('COMMIT');
+    await materializeNewWeekLineups({ leagueId, season, week: nextWeek, league });
     return outcome;
   } catch (error) {
     await client.query('ROLLBACK');

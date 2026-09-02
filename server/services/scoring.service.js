@@ -1752,13 +1752,18 @@ async function generateMatchups({ leagueId, season, week }) {
  */
 async function scoreMatchups({ leagueId, season, week, plays = [], settle = false }) {
   const client = await pool.connect();
+  // Hoisted so the post-commit work below runs after the connection is
+  // released rather than inside the transaction's try.
+  let league;
+  let scored = [];
+  let openMatchups = [];
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
       `SELECT * FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
-    const league = leagueResult.rows[0];
+    league = leagueResult.rows[0];
     const rules = rulesForLeague(league);
     const matchupsResult = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
@@ -1856,7 +1861,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       const total = counted.reduce((sum, row) => sum + calculateFantasyPoints(row.stats, rules), 0);
       return Math.round(total * 100) / 100;
     };
-    const scored = [];
+    scored = [];
     for (const matchup of matchupsResult.rows) {
       // The ONE place the population is chosen. A settled week and a final
       // week are the same population - the week as played - so `settle` and
@@ -1878,19 +1883,51 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       });
     }
     await client.query('COMMIT');
-    // Live scoring: push fresh scores to anyone watching this league
-    const io = getIo();
-    // `plays` (typed touchdown events) rides the same emit that carries fresh
-    // scores. It's populated only on the live sync path — the stat-correction
-    // path passes none — so a cutscene can never fire from a correction.
-    if (io) io.to(`league:${leagueId}`).emit('scores:updated', { leagueId, season, week, scored, plays });
-    return { scored };
+    openMatchups = matchupsResult.rows.filter((m) => !(settle || m.final));
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
   }
+
+  // Each side's expected final and players remaining ride the same emit as
+  // the fresh scores, so a card can never show a new score against a stale
+  // forecast. Computed once the pass has committed AND its connection is
+  // back in the pool (the producer reads on the pool; holding a second
+  // connection per pass would let concurrent re-scores starve it), from the
+  // stats this pass just wrote, only for matchups still open (a final one's
+  // result is its score), and best-effort: a miss leaves the four fields
+  // null. Required lazily: expectedFinal.service reads this module's rules.
+  let expectedByTeam = new Map();
+  if (openMatchups.length > 0) {
+    try {
+      const { expectedFinalsForWeek } = require('./expectedFinal.service');
+      expectedByTeam = await expectedFinalsForWeek({
+        league,
+        season,
+        week,
+        teamIds: openMatchups.flatMap((m) => [m.home_team_id, m.away_team_id]),
+      });
+    } catch (efErr) {
+      console.error('expected finals unavailable on score pass', efErr.message);
+    }
+  }
+  for (const entry of scored) {
+    const home = expectedByTeam.get(Number(entry.homeTeamId)) || null;
+    const away = expectedByTeam.get(Number(entry.awayTeamId)) || null;
+    entry.homeExpectedFinal = home ? home.expectedFinal : null;
+    entry.awayExpectedFinal = away ? away.expectedFinal : null;
+    entry.homePlayersRemaining = home ? home.playersRemaining : null;
+    entry.awayPlayersRemaining = away ? away.playersRemaining : null;
+  }
+  // Live scoring: push fresh scores to anyone watching this league
+  const io = getIo();
+  // `plays` (typed touchdown events) rides the same emit that carries fresh
+  // scores. It's populated only on the live sync path — the stat-correction
+  // path passes none — so a cutscene can never fire from a correction.
+  if (io) io.to(`league:${leagueId}`).emit('scores:updated', { leagueId, season, week, scored, plays });
+  return { scored };
 }
 
 module.exports = {

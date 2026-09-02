@@ -410,3 +410,40 @@ test('does not render the live-game ticker once the matchup is final', async () 
   await screen.findByText('Week 3 Matchup');
   expect(screen.queryByTestId('live-game-status')).not.toBeInTheDocument();
 });
+
+// The team totals shown while live are each side's expected final
+// (CONTEXT.md), read off the detail response and then moved by the score
+// sync's scores:updated event, which carries the new expected finals with
+// the new scores. An event without those fields leaves the loaded totals.
+test('the live team totals show the expected final and follow scores:updated', async () => {
+  const response = matchupResponse();
+  response.data.home.expectedFinal = 120.5;
+  response.data.home.playersRemaining = 4;
+  response.data.away.expectedFinal = 97.25;
+  response.data.away.playersRemaining = 2;
+  apiClient.get.mockResolvedValue(response);
+
+  renderDetail(1, 9);
+  await screen.findByText('101.5');
+  expect(screen.getByText('Projected 120.5')).toBeInTheDocument();
+  expect(screen.getByText('Projected 97.3')).toBeInTheDocument();
+
+  act(() => {
+    socketHandlers['scores:updated']({
+      scored: [{
+        matchupId: 9, homeScore: 110, awayScore: 90,
+        homeExpectedFinal: 130.2, awayExpectedFinal: 96.4, homePlayersRemaining: 3, awayPlayersRemaining: 1,
+      }],
+    });
+  });
+  expect(await screen.findByText('Projected 130.2')).toBeInTheDocument();
+  expect(screen.getByText('Projected 96.4')).toBeInTheDocument();
+
+  act(() => {
+    socketHandlers['scores:updated']({
+      scored: [{ matchupId: 9, homeScore: 111, awayScore: 90 }],
+    });
+  });
+  expect(await screen.findByText('111')).toBeInTheDocument();
+  expect(screen.getByText('Projected 130.2')).toBeInTheDocument();
+});

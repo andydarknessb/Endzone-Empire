@@ -20,6 +20,7 @@ export const STAT_DEFINITIONS = Object.freeze({
   PA: 'Points against: total fantasy points scored by this team\'s opponents.',
   ADP: 'Average draft position: the typical pick where this player is selected.',
   Projected: 'Projected fantasy points: an estimate based on available projection data.',
+  'Expected final': 'Expected final: the projection until a starter kicks off, then points so far plus what he is still expected to add, until it is the score.',
   'FPTS/G': 'Fantasy points per game: total fantasy points divided by games played.',
   'Pos rank': 'Position rank: this player\'s rank among players at the same position.',
   Bye: 'Bye week: the week this player\'s NFL team does not play, so they can\'t score.',

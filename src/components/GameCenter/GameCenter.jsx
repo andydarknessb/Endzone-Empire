@@ -17,8 +17,10 @@ import {
   CardContent,
   IconButton,
   Skeleton,
+  Tooltip,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
+import { visuallyHidden } from '@mui/utils';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import apiClient from '../../api/apiClient';
@@ -31,7 +33,7 @@ import { playLabel } from '../../lib/scoringEvents';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { MatchupStatusChip } from '../MatchupDetail/MatchupExtras';
 import TeamAvatar from '../common/TeamAvatar';
-import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import AbbreviationTooltip, { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
 
 const LIVE_INDICATOR_MS = 10000;
 
@@ -195,26 +197,41 @@ function LiveScoringFeed({ items }) {
 }
 
 /**
- * One team's projected starter total as the list route reports it
- * (`home_projected_total` / `away_projected_total`, number or null). A
- * number shows to one decimal, matching Matchup Detail; null keeps a muted
- * dash, since "no lineup yet" is a real state and not a zero. Callers hide
- * it once the matchup is final: a settled game has a score, not a forecast.
+ * One team's expected final as the list route reports it
+ * (`home_expected_final` / `away_expected_final`, number or null): its
+ * projection until its starters kick off, then points so far plus what each
+ * starter still in play is expected to add, until it is the score. The
+ * label stays "Proj" throughout, the way every fantasy app labels the moving
+ * number; the tooltip term carries the definition. A number shows to one
+ * decimal, matching Matchup Detail; null keeps a muted dash, since "no
+ * lineup yet" is a real state and not a zero. Callers hide it once the
+ * matchup is final: a settled game has a score, not a forecast.
  */
+/** Players remaining as the list route reports it (integer or null): the count, or a dash. */
+function playersRemainingLabel(value) {
+  return value != null && Number.isFinite(Number(value)) ? String(Number(value)) : '-';
+}
+
 function ProjectedCaption({ value, align = 'left' }) {
   const known = value != null && Number.isFinite(Number(value));
   return (
-    <Typography
-      variant="caption"
-      sx={{
-        display: 'block',
-        textAlign: align,
-        color: known ? 'text.secondary' : 'text.disabled',
-        fontStyle: known ? 'normal' : 'italic',
-      }}
-    >
-      {known ? `Proj: ${Number(value).toFixed(1)}` : 'Proj: -'}
-    </Typography>
+    <Tooltip title={STAT_DEFINITIONS['Expected final']} enterTouchDelay={0}>
+      <Typography
+        variant="caption"
+        sx={{
+          display: 'block',
+          textAlign: align,
+          color: known ? 'text.secondary' : 'text.disabled',
+          fontStyle: known ? 'normal' : 'italic',
+        }}
+      >
+        {known ? `Proj: ${Number(value).toFixed(1)}` : 'Proj: -'}
+        {/* The tooltip needs a pointer; this carries the same definition to a
+            screen reader without adding a Tab stop inside the card link,
+            the way AbbreviationTooltip does with its label (#212). */}
+        <Box component="span" sx={visuallyHidden}>. {STAT_DEFINITIONS['Expected final']}</Box>
+      </Typography>
+    </Tooltip>
   );
 }
 
@@ -323,7 +340,19 @@ function GameCenter() {
         prevMatchups.map((m) => {
           const scored = data.scored.find((s) => s.matchupId === m.id);
           if (!scored) return m;
-          return { ...m, home_score: scored.homeScore, away_score: scored.awayScore };
+          // The expected finals and players remaining ride the same event as
+          // the scores, so a card never shows a fresh score against a stale
+          // forecast. An event that predates those fields leaves them as
+          // they were.
+          const next = { ...m, home_score: scored.homeScore, away_score: scored.awayScore };
+          const carry = (from, to) => {
+            if (Object.prototype.hasOwnProperty.call(scored, from)) next[to] = scored[from];
+          };
+          carry('homeExpectedFinal', 'home_expected_final');
+          carry('awayExpectedFinal', 'away_expected_final');
+          carry('homePlayersRemaining', 'home_players_remaining');
+          carry('awayPlayersRemaining', 'away_players_remaining');
+          return next;
         })
       );
 
@@ -411,8 +440,8 @@ function GameCenter() {
     ? matchupWinProbability({
         homeScore: heroHomeScore,
         awayScore: heroAwayScore,
-        homeProjectedTotal: heroMatchup.home_projected_total,
-        awayProjectedTotal: heroMatchup.away_projected_total,
+        homeExpectedFinal: heroMatchup.home_expected_final,
+        awayExpectedFinal: heroMatchup.away_expected_final,
       })
     : null;
   const heroStarted = !!heroMatchup && (
@@ -538,9 +567,9 @@ function GameCenter() {
                     >
                       {heroHomeScore}
                     </Typography>
-                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.home_projected_total} />}
+                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.home_expected_final} />}
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      <AbbreviationTooltip term="PMR" />: -
+                      <AbbreviationTooltip term="PMR" />: {playersRemainingLabel(heroMatchup.home_players_remaining)}
                     </Typography>
                   </Grid>
                   <Grid xs={2} sx={{ textAlign: 'center' }}>
@@ -558,9 +587,9 @@ function GameCenter() {
                     >
                       {heroAwayScore}
                     </Typography>
-                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.away_projected_total} align="right" />}
+                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.away_expected_final} align="right" />}
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      <AbbreviationTooltip term="PMR" />: -
+                      <AbbreviationTooltip term="PMR" />: {playersRemainingLabel(heroMatchup.away_players_remaining)}
                     </Typography>
                   </Grid>
                 </Grid>
@@ -609,7 +638,7 @@ function GameCenter() {
                           >
                             {matchup.home_team_name} ({homeScore})
                           </Typography>
-                          {!matchup.final && <ProjectedCaption value={matchup.home_projected_total} />}
+                          {!matchup.final && <ProjectedCaption value={matchup.home_expected_final} />}
                         </Box>
                       </Box>
                       <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary' }}>
@@ -630,7 +659,7 @@ function GameCenter() {
                           >
                             {matchup.away_team_name} ({awayScore})
                           </Typography>
-                          {!matchup.final && <ProjectedCaption value={matchup.away_projected_total} />}
+                          {!matchup.final && <ProjectedCaption value={matchup.away_expected_final} />}
                         </Box>
                       </Box>
                     </Box>

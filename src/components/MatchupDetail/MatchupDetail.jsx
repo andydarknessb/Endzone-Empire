@@ -170,6 +170,22 @@ function MatchupDetail() {
         setMatchup((prev) =>
           prev ? { ...prev, home_score: scored.homeScore, away_score: scored.awayScore } : prev
         );
+        // The expected finals ride the same event as the scores, so the
+        // team totals never show a fresh score against a stale forecast.
+        // An event without those fields (an older server) leaves them be.
+        const withExpected = (prev, side) => {
+          if (!prev) return prev;
+          const next = { ...prev };
+          if (Object.prototype.hasOwnProperty.call(scored, `${side}ExpectedFinal`)) {
+            next.expectedFinal = scored[`${side}ExpectedFinal`];
+          }
+          if (Object.prototype.hasOwnProperty.call(scored, `${side}PlayersRemaining`)) {
+            next.playersRemaining = scored[`${side}PlayersRemaining`];
+          }
+          return next;
+        };
+        setHome((prev) => withExpected(prev, 'home'));
+        setAway((prev) => withExpected(prev, 'away'));
       }
 
       const plays = data.plays || [];
@@ -301,8 +317,8 @@ function MatchupDetail() {
   const winProb = matchupWinProbability({
     homeScore,
     awayScore,
-    homeProjectedTotal: home?.projectedTotal || 0,
-    awayProjectedTotal: away?.projectedTotal || 0,
+    homeExpectedFinal: home?.expectedFinal,
+    awayExpectedFinal: away?.expectedFinal,
   });
   const isCurrentSeason = Number(matchup?.season) === Number(league?.current_season);
   const isCurrentWeek = Number(matchup?.week) === Number(league?.current_week);
@@ -456,9 +472,9 @@ function MatchupDetail() {
                         Left {col.benchLeft} on the bench
                       </Typography>
                     )}
-                    {showLive && col.team?.projectedTotal != null && (
+                    {showLive && col.team?.expectedFinal != null && (
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
-                        Projected {Number(col.team.projectedTotal).toFixed(1)}
+                        Projected {Number(col.team.expectedFinal).toFixed(1)}
                       </Typography>
                     )}
                   </Grid>
