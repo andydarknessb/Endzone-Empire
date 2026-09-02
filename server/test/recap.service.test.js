@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildRecapFacts, templateNarrative } = require('../services/recap.service');
+const { buildRecapFacts, pickWaiverSteal, templateNarrative } = require('../services/recap.service');
+const { rulesForLeague } = require('../services/scoring.service');
 
 const matchup = (home, away, hs, as, final = true) => ({
   home_team_name: home,
@@ -41,6 +42,31 @@ test('buildRecapFacts passes extras through', () => {
     waiverSteal: { player: 'P', team: 'A', points: 22 },
   });
   assert.deepEqual(facts.waiverSteal, { player: 'P', team: 'A', points: 22 });
+});
+
+test('#739 pickWaiverSteal names the league-priced winner, not the column order', () => {
+  // Full PPR. Under the stored half-PPR column A (20) outranks B (12), so the
+  // old SQL ORDER BY on the column would have named A. Under the league's own
+  // rules B's eighteen catches make him worth 21, and the pick is B.
+  const rules = rulesForLeague({ scoring_rules: { receiving: { reception: 1 } } });
+  const steal = pickWaiverSteal([
+    { player: 'A', team: 'X', stats: { rushingYards: 200 } }, // 20 under either rule
+    { player: 'B', team: 'Y', stats: { rushingYards: 30, receptions: 18 } }, // default 12, full PPR 21
+  ], rules);
+  assert.deepEqual(steal, { player: 'B', team: 'Y', points: 21 });
+});
+
+test('#739 pickWaiverSteal yields no steal when the best pickup prices to zero or below', () => {
+  const rules = rulesForLeague({ scoring_rules: null });
+  const steal = pickWaiverSteal([
+    { player: 'A', team: 'X', stats: { fumbles: 1 } }, // -2 (a lost fumble)
+    { player: 'B', team: 'Y', stats: {} }, // 0
+  ], rules);
+  assert.equal(steal, null);
+});
+
+test('#739 pickWaiverSteal returns null for an empty candidate pool', () => {
+  assert.equal(pickWaiverSteal([], rulesForLeague({ scoring_rules: null })), null);
 });
 
 test('templateNarrative mentions the headline facts', () => {
