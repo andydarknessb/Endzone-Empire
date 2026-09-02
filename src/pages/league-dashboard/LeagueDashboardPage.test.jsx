@@ -358,10 +358,27 @@ test('my-team card: draft-grades fixture fills the grade and roster-value tiles'
   renderPage();
 
   const card = await screen.findByTestId('my-team-summary');
-  // Scoped to the card: #642 renders a grade letter and a roster value for
-  // every team, so a page-wide query would match many.
+  // Scoped to the card: #642 renders a grade letter for every team, so a
+  // page-wide query would match many.
   expect(await within(card).findByText('C')).toBeInTheDocument();
   expect(within(card).getByText('1,284')).toBeInTheDocument();
+});
+
+// Week 1 of a season: the server sends the grade with rosterValue null (no
+// projections exist yet). Number(null) is 0, which is exactly the "0 roster
+// value" production showed; the tile must render the placeholder instead.
+test('my-team card: a null roster value renders the placeholder, not 0, while the grade still shows', async () => {
+  mockGetByUrl({
+    '/api/league/1': myTeamLeague(),
+    '/api/league/1/draft-grades': draftGradesResponse({ rosterValue: null }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('my-team-summary');
+  expect(await within(card).findByText('C')).toBeInTheDocument();
+  const valueTile = within(card).getByTestId('stat-roster-value');
+  expect(valueTile).toHaveTextContent('-');
+  expect(valueTile.textContent).not.toMatch(/\d/);
 });
 
 test('my-team card: a 404 from draft-grades leaves the grade and value tiles as placeholders with no digits', async () => {
@@ -1071,8 +1088,8 @@ const draftGradesRailLeague = (overrides = {}) =>
 const railPick = (name, pickNumber, marketAdp) => ({
   playerId: pickNumber, name, position: 'RB', pickNumber, marketAdp, draftValueScore: marketAdp - pickNumber,
 });
-const railRow = (teamId, grade, rank, adpNet, steal = null, reach = null) => ({
-  teamId, name: `raw-${teamId}`, grade, rank, adpNet, rosterValue: null, steal, reach,
+const railRow = (teamId, grade, rank, adpNet, steal = null, reach = null, pricedPicks = 9) => ({
+  teamId, name: `raw-${teamId}`, grade, rank, adpNet, rosterValue: null, steal, reach, pricedPicks,
 });
 const draftGradesRailResponse = () => ({
   data: {
@@ -1089,7 +1106,9 @@ const draftGradesRailResponse = () => ({
       railRow(8, 'D', 8, 42.1),
       railRow(9, 'D', 9, 26.9),
       railRow(10, 'D', 10, 14.4),
-      railRow(11, 'F', 11, -19.2),
+      // A Team with no market ADP on any pick (IDP-heavy): no net, no steal, no
+      // reach, and a different sentence from "every pick landed at its ADP".
+      railRow(11, 'F', 11, null, null, null, 0),
       railRow(12, 'F', 12, -52.1, railPick('Sam LaPorta', 60, 55), null),
     ],
   },
@@ -1139,24 +1158,36 @@ test('draft-grades card: heading, Net vs ADP tail, 12 rows in rank order with Te
   // and the row says how the grade was earned: best steal, worst reach.
   const viewerRow = within(card).getByTestId('draft-grades-row-1');
   expect(within(viewerRow).getByRole('img', { name: 'Grade C' })).toBeInTheDocument();
-  expect(viewerRow).toHaveTextContent('Net vs ADP +95.1');
+  // The Team cell is the row header, so the number cell is read with its
+  // Team; the number cell itself carries the hidden column label, anchored
+  // so the label and value cannot drift into the pick line.
+  expect(within(viewerRow).getByRole('rowheader')).toHaveTextContent('MyBallsHurts');
+  expect(within(viewerRow).getByTestId('draft-grades-net')).toHaveTextContent(/^Net vs ADP \+95\.1$/);
   expect(within(viewerRow).getByTestId('draft-grades-picks')).toHaveTextContent(
-    'Steal: Bijan Robinson (pick 18, ADP 3) · Reach: Jake Elliott (pick 40, ADP 120.5)'
+    /^Steal: Bijan Robinson \(pick 18, ADP 3\) · Reach: Jake Elliott \(pick 40, ADP 120\.5\)$/
   );
+  const rowNet = (teamId) => within(within(card).getByTestId(`draft-grades-row-${teamId}`)).getByTestId('draft-grades-net');
+  const rowPicks = (teamId) => within(within(card).getByTestId(`draft-grades-row-${teamId}`)).getByTestId('draft-grades-picks');
   // A negative net keeps its sign; a Team with only one qualifying pick shows
-  // only that half; a Team with neither says so instead of rendering blank.
-  expect(within(card).getByTestId('draft-grades-row-12')).toHaveTextContent('-52.1');
-  expect(within(within(card).getByTestId('draft-grades-row-7')).getByTestId('draft-grades-picks')).toHaveTextContent(
-    /^Reach: Tyler Bass \(pick 33, ADP 150\)$/
+  // only that half; a priced Team with neither says so instead of rendering
+  // blank.
+  expect(rowNet(12)).toHaveTextContent(/^Net vs ADP -52\.1$/);
+  expect(rowPicks(7)).toHaveTextContent(/^Reach: Tyler Bass \(pick 33, ADP 150\)$/);
+  expect(rowPicks(3)).toHaveTextContent(/^Every pick landed at its ADP$/);
+  // No market ADP on any pick: the net is not available (no "NaN", no "0")
+  // and the sentence says why, rather than claiming every pick hit its ADP.
+  expect(rowNet(11)).toHaveTextContent(/^Net vs ADP -Not available$/);
+  expect(rowNet(11).textContent).not.toMatch(/NaN|\d/);
+  expect(rowPicks(11)).toHaveTextContent(/^No market ADP for these picks$/);
+  // Roster value is gone from this card entirely: no header, no column.
+  expect(within(card).queryByText(/roster value/i)).not.toBeInTheDocument();
+  // The card explains the number it shows, in full, and the table points at
+  // that explanation so table-mode readers meet it too.
+  const explainer = within(card).getByTestId('draft-grades-explainer');
+  expect(explainer).toHaveTextContent(
+    'Net vs ADP adds up how far each pick beat its market ADP. Higher is better: a steal fell to the Team later than its ADP, a reach went earlier.'
   );
-  expect(within(within(card).getByTestId('draft-grades-row-3')).getByTestId('draft-grades-picks')).toHaveTextContent(
-    'Every pick landed at its ADP'
-  );
-  // No roster value leaks in as a number: the fixture carries none, and the
-  // old bug was a 0 rendered where one belonged.
-  expect(within(card).queryByText(/^0$/)).not.toBeInTheDocument();
-  // The card explains the number it shows.
-  expect(within(card).getByTestId('draft-grades-explainer')).toHaveTextContent(/Net vs ADP adds up/);
+  expect(within(card).getByRole('table')).toHaveAttribute('aria-describedby', explainer.id);
 
   // The row is identifiable in the accessibility tree and to tooling, not by
   // color alone (WCAG 1.4.1): the shared island viewer-row marker (#671) - a

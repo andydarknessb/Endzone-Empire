@@ -29,6 +29,7 @@ import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
 import EmojiEvents from '@mui/icons-material/EmojiEvents';
 import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
 import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
+import { visuallyHidden } from '@mui/utils';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
@@ -344,7 +345,20 @@ function SeasonPanel({ season, defaultExpanded }) {
                             {row.grade}
                           </Box>
                         </TableCell>
-                        <TableCell align="right">{row.rosterValue == null ? '-' : row.rosterValue}</TableCell>
+                        <TableCell align="right">
+                          {row.rosterValue == null ? (
+                            <>
+                              <Box component="span" aria-hidden="true">
+                                -
+                              </Box>
+                              <Box component="span" sx={visuallyHidden}>
+                                Not available
+                              </Box>
+                            </>
+                          ) : (
+                            row.rosterValue
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

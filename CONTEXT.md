@@ -479,8 +479,8 @@ ADP, z-scored against the rest of the league. Projected roster value is a
 separate team stat and is never the grade's input.
 
 **Net vs ADP**:
-The sum, across one team's picks, of how far each pick landed past its market
-ADP (ADP minus pick number, negated so higher is better). A steal is the pick
+The sum, across one team's picks, of how far each pick beat its market ADP
+(ADP minus pick number, negated so higher is better). A steal is the pick
 furthest below its ADP, a reach the pick furthest above it. A market measure
 of the draft, not a season-forward one, so it is not Draft value. The Draft
 Sim's "Market delta" is the same sum before negation (lower is better there).

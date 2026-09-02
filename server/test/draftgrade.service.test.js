@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert } = require('./helpers/fakePool');
 const {
   getOrComputeDraftGrades,
+  gradeDraftValues,
   summarizePicks,
   DRAFT_GRADE_ALGORITHM_VERSION,
 } = require('../services/draftgrade.service');
@@ -62,10 +63,17 @@ const basePool = (overrides = []) =>
     [select('draft_picks'), () => ({ rows: picks })],
     [select('player_projections'), () => ({ rows: [] })],
     [select('player_stats'), () => ({ rows: [] })],
+    [insert('league_analytics'), () => ({ rows: [] })],
   ]);
 
-test('no projections for the season: roster value is null, grades still come from ADP, nothing is cached', async (t) => {
-  const fake = basePool().install(t);
+test('no projections for the season: roster value is null, grades still come from ADP, the row is persisted but flagged', async (t) => {
+  let stored = null;
+  const fake = basePool([
+    [insert('league_analytics'), (_text, params) => {
+      stored = JSON.parse(params[2]);
+      return { rows: [] };
+    }],
+  ]).install(t);
 
   const data = await getOrComputeDraftGrades({ leagueId: 137 });
 
@@ -80,9 +88,52 @@ test('no projections for the season: roster value is null, grades still come fro
   assert.ok(data.grades.every((g) => g.rosterValue === null), JSON.stringify(data.grades));
   // Higher is better for the number the card shows beside the grade.
   assert.deepEqual(data.grades.map((g) => g.adpNet), [-1, -8.5, -28]);
-  // A zero-projection compute must not be persisted: the next request, once
-  // projections exist, recomputes instead of serving zeros all season.
-  assert.equal(fake.matching(insert('league_analytics')).length, 0);
+  // Persisted (season-end trophies and League History read the row
+  // directly) but flagged, so the next request recomputes instead of serving
+  // null roster values all season once projections exist.
+  assert.equal(fake.matching(insert('league_analytics')).length, 1);
+  assert.equal(stored.rosterValueAvailable, false);
+  assert.ok(stored.grades.every((g) => g.rosterValue === null));
+});
+
+test('a cached row flagged rosterValueAvailable false is a cache miss, even at the current version', async (t) => {
+  const fake = basePool([
+    [select('league_analytics'), () => ({
+      rows: [{ data: { algorithmVersion: DRAFT_GRADE_ALGORITHM_VERSION, rosterValueAvailable: false, grades: [] } }],
+    })],
+    [insert('league_analytics'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const data = await getOrComputeDraftGrades({ leagueId: 137 });
+
+  assert.equal(fake.matching(select('draft_picks')).length, 1, 'recomputed rather than served');
+  assert.equal(data.grades.length, 3);
+});
+
+test('partial projections: a Team none of whose picks is projected reads null, the others numeric, and the row persists as available', async (t) => {
+  let stored = null;
+  basePool([
+    [select('leagues'), () => ({ rows: [league({ current_week: 5 })] })],
+    // Only Team 243's players carry a projection.
+    [select('player_projections'), () => ({
+      rows: picks
+        .filter((p) => p.team_id === 243)
+        .map((p) => ({ player_id: p.player_id, projected_points: 12, source: 'extrapolated' })),
+    })],
+    [insert('league_analytics'), (_text, params) => {
+      stored = JSON.parse(params[2]);
+      return { rows: [] };
+    }],
+  ]).install(t);
+
+  const data = await getOrComputeDraftGrades({ leagueId: 137 });
+  const byTeam = new Map(data.grades.map((g) => [g.teamId, g]));
+
+  assert.equal(data.rosterValueAvailable, true);
+  assert.ok(byTeam.get(243).rosterValue > 0);
+  assert.equal(byTeam.get(244).rosterValue, null, 'no 0 for an unprojected Team');
+  assert.equal(byTeam.get(245).rosterValue, null);
+  assert.equal(stored.rosterValueAvailable, true);
 });
 
 test('each Team carries its best steal and worst reach so the grade is explainable', async (t) => {
@@ -100,6 +151,7 @@ test('each Team carries its best steal and worst reach so the grade is explainab
   // A Team with no pick below ADP has no steal to show.
   assert.equal(byTeam.get(244).steal, null);
   assert.equal(byTeam.get(244).reach.pickNumber, 2);
+  assert.equal(best.pricedPicks, 3);
   // Picks stay in the payload with the player name attached.
   assert.equal(byTeam.get(243).picks[0].name, 'Player 1');
 });
@@ -136,7 +188,17 @@ test('summarizePicks: neutral ADP-fallback picks are never a steal or a reach', 
     { playerId: 1, name: 'A', position: 'QB', pickNumber: 1, marketAdp: 1, draftValueScore: 0, adpFallback: true },
     { playerId: 2, name: 'B', position: 'RB', pickNumber: 2, marketAdp: 2, draftValueScore: 0, adpFallback: true },
   ]);
-  assert.deepEqual(summary, { adpNet: 0, steal: null, reach: null });
-  // -0 must not leak into the payload for an all-zero draft.
-  assert.ok(Object.is(summary.adpNet, 0));
+  assert.deepEqual(summary, { steal: null, reach: null, pricedPicks: 0 });
+});
+
+test('gradeDraftValues: adpNet is the negated graded score, never -0, even when picks are absent', () => {
+  const graded = gradeDraftValues([
+    { teamId: 1, name: 'A', rosterValue: null, draftValueScore: -5 },
+    { teamId: 2, name: 'B', rosterValue: null, draftValueScore: 0 },
+  ]);
+  const byTeam = new Map(graded.map((g) => [g.teamId, g]));
+  assert.equal(byTeam.get(1).adpNet, 5);
+  assert.ok(Object.is(byTeam.get(2).adpNet, 0));
+  assert.equal(byTeam.get(1).rosterValue, null);
+  assert.deepEqual([byTeam.get(1).steal, byTeam.get(1).reach], [null, null]);
 });

@@ -55,9 +55,9 @@ export function useDraftGrades(leagueId) {
   const teamRows = Array.isArray(teams) ? teams : [];
 
   const pickSummary = (pick) =>
-    pick && pick.name
+    pick && pick.pickNumber != null
       ? {
-          name: pick.name,
+          name: pick.name || `Pick ${pick.pickNumber}`,
           pickNumber: Number(pick.pickNumber),
           marketAdp: Number(pick.marketAdp),
         }
@@ -71,9 +71,11 @@ export function useDraftGrades(leagueId) {
       teamId: row.teamId,
       teamName: team ? team.teamName : row.name,
       grade: row.grade,
-      adpNet: Number(row.adpNet),
+      // Null (no priced pick) must stay non-finite: Number(null) is 0.
+      adpNet: row.adpNet == null ? NaN : Number(row.adpNet),
       steal: pickSummary(row.steal),
       reach: pickSummary(row.reach),
+      pricedPicks: Number.isFinite(Number(row.pricedPicks)) ? Number(row.pricedPicks) : null,
     };
   });
 

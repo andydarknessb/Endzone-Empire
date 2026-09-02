@@ -105,7 +105,9 @@ export function useMyTeamSummary(leagueId) {
   const gradeRow = grades.status === 'ready' ? findById(grades.data?.grades, viewerTeamId) : null;
   const gradesUnavailable = grades.status === 'error' || (grades.status === 'ready' && !gradeRow);
   const rawGrade = gradeRow && gradeRow.grade != null ? String(gradeRow.grade).trim() : '';
-  const rawRosterValue = gradeRow ? Number(gradeRow.rosterValue) : NaN;
+  // Null is the server's "no projection for this Team yet" (week 1 of a
+  // season); Number(null) is 0, which would print a 0 that looks like data.
+  const rawRosterValue = gradeRow && gradeRow.rosterValue != null ? Number(gradeRow.rosterValue) : NaN;
   const draftGrade = {
     loading: grades.status === 'loading',
     unavailable: gradesUnavailable,

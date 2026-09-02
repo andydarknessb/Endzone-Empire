@@ -17,13 +17,16 @@ const { optimalLineup, parseLineupSettings } = require('./lineup.service');
  * `reach`, so a surface can say how the grade was earned instead of showing
  * a number the grade is not based on.
  *
- * Projected roster value rides along as a separate Team stat. It is null,
- * and the payload is NOT cached, whenever no drafted player carries a
- * projection: the pool-wide producer averages the current season's played
- * weeks, so at week 1 of a new season it returns nothing, and a compute at
- * that moment used to persist a 0 roster value for every Team until the next
- * algorithm bump (production league 137, 2026). The version bump to 3 is
- * what evicts those rows.
+ * Projected roster value rides along as a separate Team stat. It is null
+ * for a Team none of whose picks carries a projection: the pool-wide
+ * producer averages the current season's played weeks, so at week 1 of a
+ * new season it returns nothing, and a compute at that moment used to
+ * persist a 0 roster value for every Team until the next algorithm bump
+ * (production league 137, 2026). A payload computed with no projections at
+ * all is still persisted (season-end trophies and League History read the
+ * row directly) but flagged `rosterValueAvailable: false`, and a flagged
+ * row is treated as a cache miss so the next request recomputes. The
+ * version bump to 3 is what evicts the rows cached with zeros.
  */
 
 const DRAFT_GRADE_ALGORITHM_VERSION = 3;
@@ -75,19 +78,20 @@ function draftPickValue({ pickNumber, marketAdp }) {
 }
 
 /**
- * Pure: per-Team explanation of the grade from its picks. `adpNet` is the
- * negated cumulative delta (higher is better, so it reads naturally beside a
- * letter grade); `steal` is the pick furthest below its market ADP and
- * `reach` the pick furthest above it, or null when no pick qualifies.
- * ADP-fallback picks are neutral by construction and never nominated.
+ * Pure: per-Team explanation of the grade from its picks. `steal` is the
+ * pick furthest below its market ADP and `reach` the pick furthest above
+ * it, or null when no pick qualifies; an exact tie goes to the earlier pick.
+ * ADP-fallback picks are neutral by construction and never nominated;
+ * `pricedPicks` counts the ones that were, so a surface can tell "no market
+ * ADP for any pick" apart from "every pick landed at its ADP".
  */
 function summarizePicks(picks) {
   let steal = null;
   let reach = null;
-  let total = 0;
+  let pricedPicks = 0;
   for (const pick of picks) {
-    total += pick.draftValueScore;
     if (pick.adpFallback) continue;
+    pricedPicks += 1;
     if (pick.draftValueScore < 0 && (steal === null || pick.draftValueScore < steal.draftValueScore)) steal = pick;
     if (pick.draftValueScore > 0 && (reach === null || pick.draftValueScore > reach.draftValueScore)) reach = pick;
   }
@@ -101,11 +105,17 @@ function summarizePicks(picks) {
       draftValueScore: pick.draftValueScore,
     }
     : null);
-  return {
-    adpNet: round2(-total) || 0,
-    steal: describe(steal),
-    reach: describe(reach),
-  };
+  return { steal: describe(steal), reach: describe(reach), pricedPicks };
+}
+
+/**
+ * Pure: the number a surface shows beside the grade, derived from the very
+ * score the grade was ranked on (negated so higher is better; `+ 0` keeps
+ * -0 out of the payload). Null for a non-numeric score rather than a clean
+ * zero that would read as data.
+ */
+function adpNetOf(draftValueScore) {
+  return Number.isFinite(draftValueScore) ? round2(-draftValueScore) + 0 : null;
 }
 
 /**
@@ -129,6 +139,7 @@ function gradeDraftValues(teamValues) {
       ...original,
       rosterValue: original.rosterValue == null ? null : round2(original.rosterValue),
       draftValueScore: round2(original.draftValueScore),
+      adpNet: adpNetOf(original.draftValueScore),
       ...summarizePicks(original.picks || []),
       grade,
       rank,
@@ -151,8 +162,12 @@ async function getOrComputeDraftGrades({ leagueId }) {
      WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
     [leagueId, season]
   );
-  if (cached.rows[0]?.data?.algorithmVersion === DRAFT_GRADE_ALGORITHM_VERSION) {
-    return cached.rows[0].data;
+  const cachedData = cached.rows[0]?.data;
+  if (
+    cachedData?.algorithmVersion === DRAFT_GRADE_ALGORITHM_VERSION
+    && cachedData.rosterValueAvailable !== false
+  ) {
+    return cachedData;
   }
   if (league.draft_status !== 'complete') return null;
 
@@ -191,11 +206,14 @@ async function getOrComputeDraftGrades({ leagueId }) {
   }
 
   // A projection map with no entry for any drafted player is the week-1
-  // shape described in the header: roster value is unknowable, not 0.
+  // shape described in the header: roster value is unknowable, not 0. The
+  // same holds per Team, so a Team of unprojected picks reads null even when
+  // the rest of the league has numbers.
   const rosterValueAvailable = picksResult.rows.some((pick) => pointsFor.has(pick.player_id));
 
   const teamValues = [];
   for (const [teamId, { name, picks }] of byTeam) {
+    const teamProjected = picks.some((pick) => pointsFor.has(pick.playerId));
     const players = picks.map(({ playerId, position }) => ({ playerId, position }));
     const optimal = optimalLineup(players, rosterSlots, pointsFor);
     const starterIds = new Set(optimal.starters.map((s) => s.playerId));
@@ -205,7 +223,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
     teamValues.push({
       teamId,
       name,
-      rosterValue: rosterValueAvailable ? optimal.total + 0.25 * benchValue : null,
+      rosterValue: teamProjected ? optimal.total + 0.25 * benchValue : null,
       draftValueScore: round2(picks.reduce((sum, pick) => sum + pick.draftValueScore, 0)),
       picks,
     });
@@ -217,9 +235,8 @@ async function getOrComputeDraftGrades({ leagueId }) {
     rosterValueAvailable,
     grades: gradeDraftValues(teamValues),
   };
-  // Grades are a pure function of the picks, so serving them uncached is
-  // correct; only a payload with real roster values is worth persisting.
-  if (!rosterValueAvailable) return data;
+  // Always persisted: trophy.service and the League History route read the
+  // row directly. The flag above is what makes an all-null row a cache miss.
   await pool.query(
     `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
      VALUES ($1, $2, 0, 'draft_grades', $3)
