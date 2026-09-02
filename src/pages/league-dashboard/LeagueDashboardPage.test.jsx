@@ -1628,17 +1628,19 @@ test('commissioner-panel: expanding League administration mounts the legacy comm
 
 test('commissioner-panel: the League administration disclosure wires aria-expanded/aria-controls to the region it mounts (#694)', async () => {
   mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  const { container } = renderPage();
+  renderPage();
 
   const card = await screen.findByTestId('commissioner-panel');
   const toggle = within(card).getByRole('button', { name: /league administration/i });
 
   // Collapsed: aria-expanded is false, aria-controls is ABSENT (not merely
   // empty) because the region only exists while open - a static reference
-  // would dangle collapsed - and no element with the region's id is mounted.
+  // would dangle collapsed - and no element with the region's id is mounted
+  // (the region's data-testid matches its id, so absence of one is absence of
+  // the other).
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   expect(toggle).not.toHaveAttribute('aria-controls');
-  expect(container.querySelector('#commissioner-panel-administration')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
 
   await userEvent.click(toggle);
 
@@ -1646,8 +1648,7 @@ test('commissioner-panel: the League administration disclosure wires aria-expand
   // region contains the legacy tools' own heading.
   expect(toggle).toHaveAttribute('aria-expanded', 'true');
   expect(toggle).toHaveAttribute('aria-controls', 'commissioner-panel-administration');
-  const region = container.querySelector('#commissioner-panel-administration');
-  expect(region).toBeInTheDocument();
+  const region = await screen.findByTestId('commissioner-panel-administration');
   expect(within(region).getByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
 
   await userEvent.click(toggle);
@@ -1656,7 +1657,7 @@ test('commissioner-panel: the League administration disclosure wires aria-expand
   // reference gone.
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   expect(toggle).not.toHaveAttribute('aria-controls');
-  expect(container.querySelector('#commissioner-panel-administration')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
 });
 
 // ==========================================================================
