@@ -5,6 +5,7 @@ import { useLeague } from '../../hooks/useLeague';
 import { Badge, Skeleton } from '../../shared/ui';
 import CopyInvite from '../../features/copy-invite';
 import MyTeamSummary from '../../widgets/my-team-summary';
+import StandingsTable from '../../widgets/standings-table';
 import {
   deriveLeaguePhase,
   isSeasonLive,
@@ -160,7 +161,9 @@ export default function LeagueDashboardPage() {
           alignItems: 'start',
         }}
       >
-        <Box data-testid="slot-standings" />
+        <Box data-testid="slot-standings">
+          <StandingsTable leagueId={leagueId} />
+        </Box>
         <Box
           data-testid="dashboard-rail"
           sx={{ display: 'grid', gap: '22px' }}

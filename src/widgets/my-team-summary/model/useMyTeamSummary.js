@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
+import { useStandings } from '../../../hooks/useStandings';
 import { ordinal } from '../lib/ordinal';
 
 /**
@@ -19,12 +20,16 @@ import { ordinal } from '../lib/ordinal';
  *   - Record and current rank come from the scoring standings read. The
  *     standings read is the widget's SPINE: its loading state drives the card's
  *     skeletons and its failure drives the card's compact error, so a failed
- *     summary never touches the rest of the page. Standings and power-rankings
- *     are both plain reads here rather than shared-cache resources ONLY because
- *     this widget mounts each once (ADR 0004): both endpoints are on the
- *     service-worker allowlist, so the moment a second consumer of either lands
- *     on this page (e.g. #641's standings table) that read must move to
- *     useResource, the way the league read already has.
+ *     summary never touches the rest of the page. Standings is a SHARED-cache
+ *     read (useStandings / ADR 0004): it is on the service-worker allowlist and,
+ *     since #641's standings-table landed on this same page, is read by more
+ *     than one mount per navigation, so both admission conditions hold and the
+ *     two readers dedupe onto one request. It is keyed by the league's current
+ *     week, so a week advance is a fresh read for both.
+ *   - Power-rankings stays a plain read here: it is on the allowlist too, but
+ *     its only reader is this widget's projected-finish tile. It moves to
+ *     useResource the moment a second mount on this page reads it, exactly as
+ *     standings did.
  *   - Draft grade and roster value come from the league draft-grades read. When
  *     it 404s (grades not generated yet) both tiles degrade to a placeholder
  *     with no number, rather than erroring the card.
@@ -82,7 +87,12 @@ const gamesPlayed = (row) =>
 export function useMyTeamSummary(leagueId) {
   const { league, teams, viewerTeamId } = useLeague(leagueId);
 
-  const standings = useEndpoint(leagueId != null ? `/api/scoring/league/${leagueId}/standings` : null);
+  // Standings through the shared week-keyed cache, so the standings-table widget
+  // beside this one issues one request between them (ADR 0004). `useResource`'s
+  // { data, loading, error } maps to the same three spine states the card reads.
+  const standings = useStandings(leagueId, league?.current_week);
+  const standingsStatus = standings.loading ? 'loading' : standings.error ? 'error' : 'ready';
+
   const grades = useEndpoint(leagueId != null ? `/api/league/${leagueId}/draft-grades` : null);
   const rankings = useEndpoint(leagueId != null ? `/api/scoring/league/${leagueId}/power-rankings` : null);
 
@@ -107,7 +117,7 @@ export function useMyTeamSummary(leagueId) {
   // the line entirely). Reads from the standings spine, so it is null until the
   // spine is ready.
   let record = null;
-  if (standings.status === 'ready') {
+  if (standingsStatus === 'ready') {
     const row = findById(standings.data?.standings, viewerTeamId);
     if (row && gamesPlayed(row) > 0) {
       const rank = ordinal(Number(row.rank));
@@ -149,7 +159,7 @@ export function useMyTeamSummary(leagueId) {
     league,
     identity,
     // The card's spine: 'loading' -> skeletons, 'error' -> compact error.
-    spine: standings.status,
+    spine: standingsStatus,
     record,
     draftGrade,
     rosterValue,
