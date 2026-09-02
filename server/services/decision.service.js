@@ -468,10 +468,14 @@ async function isWeekFinal({ leagueId, season, week }) {
  * left on a bench nobody sets. The recap's blunder pick reads this number.
  *
  * IR: an IR occupant is never a candidate starter, in any league type, as in
- * the settle pass and the start/sit advisor (#741). He could only have started
- * by being moved off IR before his kickoff, a move no part of the product
- * advises, so his points are never reported as left on the bench. The
- * best-ball and standard branches treat IR identically.
+ * the settle pass and the start/sit advisor (#741). Nothing in the product ever
+ * advises STARTING an IR occupant (the start/sit advisor excludes IR outright),
+ * so his points are never reported as left on the bench. The product does nag a
+ * stale designation (digest) and refuse a lineup save that keeps an ineligible
+ * player on IR (lineup.service), but that compels moving him OFF IR for
+ * eligibility, never onto a starting slot; a stash that scored means his
+ * designation was stale, not that he was startable. The best-ball and standard
+ * branches treat IR identically.
  */
 async function weekHindsight({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
@@ -504,15 +508,18 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
   const nameById = new Map();
   for (const row of asPlayed) {
     // An IR occupant is never a candidate starter, in any league type (#741):
-    // he could only have started by being moved off IR before kickoff, a move
-    // the product never advises, and the settle pass never counts him. Skip him
-    // before he can enter the optimal-lineup pool or the started total.
+    // nothing in the product advises STARTING him (the start/sit advisor
+    // excludes IR), and the settle pass never counts him. Skip him before he can
+    // enter the optimal-lineup pool or the started total.
     if (row.slot === IR) continue;
     const points = calculateFantasyPoints(row.stats, rules);
     nameById.set(row.player_id, row.name);
     // Standard: only rows in a starting slot count toward the started total;
-    // benched rows stay candidates for the optimal lineup. Best ball keeps no
-    // started total (its actual is its optimal over the whole pool).
+    // benched rows stay candidates for the optimal lineup. This test is only
+    // `row.slot !== BENCH`, so it depends on the IR skip above having already
+    // dropped IR rows; relocate or guard that skip and an IR row would count
+    // here again, reintroducing this ticket's defect. Best ball keeps no started
+    // total (its actual is its optimal over the whole pool).
     if (!league.best_ball && row.slot !== BENCH) {
       startedPoints += points;
     }
@@ -592,11 +599,10 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   const candidatePool = [];
   const currentStarterIds = new Set();
   for (const row of rows.rows) {
-    // An IR occupant is never a swap candidate, locked or not (#741): starting
-    // him would mean moving him off IR before kickoff, a move the product never
-    // advises (the start/sit advisor excludes IR, the settle pass never counts
-    // him). He is neither a starter nor a candidate here, and his points do not
-    // count toward actual.
+    // An IR occupant is never a swap candidate, locked or not (#741): nothing in
+    // the product advises STARTING him (the start/sit advisor excludes IR, the
+    // settle pass never counts him). He is neither a starter nor a candidate
+    // here, and his points do not count toward actual.
     if (row.slot === IR) continue;
     const points = calculateFantasyPoints(row.stats, rules);
     pointsFor.set(row.player_id, points);
