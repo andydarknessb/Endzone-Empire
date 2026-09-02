@@ -209,7 +209,7 @@ function SeasonPanel({ season, defaultExpanded }) {
           </Box>
         )}
 
-        <Typography id={`season-${season.season}-standings-heading`} variant="subtitle1" component="h5" sx={{ mb: 1 }}>
+        <Typography id={`season-${season.season}-standings-heading`} variant="subtitle1" component="h6" sx={{ mb: 1 }}>
           Final Standings
         </Typography>
         <TableContainer component={Paper} sx={{ mb: 3 }}>
@@ -285,7 +285,7 @@ function SeasonPanel({ season, defaultExpanded }) {
         ) : (
           trophies.length > 0 && (
             <>
-              <Typography variant="subtitle1" component="h5" sx={{ mb: 1 }}>
+              <Typography variant="subtitle1" component="h6" sx={{ mb: 1 }}>
                 Trophies
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
@@ -309,7 +309,7 @@ function SeasonPanel({ season, defaultExpanded }) {
           draftGrades &&
           draftGrades.length > 0 && (
             <>
-              <Typography id={`season-${season.season}-draft-grades-heading`} variant="subtitle1" component="h5" sx={{ mb: 1 }}>
+              <Typography id={`season-${season.season}-draft-grades-heading`} variant="subtitle1" component="h6" sx={{ mb: 1 }}>
                 Draft Grades
               </Typography>
               <TableContainer component={Paper}>

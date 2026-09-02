@@ -31,7 +31,10 @@ function PlayerCard({ player, stat, statLabel = 'pts', subtitle }) {
             {initials(name)}
           </Avatar>
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-            <Typography variant="subtitle2" component="span" noWrap sx={{ fontWeight: 700 }}>
+            {/* Block box (p) so noWrap's overflow/text-overflow apply: they are
+                inert on an inline element like span, which would leave a long
+                name un-truncated. Kept out of the heading tree. */}
+            <Typography variant="subtitle2" component="p" noWrap sx={{ fontWeight: 700 }}>
               {name}
             </Typography>
             <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.25 }}>

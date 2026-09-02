@@ -256,4 +256,19 @@ describe('BenchWhatIf', () => {
     expect(screen.getByText('Your best legal lineup is already active.')).toBeInTheDocument();
     expect(screen.queryByText('Your best legal lineup is in')).not.toBeInTheDocument();
   });
+
+  // The panel is rendered below MatchupDetail's h4 page title ("Week N Matchup"),
+  // so its title must be h5, one level below, not the h3 #721 chose.
+  test('titles the panel as a level-5 heading (below the h4 page title)', () => {
+    render(
+      <BenchWhatIf
+        whatIf={{ delta: 0, swaps: [] }}
+        hasRoster
+        open={false}
+        onToggle={jest.fn()}
+      />
+    );
+
+    expect(screen.getByRole('heading', { level: 5, name: 'Bench what-if' })).toBeInTheDocument();
+  });
 });
