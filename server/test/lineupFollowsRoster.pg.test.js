@@ -505,7 +505,16 @@ if (!ENABLED) {
     const spent = await spentStartingSlots(pool, { teamId, season: SEASON, week: CURRENT_WEEK });
 
     assert.deepEqual(
-      spent, [{ player_id: null, position: 'RB', slot: 'RB' }],
+      spent, [{
+        player_id: null,
+        id: playerIds.KickedOff,
+        name: 'PG Kicked Off',
+        position: 'RB',
+        nfl_team: 'PGK',
+        injury_status: null,
+        slot: 'RB',
+        spent: true,
+      }],
       'the off-roster starter and nothing else: not the rostered starter, not the off-roster BENCH/IR rows, not another week'
     );
   });
