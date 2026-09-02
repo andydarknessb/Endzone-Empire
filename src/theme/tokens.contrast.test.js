@@ -294,6 +294,12 @@ const PAIRINGS = [
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a stat tile', 'dash-surface2'),
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the raised tile', 'dash-surface3'),
   pairing('dash-faint', 'dash-accent-soft', AA_TEXT, 'the me-row rank cell on the accent tint over a card (the only guarded tinted-faint backdrop)', 'dash-surface'),
+  // draft-grades widget (#642): the roster-value number in the viewer's own
+  // (tinted) row. First dim-on-tint consumer in this group; the guidance
+  // above warns dim fails the tint on the raised tile (dash-surface3), but
+  // this widget's tint is only ever painted on the card itself
+  // (dash-surface), where it clears AA_TEXT (5.15 light / 5.36 dark).
+  pairing('dash-dim', 'dash-accent-soft', AA_TEXT, 'the draft-grades roster value on the accent tint over a card', 'dash-surface'),
   // GradeChip: the fixed dark `dash-on-grade` letter on each of the five grade
   // fills. AA_TEXT since the letter is small (a 26px round chip, ~14px glyph).
   pairing('dash-on-grade', 'dash-grade-a', AA_TEXT, 'grade A chip letter'),
@@ -333,6 +339,14 @@ const PAIRINGS = [
   // rather than assumed. AA_LARGE, like the other focus-ring rows above; the
   // opaque ring needs no compositing (#155).
   pairing('focus-ring', 'dash-bg', AA_LARGE, 'focus ring on the dashboard page'),
+  // The same keyboard focus ring on a dashboard CARD. matchup-preview (#640) is
+  // the first widget to land a focusable control (its two footer link buttons)
+  // directly on `dash-surface`, so with the outline-offset ring sitting on the
+  // card behind the control, `dash-surface` is a new backdrop for the ring and
+  // is registered rather than assumed, same doctrine as the `dash-bg` row above.
+  // AA_LARGE like the other focus-ring rows; the opaque ring needs no
+  // compositing (#155).
+  pairing('focus-ring', 'dash-surface', AA_LARGE, 'focus ring on a dashboard card'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can

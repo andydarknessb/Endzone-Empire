@@ -607,3 +607,384 @@ test('standings-table: advancing the league current week causes a second standin
   });
   await waitFor(() => expect(standingsTableGetCount()).toBe(2));
 });
+
+// ==========================================================================
+// matchup-preview widget (#640), the hero-right slot. Same seam as the
+// sections above: this ticket registers its own endpoints on `mockGetByUrl`
+// and its own fixture builders without editing anything already here.
+//
+// SCOPE EVERY VALUE ASSERTION with within(card): the viewer's Team name and
+// avatar are rendered by my-team-summary (hero-left) too, so a page-wide query
+// for 'MyBallsHurts' would throw on multiple matches. Page-level chrome (the
+// header chips) stays page-scoped on purpose.
+//
+// This widget makes a CHAINED read the earlier sections did not: a matchups
+// list read, then a detail read for the matchup it selects. The detail URL
+// depends on the first response, so the tests below prove the second read never
+// fires with a null id, and that the list read happens exactly once.
+// ==========================================================================
+
+// teamId 3 is the viewer, 7 the opponent. `teamName` is the canonical Team
+// identity field (teamIdentity.js), kept distinct from the league name
+// ('MinneApple') so a test can prove the card reads teams[], not the league.
+const mpTeams = [
+  { teamId: 3, id: 3, teamName: 'MyBallsHurts', avatar_url: null, avatar_static_url: null },
+  { teamId: 7, id: 7, teamName: 'Terrific T', avatar_url: null, avatar_static_url: null },
+];
+
+// A week-1 in-season league whose viewer (id 3) owns a named Team. Overrides
+// pass straight through to leagueDetail (league columns, teams, viewerTeamId).
+const mpLeague = (overrides = {}) =>
+  leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 1 },
+    teams: mpTeams,
+    viewerTeamId: 3,
+    ...overrides,
+  });
+
+// GET /api/league/:id/matchups?week=N - a BARE ARRAY (the real endpoint's
+// shape), carrying the raw matchups.* columns the pairing reads (id +
+// home/away_team_id). `attachExpectedFinals` also rides on the real row, but
+// the widget takes projections from the detail read, not the list, so the
+// fixture omits them.
+const mpMatchupsList = (rows) => ({ data: rows });
+
+// A week-1 list pairing the viewer (home, Team 3) against Team 7 as matchup 55,
+// plus one unrelated matchup so the pick is a real find, not the only row.
+const mpViewerPaired = [
+  { id: 55, week: 1, season: 2026, home_team_id: 3, away_team_id: 7, final: false },
+  { id: 56, week: 1, season: 2026, home_team_id: 5, away_team_id: 9, final: false },
+];
+
+// A week-1 list in which the viewer (Team 3) appears nowhere.
+const mpViewerUnpaired = [
+  { id: 56, week: 1, season: 2026, home_team_id: 5, away_team_id: 9, final: false },
+  { id: 57, week: 1, season: 2026, home_team_id: 8, away_team_id: 2, final: false },
+];
+
+// GET /api/league/:id/matchups/:matchupId - detail. The widget reads only each
+// side's `expectedFinal` here (the field the matchup detail page renders under
+// a "Projected" label); names + avatars come from teams[], never the detail's
+// off-contract `name` column, so the fixture's names are deliberately wrong.
+const mpMatchupDetail = ({ homeFinal = 112.4, awayFinal = 118.9 } = {}) => ({
+  data: {
+    viewerTeamId: 3,
+    matchup: { id: 55, week: 1, season: 2026, home_team_id: 3, away_team_id: 7 },
+    home: { teamId: 3, name: 'WRONG home name', expectedFinal: homeFinal, starters: [], bench: [] },
+    away: { teamId: 7, name: 'WRONG away name', expectedFinal: awayFinal, starters: [], bench: [] },
+  },
+});
+
+const MP_LIST_URL = '/api/league/1/matchups?week=1';
+const MP_DETAIL_URL = '/api/league/1/matchups/55';
+
+test('matchup card: heading, both Team names from teams[], and each projected total beside a Projected label', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: mpMatchupDetail(),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(within(card).getByRole('heading', { name: 'Week 1 Matchup' })).toBeInTheDocument();
+
+  // Each side is scoped so the viewer's number sits beside the viewer's name and
+  // its own "Projected" label, and likewise the opponent's. findBy waits for the
+  // list spine to resolve and the pairing to render.
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  // Names come from teams[] (teamName), matched by id, NOT the detail's name.
+  expect(within(viewerSide).getByText('MyBallsHurts')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('Terrific T')).toBeInTheDocument();
+  // The projected totals arrive on the chained detail read.
+  expect(await within(viewerSide).findByText('112.4')).toBeInTheDocument();
+  expect(within(viewerSide).getByText('Projected')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('118.9')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('Projected')).toBeInTheDocument();
+});
+
+test('matchup card: Compare rosters and Set Lineup are links to the matchup detail and lineup pages', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: mpMatchupDetail(),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const compare = await within(card).findByRole('link', { name: 'Compare rosters' });
+  const setLineup = within(card).getByRole('link', { name: 'Set Lineup' });
+  // The matchup id (55) rides on the Compare-rosters href; Set Lineup is fixed.
+  expect(compare.getAttribute('href')).toMatch(/\/league\/1\/matchups\/55$/);
+  expect(setLineup.getAttribute('href')).toMatch(/\/league\/1\/lineup$/);
+});
+
+test('matchup card: with no matchup for the viewer this week, the card reads "No matchup this week" and has no links', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerUnpaired),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(await within(card).findByText('No matchup this week')).toBeInTheDocument();
+  expect(within(card).queryByRole('link', { name: 'Compare rosters' })).not.toBeInTheDocument();
+  expect(within(card).queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
+  // The chained detail read must NOT fire with a null id when there is no pick.
+  expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
+});
+
+test('matchup card: a 500 from the matchups list shows a compact error in the card while my-team and the header still render', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: { reject: { response: { status: 500, data: { error: 'boom' } } } },
+  });
+  renderPage();
+
+  const alert = await screen.findByTestId('matchup-preview-error');
+  expect(alert).toHaveTextContent(/could not load/i);
+  // The failed read is self-contained: the sibling widget and the page header
+  // chips (page-level chrome, so page-scoped on purpose) still render.
+  expect(screen.getByTestId('my-team-summary')).toBeInTheDocument();
+  expect(screen.getByText('2 Teams')).toBeInTheDocument();
+  expect(screen.getByText('Week 1 · In season')).toBeInTheDocument();
+});
+
+test('matchup card: exactly one matchups-list GET is made, and it carries the current week', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: mpMatchupDetail(),
+  });
+  renderPage();
+
+  // Wait for the chained detail read to land so any re-render that would double
+  // the list request has already had its chance before we count.
+  const card = await screen.findByTestId('matchup-preview');
+  await within(card).findByText('112.4');
+  const listGets = apiClient.get.mock.calls.filter(([u]) => u.includes('/matchups?week='));
+  expect(listGets).toHaveLength(1);
+  expect(listGets[0][0]).toContain('week=1');
+});
+
+test('matchup card: with no current week the card reads "No matchup this week" and requests no matchups list', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: null },
+    }),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(await within(card).findByText('No matchup this week')).toBeInTheDocument();
+  // No week, so the null-url convention keeps the spine read from ever firing.
+  expect(apiClient.get.mock.calls.some(([u]) => u.includes('/matchups'))).toBe(false);
+});
+
+test('matchup card: while the matchups list is pending the card holds layout with skeletons and is aria-busy', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: { pending: true },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  expect(within(card).getAllByTestId('matchup-skeleton').length).toBeGreaterThan(0);
+  // The card (the region that owns the fetch) announces the loading state; the
+  // skeleton shapes themselves are aria-hidden.
+  expect(card).toHaveAttribute('aria-busy', 'true');
+});
+
+test('matchup card: while the detail read is pending the pairing shows with skeletoned totals and stays aria-busy', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: { pending: true },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  // Identity is up from the list + teams[] while the projected totals wait on
+  // the chained read, so the card is still layout-busy.
+  expect(await within(card).findByText('MyBallsHurts')).toBeInTheDocument();
+  expect(within(card).getAllByTestId('matchup-skeleton').length).toBeGreaterThan(0);
+  expect(card).toHaveAttribute('aria-busy', 'true');
+});
+
+test('matchup card: a failed detail read degrades the projected totals to a placeholder without erroring the card', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: { reject: { response: { status: 500 } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  // The pairing (from the list + teams[]) still renders: the spine is fine, so a
+  // failed detail read degrades only the number, it does not error the card.
+  expect(within(viewerSide).getByText('MyBallsHurts')).toBeInTheDocument();
+  expect(within(card).queryByTestId('matchup-preview-error')).not.toBeInTheDocument();
+  // The projected total is a placeholder: no digits, a real "Not available" for
+  // a screen reader, and the "Projected" label is not left pointing at nothing.
+  await within(viewerSide).findByText('Not available');
+  expect(viewerSide.textContent).not.toMatch(/\d/);
+  expect(within(viewerSide).getByText('Projected')).toBeInTheDocument();
+  // The detail read has settled, so the card is no longer busy.
+  expect(card).toHaveAttribute('aria-busy', 'false');
+});
+
+// ==========================================================================
+// draft-grades widget (#642), the rail-top slot. Same seam as the section
+// above: add the endpoint override to a per-test `mockGetByUrl` map, no
+// shared setup changes.
+//
+// This widget reads the SAME /api/league/:id/draft-grades endpoint as
+// my-team-summary above, and AC1 pins the very values (grade C, roster value
+// 1,284) that #639's fixture already renders inside its own card. Every
+// value assertion here is scoped with within(card) (the widget's own card)
+// or within(row) (one row of it), never a page-wide getBy*/findBy*, so this
+// section never collides with the section above it or with a sibling ticket
+// rendering the same numbers.
+// ==========================================================================
+
+// 12 Teams, matching the dashboard-concept mockup's Draft Grades rail: the
+// viewer (teamId 1) sits at rank 6 with grade C and roster value 1,284, and
+// the top roster value (1,592) belongs to a different Team. `teamName` is the
+// canonical Team-identity field (teamIdentity.js); `name` here is the raw
+// column the league route also leaks (carry-over comment #5) and must NOT be
+// what the card renders.
+const draftGradesRailTeams = [
+  { teamId: 2, id: 2, teamName: 'Terrific T', name: 'raw-2' },
+  { teamId: 3, id: 3, teamName: 'Mike Mike Mike', name: 'raw-3' },
+  { teamId: 4, id: 4, teamName: 'Nanagoat', name: 'raw-4' },
+  { teamId: 5, id: 5, teamName: 'Lo Expectations', name: 'raw-5' },
+  { teamId: 6, id: 6, teamName: 'Fourth and Slong', name: 'raw-6' },
+  { teamId: 1, id: 1, teamName: 'MyBallsHurts', name: 'raw-1' },
+  { teamId: 7, id: 7, teamName: 'Skattebo Stans', name: 'raw-7' },
+  { teamId: 8, id: 8, teamName: 'Bussin Team', name: 'raw-8' },
+  { teamId: 9, id: 9, teamName: 'Team Ramrod', name: 'raw-9' },
+  { teamId: 10, id: 10, teamName: 'Keep My Team Name', name: 'raw-10' },
+  { teamId: 11, id: 11, teamName: 'Hank Da Tank', name: 'raw-11' },
+  { teamId: 12, id: 12, teamName: 'Bigpapa6', name: 'raw-12' },
+];
+
+const draftGradesRailLeague = (overrides = {}) =>
+  leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+    teams: draftGradesRailTeams,
+    viewerTeamId: 1,
+    ...overrides,
+  });
+
+// GET /api/league/:id/draft-grades, 12 rows in rank order (the server already
+// ranks best-first). Each row's `name` is a decoy raw column deliberately
+// different from the matching Team's `teamName` above, so a test that reads
+// it by mistake fails loudly instead of passing by coincidence.
+const draftGradesRailResponse = () => ({
+  data: {
+    computedAt: '2026-09-01T00:00:00.000Z',
+    grades: [
+      { teamId: 2, name: 'raw-2', grade: 'A', rosterValue: 1592, rank: 1 },
+      { teamId: 3, name: 'raw-3', grade: 'A', rosterValue: 1548, rank: 2 },
+      { teamId: 4, name: 'raw-4', grade: 'A', rosterValue: 1501, rank: 3 },
+      { teamId: 5, name: 'raw-5', grade: 'A', rosterValue: 1477, rank: 4 },
+      { teamId: 6, name: 'raw-6', grade: 'B', rosterValue: 1390, rank: 5 },
+      { teamId: 1, name: 'raw-1', grade: 'C', rosterValue: 1284, rank: 6 },
+      { teamId: 7, name: 'raw-7', grade: 'C', rosterValue: 1241, rank: 7 },
+      { teamId: 8, name: 'raw-8', grade: 'D', rosterValue: 1144, rank: 8 },
+      { teamId: 9, name: 'raw-9', grade: 'D', rosterValue: 1120, rank: 9 },
+      { teamId: 10, name: 'raw-10', grade: 'D', rosterValue: 1082, rank: 10 },
+      { teamId: 11, name: 'raw-11', grade: 'F', rosterValue: 968, rank: 11 },
+      { teamId: 12, name: 'raw-12', grade: 'F', rosterValue: 902, rank: 12 },
+    ],
+  },
+});
+
+test('draft-grades card: heading, Roster value tail, 12 rows in rank order with Team names from teams[]', async () => {
+  mockGetByUrl({
+    '/api/league/1': draftGradesRailLeague(),
+    '/api/league/1/draft-grades': draftGradesRailResponse(),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
+  expect(within(card).getByText('Roster value')).toBeInTheDocument();
+
+  // Rank order (response order), read from teams[] rather than the grades
+  // response's own (decoy) `name` field.
+  const expectedOrder = [
+    'Terrific T',
+    'Mike Mike Mike',
+    'Nanagoat',
+    'Lo Expectations',
+    'Fourth and Slong',
+    'MyBallsHurts',
+    'Skattebo Stans',
+    'Bussin Team',
+    'Team Ramrod',
+    'Keep My Team Name',
+    'Hank Da Tank',
+    'Bigpapa6',
+  ];
+  const rows = await within(card).findAllByRole('row');
+  expect(rows).toHaveLength(12);
+  expectedOrder.forEach((name, i) => {
+    expect(within(rows[i]).getByText(name)).toBeInTheDocument();
+  });
+  // None of the decoy raw names ever render.
+  expect(within(card).queryByText(/^raw-/)).not.toBeInTheDocument();
+
+  // The viewer's own row (teamId 1): scoped to that row so its "C" chip and
+  // "1,284" value cannot collide with my-team-summary's card above, which
+  // renders the same grade and value for the same viewer.
+  const viewerRow = within(card).getByTestId('draft-grades-row-1');
+  expect(within(viewerRow).getByRole('img', { name: 'Grade C' })).toBeInTheDocument();
+  expect(within(viewerRow).getByText('1,284')).toBeInTheDocument();
+
+  const bar = within(viewerRow).getByRole('progressbar');
+  expect(bar).toHaveAttribute('aria-valuenow', '1284');
+  expect(bar).toHaveAttribute('aria-valuemax', '1592');
+  // Without aria-valuetext, AT reads the value as a percentage of min/max
+  // (81%) instead of the roster value itself.
+  expect(bar).toHaveAttribute('aria-valuetext', '1,284 of 1,592');
+
+  // The row is identifiable to assistive tech, not by color alone (WCAG
+  // 1.4.1): a visually-hidden marker, present only on the viewer's row.
+  expect(within(viewerRow).getByText('Your team')).toBeInTheDocument();
+  expect(within(rows[1]).queryByText('Your team')).not.toBeInTheDocument();
+});
+
+test('draft-grades card: a 404 renders the pending copy with no error', async () => {
+  mockGetByUrl({
+    '/api/league/1': draftGradesRailLeague(),
+    '/api/league/1/draft-grades': { reject: { response: { status: 404 } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  expect(await within(card).findByTestId('draft-grades-pending')).toHaveTextContent(
+    'Draft grades arrive once the draft is complete.'
+  );
+  expect(within(card).queryByRole('alert')).not.toBeInTheDocument();
+  expect(within(card).queryByTestId('draft-grades-error')).not.toBeInTheDocument();
+  // The card's own header still renders even when the read fails.
+  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
+});
+
+test('draft-grades card: a 500 shows a compact error, and the header still renders', async () => {
+  mockGetByUrl({
+    '/api/league/1': draftGradesRailLeague(),
+    '/api/league/1/draft-grades': { reject: { response: { status: 500, data: { error: 'boom' } } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('draft-grades');
+  const alert = await within(card).findByRole('alert');
+  expect(alert).toHaveAttribute('data-testid', 'draft-grades-error');
+  expect(alert).toHaveTextContent(/could not load/i);
+  expect(within(card).queryByTestId('draft-grades-pending')).not.toBeInTheDocument();
+  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
+});

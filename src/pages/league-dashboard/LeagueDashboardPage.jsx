@@ -5,7 +5,9 @@ import { useLeague } from '../../hooks/useLeague';
 import { Badge, Skeleton } from '../../shared/ui';
 import CopyInvite from '../../features/copy-invite';
 import MyTeamSummary from '../../widgets/my-team-summary';
+import MatchupPreview from '../../widgets/matchup-preview';
 import StandingsTable from '../../widgets/standings-table';
+import DraftGrades from '../../widgets/draft-grades';
 import {
   deriveLeaguePhase,
   isSeasonLive,
@@ -145,7 +147,9 @@ export default function LeagueDashboardPage() {
         <Box data-testid="slot-my-team">
           <MyTeamSummary leagueId={leagueId} />
         </Box>
-        <Box data-testid="slot-matchup-preview" />
+        <Box data-testid="slot-matchup-preview">
+          <MatchupPreview leagueId={leagueId} />
+        </Box>
       </Box>
 
       {/* MAIN: standings beside a rail (same nameless-container reasoning as the
@@ -167,7 +171,13 @@ export default function LeagueDashboardPage() {
         <Box
           data-testid="dashboard-rail"
           sx={{ display: 'grid', gap: '22px' }}
-        />
+        >
+          {/* Rail top: draft grades (#642). The commissioner panel is a later
+              slot in this same rail; this widget composes above it. */}
+          <Box data-testid="slot-draft-grades">
+            <DraftGrades leagueId={leagueId} />
+          </Box>
+        </Box>
       </Box>
     </DashboardShell>
   );
