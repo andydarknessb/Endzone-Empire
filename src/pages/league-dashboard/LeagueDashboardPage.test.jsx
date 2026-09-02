@@ -1635,12 +1635,16 @@ test('commissioner-panel: the League administration disclosure wires aria-expand
 
   // Collapsed: aria-expanded is false, aria-controls is ABSENT (not merely
   // empty) because the region only exists while open - a static reference
-  // would dangle collapsed - and no element with the region's id is mounted
-  // (the region's data-testid matches its id, so absence of one is absence of
-  // the other).
+  // would dangle collapsed - and no element with the region's id is mounted.
+  // Checked by id, not only by data-testid: a testid-only check would miss
+  // the id itself dropping or drifting while the (test-only) testid held.
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   expect(toggle).not.toHaveAttribute('aria-controls');
   expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
+  // The ruling's collapsed clause is stated in terms of the region's id
+  // specifically; the testid check above is not a substitute for it.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
 
   await userEvent.click(toggle);
 
@@ -1662,6 +1666,9 @@ test('commissioner-panel: the League administration disclosure wires aria-expand
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   expect(toggle).not.toHaveAttribute('aria-controls');
   expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
+  // See the first collapsed phase above: checked by id, not only by testid.
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
 });
 
 // ==========================================================================
