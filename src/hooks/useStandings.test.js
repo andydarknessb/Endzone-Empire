@@ -38,8 +38,9 @@ test('requests the scoring standings for a league at a week and returns the payl
   expect(result.current.loading).toBe(true);
   await waitFor(() => expect(result.current.loading).toBe(false));
 
-  // The week is the cache key, not a query param: the endpoint has none and
-  // computes from the league's own current week.
+  // The week is the cache key, not a query param: the endpoint is season-scoped
+  // and takes no week param, so its URL is identical across weeks and the key is
+  // what forces a fresh read when the week advances.
   expect(apiClient.get).toHaveBeenCalledWith('/api/scoring/league/7/standings');
   expect(result.current.data.standings).toHaveLength(1);
   expect(result.current.error).toBeNull();
