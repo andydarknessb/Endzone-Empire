@@ -229,7 +229,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
 
   return (
     <Box>
-      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Co-commissioners</Typography>
+      <Typography variant="subtitle2" component="h4" sx={{ mb: 0.5 }}>Co-commissioners</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
         Co-commissioners get every commissioner power except deleting the league
         and managing this list.
@@ -467,7 +467,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
 
       {limitsEditable && (
         <Box>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>
             {pickemOnly ? 'Team limit' : 'Team limits (editable until the draft starts)'}
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -495,7 +495,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
           reason. The caption below states the rule the list cannot show. */}
       <Paper variant="outlined" sx={{ p: 2, borderColor: 'error.main' }}>
         <Typography variant="overline" color="error.main">Destructive actions</Typography>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Remove a team</Typography>
+        <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Remove a team</Typography>
         {teamsRemovable ? (
           <>
             {/* The server's own refusal, restated rather than reworded:
@@ -565,7 +565,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
       {showJoinQueue && (
         <Box data-testid="join-requests-section">
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography variant="subtitle2">Join Requests</Typography>
+            <Typography variant="subtitle2" component="h4">Join Requests</Typography>
             <Chip size="small" label={joinRequests.length} color={joinRequests.length > 0 ? 'primary' : 'default'} />
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
@@ -732,7 +732,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
       )}
 
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Starting Lineup Slots</Typography>
+        <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Starting Lineup Slots</Typography>
         <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
           <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
             Templates:
@@ -985,7 +985,7 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
         const tiers = Object.entries(rules[category]).filter(([, v]) => Array.isArray(v));
         return (
           <Box key={category}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>{CATEGORY_LABELS[category]}</Typography>
+            <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>{CATEGORY_LABELS[category]}</Typography>
             {idpLocked && (
               <Alert severity="info" sx={{ mb: 1.5 }}>
                 Enable Defensive Players (IDP) in Roster Settings to score individual defenders.
@@ -1117,7 +1117,7 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
   return (
     <Stack spacing={3}>
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Playoff Structure</Typography>
+        <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Playoff Structure</Typography>
         {frozen && (
           <Alert severity="info" sx={{ mb: 2 }}>
             The playoff structure locks once the draft starts, so the bracket stays consistent
@@ -1159,7 +1159,7 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
       <Divider />
 
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Trade Deadline</Typography>
+        <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Trade Deadline</Typography>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel id="trade-deadline-label">Trade Deadline</InputLabel>
@@ -1218,8 +1218,8 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
   return (
     <Stack spacing={3}>
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Waiver System Type</Typography>
-        <RadioGroup row value={waiverType} onChange={(e) => setWaiverType(e.target.value)}>
+        <Typography variant="subtitle2" component="p" id="waiver-system-type-label" sx={{ mb: 1 }}>Waiver System Type</Typography>
+        <RadioGroup row aria-labelledby="waiver-system-type-label" value={waiverType} onChange={(e) => setWaiverType(e.target.value)}>
           <FormControlLabel value="faab" control={<Radio />} label="FAAB (Bidding)" />
           <FormControlLabel value="priority" control={<Radio />} label="Rolling Priority" />
         </RadioGroup>
@@ -1246,8 +1246,8 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
       <Divider />
 
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Trade Review System</Typography>
-        <RadioGroup value={reviewMode} onChange={(e) => setReviewMode(e.target.value)}>
+        <Typography variant="subtitle2" component="p" id="trade-review-system-label" sx={{ mb: 1 }}>Trade Review System</Typography>
+        <RadioGroup aria-labelledby="trade-review-system-label" value={reviewMode} onChange={(e) => setReviewMode(e.target.value)}>
           <FormControlLabel value="commissioner" control={<Radio />} label="Commissioner Veto" />
           <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mb: 1 }}>
             Trades sit in a 24-hour review window; only you can step in and veto one.
@@ -1305,7 +1305,7 @@ function ForceRosterMoveCard({ leagueId, teams, notify, onRefresh }) {
 
   return (
     <Box>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>Force Roster Move</Typography>
+      <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Force Roster Move</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
         Add or drop a player on any manager's behalf. Bypasses waivers and roster locks.
       </Typography>
@@ -1373,7 +1373,7 @@ function FaabEditorCard({ leagueId, teams, notify, onRefresh }) {
 
   return (
     <Box>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>FAAB Budget Editor</Typography>
+      <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>FAAB Budget Editor</Typography>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <TeamSelect label="Team" teams={teams} value={teamId} onChange={handleTeamChange} />
         <TextField
@@ -1477,7 +1477,7 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
 
   return (
     <Box>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>Manual Score Correction</Typography>
+      <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Manual Score Correction</Typography>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
         <TeamSelect label="Team" teams={teams} value={teamId} onChange={setTeamId} />
         <FormControl size="small" sx={{ minWidth: 120 }}>
@@ -1534,7 +1534,7 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
 
   return (
     <Box>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>Lock Specific Team</Typography>
+      <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Lock Specific Team</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
         Freezes one manager's adds, drops, waiver claims, and trades without locking the league.
       </Typography>
@@ -1588,7 +1588,7 @@ function MatchupOpsCard({ leagueId, notify, onRefresh }) {
 
   return (
     <Box>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>Matchup Scheduling &amp; Scoring</Typography>
+      <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Matchup Scheduling &amp; Scoring</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
         Generate a week&apos;s matchups or force-score a completed week.
       </Typography>
@@ -1650,7 +1650,7 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
   return (
     <Stack spacing={2}>
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+        <Typography variant="subtitle2" component="h4" sx={{ mb: 0.5 }}>
           {league.current_season ? `${league.current_season} season` : 'Season'}
           {league.current_week != null && !complete ? ` · week ${league.current_week}` : ''}
         </Typography>
@@ -1702,14 +1702,15 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
     <Paper sx={{ mt: 3 }}>
       <Box sx={{ p: 2, pb: 0 }}>
         {/* #682: this title sits directly under the commissioner-panel Card's
-            <h2> and used to render <h6> itself, skipping levels 3-5 (axe
-            heading-order). `component="h3"` fixes this title's own level
-            while `variant="h6"` keeps its visual style unchanged. It does NOT
-            make the panel's whole heading sequence contiguous: the
-            `variant="subtitle2"` labels below (Trade Deadline, Waiver System
-            Type, etc.) still render <h6> by MUI's default variantMapping, so
-            they now skip levels 4-5 under this h3. That sweep, and whether
-            each of those 16 sites should be a heading at all, is #695. */}
+            <h2>. `component="h3"` sets its level explicitly while `variant="h6"`
+            keeps its visual style unchanged. Per ADR 0021 (#695 ticket 1) the
+            subtitle variants carry a type scale only, never a heading level, so
+            each subtitle below now sets its own element (#695 ticket 2, this
+            file's sweep): section subtitles use `component="h4"` for the level
+            under this h3, and the two single-control-group labels ("Waiver
+            System Type", "Trade Review System") render as <p> and name their
+            RadioGroup via aria-labelledby. The panel's heading sequence is
+            h2, h3, h4 with no level skipped. */}
         <Typography variant="h6" component="h3">Commissioner Tools</Typography>
       </Box>
       <Tabs
