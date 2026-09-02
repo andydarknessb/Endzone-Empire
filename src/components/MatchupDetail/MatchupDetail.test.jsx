@@ -307,6 +307,65 @@ test('silently skips bench points on a 404/error from the hindsight endpoint', a
   expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
 });
 
+test('a final best-ball matchup shows no bench line: nothing is ever left on a bench nobody sets (ADR 0023)', async () => {
+  useLeague.mockReturnValue({
+    league: { id: 1, name: 'Sunday Ballers', best_ball: true, season_status: 'regular', current_season: 2026, current_week: 3 },
+    loading: false,
+    error: null,
+  });
+  // Hindsight answers as the server does for best ball: actual = optimal,
+  // zero left. A zero is a number, so without a best-ball gate the page
+  // would print "Left 0 on the bench". The two answers are held back and
+  // released inside act, so the absence below is asserted AFTER they landed
+  // rather than before they could have.
+  const releases = [];
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league/1/matchups/9') {
+      return Promise.resolve(matchupResponse({ matchup: { final: true } }));
+    }
+    if (url.includes('/api/team/hindsight')) {
+      return new Promise((resolve) => {
+        releases.push(() => resolve({
+          data: { week: 3, actualPoints: 101.5, optimalPoints: 101.5, pointsLeftOnBench: 0 },
+        }));
+      });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderDetail();
+  await screen.findByText('Team A');
+  await waitFor(() => expect(releases).toHaveLength(2));
+  await act(async () => { releases.forEach((release) => release()); });
+
+  expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
+});
+
+test('the bench line waits for the league to be known, so a best-ball zero never flashes', async () => {
+  useLeague.mockReturnValue({ league: null, loading: true, error: null });
+  const releases = [];
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league/1/matchups/9') {
+      return Promise.resolve(matchupResponse({ matchup: { final: true } }));
+    }
+    if (url.includes('/api/team/hindsight')) {
+      return new Promise((resolve) => {
+        releases.push(() => resolve({
+          data: { week: 3, actualPoints: 90, optimalPoints: 102.4, pointsLeftOnBench: 12.4 },
+        }));
+      });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderDetail();
+  await screen.findByText('Team A');
+  await waitFor(() => expect(releases).toHaveLength(2));
+  await act(async () => { releases.forEach((release) => release()); });
+
+  expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
+});
+
 test('the Scoreboard toggle swaps the retro view in and switching back restores the standard slot list', async () => {
   apiClient.get.mockResolvedValue(matchupResponse());
 
