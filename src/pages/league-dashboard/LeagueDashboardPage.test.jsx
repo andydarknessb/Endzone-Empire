@@ -980,6 +980,42 @@ test('matchup card: a list value of 0 is a real value, not a trigger for the det
   expect(apiClient.get.mock.calls.some(([u]) => /\/matchups\/\d+$/.test(u))).toBe(false);
 });
 
+// #688: a best-ball league's list row is null on both sides by design
+// (attachExpectedFinals short-circuits on league.best_ball), and the matchup
+// detail route short-circuits on the very same flag through the very same
+// producer (expectedFinalsForWeek), so the detail read can never answer
+// either. The widget must not fire it: both sides settle straight to the
+// placeholder once the list resolves, with no detail round trip and no
+// aria-busy hang (a null detail URL would otherwise park that read on
+// 'loading' forever).
+test('matchup card: a best-ball league skips the detail read, rendering both placeholders once the list resolves', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague({
+      league: {
+        draft_status: 'complete',
+        season_status: 'regular',
+        current_week: 1,
+        best_ball: true,
+      },
+    }),
+    [MP_LIST_URL]: mpMatchupsList([
+      { ...mpViewerPaired[0], home_expected_final: null, away_expected_final: null },
+      mpViewerPaired[1],
+    ]),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  const opponentSide = within(card).getByTestId('matchup-side-opponent');
+  expect(await within(viewerSide).findByText('Not available')).toBeInTheDocument();
+  expect(within(opponentSide).getByText('Not available')).toBeInTheDocument();
+  expect(card).toHaveAttribute('aria-busy', 'false');
+  // The detail URL must never be requested: neither read can answer for a
+  // best-ball league, so paying for the round trip buys nothing.
+  expect(apiClient.get.mock.calls.some(([u]) => u === MP_DETAIL_URL)).toBe(false);
+});
+
 // ==========================================================================
 // draft-grades widget (#642), the rail-top slot. Same seam as the section
 // above: add the endpoint override to a per-test `mockGetByUrl` map, no
