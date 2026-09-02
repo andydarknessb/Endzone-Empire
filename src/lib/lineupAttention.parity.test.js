@@ -22,11 +22,13 @@ import { DEFAULT_ROSTER_SLOTS } from '../../server/services/rosterSlots';
 // useLeagueChat.humanType.parity.test.js (LEAGUE_CHAT).
 describe('lineupAttention DEFAULT_STARTER_SLOT_ORDER parity with the server roster', () => {
   it('mirrors server DEFAULT_ROSTER_SLOTS keys in order', () => {
-    // Compare as an ORDERED list, not as sorted sets. The precedent parity
-    // tests sort before comparing because their rosters are order-free (a set
-    // of kinds); this one must NOT. lineupAttention uses the constant to pick
-    // AND order the starting slots (starterSlotOrder drives the empty-slot and
-    // bye passes in the fallback path), so a reorder on either side is real
+    // Compare as an ORDERED list, not as a sorted set. Of the precedent parity
+    // tests only stallAnnouncement.parity.test.js sorts before comparing, and it
+    // sorts because its roster is an order-free set of kinds; chatLimits and
+    // useLeagueChat compare a single scalar with toBe, so ordering does not
+    // arise there. This one must NOT sort: lineupAttention uses the constant to
+    // pick AND order the starting slots (starterSlotOrder drives the empty-slot
+    // and bye passes in the fallback path), so a reorder on either side is real
     // drift, not a harmless permutation. `toEqual` on arrays is order-sensitive.
     expect(DEFAULT_STARTER_SLOT_ORDER).toEqual(DEFAULT_ROSTER_SLOTS.map((s) => s.key));
   });

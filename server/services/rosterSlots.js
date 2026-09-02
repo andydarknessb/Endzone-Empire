@@ -14,13 +14,23 @@
  * identical array unchanged. The value lives here; the service is now a
  * pass-through for it.
  *
- * src/lib/lineupAttention.js carries a CLIENT mirror of these starter keys
- * (`DEFAULT_STARTER_SLOT_ORDER`); src/lib/lineupAttention.parity.test.js pins
- * the two equal, in order, against this module.
+ * This module is the SERVER-SIDE single source of the standard shape. Client
+ * src/ cannot import it at runtime (react-scripts's ModuleScopePlugin confines
+ * the bundle to src/), so client mirrors exist and this is what they are
+ * measured against:
  *
- * Ownership note: the standard shape is defined ONCE, here. Do not change its
- * contents as a side effect of anything - the two mirrors above are validated
- * against it.
+ *   - src/lib/lineupAttention.js's `DEFAULT_STARTER_SLOT_ORDER` (the starter
+ *     KEYS only) is PINNED to this module by lineupAttention.parity.test.js.
+ *   - src/lib/draftSim/templates.js exports a THIRD, byte-identical
+ *     `DEFAULT_ROSTER_SLOTS`. It is NOT pinned by anything, and its comment
+ *     still cites lineup.service.js for a value that no longer lives there, so
+ *     this extraction leaves that citation stale. Pinning it is out of scope
+ *     here and tracked by #692; it is named rather than hidden so an author
+ *     changing this shape knows templates.js will not follow on its own.
+ *
+ * So do not treat this as the only copy: changing the contents here does not
+ * propagate to templates.js, and only the lineupAttention mirror has a test
+ * that will notice.
  */
 
 const DEFAULT_ROSTER_SLOTS = [
