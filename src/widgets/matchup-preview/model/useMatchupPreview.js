@@ -25,15 +25,18 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *     truthiness check: a legitimate `0` is a value the list already has, and
  *     must render (and must not fall back) exactly like any other number.
  *   - The detail read is the FALLBACK, fired only when either side is null on
- *     the list row for the viewer's matchup. Its URL depends on the selected
- *     matchup id AND on that null check together, so it stays null (and never
+ *     the list row for the viewer's matchup AND the league is not best-ball
+ *     (#688: see below, neither read can ever answer for a best-ball league).
+ *     Its URL depends on three things together, the selected matchup id, that
+ *     null check, and the league's best-ball flag, so it stays null (and never
  *     fetches, the same null-URL-never-fetches convention the list read
- *     already relies on) whenever the list already answered both sides, or
- *     until the list has resolved and a matchup for the viewer exists. When it
- *     does fire, it supplies each side's projected total, `expectedFinal` (the
- *     per-side projected total the matchup detail computes; MatchupDetail.jsx
- *     surfaces it as "Projected N.N" while a game is live, and this card shows
- *     it as the pre-kickoff projection).
+ *     already relies on) whenever the list already answered both sides,
+ *     whenever the league is best-ball, or until the list has resolved and a
+ *     matchup for the viewer exists. When it does fire, it supplies each
+ *     side's projected total, `expectedFinal` (the per-side projected total
+ *     the matchup detail computes; MatchupDetail.jsx surfaces it as
+ *     "Projected N.N" while a game is live, and this card shows it as the
+ *     pre-kickoff projection).
  *
  *     The list carries null on either side for more than one reason
  *     (expectedFinal.service.js, and see server/routes/league.router.js:664-668
@@ -55,9 +58,12 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *     producer, `expectedFinalsForWeek` (expectedFinal.service.js), which
  *     short-circuits on `league.best_ball` exactly like the list's
  *     `attachExpectedFinals` does. So for a best-ball league NEITHER read
- *     ever answers; firing the detail read there only pays for a transaction
- *     that materializes both lineups and delivers nothing the list did not
- *     already deliver. The widget skips the fallback for that case (#688):
+ *     ever answers `expectedFinal`; firing the detail read there only pays
+ *     for a transaction that materializes both lineups and a `liveWhatIf`,
+ *     for the same null values on the one field (`expectedFinal`) this widget
+ *     reads from it. (The detail response also carries starters, bench and
+ *     `viewerWhatIf`, which this widget never reads; only `expectedFinal` is
+ *     at stake here.) The widget skips the fallback for that case (#688):
  *     the best-ball decision is made the same place and the same way as the
  *     `listHasBothFinals` check below, before `detail.status` is ever
  *     consulted.
@@ -130,16 +136,23 @@ export function useMatchupPreview(leagueId) {
   // that predates this field keeps its current behavior.
   const isBestBall = !!league?.best_ball;
 
+  // Whether the detail read stands any chance of answering: the list didn't
+  // already answer both sides, AND the league isn't best-ball (#688, where
+  // neither read ever answers). Named once and reused below (detailUrl,
+  // busy) instead of repeating the same two-part check, so the gate stays a
+  // single source of truth as more callers of it get added.
+  const detailCanAnswer = !listHasBothFinals && !isBestBall;
+
   // Read 2 (chained fallback): the matchup detail, only once a matchup id
-  // exists, the list could not answer both sides itself, AND the league is
-  // not best-ball. This decision is made here, before detail.status is ever
-  // consulted (the shared useEndpoint's null-url contract, noted above): a
-  // null detailUrl idles at 'loading' forever, so treating that idle status
-  // as "still loading" once the list has already answered (or the league is
-  // best-ball, where no read will ever answer) would skeleton the card and
-  // hold aria-busy forever instead of rendering the list's numbers.
+  // exists AND `detailCanAnswer`. This decision is made here, before
+  // detail.status is ever consulted (the shared useEndpoint's null-url
+  // contract, noted above): a null detailUrl idles at 'loading' forever, so
+  // treating that idle status as "still loading" once the list has already
+  // answered (or the league is best-ball, where no read will ever answer)
+  // would skeleton the card and hold aria-busy forever instead of rendering
+  // the list's numbers.
   const detailUrl =
-    leagueId != null && matchupId != null && !listHasBothFinals && !isBestBall
+    leagueId != null && matchupId != null && detailCanAnswer
       ? `/api/league/${leagueId}/matchups/${matchupId}`
       : null;
   const detail = useEndpoint(detailUrl);
@@ -203,16 +216,14 @@ export function useMatchupPreview(leagueId) {
   const opponent =
     status === 'ready' ? { ...identityFor(opponentId), projected: projectedFor(opponentId) } : null;
 
-  // aria-busy while a layout-holding read is in flight: the list spine, and (only
-  // when the list did not already answer both sides, #670, and the league is
-  // not best-ball, #688) the chained detail read whose projected numbers are
-  // skeletoned (carry-over #2). Checking `listHasBothFinals` and `isBestBall`
-  // before `detail.status` matters: with the fallback skipped, detailUrl is
-  // null and detail.status idles at 'loading' forever, so consulting it
-  // unconditionally here would keep aria-busy true forever.
+  // aria-busy while a layout-holding read is in flight: the list spine, and
+  // (only when `detailCanAnswer`, #670 + #688) the chained detail read whose
+  // projected numbers are skeletoned (carry-over #2). Checking
+  // `detailCanAnswer` before `detail.status` matters: with the fallback
+  // skipped, detailUrl is null and detail.status idles at 'loading' forever,
+  // so consulting it unconditionally here would keep aria-busy true forever.
   const busy =
-    status === 'loading' ||
-    (status === 'ready' && !listHasBothFinals && !isBestBall && detail.status === 'loading');
+    status === 'loading' || (status === 'ready' && detailCanAnswer && detail.status === 'loading');
 
   return { week, status, busy, matchupId, viewer, opponent };
 }
