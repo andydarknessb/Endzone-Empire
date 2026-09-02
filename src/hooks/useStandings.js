@@ -27,11 +27,14 @@ const urlFor = (leagueId) => `/api/scoring/league/${leagueId}/standings`;
 
 /**
  * Drops cached scoring standings for one league (every week), or everything
- * when called with no id. NOTHING wires this yet: it is here for the caller that
- * should reflect a standings change immediately rather than waiting out the TTL
- * (reloading the table already on screen) - a score sync or a week advance.
- * #644 (advance-week) is the natural first caller; until something calls it, a
- * change is only picked up when the TTL lapses.
+ * when called with no id. NOTHING wires this yet, and a WEEK ADVANCE is not what
+ * will: the week is part of the cache key (keyFor above), so advancing re-keys
+ * every mounted table to a fresh read on its own, and a clear there would only
+ * reload the abandoned prior-week key. This is here for the caller that changes
+ * the standings WITHOUT changing the week - a score sync - where the key stays
+ * put and only a clear reloads the table already on screen before the TTL
+ * lapses. Until such a caller exists, a same-week change is picked up when the
+ * TTL lapses.
  */
 export function clearStandingsCache(leagueId) {
   invalidate(leagueId == null ? ['standings'] : ['standings', leagueId]);
