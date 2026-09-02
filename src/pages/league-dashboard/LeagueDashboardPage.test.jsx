@@ -1626,6 +1626,39 @@ test('commissioner-panel: expanding League administration mounts the legacy comm
   expect(await within(card).findByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
 });
 
+test('commissioner-panel: the League administration disclosure wires aria-expanded/aria-controls to the region it mounts (#694)', async () => {
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  const { container } = renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  const toggle = within(card).getByRole('button', { name: /league administration/i });
+
+  // Collapsed: aria-expanded is false, aria-controls is ABSENT (not merely
+  // empty) because the region only exists while open - a static reference
+  // would dangle collapsed - and no element with the region's id is mounted.
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(toggle).not.toHaveAttribute('aria-controls');
+  expect(container.querySelector('#commissioner-panel-administration')).not.toBeInTheDocument();
+
+  await userEvent.click(toggle);
+
+  // Expanded: aria-controls now names the mounted region's id, and that
+  // region contains the legacy tools' own heading.
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(toggle).toHaveAttribute('aria-controls', 'commissioner-panel-administration');
+  const region = container.querySelector('#commissioner-panel-administration');
+  expect(region).toBeInTheDocument();
+  expect(within(region).getByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
+
+  await userEvent.click(toggle);
+
+  // Collapsed again: back to the same wiring, the region unmounted and the
+  // reference gone.
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(toggle).not.toHaveAttribute('aria-controls');
+  expect(container.querySelector('#commissioner-panel-administration')).not.toBeInTheDocument();
+});
+
 // ==========================================================================
 // Route cutover + parity (#645), the ninth slice. This section proves the
 // composition the cutover adds: the four legacy surfaces (chat launcher, recap,
