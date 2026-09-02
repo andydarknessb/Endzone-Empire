@@ -146,11 +146,12 @@ test('no tab drops a stray level-6 heading, and every tab with a section exposes
     expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
     // Exact, not clamped: a section tab shows at least one h4; the Waivers tab
     // shows none, because its two subtitles are single-control-group labels
-    // rendered as <p> (aria-labelledby'd to their RadioGroups), not headings.
-    // Asserting "has an h4" EQUALS "is a section tab" pins the Waivers=zero-h4
-    // property too, so a label leaking back into the outline as a heading, or a
-    // section tab losing all its h4s, fails here. One unconditional expect
-    // keeps clear of jest/no-conditional-expect.
+    // rendered as <p> (each one the id its RadioGroup's aria-labelledby
+    // points at), not headings. Asserting "has an h4" EQUALS "is a section
+    // tab" pins the Waivers=zero-h4 property too, so a label leaking back
+    // into the outline as a heading, or a section tab losing all its h4s,
+    // fails here. One unconditional expect keeps clear of
+    // jest/no-conditional-expect.
     expect(screen.queryAllByRole('heading', { level: 4 }).length > 0).toBe(hasSection);
   }
 });

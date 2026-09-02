@@ -48,9 +48,10 @@ test('offers every round in the draft roster size, including round 19', () => {
   expect(screen.queryByText('Round 20')).not.toBeInTheDocument();
 });
 
-// ADR 0021: a bare render here has no AppThemeProvider (src/theme/AppThemeProvider.jsx:73),
-// so any subtitle Typography without an explicit component still resolves
-// to <h6> by MUI's own default variantMapping. These three section titles
+// ADR 0021: a bare render here has no AppThemeProvider, so any subtitle
+// Typography without an explicit component still resolves to <h6> by MUI's
+// own default variantMapping (the repo's override lives at
+// src/theme/AppThemeProvider.jsx:73). These three section titles
 // get component="h5" here - one level below the Draft Settings page's own
 // <Typography variant="h4"> title at DraftSettings.jsx:212, which this
 // standalone panel render does not mount (see #704) - so a bare render must
