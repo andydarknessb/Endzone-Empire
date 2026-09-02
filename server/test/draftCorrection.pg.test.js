@@ -86,7 +86,6 @@ if (!ENABLED) {
   let ownerB = null;
   let leagueId = null;
   let teamA = null;
-  let teamB = null;
   let playerCorrected = null;
   let playerNext = null;
 
@@ -131,11 +130,12 @@ if (!ENABLED) {
       [leagueId, ownerA, 'Alpha']
     );
     teamA = t1.rows[0].id;
-    const t2 = await pool.query(
+    // Bravo (T2) is on the clock at pick index 1; the correction reverses T1's
+    // committed pick, so Bravo's id is never read back - seed it without capturing.
+    await pool.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name", "draft_position") VALUES ($1, $2, $3, 2) RETURNING "id"`,
       [leagueId, ownerB, 'Bravo']
     );
-    teamB = t2.rows[0].id;
     const p1 = await pool.query(
       `INSERT INTO "players" ("name", "position", "nfl_team") VALUES ('Wrong Guy', 'RB', 'KC') RETURNING "id"`
     );
