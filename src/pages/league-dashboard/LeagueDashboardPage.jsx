@@ -46,7 +46,18 @@ export default function LeagueDashboardPage() {
   if (!league && loading) {
     return (
       <DashboardShell>
-        <Box data-testid="dashboard-loading" sx={{ display: 'grid', gap: '16px' }}>
+        {/* This region owns the league read (Skeleton.jsx: the shapes stay
+            aria-hidden, the owning region announces the loading state), so it
+            carries aria-busy while that read is in flight. A literal "true" is
+            correct here, not a computed value that toggles to "false": this
+            whole branch is gated on `!league && loading` and unmounts the
+            moment the league resolves, so there is no in-DOM transition to
+            "false" for a screen reader to ever observe. */}
+        <Box
+          data-testid="dashboard-loading"
+          aria-busy="true"
+          sx={{ display: 'grid', gap: '16px' }}
+        >
           <Skeleton variant="text" width={260} height={44} />
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Skeleton variant="rounded" width={150} height={26} />

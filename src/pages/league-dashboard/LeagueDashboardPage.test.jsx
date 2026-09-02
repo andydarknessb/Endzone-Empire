@@ -114,7 +114,11 @@ const renderPage = (leagueId = 1) =>
 test('shows a loading placeholder until the league arrives', () => {
   mockGetByUrl({ '/api/league/1': { pending: true } });
   renderPage();
-  expect(screen.getByTestId('dashboard-loading')).toBeInTheDocument();
+  const loading = screen.getByTestId('dashboard-loading');
+  expect(loading).toBeInTheDocument();
+  // The loading region owns the league read, so it is the one that announces
+  // it (Skeleton.jsx: the shapes stay aria-hidden, the owning region speaks).
+  expect(loading).toHaveAttribute('aria-busy', 'true');
 });
 
 test('shows an error message when the league fails to load', async () => {
