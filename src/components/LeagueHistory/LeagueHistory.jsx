@@ -77,7 +77,7 @@ function PodiumCard({ place }) {
     >
       {place === 1 && <EmojiEvents sx={{ fontSize: 40, color: 'warning.main' }} />}
       <Avatar sx={{ width: 56, height: 56, bgcolor: 'action.disabledBackground' }} />
-      <Typography variant="subtitle2" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
+      <Typography variant="subtitle2" component="p" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
         Team Name
       </Typography>
       <Typography variant="caption" color="text.disabled">
@@ -208,7 +208,7 @@ function SeasonPanel({ season, defaultExpanded }) {
           </Box>
         )}
 
-        <Typography id={`season-${season.season}-standings-heading`} variant="subtitle1" sx={{ mb: 1 }}>
+        <Typography id={`season-${season.season}-standings-heading`} variant="subtitle1" component="h6" sx={{ mb: 1 }}>
           Final Standings
         </Typography>
         <TableContainer component={Paper} sx={{ mb: 3 }}>
@@ -284,7 +284,7 @@ function SeasonPanel({ season, defaultExpanded }) {
         ) : (
           trophies.length > 0 && (
             <>
-              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+              <Typography variant="subtitle1" component="h6" sx={{ mb: 1 }}>
                 Trophies
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
@@ -308,7 +308,7 @@ function SeasonPanel({ season, defaultExpanded }) {
           draftGrades &&
           draftGrades.length > 0 && (
             <>
-              <Typography id={`season-${season.season}-draft-grades-heading`} variant="subtitle1" sx={{ mb: 1 }}>
+              <Typography id={`season-${season.season}-draft-grades-heading`} variant="subtitle1" component="h6" sx={{ mb: 1 }}>
                 Draft Grades
               </Typography>
               <TableContainer component={Paper}>

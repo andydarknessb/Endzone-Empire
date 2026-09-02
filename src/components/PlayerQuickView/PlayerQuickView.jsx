@@ -65,7 +65,7 @@ function ComparisonCard({ summary }) {
   const line = comparisonLine(summary);
   return (
     <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
-      <Typography variant="subtitle2" noWrap>{line.player?.name}</Typography>
+      <Typography variant="subtitle2" component="p" noWrap>{line.player?.name}</Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         <AbbreviationTooltip term="Projected" />: {line.projected ?? '-'}
       </Typography>
@@ -581,7 +581,7 @@ function PlayerQuickView({
 
             {pinnedComparison && pinnedComparison.player?.id !== player.id && (
               <Box component="section" aria-label="Player comparison" data-testid="player-comparison" sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>Comparison</Typography>
+                <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>Comparison</Typography>
                 <Box
                   sx={{
                     display: 'grid',
