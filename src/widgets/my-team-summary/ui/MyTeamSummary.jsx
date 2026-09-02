@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Card, Badge, Skeleton } from '../../../shared/ui';
 import TeamAvatar from '../../../components/common/TeamAvatar';
 import useMyTeamSummary from '../model/useMyTeamSummary';
@@ -171,11 +172,20 @@ function gradeTextColor(gradeKey) {
 
 // The placeholder mark for a tile whose read has no value yet: a dash, no
 // digits (draft-grades 404 renders this in both the grade and value tiles).
+// The dash is a visual mark only, so it is aria-hidden and a visually-hidden
+// "Not available" carries the same meaning to a screen reader; without it the
+// tile would announce its label ("Draft grade") with nothing after it, which a
+// non-sighted user cannot tell apart from a loading or broken tile.
 function Placeholder() {
   return (
-    <Box component="span" aria-hidden="true" sx={{ color: 'var(--dash-dim)' }}>
-      -
-    </Box>
+    <>
+      <Box component="span" aria-hidden="true" sx={{ color: 'var(--dash-dim)' }}>
+        -
+      </Box>
+      <Box component="span" sx={visuallyHidden}>
+        Not available
+      </Box>
+    </>
   );
 }
 

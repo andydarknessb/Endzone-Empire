@@ -305,6 +305,10 @@ test('my-team card: a 404 from draft-grades leaves the grade and value tiles as 
   expect(valueTile).toHaveTextContent('-');
   expect(gradeTile.textContent).not.toMatch(/\d/);
   expect(valueTile.textContent).not.toMatch(/\d/);
+  // The dash is visual only; a screen reader gets a real "Not available" so the
+  // tile is not announced as a label pointing at nothing.
+  expect(within(gradeTile).getByText('Not available')).toBeInTheDocument();
+  expect(within(valueTile).getByText('Not available')).toBeInTheDocument();
 });
 
 test('my-team card: no Proj. finish tile until power-rankings has been computed (404)', async () => {
