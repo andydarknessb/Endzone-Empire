@@ -66,9 +66,9 @@ work that outlives it awaits that work's observable result. Only the worked
 example is gone. Its surviving form is inline, with no named helper: await
 the observable result of the work the interaction started directly at the
 call site, such as the request assertion via `waitFor` or the toast text via
-`findBy`. `CommissionerTools.test.jsx` does this, and its header comment
-cites this ADR back, so the link between rule and example is visible from
-both ends.
+`findBy`. `src/components/LeagueDashboard/CommissionerTools.test.jsx` does
+this, and its header comment cites this ADR back, so the link between rule
+and example is visible from both ends.
 
 A future named helper of the `settleRefresh` shape is fine but not required.
 The rule is "await the consequence," not "use a helper."
