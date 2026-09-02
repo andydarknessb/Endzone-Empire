@@ -10,21 +10,26 @@ import { assignRosterSlots } from '../../lib/rosterAssignment';
  * lineup.
  *
  * Carries aria-live="polite" and deliberately not the status role - a ruling
- * (#664, 2026-09-02), not a test constraint. FeedAnnouncer's docblock names
- * the grep that finds the Draft room's other status regions across
- * src/components/DraftBoard/ and src/components/ChatPanel/ (six of them,
- * plus the composer character counter #486) - this strip isn't one of them,
- * and that is exactly the point:
+ * (#664, 2026-09-02), not a test constraint. See FeedAnnouncer's docblock
+ * (and the grep it names) for the Draft room's current set of other status
+ * regions - this strip isn't one of them, and that is exactly the point:
  *
- * (1) A polite aria-live region is announced exactly as a status region is -
- *     status is the role whose implicit live semantics ARE polite/atomic, so
- *     adding the role would change nothing a screen-reader user hears.
- * (2) It would change what role-based tooling and role queries see: a
- *     seventh region alongside six one-shot announcers plus the composer
- *     counter, when this strip is the opposite of one-shot - a visible
- *     summary that stays on screen for the whole draft instead of speaking
- *     once and clearing. Presenting it as another status region would blur
- *     that distinction for anything that counts or enumerates them by role.
+ * (1) The role's only real effect here is atomicity, not politeness: the
+ *     status role implies an implicit aria-atomic of true, while a bare
+ *     aria-live="polite" region (nothing in this codebase sets aria-atomic
+ *     explicitly) stays non-atomic. Both already announce at the same
+ *     "polite" priority, so adding the role would not change WHEN a screen
+ *     reader speaks - it would change WHAT gets read on every update, from
+ *     just the piece that changed to this whole dense block (starters,
+ *     next pick, needed slots, bench, severity) every time any one of them
+ *     does. For a region with this many independently-changing parts, that
+ *     is a regression, not a wash.
+ * (2) It would also make this strip harder to tell apart, for anything that
+ *     counts or enumerates status regions by role, from the room's other
+ *     status regions - most of which are visually hidden and built to speak
+ *     once and fall silent. This strip is the opposite: a visible,
+ *     continuously-updating summary that sits on screen for the whole
+ *     draft.
  * (3) No test asserts this strip's role either way. (The #513/#648 counting
  *     tests in DraftBoard.test.jsx count status regions by their copy, not
  *     their number, so adding the role here would not collide with them -
