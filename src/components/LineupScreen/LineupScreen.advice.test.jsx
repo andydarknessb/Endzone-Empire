@@ -256,6 +256,10 @@ test('an empty starting slot offers a one-move fill that saves a legal lineup', 
   renderScreen();
   await screen.findByTestId('lineup-open-slot-fills');
 
+  // The title sits inside the advice panel, whose heading is the h6 engine name
+  // ("Endzone Forecast"), so it caps at h6 rather than anchoring to the page h2.
+  expect(screen.getByRole('heading', { level: 6, name: 'Empty starting slots' })).toBeInTheDocument();
+
   expect(
     within(screen.getByTestId('open-slot-fill-FLEX')).getByText(
       /Start Saquon Barkley \(17\.9 proj, range 11\.4–25\.8\) in your empty FLEX/

@@ -62,6 +62,21 @@ test('renders past seasons with champion, standings, trophies, and draft grades'
   expect(screen.getByText("Bob's Team")).toBeInTheDocument();
 });
 
+test('caps the season section titles at h6 under the h6 season summary', async () => {
+  apiClient.get.mockResolvedValue(historyResponse());
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  // Each section sits under the season's h6 accordion summary ("Season 2026"),
+  // so it caps at h6 rather than inverting to the h5 #721 chose.
+  expect(within(panel).getByRole('heading', { level: 6, name: 'Final Standings' })).toBeInTheDocument();
+  expect(within(panel).getByRole('heading', { level: 6, name: 'Trophies' })).toBeInTheDocument();
+  expect(within(panel).getByRole('heading', { level: 6, name: 'Draft Grades' })).toBeInTheDocument();
+  // No inverted h5 heading remains inside the season panel.
+  expect(within(panel).queryAllByRole('heading', { level: 5 })).toHaveLength(0);
+});
+
 test('renders a champion banner with team name and record inside the expanded panel', async () => {
   apiClient.get.mockResolvedValue(historyResponse());
 

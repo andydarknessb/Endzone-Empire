@@ -1039,7 +1039,7 @@ export function LineupEditor({
 
                   {openSlotFills.length > 0 && (
                     <Box sx={{ mt: 1 }} data-testid="lineup-open-slot-fills">
-                      <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
+                      <Typography variant="subtitle2" component="h6" sx={{ mb: 1 }}>
                         Empty starting slots
                       </Typography>
                       {openSlotFills.map((fill) => (

@@ -243,7 +243,9 @@ describe('LiveTicker', () => {
 });
 
 describe('BenchWhatIf', () => {
-  test('uses complete copy when the active lineup is already optimal', () => {
+  // An already-optimal panel (no delta, no swaps) is enough to exercise both the
+  // complete-copy path and the title's heading level.
+  const renderOptimalPanel = () =>
     render(
       <BenchWhatIf
         whatIf={{ delta: 0, swaps: [] }}
@@ -253,7 +255,18 @@ describe('BenchWhatIf', () => {
       />
     );
 
+  test('uses complete copy when the active lineup is already optimal', () => {
+    renderOptimalPanel();
+
     expect(screen.getByText('Your best legal lineup is already active.')).toBeInTheDocument();
     expect(screen.queryByText('Your best legal lineup is in')).not.toBeInTheDocument();
+  });
+
+  // The panel is rendered below MatchupDetail's h4 page title ("Week N Matchup"),
+  // so its title must be h5, one level below, not the h3 #721 chose.
+  test('titles the panel as a level-5 heading (below the h4 page title)', () => {
+    renderOptimalPanel();
+
+    expect(screen.getByRole('heading', { level: 5, name: 'Bench what-if' })).toBeInTheDocument();
   });
 });
