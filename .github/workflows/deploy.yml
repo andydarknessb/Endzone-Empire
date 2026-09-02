@@ -129,11 +129,13 @@ jobs:
         run: |
           test -n "$RENDER_API_KEY"
           test -n "$RENDER_WORKER_SERVICE_ID"
-          # Same poller against the WORKER service, with no readyz URL (the
-          # worker serves no HTTP): it waits for the worker's Render deploy for
-          # this commit to be live, or fails on a terminal-failed one.
+          # Same poller against the WORKER service. --no-readyz opts out of the
+          # readyz SHA gate deliberately (the worker serves no HTTP): it waits
+          # for the worker's Render deploy for this commit to be live, or fails
+          # on a terminal-failed one.
           node scripts/ci/wait-for-render-deploy.js \
             --service "$RENDER_WORKER_SERVICE_ID" \
             --sha "$GITHUB_SHA" \
+            --no-readyz \
             --ceiling-ms 2700000 \
             --interval-ms 15000

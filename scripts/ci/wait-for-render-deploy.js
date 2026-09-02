@@ -64,10 +64,14 @@
 // Render deploy status vocabulary; canceled and deactivated are terminal too.
 const TERMINAL_FAILED_STATUSES = ['build_failed', 'update_failed', 'pre_deploy_failed', 'canceled', 'deactivated'];
 
-// Statuses that mean "still working, keep waiting". Any status NOT in either
-// set is also treated as waiting (see classifyStatus); this list is only the
-// ones we recognise, so the logs can say "in progress" rather than "unknown".
+// Statuses that mean "still working, keep waiting". Any status NOT in this set
+// and not `live` / terminal-failed is ALSO treated as waiting (classifyStatus
+// falls through). `decide` reads this list to flag an unrecognised status in
+// the poll log, so a status Render adds after this was written is visible in
+// the run rather than silently muddled with a known in-progress one.
 const IN_PROGRESS_STATUSES = ['created', 'queued', 'build_in_progress', 'pre_deploy_in_progress', 'update_in_progress'];
+
+const IN_PROGRESS_SET = new Set(IN_PROGRESS_STATUSES);
 
 const TERMINAL_FAILED_SET = new Set(TERMINAL_FAILED_STATUSES);
 
@@ -94,7 +98,7 @@ function selectDeploy(page, sha) {
 // Pure per-poll decision. `observation` is what this poll saw; `ctx` the
 // invariants. Returns { action: 'succeed' | 'fail' | 'wait', message }.
 function decide(observation, ctx) {
-  const { sha, hasReadyz, elapsedMs, graceMs } = ctx;
+  const { sha, hasReadyz, elapsedMs, graceMs, seenDeploy } = ctx;
   const deploy = observation.deploy;
   if (deploy) {
     const kind = classifyStatus(deploy.status);
@@ -115,16 +119,24 @@ function decide(observation, ctx) {
         message: `deploy for ${sha} is live but readyz release=${observation.readyzRelease} (want ${sha})`,
       };
     }
-    return { action: 'wait', message: `deploy for ${sha} status=${deploy.status}` };
+    // In-progress OR a status Render added after this was written: wait either
+    // way, but say which, so an unrecognised status is visible in the run log.
+    const suffix = IN_PROGRESS_SET.has(deploy.status) ? '' : ' (unrecognised status; waiting, not failing)';
+    return { action: 'wait', message: `deploy for ${sha} status=${deploy.status}${suffix}` };
   }
-  // No deploy for this SHA in the page yet.
-  if (elapsedMs >= graceMs) {
+  // No deploy for this SHA in the page. Fail for "the hook never registered a
+  // deploy" ONLY while we have never seen one. Once a deploy for the SHA has
+  // appeared, a later empty page is a transient API blip (fetchDeploys returns
+  // [] on a failed call or malformed body), so we keep waiting and let the
+  // ceiling govern - a slow build must survive a mid-build API hiccup.
+  if (!seenDeploy && elapsedMs >= graceMs) {
     return {
       action: 'fail',
       message: `no deploy for ${sha} after ${Math.round(graceMs / 1000)}s grace; the hook registered no deploy`,
     };
   }
-  return { action: 'wait', message: `no deploy for ${sha} yet (within grace)` };
+  const why = seenDeploy ? 'transient empty page; a deploy for it was seen earlier' : 'within grace';
+  return { action: 'wait', message: `no deploy for ${sha} yet (${why})` };
 }
 
 async function fetchDeploys({ fetch, serviceId, apiKey, pageSize, log }) {
@@ -181,6 +193,11 @@ async function waitForDeploy(opts, io = defaultIo()) {
   const hasReadyz = Boolean(readyzUrl);
   const start = now();
   let lastStatus = 'none';
+  // Latch: once a deploy for the SHA has been seen, a later empty page is a
+  // transient API blip, not a hook that never fired, so the grace failure no
+  // longer applies (738-f1). `lastStatus` alone cannot serve this: it is not
+  // reset, but decide needs the boolean, so we pass it explicitly.
+  let seenDeploy = false;
   let attempt = 0;
 
   for (;;) {
@@ -188,14 +205,17 @@ async function waitForDeploy(opts, io = defaultIo()) {
     const elapsedMs = now() - start;
     const page = await fetchDeploys({ fetch, serviceId, apiKey, pageSize, log });
     const deploy = selectDeploy(page, sha);
-    if (deploy) lastStatus = deploy.status;
+    if (deploy) {
+      lastStatus = deploy.status;
+      seenDeploy = true;
+    }
 
     let readyzRelease = null;
     if (deploy && classifyStatus(deploy.status) === 'live' && hasReadyz) {
       readyzRelease = await fetchReadyzRelease({ fetch, readyzUrl, log });
     }
 
-    const decision = decide({ deploy, readyzRelease }, { sha, hasReadyz, elapsedMs, graceMs });
+    const decision = decide({ deploy, readyzRelease }, { sha, hasReadyz, elapsedMs, graceMs, seenDeploy });
     log(`attempt ${attempt} (${Math.round(elapsedMs / 1000)}s): ${decision.message}`);
 
     if (decision.action === 'succeed') return 0;
@@ -209,16 +229,39 @@ async function waitForDeploy(opts, io = defaultIo()) {
   }
 }
 
+// A value flag (`--x v`) captures the next token; a boolean flag (`--x` at the
+// end or before another `--flag`) captures `true`. Distinguishing them lets
+// numArg reject a value flag left without a value (738-f3) and lets --no-readyz
+// stand alone.
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
-    if (token.startsWith('--')) {
-      args[token.slice(2)] = argv[i + 1];
+    if (!token.startsWith('--')) continue;
+    const key = token.slice(2);
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) {
+      args[key] = true;
+    } else {
+      args[key] = next;
       i += 1;
     }
   }
   return args;
+}
+
+// A numeric flag must be a real, finite number. A missing flag takes the
+// default; a flag given without a value (parsed as `true`) or a non-numeric
+// value throws rather than silently becoming NaN, which `??` would not replace
+// and which would turn the poll interval into a hot loop against Render
+// (738-f3).
+function numArg(args, name, fallback) {
+  const raw = args[name];
+  if (raw === undefined) return fallback;
+  if (raw === true) throw new Error(`--${name} requires a numeric value`);
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new Error(`--${name} must be a number, got '${raw}'`);
+  return n;
 }
 
 const MINUTE = 60 * 1000;
@@ -235,16 +278,38 @@ async function main({ argv = process.argv.slice(2), env = process.env, io } = {}
   if (!sha) throw new Error('--sha or GITHUB_SHA is required');
   if (!apiKey) throw new Error('RENDER_API_KEY is required in the environment');
 
+  // The readyz SHA gate must be an explicit choice, not a default: --readyz
+  // <url> arms it (the web service), --no-readyz opts out deliberately (the
+  // worker service serves no HTTP). Omitting both is an error, so a future edit
+  // that drops --readyz from the web step fails red rather than silently
+  // degrading the gate to "Render says live" (738-f4).
+  const noReadyz = args['no-readyz'] !== undefined;
+  let readyzUrl = null;
+  if (args.readyz !== undefined) {
+    if (args.readyz === true) throw new Error('--readyz requires a URL value');
+    readyzUrl = args.readyz;
+  }
+  if (readyzUrl === null && !noReadyz) {
+    throw new Error('specify --readyz <url> to gate on the web readyz SHA, or --no-readyz for a service with no HTTP');
+  }
+  if (readyzUrl !== null && noReadyz) {
+    throw new Error('--readyz and --no-readyz are mutually exclusive');
+  }
+
   const opts = {
     serviceId,
     sha,
     apiKey,
-    readyzUrl: args.readyz || null,
-    ceilingMs: Number(args['ceiling-ms'] ?? 45 * MINUTE),
-    intervalMs: Number(args['interval-ms'] ?? 15 * 1000),
-    graceMs: Number(args['grace-ms'] ?? 5 * MINUTE),
-    pageSize: Number(args['page-size'] ?? 20),
+    readyzUrl,
+    ceilingMs: numArg(args, 'ceiling-ms', 45 * MINUTE),
+    intervalMs: numArg(args, 'interval-ms', 15 * 1000),
+    graceMs: numArg(args, 'grace-ms', 5 * MINUTE),
+    pageSize: numArg(args, 'page-size', 20),
   };
+  if (opts.intervalMs <= 0) throw new Error('--interval-ms must be positive');
+  if (opts.ceilingMs <= 0) throw new Error('--ceiling-ms must be positive');
+  if (opts.graceMs < 0) throw new Error('--grace-ms must be >= 0');
+  if (opts.pageSize <= 0) throw new Error('--page-size must be positive');
   return waitForDeploy(opts, io);
 }
 

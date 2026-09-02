@@ -159,12 +159,56 @@ test('every terminal-failed status fails fast within one poll, naming itself', a
   }
 });
 
-test('an unrecognised status keeps waiting rather than failing fast', async () => {
+test('an unrecognised status keeps waiting and is flagged as unrecognised in the log', async () => {
   // Red-turn: treat an unknown status as terminal and poll 1 exits 1.
   const h = harness({ pages: [[item(WANT, 'some_status_render_adds_in_2027')], [item(WANT, 'live')]] });
   assert.equal(await run(h), 0);
   assert.equal(h.counts.deploy, 2);
-  assert.ok(h.logs.some((l) => /some_status_render_adds_in_2027/.test(l)));
+  // 738-f2: the log distinguishes an unrecognised status from a known one, so
+  // IN_PROGRESS_STATUSES is actually read in production, not dead.
+  assert.ok(h.logs.some((l) => /some_status_render_adds_in_2027/.test(l) && /unrecognised/i.test(l)));
+});
+
+test('a recognised in-progress status is NOT flagged as unrecognised', async () => {
+  const h = harness({ pages: [[item(WANT, 'build_in_progress')], [item(WANT, 'live')]] });
+  assert.equal(await run(h), 0);
+  assert.ok(h.logs.some((l) => /build_in_progress/.test(l)));
+  assert.ok(!h.logs.some((l) => /build_in_progress/.test(l) && /unrecognised/i.test(l)));
+});
+
+// --- 738-f1: a transient API blip after a deploy was seen must not trip the
+// grace failure. The old code's decide had no "seen" latch, so an empty page
+// (which fetchDeploys returns on any API failure) past grace failed with
+// "the hook registered no deploy" mid-build - the exact slow-path this exists
+// to survive. These cases put the failure AFTER grace, which AC5/AC6/HTTP500/
+// THROW (all at elapsed 0, inside grace) could never reach.
+
+test('f1: a transient API failure after the deploy was seen keeps waiting, then succeeds', async () => {
+  // Red-turn: drop the seenDeploy latch and poll 2 (past grace, empty page)
+  // exits 1 with "the hook registered no deploy".
+  const h = harness({
+    pages: [[item(WANT, 'build_in_progress')], 'THROW', [item(WANT, 'live')]],
+    graceMs: 10000,
+    intervalMs: 15000,
+  });
+  assert.equal(await run(h), 0);
+  assert.equal(h.counts.deploy, 3);
+  assert.ok(!h.logs.some((l) => /hook registered no deploy/.test(l)));
+});
+
+test('f1: after the deploy was seen, persistent API failure still ends at the ceiling (bounded)', async () => {
+  // Tolerance stays bounded: a build that vanishes from the API is not waited
+  // on forever; the ceiling governs, and the message is the ceiling one, not
+  // the false no-deploy one.
+  const h = harness({
+    pages: [[item(WANT, 'build_in_progress')], 'THROW'],
+    graceMs: 10000,
+    ceilingMs: 45000,
+    intervalMs: 15000,
+  });
+  assert.equal(await run(h), 1);
+  assert.ok(h.logs.some((l) => /ceiling/i.test(l)));
+  assert.ok(!h.logs.some((l) => /hook registered no deploy/.test(l)));
 });
 
 test('the ceiling exits non-zero with the last observed status', async () => {
@@ -249,20 +293,29 @@ test('decide: no deploy within grace waits, past grace fails', () => {
   assert.match(after.message, /hook/i);
 });
 
+test('decide: once a deploy has been seen, an empty page past grace waits (738-f1)', () => {
+  const d = decide(
+    { deploy: null, readyzRelease: null },
+    { sha: WANT, hasReadyz: false, elapsedMs: 999999, graceMs: 1000, seenDeploy: true },
+  );
+  assert.equal(d.action, 'wait');
+  assert.doesNotMatch(d.message, /hook registered no deploy/);
+});
+
 // ---------------------------------------------------------------------------
 // main(): argument and env plumbing.
 // ---------------------------------------------------------------------------
 
 test('main: missing service id / sha / api key each throw', async () => {
-  await assert.rejects(main({ argv: ['--sha', WANT], env: { RENDER_API_KEY: 'k' } }), /service/i);
-  await assert.rejects(main({ argv: ['--service', 'srv-x'], env: {} }), /sha|GITHUB_SHA/i);
-  await assert.rejects(main({ argv: ['--service', 'srv-x', '--sha', WANT], env: {} }), /RENDER_API_KEY/);
+  await assert.rejects(main({ argv: ['--sha', WANT, '--no-readyz'], env: { RENDER_API_KEY: 'k' } }), /service/i);
+  await assert.rejects(main({ argv: ['--service', 'srv-x', '--no-readyz'], env: {} }), /sha|GITHUB_SHA/i);
+  await assert.rejects(main({ argv: ['--service', 'srv-x', '--sha', WANT, '--no-readyz'], env: {} }), /RENDER_API_KEY/);
 });
 
 test('main: parses flags and returns the poller exit code', async () => {
   const h = harness({ pages: [[item(WANT, 'live')]] });
   const code = await main({
-    argv: ['--service', 'srv-web', '--sha', WANT, '--ceiling-ms', '2700000', '--interval-ms', '15000'],
+    argv: ['--service', 'srv-web', '--sha', WANT, '--no-readyz', '--ceiling-ms', '2700000', '--interval-ms', '15000'],
     env: { RENDER_API_KEY: 'render-key' },
     io: h.io,
   });
@@ -272,9 +325,73 @@ test('main: parses flags and returns the poller exit code', async () => {
 test('main: --sha falls back to GITHUB_SHA', async () => {
   const h = harness({ pages: [[item(WANT, 'live')]] });
   const code = await main({
-    argv: ['--service', 'srv-web'],
+    argv: ['--service', 'srv-web', '--no-readyz'],
     env: { RENDER_API_KEY: 'render-key', GITHUB_SHA: WANT },
     io: h.io,
   });
   assert.equal(code, 0);
+});
+
+test('main: --readyz arms the gate and its URL reaches the poller', async () => {
+  // With --readyz, a live deploy whose readyz still reports PREV must not end.
+  const h = harness({
+    pages: [[item(WANT, 'live')], [item(WANT, 'live')]],
+    readyz: [{ release: PREV }, { release: WANT }],
+  });
+  const code = await main({
+    argv: ['--service', 'srv-web', '--sha', WANT, '--readyz', 'http://api/readyz'],
+    env: { RENDER_API_KEY: 'render-key' },
+    io: h.io,
+  });
+  assert.equal(code, 0);
+  assert.equal(h.counts.readyz, 2);
+});
+
+// --- 738-f4: the readyz gate must be an explicit choice ---
+
+test('main: omitting both --readyz and --no-readyz fails red (no silent gate degradation)', async () => {
+  // Red-turn: default readyzUrl to null instead of throwing and this resolves.
+  await assert.rejects(
+    main({ argv: ['--service', 'srv-web', '--sha', WANT], env: { RENDER_API_KEY: 'render-key' } }),
+    /readyz/i,
+  );
+});
+
+test('main: --readyz and --no-readyz together are rejected', async () => {
+  await assert.rejects(
+    main({ argv: ['--service', 'srv-web', '--sha', WANT, '--readyz', 'http://x', '--no-readyz'], env: { RENDER_API_KEY: 'render-key' } }),
+    /mutually exclusive/i,
+  );
+});
+
+test('main: --readyz given without a URL is rejected', async () => {
+  await assert.rejects(
+    main({ argv: ['--service', 'srv-web', '--sha', WANT, '--readyz'], env: { RENDER_API_KEY: 'render-key' } }),
+    /readyz requires a URL/i,
+  );
+});
+
+// --- 738-f3: numeric flags must be real numbers, never NaN ---
+
+test('main: a non-numeric --interval-ms is rejected rather than becoming NaN', async () => {
+  // Red-turn: Number(raw) without the isFinite guard yields NaN, which ?? does
+  // not replace, turning the poll interval into a hot loop.
+  await assert.rejects(
+    main({ argv: ['--service', 'srv', '--sha', WANT, '--no-readyz', '--interval-ms', 'abc'], env: { RENDER_API_KEY: 'k' } }),
+    /interval-ms/,
+  );
+});
+
+test('main: --interval-ms with no value (swallowing the next flag) is rejected', async () => {
+  await assert.rejects(
+    main({ argv: ['--service', 'srv', '--sha', WANT, '--interval-ms', '--no-readyz'], env: { RENDER_API_KEY: 'k' } }),
+    /interval-ms/,
+  );
+});
+
+test('main: a non-positive --interval-ms is rejected', async () => {
+  await assert.rejects(
+    main({ argv: ['--service', 'srv', '--sha', WANT, '--no-readyz', '--interval-ms', '0'], env: { RENDER_API_KEY: 'k' } }),
+    /interval-ms must be positive/,
+  );
 });
