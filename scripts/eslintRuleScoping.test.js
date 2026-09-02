@@ -219,12 +219,16 @@ test('a deliberate violation in a server file is still reported', async () => {
 // errors (unchanged, untouched, still #245's) and 6 warnings, down from 70,
 // the difference being the 64 `strict` reports.
 //
-// READ THE NEXT SENTENCE BEFORE CONCLUDING ANYTHING ABOUT COVERAGE.
-// `scripts/` IS NOT IN THE LINT SURFACE and this entry does not put it there.
-// The tenant check is `npx eslint src server`; it does not read `scripts/`,
-// before this change or after it. An eslint config entry naming a tree is not
-// evidence the tree is linted. `scripts/` also carries 28 pre-existing errors
-// of its own, untouched here; those and the surface question belong to #245.
+// This eslint config entry does not by itself put `scripts/` in the lint
+// surface: an entry naming a tree is not evidence the tree is linted. What
+// lints `scripts/` is scripts/lint.js, whose `LINT_PATTERNS` became
+// `['src', 'server', 'scripts']` in #284; #659 then wired `npm run lint` into
+// the `guards` CI job, so `scripts/` is now not just linted but gated (#659's
+// own throwaway gate-probe, `scripts/__lint_gate_probe.js`, turned `guards`
+// red from this tree, then was dropped). `npm run lint` now exits 0 across
+// that whole surface, so the 28 pre-existing `scripts/` errors described above
+// have since been cleared; the surface question that once belonged to #245 is
+// resolved.
 // ---------------------------------------------------------------------------
 
 test('the representative server file still carries the directive #246 is about', () => {

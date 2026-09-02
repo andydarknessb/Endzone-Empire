@@ -109,7 +109,7 @@ jobs:
     # attributable in the job log rather than folded into the guards chain.
     # That is the eslint gate #284's header anticipated as "#247's CI step":
     # it lints src, server and scripts at warning level (MAX_WARNINGS=0, so a
-    # single warning is a red job) and closed #659. test:eslint-scoping stays a
+    # single warning is a red job); #659 adds this step. test:eslint-scoping stays a
     # separate, narrower check: it uses eslint's config-resolution API on a
     # handful of fixed paths and short in-memory snippets, not a lint pass over
     # the tree. It lives in this already-required job, not a new one, so the
