@@ -4,6 +4,7 @@ import { Box, Container, Typography } from '@mui/material';
 import { useLeague } from '../../hooks/useLeague';
 import { Badge, Skeleton } from '../../shared/ui';
 import CopyInvite from '../../features/copy-invite';
+import MyTeamSummary from '../../widgets/my-team-summary';
 import {
   deriveLeaguePhase,
   isSeasonLive,
@@ -140,7 +141,9 @@ export default function LeagueDashboardPage() {
           gridTemplateColumns: { xs: '1fr', md: '5fr 7fr' },
         }}
       >
-        <Box data-testid="slot-my-team" />
+        <Box data-testid="slot-my-team">
+          <MyTeamSummary leagueId={leagueId} />
+        </Box>
         <Box data-testid="slot-matchup-preview" />
       </Box>
 
