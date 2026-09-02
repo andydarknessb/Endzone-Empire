@@ -16,12 +16,13 @@ import { Skeleton as MuiSkeleton } from '@mui/material';
  * presence, not its motion, carries "content is coming".
  *
  * That owner obligation is enforced per consumer, in the consumer's own test
- * asserting `aria-busy` on its owning region, not by a repo-wide guard: see
- * LeagueDashboardPage.test.jsx's "shows a loading placeholder until the league
- * arrives" (the page shell) and "my-team card: while standings are pending the
- * card holds its layout with skeletons" (the my-team-summary widget) for the
- * two that exist today; the next widget author should copy the pattern, not
- * the silence.
+ * asserting `aria-busy` on its owning region, not by a repo-wide guard: as of
+ * #665, LeagueDashboardPage.test.jsx carries four such tests (the page shell's
+ * "shows a loading placeholder until the league arrives", plus the my-team-
+ * summary, standings-table, and matchup-preview widget tests), so the next
+ * widget author copies the pattern rather than the silence. This count is a
+ * snapshot, not a ceiling: it grows as more consumers add their own test
+ * rather than being kept current here.
  */
 export default function Skeleton({
   variant = 'rounded',
