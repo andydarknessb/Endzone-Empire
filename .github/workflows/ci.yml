@@ -104,10 +104,16 @@ jobs:
     # through a single aggregating `guards` npm script instead of inlining
     # each guard's command, so a script renamed out from under this job
     # fails on "Missing script" (a red job) rather than silently no-op'ing.
-    # No eslint CLI invocation is added here: test:eslint-scoping uses
-    # eslint's config-resolution API on a handful of fixed paths and short
-    # in-memory snippets, not a lint pass over the tree (that gate is
-    # blocked on #246 then #245, tracked separately).
+    # This job also runs the repository's unified lint pass (npm run lint,
+    # scripts/lint.js from #284) as its own step, so a lint failure is
+    # attributable in the job log rather than folded into the guards chain.
+    # That is the eslint gate #284's header anticipated as "#247's CI step":
+    # it lints src, server and scripts at warning level (MAX_WARNINGS=0, so a
+    # single warning is a red job) and closed #659. test:eslint-scoping stays a
+    # separate, narrower check: it uses eslint's config-resolution API on a
+    # handful of fixed paths and short in-memory snippets, not a lint pass over
+    # the tree. It lives in this already-required job, not a new one, so the
+    # check name the integration ruleset requires is unchanged.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,6 +123,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run guards
+      - run: npm run lint
 
   browser-security:
     runs-on: ubuntu-latest
