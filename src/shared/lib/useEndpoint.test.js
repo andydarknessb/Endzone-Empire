@@ -83,7 +83,7 @@ test('a url change discards the earlier response even if it lands later', async 
   expect(result.current.data).toEqual({ which: 'second' });
 });
 
-test('unmount discards an in-flight response rather than setting state after unmount', async () => {
+test('resolving after unmount is harmless (the cancel path is not observable in React 18)', async () => {
   const pending = deferred();
   apiClient.get.mockImplementationOnce(() => pending.promise);
 
@@ -92,10 +92,14 @@ test('unmount discards an in-flight response rather than setting state after unm
 
   unmount();
 
-  // Resolving after unmount must not throw or attempt a state update; the last
-  // observed value stays the idle shape because the response was discarded.
+  // Honest scope: this does NOT pin the cancelled flag. In React 18 an
+  // unmounted hook cannot re-render, and the setState-after-unmount warning was
+  // removed, so result.current is frozen at its last value whether or not the
+  // response was discarded - the two are externally indistinguishable through
+  // renderHook. All this asserts is that resolving after unmount throws
+  // nothing. The url-change test above is the real pin for cancellation.
   await act(async () => {
     pending.resolve({ data: { grades: [] } });
   });
-  expect(result.current).toEqual({ status: 'loading', data: null, httpStatus: null });
+  expect(result.current.status).toBe('loading');
 });

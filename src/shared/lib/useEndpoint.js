@@ -62,5 +62,3 @@ export function useEndpoint(url) {
   }, [url]);
   return state;
 }
-
-export default useEndpoint;
