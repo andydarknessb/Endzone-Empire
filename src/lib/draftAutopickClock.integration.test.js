@@ -569,6 +569,7 @@ describe('live snake-draft expiry and autopick integration', () => {
     try {
       const manualTeams = state.teams.filter((team) => !team.autodraft);
       const autoTeams = state.teams.filter((team) => team.autodraft);
+      const finalPickIndex = state.teams.length * 2 - 1;
       for (let pickIndex = 0; pickIndex < state.teams.length * 2; pickIndex += 1) {
         const team = teamForPick(pickIndex, state.teams);
         const available = [...state.players.values()].find(
@@ -576,20 +577,30 @@ describe('live snake-draft expiry and autopick integration', () => {
         );
         expect(available).toBeDefined();
 
+        // Take the turn per its kind, then assert the observed shape against the
+        // expected shape once, unconditionally: the branch chooses only the
+        // action and builds the two shapes, so no expect sits inside the
+        // conditional (jest/no-conditional-expect). Each shape pins exactly what
+        // the per-branch asserts pinned - an autodraft turn returns one outcome
+        // naming the league and the expected player; a manual turn returns the
+        // picking team's id and a draftComplete flag true only on the final pick.
+        let observed;
+        let expected;
         if (team.autodraft) {
           state.league.pick_deadline_at = new Date(Date.now());
           const outcomes = await processExpiredPickClocks();
-          expect(outcomes).toHaveLength(1);
-          expect(outcomes[0]).toEqual({ leagueId: LEAGUE_ID, playerId: available.id });
+          observed = { outcomes };
+          expected = { outcomes: [{ leagueId: LEAGUE_ID, playerId: available.id }] };
         } else {
           const outcome = await draftPlayer({
             leagueId: LEAGUE_ID,
             userId: team.owner_id,
             playerId: available.id,
           });
-          expect(outcome.teamId).toBe(team.id);
-          expect(outcome.draftComplete).toBe(pickIndex === state.teams.length * 2 - 1);
+          observed = { teamId: outcome.teamId, draftComplete: outcome.draftComplete };
+          expected = { teamId: team.id, draftComplete: pickIndex === finalPickIndex };
         }
+        expect(observed).toEqual(expected);
       }
 
       expect(manualTeams.length).toBeGreaterThan(0);

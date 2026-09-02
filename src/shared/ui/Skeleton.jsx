@@ -14,6 +14,14 @@ import { Skeleton as MuiSkeleton } from '@mui/material';
  * card/region that owns the fetch, not from each shape. The pulse is collapsed
  * under the app's global prefers-reduced-motion rule (base.css); the shape's
  * presence, not its motion, carries "content is coming".
+ *
+ * That owner obligation is enforced per consumer, in a test asserting
+ * `aria-busy` on the owning region, not by a repo-wide guard. None of today's
+ * dashboard widgets has its own test file, so that assertion currently lives
+ * in LeagueDashboardPage.test.jsx alongside the page shell's. Coverage is not
+ * automatic, though: a consumer can wire up `aria-busy` and still ship with no
+ * such assertion (a real gap exists today), so the next widget author should
+ * add their own rather than assume one exists.
  */
 export default function Skeleton({
   variant = 'rounded',

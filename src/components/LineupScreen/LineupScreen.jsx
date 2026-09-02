@@ -39,6 +39,7 @@ import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import { prefersReducedMotion } from '../../lib/reducedMotionMedia';
+import { lineupAttention, DEFAULT_STARTER_SLOT_ORDER } from '../../lib/lineupAttention';
 
 // Mirrors POSITION_GROUPS in server/services/lineup.service.js — group keys
 // (DL/LB/DB) usable in a slot's eligiblePositions expand to every specific
@@ -48,7 +49,6 @@ const POSITION_GROUPS = {
   LB: ['LB', 'ILB', 'OLB'],
   DB: ['DB', 'CB', 'S', 'FS', 'SS'],
 };
-const DEFAULT_STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
@@ -738,17 +738,15 @@ export function LineupEditor({
     : [];
 
   // Lineup guardrails: a persistent warning (never a block — moves auto-save)
-  // when a starting slot is empty or a starter is on this week's bye.
-  const emptyStarterSlots = lineup
-    ? starterSlotOrder.reduce((acc, type) => {
-        const count = rosterSlots.find((s) => s.key === type)?.count || 0;
-        const filled = (bySlot[type] || []).length;
-        return acc + Math.max(0, count - filled);
-      }, 0)
-    : 0;
-  const startersOnBye = lineup
-    ? starterSlotOrder.flatMap((type) => bySlot[type] || []).filter((e) => e.onBye)
-    : [];
+  // when a starting slot is empty or a starter is on this week's bye. The
+  // empty-slot count and starters-on-bye come from the shared lineupAttention
+  // helper (src/lib/lineupAttention.js), which the League Dashboard quick-actions
+  // widget reads too, so the banner here and the dashboard's Set Lineup
+  // recommendation can never disagree. `onBye` is the server's per-entry flag,
+  // already on each lineup entry. When there is no loaded lineup, entries and
+  // rosterSlots are both empty and the helper returns 0 / [], matching the
+  // former `lineup ? ... : 0`.
+  const { emptyStarterSlots, startersOnBye } = lineupAttention({ rosterSlots, entries });
   // Over-benched: more bench players than the league's bench slots. Legal to
   // hold (the server forgives inherited overflow) but worth flagging, since
   // dropping players is the only way back under the cap.

@@ -43,7 +43,7 @@ const LeagueManagement = lazy(() => import('../LeagueManagement/LeagueManagement
 const LeagueDiscovery = lazy(() => import('../LeagueDiscovery/LeagueDiscovery'));
 const TeamLineup = lazy(() => import('../LineupScreen/TeamLineup'));
 const PlayerManagement = lazy(() => import('../PlayerManagement/PlayerManagement'));
-const LeagueDashboard = lazy(() => import('../LeagueDashboard/LeagueDashboard'));
+const LeagueDashboardPage = lazy(() => import('../../pages/league-dashboard'));
 const MatchupDetail = lazy(() => import('../MatchupDetail/MatchupDetail'));
 const GameCenter = lazy(() => import('../GameCenter/GameCenter'));
 const DraftBoard = lazy(() => import('../DraftBoard/DraftBoard'));
@@ -185,7 +185,7 @@ function App() {
           <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><TeamLineup /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
-          <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboard /></ProtectedRoute>} />
+          <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboardPage /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><FantasyOnly><MatchupDetail /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/game-center" element={<ProtectedRoute><FantasyOnly><GameCenter /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/draft" element={<ProtectedRoute><FantasyOnly mainContentId="draft-main-content"><DraftBoard /></FantasyOnly></ProtectedRoute>} />

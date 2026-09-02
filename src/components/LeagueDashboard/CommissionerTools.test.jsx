@@ -115,8 +115,8 @@ test('calls out immediate general-setting effects and destructive team removal',
   // is_public + join_approval mounts the join-requests panel, which fires its
   // own GET on mount. Its setJoinRequests(...) update is unrelated to what
   // this test asserts, so the observable this awaits is the request itself
-  // landing (matching settleRefresh's pattern in LeagueDashboard.test.jsx),
-  // not a guessed hop count - or the update lands after the test returns.
+  // landing (await the request, not a guessed hop count of internal state
+  // updates) - or the update lands after the test returns.
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/join-requests'));
 
   expect(screen.getByText(/Applies immediately\. Freezes adds/)).toBeInTheDocument();
@@ -1166,9 +1166,9 @@ test('a fantasy league keeps the General Settings rollover and shows no Season t
   expect(screen.getByRole('button', { name: 'Start New Season' })).toBeInTheDocument();
 });
 
-// Hash-only navigation between two leagues keeps LeagueDashboard (and this
-// component) mounted, so a fantasy tab left selected must not carry over into
-// a pick'em-only league. Rendered without renderWithProviders so the rerender
+// Hash-only navigation between two leagues keeps the league dashboard page
+// (and this component) mounted, so a fantasy tab left selected must not carry
+// over into a pick'em-only league. Rendered without renderWithProviders so the rerender
 // keeps the same tree shape and the component instance (and its tab state).
 const StableShell = ({ children }) => (
   <Provider store={configureMockStore([])({ user: {}, errors: { loginMessage: '', registrationMessage: '' } })}>

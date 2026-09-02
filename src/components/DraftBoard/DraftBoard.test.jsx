@@ -2268,11 +2268,12 @@ test('keeps the roster section out of the DOM until the league shape arrives', a
 
   expect(screen.queryByLabelText('My Roster')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Roster needs')).not.toBeInTheDocument();
-  // And the readiness announcement stays the ONE status region:
-  // RosterNeedsStrip uses a bare aria-live precisely so this singular query
-  // keeps working. The element it matches is now the Draft room's
-  // ReadinessAnnouncer rather than the rail's own line, which #164 stripped
-  // role/aria-live from - same invariant, different element.
+  // The readiness announcement is resolved by text (readinessAnnouncer()
+  // above is a plural getAllByRole('status').find(...), not a singular
+  // query) precisely because it is not the room's only status region. The
+  // element it matches is now the Draft room's ReadinessAnnouncer rather
+  // than the rail's own line, which #164 stripped role/aria-live from -
+  // same invariant, different element.
   expect(readinessAnnouncer()).toHaveTextContent('1 of 2 managers ready');
 });
 
