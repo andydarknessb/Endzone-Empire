@@ -6,6 +6,7 @@ import { Badge, Skeleton } from '../../shared/ui';
 import CopyInvite from '../../features/copy-invite';
 import MyTeamSummary from '../../widgets/my-team-summary';
 import MatchupPreview from '../../widgets/matchup-preview';
+import StandingsTable from '../../widgets/standings-table';
 import DraftGrades from '../../widgets/draft-grades';
 import {
   deriveLeaguePhase,
@@ -164,7 +165,9 @@ export default function LeagueDashboardPage() {
           alignItems: 'start',
         }}
       >
-        <Box data-testid="slot-standings" />
+        <Box data-testid="slot-standings">
+          <StandingsTable leagueId={leagueId} />
+        </Box>
         <Box
           data-testid="dashboard-rail"
           sx={{ display: 'grid', gap: '22px' }}

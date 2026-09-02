@@ -1,9 +1,10 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { invalidate } from '../../lib/resourceCache';
 import LeagueDashboardPage from './index';
 
 // The page reads the league through the shared apiClient (via useLeague ->
@@ -17,10 +18,13 @@ jest.mock('../../api/apiClient', () => ({
 }));
 
 beforeEach(() => {
-  // useLeague reads through the shared resource cache, which is module state and
-  // outlives a test: without this clear the next test renders the previous
-  // test's league row.
-  clearLeagueCache();
+  // Clear ALL shared resource caches (ADR 0004), not the league alone: the
+  // dashboard widgets read cached resources that are module state and outlive a
+  // test (useLeague, and since #641 the week-keyed useStandings both widgets
+  // share), so without a blanket clear a later test is served an earlier test's
+  // row. A whole-store invalidate covers every cached read a widget adds without
+  // this setup needing to name each one.
+  invalidate(undefined, { reload: false });
   // The copy-invite feature writes to the clipboard; jsdom has none by default.
   Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
 });
@@ -410,6 +414,198 @@ test('my-team card: a standings 500 shows a compact error inside the card while 
   // render the viewer's Team name too).
   const card = screen.getByTestId('my-team-summary');
   expect(within(card).getByText('MyBallsHurts')).toBeInTheDocument();
+});
+
+// ==========================================================================
+// standings-table widget (#641), the main-grid slot-standings card. Appended
+// after the my-team-summary section, which it shares the standings read with:
+// both widgets read the same week-keyed useStandings entry, so the page issues
+// ONE standings GET between them (AC4 below pins that count).
+//
+// Every identifier this section adds is slug-prefixed (`standingsTable*`,
+// `standings-table-*`) so a sibling ticket appending its own section here can
+// never collide silently with one of ours. Per-widget value assertions are
+// scoped with within(card): the viewer's Team name and avatar are rendered by
+// my-team-summary too, so a page-wide query would match more than one.
+// ==========================================================================
+
+// teams[] carrying the canonical `teamName` (teamIdentity.js) plus the raw
+// avatar columns the league route serializes. The names are distinct from the
+// standings rows' off-contract `name` column below, so a test can prove the
+// card reads identity from teams[] and never from the standings row.
+const standingsTableTeams = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    teamId: i + 1,
+    id: i + 1,
+    teamName: `Squad ${i + 1}`,
+    avatar_url: null,
+    avatar_static_url: null,
+  }));
+
+// GET /api/scoring/league/:id/standings rows, in standings order (rank = the
+// position). `name` is the raw, off-contract column the endpoint leaks beside
+// identity; it is deliberately NOT the teams[] teamName, so a test can catch a
+// widget that reads it. In-season values: distinct records and points per row.
+const standingsTableRows = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    teamId: i + 1,
+    name: `RAW ${i + 1}`,
+    wins: n - i,
+    losses: i,
+    ties: 0,
+    pf: 1200 - i * 7.3,
+    pa: 1000 + i * 3.1,
+    rank: i + 1,
+  }));
+
+// Preseason rows: every team present, zero games played.
+const standingsTablePreseasonRows = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    teamId: i + 1, name: `RAW ${i + 1}`, wins: 0, losses: 0, ties: 0, pf: 0, pa: 0, rank: i + 1,
+  }));
+
+const standingsTableResponse = (rows) => ({
+  data: { league: { current_week: 3, season_status: 'regular' }, standings: rows },
+});
+
+// An in-season league whose viewer (teamId 1) owns a named Team in teams[].
+const standingsTableLeague = (leagueOverrides = {}) =>
+  leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 3, ...leagueOverrides },
+    teams: standingsTableTeams(12),
+    viewerTeamId: 1,
+  });
+
+// A pre-draft league (phase before in-season): the honest empty state.
+const standingsTablePreseasonLeague = () =>
+  leagueDetail({
+    league: { draft_status: 'pending' },
+    teams: standingsTableTeams(8),
+    viewerTeamId: 1,
+  });
+
+// The dispatcher's call count for the scoring-standings URL, the AC4 property.
+const standingsTableGetCount = () =>
+  apiClient.get.mock.calls.filter(
+    ([url]) => typeof url === 'string' && /\/api\/scoring\/league\/\d+\/standings$/.test(url)
+  ).length;
+
+test('standings-table: in-season renders the full table, a team count, names from teams[], and one You badge', async () => {
+  mockGetByUrl({
+    '/api/league/1': standingsTableLeague(),
+    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('standings-table');
+  // Wait for the standings read to resolve (the card is present while it loads).
+  await within(card).findByText('Squad 1');
+  // Column headers.
+  expect(within(card).getByText('Rank')).toBeInTheDocument();
+  expect(within(card).getByText('Team')).toBeInTheDocument();
+  expect(within(card).getByText('W-L-T')).toBeInTheDocument();
+  expect(within(card).getByText('PF')).toBeInTheDocument();
+  expect(within(card).getByText('PA')).toBeInTheDocument();
+  // The header count of teams.
+  expect(within(card).getByTestId('standings-table-count')).toHaveTextContent('12');
+  // Each Team name comes from teams[] (teamName), never the standings row's raw
+  // `name`: Squad 1 and Squad 12 render; RAW 1 does not.
+  expect(within(card).getByText('Squad 1')).toBeInTheDocument();
+  expect(within(card).getByText('Squad 12')).toBeInTheDocument();
+  expect(within(card).queryByText('RAW 1')).not.toBeInTheDocument();
+  // Exactly one You badge, in the viewer's own row.
+  const youBadges = within(card).getAllByText('You');
+  expect(youBadges).toHaveLength(1);
+  const youRow = within(card).getByTestId('standings-table-you-row');
+  expect(within(youRow).getByText('You')).toBeInTheDocument();
+  expect(within(youRow).getByText('Squad 1')).toBeInTheDocument();
+});
+
+test('standings-table: in-season renders the viewer record as W-L-T and points to one decimal', async () => {
+  mockGetByUrl({
+    '/api/league/1': standingsTableLeague(),
+    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  // Viewer is row 0: 12 wins, 0 losses, 0 ties, pf 1200, pa 1000.
+  expect(within(youRow).getByText('12-0-0')).toBeInTheDocument();
+  expect(within(youRow).getByText('1200.0')).toBeInTheDocument();
+  expect(within(youRow).getByText('1000.0')).toBeInTheDocument();
+});
+
+test('standings-table: preseason masks records and points and shows the after-Week-1 note', async () => {
+  mockGetByUrl({
+    '/api/league/1': standingsTablePreseasonLeague(),
+    '/api/scoring/league/1/standings': standingsTableResponse(standingsTablePreseasonRows(8)),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('standings-table');
+  // The table still renders its teams and ranks (wait for the read to resolve)...
+  await within(card).findByText('Squad 1');
+  // ...but no 0-0-0 record text anywhere, and the record/points cells are
+  // placeholders (a screen-reader "Not available").
+  expect(within(card).queryByText('0-0-0')).not.toBeInTheDocument();
+  expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
+  // The honest empty-state note.
+  const note = within(card).getByTestId('standings-table-preseason-note');
+  expect(note).toHaveTextContent(/after Week 1/i);
+});
+
+test('standings-table: pending standings shows skeletons and marks the card busy', async () => {
+  mockGetByUrl({
+    '/api/league/1': standingsTableLeague(),
+    '/api/scoring/league/1/standings': { pending: true },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('standings-table');
+  expect(within(card).getAllByTestId('standings-table-skeleton').length).toBeGreaterThan(0);
+  // The card owns the fetch, so it (not each aria-hidden skeleton) reports busy.
+  expect(card).toHaveAttribute('aria-busy', 'true');
+});
+
+test('standings-table: a standings 500 shows a compact error while the header still renders', async () => {
+  mockGetByUrl({
+    '/api/league/1': standingsTableLeague(),
+    '/api/scoring/league/1/standings': { reject: { response: { status: 500, data: { error: 'boom' } } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('standings-table');
+  const error = await within(card).findByTestId('standings-table-error');
+  expect(error).toHaveTextContent(/could not load/i);
+  // The card header (a labelled landmark) still renders beside the error.
+  expect(within(card).getByRole('heading', { name: /standings/i })).toBeInTheDocument();
+  expect(within(card).getByTestId('standings-table-count')).toBeInTheDocument();
+});
+
+test('standings-table: advancing the league current week causes a second standings GET (1 -> 2)', async () => {
+  mockGetByUrl({
+    '/api/league/1': standingsTableLeague({ current_week: 3 }),
+    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 1');
+  // One GET for the page: my-team-summary and standings-table share the read.
+  expect(standingsTableGetCount()).toBe(1);
+
+  // The week advances. Re-point the league mock and invalidate the shared league
+  // cache so the mounted page re-reads it; the standings key is week-scoped, so
+  // week 4 is a new entry and a second GET.
+  mockGetByUrl({
+    '/api/league/1': standingsTableLeague({ current_week: 4 }),
+    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
+  });
+  act(() => {
+    clearLeagueCache(1);
+  });
+  await waitFor(() => expect(standingsTableGetCount()).toBe(2));
 });
 
 // ==========================================================================
