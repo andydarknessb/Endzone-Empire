@@ -1571,6 +1571,9 @@ test("cutover: a pick'em-only member shows pick'em standings and the Pick'em act
   // the pick'em surfaces).
   const quickActions = screen.getByTestId('quick-actions');
   expect(within(quickActions).getByTestId('quick-action-pickem')).toBeInTheDocument();
+  // The trophy case is common to both league kinds: a completed pick'em season
+  // earns a pickem_champion trophy, so gating it on fantasy would drop it.
+  expect(screen.getByTestId('trophy-case')).toBeInTheDocument();
 
   // No fantasy slices, no fantasy layout regions, no recap, no advance control.
   expect(screen.queryByTestId('dashboard-hero')).not.toBeInTheDocument();
@@ -1658,4 +1661,92 @@ test('cutover: a standings 500 errors the my-team card while matchup, draft grad
 
   // Quick actions render.
   expect(screen.getByTestId('quick-actions')).toBeInTheDocument();
+});
+
+// A pre-draft fantasy league with a scheduled draft. draft_status 'pending'
+// derives to the pre-draft phase; draft_date is a far-future instant so the
+// countdown never expires mid-test.
+const cutoverPreDraftLeague = (overrides = {}) =>
+  leagueDetail({
+    league: {
+      draft_status: 'pending',
+      draft_date: '2099-09-01T18:00:00.000Z',
+      draft_timezone: 'America/New_York',
+      ...overrides,
+    },
+    teams: buildTeams(8),
+  });
+
+test('cutover: a pre-draft fantasy league with a draft_date renders the draft countdown; nothing else does', async () => {
+  mockGetByUrl({ '/api/league/1': cutoverPreDraftLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const countdown = screen.getByTestId('slot-draft-countdown');
+  // It is the real Countdown in its full variant, not an empty box: the
+  // add-to-calendar control renders because leagueId and leagueName are passed.
+  expect(within(countdown).getByRole('button', { name: 'Add to calendar' })).toBeInTheDocument();
+});
+
+test('cutover: no draft countdown once the draft_date is absent, past pre-draft, or pick\'em-only', async () => {
+  // Pre-draft but no date set: the surface is gated off (matches legacy).
+  mockGetByUrl({ '/api/league/1': preDraftLeague() });
+  const { unmount } = renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
+  unmount();
+
+  // In season (past pre-draft): gated off even with a date present.
+  invalidate(undefined, { reload: false });
+  mockGetByUrl({ '/api/league/1': inSeasonLeague({ draft_date: '2099-09-01T18:00:00.000Z' }) });
+  const { unmount: unmount2 } = renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
+  unmount2();
+
+  // Pick'em-only: no draft at all.
+  invalidate(undefined, { reload: false });
+  mockGetByUrl({ '/api/league/1': pickemOnlyLeague({ draft_date: '2099-09-01T18:00:00.000Z' }) });
+  renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
+});
+
+// A pre-draft fantasy league whose viewer (teamId 1) is the commissioner, so
+// the commissioner panel can disclose the legacy CommissionerTools. Team 7
+// carries a raw `name` deliberately different from its canonical `teamName`, so
+// the test can prove the write-through patches the raw column CommissionerTools
+// renders (its removable-teams list), not only the teamName the widgets read.
+const cutoverCommissionerTeams = [
+  { teamId: 1, id: 1, name: 'Owner Raw', teamName: 'Owner Canon', avatar_url: null, avatar_static_url: null },
+  { teamId: 7, id: 7, name: 'RawSeven', teamName: 'CanonSeven', avatar_url: null, avatar_static_url: null },
+  { teamId: 8, id: 8, name: 'RawEight', teamName: 'CanonEight', avatar_url: null, avatar_static_url: null },
+];
+
+test('cutover: a team-profile rename also patches the raw name column CommissionerTools reads', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'pending', is_commissioner: true },
+      teams: cutoverCommissionerTeams,
+      viewerTeamId: 1,
+    }),
+  });
+  renderPage();
+
+  const panel = await screen.findByTestId('commissioner-panel');
+  await userEvent.click(within(panel).getByRole('button', { name: /league administration/i }));
+
+  // CommissionerTools' removable-teams list renders each team's RAW name (Team 7
+  // is removable: not the viewer's own team, pre-draft so the list is live).
+  expect(await within(panel).findByRole('button', { name: 'Remove RawSeven' })).toBeInTheDocument();
+
+  // Another manager renames Team 7.
+  act(() => {
+    publishTeamProfileUpdate({ leagueId: 1, teamId: 7, name: 'Renamed Seven' });
+  });
+
+  // The raw column updates live in the commissioner tools, as it did on the
+  // legacy page (the write-through patches both `name` and `teamName`).
+  expect(await within(panel).findByRole('button', { name: 'Remove Renamed Seven' })).toBeInTheDocument();
+  expect(within(panel).queryByRole('button', { name: 'Remove RawSeven' })).not.toBeInTheDocument();
 });

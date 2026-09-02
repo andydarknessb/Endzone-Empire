@@ -24,6 +24,7 @@ import ChatPanel from '../../components/ChatPanel/ChatPanel';
 import RecapCard from '../../components/RecapCard/RecapCard';
 import TrophyCase from '../../components/TrophyCase/TrophyCase';
 import PickemStandings from '../../components/LeaguePickem/PickemStandings';
+import Countdown from '../../components/Countdown/Countdown';
 import {
   applyTeamProfileUpdate,
   subscribeToTeamProfileUpdates,
@@ -44,15 +45,16 @@ import { isPickemOnly } from '../../lib/leagueType';
  *
  * Fantasy vs pick'em-only composition. A fantasy league fills the hero
  * (my-team + matchup) and main grid (standings + a rail of draft-grades and the
- * commissioner panel), and shows the weekly recap. A pick'em-only league has no
- * fantasy team, matchups or draft, so none of those slices mount (each would
- * fire a fantasy read that returns an empty or zeroed table): its body is the
- * pick'em standings, and the quick-actions widget trims itself to the pick'em
- * surfaces. Quick actions, the trophy case and league chat are common to both.
- * The recap and trophy case are fantasy-only, gated on the same isPickemOnly
- * the legacy page used (recap matched it exactly; the legacy trophy case
- * rendered unconditionally but self-hid on an empty trophy list, so a pick'em
- * league saw nothing there regardless).
+ * commissioner panel), and shows the weekly recap and the pre-draft countdown.
+ * A pick'em-only league has no fantasy team, matchups or draft, so none of
+ * those slices mount (each would fire a fantasy read that returns an empty or
+ * zeroed table): its body is the pick'em standings, and the quick-actions
+ * widget trims itself to the pick'em surfaces. Quick actions, the trophy case
+ * and league chat are common to both. The recap and the pre-draft countdown are
+ * fantasy-only (gated on isPickemOnly, matching the legacy page); the trophy
+ * case is NOT, because trophy.service awards a pickem_champion type with no type
+ * filter on the league read and TrophyCase renders it, so a completed pick'em
+ * season has a populated case (the legacy page mounted it unconditionally too).
  *
  * The page reads the league through the shared cache (useLeague / ADR 0004), so
  * a subpage reached from here reuses the same payload. Everything phase-shaped
@@ -80,25 +82,33 @@ export default function LeagueDashboardPage() {
   const { league, teams, loading, error, updateTeams } = useLeague(leagueId);
 
   // Live team identity: patch a rename or new avatar into the shared league
-  // membership so every widget reading teams[] reflects it with no request.
+  // membership so every consumer reading teams[] reflects it with no request.
   // Deleting this subscription pins a renamed or re-avatared Team to its stale
-  // name/picture on the standings, draft-grades and my-team surfaces until the
-  // 60s league-cache TTL lapses and a navigation refetches. Matched on teamId;
-  // teamName (not the leaked raw `name`) and the snake_case avatar columns are
-  // the fields the widgets actually read.
+  // name/picture until the 60s league-cache TTL lapses and a navigation
+  // refetches. Matched on teamId. BOTH name columns are patched: the widget
+  // slices read the canonical `teamName`, but CommissionerTools composes as-is
+  // off the same teams[] and renders the raw `name` column (menu items, the
+  // removable-teams list, the remove dialog), so patching only teamName would
+  // leave a rename stale in the commissioner panel where the legacy page kept
+  // it live. The avatar rides the snake_case columns the widgets read.
   useEffect(
     () =>
       subscribeToTeamProfileUpdates((update) => {
         if (Number(update.leagueId) !== Number(leagueId)) return;
         updateTeams((prev) =>
-          prev.map((team) =>
-            applyTeamProfileUpdate(team, update, {
+          prev.map((team) => {
+            const withRawName = applyTeamProfileUpdate(team, update, {
+              id: 'teamId',
+              avatarUrl: 'avatar_url',
+              avatarStaticUrl: 'avatar_static_url',
+            });
+            return applyTeamProfileUpdate(withRawName, update, {
               id: 'teamId',
               name: 'teamName',
               avatarUrl: 'avatar_url',
               avatarStaticUrl: 'avatar_static_url',
-            })
-          )
+            });
+          })
         );
       }),
     [leagueId, updateTeams]
@@ -145,6 +155,7 @@ export default function LeagueDashboardPage() {
   const phase = deriveLeaguePhase(league);
   const phaseLabel = LEAGUE_PHASE_META[phase]?.label ?? '';
   const pickemOnly = isPickemOnly(league);
+  const preDraft = phase === LEAGUE_PHASE.PRE_DRAFT;
   const seasonLive = isSeasonLive(league);
   const week = league.current_week;
   // "Week N · <phase label>" while the season is being played (the live/accent
@@ -224,6 +235,23 @@ export default function LeagueDashboardPage() {
         </Box>
       ) : (
         <>
+          {/* Pre-draft countdown to the scheduled draft, composed as-is from the
+              legacy page: fantasy-only, only before the draft, and only once a
+              draft_date is set. Carries the timezone, leagueId and leagueName so
+              it can render the viewer-local schedule and the add-to-calendar
+              control. */}
+          {preDraft && league.draft_date && (
+            <Box component="section" data-testid="slot-draft-countdown">
+              <Countdown
+                variant="full"
+                date={league.draft_date}
+                timeZone={league.draft_timezone}
+                leagueId={league.id}
+                leagueName={league.name}
+              />
+            </Box>
+          )}
+
           {/* HERO: my-team beside matchup preview. Nameless <section> layout
               containers, deliberately NOT labelled landmarks: an empty labelled
               region is announced with nothing in it (noise). The real landmarks
@@ -300,14 +328,15 @@ export default function LeagueDashboardPage() {
         </Box>
       )}
 
-      {/* Trophy case: fantasy-only. The legacy page mounted it unconditionally,
-          but it self-hides on an empty trophy list, so a pick'em league saw
-          nothing there regardless; gating it avoids the empty request. */}
-      {!pickemOnly && (
-        <Box component="section" data-testid="slot-trophy-case">
-          <TrophyCase leagueId={leagueId} />
-        </Box>
-      )}
+      {/* Trophy case: common to both league kinds, as the legacy page mounted
+          it (outside its !pickemOnly guard). A pick'em-only league earns a
+          pickem_champion trophy on a completed season (trophy.service.js), and
+          the league trophy read applies no type filter, so its case is
+          populated; gating it on fantasy would drop that. It self-hides on an
+          empty list, so a league with no trophies renders nothing regardless. */}
+      <Box component="section" data-testid="slot-trophy-case">
+        <TrophyCase leagueId={leagueId} />
+      </Box>
 
       {/* League chat: every member, in a drawer opened by a floating button that
           carries the unread badge. */}
