@@ -21,6 +21,13 @@ const {
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { normalizeNflTeam } = require('./nflTeam');
+// The ONE pricer the settle pass uses (scoring.service). Hindsight and the
+// live what-if price a player-week the identical way the score of record does
+// - `calculateFantasyPoints(stats, rulesForLeague(league))` - so a
+// custom-scoring league's advisors never contradict its settled score (#739,
+// ADR 0024). They read `player_stats.stats`, never the stored
+// `fantasy_points` column, which is the DEFAULT-rules price.
+const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -470,8 +477,7 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
 
   const entriesResult = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
-            "players"."nfl_team", "lineup_entries"."slot",
-            COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points"
+            "players"."nfl_team", "lineup_entries"."slot", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
      LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
@@ -484,12 +490,16 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
     league, teamId, season, week, rows: entriesResult.rows,
   });
 
+  // Price each row through the settle pass's pricer under THIS league's rules,
+  // not the stored default-rules `fantasy_points` column (#739). A row with no
+  // `player_stats` match prices at 0, as the old COALESCE did.
+  const rules = rulesForLeague(league);
   let startedPoints = 0;
   const pointsFor = new Map();
   const players = [];
   const nameById = new Map();
   for (const row of asPlayed) {
-    const points = Number(row.fantasy_points) || 0;
+    const points = calculateFantasyPoints(row.stats, rules);
     nameById.set(row.player_id, row.name);
     // Best ball: IR occupants stay stashed and never enter the pool, and the
     // slots the rows carry mean nothing, so no started total is kept.
@@ -542,8 +552,7 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
 
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
-            "players"."nfl_team", "lineup_entries"."slot",
-            COALESCE("player_stats"."fantasy_points", 0) AS "fantasy_points"
+            "players"."nfl_team", "lineup_entries"."slot", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
      LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
@@ -559,6 +568,11 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   });
   for (const row of rows.rows) row.locked = locked.has(row.player_id);
 
+  // Same in-progress `stats` jsonb the box-score sync refreshes every few
+  // minutes, priced under the league's rules by the settle pass's pricer, not
+  // the default-rules `fantasy_points` column (#739). Live cadence is
+  // unchanged: the column and the jsonb move together.
+  const rules = rulesForLeague(league);
   let actualPoints = 0;
   const pointsFor = new Map();
   const nameById = new Map();
@@ -568,7 +582,7 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
   const candidatePool = [];
   const currentStarterIds = new Set();
   for (const row of rows.rows) {
-    const points = Number(row.fantasy_points) || 0;
+    const points = calculateFantasyPoints(row.stats, rules);
     pointsFor.set(row.player_id, points);
     nameById.set(row.player_id, row.name);
     lockedById.set(row.player_id, row.locked === true);

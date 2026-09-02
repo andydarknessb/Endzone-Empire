@@ -37,24 +37,32 @@ const DEF_BENCH = {
 };
 
 /**
- * @param entries   the team's lineup rows, with the live `fantasy_points` the
- *                  population query returns.
+ * @param entries   the team's lineup rows, each carrying the raw `stats` the
+ *                  population query now returns (#739); the reader prices them
+ *                  under the league's rules.
  * @param kickedOff the teams whose game has started, in the SCHEDULE's
  *                  vocabulary (Tank01 abbreviations). Never the player's own
  *                  `nfl_team` string: seeding the player's spelling into the
  *                  schedule is exactly what would make these tests prove
  *                  nothing about #227.
+ * @param rosterSlots the league's starting slots (defaults to one DEF slot).
+ * @param scoringRules the league's scoring_rules (defaults to the defaults).
  */
-function whatIfWorld(t, { entries, kickedOff }) {
+function whatIfWorld(t, {
+  entries, kickedOff,
+  rosterSlots = [{ key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] }],
+  scoringRules = null,
+}) {
   return createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: LEAGUE_ID,
         current_season: SEASON,
         current_week: WEEK,
-        roster_slots: [{ key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] }],
+        roster_slots: rosterSlots,
         bench_slots: 5,
         ir_slots: 1,
+        scoring_rules: scoringRules,
       }],
     })],
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ ok: 1 }] })],
@@ -83,8 +91,8 @@ test('#227 liveWhatIf will not suggest moving a DEF unit whose game has kicked o
   // his team DEN; his own row says "Denver Broncos".
   const fake = whatIfWorld(t, {
     entries: [
-      { ...DEF_STARTER, slot: 'DEF', fantasy_points: 2 },
-      { ...DEF_BENCH, slot: 'BENCH', fantasy_points: 20 },
+      { ...DEF_STARTER, slot: 'DEF', stats: { sack: 2 } },
+      { ...DEF_BENCH, slot: 'BENCH', stats: { sack: 20 } },
     ],
     kickedOff: ['DEN'],
   });
@@ -102,8 +110,8 @@ test('#227 liveWhatIf still suggests the swap before the DEF unit kicks off', as
   // must make a DEF unit ORDINARY here, not permanently unsuggestible.
   const fake = whatIfWorld(t, {
     entries: [
-      { ...DEF_STARTER, slot: 'DEF', fantasy_points: 2 },
-      { ...DEF_BENCH, slot: 'BENCH', fantasy_points: 20 },
+      { ...DEF_STARTER, slot: 'DEF', stats: { sack: 2 } },
+      { ...DEF_BENCH, slot: 'BENCH', stats: { sack: 20 } },
     ],
     kickedOff: [],
   });
@@ -120,7 +128,7 @@ test('#227 liveWhatIf asks lineup.service for the lock rather than joining the s
   // to fix and they can drift apart again - which is how this one survived
   // the first four being found.
   const fake = whatIfWorld(t, {
-    entries: [{ ...DEF_STARTER, slot: 'DEF', fantasy_points: 2 }],
+    entries: [{ ...DEF_STARTER, slot: 'DEF', stats: { sack: 2 } }],
     kickedOff: ['DEN'],
   });
 
@@ -135,5 +143,34 @@ test('#227 liveWhatIf asks lineup.service for the lock rather than joining the s
   assert.equal(scheduleReads.length, 1, 'exactly one schedule read on this path');
   assert.match(scheduleReads[0].text, /^SELECT "nfl_team" FROM "nfl_games"/,
     'and it is lineup.service\'s own lock predicate');
+  fake.assertClean();
+});
+
+test('#739 liveWhatIf prices the live week under the league rules, not the stored column', async (t) => {
+  // Full PPR. The bench RB's twenty catches make him worth 20 under the
+  // league's rules but only 10 under the half-PPR default column. Under the
+  // column he does not out-score the 10-point starter and no swap is offered;
+  // under the league's rules he does, and the delta is league-priced. The
+  // stats-versus-column split is the point (#739): a reader on the column
+  // would return actualPoints 10 with zero swaps.
+  const RB_STARTER = { player_id: 3, name: 'Rush RB', position: 'RB', nfl_team: 'Chiefs' };
+  const RB_BENCH = { player_id: 4, name: 'PPR RB', position: 'RB', nfl_team: 'Eagles' };
+  const fake = whatIfWorld(t, {
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    scoringRules: { receiving: { reception: 1 } },
+    entries: [
+      { ...RB_STARTER, slot: 'RB', stats: { rushingYards: 100 } }, // 10 under either rule
+      { ...RB_BENCH, slot: 'BENCH', stats: { receptions: 20 } }, // default 10, full PPR 20
+    ],
+    kickedOff: [],
+  });
+
+  const result = await runWhatIf();
+
+  assert.equal(result.actualPoints, 10, 'the starter, priced under the league rules');
+  assert.equal(result.swaps.length, 1, 'full PPR makes the bench RB an upgrade the column would have hidden');
+  assert.equal(result.swaps[0].in.points, 20, 'the bench RB is worth his twenty catches, not the column\'s ten');
+  assert.equal(result.swaps[0].out.points, 10);
+  assert.equal(result.delta, 10);
   fake.assertClean();
 });

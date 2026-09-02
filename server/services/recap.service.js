@@ -1,5 +1,9 @@
 const pool = require('../modules/pool');
 const { logTransaction, notifyLeague } = require('./activity.service');
+// The ONE pricer the settle pass uses. The waiver steal is priced under the
+// league's rules, the identical formula the score of record uses, not the
+// stored default-rules `fantasy_points` column (#739, ADR 0024).
+const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
 
 /**
  * Weekly league recaps: after a week is finalized, gather its storylines
@@ -51,6 +55,29 @@ function buildRecapFacts(week, matchups, extras = {}) {
   facts.closestMatchup = withMargin[0];
   facts.biggestBlowout = withMargin[withMargin.length - 1];
   return facts;
+}
+
+/**
+ * Pure: the week's best waiver steal from its candidate pickups, priced under
+ * the league's rules (#739). In the manner of buildRecapFacts, this is a pure
+ * function over rows so it is testable without a database.
+ *
+ * pickups: [{ player, team, stats }] - one per waiver transaction in the
+ * league joined to that week's `player_stats`. Each is priced with the settle
+ * pass's pricer under `rules`, and the highest wins; a statless pickup prices
+ * at 0. The "only when points > 0" guard is unchanged, so a pool whose best is
+ * 0 or negative yields no steal. Returns { player, team, points } or null.
+ */
+function pickWaiverSteal(pickups, rules) {
+  let best = null;
+  for (const pickup of pickups || []) {
+    const points = calculateFantasyPoints(pickup.stats, rules);
+    if (!best || points > best.points) {
+      best = { player: pickup.player, team: pickup.team, points };
+    }
+  }
+  if (!best || best.points <= 0) return null;
+  return { player: best.player, team: best.team, points: round2(best.points) };
 }
 
 /** Pure: render the fallback narrative from recap facts. */
@@ -152,6 +179,14 @@ async function generateWeeklyRecap({ leagueId, season, week }) {
   );
   if (!matchupsResult.rows.some((m) => m.final)) return null;
 
+  // The league's scoring rules, for the waiver steal's league-aware pricing
+  // (#739). Loaded once the week is known to have a finalized matchup.
+  const leagueResult = await pool.query(
+    `SELECT * FROM "leagues" WHERE "id" = $1`,
+    [leagueId]
+  );
+  const league = leagueResult.rows[0];
+
   // Bench blunder: worst points-left-on-bench among the week's teams
   let benchBlunder = null;
   try {
@@ -173,29 +208,25 @@ async function generateWeeklyRecap({ leagueId, season, week }) {
     console.error('recap: bench blunder lookup failed:', err.message);
   }
 
-  // Waiver steal: best-scoring player claimed off waivers during this week
+  // Waiver steal: best-scoring player claimed off waivers during this week,
+  // priced under the league's rules (#739). The SQL fetches every waiver
+  // pickup joined to the week's stats; the SQL ORDER BY on the default-rules
+  // column is gone because the winner is decided by the league-aware pricer,
+  // not the column.
   let waiverSteal = null;
   try {
     const stealResult = await pool.query(
       `SELECT "players"."name" AS "player", "teams"."name" AS "team",
-              "player_stats"."fantasy_points" AS "points"
+              "player_stats"."stats" AS "stats"
        FROM "transactions"
        JOIN "teams" ON "teams"."id" = "transactions"."team_id"
        JOIN "players" ON "players"."id" = ("transactions"."detail"->>'playerId')::int
        JOIN "player_stats" ON "player_stats"."player_id" = "players"."id"
          AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
-       WHERE "transactions"."league_id" = $1 AND "transactions"."type" = 'waiver'
-       ORDER BY "player_stats"."fantasy_points" DESC
-       LIMIT 1`,
+       WHERE "transactions"."league_id" = $1 AND "transactions"."type" = 'waiver'`,
       [leagueId, season, week]
     );
-    if (stealResult.rows[0] && Number(stealResult.rows[0].points) > 0) {
-      waiverSteal = {
-        player: stealResult.rows[0].player,
-        team: stealResult.rows[0].team,
-        points: round2(stealResult.rows[0].points),
-      };
-    }
+    waiverSteal = pickWaiverSteal(stealResult.rows, rulesForLeague(league));
   } catch (err) {
     console.error('recap: waiver steal lookup failed:', err.message);
   }
@@ -273,6 +304,7 @@ async function getLatestRecap({ leagueId }) {
 
 module.exports = {
   buildRecapFacts,
+  pickWaiverSteal,
   templateNarrative,
   llmNarrative,
   generateWeeklyRecap,
