@@ -8,6 +8,7 @@ import MyTeamSummary from '../../widgets/my-team-summary';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StandingsTable from '../../widgets/standings-table';
 import DraftGrades from '../../widgets/draft-grades';
+import QuickActions from '../../widgets/quick-actions';
 import {
   deriveLeaguePhase,
   isSeasonLive,
@@ -178,6 +179,16 @@ export default function LeagueDashboardPage() {
             <DraftGrades leagueId={leagueId} />
           </Box>
         </Box>
+      </Box>
+
+      {/* QUICK ACTIONS (#643): the full-width grouped action cards below the
+          main grid. A nameless <section> layout container; the widget's own
+          titled Card is the labelled landmark inside it. */}
+      <Box
+        component="section"
+        data-testid="dashboard-quick-actions"
+      >
+        <QuickActions leagueId={leagueId} />
       </Box>
     </DashboardShell>
   );
