@@ -9,9 +9,9 @@ import { nextAnnouncement } from './announcerRepeat';
  * The Draft room's combined-feed announcer (#445 AC2): one persistent, visually
  * hidden polite region that speaks a CONCISE summary when a human message
  * arrives live. It follows the room's established idiom exactly - the room's
- * other visually-hidden status regions (ReadinessAnnouncer #164, the countdown
- * #117, ComposerCharacterCount #486) mount a Box with role="status" /
- * aria-live="polite", styled visuallyHidden, and only change its TEXT.
+ * other visually-hidden status regions (e.g. ReadinessAnnouncer #164, the
+ * countdown #117) mount a Box with role="status" / aria-live="polite", styled
+ * visuallyHidden, and only change its TEXT.
  *
  * IT NO LONGER ANNOUNCES PICKS (#513). Picks moved to the room-level
  * PickAnnouncer, mounted in the Draft room's chrome so a committed Pick is heard
@@ -23,18 +23,26 @@ import { nextAnnouncement } from './announcerRepeat';
  *
  * WHY A SEPARATE POLITE REGION, AND WHO IT ACTUALLY SHARES A PHASE WITH. The
  * room's other polite regions are phase-separated: readiness (#164) and the
- * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed and
- * the On-the-clock banner belong to an ACTIVE one, and a draft is one or the
- * other, never both. So the only regions this announcer genuinely coexists with,
- * during the active phase, are the composer character counter (#486), the
- * On-the-clock banner (LiveDraftBanner) and, since #636, the stall announcer
- * (StallAnnouncer) - which shares this chat subtree because it reads the same
- * feed. A small, fixed set, each on its own axis, not a crowd. This one still
- * earns its place rather than folding into any of them:
+ * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed
+ * and its active-phase siblings belong to an ACTIVE one, and a draft is one
+ * or the other, never both. Do not hand-enumerate this feed's active-phase
+ * siblings here - that list has gone stale before (#654):
+ * `git grep -nF 'role="status"' src/components/DraftBoard/ src/components/ChatPanel/`
+ * (ChatPanel is part of the room - DraftRoomChat.jsx imports ChatConversation
+ * from it, which is where ComposerCharacterCount #486 lives) surfaces most of
+ * them, but READ WHAT IT RETURNS rather than trusting the count: it also
+ * matches ReadinessAnnouncer's source even though that component renders null
+ * outside the PENDING phase (railCompositionFor), and it structurally cannot
+ * see RosterNeedsStrip (src/components/RosterPanel/, mounted in the ACTIVE
+ * rail composition, railComposition.js) - that region carries
+ * `aria-live="polite"` WITHOUT `role="status"` (see its own docblock, and #664
+ * for why that docblock's stated reason no longer holds). Each region is on
+ * its own axis, none folding into another. This one still earns its place
+ * rather than folding into any of them:
  *
- *  - It carries a DIFFERENT axis: human-message arrival, which neither the
- *    counter nor the banner announces. Folding it into one would make that
- *    region speak two unrelated things.
+ *  - It carries a DIFFERENT axis: human-message arrival, which neither
+ *    ComposerCharacterCount (#486) nor LiveDraftBanner announces. Folding it
+ *    into either would make that region speak two unrelated things.
  *  - It fires on a live arrival, identified by the NEWEST entry advancing the
  *    shared per-league seq past the highest we have announced. A render that does
  *    not change the tail says nothing, and there is no timer and no debounce, so
@@ -136,10 +144,13 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
     // ('draft_activity') rather than any one kind, so the whole set is covered
     // however it grows - the Pick (now the room-level PickAnnouncer's, #513), the
     // stall (now the room's StallAnnouncer, #636) and every lifecycle transition
-    // alike. The authoritative kind set is the router in DraftActivityEntry.jsx
-    // (LIFECYCLE_RENDER_KINDS plus its pick, correction and stalled branches);
-    // this guard deliberately does not re-list it by kind, so it cannot fall out
-    // of date the way an inline enumeration here once did. Draft activity still
+    // alike. The authoritative kind set is ALL_KINDS in the server draft-activity
+    // module (server/services/draftActivity.js); the router in
+    // DraftActivityEntry.jsx (LIFECYCLE_RENDER_KINDS plus its pick, correction
+    // and stalled branches) is only the RENDERABLE subset of it - it deliberately
+    // refuses 'cutover' (#540 AC6). This guard deliberately does not re-list
+    // either set by kind, so it cannot fall out of date the way an inline
+    // enumeration here once did. Draft activity still
     // advances the seq high-water mark above so a later message is not taken for
     // backlog, but it must NOT fall through to the empty-clear below: that would
     // BLANK a still-unread chat announcement (the previous "New message from X")

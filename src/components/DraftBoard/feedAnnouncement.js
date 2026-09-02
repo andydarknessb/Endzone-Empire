@@ -24,11 +24,12 @@ import { teamNameLabel } from '../../lib/teamIdentity';
  * marked read from another tab, and a Pick is different because a sighted manager
  * on any tab is watching Picks land.
  *
- * So EVERY Draft activity entry - Picks and lifecycle (start, pause, resume,
- * reset, complete) alike - and any unknown entry returns the empty string here.
- * An empty string is a real return, not a gap: the announcer keeps its region
- * mounted and silent rather than unmounting it (the ReadinessAnnouncer #164
- * lesson).
+ * So EVERY Draft activity entry - Picks and every lifecycle kind alike (the
+ * roster is stallAnnouncement.js's LIFECYCLE_KINDS, pinned to the server's by
+ * stallAnnouncement.parity.test.js) - and any unknown entry returns the empty
+ * string here. An empty string is a real return, not a gap: the announcer keeps
+ * its region mounted and silent rather than unmounting it (the ReadinessAnnouncer
+ * #164 lesson).
  *
  * The identity is rendered through teamNameLabel, the one shared helper, so a
  * departed author reads as a former manager rather than blank or "null", exactly

@@ -1,4 +1,8 @@
 import { feedAnnouncementFor } from './feedAnnouncement';
+// Imported the way the existing server-roster parity tests do (chatLimits.parity.test.js,
+// useLeagueChat.humanType.parity.test.js): draftActivity.js's only load-time require is
+// the pure server/services/teamIdentity (no pg, no socket.io), so it loads fine in jsdom.
+import { ALL_KINDS } from '../../../server/services/draftActivity';
 
 describe('feedAnnouncementFor', () => {
   it('announces a new human message by Team, not its content', () => {
@@ -59,12 +63,18 @@ describe('feedAnnouncementFor', () => {
     ).toBe('');
   });
 
-  it('says nothing for any Draft activity - Picks and lifecycle alike (#513)', () => {
+  it('says nothing for any Draft activity - Picks and every lifecycle kind alike (#513)', () => {
     // AC2 no longer names Picks here (#513 moved them to PickAnnouncer). Live
     // draft-state is carried by the on-the-clock (LiveDraftBanner), countdown
     // (#117), readiness (#164) and the room-level Pick announcer; announcing any
     // of it in the feed too would only add contention or duplicate speech.
-    for (const kind of ['pick', 'draft_start', 'pause', 'resume', 'reset', 'complete']) {
+    //
+    // Iterates the server's exported ALL_KINDS (#654) rather than a hand-written
+    // list, so a kind added to the server roster - 'stalled' included - is covered
+    // here without editing this test. A hand-written enumeration is exactly what
+    // went stale before: this file used to list five of the six lifecycle kinds
+    // and never caught that 'stalled' was missing.
+    for (const kind of ALL_KINDS) {
       expect(feedAnnouncementFor({ type: 'draft_activity', kind, teamName: 'Gridiron Giants' })).toBe('');
     }
   });
