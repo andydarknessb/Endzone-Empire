@@ -431,17 +431,17 @@ test('my-team card: a standings 500 shows a compact error inside the card while 
 // teamId 3 is the viewer, 7 the opponent. `teamName` is the canonical Team
 // identity field (teamIdentity.js), kept distinct from the league name
 // ('MinneApple') so a test can prove the card reads teams[], not the league.
-const matchupTeams = [
+const mpTeams = [
   { teamId: 3, id: 3, teamName: 'MyBallsHurts', avatar_url: null, avatar_static_url: null },
   { teamId: 7, id: 7, teamName: 'Terrific T', avatar_url: null, avatar_static_url: null },
 ];
 
 // A week-1 in-season league whose viewer (id 3) owns a named Team. Overrides
 // pass straight through to leagueDetail (league columns, teams, viewerTeamId).
-const matchupLeague = (overrides = {}) =>
+const mpLeague = (overrides = {}) =>
   leagueDetail({
     league: { draft_status: 'complete', season_status: 'regular', current_week: 1 },
-    teams: matchupTeams,
+    teams: mpTeams,
     viewerTeamId: 3,
     ...overrides,
   });
@@ -451,17 +451,17 @@ const matchupLeague = (overrides = {}) =>
 // home/away_team_id). `attachExpectedFinals` also rides on the real row, but
 // the widget takes projections from the detail read, not the list, so the
 // fixture omits them.
-const matchupsList = (rows) => ({ data: rows });
+const mpMatchupsList = (rows) => ({ data: rows });
 
 // A week-1 list pairing the viewer (home, Team 3) against Team 7 as matchup 55,
 // plus one unrelated matchup so the pick is a real find, not the only row.
-const viewerPaired = [
+const mpViewerPaired = [
   { id: 55, week: 1, season: 2026, home_team_id: 3, away_team_id: 7, final: false },
   { id: 56, week: 1, season: 2026, home_team_id: 5, away_team_id: 9, final: false },
 ];
 
 // A week-1 list in which the viewer (Team 3) appears nowhere.
-const viewerUnpaired = [
+const mpViewerUnpaired = [
   { id: 56, week: 1, season: 2026, home_team_id: 5, away_team_id: 9, final: false },
   { id: 57, week: 1, season: 2026, home_team_id: 8, away_team_id: 2, final: false },
 ];
@@ -470,7 +470,7 @@ const viewerUnpaired = [
 // side's `expectedFinal` here (the field the matchup detail page renders under
 // a "Projected" label); names + avatars come from teams[], never the detail's
 // off-contract `name` column, so the fixture's names are deliberately wrong.
-const matchupDetail = ({ homeFinal = 112.4, awayFinal = 118.9 } = {}) => ({
+const mpMatchupDetail = ({ homeFinal = 112.4, awayFinal = 118.9 } = {}) => ({
   data: {
     viewerTeamId: 3,
     matchup: { id: 55, week: 1, season: 2026, home_team_id: 3, away_team_id: 7 },
@@ -479,14 +479,14 @@ const matchupDetail = ({ homeFinal = 112.4, awayFinal = 118.9 } = {}) => ({
   },
 });
 
-const MATCHUP_LIST_URL = '/api/league/1/matchups?week=1';
-const MATCHUP_DETAIL_URL = '/api/league/1/matchups/55';
+const MP_LIST_URL = '/api/league/1/matchups?week=1';
+const MP_DETAIL_URL = '/api/league/1/matchups/55';
 
 test('matchup card: heading, both Team names from teams[], and each projected total beside a Projected label', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague(),
-    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
-    [MATCHUP_DETAIL_URL]: matchupDetail(),
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: mpMatchupDetail(),
   });
   renderPage();
 
@@ -510,9 +510,9 @@ test('matchup card: heading, both Team names from teams[], and each projected to
 
 test('matchup card: Compare rosters and Set Lineup are links to the matchup detail and lineup pages', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague(),
-    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
-    [MATCHUP_DETAIL_URL]: matchupDetail(),
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: mpMatchupDetail(),
   });
   renderPage();
 
@@ -526,8 +526,8 @@ test('matchup card: Compare rosters and Set Lineup are links to the matchup deta
 
 test('matchup card: with no matchup for the viewer this week, the card reads "No matchup this week" and has no links', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague(),
-    [MATCHUP_LIST_URL]: matchupsList(viewerUnpaired),
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerUnpaired),
   });
   renderPage();
 
@@ -541,8 +541,8 @@ test('matchup card: with no matchup for the viewer this week, the card reads "No
 
 test('matchup card: a 500 from the matchups list shows a compact error in the card while my-team and the header still render', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague(),
-    [MATCHUP_LIST_URL]: { reject: { response: { status: 500, data: { error: 'boom' } } } },
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: { reject: { response: { status: 500, data: { error: 'boom' } } } },
   });
   renderPage();
 
@@ -557,9 +557,9 @@ test('matchup card: a 500 from the matchups list shows a compact error in the ca
 
 test('matchup card: exactly one matchups-list GET is made, and it carries the current week', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague(),
-    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
-    [MATCHUP_DETAIL_URL]: matchupDetail(),
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: mpMatchupDetail(),
   });
   renderPage();
 
@@ -574,7 +574,7 @@ test('matchup card: exactly one matchups-list GET is made, and it carries the cu
 
 test('matchup card: with no current week the card reads "No matchup this week" and requests no matchups list', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague({
+    '/api/league/1': mpLeague({
       league: { draft_status: 'complete', season_status: 'regular', current_week: null },
     }),
   });
@@ -588,8 +588,8 @@ test('matchup card: with no current week the card reads "No matchup this week" a
 
 test('matchup card: while the matchups list is pending the card holds layout with skeletons and is aria-busy', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague(),
-    [MATCHUP_LIST_URL]: { pending: true },
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: { pending: true },
   });
   renderPage();
 
@@ -602,9 +602,9 @@ test('matchup card: while the matchups list is pending the card holds layout wit
 
 test('matchup card: while the detail read is pending the pairing shows with skeletoned totals and stays aria-busy', async () => {
   mockGetByUrl({
-    '/api/league/1': matchupLeague(),
-    [MATCHUP_LIST_URL]: matchupsList(viewerPaired),
-    [MATCHUP_DETAIL_URL]: { pending: true },
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: { pending: true },
   });
   renderPage();
 
@@ -614,4 +614,27 @@ test('matchup card: while the detail read is pending the pairing shows with skel
   expect(await within(card).findByText('MyBallsHurts')).toBeInTheDocument();
   expect(within(card).getAllByTestId('matchup-skeleton').length).toBeGreaterThan(0);
   expect(card).toHaveAttribute('aria-busy', 'true');
+});
+
+test('matchup card: a failed detail read degrades the projected totals to a placeholder without erroring the card', async () => {
+  mockGetByUrl({
+    '/api/league/1': mpLeague(),
+    [MP_LIST_URL]: mpMatchupsList(mpViewerPaired),
+    [MP_DETAIL_URL]: { reject: { response: { status: 500 } } },
+  });
+  renderPage();
+
+  const card = await screen.findByTestId('matchup-preview');
+  const viewerSide = await within(card).findByTestId('matchup-side-viewer');
+  // The pairing (from the list + teams[]) still renders: the spine is fine, so a
+  // failed detail read degrades only the number, it does not error the card.
+  expect(within(viewerSide).getByText('MyBallsHurts')).toBeInTheDocument();
+  expect(within(card).queryByTestId('matchup-preview-error')).not.toBeInTheDocument();
+  // The projected total is a placeholder: no digits, a real "Not available" for
+  // a screen reader, and the "Projected" label is not left pointing at nothing.
+  await within(viewerSide).findByText('Not available');
+  expect(viewerSide.textContent).not.toMatch(/\d/);
+  expect(within(viewerSide).getByText('Projected')).toBeInTheDocument();
+  // The detail read has settled, so the card is no longer busy.
+  expect(card).toHaveAttribute('aria-busy', 'false');
 });

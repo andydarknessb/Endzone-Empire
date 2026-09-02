@@ -22,10 +22,24 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *   - The detail read is chained off the list: its URL depends on the selected
  *     matchup id, so it stays null (and never fetches) until the list has
  *     resolved and a matchup for the viewer exists. It supplies each side's
- *     projected total (`expectedFinal`, the field the matchup detail page
- *     renders under a "Projected" label). A miss or a failed detail read
- *     degrades just the number to a placeholder rather than erroring the card,
- *     the way the spine/degrade split works in the sibling my-team widget.
+ *     projected total, `expectedFinal` (the per-side projected total the matchup
+ *     detail computes; MatchupDetail.jsx surfaces it as "Projected N.N" while a
+ *     game is live, and this card shows it as the pre-kickoff projection).
+ *
+ *     This second read is LOAD-BEARING and must not be collapsed into the list.
+ *     The list row already carries `home_expected_final` / `away_expected_final`
+ *     (attachExpectedFinals decorates every row), so reading those instead looks
+ *     equivalent and is not: attachExpectedFinals materializes no lineups on
+ *     purpose ("a list GET must not write a dozen teams' rows",
+ *     expectedFinal.service.js), so a team with no starter rows yet answers
+ *     null there. The detail route calls materializeLineup for both teams inside
+ *     its own transaction, so it returns a real number for a manager who has not
+ *     opened their lineup, which is the common early-week case. Delete the detail
+ *     read and that manager sees a placeholder instead of a projection.
+ *
+ *     A miss or a failed detail read degrades just the number to a placeholder
+ *     rather than erroring the card, the way the spine/degrade split works in
+ *     the sibling my-team widget.
  *   - Team names and avatars come from the shared league cache (useLeague /
  *     ADR 0004): the Team in `teams[]` whose id equals each side's id, read as
  *     `teamName` (the canonical identity field, teamIdentity.js), never the raw
