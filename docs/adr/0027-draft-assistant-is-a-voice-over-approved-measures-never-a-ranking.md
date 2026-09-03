@@ -45,3 +45,19 @@ line, an early kicker another, and no number is multiplied.
 - The line generator is a pure function over a facts object in src/lib, with
   one thin presenter per venue, because the Draft Sim and the Draft room
   share primitives and not components.
+
+## Amendment (2026-09-03): "early" means rounds remaining, not rounds run out
+
+#796 found that the "Early" bullet above reads as the inverse of the shipped
+predicate: taken literally, it would call a kicker or defense pick "early"
+only once the team is nearly out of rounds to grab one, which would roast the
+pick at precisely the point where taking it is correct. The corrected
+predicate: when the team has at least one unfilled dedicated K or DEF
+starting slot, "early" means at least as many rounds remain after the
+current one as the team's unfilled dedicated K plus DEF starting slots; a
+team with no unfilled dedicated K or DEF starting slots has nothing to be
+early for, so it is always false, regardless of rounds remaining. Ruling 6
+never addressed that zero case, so this clause is an addition to it, not a
+reopening of it. The original bullet above is superseded by this amendment;
+`earlyKickerOrDefense` in `src/lib/draftAssistant` and its tests are
+unchanged.
