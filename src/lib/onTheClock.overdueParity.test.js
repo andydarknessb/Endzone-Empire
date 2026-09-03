@@ -12,14 +12,23 @@ const { OVERDUE_AFTER_MS } = require('./onTheClock');
 // this pins the two numbers by reading the server SOURCE as text, the same
 // move the house parity tests make when the server value cannot be imported.
 //
-// The regex is anchored to the `const OVERDUE_AFTER_MS =` DECLARATION, not a
-// bare identifier match: the identifier also appears in a docblock four lines
-// above the declaration, in a `<=` comparison, and in module.exports. A
-// non-anchored, forward-scanning match (e.g. /OVERDUE_AFTER_MS[\s\S]*?(\d+)/)
-// would have latched onto the first number after the docblock mention and
-// silently compared the wrong figure (the exact defect caught on PR #755). The
-// server literal is written `30_000`, so digits AND underscores are captured
-// and the separators stripped before Number().
+// Two things make the extraction load-bearing, not cosmetic:
+//
+// 1. The underscore. The server literal is written `30_000`. A naive `(\d+)`
+//    captures `30`, not `30000`, because `_` is not a digit - a SILENT wrong
+//    comparison that would pass against a client value of 30. So the capture is
+//    `[\d_]+` and the separators are stripped before Number(). This is the real
+//    hazard this file defends against.
+// 2. The anchor. `OVERDUE_AFTER_MS` appears four times in the server file - the
+//    declaration and three uses below it (a `<=` comparison and module.exports)
+//    - so the regex anchors to the `const OVERDUE_AFTER_MS =` DECLARATION rather
+//    than a bare identifier match that could latch onto a use. (The declaration
+//    is the first hit here, so a forward scan would not currently mismatch; the
+//    anchor is defence against a future edit that adds a use above it, the
+//    general shape of the PR #755 defect, not a live bug in this file.)
+//
+// If the declaration is ever moved or renamed the match returns null and the
+// test throws, rather than comparing the client value against undefined.
 const SERVER_SOURCE = path.join(__dirname, '..', '..', 'server', 'services', 'pickClock.service.js');
 
 describe('OVERDUE_AFTER_MS parity with server/services/pickClock.service.js', () => {
