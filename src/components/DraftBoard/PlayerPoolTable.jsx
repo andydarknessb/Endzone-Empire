@@ -1,4 +1,5 @@
 import React, { useId, useRef, useCallback, useEffect } from 'react';
+import PropTypes from 'prop-types';
 import {
   Paper,
   Box,
@@ -34,7 +35,6 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
-import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { SORT_FIELDS } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
@@ -224,13 +224,16 @@ function SortableHeaderCell({ field, sort, dir, onSort }) {
   );
 }
 
-/** Draft/Queue action row, identical gating logic and shared with the table's action cell. */
-function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, queued, onDraft, onQueue, justify = 'center' }) {
+/** Draft/Queue action row, identical gating logic and shared with the table's
+ * action cell. The one shared explanation for a temporarily-unavailable Pick
+ * arrives as `explanation` from the room's `pickState` (issue #792 ruling 3),
+ * so this file no longer imports pickAvailability itself. */
+function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, explanation, queued, onDraft, onQueue, justify = 'center' }) {
   if (isDrafted) return null;
   return (
     <Stack direction="row" spacing={1} justifyContent={justify} alignItems="center">
       {canManualPick && (
-        <Tooltip title={pickUnavailable ? PICK_UNAVAILABLE_EXPLANATION : ''}>
+        <Tooltip title={pickUnavailable ? explanation : ''}>
           <span>
             <Button
               variant="contained"
@@ -269,7 +272,7 @@ function PlayerActions({ player, isDrafted, canManualPick, pickUnavailable, queu
 /** One player's card on mobile (issue 122): the desktop facts, including its
  * inline NFL team, stacked into labeled fields plus the same state-gated
  * Draft/Queue actions. */
-function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap, queued, onDraft, onQueue, onOpenQuickView }) {
+function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, explanation, overlap, queued, onDraft, onQueue, onOpenQuickView }) {
   return (
     <Paper
       role="listitem"
@@ -341,6 +344,7 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap
         isDrafted={isDrafted}
         canManualPick={canManualPick}
         pickUnavailable={pickUnavailable}
+        explanation={explanation}
         queued={queued}
         onDraft={onDraft}
         onQueue={onQueue}
@@ -359,35 +363,44 @@ function PlayerCard({ player, isDrafted, canManualPick, pickUnavailable, overlap
  * is the one scroll region - see DraftBoard.jsx), while desktop's Paper IS
  * a bounded, focusable scroll region (issue #122 acceptance criterion 1). */
 function PlayerPoolTable({
-  searchInput,
-  onSearchInputChange,
-  positionFilter,
-  onPositionFilterChange,
-  hideDrafted,
-  onHideDraftedChange,
-  byeWeeksFilter,
-  onByeWeeksFilterChange,
-  sort,
-  dir,
-  onSort,
-  search,
-  displayPlayers,
+  players,
+  controls,
   draftedIds,
-  draftStatus,
-  draftType,
-  isMyTurn,
-  draftPaused,
+  pickState,
   queue,
   onDraft,
   onQueue,
   onOpenQuickView,
-  hasMore,
-  loadingMore,
-  onLoadMore,
   byeOverlapByWeek = new Map(),
   isMobile = false,
   headerAction = null,
 }) {
+  // Everything the pool's own filter/sort/search/paging controls need arrives
+  // in one `controls` object the room threads straight through (issue #792
+  // ruling 1); the room reads none of these itself.
+  const {
+    searchInput,
+    setSearchInput,
+    search,
+    positionFilter,
+    onPositionFilterChange,
+    hideDrafted,
+    setHideDrafted,
+    byeWeeksFilter,
+    onByeWeeksFilterChange,
+    sort,
+    dir,
+    onSort,
+    hasMore,
+    loadingMore,
+    loadMore,
+  } = controls;
+  // Whether a manual Pick exists in this draft at all, whether it is only
+  // temporarily unavailable right now, and the one shared explanation for that -
+  // derived once by the room from pickAvailability.js and shared with the queue
+  // rail and Quick View (issue #792 ruling 3), so this table no longer imports
+  // pickAvailability or takes the four raw draft facts it used to key on.
+  const { canManualPick, pickUnavailable, explanation } = pickState;
   const scrollRef = useRef(null);
   const headingId = useId();
 
@@ -395,9 +408,9 @@ function PlayerPoolTable({
     const el = scrollRef.current;
     if (!el || !hasMore || loadingMore) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX) {
-      onLoadMore();
+      loadMore();
     }
-  }, [hasMore, loadingMore, onLoadMore]);
+  }, [hasMore, loadingMore, loadMore]);
 
   // Mobile has no bounded scroll container of its own - the page scrolls -
   // so pagination watches the window's own scroll position instead of a
@@ -408,17 +421,12 @@ function PlayerPoolTable({
       if (!hasMore || loadingMore) return;
       const scrollBottom = window.scrollY + window.innerHeight;
       if (document.documentElement.scrollHeight - scrollBottom < NEAR_BOTTOM_PX) {
-        onLoadMore();
+        loadMore();
       }
     };
     window.addEventListener('scroll', onWindowScroll, { passive: true });
     return () => window.removeEventListener('scroll', onWindowScroll);
-  }, [isMobile, hasMore, loadingMore, onLoadMore]);
-
-  // Constant across every row in this render - computed once rather than
-  // once per displayed player.
-  const tableCanManualPick = pickActionExists({ draftStatus, draftType });
-  const tablePickUnavailable = tableCanManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
+  }, [isMobile, hasMore, loadingMore, loadMore]);
 
   // Single source of truth for the mobile sort-direction toggle's visible
   // Tooltip AND accessible name - see the comment at its usage below.
@@ -452,14 +460,14 @@ function PlayerPoolTable({
         label="Filter available"
         placeholder="Filter by name…"
         value={searchInput}
-        onChange={(e) => onSearchInputChange(e.target.value)}
+        onChange={(e) => setSearchInput(e.target.value)}
         sx={{ minWidth: 200 }}
         InputProps={{
           endAdornment: searchInput ? (
             <IconButton
               size="small"
               aria-label="Clear filter"
-              onClick={() => onSearchInputChange('')}
+              onClick={() => setSearchInput('')}
               sx={{
                 // Growing this button's own box to 44x44 (like everywhere
                 // else) would grow with it - the small TextField it lives
@@ -550,7 +558,7 @@ function PlayerPoolTable({
       <FormControlLabel
         sx={MIN_TOUCH_TARGET_SX}
         control={
-          <Checkbox size="small" checked={hideDrafted} onChange={(e) => onHideDraftedChange(e.target.checked)} />
+          <Checkbox size="small" checked={hideDrafted} onChange={(e) => setHideDrafted(e.target.checked)} />
         }
         label="Hide drafted"
       />
@@ -608,7 +616,7 @@ function PlayerPoolTable({
     return (
       <Paper component="section" aria-labelledby={headingId} sx={{ p: 2 }}>
         {filtersBox}
-        {displayPlayers.length === 0 ? (
+        {players.length === 0 ? (
           <Typography sx={{ color: 'text.secondary', textAlign: 'center', py: 2 }}>
             {search ? `No available players matching “${search}”` : 'No available players'}
           </Typography>
@@ -623,13 +631,14 @@ function PlayerPoolTable({
           // screen reader on the mobile layout this exists for - honors the
           // explicit role regardless of styling.
           <Box role="list" aria-label="Available players">
-            {displayPlayers.map((player) => {
-              const state = rowStateFor(player, { draftedIds, canManualPickBase: tableCanManualPick, tablePickUnavailable, byeOverlapByWeek, queue });
+            {players.map((player) => {
+              const state = rowStateFor(player, { draftedIds, canManualPickBase: canManualPick, tablePickUnavailable: pickUnavailable, byeOverlapByWeek, queue });
               return (
                 <PlayerCard
                   key={player.id}
                   player={player}
                   {...state}
+                  explanation={explanation}
                   onDraft={onDraft}
                   onQueue={onQueue}
                   onOpenQuickView={onOpenQuickView}
@@ -694,16 +703,16 @@ function PlayerPoolTable({
             </TableRow>
           </TableHead>
           <TableBody>
-            {displayPlayers.length === 0 && (
+            {players.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No available players matching “${search}”` : 'No available players'}
                 </TableCell>
               </TableRow>
             )}
-            {displayPlayers.map((player) => {
-              const { isDrafted, canManualPick, pickUnavailable, overlap, queued } = rowStateFor(player, {
-                draftedIds, canManualPickBase: tableCanManualPick, tablePickUnavailable, byeOverlapByWeek, queue,
+            {players.map((player) => {
+              const { isDrafted, canManualPick: rowCanManualPick, pickUnavailable: rowPickUnavailable, overlap, queued } = rowStateFor(player, {
+                draftedIds, canManualPickBase: canManualPick, tablePickUnavailable: pickUnavailable, byeOverlapByWeek, queue,
               });
               return (
                 <TableRow key={player.id} sx={{ height: 44 }}>
@@ -764,8 +773,9 @@ function PlayerPoolTable({
                     <PlayerActions
                       player={player}
                       isDrafted={isDrafted}
-                      canManualPick={canManualPick}
-                      pickUnavailable={pickUnavailable}
+                      canManualPick={rowCanManualPick}
+                      pickUnavailable={rowPickUnavailable}
+                      explanation={explanation}
                       queued={queued}
                       onDraft={onDraft}
                       onQueue={onQueue}
@@ -787,5 +797,46 @@ function PlayerPoolTable({
     </Paper>
   );
 }
+
+// The pool panel's whole contract, eleven props (issue #792 ruling 2): the
+// fifteen filter/sort/search/paging fields ride inside `controls` and the four
+// draft facts inside `pickState`, so a new filter or a new pick rule never
+// widens this list. A prop that silently stops being passed used to just render
+// with a stale default; naming the interface here makes that a dev-time warning,
+// and the sibling keys test (PlayerPoolTable.test.jsx) fails the moment a
+// twelfth prop appears.
+PlayerPoolTable.propTypes = {
+  players: PropTypes.arrayOf(PropTypes.object).isRequired,
+  controls: PropTypes.shape({
+    searchInput: PropTypes.string,
+    setSearchInput: PropTypes.func,
+    search: PropTypes.string,
+    positionFilter: PropTypes.string,
+    onPositionFilterChange: PropTypes.func,
+    hideDrafted: PropTypes.bool,
+    setHideDrafted: PropTypes.func,
+    byeWeeksFilter: PropTypes.arrayOf(PropTypes.number),
+    onByeWeeksFilterChange: PropTypes.func,
+    sort: PropTypes.string,
+    dir: PropTypes.string,
+    onSort: PropTypes.func,
+    hasMore: PropTypes.bool,
+    loadingMore: PropTypes.bool,
+    loadMore: PropTypes.func,
+  }).isRequired,
+  draftedIds: PropTypes.instanceOf(Set).isRequired,
+  pickState: PropTypes.shape({
+    canManualPick: PropTypes.bool,
+    pickUnavailable: PropTypes.bool,
+    explanation: PropTypes.string,
+  }).isRequired,
+  queue: PropTypes.arrayOf(PropTypes.object).isRequired,
+  onDraft: PropTypes.func.isRequired,
+  onQueue: PropTypes.func.isRequired,
+  onOpenQuickView: PropTypes.func.isRequired,
+  byeOverlapByWeek: PropTypes.instanceOf(Map),
+  isMobile: PropTypes.bool,
+  headerAction: PropTypes.node,
+};
 
 export default PlayerPoolTable;

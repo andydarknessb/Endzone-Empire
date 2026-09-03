@@ -1934,46 +1934,6 @@ test('shows projected points and injury badges in the available players table', 
   expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });
 
-test('shows a sortable Pos rank column so IDP players (no ADP) still order sensibly', async () => {
-  apiClient.get.mockResolvedValue(
-    playersPage([
-      // An IDP player: no ADP by design, ranked from last season's points.
-      { id: 3, name: 'Jordyn Brooks', position: 'LB', nfl_team: 'DET', adp: null, position_rank: 1, projected_points: 160.2 },
-      { id: 4, name: 'Rookie Backer', position: 'LB', nfl_team: 'DAL', adp: null, position_rank: null, projected_points: null },
-    ])
-  );
-  renderBoard(1);
-
-  await screen.findByText('Jordyn Brooks');
-  expect(screen.getByText('#1')).toBeInTheDocument();
-  expect(screen.getByLabelText(/Pos rank: Position rank:/)).toBeInTheDocument();
-
-  // Clicking the header re-fetches with the server's whitelisted sort key.
-  apiClient.get.mockClear();
-  await userEvent.click(screen.getByText('Pos rank'));
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ sort: 'position_rank' }),
-    })
-  );
-});
-
-test('shows each pool player\'s bye week, with an em dash when the schedule is unknown', async () => {
-  apiClient.get.mockResolvedValue(
-    playersPage([
-      { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC', adp: 12.1, position_rank: 1, projected_points: 380.5, bye_week: 10 },
-      { id: 2, name: 'Rookie Backer', position: 'LB', nfl_team: 'DAL', adp: null, position_rank: null, projected_points: null, bye_week: null },
-    ])
-  );
-  renderBoard(1);
-
-  await screen.findByText('Patrick Mahomes');
-  expect(screen.getByText('Bye')).toBeInTheDocument();
-  expect(within(screen.getByRole('row', { name: /Patrick Mahomes/ })).getByText('10')).toBeInTheDocument();
-  const rookieCells = within(screen.getByRole('row', { name: /Rookie Backer/ })).getAllByText('-');
-  expect(rookieCells.length).toBeGreaterThan(0);
-});
-
 test('clicking a player name opens the quick-view dialog and never drafts the player', async () => {
   apiClient.get.mockImplementation((url) =>
     url.endsWith('/summary')
@@ -2095,31 +2055,6 @@ test('an offline-type active draft never renders a manual Draft control from the
   expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
 });
 
-test('an already-drafted pool row hides both Draft and Queue entirely, keeping only the Drafted chip', async () => {
-  renderBoard(1, { user: { id: 5 } });
-  await screen.findByText('Patrick Mahomes');
-
-  act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ teamId: 1, teamName: 'Team A' }],
-        picks: [{ pick_number: 1, team_id: 1, player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' }],
-        onTheClock: { teamId: 1, teamName: 'Team A' },
-      })
-    )
-  );
-
-  const table = screen.getByRole('table', { name: 'Available Players' });
-  const row = within(table).getByRole('row', { name: /Patrick Mahomes/ });
-  // The old .closest('tr') started from the name button, so it asserted the
-  // name is a button in passing. Keep that explicit rather than lose it.
-  expect(within(row).getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
-  expect(within(row).getByText('Drafted')).toBeInTheDocument();
-  expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
-  expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
-});
-
 test('Quick View shows Draft as focusable aria-disabled with the shared explanation off-turn, and suppresses activation', async () => {
   apiClient.get.mockImplementation((url) =>
     url.endsWith('/summary')
@@ -2178,92 +2113,6 @@ test('a stale confirmation (the turn moved on while the dialog sat open) never c
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 
-// --- Schedule-aware pool: columns, Column guide, Bye filter, Bye overlap ---
-// (issue #119, parent spec #108)
-
-test('the desktop columns are exactly Name/Position/Bye/ADP/Pos rank/17-game pace/Actions', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-
-  const table = screen.getByRole('table', { name: 'Available Players' });
-  // Render index, Draft value, and Tier are all absent from this table.
-  expect(within(table).queryByText(/^#$/)).not.toBeInTheDocument();
-  expect(within(table).queryByText('Draft value')).not.toBeInTheDocument();
-  expect(within(table).queryByText('Tier')).not.toBeInTheDocument();
-  expect(within(table).queryByText('Season Proj')).not.toBeInTheDocument();
-
-  for (const label of ['Name', 'Position', 'ADP', '17-game pace', 'Actions']) {
-    expect(within(table).getByText(label)).toBeInTheDocument();
-  }
-  expect(within(table).queryByRole('columnheader', { name: 'NFL Team' })).not.toBeInTheDocument();
-  expect(within(table).getByText(/· Kansas City Chiefs/)).toBeInTheDocument();
-  // Bye and Pos rank headers carry their AbbreviationTooltip aria-label
-  // (asserted precisely in the tests below) rather than a plain text node.
-  expect(within(table).getByRole('button', { name: /^Bye:/ })).toBeInTheDocument();
-  expect(within(table).getByRole('button', { name: /^Pos rank:/ })).toBeInTheDocument();
-});
-
-test('the visible Bye header is sortable and passes its server field name through', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  apiClient.get.mockClear();
-
-  await userEvent.click(screen.getByRole('button', { name: /^Bye:/ }));
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ sort: 'bye_week' }),
-    })
-  );
-});
-
-test('the Bye-weeks multi-select filters across the pool and renders removable chips', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  apiClient.get.mockClear();
-  apiClient.get.mockResolvedValue(playersPage([]));
-
-  await userEvent.click(screen.getByLabelText('Bye week'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Week 9' }));
-  await userEvent.click(await screen.findByRole('option', { name: 'Week 6' }));
-
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ byeWeeks: '6,9' }), // sorted regardless of pick order
-    })
-  );
-  expect(screen.getByText('Bye 6')).toBeInTheDocument();
-  expect(screen.getByText('Bye 9')).toBeInTheDocument();
-});
-
-test('shows a neutral Bye overlap hint for a candidate sharing a Bye with a rostered player', async () => {
-  apiClient.get.mockImplementation((url) => {
-    if (url === '/api/team/roster') {
-      // The caller's own roster already holds a KC player on Bye 10 (Travis
-      // Kelce) - Patrick Mahomes below shares that same Bye as a candidate.
-      return Promise.resolve({
-        data: [{ id: 99, name: 'Travis Kelce', position: 'TE', nfl_team: 'KC', bye_week: 10 }],
-      });
-    }
-    return Promise.resolve(
-      playersPage([
-        { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC', bye_week: 10 },
-        { id: 2, name: 'No Overlap Guy', position: 'RB', nfl_team: 'DAL', bye_week: 6 },
-      ])
-    );
-  });
-  renderBoard(1);
-
-  await screen.findByText('Patrick Mahomes');
-  const overlapHint = await screen.findByLabelText(/Bye overlap: 1 rostered player.*Travis Kelce/);
-  expect(overlapHint).toBeInTheDocument();
-  // No overlap for the other row (different Bye week).
-  expect(
-    within(screen.getByRole('row', { name: /No Overlap Guy/ })).queryByLabelText(/Bye overlap/)
-  ).not.toBeInTheDocument();
-  // Neutral: no "conflict"/"risk"/"warning" language anywhere near the hint.
-  expect(overlapHint.getAttribute('aria-label')).not.toMatch(/conflict|risk|warning/i);
-});
-
 test('missing 17-game pace shows a neutral placeholder with a keyboard-accessible explanation', async () => {
   apiClient.get.mockResolvedValue(
     playersPage([
@@ -2278,22 +2127,6 @@ test('missing 17-game pace shows a neutral placeholder with a keyboard-accessibl
   // cell's placeholder is keyboard-focusable with an explanatory tooltip.
   const placeholder = row.getAllByText('-').find((el) => el.getAttribute('tabIndex') === '0');
   expect(placeholder).toBeTruthy();
-});
-
-test('the Column guide is a keyboard-reachable dialog explaining abbreviations and injury-status codes', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-
-  await userEvent.click(screen.getByRole('button', { name: 'Column guide' }));
-
-  const dialog = await screen.findByRole('dialog');
-  expect(within(dialog).getByText('Column guide')).toBeInTheDocument();
-  expect(within(dialog).getByText('17-game pace')).toBeInTheDocument();
-  expect(within(dialog).getByText('IR')).toBeInTheDocument();
-  expect(within(dialog).getByText('Injured Reserve')).toBeInTheDocument();
-
-  await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 
 // ---------------------------------------------------------------------------

@@ -606,7 +606,11 @@ function DraftBoard() {
   const quickViewDraftedBy = quickViewPick ? teamNameLabel(quickViewPick.teamName) : null;
 
   const draftedIds = new Set(picks.map((p) => p.player_id));
-  const displayPlayers = pool.availablePlayers;
+  // The room reads the available list itself only to feed the pool table and
+  // the Quick View's navigation set; it never touches the filter/sort/search/
+  // paging state, which rides through the pool's `controls` object untouched
+  // (issue #792 ruling 1). The old aliased copy of this list is gone with it.
+  const availablePlayers = pool.availablePlayers;
 
   // Bye overlap (see PlayerPoolTable): which of the caller's OWN rostered
   // players share a Bye week, keyed by that week. A neutral roster fact for
@@ -626,19 +630,30 @@ function DraftBoard() {
   // banner covers that case), and Draft itself is omitted entirely (not just
   // disabled) whenever no manual Pick control exists in this draft's status/
   // type at all (#120 acceptance criteria 1-2, 5).
-  const quickViewAvail = pool.availablePlayers.find((p) => p.id === quickViewId);
+  const quickViewAvail = availablePlayers.find((p) => p.id === quickViewId);
+  // The room's one pick-availability reading (issue #792 ruling 3): whether a
+  // manual Pick exists in this draft at all, whether it is only temporarily
+  // unavailable right now, and the one shared explanation for that. Derived once
+  // from pickAvailability.js here and passed to the pool table, the queue rail
+  // and the Quick View actions below, so the three surfaces cannot answer the
+  // question differently. (confirmDraftPlayer above re-derives it against the
+  // LATEST live state, on purpose, for a dialog that sat open across a turn.)
   const canManualPick = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
-  const pickUnavailable = canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused });
+  const pickState = {
+    canManualPick,
+    pickUnavailable: canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused }),
+    explanation: PICK_UNAVAILABLE_EXPLANATION,
+  };
   const quickViewActions =
     quickViewAvail && !quickViewDraftedBy
       ? [
-          ...(canManualPick
+          ...(pickState.canManualPick
             ? [
                 {
                   label: 'Draft',
                   variant: 'contained',
                   color: 'success',
-                  unavailableReason: pickUnavailable ? PICK_UNAVAILABLE_EXPLANATION : null,
+                  unavailableReason: pickState.pickUnavailable ? pickState.explanation : null,
                   onClick: () => requestDraftPlayer(quickViewAvail.id),
                 },
               ]
@@ -653,33 +668,19 @@ function DraftBoard() {
       : [];
 
   // Shared by every PlayerPoolTable render below - built once instead of
-  // duplicated between the desktop and mobile branches.
+  // duplicated between the desktop and mobile branches. The eleven-prop
+  // interface (issue #792 ruling 2): the pool's own filter/sort/search/paging
+  // controls ride in the pool's `controls` object untouched, the pick rules in
+  // `pickState`, and `isMobile`/`headerAction` are supplied at each render site.
   const playerPoolProps = {
-    searchInput: pool.searchInput,
-    onSearchInputChange: pool.setSearchInput,
-    positionFilter: pool.positionFilter,
-    onPositionFilterChange: pool.handlePositionFilterChange,
-    hideDrafted: pool.hideDrafted,
-    onHideDraftedChange: pool.setHideDrafted,
-    byeWeeksFilter: pool.byeWeeksFilter,
-    onByeWeeksFilterChange: pool.handleByeWeeksFilterChange,
-    sort: pool.sort,
-    dir: pool.dir,
-    onSort: pool.handleSort,
-    search: pool.search,
-    displayPlayers,
+    players: availablePlayers,
+    controls: pool.controls,
     draftedIds,
-    draftStatus: league?.draft_status,
-    draftType: league?.draft_type,
-    isMyTurn,
-    draftPaused: !!league?.draft_paused,
+    pickState,
     queue,
     onDraft: requestDraftPlayer,
     onQueue: handleQueuePlayer,
     onOpenQuickView: setQuickViewId,
-    hasMore: pool.hasMore,
-    loadingMore: pool.loadingMore,
-    onLoadMore: pool.loadMore,
     byeOverlapByWeek,
   };
   // Shared by every DraftRail render below likewise.
@@ -690,14 +691,14 @@ function DraftBoard() {
     onMoveDown: handleMoveDown,
     onRemoveFromQueue: handleRemoveFromQueue,
     onDraft: requestDraftPlayer,
-    isMyTurn,
-    draftPaused: !!league?.draft_paused,
+    // The same one pick-availability reading the pool table gets (issue #792
+    // ruling 3), so the queue's top-row quick-draft answers identically.
+    pickState,
     teams,
     onTheClock,
     isCommissioner,
     viewerTeamId,
     draftStatus: league?.draft_status,
-    draftType: league?.draft_type,
     onToggleAutodraft: admin.handleToggleAutodraft,
     onToggleReady: admin.handleToggleReady,
     isXs,
@@ -1134,7 +1135,7 @@ function DraftBoard() {
           search: location.search,
         })}
         draftedBy={quickViewDraftedBy}
-        playerIds={displayPlayers.map((p) => p.id)}
+        playerIds={availablePlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
         actions={quickViewActions}
       />

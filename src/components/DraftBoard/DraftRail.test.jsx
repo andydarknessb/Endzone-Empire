@@ -40,14 +40,16 @@ const baseProps = {
   onMoveDown: jest.fn(),
   onRemoveFromQueue: jest.fn(),
   onDraft: jest.fn(),
-  isMyTurn: false,
-  draftPaused: false,
+  // The room's one pick-availability reading (issue #792 ruling 3), replacing
+  // the raw isMyTurn/draftPaused/draftType facts the rail used to key on. These
+  // composition tests never render a non-empty queue, so the quick-draft block
+  // that reads it never runs here (the room suite covers that behaviour).
+  pickState: { canManualPick: true, pickUnavailable: false, explanation: '' },
   teams: TEAMS,
   onTheClock: null,
   isCommissioner: false,
   viewerTeamId: 1,
   draftStatus: 'active',
-  draftType: 'snake',
   onToggleAutodraft: jest.fn(),
   onToggleReady: jest.fn(),
   onOpenQuickView: jest.fn(),

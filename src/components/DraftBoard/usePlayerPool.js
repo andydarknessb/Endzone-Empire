@@ -46,7 +46,6 @@ export default function usePlayerPool(leagueId) {
   // full-page skeleton. `loadingMore` covers the append-on-scroll fetches.
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState(null);
 
   const didMountRef = useRef(false);
   const hasLoadedOnceRef = useRef(false);
@@ -80,10 +79,11 @@ export default function usePlayerPool(leagueId) {
         setAvailablePlayers((prev) => (append ? [...prev, ...res.data.players] : res.data.players));
         setTotalPages(res.data.totalPages);
         setPage(pageNum);
-        setError(null);
-      } catch (err) {
-        if (seq !== requestSeqRef.current) return;
-        setError(err.response?.data?.error || err.message);
+      } catch {
+        // A fetch failure is swallowed: the pool has never surfaced one to the
+        // room (the old `error` state was returned but read nowhere), and the
+        // `finally` below already re-checks the sequence before it clears any
+        // flag, so a superseded request's reject can't affect a live one.
       } finally {
         if (seq === requestSeqRef.current) {
           if (append) setLoadingMore(false);
@@ -181,25 +181,35 @@ export default function usePlayerPool(leagueId) {
 
   const refetch = useCallback(() => fetchPage(0), [fetchPage]);
 
-  return {
-    availablePlayers,
-    loading,
-    loadingMore,
-    hasMore,
-    loadMore,
-    error,
-    refetch,
-    positionFilter,
-    handlePositionFilterChange,
+  // The room reads exactly three things off this hook - the available list,
+  // the first-load flag, and the refetch seam a landed Pick calls. Everything
+  // the pool table's own controls need (filters, sort, search, paging) rides in
+  // one `controls` object the room threads straight through without reading
+  // (issue #792 ruling 1): the interface stops being as wide as the
+  // implementation, and adding a filter no longer touches this return, the
+  // room, or the table's signature.
+  const controls = {
     searchInput,
     setSearchInput,
     search,
-    sort,
-    dir,
-    handleSort,
+    positionFilter,
+    onPositionFilterChange: handlePositionFilterChange,
     hideDrafted,
     setHideDrafted,
     byeWeeksFilter,
-    handleByeWeeksFilterChange,
+    onByeWeeksFilterChange: handleByeWeeksFilterChange,
+    sort,
+    dir,
+    onSort: handleSort,
+    hasMore,
+    loadingMore,
+    loadMore,
+  };
+
+  return {
+    availablePlayers,
+    loading,
+    refetch,
+    controls,
   };
 }
