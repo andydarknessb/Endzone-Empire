@@ -12,6 +12,7 @@ import AuthenticatedPlayerProfilePage from '../PlayerDetail/AuthenticatedPlayerP
 import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
 import DraftBoard from './DraftBoard';
+import PlayerPoolTableProbe from './PlayerPoolTable';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -27,6 +28,22 @@ jest.mock('../../api/socket', () => ({
   createDraftSocket: jest.fn(),
   onReconnect: jest.fn(),
 }));
+
+// A render probe on a memo-free sibling of the pick clock (#754 amendments A7):
+// PlayerPoolTable renders whenever DraftBoard renders, so its count is a direct
+// reading of whether the room root re-rendered. The real component still
+// renders underneath, so every other test in this file is unaffected.
+jest.mock('./PlayerPoolTable', () => {
+  const actual = jest.requireActual('./PlayerPoolTable');
+  const ReactForProbe = jest.requireActual('react');
+  const renderSpy = jest.fn();
+  const Probe = (props) => {
+    renderSpy();
+    return ReactForProbe.createElement(actual.default, props);
+  };
+  Probe.renderSpy = renderSpy;
+  return { __esModule: true, default: Probe };
+});
 
 // The readiness announcer (#164) is no longer the only role=status region in
 // the Draft room: the composer's character counter (#486) mounts its own polite
@@ -1096,7 +1113,7 @@ const mockGets = ({ players = playersPage(), queue = [] } = {}) => {
   );
 };
 
-test('countdown chip renders from pick_deadline_at and ticks down', async () => {
+test('the banner clock renders m:ss from pick_deadline_at and ticks down', async () => {
   jest.useFakeTimers();
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
@@ -1106,12 +1123,12 @@ test('countdown chip renders from pick_deadline_at and ticks down', async () => 
       pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
     })))
   );
-  expect(screen.getByText('⏱ 30s')).toBeInTheDocument();
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:30');
 
   act(() => {
     jest.advanceTimersByTime(3000);
   });
-  expect(screen.getByText('⏱ 27s')).toBeInTheDocument();
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:27');
 });
 
 test('the countdown resets to pick_time_seconds on each draft:picked', async () => {
@@ -1129,7 +1146,7 @@ test('the countdown resets to pick_time_seconds on each draft:picked', async () 
       ],
     }))
   );
-  expect(screen.getByText('⏱ 5s')).toBeInTheDocument();
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:05');
 
   act(() =>
     fakeSocket.trigger('draft:picked', {
@@ -1141,7 +1158,31 @@ test('the countdown resets to pick_time_seconds on each draft:picked', async () 
       auto: false,
     })
   );
-  expect(screen.getByText('⏱ 90s')).toBeInTheDocument();
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('1:30');
+});
+
+test('a ticking pick clock re-renders only its own leaf, never the room (#754 A7)', async () => {
+  jest.useFakeTimers();
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+    })))
+  );
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:30');
+  const roomRendersBefore = PlayerPoolTableProbe.renderSpy.mock.calls.length;
+
+  act(() => {
+    jest.advanceTimersByTime(3000);
+  });
+
+  // The clock moved, so the leaf ticked...
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:27');
+  // ...and nothing above it did. Storing a per-second field in the socket
+  // reducer again (the shape #754 first proposed) turns this red.
+  expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
 });
 
 test('a paused draft shows the paused chip and leaves drafting focusable but aria-disabled', async () => {

@@ -244,7 +244,7 @@ test('Draft order gives a manager only their own Autodraft control', () => {
     {...baseProps}
     draftStatus="pending"
     upcoming={[]}
-    onTheClock={{ teamId: 2, teamName: 'Harbor Hawks' }}
+    onTheClock={{ team: { teamId: 2, teamName: 'Harbor Hawks' }, state: 'untimed', deadlineAt: null }}
   />);
 
   const order = screen.getByRole('region', { name: 'Draft order' });

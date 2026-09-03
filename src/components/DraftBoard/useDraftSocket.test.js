@@ -702,3 +702,123 @@ test('membership resets to UNKNOWN when the league changes', () => {
   // The new room has answered nothing yet; a member's chat must not carry over.
   expect(result.current.membership).toBe('unknown');
 });
+
+// The On-the-clock value object (#754): one derived shape off the socket store,
+// holding the deadline and never a per-second field (amendments A1). The seconds
+// are the PickClock leaf's own state, so this hook arms no timer at all.
+describe('onTheClock value object (#754)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers('modern');
+    jest.setSystemTime(Date.UTC(2026, 8, 2, 12, 0, 0));
+  });
+
+  test('starts idle and derives running with the deadline in epoch ms from draft:state', () => {
+    const { result } = renderHook(() => useDraftSocket(1));
+    expect(result.current.onTheClock).toEqual({ team: null, state: 'idle', deadlineAt: null });
+    expect(result.current.secondsLeft).toBeUndefined();
+
+    act(() => fakeSocket.trigger('connect'));
+    act(() => {
+      fakeSocket.trigger('draft:state', {
+        league: { draft_status: 'active', pick_time_seconds: 90, pick_deadline_at: '2026-09-02T12:00:30.000Z' },
+        teams: [teamA, teamB],
+        picks: [],
+        onTheClock: teamA,
+      });
+    });
+    expect(result.current.onTheClock).toEqual({
+      team: teamA,
+      state: 'running',
+      deadlineAt: Date.parse('2026-09-02T12:00:30.000Z'),
+    });
+  });
+
+  test('arms no timer of its own: the store never ticks', () => {
+    renderHook(() => useDraftSocket(1));
+    act(() => fakeSocket.trigger('connect'));
+    act(() => {
+      fakeSocket.trigger('draft:state', {
+        league: { draft_status: 'active', pick_time_seconds: 90, pick_deadline_at: '2026-09-02T12:00:30.000Z' },
+        teams: [teamA, teamB],
+        picks: [],
+        onTheClock: teamA,
+      });
+    });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test('paused keeps the team and drops the deadline; untimed has a team and no deadline', () => {
+    const { result } = renderHook(() => useDraftSocket(1));
+    act(() => fakeSocket.trigger('connect'));
+    act(() => {
+      fakeSocket.trigger('draft:state', {
+        league: { draft_status: 'active', draft_paused: true, pick_time_seconds: 90, pick_deadline_at: '2026-09-02T12:00:30.000Z' },
+        teams: [teamA, teamB],
+        picks: [],
+        onTheClock: teamA,
+      });
+    });
+    expect(result.current.onTheClock).toEqual({ team: teamA, state: 'paused', deadlineAt: null });
+
+    act(() => {
+      fakeSocket.trigger('draft:state', {
+        league: { draft_status: 'active', pick_time_seconds: 0, pick_deadline_at: null },
+        teams: [teamA, teamB],
+        picks: [],
+        onTheClock: teamA,
+      });
+    });
+    expect(result.current.onTheClock).toEqual({ team: teamA, state: 'untimed', deadlineAt: null });
+  });
+
+  test('draft:picked moves the team, takes the server deadline, and a completing pick derives idle', () => {
+    const { result } = renderHook(() => useDraftSocket(1));
+    act(() => fakeSocket.trigger('connect'));
+    act(() => {
+      fakeSocket.trigger('draft:state', {
+        league: { draft_status: 'active', pick_time_seconds: 90, pick_deadline_at: '2026-09-02T12:00:30.000Z' },
+        teams: [teamA, teamB],
+        picks: [],
+        onTheClock: teamA,
+      });
+    });
+    const pick = (extra) => ({
+      pickNumber: 1, teamId: 1, teamName: 'Team A',
+      player: { id: 10, name: 'X', position: 'QB', nfl_team: 'KC' },
+      auto: false, ...extra,
+    });
+
+    act(() => fakeSocket.trigger('draft:picked', pick({ nextTeamId: 2, draftComplete: false, pickDeadlineAt: '2026-09-02T12:02:00.000Z' })));
+    expect(result.current.onTheClock).toEqual({
+      team: teamB, state: 'running', deadlineAt: Date.parse('2026-09-02T12:02:00.000Z'),
+    });
+
+    // No server deadline on the wire: estimate pick_time_seconds from now.
+    act(() => fakeSocket.trigger('draft:picked', pick({ nextTeamId: 1, draftComplete: false })));
+    expect(result.current.onTheClock).toEqual({
+      team: teamA, state: 'running', deadlineAt: Date.now() + 90000,
+    });
+
+    act(() => fakeSocket.trigger('draft:picked', pick({ nextTeamId: null, draftComplete: true })));
+    expect(result.current.onTheClock).toEqual({ team: null, state: 'idle', deadlineAt: null });
+  });
+});
+
+test('a standalone draft:complete derives idle so the clock leaf unmounts (#754)', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+  act(() => fakeSocket.trigger('connect'));
+  act(() => {
+    fakeSocket.trigger('draft:state', {
+      league: { draft_status: 'active', pick_time_seconds: 90, pick_deadline_at: '2026-09-02T12:00:30.000Z' },
+      teams: [teamA, teamB],
+      picks: [],
+      onTheClock: teamA,
+    });
+  });
+  expect(result.current.onTheClock.state).toBe('running');
+
+  act(() => fakeSocket.trigger('draft:complete'));
+  expect(result.current.draftComplete).toBe(true);
+  expect(result.current.league.draft_status).toBe('complete');
+  expect(result.current.onTheClock).toEqual({ team: null, state: 'idle', deadlineAt: null });
+});
