@@ -2133,13 +2133,22 @@ test('missing 17-game pace shows a neutral placeholder with a keyboard-accessibl
 });
 
 // --- Room-level derivations feeding the pool table (issue #806) ---
-// #792 ruling 5 moved eight table-shaped cases down to the PlayerPoolTable
+// #792 ruling 5 moved eight table-shaped cases down into the PlayerPoolTable
 // suites, which is right for the narrowed eleven-prop interface - but three of
 // those crossed a derivation step the room itself performs (picks -> drafted
-// Set, roster -> Bye Map, two clicks -> an accumulated filter). The table
-// tests below supply the derived value ready-made, so nothing here duplicates
-// them; each test below drives the same room-level input its moved ancestor
-// drove and asserts only that the derivation reached the table.
+// Set, roster -> Bye Map, two clicks -> an accumulated filter). The
+// assertions below are deliberately the same ones the table suites make; what
+// is new is the input. The table suites hand the derived value in ready-made,
+// while each test below drives the room-level input its moved ancestor drove
+// (a socket frame, a roster fixture, two real clicks) and lets the room
+// derive its own way down, so the derivation itself is what's under test.
+//
+// The Bye-weeks accumulation case in particular MUST live here, not in a
+// table suite: MUI's multiple Select computes its next array from its
+// `value` prop, so a second click against a table suite's static mocked
+// `controls` yields [6], not [6, 9]. Accumulation only exists where
+// usePlayerPool feeds real filter state back into the controlled Select - a
+// table-suite version of this test would pass while proving nothing.
 
 test('draftedIds derives from live picks: an already-drafted pool row keeps only the Drafted chip', async () => {
   renderBoard(1, { user: { id: 5 } });
