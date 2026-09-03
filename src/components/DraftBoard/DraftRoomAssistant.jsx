@@ -77,15 +77,6 @@ import {
 
 const SCROLLBACK_LIMIT = 20;
 
-// Shown in place of the Misery band when the meter cannot read every one of the
-// viewer's own picks (ruling 4, issue #818): the room's available players are
-// windowed, so a pick whose row has left the loaded set carries no client-side
-// ADP, and a partial sum would read that hole as a fact. The copy names the
-// missing input (ADP, the market figure the band is built on), never the Draft
-// board (which holds every committed pick and is the one input NOT missing).
-// House style: no em-dash.
-export const MISERY_INCOMPLETE_MESSAGE = 'The Misery Meter needs ADP for all your picks.';
-
 const DEFAULT_STATE = {
   assistantOn: false,
   scrollback: [],
@@ -120,11 +111,12 @@ export function useDraftRoomAssistantControls() {
  *   when the viewer selects a player in the pool table; a fresh object per
  *   selection so re-selecting the same player fires again
  * @param {Array} props.poolRows            the currently loaded pool rows (the
- *   room's source for ADP and injury status)
+ *   room's source for injury status and pool-selection facts; NOT the Misery
+ *   Meter's ADP, which rides on each pick since #833)
  * @param {Array} props.queue               the viewer's Queue rows
  * @param {number} props.teamCount          teams in this draft
  * @param {number|null} props.viewerTeamId  the viewer's own Team id
- * @param {Array} props.myPicks             the viewer's picks so far ({ pickNumber, position, playerId })
+ * @param {Array} props.myPicks             the viewer's picks so far ({ pickNumber, position, playerId, adp })
  * @param {Array} props.rosterSlots         the league's roster_slots shape
  * @param {number} props.draftRounds        total rounds in the draft
  * @param {number} props.currentPickNumber  the overall (1-based) pick on the clock
@@ -166,70 +158,41 @@ export function DraftRoomAssistantProvider({
 
   // The accumulating pool lookup. The pool is windowed and a player leaves it
   // the instant they are drafted (usePlayerPool refetches on every pick), so a
-  // Map that only ever GROWS is what keeps a just-picked player's ADP and
-  // injury status reachable for the line that fires ON that pick. Bounded by
-  // the player universe (a few hundred rows), never pruned within a draft.
+  // Map that only ever GROWS is what keeps a just-picked player's injury status
+  // reachable for the line that fires ON that pick. Bounded by the player
+  // universe (a few hundred rows), never pruned within a draft. It is NO LONGER
+  // an input to the Misery Meter (#833): the meter reads each pick's ADP off the
+  // pick itself, so a keeper never delivered to the pool no longer darkens it.
+  // The Map remains the source for pool-selection facts and injury status only.
   const poolByIdRef = useRef(new Map());
-  // A snapshot of the accumulated Map, republished whenever the loaded set
-  // changes, so the Misery memo below has a real reactive dependency for the
-  // loaded pool (ruling 3) that eslint's exhaustive-deps can see - the in-place
-  // ref alone is invisible to it. Seeded as its own empty Map, never the live
-  // ref: a useMemo dependency has to be a value whose identity changes when its
-  // contents change, and the ref object's identity never does. The ref stays
-  // the fire-time source (poolRowFor and
-  // adpForPlayer read it with stable identity so the pick/turn/browse effects
-  // never churn); the snapshot is only ever read by the memo.
-  const [loadedPool, setLoadedPool] = useState(() => new Map());
 
   // The Map is filled in an effect, never in the render body (issue #818 AC3,
   // ruling 2): a render React discards must not mutate the ref. This is the
   // FIRST passive effect declared, so it runs before the pick/turn/browse
-  // effects below that read the Map through poolRowFor at fire time. Publishing
-  // a fresh snapshot whenever a row is added OR replaced (a refetch can return
-  // the same players as new objects) makes the Misery memo recompute (ruling 3),
-  // so ADP arriving after myPicks settles re-bands the meter. The change guard
-  // keeps StrictMode's double effect invocation idempotent: the second run
-  // re-sets the same row objects, sees no change and publishes nothing, so the
-  // Map and the snapshot match a single render.
+  // effects below that read the Map through poolRowFor at fire time. No snapshot
+  // state is published: the Misery memo no longer depends on the loaded pool
+  // (#833), so the only reader is poolRowFor, which reads the ref at fire time.
   useEffect(() => {
-    let changed = false;
     for (const row of poolRows) {
-      if (row && row.id != null) {
-        if (poolByIdRef.current.get(row.id) !== row) changed = true;
-        poolByIdRef.current.set(row.id, row);
-      }
+      if (row && row.id != null) poolByIdRef.current.set(row.id, row);
     }
-    if (changed) setLoadedPool(new Map(poolByIdRef.current));
   }, [poolRows]);
 
   const poolRowFor = useCallback((id) => (id == null ? undefined : poolByIdRef.current.get(id)), []);
-  const adpForPlayer = useCallback(
-    (id) => {
-      const row = id == null ? undefined : poolByIdRef.current.get(id);
-      return row && row.adp != null ? row.adp : null;
-    },
-    []
-  );
 
-  // Net vs ADP over the viewer's OWN picks, and null when the meter cannot see
-  // every pick's row (ruling 4): the pool is windowed, so a pick whose row has
-  // left the loaded pool has no client-side ADP and a partial sum would read a
-  // hole as a fact. loadedPool is a real dependency, so a row arriving after
-  // myPicks settles recomputes the band (ruling 3, issue #818). A complete but
-  // genuinely no-market pick still contributes 0 through the shared rule and
-  // keeps the meter shown - "loaded" is about the row, not about having an ADP.
+  // Net vs ADP over the viewer's OWN picks (ruling 8, the Misery Meter). Each
+  // pick carries its own market ADP as `pick.adp` (delivered from the server on
+  // the pick, #833), so the sum never depends on the windowed player pool and
+  // the meter is correct in a keeper league. Always a number: with any picks it
+  // is their running total (a null-ADP pick contributes 0 through the shared
+  // no-market rule, ruling 3); with zero picks it is 0 (ruling 4). The band is
+  // therefore always shown once the viewer has the assistant on - the
+  // hidden-until-complete state and its placeholder retired with this ticket.
   const netVsAdp = useMemo(
-    () => {
-      const complete = myPicks.every((p) => loadedPool.get(p.playerId) != null);
-      if (!complete) return null;
-      return netVsAdpFor({ myPicks, adpForPlayer, teamCount });
-    },
-    [myPicks, adpForPlayer, teamCount, loadedPool]
+    () => netVsAdpFor({ myPicks, teamCount }),
+    [myPicks, teamCount]
   );
-  // A null netVsAdp (incomplete inputs) hides the band; the panel shows the
-  // placeholder instead, and the urgent/turn-start facts carry null so no line
-  // reads a partial total as a fact.
-  const miseryBand = netVsAdp == null ? null : miseryStage(netVsAdp);
+  const miseryBand = miseryStage(netVsAdp);
 
   // Latest values the stable callbacks below read at fire time. Written in a
   // layout effect, not the render body (issue #818 AC3, ruling 2), so a
@@ -433,20 +396,14 @@ export function DraftRoomAssistantPanel() {
         <Typography id={headingId} variant="h6" component="h2">
           Draft assistant
         </Typography>
-        {miseryBand ? (
-          <Stack direction="row" spacing={0.5} alignItems="baseline">
-            <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-              Misery Meter
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'secondary.main', fontWeight: 700 }}>
-              {miseryBand}
-            </Typography>
-          </Stack>
-        ) : (
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {MISERY_INCOMPLETE_MESSAGE}
+        <Stack direction="row" spacing={0.5} alignItems="baseline">
+          <Typography variant="overline" sx={{ color: 'text.secondary' }}>
+            Misery Meter
           </Typography>
-        )}
+          <Typography variant="body2" sx={{ color: 'secondary.main', fontWeight: 700 }}>
+            {miseryBand}
+          </Typography>
+        </Stack>
       </Stack>
       {scrollback.length === 0 ? (
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>

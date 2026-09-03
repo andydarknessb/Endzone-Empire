@@ -89,17 +89,27 @@ function playerFactsFromPick(pick, row) {
 
 /**
  * The viewer's running Net vs ADP over their OWN picks so far (ruling 8, the
- * Misery Meter). `adpForPlayer(playerId)` returns a known market ADP or null;
- * a pick with no market ADP contributes 0 through the shared rule's no-market
- * path (src/lib/stealReach.js) rather than being guessed, so the market guard
- * is spelled once, in the shared module, and never re-spelled here. Always
- * derived fresh from the live picks, never accumulated by hand, so it cannot
- * drift.
+ * Misery Meter). Each pick carries its own market ADP as `pick.adp` (a number or
+ * null), delivered from the server on the pick itself (#833: the draft:state pick
+ * rows and the draft:picked outcome both carry `players.adp`), so the sum never
+ * depends on the windowed player pool. That is what makes the meter correct in a
+ * keeper league, where a keeper is pre-filled into the roster and so is never
+ * delivered to the available-player pool.
+ *
+ * A pick whose `adp` is null contributes 0 through the shared rule's no-market
+ * path (src/lib/stealReach.js), exactly as Draft grades treat a pick with no
+ * market ADP (server/services/draftgrade.service.js `draftPickValue`: a
+ * missing/non-numeric ADP is neutral at the actual pick, so its score is 0).
+ * Keepers are NOT exempted: a keeper with a null ADP simply contributes 0 like
+ * any other no-market pick, which keeps the Misery Meter and the Draft grade the
+ * same measure of the same picks (ADR 0027). The market guard is spelled once, in
+ * the shared module, and never re-spelled here. Always derived fresh from the
+ * live picks, never accumulated by hand, so it cannot drift.
  */
-export function netVsAdpFor({ myPicks, adpForPlayer, teamCount }) {
+export function netVsAdpFor({ myPicks, teamCount }) {
   return myPicks.reduce((sum, pick) => {
     const { draftValueScore } = stealReachLabelFor({
-      adp: adpForPlayer(pick.playerId),
+      adp: pick.adp,
       pickNumber: pick.pickNumber,
       round: roundForPick(pick.pickNumber, teamCount),
     });

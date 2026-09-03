@@ -170,19 +170,25 @@ describe('the other room triggers', () => {
 });
 
 describe('netVsAdpFor', () => {
-  it('sums adp - pickNumber over the viewer picks with a known ADP, skipping the rest', () => {
+  it('sums adp - pickNumber over the viewer picks, each pick carrying its own adp (#833)', () => {
     const myPicks = [
-      { pickNumber: 1, playerId: 100 }, // adp 5 -> +4
-      { pickNumber: 2, playerId: 101 }, // adp unknown -> skipped
-      { pickNumber: 14, playerId: 102 }, // adp 4 -> -10
+      { pickNumber: 1, adp: 5 }, // adp 5 -> +4
+      { pickNumber: 2, adp: null }, // no market adp -> contributes 0
+      { pickNumber: 14, adp: 4 }, // adp 4 -> -10
     ];
-    const adpMap = { 100: 5, 102: 4 };
-    const adpForPlayer = (id) => (id in adpMap ? adpMap[id] : null);
-    expect(netVsAdpFor({ myPicks, adpForPlayer, teamCount: 12 })).toBe(4 + -10);
+    // ADP rides on the pick now (no adpForPlayer callback, no pool lookup).
+    expect(netVsAdpFor({ myPicks, teamCount: 12 })).toBe(4 + -10);
   });
 
-  it('is zero when no ADP is known for any pick', () => {
-    const myPicks = [{ pickNumber: 1, playerId: 100 }];
-    expect(netVsAdpFor({ myPicks, adpForPlayer: () => null, teamCount: 12 })).toBe(0);
+  it('treats a null-adp pick as neutral (0), the same as Draft grades (#833 ruling 3)', () => {
+    // A keeper with no market ADP contributes 0, not a guess, exactly as
+    // draftgrade.service.js draftPickValue neutralizes a no-market pick at its
+    // own pick number. Keepers are not exempted from the sum; they just score 0.
+    const myPicks = [{ pickNumber: 1, adp: null, keeper: true }];
+    expect(netVsAdpFor({ myPicks, teamCount: 12 })).toBe(0);
+  });
+
+  it('is zero for a viewer with no picks yet (#833 ruling 4)', () => {
+    expect(netVsAdpFor({ myPicks: [], teamCount: 12 })).toBe(0);
   });
 });

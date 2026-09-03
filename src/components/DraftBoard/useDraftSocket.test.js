@@ -170,11 +170,38 @@ test('a landed pick enters history attributed by Team, carrying no account ident
     name: 'X',
     position: 'QB',
     nfl_team: 'KC',
+    // No market ADP on this payload's player, so the reduced pick carries null
+    // (#833). The board's Misery Meter reads a pick's ADP off the pick itself.
+    adp: null,
     auto: true,
   });
   // The broadcast no longer carries an account `by` object (#344); the autopick
   // flag rides at the root as `auto` and is the only thing carried into state.
   expect(pick).not.toHaveProperty('by');
+});
+
+test('a landed pick carries the player market ADP through to history (#833)', () => {
+  const { result } = renderHook(() => useDraftSocket(1));
+
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1);
+  act(() =>
+    fakeSocket.trigger('draft:picked', {
+      pickNumber: 1,
+      teamId: 1,
+      teamName: 'Team A',
+      // The draft:picked outcome carries the ADP on the player object (#833).
+      player: {
+        id: 10, name: 'X', position: 'QB', nfl_team: 'KC', adp: 3.2,
+      },
+      nextTeamId: 2,
+      draftComplete: false,
+      auto: false,
+    })
+  );
+
+  const [pick] = result.current.picks;
+  expect(pick.adp).toBe(3.2);
 });
 
 test('fires the on-clock alert exactly once per turn, and again once the turn comes back around', () => {

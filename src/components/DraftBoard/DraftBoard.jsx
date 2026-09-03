@@ -106,6 +106,10 @@ function rosterViewFor({ league, teams, picks, viewerTeamId, viewerTurn }) {
       name: pick.name,
       position: pick.position,
       nflTeam: pick.nfl_team,
+      // The pick's market ADP, carried from the server on both socket payloads
+      // (#833), so the room assistant's Misery Meter sums it off the pick rather
+      // than the windowed player pool. Null when the player has no market ADP.
+      adp: pick.adp ?? null,
       // Neither flag is on both socket payloads: draft:state carries is_keeper
       // but no autopick flag, draft:picked carries one but no is_keeper.
       // Each renders when the data happens to be there.

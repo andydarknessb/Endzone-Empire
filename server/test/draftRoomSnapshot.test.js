@@ -125,6 +125,42 @@ test('memberSnapshot: a league row carrying owner_id, draft_share_token and invi
   fake.assertClean();
 });
 
+// #833 AC2 (the draft:state half): every member pick carries the player's market
+// ADP, read from the readPicks SELECT, so the Draft room's Misery Meter reads a
+// pick's ADP off the pick and not off the windowed player pool. The draft_picks
+// handler returns `adp` ONLY when the real SELECT names `"players"."adp"`, so this
+// is a true red-tell: drop that column from readPicks in draftRoomSnapshot.js and
+// picks[0].adp is undefined instead of the player's ADP, turning the assertion red.
+// (Verified by experiment; reported in the PR body.) memberSnapshot returns the
+// pick rows verbatim, so a null ADP - the LEFT-JOIN-absent case - passes through
+// as null, which the second pick pins.
+test('memberSnapshot: each pick carries the player market ADP from the readPicks select (#833 AC2)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    [/FROM "teams"/, () => ({ rows: [teamRow(11, 1), teamRow(12, 2)] })],
+    [/FROM "draft_picks"/, (text) => {
+      const selectsAdp = /"players"\."adp"/.test(text);
+      return {
+        rows: [
+          { ...pickRow(), adp: selectsAdp ? 3.2 : undefined },
+          {
+            ...pickRow(), pick_number: 2, player_id: 502, name: 'No-Market Guy',
+            adp: selectsAdp ? null : undefined,
+          },
+        ],
+      };
+    }],
+  ]).install(t);
+
+  const snapshot = await memberSnapshot(LEAGUE_ID);
+
+  // Present and equal to players.adp for a player who has one...
+  assert.equal(snapshot.picks[0].adp, 3.2);
+  // ...and null for a player who has none.
+  assert.strictEqual(snapshot.picks[1].adp, null);
+  fake.assertClean();
+});
+
 test('presenterSnapshot: league, teams[0], picks[0] and onTheClock key sets equal the PRESENTER_* lists', async (t) => {
   const fake = snapshotPool().install(t);
 

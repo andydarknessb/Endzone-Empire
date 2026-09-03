@@ -65,6 +65,11 @@ function reducer(state, action) {
         name: data.player.name,
         position: data.player.position,
         nfl_team: data.player.nfl_team,
+        // The player's market ADP rides on the pick (#833) so the room's Misery
+        // Meter reads it off the pick, never off the windowed pool. It sits at the
+        // top level here to match the draft:state pick row, which carries a
+        // top-level `adp`; both reach the board's myPicks mapping as `pick.adp`.
+        adp: data.player.adp ?? null,
         auto: !!data.auto,
       };
       const nextOnTheClock = data.nextTeamId
