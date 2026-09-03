@@ -12,6 +12,12 @@ const {
 const { scoreMatchups } = require('../services/scoring.service');
 const { finalizeWeekAndAdvance } = require('../services/season.service');
 const { correctLeagueWeek } = require('../services/correction.service');
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+
+// scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
+// broadcast is registered (ruling 2, #765). Register a recording one around
+// every test in this file; these tests assert the score of record, not the emit.
+registerRecordingBroadcast();
 
 /**
  * Issue #190: the score of record must be the week AS PLAYED.
