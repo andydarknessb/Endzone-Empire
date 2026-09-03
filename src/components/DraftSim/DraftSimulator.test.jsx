@@ -172,4 +172,27 @@ describe('DraftSimulator', () => {
     render(<DraftSimulator />);
     expect(screen.queryByRole('link', { name: 'Get started free' })).not.toBeInTheDocument();
   });
+
+  // Red-tell: reverting this region to an off-turn-only mount turns the
+  // "Your pick!" assertion red (#805, ADR 0028). One region, mounted on both
+  // turns, so a screen reader hears a turn-change announcement on this axis
+  // even with the assistant off (its default) - mirrors LiveDraftBanner in
+  // the Draft room.
+  it('mounts one status region on both turns, announcing the turn change once', async () => {
+    await startDraft();
+
+    const onUserTurn = screen.getAllByRole('status').find((region) => region.textContent === 'Your pick!');
+    // Asserted separately from toBeInTheDocument so a reverted, off-turn-only
+    // mount fails with a readable "undefined is not defined" rather than
+    // jest-dom's HtmlElementTypeError on a non-element value.
+    expect(onUserTurn).toBeDefined();
+    expect(onUserTurn).toBeInTheDocument();
+
+    draftFirstAvailable();
+
+    // Same node, new text once the CPU is on the clock - not a second region
+    // replacing a first.
+    await waitFor(() => expect(onUserTurn).toHaveTextContent(/is on the clock…$/));
+    expect(screen.getAllByRole('status').filter((region) => region.textContent.includes('on the clock'))).toHaveLength(1);
+  });
 });
