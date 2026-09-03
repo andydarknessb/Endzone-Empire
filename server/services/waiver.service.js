@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
-const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { rosterCapacity } = require('./irPolicy.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
@@ -283,8 +283,9 @@ async function processWaivers({ leagueId }) {
       await client.query('COMMIT');
       // The scheduler also reaches this path when an empty blanket window
       // expires. No roster write is needed, but the Player read model changed
-      // from waiver-only to free-agent and connected managers must refetch.
-      await broadcastRosterAvailability(leagueId);
+      // from waiver-only to free-agent and connected managers must refetch. This
+      // runs in the WORKER, so it rides the one Draft room adapter (#745).
+      await getDraftRoomBroadcast().rosterChanged(leagueId);
       return { processed: 0, results: [] };
     }
 
@@ -423,7 +424,7 @@ async function processWaivers({ leagueId }) {
     );
 
     await client.query('COMMIT');
-    await broadcastRosterAvailability(leagueId);
+    await getDraftRoomBroadcast().rosterChanged(leagueId);
     return { processed: dueResult.rows.length, results };
   } catch (error) {
     await client.query('ROLLBACK');

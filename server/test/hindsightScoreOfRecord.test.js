@@ -4,6 +4,12 @@ const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const { weekHindsight } = require('../services/decision.service');
 const { scoreMatchups } = require('../services/scoring.service');
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+
+// scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
+// broadcast is registered (ruling 2, #765). Register a recording one around
+// every test in this file; these tests assert hindsight, not the emit.
+registerRecordingBroadcast();
 
 /**
  * Issue #736: hindsight over a SETTLED week must not contradict the score of

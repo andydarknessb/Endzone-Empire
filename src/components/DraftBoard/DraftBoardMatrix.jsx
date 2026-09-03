@@ -3,6 +3,7 @@ import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContain
 import { keyframes } from '@mui/material/styles';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { isTeamOnTheClock } from '../../lib/onTheClock';
 
 // Same technique as the matchup score flash: a CSS var color (theme-aware,
 // no hard-coded literal) that fades in and back out.
@@ -61,9 +62,10 @@ function useFlashKey(value) {
  * needed to place a landed pick, only to know the round a pick_number falls in
  * (ceil(pick_number / teamCount)).
  *
- * `teams` and `onTheClock` are read as `teamId` / `teamName` for the same
- * reason: a cell key matches a Pick's Team against a column's Team, so both
- * sides have to be spelled the same way.
+ * `teams` and `onTheClock.team` are read as `teamId` / `teamName` for the
+ * same reason: a cell key matches a Pick's Team against a column's Team, so
+ * both sides have to be spelled the same way. `onTheClock` is the
+ * On-the-clock value (src/lib/onTheClock, #754); the team lives under it.
  */
 function DraftBoardMatrix({
   teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false, headerAction = null,
@@ -109,7 +111,7 @@ function DraftBoardMatrix({
 
   const nextPickNumber = picks.length + 1;
   const onClockCellKey =
-    onTheClock && teamCount > 0 ? `${Math.ceil(nextPickNumber / teamCount)}-${onTheClock.teamId}` : null;
+    onTheClock?.team && teamCount > 0 ? `${Math.ceil(nextPickNumber / teamCount)}-${onTheClock.team.teamId}` : null;
 
   if (teamCount === 0) {
     return (
@@ -145,7 +147,7 @@ function DraftBoardMatrix({
                 Rd
               </TableCell>
               {orderedTeams.map((team) => {
-                const isOnClockTeam = !!(onTheClock && onTheClock.teamId === team.teamId);
+                const isOnClockTeam = isTeamOnTheClock(onTheClock, team.teamId);
                 return (
                   <TableCell
                     key={team.teamId}

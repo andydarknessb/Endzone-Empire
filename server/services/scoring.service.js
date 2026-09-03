@@ -7,7 +7,7 @@ const {
   rowsHeldAsPlayed,
 } = require('./lineup.service');
 const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR, normalizeNflTeam } = require('./nflTeam');
-const { getIo } = require('../modules/io');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { fantasySideWhereSql } = require('./leagueType');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
@@ -1933,12 +1933,18 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
     entry.homePlayersRemaining = home ? home.playersRemaining : null;
     entry.awayPlayersRemaining = away ? away.playersRemaining : null;
   }
-  // Live scoring: push fresh scores to anyone watching this league
-  const io = getIo();
+  // Live scoring: push fresh scores to anyone watching this league, through the
+  // one Draft room broadcast adapter (#765). In the API it rides `io`; in the
+  // worker it rides the Redis emitter to every API instance, so the scheduled
+  // tick and the daily correction pass reach the room instead of the null-`io`
+  // drop that silenced them since the worker split. The adapter is registered at
+  // boot in both processes and getDraftRoomBroadcast() THROWS when it is not:
+  // that is post-commit (the scores are already durable), so the throw surfaces
+  // a misconfigured process loudly rather than dropping the event silently.
   // `plays` (typed touchdown events) rides the same emit that carries fresh
   // scores. It's populated only on the live sync path — the stat-correction
   // path passes none — so a cutscene can never fire from a correction.
-  if (io) io.to(`league:${leagueId}`).emit('scores:updated', { leagueId, season, week, scored, plays });
+  await getDraftRoomBroadcast().scoresUpdated(leagueId, { leagueId, season, week, scored, plays });
   return { scored };
 }
 

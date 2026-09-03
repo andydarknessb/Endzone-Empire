@@ -1,8 +1,6 @@
 const pool = require('../modules/pool');
 const { teamForPick } = require('./draftOrder.service');
-const ioRegistry = require('../modules/io');
-const draftEvents = require('../modules/draftEvents');
-const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 const startingNeed = require('./startingNeed');
@@ -464,18 +462,20 @@ async function autoPick({ leagueId }) {
         playerId: candidate.id,
         auto: true,
       });
-      // The worker has no local Socket.IO server. Publish there; the API-side
-      // relay emits the same room events that the in-process path emits below.
-      await emitDraftEvent(leagueId, 'draft:picked', { ...outcome, auto: true });
+      // The one Draft room adapter (#745). In the worker it publishes over the
+      // Redis emitter transport; in the API it emits in-process. Either way this
+      // is the same named event, so a committed autopick can no longer reach the
+      // room one way here and another way from the socket handler.
+      const broadcast = getDraftRoomBroadcast();
+      await broadcast.pickLanded(leagueId, { ...outcome, auto: true });
       if (outcome.draftComplete) {
         // An autopick can be the Pick that ends the draft; its completion
-        // lifecycle entry (#437) rides to the combined feed on draft:activity
-        // through the same cross-process relay.
+        // lifecycle entry (#437) rides to the combined feed on draft:activity.
         if (outcome.completion) {
-          await emitDraftEvent(leagueId, 'draft:activity', outcome.completion);
+          await broadcast.activityAppended(leagueId, outcome.completion);
         }
-        await broadcastRosterAvailability(leagueId);
-        await emitDraftEvent(leagueId, 'draft:complete', { leagueId });
+        await broadcast.rosterChanged(leagueId);
+        await broadcast.draftCompleted(leagueId);
       }
       // After a genuine timeout, track the streak and flip autodraft on once it
       // crosses the threshold, so a persistently-absent owner stops stalling.
@@ -487,7 +487,7 @@ async function autoPick({ leagueId }) {
         );
         if (draftService.shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) {
           await pool.query(`UPDATE "teams" SET "autodraft" = true WHERE "id" = $1`, [onTheClock.id]);
-          await broadcastDraftState(leagueId);
+          await getDraftRoomBroadcast().stateChanged(leagueId);
         }
       }
       return outcome;
@@ -504,13 +504,13 @@ async function autoPick({ leagueId }) {
   // path commits a Pick or arms a clock for the now-paused draft.
   const escalation = await escalateNothingDraftable({ leagueId });
   if (escalation) {
-    // The worker has no local Socket.IO server; emitDraftEvent publishes over the
-    // Draft room transport when io is null (the same path the committed-pick and
-    // completion broadcasts take). broadcastDraftState refreshes the paused clock;
-    // in the worker it likewise publishes draft:state, whose snapshot the shim
-    // computes in-process (#744).
-    await emitDraftEvent(leagueId, 'draft:activity', escalation.activity);
-    await broadcastDraftState(leagueId);
+    // Both ride the one Draft room adapter (#745). In the worker they publish
+    // over the Redis emitter transport (the escalation runs there); stateChanged
+    // refreshes the now-paused clock, computing the draft:state snapshot
+    // in-process in either process (ADR 0025).
+    const broadcast = getDraftRoomBroadcast();
+    await broadcast.activityAppended(leagueId, escalation.activity);
+    await broadcast.stateChanged(leagueId);
   }
   return null;
 }
@@ -599,32 +599,6 @@ async function escalateNothingDraftable({ leagueId }) {
   } finally {
     client.release();
   }
-}
-
-/** Re-broadcast the full draft state so clients refresh AUTO badges + the clock. */
-async function broadcastDraftState(leagueId) {
-  const io = ioRegistry.getIo();
-  if (!io) {
-    await draftEvents.publishDraftEvent({ leagueId, event: 'draft:state' });
-    return;
-  }
-  try {
-    const { getDraftState } = require('../modules/draftSocket');
-    io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
-  } catch (err) {
-    console.error('draft state broadcast failed:', err.message);
-  }
-}
-
-async function emitDraftEvent(leagueId, event, payload) {
-  const io = ioRegistry.getIo();
-  if (io) {
-    io.to(`league:${leagueId}`).emit(event, payload);
-    return;
-  }
-  const message = { leagueId, event };
-  if (payload !== undefined) message.payload = payload;
-  await draftEvents.publishDraftEvent(message);
 }
 
 // --- Hybrid expiry: in-process timers beside the stored deadline (#601) -------

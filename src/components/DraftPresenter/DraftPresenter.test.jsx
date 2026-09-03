@@ -79,6 +79,26 @@ test('renders a public draft board from the presenter token route', async () => 
   expect(boardCalls()[0][0]).toBe('/api/draft/board/share-token');
 });
 
+test('renders the pick clock as "Time remaining:" plus the room\'s m:ss, ticking on its own (#754)', async () => {
+  // The fixture deadline is 12:01:00Z; pin the clock one minute before it.
+  jest.useFakeTimers('modern');
+  jest.setSystemTime(Date.parse('2099-09-01T12:00:00.000Z'));
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const clock = screen.getByTestId('draft-clock');
+  expect(clock).toHaveTextContent('Time remaining: 1:00');
+  // The old schedule Countdown spoke this as "1m 00s"; one vocabulary now.
+  expect(clock).not.toHaveTextContent('1m 00s');
+
+  await act(async () => {
+    jest.advanceTimersByTime(3000);
+  });
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('Time remaining: 0:57');
+});
+
 test('the shared DraftBoardMatrix keeps this page\'s own (pre-#121) heading level, not the Draft route\'s default H2', async () => {
   renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
 

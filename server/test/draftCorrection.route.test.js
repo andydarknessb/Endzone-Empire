@@ -1,5 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+// The correct-pick route refreshes the board and appends the correction through
+// the one Draft room adapter (#745); register a recording broadcast per test.
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+registerRecordingBroadcast();
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');

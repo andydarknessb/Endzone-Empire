@@ -2,7 +2,6 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
-const { getIo } = require('../modules/io');
 const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
 const { draftPlayer, correctLatestPick, DraftError } = require('../services/draft.service');
@@ -19,8 +18,9 @@ const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagu
 const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
 const { listPresenterDraftActivity } = require('../services/leagueFeed');
-const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
-const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
+// Every room-wide emit in this router rides the one Draft room adapter (#745);
+// getDraftState above stays only for the anonymous presenter board read.
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 const router = express.Router();
 
@@ -347,12 +347,9 @@ router.post('/league/:id/pause', async (req, res) => {
       team: actorTeam,
     });
     await client.query('COMMIT');
-    const io = getIo();
-    if (io) {
-      const state = await getDraftState(leagueId);
-      io.to(`league:${leagueId}`).emit('draft:state', state);
-    }
-    broadcastDraftActivity(leagueId, entry);
+    const broadcast = getDraftRoomBroadcast();
+    await broadcast.stateChanged(leagueId);
+    await broadcast.activityAppended(leagueId, entry);
     // The response still carries the re-armed (or cleared) deadline the clients
     // read, now sourced from the Pick clock module rather than the flip's own UPDATE.
     res.json({ ...result.rows[0], pick_deadline_at: pickDeadlineAt });
@@ -437,10 +434,7 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
       }
     }
     await client.query('COMMIT');
-    const io = getIo();
-    if (io) {
-      io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
-    }
+    await getDraftRoomBroadcast().stateChanged(leagueId);
     res.json({ leagueId, teamId, autodraft: enabled });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -472,8 +466,7 @@ router.post('/league/:id/clock', async (req, res) => {
     if (!result.rows[0]) {
       return res.status(403).json({ error: 'league not found, not commissioner, or the draft has already finished' });
     }
-    const io = getIo();
-    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    await getDraftRoomBroadcast().stateChanged(leagueId);
     res.json({ leagueId, pickTimeSeconds });
   } catch (error) {
     console.error('Error setting pick clock', error);
@@ -549,9 +542,9 @@ router.post('/league/:id/undo', async (req, res) => {
       league,
     });
     await client.query('COMMIT');
-    await broadcastRosterAvailability(leagueId);
-    const io = getIo();
-    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    const broadcast = getDraftRoomBroadcast();
+    await broadcast.rosterChanged(leagueId);
+    await broadcast.stateChanged(leagueId);
     res.json({ leagueId, undone: targets.length, currentPick: newCurrentPick });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -585,11 +578,11 @@ router.post('/league/:id/correct-pick', async (req, res) => {
       expectedPickNumber: pickNumber ?? null,
       reason,
     });
-    const io = getIo();
-    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    const broadcast = getDraftRoomBroadcast();
+    await broadcast.stateChanged(leagueId);
     // The correction rides the combined feed on draft:activity beside the paused
     // draft:state, the same path the pause/resume/reset lifecycle entries use.
-    broadcastDraftActivity(leagueId, outcome.activity);
+    await broadcast.activityAppended(leagueId, outcome.activity);
     res.json(outcome);
   } catch (error) {
     if (error instanceof DraftError) {
@@ -671,9 +664,9 @@ router.post('/league/:id/reset', async (req, res) => {
     const actorTeam = await lookupTeam(client, { leagueId, userId: req.user.id });
     const entry = await appendLifecycleActivity(client, { leagueId, kind: RESET, team: actorTeam });
     await client.query('COMMIT');
-    const io = getIo();
-    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
-    broadcastDraftActivity(leagueId, entry);
+    const broadcast = getDraftRoomBroadcast();
+    await broadcast.stateChanged(leagueId);
+    await broadcast.activityAppended(leagueId, entry);
     res.json({ leagueId, reset: true });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -706,8 +699,7 @@ router.post('/league/:id/ready', async (req, res) => {
     if (!result.rows[0]) {
       return res.status(403).json({ error: 'not a member of this league, or the draft is not pending' });
     }
-    const io = getIo();
-    if (io) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    await getDraftRoomBroadcast().stateChanged(leagueId);
     res.json({ leagueId, ready });
   } catch (error) {
     console.error('Error updating draft readiness', error);
@@ -875,9 +867,9 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       }
     }
     if (!result.error) result = { applied };
-    if (draftComplete) await broadcastRosterAvailability(leagueId);
-    const io = getIo();
-    if (io && applied > 0) io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
+    const broadcast = getDraftRoomBroadcast();
+    if (draftComplete) await broadcast.rosterChanged(leagueId);
+    if (applied > 0) await broadcast.stateChanged(leagueId);
     res.json(result);
   } catch (error) {
     console.error('Error entering offline picks', error);

@@ -6,23 +6,14 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { MARKET_FLOOR } = require('./adp.service');
 const { appendLifecycleActivity, DRAFT_START, COMPLETE } = require('./draftActivity');
-const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
+// The one Draft room adapter (#745), injected the same way the Pick clock reads
+// it: in the WORKER (scheduled autostart) its transport is the Redis emitter, so
+// the draft_start activity and the state refresh below are published rather than
+// silently dropped the way the old null-`io` registry path dropped them (ADR 0018).
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // The Pick clock module owns arming (ADR 0018): the draft-started event fixes
 // draft_rounds and arms the first open pick's clock in one statement.
 const pickClock = require('./pickClock.service');
-
-/** Re-broadcast the full draft state so connected clients pick up the new status/order. */
-async function broadcastDraftState(leagueId) {
-  const { getIo } = require('../modules/io');
-  const io = getIo();
-  if (!io) return;
-  try {
-    const { getDraftState } = require('../modules/draftSocket');
-    io.to(`league:${leagueId}`).emit('draft:state', await getDraftState(leagueId));
-  } catch (err) {
-    console.error('draft state broadcast failed for league %s:', leagueId, err.message);
-  }
-}
 
 /**
  * Start a league's draft — the single entry point for every "start" trigger
@@ -182,11 +173,16 @@ async function startDraft({ leagueId, userId = null }) {
     client.release();
   }
 
-  await broadcastDraftState(leagueId);
-  // Only after a successful COMMIT: deliver each lifecycle entry to the room's
-  // combined feed (#437). draft:state above refreshed the board; these carry the
-  // start (and, on a keeper-filled start, the completion) to the feed.
-  for (const entry of committedActivities) broadcastDraftActivity(leagueId, entry);
+  // Only after a successful COMMIT, and through the one Draft room adapter
+  // (#745), so the WORKER's scheduled autostart publishes these rather than
+  // dropping them. stateChanged refreshes the board; each committed lifecycle
+  // entry (the start, and on a keeper-filled start the completion) then rides to
+  // the combined feed on draft:activity (#437). The adapter reports its own
+  // failures and never throws here, so a post-commit transport blip cannot undo
+  // a started draft.
+  const broadcast = getDraftRoomBroadcast();
+  await broadcast.stateChanged(leagueId);
+  for (const entry of committedActivities) await broadcast.activityAppended(leagueId, entry);
   return { leagueId, pickDeadlineAt };
 }
 

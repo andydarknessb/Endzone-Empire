@@ -1,8 +1,16 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const { startDraft } = require('../services/draftStart.service');
 const { MARKET_FLOOR } = require('../services/adp.service');
+
+// startDraft now broadcasts its state refresh and lifecycle entries through the
+// one Draft room adapter (#745), which throws with no transport. Register a
+// recording broadcast around every test here so the real io/emitter transport is
+// not required; the "worker path emits" assertion is owned by
+// draftSchedule.autostartArm.test.js (invoked through runStartAction).
+registerRecordingBroadcast();
 
 const baseLeague = {
   id: 1,

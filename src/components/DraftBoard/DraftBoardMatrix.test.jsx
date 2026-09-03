@@ -52,3 +52,27 @@ test('exposes itself as a named "Draft Board" H2 region, with and without a set 
   expect(screen.getByRole('region', { name: 'Draft Board' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'Draft Board' })).toBeInTheDocument();
 });
+
+// The matrix reads the On-the-clock value object (#754): the team lives under
+// `.team`, and the mock draft simulator derives that shape at its seam
+// (DraftSimulator.jsx) from the engine's flat team. A flat shape here would
+// silently drop the column highlight, so this pins the nested read.
+test('marks the on-the-clock team column from the value object', () => {
+  render(
+    <DraftBoardMatrix
+      teams={[
+        { teamId: 1, teamName: 'Team A', draft_position: 1 },
+        { teamId: 2, teamName: 'Team B', draft_position: 2 },
+      ]}
+      picks={[]}
+      onTheClock={{ team: { teamId: 2, teamName: 'Team B' }, state: 'untimed', deadlineAt: null }}
+      draftRounds={1}
+      readOnly
+    />
+  );
+
+  const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+  expect(headers).toContain('Team B⏱');
+  expect(headers).toContain('Team A');
+  expect(headers).not.toContain('Team A⏱');
+});

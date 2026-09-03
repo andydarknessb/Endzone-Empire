@@ -8,7 +8,6 @@ import DraftStatusBar from './DraftStatusBar';
 const baseProps = {
   league: { draft_status: 'pending' },
   onTheClock: null,
-  secondsLeft: null,
   reconnecting: false,
   soundOn: false,
   toggleSound: jest.fn(),
@@ -45,7 +44,7 @@ test('On the clock still replaces the status chip while a Team is on it', () => 
   render(<DraftStatusBar
     {...baseProps}
     league={{ draft_status: 'active' }}
-    onTheClock={{ teamId: 1, teamName: 'Ridge Runners' }}
+    onTheClock={{ team: { teamId: 1, teamName: 'Ridge Runners' }, state: 'untimed', deadlineAt: null }}
   />);
 
   expect(screen.getByText('On the clock: Ridge Runners')).toBeInTheDocument();

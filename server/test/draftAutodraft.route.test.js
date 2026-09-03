@@ -1,5 +1,9 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
+// The autodraft route refreshes the board through the one Draft room adapter
+// (#745), which throws with no transport; register a recording broadcast.
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+registerRecordingBroadcast();
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');

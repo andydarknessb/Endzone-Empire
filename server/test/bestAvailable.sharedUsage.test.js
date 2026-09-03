@@ -7,6 +7,10 @@
  */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+// autoPick emits the committed pick through the one Draft room adapter (#745),
+// which throws with no transport; register a recording broadcast per test.
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+registerRecordingBroadcast();
 const pool = require('../modules/pool');
 const bestAvailable = require('../services/bestAvailable.service');
 const draftService = require('../services/draft.service');
