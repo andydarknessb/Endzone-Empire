@@ -1115,6 +1115,7 @@ module.exports = {
   LineupError,
   DEFAULT_ROSTER_SLOTS,
   POSITION_GROUPS,
+  expandEligibility,
   slotEligible,
   parseLineupSettings,
   validateLineup,

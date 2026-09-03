@@ -234,6 +234,24 @@ class FakeDraftDatabase {
     if (sql.includes('FROM "teams"') && sql.includes('ORDER BY "draft_position"')) {
       return { rows: state.teams.map((team) => ({ ...team })) };
     }
+    // Need-aware ordering (#746): the on-clock team's current roster positions.
+    // These fixtures leave candidates position-less below, so the need phase
+    // never reorders here (that path is covered by pickClock.sweep.test.js); this
+    // read just has to answer so autoPick does not throw.
+    if (sql.includes('FROM "team_players"') && sql.includes('JOIN "players"') && sql.includes('"players"."position"')) {
+      const teamId = values[1];
+      const rows = state.teamPlayers
+        .filter((entry) => entry.teamId === teamId)
+        .map((entry) => ({ position: state.players.get(entry.playerId)?.position }))
+        .filter((row) => row.position != null);
+      return { rows };
+    }
+    // Need-aware ordering (#746): picks already taken (keepers) at or beyond the
+    // current pick, for the must-fill guard's picks-remaining count.
+    if (sql.includes('SELECT "pick_number" FROM "draft_picks"') && sql.includes('"pick_number" >= $2')) {
+      const from = values[1];
+      return { rows: state.draftPicks.filter((pick) => pick.pickNumber >= from).map((pick) => ({ pick_number: pick.pickNumber })) };
+    }
     // #142: lastCompletedNflSeason()'s calendar resolution — the exact year
     // doesn't matter to these fixtures, only that it resolves.
     if (sql.includes('EXTRACT(MONTH FROM CURRENT_DATE)')) {

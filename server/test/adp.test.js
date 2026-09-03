@@ -7,6 +7,7 @@ const {
   normalizeAdpEntry,
   buildAdpUpdates,
   syncAdp,
+  getMarketStatus,
   MARKET_FLOOR,
   MARKET_STALE_DAYS,
 } = adpService;
@@ -235,4 +236,62 @@ test('a failed data_sync_runs record never masks a correctly refreshed market', 
 
   assert.equal(result.ok, true, 'the refresh outcome is unaffected by a record failure');
   assert.equal(fake.matching(/^UPDATE "players" p SET "adp"/).length, 1, 'the market was actually refreshed');
+});
+
+// ------------------------------------------------------- getMarketStatus (#748)
+
+test('getMarketStatus reports the four keys, not stale when the latest ok run is recent', async (t) => {
+  const recent = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
+  createFakePool([
+    [select('players'), () => ({ rows: [{ n: 250 }] })],
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ finished_at: recent }] })],
+  ]).install(t);
+
+  const status = await getMarketStatus();
+
+  assert.deepEqual(status, { adpPlayers: 250, floor: MARKET_FLOOR, lastSyncAt: recent, stale: false });
+});
+
+// Lowering this fixture's age to just inside MARKET_STALE_DAYS turns the case
+// green the other way (stale: false) - the same boundary the route test in
+// leagueDetail.test.js exercises at the HTTP layer.
+test('getMarketStatus is stale once the latest ok run is older than MARKET_STALE_DAYS', async (t) => {
+  const old = new Date(Date.now() - (MARKET_STALE_DAYS + 1) * 24 * 60 * 60 * 1000).toISOString();
+  createFakePool([
+    [select('players'), () => ({ rows: [{ n: 250 }] })],
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ finished_at: old }] })],
+  ]).install(t);
+
+  const status = await getMarketStatus();
+
+  assert.equal(status.stale, true);
+});
+
+test('getMarketStatus reports lastSyncAt null and stale true when there is no ok run at all', async (t) => {
+  createFakePool([
+    [select('players'), () => ({ rows: [{ n: 250 }] })],
+    [/FROM "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const status = await getMarketStatus();
+
+  assert.equal(status.lastSyncAt, null);
+  assert.equal(status.stale, true);
+});
+
+// The maintainer applies the data_sync_runs migration as a separate step
+// (#747), so this read can find the table absent in a given environment. It
+// is called from GET /api/league/:id, a hot authenticated route, so it must
+// degrade rather than throw (getSchedulerStatus's precedent, modules/scheduler.js).
+test('getMarketStatus degrades to the no-run shape when the data_sync_runs read fails', async (t) => {
+  createFakePool([
+    [select('players'), () => ({ rows: [{ n: 250 }] })],
+    [/FROM "data_sync_runs"/, () => { throw new Error('relation "data_sync_runs" does not exist'); }],
+  ]).install(t);
+
+  const status = await getMarketStatus();
+
+  assert.equal(status.adpPlayers, 250, 'the players count is unaffected - only the run read failed');
+  assert.equal(status.lastSyncAt, null);
+  assert.equal(status.stale, true);
 });

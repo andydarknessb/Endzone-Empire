@@ -3,6 +3,11 @@ import { expandEligibility } from './draftSim/templates';
 /**
  * Which roster slot did each drafted player land in?
  *
+ * SYNC OBLIGATION (repo convention): this unweighted starter matching is twinned
+ * on the server by server/services/startingNeed.js (the Pick clock's autopick
+ * need phase, #746/ADR 0026) and shares the K/DEF-window rule with the Draft
+ * Sim's need logic in src/lib/draftSim/cpuBrain.js; keep the three in step.
+ *
  * Pure and recomputed from the FULL pick list on every change, so the answer is
  * a function of the picks alone and never of the order they arrived in. That
  * matters: drafting a WR before a TE must not permanently park the WR in FLEX

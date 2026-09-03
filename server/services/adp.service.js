@@ -18,11 +18,12 @@ const VALID_FORMATS = new Set(['standard', 'ppr', 'half-ppr', '2qb', 'dynasty', 
 // The market-health thresholds (#747). MARKET_FLOOR is the count of players
 // carrying an ADP below which the market is treated as absent, and it is the one
 // every gate reads: the wipe guard refuses a Success body with fewer usable
-// entries, and draft start (draftStart.service, draftSchedule.service) refuses
-// when fewer than this many players carry a non-null adp. MARKET_STALE_DAYS is
+// entries, draft start (draftStart.service, draftSchedule.service) refuses
+// when fewer than this many players carry a non-null adp, and getMarketStatus
+// below reports it as the commissioner-visible `floor`. MARKET_STALE_DAYS is
 // the age (in days since the last ok run) past which the market is meant to read
-// as stale; it is exported here so no gate hardcodes the number, and the sibling
-// UI ticket will surface staleness from it. Nothing consumes it yet.
+// as stale; it is exported here so no gate hardcodes the number, and
+// getMarketStatus is what reads it (#748).
 const MARKET_FLOOR = 100;
 const MARKET_STALE_DAYS = 7;
 
@@ -52,6 +53,48 @@ async function recordAdpRun({ startedAt, ok, detail }) {
   } catch (err) {
     console.error('data_sync_runs record failed for adp (run outcome unaffected):', err.message);
   }
+}
+
+/**
+ * The market's observable state for GET /api/league/:id (#748): how many
+ * players carry an ADP, the floor that count is judged against, when the last
+ * successful sync finished, and whether that run is stale. `stale` is true
+ * both when there has never been an ok run and when the latest one finished
+ * more than MARKET_STALE_DAYS ago, so a consumer can read it without a null
+ * check of its own.
+ *
+ * The data_sync_runs read follows getSchedulerStatus's precedent
+ * (modules/scheduler.js): the migration that creates the table is applied by
+ * the maintainer as a separate step, so the table may not exist yet in a given
+ * environment, and this is called from GET /api/league/:id, a hot
+ * authenticated route. A failed or impossible read must not 500 that route, so
+ * it degrades to the same shape as "no run yet" (lastSyncAt null, stale true)
+ * rather than throwing.
+ */
+async function getMarketStatus() {
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS "n" FROM "players" WHERE "adp" IS NOT NULL`
+  );
+  const adpPlayers = countResult.rows[0].n;
+
+  let lastSyncAt = null;
+  try {
+    const runResult = await pool.query(
+      `SELECT "finished_at" FROM "data_sync_runs"
+       WHERE "job" = 'adp' AND "ok" = true
+       ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
+    );
+    const row = runResult.rows[0];
+    if (row) lastSyncAt = row.finished_at;
+  } catch (err) {
+    console.warn('getMarketStatus: data_sync_runs read failed, reporting lastSyncAt=null:', err.message);
+    lastSyncAt = null;
+  }
+
+  const staleCutoffMs = MARKET_STALE_DAYS * 24 * 60 * 60 * 1000;
+  const stale = lastSyncAt == null || (Date.now() - new Date(lastSyncAt).getTime()) > staleCutoffMs;
+
+  return { adpPlayers, floor: MARKET_FLOOR, lastSyncAt, stale };
 }
 
 function adpClient() {
@@ -234,6 +277,7 @@ module.exports = {
   normalizeAdpEntry,
   buildAdpUpdates,
   syncAdp,
+  getMarketStatus,
   MARKET_FLOOR,
   MARKET_STALE_DAYS,
 };

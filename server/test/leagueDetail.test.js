@@ -30,18 +30,34 @@ const GRANT_WITHOUT_TEAM = {
   user_id: 43, username: 'ghost', created_at: GRANTED_AT, teamId: null, teamName: null,
 };
 
-function mockLeagueDetail(t, { isCommissioner = true, coCommissioners = [] } = {}) {
+// The market status line (#748) defaults to a fresh market - plenty of
+// players, a recent ok sync - so tests that don't care about it aren't forced
+// to think about it. The dedicated market tests below override adpPlayers,
+// lastAdpRun and dataSyncRunsError one at a time.
+function mockLeagueDetail(t, {
+  isCommissioner = true,
+  coCommissioners = [],
+  adpPlayers = 250,
+  lastAdpRun = { finished_at: new Date().toISOString() },
+  dataSyncRunsError = null,
+  draftStatus = 'pending',
+} = {}) {
   const seen = {};
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('ownerTeamId')) {
-      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team" }] };
+      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team", draft_status: draftStatus }] };
     }
     if (text.includes('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('SELECT 1 FROM "leagues"')) {
       return { rows: isCommissioner ? [{ '?column?': 1 }] : [] };
     }
     if (text.includes('FROM "league_commissioners"')) return { rows: coCommissioners };
+    if (text.includes('FROM "players"')) return { rows: [{ n: adpPlayers }] };
+    if (text.includes('FROM "data_sync_runs"')) {
+      if (dataSyncRunsError) throw dataSyncRunsError;
+      return { rows: lastAdpRun ? [lastAdpRun] : [] };
+    }
     if (text.includes('COUNT("team_players"."id")')) {
       seen.teamsQuery = text;
       return {
@@ -79,6 +95,8 @@ test('GET league detail selects and serializes team readiness', async (t) => {
     if (text.includes('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('SELECT 1 FROM "leagues"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('FROM "league_commissioners"')) return { rows: [] };
+    if (text.includes('FROM "players"')) return { rows: [{ n: 250 }] };
+    if (text.includes('FROM "data_sync_runs"')) return { rows: [{ finished_at: new Date().toISOString() }] };
     if (text.includes('COUNT("team_players"."id")')) {
       teamsQuery = text;
       return {
@@ -185,4 +203,86 @@ test('GET league detail flags only the teams whose manager holds a grant', async
   // it unconditionally - and a grant that no longer names a Team flags none.
   assert.equal(response.body.teams[0].is_co_commissioner, false);
   assert.deepEqual(response.body.league.co_commissioners, []);
+});
+
+// ---------------------------------------------------------- market (#748)
+
+test('GET league detail carries a market object with adpPlayers, floor, lastSyncAt and stale', async (t) => {
+  const recent = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
+  mockLeagueDetail(t, { adpPlayers: 250, lastAdpRun: { finished_at: recent } });
+
+  const token = signToken({ id: 7, username: 'commissioner' });
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.deepEqual(Object.keys(response.body.league.market).sort(), ['adpPlayers', 'floor', 'lastSyncAt', 'stale']);
+  assert.equal(response.body.league.market.adpPlayers, 250);
+  assert.equal(response.body.league.market.floor, 100);
+  assert.equal(response.body.league.market.lastSyncAt, recent);
+  assert.equal(response.body.league.market.stale, false);
+});
+
+test('GET league detail marks the market stale once the latest ok run is older than MARKET_STALE_DAYS', async (t) => {
+  const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(); // 8 days ago
+  mockLeagueDetail(t, { adpPlayers: 250, lastAdpRun: { finished_at: old } });
+
+  const token = signToken({ id: 7, username: 'commissioner' });
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.league.market.stale, true);
+});
+
+test('GET league detail reports lastSyncAt null and stale true when there is no ADP run at all', async (t) => {
+  mockLeagueDetail(t, { adpPlayers: 250, lastAdpRun: null });
+
+  const token = signToken({ id: 7, username: 'commissioner' });
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.league.market.lastSyncAt, null);
+  assert.equal(response.body.league.market.stale, true);
+});
+
+// The maintainer applies the data_sync_runs migration as a separate step
+// (#747, #748), so a read against it can find the table absent in a given
+// environment. That must degrade to the same shape as "no run yet" rather
+// than 500 this hot authenticated route (getSchedulerStatus's precedent,
+// modules/scheduler.js).
+test('GET league detail degrades to the no-run market shape, and stays 200, when data_sync_runs is absent', async (t) => {
+  const tableAbsent = new Error('relation "data_sync_runs" does not exist');
+  tableAbsent.code = '42P01';
+  mockLeagueDetail(t, { adpPlayers: 250, dataSyncRunsError: tableAbsent });
+
+  const token = signToken({ id: 7, username: 'commissioner' });
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.league.market.lastSyncAt, null);
+  assert.equal(response.body.league.market.stale, true);
+});
+
+// 758-f2: decision 3 is "pending drafts only". Gated here, at the route, so
+// every consumer of the payload gets the rule for free rather than each
+// re-deriving "pending" from draft_status on its own.
+for (const draftStatus of ['active', 'complete']) {
+  test(`GET league detail carries no market once draft_status is ${draftStatus}`, async (t) => {
+    mockLeagueDetail(t, { draftStatus });
+
+    const token = signToken({ id: 7, username: 'commissioner' });
+    const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal('market' in response.body.league, false);
+  });
+}
+
+test('GET league detail carries market while draft_status is pending', async (t) => {
+  mockLeagueDetail(t, { draftStatus: 'pending' });
+
+  const token = signToken({ id: 7, username: 'commissioner' });
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal('market' in response.body.league, true);
 });

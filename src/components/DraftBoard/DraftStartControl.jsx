@@ -12,28 +12,55 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { formatRelative } from '../../utils/formatRelative';
 
 /**
  * The commissioner-only pending-draft start action. Both the Draft room and
  * the full settings page use the same confirmation, disabled-state, and
  * request-error behavior so the entry point cannot change the safety model.
+ *
+ * `showHints` and `showMarketStatus` (#748, 758-f3) are separate switches on
+ * purpose: `showHints` suppresses the team-count/auction lines when a caller
+ * already shows that same information elsewhere (SchedulePanel's own "N of M
+ * required teams" caption, for one) - it says nothing about whether the
+ * market status has a redundant home too, so market status gets its own flag
+ * rather than being unsuppressable, or suppressed as a side effect of a flag
+ * about different information.
  */
 export default function DraftStartControl({
   teamCount,
   minimumTeams,
   auctionUnavailable,
+  market,
   onStart,
   label = 'Start Draft',
   variant = 'contained',
   disabled = false,
   showHints = true,
+  showMarketStatus = true,
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [startPending, setStartPending] = useState(false);
   const [startError, setStartError] = useState('');
   const startInFlight = useRef(false);
   const insufficientTeams = teamCount < minimumTeams;
-  const unavailable = insufficientTeams || auctionUnavailable;
+  // The player market's state (#748): absent when fewer than `floor` players
+  // carry an ADP (blocks Start the same as the team-count case), stale when a
+  // market is present but its last sync is old (Start stays available), or
+  // fresh (no line at all). `market` is optional so a caller without it yet
+  // (a stale cache, a payload that predates this field) renders neither state.
+  const marketAbsent = Boolean(market) && market.adpPlayers < market.floor;
+  // `market.stale` (getMarketStatus, #748) is true for two different facts:
+  // the last sync is old, OR there has never been a recorded sync at all -
+  // and only the first has a timestamp worth showing. `lastSyncAt` is null for
+  // the second, and formatRelative(null) reads as the Unix epoch ("Dec 31,
+  // 1969") rather than failing visibly (758-f1) - a real production shape
+  // today, since the data_sync_runs migration can be unapplied or simply
+  // have no ok run recorded yet even once it exists. Until product rules on
+  // copy for "loaded but never recorded a sync", the safe interim is no line
+  // at all: rendering a date would assert staleness nobody measured.
+  const marketStale = Boolean(market) && !marketAbsent && market.stale && market.lastSyncAt != null;
+  const unavailable = insufficientTeams || auctionUnavailable || marketAbsent;
 
   const closeConfirmation = () => {
     if (startInFlight.current) return;
@@ -65,7 +92,9 @@ export default function DraftStartControl({
     ? `Need at least ${minimumTeams} teams to start the draft (currently ${teamCount})`
     : auctionUnavailable
       ? 'Salary-cap auctions are not supported yet'
-      : '';
+      : marketAbsent
+        ? 'The player market has not loaded'
+        : '';
 
   return (
     <Box>
@@ -93,6 +122,16 @@ export default function DraftStartControl({
           Live salary-cap auctions are not supported yet.
         </Typography>
       )}
+      {showMarketStatus && marketAbsent && (
+        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+          {`The player market has not loaded (${market.adpPlayers} of ${market.floor} players carry an ADP). Ask your admin to run the ADP sync.`}
+        </Typography>
+      )}
+      {showMarketStatus && marketStale && (
+        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+          {`Player market last updated ${formatRelative(market.lastSyncAt)}. Autopicks will use that market.`}
+        </Typography>
+      )}
       <Dialog open={confirmOpen} onClose={closeConfirmation} aria-labelledby="start-draft-dialog-title">
         <DialogTitle id="start-draft-dialog-title">Start draft now?</DialogTitle>
         <DialogContent>
@@ -116,9 +155,16 @@ DraftStartControl.propTypes = {
   teamCount: PropTypes.number.isRequired,
   minimumTeams: PropTypes.number.isRequired,
   auctionUnavailable: PropTypes.bool,
+  market: PropTypes.shape({
+    adpPlayers: PropTypes.number,
+    floor: PropTypes.number,
+    lastSyncAt: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+    stale: PropTypes.bool,
+  }),
   onStart: PropTypes.func.isRequired,
   label: PropTypes.string,
   variant: PropTypes.string,
   disabled: PropTypes.bool,
   showHints: PropTypes.bool,
+  showMarketStatus: PropTypes.bool,
 };
