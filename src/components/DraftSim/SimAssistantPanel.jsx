@@ -14,7 +14,7 @@ import { templateFor } from '../../lib/draftSim/templates';
 import { isUrgent } from '../../lib/onTheClock';
 import { readDraftAssistantOn, writeDraftAssistantOn } from '../../lib/draftAssistantPreference';
 import {
-  netVsAdpFor, factsForUserPick, factsForPoolSelection,
+  netVsAdpFor, factsForUserPick, factsForPoolTaken,
   factsForTurnStart, factsForClockUrgent, userTeamId, SELECTION_COOLDOWN_MS,
 } from './simAssistantFacts';
 
@@ -38,13 +38,15 @@ const SCROLLBACK_LIMIT = 20;
  *   - PICK_STEAL / PICK_REACH / PICK_EARLY_KDEF / PICK_RB / PICK_GENERIC /
  *     PICK_AUTO: exactly one of these, per pick, for a pick THIS panel's user
  *     team made (factsForUserPick's priority chain).
- *   - POOL_PLAYER_SELECTED: any other team's pick removing a player from the
- *     pool, throttled by SELECTION_COOLDOWN_MS so a burst of CPU picks does
- *     not flood the panel.
+ *   - POOL_PLAYER_TAKEN: any other team's pick removing a player from the
+ *     pool (the Sim half of the #815 split of the old shared pool trigger),
+ *     throttled by SELECTION_COOLDOWN_MS so a burst of CPU picks does not flood
+ *     the panel. The Sim never fires POOL_PLAYER_BROWSED - it has no browse
+ *     action, a pool row click there is the pick itself.
  *
- * THE POLITE REGION never speaks a selection line (ruling 9): PICK_* /
+ * THE POLITE REGION never speaks a pool line (ruling 9): PICK_* /
  * TURN_START / CLOCK_URGENT lines both render into the scrollback AND
- * announce(); POOL_PLAYER_SELECTED lines only ever render.
+ * announce(); POOL_PLAYER_TAKEN lines only ever render.
  *
  * A NEW PICK IS DETECTED BY COUNT, NOT BY WATCHING FOR A PROP CHANGE, because
  * `sim.picks` can grow by more than one entry in a single update ("sim to my
@@ -188,7 +190,7 @@ function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
         return;
       }
       lastSelectionAtRef.current = now;
-      const facts = factsForPoolSelection({ sim, pickNumber: pick.pickNumber });
+      const facts = factsForPoolTaken({ sim, pickNumber: pick.pickNumber });
       pushLine(facts, { spoken: false });
     });
   }, [sim, assistantOn, myTeamId, rosterSlots, pushLine]);

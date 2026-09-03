@@ -4,7 +4,7 @@ import {
   netVsAdpFor,
   factsForOwnPick,
   factsForQueueSnipe,
-  factsForPoolSelection,
+  factsForPoolBrowse,
   factsForTurnStart,
   factsForClockUrgent,
 } from './roomAssistantFacts';
@@ -141,14 +141,15 @@ describe('the other room triggers', () => {
     expect(facts.round).toBe(1);
   });
 
-  it('factsForPoolSelection reads the whole row and never announces a round', () => {
-    const facts = factsForPoolSelection({
+  it('factsForPoolBrowse reads the whole row, emits POOL_PLAYER_BROWSED, and never announces a round', () => {
+    const facts = factsForPoolBrowse({
       poolRow: { name: 'Browsed Guy', position: 'TE', nfl_team: 'SF', adp: 40, injury_status: 'Out' },
       teamCount: 12, draftRounds: 12, netVsAdp: 0,
     });
-    expect(facts.trigger).toBe(TRIGGERS.POOL_PLAYER_SELECTED);
+    expect(facts.trigger).toBe(TRIGGERS.POOL_PLAYER_BROWSED);
     expect(facts.player).toEqual({ name: 'Browsed Guy', position: 'TE', nfl_team: 'SF', injury_status: 'Out' });
     expect(facts.pickNumber).toBeNull();
+    expect(facts.round).toBeNull();
   });
 
   it('the contextual triggers carry an empty player and the current round', () => {

@@ -1,7 +1,7 @@
 import { TRIGGERS } from '../../lib/draftAssistant';
 import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
 import {
-  netVsAdpFor, factsForUserPick, factsForPoolSelection,
+  netVsAdpFor, factsForUserPick, factsForPoolTaken,
   factsForTurnStart, factsForClockUrgent, userTeamId,
 } from './simAssistantFacts';
 
@@ -139,11 +139,11 @@ describe('factsForUserPick', () => {
   });
 });
 
-describe('factsForPoolSelection', () => {
-  it('builds POOL_PLAYER_SELECTED facts for another team\'s pick', () => {
+describe('factsForPoolTaken', () => {
+  it('builds POOL_PLAYER_TAKEN facts for another team\'s pick', () => {
     const state = sim({ picks: [{ pickNumber: 1, teamId: 2, playerId: 7, auto: false }] });
-    const facts = factsForPoolSelection({ sim: state, pickNumber: 1 });
-    expect(facts.trigger).toBe(TRIGGERS.POOL_PLAYER_SELECTED);
+    const facts = factsForPoolTaken({ sim: state, pickNumber: 1 });
+    expect(facts.trigger).toBe(TRIGGERS.POOL_PLAYER_TAKEN);
     expect(facts.player.name).toBe('WR7 Player');
     expect(facts.pickNumber).toBe(1);
   });

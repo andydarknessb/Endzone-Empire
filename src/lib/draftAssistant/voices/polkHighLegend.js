@@ -32,6 +32,15 @@
  * reserves "the board" for the Draft board, the committed-pick matrix, so
  * that word never appears here to mean the opposite.
  *
+ * TWO POOL TRIGGERS, NOT ONE (issue #815, amending #784 ruling 7). The former
+ * single shared pool copy is split by venue: POOL_PLAYER_TAKEN keeps those
+ * eight departure lines for the Sim's "another team took him" meaning,
+ * and POOL_PLAYER_BROWSED is new scouting copy for the Draft room's "the
+ * viewer is weighing a still-available player" meaning. A browsed line never
+ * asserts a draft event (no "gone"/"taken"/"picked"/"out of the pool"), and
+ * references only {player}/{position}/{team} because a browse carries null
+ * pickNumber/round and possibly-null adp/injury_status.
+ *
  * Every trigger keeps at least six lines (ruling 7 minimum); most keep more
  * so the "no repeat until exhausted" rule has real room to breathe.
  */
@@ -121,7 +130,11 @@ export const LINES = {
     'Tick tock. I sold a man a pair of shoes faster than you are making this decision.',
     'Clock is nearly out. Whatever you are thinking about, it is not worth this delay.',
   ],
-  [TRIGGERS.POOL_PLAYER_SELECTED]: [
+  // POOL_PLAYER_TAKEN (Sim only, issue #815): another team's pick removed this
+  // player from the pool. The eight lines that shipped under the old shared
+  // pool trigger, moved here unchanged, keeping the departure register
+  // ("gone", "taken", "out of the pool") that the Sim's meaning wants.
+  [TRIGGERS.POOL_PLAYER_TAKEN]: [
     '{player} is out of the pool. Somebody wanted him more than you did, apparently.',
     'There goes {player}. The pool gets a little thinner and the room gets a little louder.',
     '{player}, gone. If he was on your list, cross him off and keep moving.',
@@ -130,6 +143,24 @@ export const LINES = {
     'That is {player} out of the pool. Somebody just made their move while you were reading this.',
     'One less name in the pool now. {player} is somebody else\'s problem to start on Sundays.',
     '{player} is gone. That is one less argument you get to have with yourself later.',
+  ],
+  // POOL_PLAYER_BROWSED (Draft room only, issue #815): the viewer opened this
+  // player's quick view to weigh him. He is still available, so the register is
+  // SCOUTING, never departure: no "gone", "taken", "picked", "out of the pool",
+  // "off the board", "cross him off" (polkHighLegend.test.js pins this after
+  // fill). On a browse pickNumber/round are null and adp/injury_status may be
+  // null (windowed pool, healthy player), so these lines reference only
+  // {player}, {position} and {team}, which are always in hand, and read as
+  // whole sentences regardless of the null fields.
+  [TRIGGERS.POOL_PLAYER_BROWSED]: [
+    'Kicking the tires on {player}, are you? I have watched men circle a display rack longer than this and still buy the wrong shoe.',
+    'You are weighing {player} at {position}. I weighed my options too, right up until my knees made the call for me.',
+    '{player} looks the part, I will give you that. So did every shoe that fell apart on me by August.',
+    'Give {player} a good long look. Nobody ever rushed me into a decent pair of wingtips, and it shows.',
+    'Sizing up {player} out of {team}? That whole roster could not carry my 1966 squad\'s chin straps.',
+    'A {position} has caught your eye. I sold cleats to better {position}s who never made a dime playing.',
+    'You keep staring at {player} like he owes you money. Study him all you want, the tape does not lie and neither do I.',
+    'Mulling over {player}, I see. Take your time. Half of scouting is deciding what you can live without.',
   ],
   [TRIGGERS.PICK_AUTO]: [
     'Autopick made that one for you. Even a shoe store mannequin has better instincts sometimes.',
