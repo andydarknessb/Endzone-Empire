@@ -11,9 +11,9 @@ import { draftStatusLabel, draftStatusChipColor } from './draftStatusCopy';
 // exactly what #508/#510 got wrong the first time.
 const SOUND_TOGGLE_LABEL = 'On-the-clock sound';
 
-/** Status chip row (reconnecting/on-the-clock/timer) and the "you're on the
+/** Status chip row (reconnecting/on-the-clock/paused) and the "you're on the
  * clock" snackbar, plus the controls that used to sit inside that same row.
- * The prominent pick-clock display lives in LiveDraftBanner, rendered
+ * The pick-clock timer is LiveDraftBanner's alone (#754, decision 9), rendered
  * separately so it can stay sticky on its own.
  *
  * Two groups, not one (issue #123 acceptance criterion 6). Everything here
@@ -26,7 +26,6 @@ const SOUND_TOGGLE_LABEL = 'On-the-clock sound';
 function DraftStatusBar({
   league,
   onTheClock,
-  secondsLeft,
   reconnecting,
   soundOn,
   toggleSound,
@@ -53,9 +52,9 @@ function DraftStatusBar({
         {/* What the draft is doing. */}
         <Box role="group" aria-label="Draft status" sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           {reconnecting && <Chip label="Reconnecting…" color="default" size="small" variant="outlined" />}
-          {onTheClock ? (
+          {onTheClock?.team ? (
             <Chip
-              label={`On the clock: ${onTheClock.teamName}`}
+              label={`On the clock: ${onTheClock.team.teamName}`}
               color="primary"
               sx={{ fontWeight: 'bold' }}
             />
@@ -70,13 +69,10 @@ function DraftStatusBar({
               color={draftStatusChipColor(league?.draft_status)}
             />
           )}
-          {secondsLeft !== null && (
-            <Chip
-              label={`⏱ ${secondsLeft}s`}
-              color={secondsLeft <= 10 ? 'error' : 'default'}
-              sx={{ fontWeight: 'bold' }}
-            />
-          )}
+          {/* The pick-clock timer is the LiveDraftBanner's one job now (#754,
+              decision 9): the redundant status-bar chip is gone. The "On the
+              clock: Team" and "Draft Paused" chips stay - they are the draft's
+              status readout, not the timer. */}
           {league?.draft_paused && <Chip label="Draft Paused" color="warning" />}
         </Box>
 

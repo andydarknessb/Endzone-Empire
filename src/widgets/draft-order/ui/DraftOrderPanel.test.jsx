@@ -13,7 +13,8 @@ const baseProps = {
   draftStatus: 'pending',
   viewerTeamId: 1,
   isCommissioner: true,
-  onTheClock: { teamId: 2, teamName: 'Harbor Hawks' },
+  // The one On-the-clock value (#754): { team, state, deadlineAt }.
+  onTheClock: { team: { teamId: 2, teamName: 'Harbor Hawks' }, state: 'running', deadlineAt: null },
   onToggleAutodraft: jest.fn(),
 };
 

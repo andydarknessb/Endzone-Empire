@@ -4,6 +4,7 @@ import {
 } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { teamsInDraftOrder } from '../../../lib/draftTurns';
+import { isTeamOnTheClock } from '../../../lib/onTheClock';
 import AutodraftToggle from '../../../features/autodraft-toggle/ui/AutodraftToggle';
 
 /**
@@ -38,7 +39,7 @@ export default function DraftOrderPanel({
         {orderedTeams.map((team) => {
           const isViewer = viewerTeamId != null && team.teamId === viewerTeamId;
           const canToggle = (isCommissioner || isViewer) && draftStatus !== 'complete';
-          const onClock = onTheClock && onTheClock.teamId === team.teamId;
+          const onClock = isTeamOnTheClock(onTheClock, team.teamId);
 
           return (
             <Box

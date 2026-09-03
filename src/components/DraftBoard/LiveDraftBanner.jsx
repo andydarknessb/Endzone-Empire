@@ -1,8 +1,12 @@
 import React from 'react';
 import { Paper, Box, Avatar, Typography } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
+import PickClock from './PickClock';
+import { formatRemaining, isUrgent, URGENT_SECONDS } from '../../lib/onTheClock';
 
-// Subtle pulse for the timer once time is running low (<=10s).
+// Subtle pulse for the timer once time is running low (at/under URGENT_SECONDS).
+// The red urgent color carries the same signal without motion, so a reduced-
+// motion guard turns the animation off (A4, the DraftBoardMatrix idiom).
 const pulse = keyframes`
   0% { opacity: 1; }
   50% { opacity: 0.55; }
@@ -24,8 +28,10 @@ function initialsFor(name) {
  * (with an initials avatar standing in for a team logo) and a large timer.
  * Sits just above the Draft/Board tabs so it stays visible while the player
  * pool table scrolls underneath it. Renders nothing outside an active draft. */
-function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
+function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
   if (league?.draft_status !== 'active') return null;
+
+  const { team, state } = onTheClock;
 
   return (
     <Paper
@@ -56,7 +62,7 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
           flexShrink: 0,
         }}
       >
-        {initialsFor(onTheClock?.teamName)}
+        {initialsFor(team?.teamName)}
       </Avatar>
       {/* aria-live scoped to just who's-on-the-clock, not the whole banner:
           that changes once per pick (worth announcing), while the seconds
@@ -73,25 +79,36 @@ function LiveDraftBanner({ league, onTheClock, secondsLeft, isMyTurn }) {
           noWrap
           sx={{ fontWeight: 'bold', color: isMyTurn ? 'primary.main' : 'text.primary' }}
         >
-          {isMyTurn ? 'Your pick!' : onTheClock ? `${onTheClock.teamName} is on the clock` : 'Waiting…'}
+          {isMyTurn ? 'Your pick!' : team ? `${team.teamName} is on the clock` : 'Waiting…'}
         </Typography>
       </Box>
-      {secondsLeft !== null ? (
-        <Typography
-          variant="h1"
-          component="div"
-          data-testid="draft-clock"
-          sx={{
-            fontWeight: 'bold',
-            lineHeight: 1.1,
-            flexShrink: 0,
-            color: secondsLeft <= 10 ? 'error.main' : 'text.primary',
-            animation: secondsLeft <= 10 ? `${pulse} 1s ease-in-out infinite` : 'none',
-          }}
-        >
-          {secondsLeft}s
-        </Typography>
-      ) : league?.draft_paused ? (
+      {state === 'running' ? (
+        // The one timer display in the room: the PickClock leaf owns the tick
+        // (nothing else here re-renders per second), and this render callback
+        // decides how it looks. Urgency is a fact about the clock (isUrgent over
+        // the shared URGENT_SECONDS), applied per second by the leaf; at 0:00
+        // the derived "expired" display is just a running clock left urgent.
+        <PickClock deadlineAt={onTheClock.deadlineAt}>
+          {(remaining) => (
+            <Typography
+              variant="h1"
+              component="div"
+              data-testid="draft-clock"
+              sx={{
+                fontWeight: 'bold',
+                lineHeight: 1.1,
+                flexShrink: 0,
+                fontVariantNumeric: 'tabular-nums',
+                color: isUrgent(remaining, URGENT_SECONDS) ? 'error.main' : 'text.primary',
+                animation: isUrgent(remaining, URGENT_SECONDS) ? `${pulse} 1s ease-in-out infinite` : 'none',
+                '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+              }}
+            >
+              {formatRemaining(remaining)}
+            </Typography>
+          )}
+        </PickClock>
+      ) : state === 'paused' ? (
         <Typography variant="h6" component="div" sx={{ color: 'warning.main', flexShrink: 0 }}>
           Draft paused
         </Typography>

@@ -365,7 +365,6 @@ function DraftBoard() {
     // confirmed member was removed mid-draft (AC4).
     membership,
     revokeMembership,
-    secondsLeft,
     reconnecting,
     isMyTurn,
     draftComplete,
@@ -999,7 +998,6 @@ function DraftBoard() {
           <DraftStatusBar
             league={league}
             onTheClock={onTheClock}
-            secondsLeft={secondsLeft}
             reconnecting={reconnecting}
             soundOn={soundOn}
             toggleSound={toggleSound}
@@ -1061,7 +1059,7 @@ function DraftBoard() {
           shell), so the banner just sits in place - visible on every tab,
           satisfying acceptance criterion 5 for mobile and trivially for
           desktop. */}
-      <LiveDraftBanner league={league} onTheClock={onTheClock} secondsLeft={secondsLeft} isMyTurn={isMyTurn} />
+      <LiveDraftBanner league={league} onTheClock={onTheClock} isMyTurn={isMyTurn} />
 
       {/* Tabs are a narrow-container affordance only: a wide container shows the
           three panes at once, so it needs no tab bar (and #444 forbids a

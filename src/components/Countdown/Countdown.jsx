@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { buildDraftIcs, draftTimezoneDetail, formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
+import useCountdownTicking from '../../hooks/useCountdownTicking';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -72,48 +73,14 @@ function formatByTier(remainingMs, tier) {
   return `${parts.minutes}m ${pad(parts.seconds)}s`;
 }
 
-/**
- * Self-scheduling countdown clock: repaints itself at the tier-appropriate
- * cadence via a self-rescheduling timeout (not a fixed interval), so a
- * countdown that starts in the "hours" tier automatically picks up
- * per-second updates once it notices it has crossed into the "seconds"
- * tier - each tick chooses its own next delay from its own remaining time,
- * so that notice lands on the next scheduled tick rather than the tier's
- * fixed multi-minute cadence otherwise repeating past the crossing. That
- * next tick is still up to one minute-cadence step (not more) behind the
- * real-world crossing instant - the value it then displays is correct, only
- * the switch to per-second cadence is delayed by up to that one step. This
- * is the only piece of Countdown that re-renders every tick - the isolation
- * the shell around it depends on (#117: ticking state isolated from the
- * page tree).
- */
-function useCountdownTicking(targetTime, onExpire) {
-  const [remainingMs, setRemainingMs] = useState(() => targetTime - Date.now());
-  const onExpireRef = useRef(onExpire);
-  onExpireRef.current = onExpire;
-
-  useEffect(() => {
-    let timeoutId;
-
-    const tick = () => {
-      const remaining = targetTime - Date.now();
-      setRemainingMs(remaining);
-      if (remaining <= 0) {
-        onExpireRef.current?.();
-        return;
-      }
-      timeoutId = setTimeout(tick, cadenceFor(tierFor(remaining)));
-    };
-
-    tick();
-    return () => clearTimeout(timeoutId);
-  }, [targetTime]);
-
-  return remainingMs;
-}
-
 function CountdownTicker({ targetTime, prefix = undefined, variant, detail = '', onExpire }) {
-  const remainingMs = useCountdownTicking(targetTime, onExpire);
+  // The tiered cadence (#117) rides the shared hook's `nextDelay`: a countdown
+  // that starts hours out picks up per-second updates once a tick notices it
+  // has crossed into the seconds tier. The visible ticker is the only piece of
+  // Countdown that re-renders every tick, keeping the shell around it isolated.
+  const remainingMs = useCountdownTicking(targetTime, onExpire, {
+    nextDelay: (remaining) => cadenceFor(tierFor(remaining)),
+  });
 
   if (remainingMs <= 0) return null;
 

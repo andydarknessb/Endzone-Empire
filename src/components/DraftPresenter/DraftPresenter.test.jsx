@@ -16,7 +16,9 @@ const draftState = {
     name: 'Sunday Ballers',
     draft_status: 'active',
     roster_limit: 2,
-    pick_deadline_at: '2099-09-01T12:01:00.000Z',
+    // One minute out (#754 AC6): the shared PickClock leaf ticks this into the
+    // one m:ss format behind the "Time remaining:" prefix.
+    pick_deadline_at: new Date(Date.now() + 60 * 1000).toISOString(),
   },
   teams: [
     { teamId: 1, teamName: 'North Stars', draft_position: 1 },
@@ -74,6 +76,9 @@ test('renders a public draft board from the presenter token route', async () => 
 
   expect(await screen.findByRole('heading', { name: 'Sunday Ballers' })).toBeInTheDocument();
   expect(screen.getByText('South Stars is on the clock')).toBeInTheDocument();
+  // The per-pick clock renders through the shared m:ss format (#754 AC6), no
+  // longer the Countdown's tiered "1m 00s" copy.
+  expect(screen.getByText(/Time remaining:\s*\d+:\d{2}/)).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Recent picks' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Round 1 pick 1, North Stars: Josh Allen' })).not.toBeInTheDocument();
   expect(boardCalls()[0][0]).toBe('/api/draft/board/share-token');

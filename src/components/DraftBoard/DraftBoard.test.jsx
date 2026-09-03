@@ -28,6 +28,24 @@ jest.mock('../../api/socket', () => ({
   onReconnect: jest.fn(),
 }));
 
+// A transparent probe around the real PlayerPoolTable: it renders the actual
+// component (so every other test still sees real player rows) while counting
+// how often this memo-free sibling re-renders. The pick-clock isolation test
+// (#754 A7 / AC10) reads mockPoolRenders.count around a 3-second tick. The
+// `mock` prefix is what lets the jest.mock factory reference it.
+const mockPoolRenders = { count: 0 };
+jest.mock('./PlayerPoolTable', () => {
+  const ProbeReact = require('react');
+  const Actual = jest.requireActual('./PlayerPoolTable').default;
+  return {
+    __esModule: true,
+    default: function PlayerPoolTableProbe(props) {
+      mockPoolRenders.count += 1;
+      return ProbeReact.createElement(Actual, props);
+    },
+  };
+});
+
 // The readiness announcer (#164) is no longer the only role=status region in
 // the Draft room: the composer's character counter (#486) mounts its own polite
 // status region, and the countdown (#117) mounts one when a draft date is set.
@@ -1096,7 +1114,7 @@ const mockGets = ({ players = playersPage(), queue = [] } = {}) => {
   );
 };
 
-test('countdown chip renders from pick_deadline_at and ticks down', async () => {
+test('the banner countdown renders from pick_deadline_at and ticks down', async () => {
   jest.useFakeTimers();
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
@@ -1106,15 +1124,17 @@ test('countdown chip renders from pick_deadline_at and ticks down', async () => 
       pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
     })))
   );
-  expect(screen.getByText('⏱ 30s')).toBeInTheDocument();
+  // The timer lives only in LiveDraftBanner now (#754, decision 9), spoken in
+  // one m:ss format: 0:30, not the old status-bar "⏱ 30s" chip.
+  expect(screen.getByText('0:30')).toBeInTheDocument();
 
   act(() => {
     jest.advanceTimersByTime(3000);
   });
-  expect(screen.getByText('⏱ 27s')).toBeInTheDocument();
+  expect(screen.getByText('0:27')).toBeInTheDocument();
 });
 
-test('the countdown resets to pick_time_seconds on each draft:picked', async () => {
+test('the banner countdown resets to pick_time_seconds on each draft:picked', async () => {
   jest.useFakeTimers();
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
@@ -1129,7 +1149,7 @@ test('the countdown resets to pick_time_seconds on each draft:picked', async () 
       ],
     }))
   );
-  expect(screen.getByText('⏱ 5s')).toBeInTheDocument();
+  expect(screen.getByText('0:05')).toBeInTheDocument();
 
   act(() =>
     fakeSocket.trigger('draft:picked', {
@@ -1141,7 +1161,37 @@ test('the countdown resets to pick_time_seconds on each draft:picked', async () 
       auto: false,
     })
   );
-  expect(screen.getByText('⏱ 90s')).toBeInTheDocument();
+  expect(screen.getByText('1:30')).toBeInTheDocument();
+});
+
+test('a ticking pick clock re-renders only the banner leaf, not the memo-free pool (#754 A7 / AC10)', async () => {
+  jest.useFakeTimers();
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  // A running clock 30s out. No connect, so this viewer is not on the clock and
+  // no on-clock snackbar timer is in play - the only per-second thing mounted
+  // is the banner's PickClock leaf.
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+    })))
+  );
+  expect(screen.getByText('0:30')).toBeInTheDocument();
+
+  // Count only re-renders during the tick window: zero at the start, so any
+  // pool re-render provoked by a clock tick shows up as a nonzero count.
+  mockPoolRenders.count = 0;
+  act(() => {
+    jest.advanceTimersByTime(3000);
+  });
+
+  // The banner text advanced three seconds...
+  expect(screen.getByText('0:27')).toBeInTheDocument();
+  // ...while the pool, a memo-free sibling, did not re-render on any tick. The
+  // store holds no per-second field (A1); putting `remaining` back into it would
+  // re-render the room every second and turn this red.
+  expect(mockPoolRenders.count).toBe(0);
 });
 
 test('a paused draft shows the paused chip and leaves drafting focusable but aria-disabled', async () => {

@@ -1,8 +1,10 @@
 import React, { useId, useMemo, useRef, useState, useEffect } from 'react';
 import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { isTeamOnTheClock } from '../../lib/onTheClock';
 
 // Same technique as the matchup score flash: a CSS var color (theme-aware,
 // no hard-coded literal) that fades in and back out.
@@ -109,7 +111,7 @@ function DraftBoardMatrix({
 
   const nextPickNumber = picks.length + 1;
   const onClockCellKey =
-    onTheClock && teamCount > 0 ? `${Math.ceil(nextPickNumber / teamCount)}-${onTheClock.teamId}` : null;
+    onTheClock?.team && teamCount > 0 ? `${Math.ceil(nextPickNumber / teamCount)}-${onTheClock.team.teamId}` : null;
 
   if (teamCount === 0) {
     return (
@@ -145,7 +147,7 @@ function DraftBoardMatrix({
                 Rd
               </TableCell>
               {orderedTeams.map((team) => {
-                const isOnClockTeam = !!(onTheClock && onTheClock.teamId === team.teamId);
+                const isOnClockTeam = isTeamOnTheClock(onTheClock, team.teamId);
                 return (
                   <TableCell
                     key={team.teamId}
@@ -159,7 +161,16 @@ function DraftBoardMatrix({
                     }}
                   >
                     {team.teamName}
-                    {isOnClockTeam && <Box component="span" sx={{ ml: 0.5 }}>⏱</Box>}
+                    {/* A decorative on-the-clock marker on the column head; the
+                        announced fact lives on the pending cell below (its
+                        "on the clock" aria-label). aria-hidden by default. */}
+                    {isOnClockTeam && (
+                      <AccessTimeIcon
+                        data-testid="matrix-on-clock-marker"
+                        fontSize="small"
+                        sx={{ ml: 0.5, verticalAlign: 'text-bottom' }}
+                      />
+                    )}
                   </TableCell>
                 );
               })}

@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
 import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
-import Countdown from '../Countdown/Countdown';
+import PickClock from '../DraftBoard/PickClock';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 import { draftRounds } from '../../lib/rosterShape';
+import { deriveOnTheClock, formatRemaining } from '../../lib/onTheClock';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
 
 // Presenter links are intentionally anonymous: do not use apiClient here,
@@ -82,6 +83,16 @@ function DraftPresenter() {
 
   const { league, teams, onTheClock } = draftState;
   const isActive = league.draft_status === 'active';
+  // The same derived value the room uses (#754, decision 12), built off the
+  // polled snapshot: `running` mounts the shared PickClock leaf below (the only
+  // thing that ticks; the 5-second poll drives everything else), and the value
+  // object is what DraftBoardMatrix reads for the on-the-clock column.
+  const onTheClockValue = deriveOnTheClock({
+    team: onTheClock ?? null,
+    deadlineAt: league.pick_deadline_at ? Date.parse(league.pick_deadline_at) : null,
+    paused: !!league.draft_paused,
+    active: isActive,
+  });
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: { xs: 2, md: 4 } }}>
@@ -110,22 +121,24 @@ function DraftPresenter() {
                 {isActive ? 'On the clock' : 'Draft status'}
               </Typography>
               <Typography variant="h3" sx={{ fontSize: { xs: '1.6rem', md: '2.5rem' }, fontWeight: 'bold' }}>
-                {isActive && onTheClock ? `${onTheClock.teamName} is on the clock` : league.draft_status}
+                {isActive && onTheClockValue.team ? `${onTheClockValue.team.teamName} is on the clock` : league.draft_status}
               </Typography>
             </Box>
-            {isActive && !league.draft_paused && league.pick_deadline_at ? (
-              // This is the per-pick clock, not the Draft's own schedule: no
-              // milestone announcer (the surrounding Paper is already one
-              // aria-live=polite region) and no timezone/calendar detail.
-              <Countdown
-                date={league.pick_deadline_at}
-                prefix="Time remaining:"
-                announce={false}
-                showScheduleDetail={false}
-              />
+            {onTheClockValue.state === 'running' ? (
+              // The per-pick clock, not the Draft's own schedule: the shared
+              // PickClock leaf ticks it (the surrounding Paper is already one
+              // aria-live=polite region, so no milestone announcer), rendered
+              // through the one m:ss format with the "Time remaining:" prefix.
+              <PickClock deadlineAt={onTheClockValue.deadlineAt}>
+                {(remaining) => (
+                  <Typography variant="h6" component="div">
+                    Time remaining: {formatRemaining(remaining)}
+                  </Typography>
+                )}
+              </PickClock>
             ) : (
-              <Typography variant="h6" sx={{ color: league.draft_paused ? 'warning.main' : 'text.secondary' }}>
-                {league.draft_paused ? 'Draft paused' : 'No active pick clock'}
+              <Typography variant="h6" sx={{ color: onTheClockValue.state === 'paused' ? 'warning.main' : 'text.secondary' }}>
+                {onTheClockValue.state === 'paused' ? 'Draft paused' : 'No active pick clock'}
               </Typography>
             )}
           </Paper>
@@ -133,7 +146,7 @@ function DraftPresenter() {
           <DraftBoardMatrix
             teams={teams}
             picks={picksNewestFirst}
-            onTheClock={onTheClock}
+            onTheClock={onTheClockValue}
             draftRounds={draftRounds(league)}
             readOnly
             // This page's own heading order is h1 (above) then h3 (the

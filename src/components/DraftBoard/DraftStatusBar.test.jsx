@@ -7,8 +7,8 @@ import DraftStatusBar from './DraftStatusBar';
 // provider-free (plain MUI), so a bare render is enough.
 const baseProps = {
   league: { draft_status: 'pending' },
-  onTheClock: null,
-  secondsLeft: null,
+  // The one On-the-clock value (#754): { team, state, deadlineAt }. Idle here.
+  onTheClock: { team: null, state: 'idle', deadlineAt: null },
   reconnecting: false,
   soundOn: false,
   toggleSound: jest.fn(),
@@ -45,7 +45,7 @@ test('On the clock still replaces the status chip while a Team is on it', () => 
   render(<DraftStatusBar
     {...baseProps}
     league={{ draft_status: 'active' }}
-    onTheClock={{ teamId: 1, teamName: 'Ridge Runners' }}
+    onTheClock={{ team: { teamId: 1, teamName: 'Ridge Runners' }, state: 'running', deadlineAt: null }}
   />);
 
   expect(screen.getByText('On the clock: Ridge Runners')).toBeInTheDocument();
