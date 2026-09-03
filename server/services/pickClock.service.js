@@ -109,14 +109,15 @@ function clockSecondsFor({ draftComplete, onClockAutodraft, league }) {
 async function onDraftStarted(client, { leagueId, complete, currentPick, clockSeconds, rounds }) {
   if (complete) {
     // Every roster slot was pre-filled by keepers: no live pick is possible, so
-    // the draft is complete before it began. No clock, and the waiver window
-    // opens exactly as it would on the final live pick.
+    // the draft is complete before it began. This statement flips the status and
+    // clears the clock; the waiver window and the rest of the draft->season
+    // handoff are draftCompletion.completeDraft's, called by draftStart next on
+    // this same transaction (#789).
     await client.query(
       `UPDATE "leagues"
          SET "draft_status" = 'complete', "current_pick" = $2, "updated_at" = now(),
              "draft_autostart_failed" = false, "pick_deadline_at" = NULL,
-             "draft_rounds" = $3,
-             "waivers_clear_at" = now() + make_interval(hours => "waiver_period_hours")
+             "draft_rounds" = $3
        WHERE "id" = $1`,
       [leagueId, currentPick, rounds]
     );

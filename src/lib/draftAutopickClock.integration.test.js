@@ -316,6 +316,11 @@ class FakeDraftDatabase {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
+    // draftCompletion.completeDraft's flip-first precondition read (#789): the
+    // completing pick's UPDATE has already set draft_status on this client.
+    if (sql.includes('SELECT "draft_status" FROM "leagues"')) {
+      return { rows: values[0] === state.league.id ? [{ draft_status: state.league.draft_status }] : [] };
+    }
     // onResumed's league read (#599): resolves the on-clock team and clock policy
     // for a resume. Used by the #602 escalate->resume case.
     if (sql.includes('SELECT "current_pick", "draft_type"') && sql.includes('FROM "leagues"')) {

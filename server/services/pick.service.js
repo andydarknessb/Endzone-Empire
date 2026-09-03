@@ -4,13 +4,17 @@ const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { teamIdentityOf } = require('./teamIdentity');
-const { appendPickActivity, appendLifecycleActivity, COMPLETE } = require('./draftActivity');
+const { appendPickActivity } = require('./draftActivity');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { draftRounds } = require('./rosterShape');
 // The Pick clock module owns arming: the only writer of the deadline and the
 // current pick (ADR 0018). commitPick advances the turn through its named
 // pick-landed event.
 const pickClock = require('./pickClock.service');
+// The one draft->season handoff (#789). Required as a module object so the
+// completing-Pick suite can mock completeDraft to observe the handoff without
+// its side effects; it never requires this module back.
+const draftCompletion = require('./draftCompletion');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
 const sentry = require('../modules/sentry');
@@ -228,24 +232,11 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       );
     }
     if (draftComplete) {
-      // All undrafted players start on waivers for one waiver period
-      await client.query(
-        `UPDATE "leagues" SET "waivers_clear_at" = now() + make_interval(hours => $1)
-         WHERE "id" = $2`,
-        [league.waiver_period_hours, leagueId]
-      );
-      // The season schedule exists the moment the draft ends
-      const { generateRegularSeason } = require('./season.service');
-      await generateRegularSeason({ leagueId }, client);
-      // Record the completion as append-only Draft activity, in the SAME
-      // transaction that flips the status to complete (#437 AC4). No actor:
-      // completion is a state transition, not an action a manager took. It orders
-      // AFTER this final Pick's own activity by the shared sequence.
-      completion = await appendLifecycleActivity(client, {
-        leagueId,
-        kind: COMPLETE,
-        team: null,
-      });
+      // The clock flipped draft_status to 'complete' above; the one draft->season
+      // handoff runs on this same transaction (#789): it opens the waiver window,
+      // schedules the season, and appends the actor-less COMPLETE lifecycle entry,
+      // returned here to broadcast after COMMIT.
+      completion = await draftCompletion.completeDraft(client, { leagueId });
     } else {
       nextTeamId = nextTeam.id;
     }
