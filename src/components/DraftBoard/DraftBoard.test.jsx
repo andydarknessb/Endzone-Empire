@@ -3881,4 +3881,67 @@ describe('Draft assistant in the live room (#787)', () => {
     expect(screen.queryByRole('heading', { name: 'Draft assistant' })).not.toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
   });
+
+  // #815 ruling item 6: a quick view opened from the Board (or Queue) fires NO
+  // assistant line; only the pool table's quick view does. This exercises the
+  // real DraftBoard seam - the pool table alone gets handleSelectFromPool (the
+  // nonce), the Board/Queue get the bare setQuickViewId - by opening a real
+  // quick view from each surface. The pool-table half is a live positive
+  // control, so the Board-half silence cannot pass merely because the panel is
+  // empty. The browsed lines fill {position}/{team} too, so the expected set is
+  // built from the full pool row, not the name alone.
+  test('a pool-table quick view draws a browse line; a Board quick view adds none (#815, ruling item 6)', async () => {
+    assistantOn();
+    mockGets({ queue: [] });
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    // Off the clock (onTheClock TEAM_B) so TURN_START never fires; a committed
+    // Pick gives the Board a player to quick-view. Initial pick history reaches
+    // the matrix and history, never the assistant (only draft:picked does), so
+    // the panel starts silent.
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+      onTheClock: TEAM_B,
+      picks: [{
+        pick_number: 1, teamId: 2, teamName: 'Team B',
+        player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills',
+      }],
+    })));
+
+    // BOARD PATH FIRST, while no pool selection has started the cooldown (so a
+    // mis-wire to handleSelectFromPool here really would draw a line rather than
+    // being silently swallowed by the throttle). Open the drafted player's quick
+    // view from Pick history: it goes through the bare setQuickViewId, never
+    // handleSelectFromPool, so the nonce is untouched and NO browse line is
+    // drawn - though the quick view really opens (the dialog proves the gesture
+    // reached the room, and closing it makes the rail observable again).
+    await openPickHistory();
+    await userEvent.click(screen.getByRole('button', { name: 'Josh Allen' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // The assistant is on (heading present) but silent: no commentary list.
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
+
+    // POOL PATH (live positive control): the pool table's quick view runs
+    // through handleSelectFromPool, which sets the nonce, so a browse line IS
+    // drawn. That a line appears here - in the same panel that stayed empty for
+    // the Board gesture - is what proves the Board silence above is real, not an
+    // empty-panel artefact. The browsed lines fill {position}/{team} too, so the
+    // expected set is built from the full pool row, not the name alone.
+    await userEvent.click(screen.getByRole('button', { name: 'Players' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    const mahomesRow = { name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' };
+    const browsed = POLK_HIGH_LEGEND_LINES[TRIGGERS.POOL_PLAYER_BROWSED]
+      .map((t) => fillTemplate(t, { player: mahomesRow }));
+    await waitFor(() => {
+      expect(commentaryTexts().some((t) => browsed.includes(t))).toBe(true);
+    });
+    expect(commentaryTexts()).toHaveLength(1);
+  });
 });

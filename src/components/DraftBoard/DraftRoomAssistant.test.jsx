@@ -175,16 +175,11 @@ describe('DraftRoomAssistant (#787)', () => {
     expect(within(commentaryList()).getAllByRole('listitem')).toHaveLength(1);
   });
 
-  it('fires no assistant line for a quick view opened from the Board or Queue (poolSelection never set)', () => {
-    // A Board/Queue quick view goes through the UNWRAPPED handler and never
-    // sets the provider's poolSelection nonce, so no browse line is drawn even
-    // as picks, turns and clock edges churn around it (#815, ruling item 6).
-    on();
-    const { rerender } = render(ui());
-    // Toggle is on and the draft is live, but poolSelection stays null: the
-    // only thing a Board/Queue quick view could have moved is untouched here.
-    rerender(ui({ poolSelection: null, isMyTurn: false }));
-    expect(commentaryList()).not.toBeInTheDocument();
-    expect(region().textContent).toBe('');
-  });
+  // The Board/Queue-quick-view-fires-nothing criterion (#815 ruling item 6)
+  // lives in DraftBoard.test.jsx, where the actual seam is: only the pool
+  // table's onOpenQuickView reaches handleSelectFromPool (the nonce); the rail
+  // and Board get the bare setQuickViewId. That test opens a real quick view
+  // from each surface, so it cannot pass on an untouched provider. Asserting it
+  // here would only re-check this provider's nonce gating (already covered by
+  // the cooldown case above), not the wiring that decides which surface fires.
 });
