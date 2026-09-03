@@ -44,22 +44,34 @@ export default function DraftStartControl({
   const [startError, setStartError] = useState('');
   const startInFlight = useRef(false);
   const insufficientTeams = teamCount < minimumTeams;
-  // The player market's state (#748): absent when fewer than `floor` players
-  // carry an ADP (blocks Start the same as the team-count case), stale when a
-  // market is present but its last sync is old (Start stays available), or
-  // fresh (no line at all). `market` is optional so a caller without it yet
-  // (a stale cache, a payload that predates this field) renders neither state.
+  // The player market's state (#748, amended #773): absent when fewer than
+  // `floor` players carry an ADP (blocks Start the same as the team-count
+  // case); stale when a market is present, its last sync is old, and that
+  // sync has a timestamp worth naming (Start stays available); never-synced
+  // when a market is present but no sync has ever been recorded, so there is
+  // no timestamp to name (Start stays available, same as stale); or fresh
+  // (no line at all). `market` is optional so a caller without it yet (a
+  // stale cache, a payload that predates this field) renders none of these.
   const marketAbsent = Boolean(market) && market.adpPlayers < market.floor;
   // `market.stale` (getMarketStatus, #748) is true for two different facts:
   // the last sync is old, OR there has never been a recorded sync at all -
-  // and only the first has a timestamp worth showing. `lastSyncAt` is null for
-  // the second, and formatRelative(null) reads as the Unix epoch ("Dec 31,
-  // 1969") rather than failing visibly (758-f1) - a real production shape
-  // today, since the data_sync_runs migration can be unapplied or simply
-  // have no ok run recorded yet even once it exists. Until product rules on
-  // copy for "loaded but never recorded a sync", the safe interim is no line
-  // at all: rendering a date would assert staleness nobody measured.
+  // and only the first has a timestamp worth showing. `lastSyncAt` is null
+  // for the second, and formatRelative(null) reads as the Unix epoch ("Dec
+  // 31, 1969") rather than failing visibly (758-f1), so `marketStale` still
+  // requires `lastSyncAt != null` and must never be loosened to admit the
+  // null case: doing so would print a date nobody measured.
   const marketStale = Boolean(market) && !marketAbsent && market.stale && market.lastSyncAt != null;
+  // The never-synced state (#773) is the other half of `market.stale`: a
+  // market present with no recorded sync at all, `lastSyncAt` null. A market
+  // present with no recorded sync is not evidence the market is old - it is
+  // absence of evidence either way - so this branch gets its own copy that
+  // never claims an age, rather than being folded into `marketStale` (which
+  // would require loosening its `lastSyncAt != null` guard and reintroducing
+  // the epoch bug) or left silent (which was the interim fix in #758, before
+  // product ruled on copy for this state). `market.stale` is redundant here
+  // (the service sets it true whenever `lastSyncAt` is null) and is
+  // deliberately not part of this condition.
+  const marketNeverSynced = Boolean(market) && !marketAbsent && market.lastSyncAt == null;
   const unavailable = insufficientTeams || auctionUnavailable || marketAbsent;
 
   const closeConfirmation = () => {
@@ -130,6 +142,11 @@ export default function DraftStartControl({
       {showMarketStatus && marketStale && (
         <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
           {`Player market last updated ${formatRelative(market.lastSyncAt)}. Autopicks will use that market.`}
+        </Typography>
+      )}
+      {showMarketStatus && marketNeverSynced && (
+        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+          {`Player market loaded (${market.adpPlayers} players carry an ADP), but no sync has been recorded. Autopicks will use that market.`}
         </Typography>
       )}
       <Dialog open={confirmOpen} onClose={closeConfirmation} aria-labelledby="start-draft-dialog-title">
