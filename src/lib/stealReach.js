@@ -40,12 +40,18 @@ function round2(value) {
  * steal), one that landed EARLIER scores positive (a reach), and the swing has
  * to clear stealReachThreshold(round) in that round to earn either label.
  *
+ * `round` is OPTIONAL. Omit it (draftPickValue does, since the report keeps its
+ * own labelling) and the pick is scored but not classified: `label` is null.
+ * This is a stated case, not an accident: without a round there is no threshold
+ * to compare against, so returning a label would be a lie. A caller that needs
+ * the label passes the round.
+ *
  * Server Draft Grades keep their own, DIFFERENT per-team extreme definition
  * (server/services/draftgrade.service.js, CommonJS): this client module makes
  * no attempt to mirror or be imported by that one (issue #817 ruling 3).
  *
- * @param {{ adp: *, pickNumber: number, round: number }} input
- * @returns {{ label: 'steal'|'reach'|'value'|'no-market', draftValueScore: number, adpFallback: boolean }}
+ * @param {{ adp: *, pickNumber: number, round?: number }} input
+ * @returns {{ label: 'steal'|'reach'|'value'|'no-market'|null, draftValueScore: number, adpFallback: boolean }}
  */
 export function stealReachLabel({ adp, pickNumber, round }) {
   const parsedAdp = Number(adp);
@@ -54,6 +60,9 @@ export function stealReachLabel({ adp, pickNumber, round }) {
     return { label: 'no-market', draftValueScore: 0, adpFallback: true };
   }
   const draftValueScore = round2(parsedAdp - Number(pickNumber));
+  if (round == null) {
+    return { label: null, draftValueScore, adpFallback: false };
+  }
   const threshold = stealReachThreshold(round);
   let label = 'value';
   if (draftValueScore <= -threshold) label = 'steal';

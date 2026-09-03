@@ -90,16 +90,18 @@ function playerFactsFromPick(pick, row) {
 /**
  * The viewer's running Net vs ADP over their OWN picks so far (ruling 8, the
  * Misery Meter). `adpForPlayer(playerId)` returns a known market ADP or null;
- * a pick with no known ADP is skipped rather than guessed (see the module
- * docblock). Always derived fresh from the live picks, never accumulated by
- * hand, so it cannot drift.
+ * a pick with no market ADP contributes 0 through the shared rule's no-market
+ * path (src/lib/stealReach.js) rather than being guessed, so the market guard
+ * is spelled once, in the shared module, and never re-spelled here. Always
+ * derived fresh from the live picks, never accumulated by hand, so it cannot
+ * drift.
  */
 export function netVsAdpFor({ myPicks, adpForPlayer, teamCount }) {
   return myPicks.reduce((sum, pick) => {
-    const adp = adpForPlayer(pick.playerId);
-    if (adp == null) return sum;
     const { draftValueScore } = stealReachLabelFor({
-      adp, pickNumber: pick.pickNumber, round: roundForPick(pick.pickNumber, teamCount),
+      adp: adpForPlayer(pick.playerId),
+      pickNumber: pick.pickNumber,
+      round: roundForPick(pick.pickNumber, teamCount),
     });
     return sum + draftValueScore;
   }, 0);

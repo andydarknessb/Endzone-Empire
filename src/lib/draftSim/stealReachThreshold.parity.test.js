@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { stealReachThreshold } from '../stealReach';
+import { stealReachThreshold, stealReachLabel } from '../stealReach';
 import { stealReachLabelFor } from '../../components/DraftBoard/roomAssistantFacts';
-import { pickValues } from './analysis';
+import { draftPickValue, pickValues } from './analysis';
 
 // stealReachThreshold used to be defined inline in analysis.js; issue #785
 // promoted it to src/lib/stealReach.js so the Draft assistant (ADR 0027) and
@@ -106,5 +106,27 @@ describe('stealReachLabel parity between the Draft room and the Draft Sim (#817)
       expect(sim).toEqual(expected);
       expect(room).toEqual(sim);
     });
+  });
+
+  // The round-free call is a STATED case, not an accident: draftPickValue()
+  // calls stealReachLabel without a round because the report keeps its own
+  // labelling. Without a round there is no threshold, so the pick is scored but
+  // not classified (label null) - pinned here so no one "fixes" it into a
+  // silent 'value'.
+  test('stealReachLabel with no round scores but does not classify', () => {
+    expect(stealReachLabel({ adp: 12.333, pickNumber: PICK }))
+      .toEqual({ label: null, draftValueScore: -17.67, adpFallback: false });
+    // A market-less ADP is still no-market with no round.
+    expect(stealReachLabel({ adp: 0, pickNumber: PICK }))
+      .toEqual({ label: 'no-market', draftValueScore: 0, adpFallback: true });
+  });
+
+  // draftPickValue is that round-free caller; it must still surface marketAdp
+  // (the report's field) alongside the shared score and fallback.
+  test('draftPickValue reads the round-free shared score and keeps marketAdp', () => {
+    expect(draftPickValue({ pickNumber: PICK, marketAdp: 12.333 }))
+      .toEqual({ marketAdp: 12.33, draftValueScore: -17.67, adpFallback: false });
+    expect(draftPickValue({ pickNumber: PICK, marketAdp: 0 }))
+      .toEqual({ marketAdp: PICK, draftValueScore: 0, adpFallback: true });
   });
 });
