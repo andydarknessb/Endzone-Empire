@@ -235,4 +235,12 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: server/package-lock.json
+      # #757: Render builds the API with `npm ci --omit=dev --prefix server`
+      # (render.yaml), which refuses a server lockfile that has drifted from
+      # server/package.json. The root `npm ci` every other job runs never reads
+      # that lock, so PR #751 shipped green while the server lock lacked a
+      # dependency and the first prod build after merge failed in 15s. This
+      # diffs the server lock against its manifest and exits non-zero naming any
+      # missing package; --package-lock-only --depth=0 installs nothing.
+      - run: npm ls --prefix server --package-lock-only --depth=0
       - run: npm audit --prefix server --omit=dev --audit-level=high
