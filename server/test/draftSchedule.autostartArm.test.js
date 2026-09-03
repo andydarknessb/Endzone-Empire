@@ -1,10 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const pickClock = require('../services/pickClock.service');
 const draftStartService = require('../services/draftStart.service');
 const prefs = require('../services/prefs.service');
-const { processScheduledDrafts } = require('../services/draftSchedule.service');
+const { processScheduledDrafts, runStartAction } = require('../services/draftSchedule.service');
 
 /**
  * #615: the WORKER's scheduled-autostart path arms the in-process Pick-clock
@@ -119,6 +120,56 @@ test('a worker scheduled start that rolls back arms nothing (#615 AC4)', async (
   assert.deepEqual(armed, [], 'a rolled-back start armed no timer');
 });
 
+// --- the worker start's room broadcast: the drop #745 closes -----------------
+// startDraft runs in the WORKER on scheduled autostart (runStartAction, userId
+// null), a process with no io. Before #745 its draft_start activity and state
+// refresh went through getIo(), which is null there, so they were dropped
+// silently in production and never reproduced locally (dev runs jobs in the API
+// process with a real io). Now they ride the one Draft room adapter, whose
+// worker transport is the Redis emitter, so they are published. This drives the
+// REAL startDraft through runStartAction with the recording broadcast standing
+// in for that transport, and reads back the exact adapter calls - the true
+// worker-shaped path, not an API-shaped one.
+
+test('the worker scheduled start emits the state refresh and the draft_start activity through the adapter (#745)', async (t) => {
+  const broadcast = installRecordingBroadcast(t);
+  t.mock.method(pickClock, 'armExpiryTimer', () => {}); // no real in-process timer
+  t.mock.method(prefs, 'usersWanting', async () => []); // quiet the best-effort push
+  const row = { ...manualBaseLeague };
+  createFakePool([
+    [select('leagues'), () => ({ rows: [{ ...row }] })],
+    // The market gate's count (#747): a loaded market so the start is not refused.
+    [select('players'), () => ({ rows: [{ n: 500 }] })],
+    [update('leagues'), (text, params) => {
+      if (/'active'/.test(text)) row.draft_status = 'active';
+      const m = text.match(/make_interval\(secs => \$(\d+)::int\)/);
+      const secs = m ? params[Number(m[1]) - 1] : null;
+      const deadline = secs == null ? null : new Date(BASE + secs * 1000).toISOString();
+      return { rows: [{ pick_deadline_at: deadline }], rowCount: 1 };
+    }],
+    // notifyLeague's owner scan and runStartAction's push-owner scan: no owners,
+    // so no notification/push queries follow. This test is about the broadcast.
+    [/SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
+    [/^SELECT "owner_id" FROM "teams"/, () => ({ rows: [] })],
+    [select('teams'), () => ({ rows: manualTeams })],
+    [insert('draft_activity'), () => ({ rows: [{ id: 1, feed_seq: '1', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
+  ]).install(t);
+
+  await runStartAction({ id: LEAGUE_ID, name: 'Ballers', owner_id: OWNER });
+
+  assert.deepEqual(
+    broadcast.calls.map((c) => ({ method: c.method, leagueId: c.leagueId })),
+    [
+      { method: 'stateChanged', leagueId: LEAGUE_ID },
+      { method: 'activityAppended', leagueId: LEAGUE_ID },
+    ],
+    'the worker start published the state refresh, then the draft_start activity'
+  );
+  // Red tell: deleting the activityAppended loop in startDraft drops the
+  // activityAppended call, so this count goes to 0.
+  assert.equal(broadcast.calls.filter((c) => c.method === 'activityAppended').length, 1);
+});
+
 // --- end-to-end: a real armed timer actually fires (fake timers) -------------
 
 test('end-to-end: the armed worker timer fires the autopick once the deadline passes (#615 AC1)', async (t) => {
@@ -191,7 +242,12 @@ const TWO_KEEPERS = [
  */
 function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keepers = [] } = {}) {
   const row = { ...league };
-  return createFakePool([
+  // Real startDraft now broadcasts through the one Draft room adapter (#745),
+  // which throws with no transport. Inject a recording broadcast so the direct
+  // (API-process) start path runs without a live socket, and return it for the
+  // worker-path case to read.
+  const broadcast = installRecordingBroadcast(t);
+  const fake = createFakePool([
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     // The market gate's count (#747): a loaded market so start is not refused.
@@ -211,7 +267,9 @@ function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keep
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [insert('draft_activity'), (() => { let seq = 100; return () => ({ rows: [{ id: seq, feed_seq: String(seq++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],
-  ]).install(t);
+  ]);
+  fake.broadcast = broadcast;
+  return fake.install(t);
 }
 
 test('the manual API startDraft path arms no timer, even though a real deadline was available (#615 AC3)', async (t) => {

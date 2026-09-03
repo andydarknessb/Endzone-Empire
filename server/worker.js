@@ -6,6 +6,8 @@ const bootGates = require('./modules/bootGates');
 const { installConsoleBridge, logger } = require('./modules/logger');
 const { initSentry, captureError, flushSentry } = require('./modules/sentry');
 const { startScheduler, stopScheduler, getSchedulerStatus } = require('./modules/scheduler');
+const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('./modules/draftRoomBroadcast');
+const { createEmitterTransport } = require('./modules/draftRoomEmitterTransport');
 const {
   startLiveGameEngine,
   stopLiveGameEngine,
@@ -31,6 +33,12 @@ async function startWorker() {
   bootGates.assertRedisUrlForBoot(process.env, { role: 'worker' });
   validateEnvironment(process.env, { worker: true });
   initSentry();
+  // The worker has no local Socket.IO server, so it broadcasts room-wide Draft
+  // events over the Redis emitter transport (#744) through the one draft room
+  // adapter (#745). Registered BEFORE the scheduler starts, so the first
+  // scheduled autostart or expiry autopick already has an honest transport
+  // rather than the silent drop this replaces.
+  setDraftRoomBroadcast(createDraftRoomBroadcast(createEmitterTransport(), 'emitter'));
   await heartbeat();
   startScheduler();
   startLiveGameEngine();

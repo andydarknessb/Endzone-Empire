@@ -4,7 +4,7 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { rosterCapacity } = require('./irPolicy.service');
-const { broadcastRosterAvailability } = require('../modules/rosterAvailabilityBroadcast');
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 
@@ -221,7 +221,7 @@ async function respondToTrade({ tradeId, userId, action }) {
 
     await executeTrade(client, { trade, league, items, teams });
     await client.query('COMMIT');
-    await broadcastRosterAvailability(league.id);
+    await getDraftRoomBroadcast().rosterChanged(league.id);
     return { tradeId, status: 'executed' };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -349,7 +349,7 @@ async function commissionerDecide({ tradeId, userId, approve }) {
     if (approve) {
       await executeTrade(client, { trade, league, items, teams, byCommissioner: true });
       await client.query('COMMIT');
-      await broadcastRosterAvailability(league.id);
+      await getDraftRoomBroadcast().rosterChanged(league.id);
       return { tradeId, status: 'executed' };
     }
     await client.query(
@@ -493,7 +493,7 @@ async function processDueTrades() {
       if (trade.status === 'accepted') {
         await executeTrade(client, { trade, league, items, teams });
         await client.query('COMMIT');
-        await broadcastRosterAvailability(league.id);
+        await getDraftRoomBroadcast().rosterChanged(league.id);
         outcomes.push({ tradeId: row.id, status: 'executed' });
         continue;
       }

@@ -24,6 +24,12 @@ jest.mock('@supabase/supabase-js', () => ({
 const pool = require('../../server/modules/pool');
 const teamRouter = require('../../server/routes/team.router');
 const { lockedPlayerIds } = require('../../server/services/lineup.service');
+// #745: the drop/undo-drop routes refresh league availability through the one
+// Draft room adapter, which throws with no transport (no silent default). This
+// harness builds a bare Express app with no attached socket, so register a
+// no-op io-shaped transport; the route's roster:changed emit is not asserted
+// here. Only this TEST file changes - no client source is touched.
+const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('../../server/modules/draftRoomBroadcast');
 
 function createDatabaseFixture() {
   const { league, players } = fixture;
@@ -189,6 +195,7 @@ describe('individual-player lineup lock timeline', () => {
     jest.useFakeTimers();
     ({ client, state } = createDatabaseFixture());
     pool.connect.mockResolvedValue(client);
+    setDraftRoomBroadcast(createDraftRoomBroadcast({ to: () => ({ emit: () => {} }) }, 'io'));
     suppliedFetch = !global.fetch;
     if (suppliedFetch) {
       Object.defineProperty(global, 'fetch', { configurable: true, writable: true, value: jest.fn() });
@@ -203,6 +210,7 @@ describe('individual-player lineup lock timeline', () => {
     fetchSpy.mockRestore();
     if (suppliedFetch) delete global.fetch;
     jest.useRealTimers();
+    setDraftRoomBroadcast(null);
     jest.clearAllMocks();
   });
 

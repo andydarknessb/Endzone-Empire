@@ -252,4 +252,4 @@ async function runStartAction(league) {
   });
 }
 
-module.exports = { scheduledDraftAction, processScheduledDrafts };
+module.exports = { scheduledDraftAction, processScheduledDrafts, runStartAction };

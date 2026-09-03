@@ -3,8 +3,7 @@ const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const { logger } = require('../modules/logger');
 const { withAdvisoryLock } = require('../modules/advisoryLock');
-const ioRegistry = require('../modules/io');
-const draftEvents = require('../modules/draftEvents');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const draftService = require('../services/draft.service');
 const pickClock = require('../services/pickClock.service');
 
@@ -46,6 +45,12 @@ function installSweepPool(
   t,
   { candidates, league = SWEEP_LEAGUE, team = SWEEP_TEAM, teams = [team], rosterPositions = [], takenPicks = [] } = {}
 ) {
+  // autoPick emits the committed pick through the one Draft room adapter (#745),
+  // which throws with no transport (no silent default). Inject a recording
+  // broadcast so every sweep test has an honest transport and the worker-path
+  // test below can read back the exact adapter call. Returned so that test can
+  // assert on it; the candidate-ordering tests ignore the return.
+  const broadcast = installRecordingBroadcast(t);
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     // The backstop scans every active deadline and decides due-ness in JS now
@@ -64,6 +69,7 @@ function installSweepPool(
     if (text.includes('FROM "players"')) return { rows: candidates };
     throw new Error(`Unexpected SQL: ${text}`);
   });
+  return broadcast;
 }
 
 // A MinneApple-shaped starting lineup: QB, RBx2, WRx2, TE, FLEX, K, DEF.
@@ -288,34 +294,27 @@ test('sweep: must-fill with its need-fillers sniped falls to the tail, not to es
   assert.deepEqual(outcomes, [{ leagueId: LEAGUE_ID, playerId: 400 }], 'the WR is drafted, not an escalation');
 });
 
-// --- the worker broadcast path: no local Socket.IO server --------------------
-// Ported from the superseded autopick service suite: this is the arm the worker
-// actually takes. The worker process has no local Socket.IO server, so
-// emitDraftEvent publishes the committed pick over the Draft room transport (the
-// @socket.io/redis-emitter, fanned out by the redis-adapter the API runs, #744),
-// rather than emitting in-process. Pinning the exact envelope keeps a future
-// edit from dropping or reshaping it.
+// --- the worker broadcast path: through the one Draft room adapter -----------
+// The worker process has no local Socket.IO server, so autoPick reaches the room
+// through the one Draft room adapter (#745), which in the worker publishes over
+// the Redis emitter transport (#744). Injecting the recording broadcast in place
+// of that transport lets this pin the exact adapter call - pickLanded with the
+// committed outcome, marked auto - without a live socket or Redis, and proves
+// the committed pick is no longer dropped the way the old getIo()-null path
+// risked.
 
-test('sweep: with no local Socket.IO server, the committed pick is published over the room transport', async (t) => {
-  installSweepPool(t, {
+test('sweep: the committed pick reaches the room through the adapter (pickLanded, auto:true)', async (t) => {
+  const broadcast = installSweepPool(t, {
     candidates: [{ id: 8, name: 'Worker Pick', adp: '1.0', queue_rank: null, last_season_points: null }],
-  });
-  t.mock.method(ioRegistry, 'getIo', () => null);
-  const published = [];
-  t.mock.method(draftEvents, 'publishDraftEvent', async (event) => {
-    published.push(event);
-    return { delivered: true, transport: 'emitter' };
   });
   const outcome = { leagueId: LEAGUE_ID, teamId: 55, player: { id: 8, name: 'Worker Pick' }, draftComplete: false };
   t.mock.method(draftService, 'draftPlayer', async () => outcome);
 
   await pickClock.processExpiredPickClocks();
 
-  assert.deepEqual(published, [{
-    leagueId: LEAGUE_ID,
-    event: 'draft:picked',
-    payload: { ...outcome, auto: true },
-  }]);
+  assert.deepEqual(broadcast.calls, [
+    { method: 'pickLanded', leagueId: LEAGUE_ID, payload: { ...outcome, auto: true } },
+  ]);
 });
 
 // --- containment: a thrown sweep is caught and the next sweep still runs ------
