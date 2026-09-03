@@ -47,6 +47,13 @@ jobs:
       # Its parser tests run here so a broken parser cannot merge; the
       # post-merge job re-runs them as a tripwire before it writes anything.
       - run: npm run test:close-merged-issues
+      # The dependency-audit jobs below call scripts/ci/audit-with-retry.js
+      # (#838), which retries only an npm advisories-endpoint outage and never
+      # a real advisory. Its test drives the script with a fake npm executable
+      # so it exercises every branch without touching the network; running it
+      # here gates the wrapper the same way the parser test above gates its
+      # script (a broken wrapper cannot merge).
+      - run: npm run test:audit-with-retry
       # The Promote workflow's Render deploy poller (#733) decides the
       # production release's red/green: fail fast on a failed build, wait
       # through a slow one, and never fire the worker hook while the old web
@@ -218,16 +225,23 @@ jobs:
 
   dependency-audit-root:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
-      - run: npm audit --omit=dev --audit-level=high
+      # A bare `npm audit` fails a required gate on an advisories-endpoint
+      # outage exactly as it would on a real advisory (#838). This zero-
+      # dependency wrapper (no npm ci needed) retries only the endpoint fault,
+      # never a real advisory, and stays red with a named message when the
+      # endpoint stays down. Its test runs in test-build (test:audit-with-retry).
+      - run: node scripts/ci/audit-with-retry.js
 
   dependency-audit-server:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -243,4 +257,6 @@ jobs:
       # diffs the server lock against its manifest and exits non-zero naming any
       # missing package; --package-lock-only --depth=0 installs nothing.
       - run: npm ls --prefix server --package-lock-only --depth=0
-      - run: npm audit --prefix server --omit=dev --audit-level=high
+      # Same wrapper as dependency-audit-root, scoped to server/ via the
+      # prefix argument (#838). Its test runs in test-build.
+      - run: node scripts/ci/audit-with-retry.js server
