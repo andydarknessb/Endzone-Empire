@@ -54,7 +54,7 @@ more.
   not for a collapse. Reopening it needs a product ruling that changes a
   mount scope, not a line count.
 
-## Amendment (2026-09-03)
+## Amendment (2026-09-03, #820): the rule reaches the Draft Sim, and visible status regions
 
 Filed against #820, which found that #805's brief and the code it produced
 (`DraftSimulator.jsx`, `SimStatusBar.jsx`, PR #813) cite this ADR for two
@@ -78,9 +78,9 @@ two" in Consequences above, the `PoliteRegion` rendering leaf and the
 that are `visuallyHidden` and exist solely to speak to assistive technology.
 A visible status region is a different kind of thing. It carries copy a
 sighted user reads on screen, so it is built as its own inline element with
-`role="status"`, following the shape `LiveDraftBanner` established in the
-Draft room; it does not mount `PoliteRegion` and does not use the hidden
-leaf or the hook. `DraftSimulator`'s turn-status region and
+`role="status"` and `aria-live="polite"`, following the shape
+`LiveDraftBanner` established in the Draft room; it does not mount
+`PoliteRegion` and does not use the hidden leaf or the hook. `DraftSimulator`'s turn-status region and
 `LiveDraftBanner`'s are both visible status regions in this sense. Nothing
 above this amendment governed that distinction; it was silent, not
 contradicted.
