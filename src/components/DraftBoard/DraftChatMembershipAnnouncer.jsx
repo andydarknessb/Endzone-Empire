@@ -1,7 +1,6 @@
 import React from 'react';
-import { Box } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
 import { MEMBERSHIP_NON_MEMBER } from './draftMembership';
+import PoliteRegion from './PoliteRegion';
 
 /**
  * Announces the loss of League chat once, politely (#534, a11y finding 3).
@@ -23,16 +22,18 @@ import { MEMBERSHIP_NON_MEMBER } from './draftMembership';
  *
  * The copy matches the surface so the spoken and seen facts agree; it states an
  * availability rule (no em-dash, house style) rather than blaming the viewer.
+ *
+ * The span itself is the shared PoliteRegion leaf (#791, ADR 0028); this
+ * component owns the mount, the membership edge and the text alone. There is no
+ * repeat-safe idiom here - the message is derived from `membership` on every
+ * render rather than repeated as a discrete event, so useAnnouncement has
+ * nothing to guard.
  */
 function DraftChatMembershipAnnouncer({ membership = null }) {
   const message = membership === MEMBERSHIP_NON_MEMBER
     ? 'League chat is available to league members only.'
     : '';
-  return (
-    <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
-      {message}
-    </Box>
-  );
+  return <PoliteRegion text={message} />;
 }
 
 export default DraftChatMembershipAnnouncer;

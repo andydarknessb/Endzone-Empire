@@ -1,8 +1,7 @@
 import React from 'react';
-import { Box } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
 import { readinessSummaryFor } from './readinessSummary';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
+import PoliteRegion from './PoliteRegion';
 
 /**
  * The Draft room's readiness announcement (issue #164), separate from the
@@ -25,11 +24,16 @@ import { railCompositionFor, RAIL_PANELS } from './railComposition';
  * only its text changing. That is why this is a component of its own rather
  * than a `<Box>` inline in DraftBoard - the thing being asserted about it is
  * that it is one persistent node, and a named component is what keeps a later
- * refactor from folding it back into a branch.
+ * refactor from folding it back into a branch. The span itself is the shared
+ * PoliteRegion leaf (#791, ADR 0028); this component owns the mount condition
+ * and the text, never the leaf.
  *
  * Visually hidden, following CountdownAnnouncer (#117): the rail still shows
  * the sentence to sighted managers, without a live region of its own, and
- * this exists purely to be announced.
+ * this exists purely to be announced. There is no repeat-safe idiom here -
+ * unlike PickAnnouncer, StallAnnouncer and FeedAnnouncer, this text is DERIVED
+ * from `teams` on every render rather than repeated as a discrete event, so
+ * useAnnouncement has nothing to guard and this renders PoliteRegion directly.
  *
  * Mounted for as long as the room has readiness to announce, rather than
  * literally forever. The two conditions are the panel's own: WHICH statuses
@@ -64,11 +68,7 @@ function ReadinessAnnouncer({ teams = [], viewerTeamId = null, draftStatus = nul
   // leaves the text node untouched - no announcement per snapshot tick.
   const { countText } = readinessSummaryFor(teams);
 
-  return (
-    <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
-      {countText}
-    </Box>
-  );
+  return <PoliteRegion text={countText} />;
 }
 
 export default ReadinessAnnouncer;
