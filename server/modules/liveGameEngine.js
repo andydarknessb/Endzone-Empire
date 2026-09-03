@@ -415,10 +415,16 @@ async function tick() {
   if (stopped) return;
   let nextDelay = config().idleCheckMs;
   let lockClient = null;
+  let lockTransactionOpen = false;
   let lockHeld = false;
   try {
     lockClient = await pool.connect();
-    const lockResult = await lockClient.query('SELECT pg_try_advisory_lock($1) AS locked', [23003]);
+    // Transaction-scoped lock inside an explicit transaction, for the same
+    // reason as modules/advisoryLock.js (#839): behind the transaction-mode
+    // pooler a session-level lock unlocks on the wrong backend and strands.
+    await lockClient.query('BEGIN');
+    lockTransactionOpen = true;
+    const lockResult = await lockClient.query('SELECT pg_try_advisory_xact_lock($1) AS locked', [23003]);
     lockHeld = Boolean(lockResult.rows[0]?.locked);
     if (!lockHeld) return;
 
@@ -471,10 +477,14 @@ async function tick() {
     lastError = err.message;
     nextDelay = config().idleCheckMs; // back off to the cheap cadence on failure
   } finally {
-    if (lockHeld) {
-      await lockClient.query('SELECT pg_advisory_unlock($1)', [23003]).catch(() => {});
+    let closeFailed = false;
+    if (lockTransactionOpen) {
+      // COMMIT releases the xact lock (nothing in this transaction is written).
+      await lockClient.query('COMMIT').catch(() => { closeFailed = true; });
     }
-    if (lockClient) lockClient.release();
+    // A client whose COMMIT failed may still sit in the lock transaction;
+    // destroy it rather than pool it, so the lock cannot be leaked.
+    if (lockClient) lockClient.release(closeFailed ? new Error('live-engine lock transaction close failed; connection destroyed') : undefined);
     lastRunAt = new Date().toISOString();
     if (!stopped) loopTimer = setTimeout(tick, nextDelay).unref();
   }

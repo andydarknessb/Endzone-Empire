@@ -352,17 +352,78 @@ test('sweep containment: a rejecting due query is caught and a later sweep still
   assert.equal(dueCalls, 2, 'both sweeps reached the query; the first did not abort the loop');
 });
 
-// --- advisory-lock release: destroy on unlock failure, log a skip ------------
-// The draft-clock tick (scheduler.draftTick) runs the sweep under this lock;
-// these pin the riding-along lock fixes #600 calls out.
+// --- advisory lock: one transaction, xact-scoped (#839) ----------------------
+// The draft-clock tick (scheduler.draftTick) runs the sweep under this lock.
+// Production reaches Postgres through Supavisor in transaction mode, which may
+// route each statement OUTSIDE a transaction to a different backend. A
+// session-level pg_try_advisory_lock followed by pg_advisory_unlock on the
+// same client therefore unlocked on the wrong backend, stranded the lock on
+// the first one, and every later try-lock that landed elsewhere read "held" -
+// the sweep skipped for minutes and a manager sat on an expired clock (#839,
+// Winsconsota 2026-09-03). The lock must ride ONE explicit transaction on the
+// checked-out client (a transaction pins its backend) and be xact-scoped, so
+// it dies with the COMMIT/ROLLBACK and can never outlive the tick.
 
-test('advisory lock: a connection whose unlock failed is destroyed, not returned to the pool', async (t) => {
+test('advisory lock: acquire, work and release ride one transaction on the checked-out client (#839)', async (t) => {
+  const calls = [];
   const released = [];
   const client = {
     query: async (sql) => {
       const text = String(sql);
-      if (text.includes('pg_try_advisory_lock')) return { rows: [{ locked: true }] };
-      if (text.includes('pg_advisory_unlock')) throw new Error('advisory unlock RPC failed');
+      calls.push(text);
+      if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked: true }] };
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(text)) return { rows: [] };
+      throw new Error(`unexpected: ${text}`);
+    },
+    release: (err) => released.push(err),
+  };
+  t.mock.method(pool, 'connect', async () => client);
+
+  let workCallIndex = -1;
+  const result = await withAdvisoryLock(23002, 'draft-clock', async () => {
+    workCallIndex = calls.length;
+    return 'work-done';
+  });
+
+  assert.equal(result, 'work-done');
+  // Red tells: the pre-#839 code issued no BEGIN at all and took the
+  // session-level pg_try_advisory_lock; either shape fails the sequence below.
+  assert.equal(calls[0], 'BEGIN', 'the lock transaction opens before the try-lock');
+  assert.match(calls[1], /pg_try_advisory_xact_lock/, 'the lock is transaction-scoped');
+  assert.ok(!calls.some((c) => /pg_try_advisory_lock\(|pg_advisory_unlock/.test(c)), 'no session-level lock or unlock is ever issued');
+  assert.equal(workCallIndex, 2, 'the work runs while the transaction is open');
+  assert.equal(calls[calls.length - 1], 'COMMIT', 'the transaction closes after the work, releasing the lock');
+  assert.deepEqual(released, [undefined], 'a cleanly closed connection goes back to the pool');
+});
+
+test('advisory lock: the transaction closes with ROLLBACK when the work throws, and the error propagates (#839)', async (t) => {
+  const calls = [];
+  const client = {
+    query: async (sql) => {
+      const text = String(sql);
+      calls.push(text);
+      if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked: true }] };
+      return { rows: [] };
+    },
+    release: () => {},
+  };
+  t.mock.method(pool, 'connect', async () => client);
+
+  await assert.rejects(
+    () => withAdvisoryLock(23002, 'draft-clock', async () => { throw new Error('sweep blew up'); }),
+    /sweep blew up/
+  );
+  assert.equal(calls[calls.length - 1], 'ROLLBACK', 'a failed tick still closes its lock transaction');
+});
+
+test('advisory lock: a connection whose transaction close failed is destroyed, not returned to the pool', async (t) => {
+  const released = [];
+  const client = {
+    query: async (sql) => {
+      const text = String(sql);
+      if (text === 'BEGIN') return { rows: [] };
+      if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked: true }] };
+      if (text === 'COMMIT') throw new Error('COMMIT RPC failed');
       throw new Error(`unexpected: ${text}`);
     },
     release: (err) => released.push(err),
@@ -373,15 +434,18 @@ test('advisory lock: a connection whose unlock failed is destroyed, not returned
 
   assert.equal(result, 'work-done', 'the work still ran and returned');
   assert.equal(released.length, 1, 'the connection was released exactly once');
-  // Red tell: the pre-change code called release() with no argument, returning
-  // the still-locked connection to the pool. Releasing WITH an error destroys it.
+  // A client whose COMMIT failed may still sit in the lock transaction.
+  // Releasing WITH an error destroys it, so the lock cannot go back into the
+  // pool on an open transaction (the #600 rule, carried to the xact shape).
   assert.ok(released[0] instanceof Error, 'released with an error => destroyed, not pooled');
 });
 
 test('advisory lock: a skipped tick (lock not acquired) is visible in the log output', async (t) => {
   const client = {
     query: async (sql) => {
-      if (String(sql).includes('pg_try_advisory_lock')) return { rows: [{ locked: false }] };
+      const text = String(sql);
+      if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked: false }] };
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(text)) return { rows: [] };
       throw new Error(`unexpected: ${sql}`);
     },
     release: () => {},
