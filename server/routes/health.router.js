@@ -9,6 +9,9 @@ const { getRuntimeState } = require('../modules/runtimeState');
 const { getRedisClient } = require('../modules/redis');
 const { getQuotaState } = require('../modules/tank01Client');
 const { classifyError } = require('../modules/errorCategory');
+// One spelling of the Overdue tolerance (#768): the constant lives in the Pick
+// clock module (pickClock.service owns expiry) and both detectors read it.
+const { OVERDUE_AFTER_MS } = require('../services/pickClock.service');
 
 const router = express.Router();
 const WORKER_STALE_MS = Number(process.env.WORKER_STALE_MS || 15 * 60 * 1000);
@@ -74,7 +77,41 @@ async function holdoutStatus() {
   }
 }
 
+/**
+ * Overdue Pick clocks (#768, ruling 2): the API-health half of the two
+ * detectors. A stored deadline elapsed for longer than the tolerance and still
+ * undischarged is Overdue - and because it reads the stored deadline, a DEAD
+ * worker (which never runs the sweep) is still caught here. The predicate is the
+ * sweep's own (`draft_status = 'active' AND draft_paused = false AND
+ * pick_deadline_at IS NOT NULL`) plus the tolerance filter. `leagues` is small,
+ * so no index (ADR 0018). Fields are named, never spread, so a wider leagues row
+ * leaks nothing to this anonymous route. A read failure fails open to an empty
+ * list: db.ok already carries a database outage, and this must not manufacture a
+ * false 503 of its own.
+ */
+async function overdueClocks() {
+  try {
+    const result = await pool.query(
+      `SELECT "id", "pick_deadline_at",
+              EXTRACT(EPOCH FROM (now() - "pick_deadline_at")) * 1000 AS "age_ms"
+       FROM "leagues"
+       WHERE "draft_status" = 'active' AND "draft_paused" = false
+         AND "pick_deadline_at" IS NOT NULL
+         AND "pick_deadline_at" < now() - make_interval(secs => $1)`,
+      [OVERDUE_AFTER_MS / 1000]
+    );
+    return result.rows.map((row) => ({
+      leagueId: row.id,
+      deadlineAt: row.pick_deadline_at,
+      ageMs: Math.round(Number(row.age_ms)),
+    }));
+  } catch (error) {
+    return [];
+  }
+}
+
 async function workerStatus() {
+  const overdue = await overdueClocks();
   try {
     const result = await pool.query(
       `SELECT "worker_name", "last_seen_at", "last_error", "release_sha"
@@ -92,11 +129,17 @@ async function workerStatus() {
       stale: now - new Date(row.last_seen_at).getTime() > WORKER_STALE_MS,
     }));
     return {
-      ok: workers.length > 0 && workers.every((worker) => !worker.stale && !worker.lastError),
+      // #768, ruling 2: an Overdue clock fails THIS section (so /worker answers
+      // 503). The composite / carries the section but keeps its own ok rule, so
+      // a stuck clock never flips the whole API to unhealthy.
+      ok: workers.length > 0
+        && workers.every((worker) => !worker.stale && !worker.lastError)
+        && overdue.length === 0,
       workers,
+      overdueClocks: overdue,
     };
   } catch (error) {
-    return { ok: false, workers: [], unavailable: true };
+    return { ok: false, workers: [], overdueClocks: overdue, unavailable: true };
   }
 }
 

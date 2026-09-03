@@ -57,14 +57,20 @@ test('a heartbeat without release env records release null rather than fabricati
 test('GET /api/health/worker surfaces each worker release SHA', async (t) => {
   const app = express();
   app.use('/api/health', healthRouter);
-  t.mock.method(pool, 'query', async () => ({
-    rows: [{
-      worker_name: 'jobs',
-      last_seen_at: new Date().toISOString(),
-      last_error: null,
-      release_sha: 'abc123def4567890',
-    }],
-  }));
+  // /worker now runs two reads: the heartbeat query and the overdue-clock probe
+  // over "leagues" (#768). Route by SQL so the heartbeat shape is not fed to the
+  // overdue mapper (a catch-all would read as one bogus overdue clock and 503).
+  t.mock.method(pool, 'query', async (sql) => {
+    if (/FROM "leagues"/.test(String(sql))) return { rows: [] };
+    return {
+      rows: [{
+        worker_name: 'jobs',
+        last_seen_at: new Date().toISOString(),
+        last_error: null,
+        release_sha: 'abc123def4567890',
+      }],
+    };
+  });
   const response = await request(app).get('/api/health/worker');
   assert.equal(response.status, 200);
   assert.equal(response.body.workers[0].release, 'abc123def4567890',
