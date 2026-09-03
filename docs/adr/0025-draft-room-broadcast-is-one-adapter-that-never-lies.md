@@ -108,3 +108,20 @@ that reports every failure.
   #745.
 - #614's future API-to-worker signal rides the hardened client on its own
   plain channel and is unaffected by the emitter.
+
+## Amendment (2026-09-02, #765)
+
+The adapter is the league room's broadcast, of which the Draft room events were
+the first tenants; the live-score push `scores:updated` joins them as
+`scoresUpdated(leagueId, payload)` under the same `league:<id>` room, the same
+two transports (`io` in the API, the Redis emitter in the worker), and the same
+delivered-or-reported policy. It is the same failure semantics that keep this
+one adapter rather than two: a dropped score is the same visible lie as a
+dropped Pick (Game Center and Matchup Detail have no polling, so a viewer's
+scores sit frozen until a reload), so the "two policies under one name is two
+adapters" test above does not fire. The scoring service, which emitted
+`scores:updated` through a `getIo()`-null guard that silently dropped every
+worker-side live-scoring tick and daily stat-correction pass since the
+2026-07-23 worker split, now reads the adapter through `getDraftRoomBroadcast()`
+and drops its `io` import; the source-form guard's exemption for it is deleted
+and the file is guarded again. No new adapter and no module rename.
