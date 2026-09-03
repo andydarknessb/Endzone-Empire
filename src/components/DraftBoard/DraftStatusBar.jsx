@@ -36,6 +36,11 @@ function DraftStatusBar({
   pendingSchedule = null,
   onClockAlertOpen,
   onCloseOnClockAlert,
+  // The Draft assistant's per-device toggle (#787), a self-contained context
+  // consumer the room passes in so it sits beside the on-the-clock sound
+  // toggle - the other per-device control (#445). Null unless the draft is
+  // active; the assistant only speaks during an active draft.
+  assistantToggle = null,
 }) {
   return (
     <>
@@ -102,6 +107,7 @@ function DraftStatusBar({
               {soundOn ? <NotificationsActiveIcon fontSize="small" /> : <NotificationsOffIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
+          {assistantToggle}
           {isCommissioner && league?.draft_status === 'pending' && (
             <Button variant="text" size="small" onClick={onRandomizeOrder} sx={MIN_TOUCH_TARGET_SX}>
               {/* Draft order is the defined term - which team holds which

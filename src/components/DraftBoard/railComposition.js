@@ -35,10 +35,19 @@ export const RAIL_PANELS = {
   QUEUE: 'queue',
   ROSTER: 'roster',
   UPCOMING: 'upcoming',
+  ASSISTANT: 'assistant',
 };
 
+// Assistant composes into `active` alone (issue #787 ruling item 1). It is the
+// private, opt-in Draft assistant voice (spec #784), which comments only on a
+// LIVE draft's own picks, Queue and Pick clock; it has nothing to say in the
+// pending lobby or over a finished record. It is listed here UNCONDITIONALLY,
+// toggle on or off: composition answers "does this status want this panel", and
+// the panel itself answers "do I have anything to say" - the assistant panel
+// renders nothing while the toggle is off (DraftRoomAssistant.jsx), the same
+// decline-to-render contract Readiness/Roster/Upcoming already use.
 const PENDING = [RAIL_PANELS.READINESS, RAIL_PANELS.ORDER, RAIL_PANELS.QUEUE];
-const ACTIVE = [RAIL_PANELS.QUEUE, RAIL_PANELS.ROSTER, RAIL_PANELS.UPCOMING];
+const ACTIVE = [RAIL_PANELS.QUEUE, RAIL_PANELS.ROSTER, RAIL_PANELS.UPCOMING, RAIL_PANELS.ASSISTANT];
 const COMPLETE = [RAIL_PANELS.ROSTER];
 
 /**

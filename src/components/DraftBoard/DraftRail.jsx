@@ -24,6 +24,7 @@ import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
+import { DraftRoomAssistantPanel } from './DraftRoomAssistant';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import useFocusRescue from './useFocusRescue';
 import DraftOrderPanel from '../../widgets/draft-order/ui/DraftOrderPanel';
@@ -606,6 +607,14 @@ function DraftRail({
     [RAIL_PANELS.QUEUE]: queuePanel,
     [RAIL_PANELS.ROSTER]: rosterPanel,
     [RAIL_PANELS.UPCOMING]: upcomingPanel,
+    // The private, opt-in Draft assistant (issue #787). A self-contained
+    // consumer of the room's assistant context (DraftRoomAssistant.jsx), so the
+    // rail passes it no props and holds none of its state; the engine lives once
+    // above the tabs in DraftBoard's chrome. It returns null while the toggle is
+    // off, so this composes into `active` unconditionally yet the rail is
+    // unchanged until a manager turns the voice on. Rendered without a provider
+    // (DraftRail.test.jsx) it reads the off default and likewise renders nothing.
+    [RAIL_PANELS.ASSISTANT]: <DraftRoomAssistantPanel />,
   };
 
   const composed = railCompositionFor(draftStatus)
