@@ -19,6 +19,9 @@ import {
 } from './templates';
 import { rosterFor, roundOfPick } from './engine';
 import { positionGroupKey, slotCapacityFor, benchToleranceFor } from './cpuBrain';
+import { stealReachThreshold } from '../stealReach';
+
+export { stealReachThreshold };
 
 function round2(value) {
   return Math.round(value * 100) / 100;
@@ -119,15 +122,6 @@ export function optimalLineup(players, rosterSlots, pointsFor = new Map()) {
 // ---------------------------------------------------------------------------
 // Sim-specific analysis
 // ---------------------------------------------------------------------------
-
-/**
- * How far off market a pick has to be, in that round, to read as a steal or a
- * reach. Scaled by round because ADP noise widens as the board thins — a
- * 10-pick swing in round 1 is a story, in round 12 it's rounding.
- */
-export function stealReachThreshold(round) {
-  return 6 + 1.5 * round;
-}
 
 /** Projected-points lookup for optimalLineup / bench math. */
 export function pointsMap(state) {
