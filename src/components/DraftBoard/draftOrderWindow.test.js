@@ -358,10 +358,10 @@ describe('what each pick carries', () => {
 // These moved from DraftBoard.test.jsx (issue #793 AC4) - they used to render
 // the whole room to read a label the window now returns directly. They prove
 // the window's own arithmetic only: that the label then reaches the screen
-// through rosterViewFor -> RosterNeedsStrip is deliberately NOT asserted here,
-// and after the move no room test under src/components/DraftBoard asserts the
-// rendered "Next pick <label>" either. That render-path coverage is a separate
-// follow-up, not a gap this suite closes.
+// through rosterViewFor -> RosterNeedsStrip is deliberately NOT asserted here.
+// The render path through rosterViewFor -> RosterNeedsStrip is asserted by
+// the room cases in DraftBoard.test.jsx (#825); this suite proves the
+// window's arithmetic only.
 // ---------------------------------------------------------------------------
 
 /** Two teams, snake, the third pick of a 19-round draft on the clock (a 12
