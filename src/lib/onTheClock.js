@@ -29,6 +29,17 @@
 
 export const URGENT_SECONDS = 10;
 
+/**
+ * How long a deadline may sit expired-but-undischarged before the clock is
+ * Overdue: past this, nobody in the room can act (the server owns advancing the
+ * clock), so the leaf drops the "act now" urgency and says the room is waiting
+ * (#769). This is a CLIENT copy of the server's ONE tolerance,
+ * `OVERDUE_AFTER_MS` in server/services/pickClock.service.js; a parity test
+ * (onTheClock.overdueParity.test.js) pins the two equal so an edit to either
+ * fails loudly. "Overdue" is not "stalled" (the nothing-draftable pause).
+ */
+export const OVERDUE_AFTER_MS = 30000;
+
 const IDLE = Object.freeze({ team: null, state: 'idle', deadlineAt: null });
 
 /**
