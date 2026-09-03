@@ -1,7 +1,7 @@
 import { TRIGGERS } from '../../lib/draftAssistant';
 import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
 import {
-  isUrgent, netVsAdpFor, factsForUserPick, factsForPoolSelection,
+  netVsAdpFor, factsForUserPick, factsForPoolSelection,
   factsForTurnStart, factsForClockUrgent, userTeamId,
 } from './simAssistantFacts';
 
@@ -35,25 +35,6 @@ function sim({ picks, rounds = 15, teams = TEAMS, players = PLAYERS } = {}) {
     config: { leagueType: 'standard' }, teams, players, picks, rounds,
   };
 }
-
-describe('isUrgent (the <=10s reading already inline in SimStatusBar.jsx)', () => {
-  it('is true only on the user turn, with a defined secondsLeft at or under the threshold', () => {
-    expect(isUrgent({ myTurn: true, secondsLeft: 10 })).toBe(true);
-    expect(isUrgent({ myTurn: true, secondsLeft: 0 })).toBe(true);
-  });
-
-  it('is false one second above the threshold', () => {
-    expect(isUrgent({ myTurn: true, secondsLeft: 11 })).toBe(false);
-  });
-
-  it('is false when it is not the user turn, however low the clock reads', () => {
-    expect(isUrgent({ myTurn: false, secondsLeft: 1 })).toBe(false);
-  });
-
-  it('is false when there is no clock at all (secondsLeft null)', () => {
-    expect(isUrgent({ myTurn: true, secondsLeft: null })).toBe(false);
-  });
-});
 
 describe('netVsAdpFor (miseryStage\'s own sign: negative = steals accumulate)', () => {
   it('sums only the user\'s own picks, unnegated draftValueScore', () => {

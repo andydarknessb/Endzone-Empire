@@ -8,9 +8,11 @@
  * it does not re-derive either. `earlyKickerOrDefense`, `miseryStage` and the
  * trigger table come straight from the library (issue #785); round, label
  * ('steal' | 'reach' | 'value' | 'no-market') and draftValueScore come from
- * analysis.js's pickValues(), the same function the post-draft report and
- * SimReport.jsx already trust, so the assistant's read of a pick can never
- * disagree with the report's.
+ * analysis.js's pickValues() - the one caller of it today is analysis.js's
+ * own overallGrade(), so this module's read of a pick can never disagree
+ * with the post-draft report's. (The urgency threshold isn't this module's
+ * concern at all: SimAssistantPanel.jsx calls lib/onTheClock.js's isUrgent()
+ * directly, the #754 shared threshold SimStatusBar.jsx also imports.)
  *
  * NET VS ADP SIGN. pickValues()'s draftValueScore is `marketAdp - actualPick`
  * (analysis.js): negative means the pick landed LATER than its market ADP (a
@@ -32,14 +34,6 @@ import { TRIGGERS, earlyKickerOrDefense } from '../../lib/draftAssistant';
  * panel would print a line for nearly every pick in the room. Comfortably
  * above one CPU pacing tick, short enough that the panel still reads live. */
 export const SELECTION_COOLDOWN_MS = 4000;
-
-/** Matches the <=10s "time's running out" reading already inline in
- * SimStatusBar.jsx and the Draft room's DraftStatusBar.jsx/LiveDraftBanner.jsx
- * - no shared helper existed before this ticket (grepped repo-wide, #786), so
- * this is that reading given a name, not a re-derivation of a different rule. */
-export function isUrgent({ myTurn, secondsLeft, thresholdSeconds = 10 }) {
-  return !!myTurn && secondsLeft != null && secondsLeft <= thresholdSeconds;
-}
 
 function emptyPlayerFacts() {
   return {

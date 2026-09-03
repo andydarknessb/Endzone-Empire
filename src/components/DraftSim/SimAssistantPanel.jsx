@@ -8,9 +8,13 @@ import PoliteRegion from '../DraftBoard/PoliteRegion';
 import { useAnnouncement } from '../DraftBoard/useAnnouncement';
 import { createLineGenerator, miseryStage } from '../../lib/draftAssistant';
 import { templateFor } from '../../lib/draftSim/templates';
+// The one shared urgency threshold (#754): SimStatusBar.jsx reads `myTurn &&
+// isUrgent(secondsLeft)` off this same module, so the assistant's "is this
+// urgent" question can never drift from the status bar's.
+import { isUrgent } from '../../lib/onTheClock';
 import { readDraftAssistantOn, writeDraftAssistantOn } from '../../lib/draftAssistantPreference';
 import {
-  isUrgent, netVsAdpFor, factsForUserPick, factsForPoolSelection,
+  netVsAdpFor, factsForUserPick, factsForPoolSelection,
   factsForTurnStart, factsForClockUrgent, userTeamId, SELECTION_COOLDOWN_MS,
 } from './simAssistantFacts';
 
@@ -28,8 +32,9 @@ const SCROLLBACK_LIMIT = 20;
  * QUEUE_PICKED_BY_OTHER never applies here):
  *   - TURN_START: the edge from not-my-turn to my-turn.
  *   - CLOCK_URGENT: the <=10s edge inside a turn that is still mine, once per
- *     turn (isUrgent() below matches the reading already inline in
- *     SimStatusBar.jsx).
+ *     turn (isUrgent() imported from lib/onTheClock.js, the #754 shared
+ *     threshold - the same call SimStatusBar.jsx makes for its own urgent
+ *     styling).
  *   - PICK_STEAL / PICK_REACH / PICK_EARLY_KDEF / PICK_RB / PICK_GENERIC /
  *     PICK_AUTO: exactly one of these, per pick, for a pick THIS panel's user
  *     team made (factsForUserPick's priority chain).
@@ -119,8 +124,20 @@ function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
   // Turn start, and the once-per-turn urgent clock edge inside a turn that is
   // still the user's. Both reset together: a fresh turn clears the "already
   // fired" flag for the edge that lives inside it.
+  //
+  // THE OFF-BRANCH RESET IS GUARDED, not unconditional (formal review finding
+  // #786): urgentFiredRef must still clear when a turn genuinely ENDS while
+  // the assistant is off (`!myTurn`), or the flag survives into the next turn
+  // and silently suppresses that turn's whole CLOCK_URGENT line once toggled
+  // back on. But it must NOT clear just because the toggle flipped off inside
+  // an already-urgent turn that never ended (`myTurn` still true) - resetting
+  // then would let a toggle off/then/on within that same turn fire the line a
+  // second time, breaking ruling 10's "once per turn". Mirrors the identical
+  // `if (!myTurn) urgentFiredRef.current = false` guard the "on" branch below
+  // already uses for the same reason.
   useEffect(() => {
     if (!assistantOn) {
+      if (!myTurn) urgentFiredRef.current = false;
       prevMyTurnRef.current = myTurn;
       return;
     }
@@ -130,7 +147,7 @@ function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
     }
     if (!myTurn) {
       urgentFiredRef.current = false;
-    } else if (isUrgent({ myTurn, secondsLeft }) && !urgentFiredRef.current) {
+    } else if (isUrgent(secondsLeft) && !urgentFiredRef.current) {
       urgentFiredRef.current = true;
       pushLine(factsForClockUrgent({ sim }), { spoken: true });
     }

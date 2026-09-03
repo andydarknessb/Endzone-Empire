@@ -53,7 +53,8 @@ beforeEach(() => {
 describe('SimAssistantPanel (#786)', () => {
   it('renders no assistant panel content while the toggle is off', () => {
     render(<SimAssistantPanel sim={makeSim([])} myTurn={false} secondsLeft={null} />);
-    expect(screen.getByText('Draft assistant')).toBeInTheDocument(); // the toggle control itself
+    expect(screen.getByText('Draft assistant')).toBeInTheDocument(); // the heading
+    expect(screen.getByRole('checkbox', { name: 'Draft assistant commentary' })).toBeInTheDocument(); // the toggle control itself
     expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
     // The polite region is permanently mounted (accessibility review, #786) so
@@ -176,5 +177,38 @@ describe('SimAssistantPanel (#786)', () => {
     // old turn-start line reappearing just because the panel is visible again.
     fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant commentary' }));
     expect(screen.getByRole('status').textContent).toBe('');
+  });
+
+  it('never double-fires CLOCK_URGENT across a toggle off/on within one turn, but re-arms it once the turn actually changes while off', () => {
+    // Formal review regression guard (#786): the off-branch's urgentFiredRef
+    // reset is guarded on `!myTurn`, not unconditional. An unconditional reset
+    // would let toggling off/on inside one still-urgent turn fire the line
+    // twice (ruling 10 violation); no reset at all would leave a stale "already
+    // fired" flag suppressing the whole of the NEXT turn's urgent line if that
+    // turn boundary is crossed while off.
+    window.localStorage.setItem(DRAFT_ASSISTANT_KEY, '1');
+    const toggle = () => fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant commentary' }));
+    const urgentLineCount = () => within(commentaryList()).getAllByRole('listitem').length;
+
+    const { rerender } = render(
+      <SimAssistantPanel sim={makeSim([])} myTurn secondsLeft={10} rng={firstDraw} />
+    );
+    expect(urgentLineCount()).toBe(1); // the mount-time urgent line
+
+    // Toggle off, then straight back on: nothing about the turn changed
+    // (myTurn stayed true throughout) - must NOT re-fire.
+    toggle();
+    toggle();
+    expect(urgentLineCount()).toBe(1);
+
+    // Toggle off again, and cross a real turn boundary while off: the turn
+    // ends, then a new one starts (also already <=10s, for simplicity).
+    toggle();
+    rerender(<SimAssistantPanel sim={makeSim([])} myTurn={false} secondsLeft={null} rng={firstDraw} />);
+    rerender(<SimAssistantPanel sim={makeSim([])} myTurn secondsLeft={10} rng={firstDraw} />);
+
+    // Toggle back on: the NEW turn's urgent line is genuinely allowed through.
+    toggle();
+    expect(urgentLineCount()).toBe(2);
   });
 });
