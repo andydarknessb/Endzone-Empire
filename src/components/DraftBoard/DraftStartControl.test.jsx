@@ -86,6 +86,7 @@ test('a market with plenty of players but no recorded sync ever renders no fabri
   );
 
   expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
+  expect(screen.queryByText(/has not loaded/)).not.toBeInTheDocument();
   expect(screen.queryByText(/last updated/)).not.toBeInTheDocument();
   expect(screen.queryByText(/1969/)).not.toBeInTheDocument();
 });
