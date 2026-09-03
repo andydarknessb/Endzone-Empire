@@ -24,9 +24,23 @@ function initialsFor(name) {
  * around it never re-render per second; `paused` and `untimed`/`idle` show a
  * static label instead. */
 function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
-  if (league?.draft_status !== 'active') return null;
   const team = onTheClock?.team ?? null;
   const state = onTheClock?.state ?? 'idle';
+  const deadlineAt = onTheClock?.deadlineAt ?? null;
+
+  // One-shot Overdue flag (#769 ruling 4). The PickClock leaf owns the per-second
+  // tick and tells us ONCE, at the crossing, through onOverdue; we append the
+  // same copy inside the existing role=status region so a screen reader hears
+  // it a single time this turn - never per second (#445 AC3, #754 isolation).
+  // It resets whenever the deadline changes (a new pick, or the same pick
+  // re-armed), so the next turn starts clean.
+  const [overdue, setOverdue] = React.useState(false);
+  React.useEffect(() => {
+    setOverdue(false);
+  }, [deadlineAt]);
+  const handleOverdue = React.useCallback(() => setOverdue(true), []);
+
+  if (league?.draft_status !== 'active') return null;
 
   return (
     <Paper
@@ -76,9 +90,14 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
         >
           {isMyTurn ? 'Your pick!' : team ? `${team.teamName} is on the clock` : 'Waiting…'}
         </Typography>
+        {overdue ? (
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            Waiting on the server
+          </Typography>
+        ) : null}
       </Box>
       {state === 'running' ? (
-        <PickClock deadlineAt={onTheClock.deadlineAt} />
+        <PickClock deadlineAt={onTheClock.deadlineAt} onOverdue={handleOverdue} />
       ) : state === 'paused' ? (
         <Typography variant="h6" component="div" sx={{ color: 'warning.main', flexShrink: 0 }}>
           Draft paused

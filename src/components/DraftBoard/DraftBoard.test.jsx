@@ -1311,6 +1311,36 @@ test('a ticking pick clock re-renders only its own leaf, never the room (#754 A7
   expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
 });
 
+test('crossing the Overdue boundary re-renders the room at most once, never per second (#769 AC4)', async () => {
+  jest.useFakeTimers();
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 5000).toISOString(),
+    })))
+  );
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:05');
+  const roomRendersBefore = PlayerPoolTableProbe.renderSpy.mock.calls.length;
+
+  // Run through the deadline (5s) and well past the 30s tolerance. The leaf
+  // ticks ~35 times on its own; the banner lifts a one-shot Overdue boolean at
+  // the crossing (#769 ruling 4).
+  act(() => {
+    jest.advanceTimersByTime(5000 + 30000 + 2000);
+  });
+
+  // We really crossed: digits pin at 0:00 and the room shows the Overdue copy
+  // (the leaf under the digits and the banner's once-per-turn announcement).
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:00');
+  expect(screen.getAllByText('Waiting on the server').length).toBeGreaterThanOrEqual(1);
+  // Isolation holds across the boundary: ~35 per-second ticks reach only the
+  // leaf, and the banner's single re-render does not cascade to the pool. At
+  // most one, not one per second.
+  expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBeLessThanOrEqual(roomRendersBefore + 1);
+});
+
 test('a paused draft shows the paused chip and leaves drafting focusable but aria-disabled', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
