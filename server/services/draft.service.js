@@ -31,6 +31,20 @@ class DraftError extends Error {
 }
 
 /**
+ * Whether a caught error is a draft REFUSAL rather than an internal fault. A
+ * `DraftError` below 500 is a refusal: its message is copy a manager reads, so
+ * a boundary echoes it verbatim. A `DraftError` of 500 or above is an internal
+ * invariant, not copy: every boundary logs it and answers with its own generic
+ * message instead of showing the raw text. Anything without a numeric
+ * `statusCode` (a bare Error, a driver error) is not a refusal either, so it
+ * takes the same generic, logged path. This is the one predicate the seven
+ * draft boundaries branch on (#808).
+ */
+function isDraftRefusal(error) {
+  return !!error && typeof error.statusCode === 'number' && error.statusCode < 500;
+}
+
+/**
  * The human copy behind each Commissioner-correction refusal code (#439). The
  * CODE is the contract a client branches on (ADR 0008); this is the message it
  * shows if it has nothing better. correctionTarget emits the three pick-shaped
@@ -555,4 +569,5 @@ module.exports = {
   shouldAutoEnableAutodraft,
   AUTO_ENABLE_TIMEOUTS,
   DraftError,
+  isDraftRefusal,
 };

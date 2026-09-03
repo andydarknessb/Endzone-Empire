@@ -11,6 +11,8 @@ const { signToken } = require('../modules/auth');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
 const draftRoomBroadcast = require('../modules/draftRoomBroadcast');
+const pickService = require('../services/pick.service');
+const { DraftError } = require('../services/draft.service');
 
 /**
  * POST /api/draft/league/:id/offline-picks - the commissioner bulk-enters an
@@ -144,5 +146,69 @@ test('POST offline-picks: a post-COMMIT fan-out failure does not report a landed
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(res.body, { applied: 2 }, 'both committed Picks are counted despite the fan-out failure');
+  fake.assertClean();
+});
+
+/**
+ * A pool for the refusal-vs-fault cases below: only the two reads the route
+ * makes BEFORE landPick (requireFantasyLeague's gate and the route's own
+ * commissioner/status/type pre-check). commitPick is mocked to throw, so none
+ * of its transaction reads run.
+ */
+function offlinePicksPreCheckPool() {
+  return createFakePool([
+    [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
+    [/^SELECT "draft_status", "draft_type"/, () => ({
+      rows: [{ draft_status: 'active', draft_type: 'offline', is_commissioner: true }],
+    })],
+  ]);
+}
+
+// #808: the offline-picks boundary must tell a manager-facing refusal from an
+// internal fault. A 500 DraftError is an internal invariant (the completeDraft
+// guard #789): it is logged and answered with generic copy, never echoed. This
+// is the load-bearing hunk - reverting it turns this case red and leaves the
+// 4xx control below green.
+test('POST offline-picks: a 500 DraftError from landPick is logged and reported as generic copy, not echoed (#808)', async (t) => {
+  const fake = offlinePicksPreCheckPool().install(t);
+  const errorLog = t.mock.method(console, 'error', () => {});
+  t.mock.method(pickService, 'commitPick', async () => {
+    throw new DraftError(500, 'completeDraft requires draft_status = drafting for league 5');
+  });
+
+  const res = await request(app)
+    .post(`/api/draft/league/${LEAGUE_ID}/offline-picks`)
+    .set('Authorization', authed())
+    .send({ playerIds: [500] });
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.error, 'pick failed', 'the internal-fault copy, not the raw invariant message');
+  assert.equal(res.body.failedAtIndex, 0);
+  assert.equal(res.body.applied, 0);
+  assert.equal(JSON.stringify(res.body).includes('completeDraft'), false, 'the invariant text never reaches the client');
+  assert.equal(errorLog.mock.calls.length, 1, 'the fault is logged exactly once for the operator');
+  fake.assertClean();
+});
+
+// The positive control: a 4xx DraftError is a refusal whose message IS the copy
+// the commissioner reads, so it is echoed and NOT logged. This half is
+// insensitive to the hunk above - it proves the branch was narrowed, not
+// disabled.
+test('POST offline-picks: a 409 DraftError from landPick is echoed verbatim and not logged (#808 control)', async (t) => {
+  const fake = offlinePicksPreCheckPool().install(t);
+  const errorLog = t.mock.method(console, 'error', () => {});
+  t.mock.method(pickService, 'commitPick', async () => {
+    throw new DraftError(409, 'it is not your turn to pick');
+  });
+
+  const res = await request(app)
+    .post(`/api/draft/league/${LEAGUE_ID}/offline-picks`)
+    .set('Authorization', authed())
+    .send({ playerIds: [500] });
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.error, 'it is not your turn to pick', 'a refusal message is copy the manager reads');
+  assert.equal(res.body.failedAtIndex, 0);
+  assert.equal(errorLog.mock.calls.length, 0, 'a refusal is not an operator-facing fault, so it is not logged');
   fake.assertClean();
 });

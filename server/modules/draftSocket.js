@@ -3,7 +3,7 @@ const pool = require('./pool');
 const { setIo } = require('./io');
 const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('./draftRoomBroadcast');
 const { requireSocketAuth } = require('./auth');
-const { DraftError } = require('../services/draft.service');
+const { isDraftRefusal } = require('../services/draft.service');
 // A Pick lands in one place (#782): the socket handler commits AND fans out the
 // Pick through the one seam, landPick, rather than re-deriving the room events here.
 const { landPick } = require('../services/pick.service');
@@ -297,7 +297,7 @@ function attachDraftSocket(httpServer) {
         const outcome = await landPick({ leagueId, userId: socket.user.id, playerId });
         ack && ack({ ok: true, outcome });
       } catch (error) {
-        if (error instanceof DraftError || error.statusCode) {
+        if (isDraftRefusal(error)) {
           return ack && ack({ error: error.message });
         }
         console.error('draft:pick failed', error);
@@ -314,7 +314,7 @@ function attachDraftSocket(httpServer) {
         await startDraft({ leagueId, userId: socket.user.id });
         ack && ack({ ok: true });
       } catch (error) {
-        if (error.statusCode) return ack && ack({ error: error.message });
+        if (isDraftRefusal(error)) return ack && ack({ error: error.message });
         console.error('draft:start failed', error);
         ack && ack({ error: 'failed to start draft' });
       }
