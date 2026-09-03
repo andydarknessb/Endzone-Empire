@@ -378,8 +378,11 @@ _Avoid_: stalled (that is the nothing-draftable pause), stuck, late clock
 **Pick**:
 A team's committed claim of one player during a draft. Once accepted it
 advances the shared draft state and cannot be undone by the manager who made
-it; commissioner correction is a separate administrative act.
-_Avoid_: selection, reversible pick
+it; commissioner correction is a separate administrative act. A Pick is made
+only while the draft is active: a player added after the draft completes is a
+Free agent acquisition, not a Pick, and it is never part of the Draft record.
+_Avoid_: selection, reversible pick, free-agent add (a post-draft acquisition,
+not a Pick)
 
 **Draft activity**:
 The chronological record of consequential shared Draft events: Draft start,

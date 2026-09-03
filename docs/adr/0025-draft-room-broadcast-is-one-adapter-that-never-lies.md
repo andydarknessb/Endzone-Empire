@@ -125,3 +125,28 @@ worker-side live-scoring tick and daily stat-correction pass since the
 2026-07-23 worker split, now reads the adapter through `getDraftRoomBroadcast()`
 and drops its `io` import; the source-form guard's exemption for it is deleted
 and the file is guarded again. No new adapter and no module rename.
+
+## Amendment (2026-09-03): the Pick module is the adapter's one caller for a Pick
+
+The adapter made *how* a room-wide event travels honest; it left *which*
+events a committed Pick fires to each caller. Five call sites of the commit
+(`draftPlayer`) each re-derived that list, and one of them, the offline
+bulk-entry route, fired none of it: its committed Picks and their Draft
+activity rows reached the room only through a whole-board refresh, and a
+completing offline draft never emitted completion. The 2026-09-03 architecture
+review's first candidate fixes the shape rather than the site.
+
+The decision: one Pick module (`server/services/pick.service.js`) owns the
+commit and the fan-out together. Its single operation lands a Pick and, after
+commit, calls `pickLanded`, then on the Pick that ends the draft
+`activityAppended` with the completion entry, `rosterChanged` and
+`draftCompleted`. It is the only code that calls `pickLanded`; the commit
+becomes its internal seam and is no longer imported by the socket handler,
+the Pick clock's Autopick or any route. The wire payload is assembled in the
+Pick module, so the payload-shape guard pins one site. The post-draft
+free-agent add, which shared the commit under the same name, leaves it for a
+named operation of its own with no room fan-out, matching CONTEXT.md's Pick
+entry. The consecutive-timeout streak stays with the Pick clock module as ADR
+0018 places it. The adapter's interface, transports and delivered-or-reported
+policy are unchanged; this amendment only narrows who may decide that a Pick
+happened.
