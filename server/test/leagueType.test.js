@@ -619,12 +619,12 @@ test("setLineup refuses a pick'em-only league before materializing a lineup", as
   assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql)), 'nothing was written');
 });
 
-test("draftPlayer (free-agent add) refuses a pick'em-only league with the league-type error, not the generic 'draft has not started'", async (t) => {
-  const { draftPlayer } = require('../services/draft.service');
+test("addFreeAgent refuses a pick'em-only league with the league-type error, not the generic 'the draft is not complete'", async (t) => {
+  const { addFreeAgent } = require('../services/draft.service');
   const tx = txClient([[LEAGUE_ROW_SQL, () => ({ rows: [PICKEM_LEAGUE_ROW] })]]);
   t.mock.method(pool, 'connect', async () => tx.client);
   await assert.rejects(
-    () => draftPlayer({ leagueId: 3, userId: CALLER, playerId: 1 }),
+    () => addFreeAgent({ leagueId: 3, userId: CALLER, playerId: 1 }),
     expectPickemOnlyError
   );
   assert.ok(!tx.calls.some((sql) => /^(INSERT|UPDATE|DELETE)/.test(sql)), 'nothing was written');

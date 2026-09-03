@@ -1,23 +1,22 @@
 const pool = require('../modules/pool');
 const { placeOnWaiversUndoable, isOnWaivers } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
-const { teamForPick, nextOpenPickNumber } = require('./draftOrder.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { teamIdentityOf } = require('./teamIdentity');
-const { appendPickActivity, appendLifecycleActivity, appendCorrectionActivity, COMPLETE } = require('./draftActivity');
+const { appendCorrectionActivity } = require('./draftActivity');
 // correctionTarget is required lazily inside correctLatestPick, kept lazy to
 // avoid any load-order coupling with draftValidation (which pulls in the roster
 // and draft-order modules at load time).
 const { assertFantasyLeagueRow } = require('./leagueType');
-const { draftRounds } = require('./rosterShape');
 const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
-// The Pick clock module owns arming: the only writer of the deadline and the
-// current pick (ADR 0018). draftPlayer advances the turn through its named
-// pick-landed event.
-const pickClock = require('./pickClock.service');
+// Every room-wide emit here rides the one Draft room adapter (#745); addFreeAgent
+// resolves it at call time (ADR 0025), the same way pick.service and the routes do.
+const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
+const { logger } = require('../modules/logger');
+const sentry = require('../modules/sentry');
 
 const { POSITION_GROUPS } = lineupService;
 
@@ -87,22 +86,53 @@ async function assertPositionCapNotReached(client, { teamId, positionCaps, posit
 }
 
 /**
- * Draft a player onto a team inside a single database transaction. The
- * league row is locked (SELECT ... FOR UPDATE) so concurrent picks in the
- * same league serialize; unique constraints on (league_id, player_id) are the
- * backstop against double-drafting.
+ * The roster-acquisition checks shared by a Pick (pick.service.commitPick) and a
+ * post-draft free-agent add (addFreeAgent below), #782 ruling 2: roster capacity,
+ * the per-position cap, and - for a completed draft only - the on-waivers gate.
+ * The order matches what the single pre-#782 commit ran before it was split into
+ * pick.service.commitPick and addFreeAgent, so both callers refuse for the same
+ * reason in the same order they always did.
  *
- * Works in two modes:
- *  - draft_status = 'active': enforces turn order (per the league's rotation
- *    and any round overrides) and records a pick
- *  - draft_status = 'complete': free-agent pickup (roster insert only)
- *
- * `byCommissioner` is set by the offline-draft bulk-entry endpoint: the
- * league owner applies the pick to whichever team is on the clock rather
- * than to their own team, and skips the team-lock check (an offline draft is
- * entirely commissioner-driven).
+ * Roster capacity is the IR-policy capacity, not the static roster limit: a draft
+ * pick and a post-draft add both land here, and an eligible IR stash grants a
+ * spot beyond the draft roster size (#97). The added player himself earns no
+ * restored credit - an add benches him (undoDrop is the one restore).
  */
-async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommissioner = false }) {
+async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position }) {
+  const rosterCountResult = await client.query(
+    `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
+    [teamId]
+  );
+  const capacity = await rosterCapacity(client, { league, teamId });
+  if (rosterCountResult.rows[0].n >= capacity) {
+    throw new DraftError(409, `roster capacity of ${capacity} reached`);
+  }
+
+  await assertPositionCapNotReached(client, { teamId, positionCaps: league.position_caps, position });
+
+  // Post-draft pickups are free agency: players still on waivers must be claimed
+  // through the waiver process instead. An active draft never reaches this branch
+  // (a Pick is not a waiver claim), so it is a no-op for pick.service.commitPick.
+  if (league.draft_status === 'complete' &&
+      await isOnWaivers(client, { league, playerId })) {
+    throw new DraftError(409, 'player is on waivers; submit a waiver claim instead');
+  }
+}
+
+/**
+ * A post-draft free-agent add: the caller adds a free player to their OWN roster
+ * once the draft is complete. This is NOT a Pick (#782 ruling 2, CONTEXT.md) - it
+ * takes the Pick path's roster-acquisition checks through the shared helper above,
+ * but it commits no draft_pick, appends no Draft activity, arms no clock, and
+ * fans out only `rosterChanged` (the availability read model changed). It refuses
+ * unless the draft is complete; a Pick, conversely, refuses unless it is active.
+ *
+ * The transaction locks the league row FOR UPDATE, exactly as a Pick does, so the
+ * capacity read cannot race a concurrent add; the (league_id, player_id) unique
+ * constraint is the double-add backstop. addFreeAgent below wraps this commit with
+ * the post-COMMIT `rosterChanged` fan-out.
+ */
+async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -113,14 +143,13 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
     );
     const league = leagueResult.rows[0];
     if (!league) throw new DraftError(404, 'league not found');
-    // A pick'em-only league has no draft and no rosters; say so rather than
-    // "draft has not started" (its draft_status is 'pending' forever).
+    // A pick'em-only league has no draft and no rosters; say so rather than the
+    // generic "draft is not complete" (its draft_status is 'pending' forever).
     assertFantasyLeagueRow(league);
-    if (league.draft_status === 'pending') {
-      throw new DraftError(409, 'draft has not started for this league');
-    }
-    if (byCommissioner && !(await isLeagueCommissioner(client, leagueId, userId))) {
-      throw new DraftError(403, 'only the commissioner can enter picks for this draft');
+    // A free-agent add is a POST-draft acquisition: refuse until the draft is
+    // complete. The mirror of commitPick's active-only guard (#782 ruling 2).
+    if (league.draft_status !== 'complete') {
+      throw new DraftError(409, 'the draft is not complete');
     }
 
     const teamsResult = await client.query(
@@ -128,242 +157,41 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
        WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
       [leagueId]
     );
-    const teams = teamsResult.rows;
-    const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
-
-    let myTeam;
-    if (byCommissioner) {
-      if (league.draft_status !== 'active') {
-        throw new DraftError(409, 'the draft is not active');
-      }
-      myTeam = teamForPick(league.current_pick, teams, rotationOpts);
-      if (!myTeam) throw new DraftError(409, 'no team is currently on the clock');
-    } else {
-      // Caller comparison: the drafting manager's own team, found by the
-      // caller's own id. Nothing about the league's creator enters here - the
-      // commissioner branch above is where a commissioner-shaped power lives,
-      // and it authorizes through isLeagueCommissioner.
-      myTeam = teams.find((t) => t.owner_id === userId);
-      if (!myTeam) throw new DraftError(403, 'not a member of this league');
-      // A commissioner-locked team can't add players (draft picks flow through
-      // this same function once draft_status === 'active'/'complete'); the
-      // commissioner's own force-add tool bypasses this via a separate path.
-      if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
-      if (league.draft_status === 'active' && league.draft_type === 'offline') {
-        throw new DraftError(409, 'this is an offline draft; the commissioner enters every pick');
-      }
-      // Autopick-type drafts resolve every pick server-side (the Pick clock
-      // module's autoPick, pickClock.service.js, calls in here with auto: true);
-      // a manager has no manual Pick
-      // control for one (issue #120) and this is the server-side half of that
-      // guarantee, not just a client-side hidden button.
-      if (!auto && league.draft_status === 'active' && league.draft_type === 'autopick') {
-        throw new DraftError(409, 'this is an autopick draft; picks are made automatically');
-      }
-    }
+    const myTeam = teamsResult.rows.find((t) => t.owner_id === userId);
+    if (!myTeam) throw new DraftError(403, 'not a member of this league');
+    if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
 
     const playerResult = await client.query(
-      // nfl_team rides along for the Draft-activity snapshot (#435): the feed's
-      // Pick entry shows the player's NFL team, and the activity is written from
-      // this same transaction, so the fact is read here rather than re-fetched.
       `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
       [playerId]
     );
     if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
-    const position = playerResult.rows[0].position;
 
-    const rosterCountResult = await client.query(
-      `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-      [myTeam.id]
-    );
-    // Roster capacity, not the static roster limit: draft picks and post-draft
-    // free-agent adds both land here, and an eligible IR stash grants a spot
-    // beyond the draft roster size (#97). The added player himself earns no
-    // restored credit - an add benches him (undoDrop is the one restore).
-    const capacity = await rosterCapacity(client, { league, teamId: myTeam.id });
-    if (rosterCountResult.rows[0].n >= capacity) {
-      throw new DraftError(409, `roster capacity of ${capacity} reached`);
-    }
-
-    await assertPositionCapNotReached(client, { teamId: myTeam.id, positionCaps: league.position_caps, position });
-
-    // Post-draft pickups are free agency: players still on waivers must be
-    // claimed through the waiver process instead.
-    if (league.draft_status === 'complete' &&
-        await isOnWaivers(client, { league, playerId })) {
-      throw new DraftError(409, 'player is on waivers; submit a waiver claim instead');
-    }
-
-    let pickNumber = null;
-    let draftComplete = false;
-    let nextTeamId = null;
-    let pickDeadlineAt = null;
-    // The Draft-activity entry for this Pick (#435), null for a post-draft
-    // free-agent add (that is not a Draft Pick and appends no Draft activity).
-    let activity = null;
-    // The completion lifecycle entry (#437), set only on the Pick that ends the
-    // draft. It is a state transition no manager performed, so it carries no
-    // actor Team; the final Pick's own `activity` above already attributes the
-    // Pick to the drafting Team.
-    let completion = null;
-
-    if (league.draft_status === 'active') {
-      if (league.draft_paused) {
-        throw new DraftError(409, 'the draft is paused by the commissioner');
-      }
-      const onTheClock = teamForPick(league.current_pick, teams, rotationOpts);
-      if (!onTheClock || onTheClock.id !== myTeam.id) {
-        throw new DraftError(409, 'it is not your turn to pick');
-      }
-      pickNumber = league.current_pick + 1;
-      const pickInsert = await client.query(
-        `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number")
-         VALUES ($1, $2, $3, $4) RETURNING "id"`,
-        [leagueId, myTeam.id, playerId, pickNumber]
-      );
-      const sourcePickId = pickInsert.rows[0].id;
-
-      // Append the immutable Draft activity for this Pick in the SAME
-      // transaction as the Pick (#435 AC1), snapshotting the facts the feed must
-      // show and survive a later correction (#435 AC2). The round is derived
-      // from the overall Pick number and the team count (the same 0-based
-      // pickNumber / teamCount the rotation uses, made 1-based); `auto` is the
-      // authoritative write's own fact, so an autopick is labeled only when it
-      // truly occurred (#435 AC3). The row names no feed_seq: the trigger
-      // allocates it from the shared per-league sequence.
-      const round = Math.floor((pickNumber - 1) / teams.length) + 1;
-      activity = await appendPickActivity(client, {
-        leagueId,
-        team: myTeam,
-        player: playerResult.rows[0],
-        round,
-        pickNumber,
-        auto,
-        // The draft_picks row this entry represents (#436): coverage and
-        // reconciliation match a Pick to its feed entry by this identity, not by
-        // pick_number, which undo + re-pick reuses.
-        sourcePickId,
-      });
-
-      // Rounds are draftRounds(league): fixed once when the draft went active
-      // (ADR 0005), NOT a live draftRosterSize() recomputation — a completion
-      // check that re-derived this from the league's current
-      // roster_limit/ir_slots would let a later roster-shape reinterpretation
-      // renumber picks already made. Goes through the same helper every other
-      // consumer uses (not `league.draft_rounds` directly) so a legacy row the
-      // one-time backfill migration hasn't reached yet falls back to the live
-      // derivation instead of silently coercing `teams.length * null` to 0.
-      const totalPicks = teams.length * draftRounds(league);
-      // Keeper picks are pre-inserted at draft start and can occupy any slot,
-      // so completion is a count of all picks made, not a comparison against
-      // this pick's own (possibly non-terminal) pick_number.
-      const pickCountResult = await client.query(
-        `SELECT COUNT(*)::int AS n FROM "draft_picks" WHERE "league_id" = $1`,
-        [leagueId]
-      );
-      draftComplete = pickCountResult.rows[0].n >= totalPicks;
-
-      let nextTeam = null;
-      let nextPickIndex = null;
-      if (!draftComplete) {
-        const takenResult = await client.query(
-          `SELECT "pick_number" FROM "draft_picks" WHERE "league_id" = $1`,
-          [leagueId]
-        );
-        const takenSet = new Set(takenResult.rows.map((r) => r.pick_number - 1));
-        nextPickIndex = nextOpenPickNumber(takenSet, league.current_pick + 1, totalPicks);
-        nextTeam = nextPickIndex === null ? null : teamForPick(nextPickIndex, teams, rotationOpts);
-      }
-      // Advance the turn and arm the next team's clock through the Pick clock
-      // module (ADR 0018): the only writer of current_pick and the deadline. It
-      // applies the one arming policy (short autodraft delay, full pick time, or
-      // none, and never a clock for an offline draft) and keeps the turn advance
-      // and clock arm in one atomic statement. draft_status rides that statement
-      // because the final pick's advance IS the completion, and the completion
-      // side effects below depend on 'complete' being set first (#194).
-      pickDeadlineAt = await pickClock.onPickLanded(client, {
-        leagueId,
-        nextPick: draftComplete ? pickNumber : nextPickIndex,
-        draftStatus: draftComplete ? 'complete' : 'active',
-        draftComplete,
-        nextTeam,
-        league,
-      });
-      // A present owner making their own pick clears any timeout streak.
-      if (!auto) {
-        await client.query(
-          `UPDATE "teams" SET "consecutive_timeouts" = 0 WHERE "id" = $1`,
-          [myTeam.id]
-        );
-      }
-      if (draftComplete) {
-        // All undrafted players start on waivers for one waiver period
-        await client.query(
-          `UPDATE "leagues" SET "waivers_clear_at" = now() + make_interval(hours => $1)
-           WHERE "id" = $2`,
-          [league.waiver_period_hours, leagueId]
-        );
-        // The season schedule exists the moment the draft ends
-        const { generateRegularSeason } = require('./season.service');
-        await generateRegularSeason({ leagueId }, client);
-        // Record the completion as append-only Draft activity, in the SAME
-        // transaction that flips the status to complete (#437 AC4). No actor:
-        // completion is a state transition, not an action a manager took, so
-        // fabricating one would be a missing-fact invention (#437 AC5). It
-        // orders AFTER this final Pick's own activity by the shared sequence.
-        // #437 records completion only; it carries no post-completion
-        // correction contract, so nothing here arms one.
-        completion = await appendLifecycleActivity(client, {
-          leagueId,
-          kind: COMPLETE,
-          team: null,
-        });
-      } else {
-        nextTeamId = nextTeam.id;
-      }
-    }
+    await assertRosterAcquisitionAllowed(client, {
+      league, teamId: myTeam.id, playerId, position: playerResult.rows[0].position,
+    });
 
     await client.query(
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id")
        VALUES ($1, $2, $3)`,
       [leagueId, myTeam.id, playerId]
     );
-
-    // Every add lands on the bench, never back in an old stash (#94, user
-    // story 13) - draft picks included, since the lineup screen has no draft
-    // guard and a mid-draft drop leaves rows behind like any other.
+    // A free-agent add lands on the bench, never back in an old stash (#94, user
+    // story 13); undoDrop is the one acquisition that restores a stash.
     await lineupService.benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
-
-    // Free-agent pickups go in the league transaction log (draft picks don't)
-    if (league.draft_status === 'complete') {
-      await logTransaction(client, {
-        leagueId,
-        teamId: myTeam.id,
-        type: 'add',
-        detail: { playerId, playerName: playerResult.rows[0].name },
-      });
-    }
+    // Free-agent pickups go in the league transaction log (draft picks don't).
+    await logTransaction(client, {
+      leagueId,
+      teamId: myTeam.id,
+      type: 'add',
+      detail: { playerId, playerName: playerResult.rows[0].name },
+    });
 
     await client.query('COMMIT');
-    // teamName rides beside teamId so the `draft:picked` broadcast built from
-    // this outcome can attribute the Pick by Team without a second lookup
-    // (#112, parent #108).
     return {
       leagueId,
       ...teamIdentityOf(myTeam),
       player: playerResult.rows[0],
-      pickNumber,
-      nextTeamId,
-      draftComplete,
-      pickDeadlineAt,
-      // The typed Draft-activity entry for the combined feed (#435), so the
-      // `draft:picked` broadcast carries it to the room beside the board update.
-      // Null for a post-draft free-agent add.
-      activity,
-      // The completion lifecycle entry (#437), set only on the Pick that ends
-      // the draft, else null. The socket emit sites deliver it on `draft:activity`
-      // so the room's feed shows the draft closing beside the final Pick.
-      completion,
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -374,6 +202,28 @@ async function draftPlayer({ leagueId, userId, playerId, auto = false, byCommiss
   } finally {
     client.release();
   }
+}
+
+/**
+ * The post-draft free-agent add the team router calls (#782 ruling 2). Commits the
+ * add (commitFreeAgentAdd) and, after COMMIT, fans out ONLY `rosterChanged`
+ * through the one Draft room adapter (#745). A post-draft acquisition is never a
+ * Pick, so it emits no `pickLanded` and no Draft activity.
+ *
+ * The commit is authoritative, the same rule landPick follows (ADR 0025): the add
+ * is durable the moment commitFreeAgentAdd returns, so a room fan-out failure is
+ * not a failure of the add. The fan-out is contained so a post-COMMIT
+ * getDraftRoomBroadcast throw (#765) cannot surface a committed add as a 500.
+ */
+async function addFreeAgent({ leagueId, userId, playerId }) {
+  const outcome = await commitFreeAgentAdd({ leagueId, userId, playerId });
+  try {
+    await getDraftRoomBroadcast().rosterChanged(leagueId);
+  } catch (error) {
+    logger.error({ err: error, event: 'roster:changed', leagueId }, 'free-agent add committed but room fan-out failed');
+    sentry.captureError(error, { event: 'roster:changed', leagueId });
+  }
+  return outcome;
 }
 
 /**
@@ -434,7 +284,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
  * Undo the caller's own recent drop: only valid while the player's waiver
  * hold still names this team as the dropper (see `placeOnWaivers`'s
  * `droppedByTeamId`). This is what powers the drop snackbar's "Undo" button —
- * a normal `draftPlayer` call would be rejected by the waiver-hold check.
+ * a normal free-agent add (addFreeAgent) would be rejected by the waiver-hold check.
  *
  * Undo is the one acquisition that does not bench: it returns the player to
  * the stash his drop interrupted, from the record the drop wrote on that
@@ -496,7 +346,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     //   roster limit by asserting a stash that is not there.
     // - Have `rosterCapacity` hand the record BACK. That keeps the property
     //   but widens a return value four other call sites consume as a bare
-    //   number (draftPlayer, forceTransaction, trade, claimFailureReason),
+    //   number (assertRosterAcquisitionAllowed, forceTransaction, trade, claimFailureReason),
     //   for the benefit of the one caller that passes restoredPlayerIds.
     //
     // The two reads can disagree on one axis, and it is worth being precise
@@ -566,7 +416,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
  * is the separate administrative act the Pick definition defers to - not a
  * manager undo, and not the general N-pick undo route.
  *
- * The league row is locked FOR UPDATE, exactly as draftPlayer locks it, so a
+ * The league row is locked FOR UPDATE, exactly as a Pick commit (pick.service.commitPick) locks it, so a
  * correction and a concurrent Pick (a manager's or an autopick) serialize on
  * the same lock and cannot interleave. `expectedPickNumber` is the Pick the
  * commissioner confirmed; if a newer Pick has landed since, the request is
@@ -696,7 +546,8 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
 }
 
 module.exports = {
-  draftPlayer,
+  addFreeAgent,
+  assertRosterAcquisitionAllowed,
   dropPlayer,
   undoDrop,
   correctLatestPick,

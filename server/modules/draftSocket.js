@@ -3,7 +3,10 @@ const pool = require('./pool');
 const { setIo } = require('./io');
 const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('./draftRoomBroadcast');
 const { requireSocketAuth } = require('./auth');
-const { draftPlayer, DraftError } = require('../services/draft.service');
+const { DraftError } = require('../services/draft.service');
+// A Pick lands in one place (#782): the socket handler commits AND fans out the
+// Pick through the one seam, landPick, rather than re-deriving the room events here.
+const { landPick } = require('../services/pick.service');
 const { teamForPick } = require('../services/draftOrder.service');
 const {
   teamIdentityColumns,
@@ -283,25 +286,12 @@ function attachDraftSocket(httpServer) {
         return ack && ack({ error: 'leagueId and playerId (integers) required' });
       }
       try {
-        const outcome = await draftPlayer({ leagueId, userId: socket.user.id, playerId });
-        // Attributed by Team at the root (`teamId` / `teamName` off the
-        // outcome), so the old `by: { userId, username }` account object is
-        // gone from the broadcast (#344, #115 child C). `auto` is the one
-        // non-identity fact the room still needs about how the pick was made;
-        // a manual pick is not an autopick. The Pick clock module's autoPick
-        // (pickClock.service.js) is the other emit site; socketPayloadShape.test.js
-        // pins both to one key set.
-        await broadcast.pickLanded(leagueId, { ...outcome, auto: false });
-        if (outcome.draftComplete) {
-          // The Pick that ended the draft also appended a completion lifecycle
-          // entry (#437); deliver it to the room's combined feed on draft:activity
-          // through the one adapter, beside the draft:complete board signal. A
-          // pick that completes without a completion entry (defensive) emits no
-          // empty activity, mirroring the old null-safe helper.
-          if (outcome.completion) await broadcast.activityAppended(leagueId, outcome.completion);
-          await broadcast.rosterChanged(leagueId);
-          await broadcast.draftCompleted(leagueId);
-        }
+        // A manual Pick: landPick commits it and fans it out to the room -
+        // `pickLanded` with `{ ...outcome, auto: false }`, and on the Pick that
+        // ends the draft the completion activity, rosterChanged and draftCompleted
+        // (#782 ruling 1). The room events are decided in landPick, the one seam
+        // the clock and the offline route reach too, not re-derived here.
+        const outcome = await landPick({ leagueId, userId: socket.user.id, playerId });
         ack && ack({ ok: true, outcome });
       } catch (error) {
         if (error instanceof DraftError || error.statusCode) {

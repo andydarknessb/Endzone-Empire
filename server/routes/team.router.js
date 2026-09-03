@@ -3,7 +3,7 @@ const multer = require('multer');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { createRateLimiter } = require('../modules/rateLimit');
-const { draftPlayer, dropPlayer, undoDrop } = require('../services/draft.service');
+const { addFreeAgent, dropPlayer, undoDrop } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
@@ -85,12 +85,14 @@ router.post('/roster/:playerId', async (req, res) => {
     return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
   }
   try {
-    const outcome = await draftPlayer({
+    // A post-draft free-agent add is not a Pick (#782 ruling 2): addFreeAgent
+    // commits the add and fans out `rosterChanged` itself, so the route no longer
+    // emits it here.
+    const outcome = await addFreeAgent({
       leagueId,
       userId: req.user.id,
       playerId: Number(req.params.playerId),
     });
-    await getDraftRoomBroadcast().rosterChanged(leagueId);
     res.status(201).json(outcome);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

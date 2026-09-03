@@ -4,7 +4,10 @@ const pool = require('../modules/pool');
 const { logger } = require('../modules/logger');
 const { withAdvisoryLock } = require('../modules/advisoryLock');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
-const draftService = require('../services/draft.service');
+// autoPick now reaches the one seam pick.service.landPick (#782); landPick owns
+// the room fan-out, so these tests mock the inner commitPick and let the REAL
+// landPick fan-out through the recording broadcast.
+const pickService = require('../services/pick.service');
 const sentry = require('../modules/sentry');
 const pickClock = require('../services/pickClock.service');
 
@@ -84,10 +87,12 @@ const MINNEAPPLE_ROSTER_SLOTS = [
   { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
 ];
 
-/** Mock draftPlayer to record attempt order; sniped ids throw a 409 like the real service. */
+/** Mock commitPick to record attempt order; sniped ids throw a 409 like the real
+ *  commit. The real landPick still fans each successful commit out to the
+ *  recording broadcast installSweepPool registered. */
 function recordAttempts(t, { snipe = [] } = {}) {
   const attempts = [];
-  t.mock.method(draftService, 'draftPlayer', async ({ playerId }) => {
+  t.mock.method(pickService, 'commitPick', async ({ playerId }) => {
     attempts.push(playerId);
     if (snipe.includes(playerId)) {
       const err = new Error('player is already rostered in this league');
@@ -309,7 +314,7 @@ test('sweep: the committed pick reaches the room through the adapter (pickLanded
     candidates: [{ id: 8, name: 'Worker Pick', adp: '1.0', queue_rank: null, last_season_points: null }],
   });
   const outcome = { leagueId: LEAGUE_ID, teamId: 55, player: { id: 8, name: 'Worker Pick' }, draftComplete: false };
-  t.mock.method(draftService, 'draftPlayer', async () => outcome);
+  t.mock.method(pickService, 'commitPick', async () => outcome);
 
   await pickClock.processExpiredPickClocks();
 
@@ -480,7 +485,7 @@ test('overdue: a rejecting autopick in the sweep loop routes its error through c
   // only capture is the catch-block routing, not the alarm.
   pickClock.cancelAllExpiryTimers();
   installSweepPool(t, { candidates: ONE_CANDIDATE, league: overdueLeague(5) });
-  t.mock.method(draftService, 'draftPlayer', async () => { throw new Error('autopick blew up'); });
+  t.mock.method(pickService, 'commitPick', async () => { throw new Error('autopick blew up'); });
   const captured = spyCaptures(t);
 
   await pickClock.processExpiredPickClocks();
@@ -495,7 +500,7 @@ test('overdue: a rejecting autopick in the sweep loop routes its error through c
 test('overdue: a rejecting autopick in fireExpiryTimer routes its error through captureError with path timer', async (t) => {
   const league = overdueLeague(5);
   installSweepPool(t, { candidates: ONE_CANDIDATE, league });
-  t.mock.method(draftService, 'draftPlayer', async () => { throw new Error('autopick blew up'); });
+  t.mock.method(pickService, 'commitPick', async () => { throw new Error('autopick blew up'); });
   const captured = spyCaptures(t);
 
   // fireExpiryTimer is the fast (timer) path; call it directly rather than

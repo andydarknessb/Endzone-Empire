@@ -1,7 +1,6 @@
 const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
-const { draftPlayer } = require('../services/draft.service');
 const {
   rulesForLeague,
   buildPlayerSummary,
@@ -715,35 +714,9 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/players/draft/:playerId — draft a player onto the caller's team.
-// Fully transactional: pick + roster insert commit together or not at all.
-router.post('/draft/:playerId', requireAuth, async (req, res) => {
-  if (!/^\d+$/.test(req.params.playerId)) {
-    return res
-      .status(400)
-      .json({ error: 'playerId must be a positive integer' });
-  }
-  const leagueId = req.body && req.body.leagueId;
-  if (!Number.isInteger(leagueId) || leagueId < 1) {
-    return res
-      .status(400)
-      .json({ error: 'leagueId (integer) is required in the body' });
-  }
-
-  try {
-    const outcome = await draftPlayer({
-      leagueId,
-      userId: req.user.id,
-      playerId: Number(req.params.playerId),
-    });
-    res.status(201).json(outcome);
-  } catch (error) {
-    if (error.statusCode) {
-      return res.status(error.statusCode).json({ error: error.message });
-    }
-    console.error('Error drafting player', error);
-    res.status(500).json({ error: 'failed to draft player' });
-  }
-});
+// The old POST /api/players/draft/:playerId route was deleted with #782: it was
+// dead (nothing in src/, tests/ or scripts/ called it, re-confirmed on the
+// branch), and a live Pick lands only through the draft socket, the offline route
+// and the clock, all of which now reach the one seam pick.service.landPick.
 
 module.exports = router;
