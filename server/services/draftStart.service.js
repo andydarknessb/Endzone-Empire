@@ -142,7 +142,7 @@ async function startDraft({ leagueId, userId = null }) {
 
     if (plan.firstOpenPick === null) {
       // Every roster slot was pre-filled by keepers — the draft is over before
-      // a single live pick, so run the same completion side effects draftPlayer
+      // a single live pick, so run the same completion side effects commitPick
       // would have on the final pick. draft_rounds is fixed here too (ADR
       // 0005): a draft that completes without a live pick is still "active or
       // completed" for every later read, so it must not fall through to a
@@ -157,7 +157,7 @@ async function startDraft({ leagueId, userId = null }) {
       activities.push(await draftCompletion.completeDraft(client, { leagueId }));
     } else {
       // Fix draft_rounds once, from Draft roster size at this instant (ADR
-      // 0005). draftPlayer's completion check and every other active/completed
+      // 0005). commitPick's completion check and every other active/completed
       // read use this stored value from here on; none of them call
       // draftRosterSize() again for this league.
       pickDeadlineAt = await pickClock.onDraftStarted(client, {

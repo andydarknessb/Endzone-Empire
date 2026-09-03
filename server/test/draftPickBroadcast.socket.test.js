@@ -25,7 +25,7 @@ const PICKER = { userId: 42, username: 'picker', teamId: 11, teamName: 'Gridiron
 const WATCHER = { userId: 43, username: 'watcher', teamId: 12, teamName: 'Sunday Scaries' };
 
 // A league mid-draft with the PICKER's Team on the clock (current_pick 0,
-// draft_position 1), enough for one draftPlayer pick that does not end the draft.
+// draft_position 1), enough for one commitPick pick that does not end the draft.
 const PICKED_LEAGUE = {
   id: LEAGUE_ID,
   draft_status: 'active',
@@ -47,7 +47,7 @@ const PICKED_LEAGUE = {
 const harness = createSocketHarness({ secret: 'draft-activity-broadcast-secret' });
 
 // The narrow identity reads (lookupTeam for chat/join, isLeagueCommissioner)
-// go FIRST, then the wide draftPlayer transaction reads - fakePool matches
+// go FIRST, then the wide commitPick transaction reads - fakePool matches
 // overrides before defaults.
 function manualPickWorld(t) {
   const fake = createFakePool([
@@ -146,7 +146,7 @@ test('an autopick reaches every client in the room, labeled isAutopick', async (
   await harness.emit(picker, 'league:join', { leagueId: LEAGUE_ID });
   await harness.emit(watcher, 'league:join', { leagueId: LEAGUE_ID });
 
-  // autoPick reads its own candidates; draftPlayer is mocked to return the
+  // autoPick reads its own candidates; commitPick is mocked to return the
   // outcome an autopick commit would, activity included and labeled auto.
   installAutopickPool(t, {
     candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],

@@ -103,7 +103,7 @@ test('draft:start reaches every client in the room as a draft_start lifecycle en
 });
 
 // An active league where COMMISH is on the clock and this pick is the LAST one
-// (draft_picks count reaches teams x rounds), so draftPlayer completes the draft
+// (draft_picks count reaches teams x rounds), so commitPick completes the draft
 // and appends the completion lifecycle entry after the Pick.
 const COMPLETING_LEAGUE = {
   id: LEAGUE_ID, pickem_only: false, draft_status: 'active', draft_paused: false,
