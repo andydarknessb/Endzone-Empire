@@ -52,9 +52,10 @@ export const OVERDUE_MESSAGE = 'Waiting on the server';
  * (issue #787 ruling item 2). It hands the Draft assistant the urgent edge this
  * leaf ALREADY computes for its own pulse (`showUrgent`), so the assistant adds
  * no second ticking leaf and no second urgency reading - the same reuse the
- * Overdue announcement makes of `onOverdue`. It is keyed to the deadline, so a
- * new turn's clock can cross and fire again; a clock that mounts already urgent
- * fires on that first render.
+ * Overdue announcement makes of `onOverdue`. It is keyed to the deadline (#816),
+ * so a new turn's clock can cross and fire again; a clock that mounts already
+ * urgent fires on that first render, and a clock that arrives already urgent
+ * right after one that was also already urgent still fires for the new turn.
  */
 function PickClock({
   deadlineAt, prefix = null, variant = 'h1', onOverdue = null, onUrgent = null,
@@ -71,21 +72,34 @@ function PickClock({
   // one in the room can, so it and the error colour end while the digits stay.
   const showUrgent = isUrgent(remaining) && !overdue;
 
-  // The once-per-turn urgent edge, off the same `showUrgent` the pulse uses.
-  // The first effect re-arms on a new deadline (a new turn); the second fires
-  // onUrgent the render `showUrgent` first turns true and not again while it
-  // stays true (its deps are showUrgent, not the per-second remaining). Ordered
-  // so a re-arm on a fresh-but-already-urgent deadline runs before the fire.
-  const urgentFiredRef = useRef(false);
+  // The once-per-turn urgent edge, off the same window `showUrgent` uses for
+  // the pulse. A single effect compares the deadline it last fired for
+  // against the current `deadlineAt` (#816): it fires when this turn is
+  // inside the urgent window and isn't the turn already fired for.
+  //
+  // It deliberately does NOT trust the render's `showUrgent` for that check
+  // (the "fire on the true/false/true edge" shape this replaces): after a
+  // deadline swap, `useCountdownTicking`'s `remainingMs` state still holds
+  // the OUTGOING turn's value for one render, until that hook's own effect
+  // (keyed on the new `deadlineAt`) catches up. Two consecutive
+  // already-urgent deadlines both read `true` straight through that stale
+  // render with no edge to see - that's the #816 bug. The mirror case is why
+  // an effect keyed on `[showUrgent, onUrgent, deadlineAt]` over-fires
+  // instead: a turn that is genuinely NOT yet urgent can transiently inherit
+  // the outgoing turn's stale `true` on that same render and must not fire on
+  // it. So the effect re-derives urgency straight from `deadlineAt` and
+  // `Date.now()` - always accurate for the CURRENT turn, never lagged by that
+  // hook's own state - rather than from `remaining`/`showUrgent`.
+  const lastFiredDeadlineRef = useRef(null);
   useEffect(() => {
-    urgentFiredRef.current = false;
-  }, [deadlineAt]);
-  useEffect(() => {
-    if (showUrgent && !urgentFiredRef.current) {
-      urgentFiredRef.current = true;
+    const freshRemaining = remainingSeconds(deadlineAt - Date.now());
+    const freshOverdue = deadlineAt + OVERDUE_AFTER_MS - Date.now() <= 0;
+    const isCurrentlyUrgent = isUrgent(freshRemaining) && !freshOverdue;
+    if (isCurrentlyUrgent && lastFiredDeadlineRef.current !== deadlineAt) {
+      lastFiredDeadlineRef.current = deadlineAt;
       onUrgent?.();
     }
-  }, [showUrgent, onUrgent]);
+  }, [deadlineAt, showUrgent, onUrgent]);
 
   return (
     <Box sx={{ flexShrink: 0, textAlign: prefix ? 'left' : 'right' }}>
