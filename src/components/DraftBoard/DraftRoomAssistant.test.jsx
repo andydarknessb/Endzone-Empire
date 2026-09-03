@@ -6,10 +6,13 @@ import {
   DraftRoomAssistantBannerLine,
   DraftRoomAssistantRegion,
   DraftRoomAssistantToggle,
+  MISERY_INCOMPLETE_MESSAGE,
   useDraftRoomAssistantControls,
 } from './DraftRoomAssistant';
 import { DRAFT_ASSISTANT_KEY } from '../../lib/draftAssistantPreference';
-import { fillTemplate, TRIGGERS, POLK_HIGH_LEGEND_LINES } from '../../lib/draftAssistant';
+import {
+  fillTemplate, miseryStage, MISERY_BANDS, TRIGGERS, POLK_HIGH_LEGEND_LINES,
+} from '../../lib/draftAssistant';
 
 // rng() => 0 always draws the FIRST remaining index of a trigger's pool
 // (lineFor.js's drawIndex), so a single line is deterministic: pool[0].
@@ -173,6 +176,51 @@ describe('DraftRoomAssistant (#787)', () => {
     // A second browse within the cooldown adds nothing.
     rerender(ui({ poolSelection: { id: STEAL_STAR.id, seq: 2 } }));
     expect(within(commentaryList()).getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  // --- Misery Meter: pool-driven banding and the incomplete state (#818) ---
+  //
+  // Both render under React.StrictMode (AC4). StrictMode double-invokes the
+  // render body and re-invokes mount effects; these stay green because the
+  // component writes no ref during render and its fill/liveRef effects are
+  // idempotent (ruling 2), so the doubled pass produces the same Map, snapshot
+  // and band as a single one. It is the render-phase-side-effect check, not a
+  // check of the fill's own idempotency (Map.set by id is idempotent anyway).
+
+  const strictUi = (props = {}) => <React.StrictMode>{ui(props)}</React.StrictMode>;
+  // adp 1 at pick 20 -> draftValueScore -19 -> the best band.
+  const STEAL_PICK = [{ pickNumber: 20, position: 'RB', playerId: STEAL_STAR.id }];
+
+  it('re-bands the meter when a pick\'s ADP row arrives after myPicks settles (AC2a, ruling 3)', () => {
+    on();
+    // The viewer's one pick is not in the loaded pool yet, so the meter cannot
+    // read its ADP: no band, just the placeholder.
+    const { rerender } = render(strictUi({ myPicks: STEAL_PICK, poolRows: [QUEUED_GUY] }));
+    expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
+    expect(screen.getByText(MISERY_INCOMPLETE_MESSAGE)).toBeInTheDocument();
+
+    // Deliver the row carrying that pick's ADP (a new poolRows reference). The
+    // band appears. Red-tell: restoring the netVsAdp memo deps to
+    // [myPicks, adpForPlayer, teamCount] leaves this stuck on the placeholder.
+    rerender(strictUi({ myPicks: STEAL_PICK, poolRows: [QUEUED_GUY, STEAL_STAR] }));
+    expect(screen.getByText('Misery Meter')).toBeInTheDocument();
+    expect(screen.getByText(miseryStage(-19))).toBeInTheDocument();
+    expect(screen.queryByText(MISERY_INCOMPLETE_MESSAGE)).not.toBeInTheDocument();
+  });
+
+  it('hides the band and shows the placeholder when an own pick is missing from the loaded pool (AC2b, ruling 4)', () => {
+    on();
+    render(strictUi({ myPicks: STEAL_PICK, poolRows: [QUEUED_GUY, BROWSED_GUY] }));
+    // No band label and none of the four band names render...
+    expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
+    MISERY_BANDS.forEach((band) => expect(screen.queryByText(band)).not.toBeInTheDocument());
+    // ...the neutral placeholder does. (No-em-dash house style is not
+    // re-asserted here: the constant lives in DraftRoomAssistant.jsx, and
+    // scripts/emDashGuard.js strips comments but scans string literals under
+    // src/, so that copy is already guarded at its source. The guard excludes
+    // test files, so a string introduced HERE would not be covered - another
+    // reason the constant, not a local literal, is the thing under test.)
+    expect(screen.getByText(MISERY_INCOMPLETE_MESSAGE)).toBeInTheDocument();
   });
 
   // The Board/Queue-quick-view-fires-nothing criterion (#815 ruling item 6)

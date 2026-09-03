@@ -28,8 +28,10 @@
  *                            same rule analysis.js's pickValues() uses)
  *   earlyKickerOrDefense:  boolean (earlyKickerOrDefense() below)
  *   auto:                  boolean, true when the pick carries the Autopick flag
- *   netVsAdp:               number, the manager's running Net vs ADP so far
- *                            (feeds miseryStage() below)
+ *   netVsAdp:               number | null, the manager's running Net vs ADP so
+ *                            far (feeds miseryStage() below); null when the room
+ *                            could not read every one of the viewer's picks, so
+ *                            no line reads a partial total as a fact (#818)
  * }
  *
  * Every field always exists on the object; a field this trigger has no use
