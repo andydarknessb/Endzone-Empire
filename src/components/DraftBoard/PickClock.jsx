@@ -77,19 +77,27 @@ function PickClock({
   // against the current `deadlineAt` (#816): it fires when this turn is
   // inside the urgent window and isn't the turn already fired for.
   //
-  // It deliberately does NOT trust the render's `showUrgent` for that check
-  // (the "fire on the true/false/true edge" shape this replaces): after a
-  // deadline swap, `useCountdownTicking`'s `remainingMs` state still holds
+  // It deliberately does NOT trust the render's `showUrgent` for the firing
+  // CHECK (the "fire on the true/false/true edge" shape this replaces): after
+  // a deadline swap, `useCountdownTicking`'s `remainingMs` state still holds
   // the OUTGOING turn's value for one render, until that hook's own effect
   // (keyed on the new `deadlineAt`) catches up. Two consecutive
   // already-urgent deadlines both read `true` straight through that stale
   // render with no edge to see - that's the #816 bug. The mirror case is why
-  // an effect keyed on `[showUrgent, onUrgent, deadlineAt]` over-fires
-  // instead: a turn that is genuinely NOT yet urgent can transiently inherit
-  // the outgoing turn's stale `true` on that same render and must not fire on
-  // it. So the effect re-derives urgency straight from `deadlineAt` and
-  // `Date.now()` - always accurate for the CURRENT turn, never lagged by that
-  // hook's own state - rather than from `remaining`/`showUrgent`.
+  // reading `showUrgent` in the BODY over-fires instead: a turn that is
+  // genuinely NOT yet urgent can transiently inherit the outgoing turn's
+  // stale `true` on that same render and must not fire on it. So the check is
+  // re-derived straight from `deadlineAt` and `Date.now()` - always accurate
+  // for the CURRENT turn, never lagged by that hook's own state - rather than
+  // from `remaining`/`showUrgent`.
+  //
+  // `showUrgent` still belongs in the DEPS array below, though, even though
+  // the body never reads it: it's the only dep that changes mid-turn, when
+  // ticking crosses into urgency without `deadlineAt` or `onUrgent` changing.
+  // Drop it and a turn that starts non-urgent never re-checks and never
+  // fires. No lint rule catches that (eslint is clean on this file today), so
+  // this sentence is the only guard - keep the dep even though it looks
+  // unused inside the effect.
   const lastFiredDeadlineRef = useRef(null);
   useEffect(() => {
     const freshRemaining = remainingSeconds(deadlineAt - Date.now());
