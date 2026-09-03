@@ -127,4 +127,68 @@ describe('StallAnnouncer', () => {
     rerender(<StallAnnouncer stall={stall('MinneApple', 50)} />);
     expect(region).toHaveTextContent('The draft is stuck on MinneApple');
   });
+
+  // The copy assertions that used to live one layer down, against
+  // stallAnnouncementFor directly (stallAnnouncement.test.js), moved up here as
+  // assertions on the rendered region's text (#791's ruling 5):
+  // stallAnnouncementFor is now module-private to this file.
+  it('names the cause and the commissioner next step, and names the Team without casting it as the actor', () => {
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    rerender(<StallAnnouncer stall={stall('MinneApple', 30)} />);
+    const region = screen.getByRole('status');
+    // The cause (#602/#620): there was no draftable player.
+    expect(region).toHaveTextContent(/no draftable player/i);
+    // The next step: a commissioner must act - the entry is addressed to them.
+    expect(region).toHaveTextContent(/a commissioner must resolve and resume/i);
+    // The Team is NAMED (it locates the stuck pick)...
+    expect(region).toHaveTextContent('MinneApple');
+    // ...but never cast as the actor (#620): not "<Team> stalled the draft".
+    expect(region.textContent).not.toMatch(/stalled the draft/i);
+    expect(region.textContent).not.toMatch(/MinneApple (stalled|paused|reset)/i);
+    // House style: no em-dash in user-facing copy.
+    expect(region.textContent).not.toContain('—');
+  });
+
+  it('reads as a plain stuck-state line for a null Team, never "Former manager"', () => {
+    // Matches the sibling visible line (StalledActivityLine, #620): a null actor
+    // is a plain state transition, not a departed manager.
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    rerender(<StallAnnouncer stall={stall(null, 30)} />);
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent(/the draft is stuck: no draftable player/i);
+    expect(region).toHaveTextContent(/a commissioner must resolve and resume/i);
+    expect(region.textContent).not.toMatch(/former manager/i);
+    expect(region.textContent).not.toMatch(/stuck on/i);
+  });
+
+  it('returns the empty string for a non-stall draft_activity entry', () => {
+    // Only the stall speaks through this announcer; every other activity kind
+    // leaves the region as it was (Picks are the room-level PickAnnouncer's,
+    // #513; the rest is the combined-feed announcer's deliberate silence).
+    // 'pick', 'pause' and 'draft_start' are all NEITHER a stall entry nor a
+    // stall exit, so each one genuinely exercises stallAnnouncementFor's own
+    // empty-string fallback rather than being shadowed by the isStallExit
+    // clear branch (an exit kind such as 'complete' would clear via that
+    // branch without ever reaching the builder - that case is covered by the
+    // it.each exit-clearing test above instead).
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('');
+    rerender(<StallAnnouncer stall={{ type: 'draft_activity', kind: 'pick', seq: 1, id: 1 }} />);
+    expect(region).toHaveTextContent('');
+    rerender(<StallAnnouncer stall={lifecycle('pause', 2)} />);
+    expect(region).toHaveTextContent('');
+    rerender(<StallAnnouncer stall={lifecycle('draft_start', 3)} />);
+    expect(region).toHaveTextContent('');
+  });
+
+  it('returns the empty string for a chat entry and for nothing at all', () => {
+    const { rerender } = render(<StallAnnouncer stall={null} />);
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('');
+    rerender(<StallAnnouncer stall={{ type: 'league_chat', seq: 1, teamName: 'A' }} />);
+    expect(region).toHaveTextContent('');
+    rerender(<StallAnnouncer stall={undefined} />);
+    expect(region).toHaveTextContent('');
+  });
 });

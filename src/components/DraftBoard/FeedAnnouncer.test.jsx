@@ -1,6 +1,10 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import FeedAnnouncer from './FeedAnnouncer';
+// Imported the way the existing server-roster parity tests do (chatLimits.parity.test.js,
+// useLeagueChat.humanType.parity.test.js): draftActivity.js's only load-time require is
+// the pure server/services/teamIdentity (no pg, no socket.io), so it loads fine in jsdom.
+import { ALL_KINDS } from '../../../server/services/draftActivity';
 
 const chat = (seq, teamName, message, teamId = null) => ({ type: 'league_chat', seq, id: seq, teamName, message, teamId });
 const pick = (seq, teamName, playerName) => ({
@@ -33,6 +37,19 @@ describe('FeedAnnouncer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('');
     rerender(<FeedAnnouncer entries={[chat(1, 'A', 'hi'), chat(2, 'Team Rocket', 'yo')]} />);
     expect(screen.getByRole('status')).toHaveTextContent('New message from Team Rocket');
+  });
+
+  it('announces a new human message by Team, not its content', () => {
+    // Presence, not content (#445 AC2): the region names WHO spoke so a reader
+    // can navigate the log to read it, and never voices arbitrary (possibly
+    // long or already-moderated) message text. `toBe`, not a substring match:
+    // toHaveTextContent would pass even if the message body leaked into the
+    // region, which is exactly what this case exists to rule out.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(
+      <FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Team Rocket', 'hello there everyone')]} />
+    );
+    expect(screen.getByRole('status').textContent).toBe('New message from Team Rocket');
   });
 
   it('stays silent when a Pick arrives live - the room-level PickAnnouncer speaks it (#513)', () => {
@@ -245,5 +262,111 @@ describe('FeedAnnouncer', () => {
       />
     );
     expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+  });
+
+  // The copy assertions that used to live one layer down, against
+  // feedAnnouncementFor directly (feedAnnouncement.test.js, now deleted), moved
+  // up here as assertions on the rendered region's text (#791's ruling 5):
+  // feedAnnouncementFor is now module-private to this file.
+  it('treats an untyped entry as a League chat message', () => {
+    // feedEntryKey defaults a missing type to league_chat; the announcer agrees.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'seed'), { seq: 2, id: 2, teamName: 'Blue Bombers', message: 'hi' }]}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Blue Bombers');
+  });
+
+  it('names a departed author as a former manager, never blank or "null"', () => {
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(
+      <FeedAnnouncer
+        entries={[chat(1, 'A', 'seed'), { type: 'league_chat', seq: 2, id: 2, teamName: null, message: 'x' }]}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Former manager');
+  });
+
+  it('says nothing for a message that arrived already hidden', () => {
+    // A tombstoned entry is not new correspondence to announce (#482).
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Rivals', 'hi')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+    rerender(
+      <FeedAnnouncer
+        entries={[
+          chat(1, 'A', 'seed'),
+          chat(2, 'Rivals', 'hi'),
+          { type: 'league_chat', seq: 3, id: 3, teamName: 'Team Rocket', hidden: true, message: 'x' },
+        ]}
+      />
+    );
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('says nothing for a null or undefined entry', () => {
+    // A live tail can genuinely be null: entries shrinking back to empty after
+    // a real arrival (not just the initial-mount case, which never reaches
+    // feedAnnouncementFor at all - see 'mounts a persistent polite status
+    // region' above). Seed a real announcement, then let entries go empty:
+    // the tail becomes null, feedAnnouncementFor(null) returns '', and the
+    // prior announcement clears rather than lingering.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Rivals', 'hi')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+    rerender(<FeedAnnouncer entries={[]} />);
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('no longer announces an autopick either (#513)', () => {
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(
+      <FeedAnnouncer
+        entries={[
+          chat(1, 'A', 'seed'),
+          {
+            type: 'draft_activity',
+            kind: 'pick',
+            seq: 2,
+            id: 2,
+            teamName: 'Gridiron Giants',
+            isAutopick: true,
+            player: { name: 'Bijan Robinson' },
+          },
+        ]}
+      />
+    );
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('says nothing for any Draft activity - Picks and every lifecycle kind alike (#513)', () => {
+    // AC2 no longer names Picks here (#513 moved them to PickAnnouncer). Live
+    // draft-state is carried by the on-the-clock (LiveDraftBanner), countdown
+    // (#117), readiness (#164) and the room-level Pick announcer; announcing any
+    // of it in the feed too would only add contention or duplicate speech.
+    //
+    // Iterates the server's exported ALL_KINDS (#654) rather than a hand-written
+    // list, so a kind added to the server roster - 'stalled' included - is
+    // covered here without editing this test.
+    for (const kind of ALL_KINDS) {
+      const { rerender, unmount } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+      rerender(
+        <FeedAnnouncer
+          entries={[chat(1, 'A', 'seed'), { type: 'draft_activity', kind, seq: 2, id: 2, teamName: 'Gridiron Giants' }]}
+        />
+      );
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+      unmount();
+    }
+  });
+
+  it('uses no em-dashes in any announcement (house style, guarded copy)', () => {
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'A', 'x')]} />);
+    // The literal em dash (U+2014, bytes e2 80 94) the guards chain forbids in
+    // user-facing copy.
+    expect(screen.getByRole('status').textContent).not.toMatch(/—/);
   });
 });
