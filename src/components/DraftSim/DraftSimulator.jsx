@@ -7,6 +7,7 @@ import SimConfigForm from './SimConfigForm';
 import SimStatusBar from './SimStatusBar';
 import SimPlayerPool from './SimPlayerPool';
 import SimPickFeed from './SimPickFeed';
+import SimAssistantPanel from './SimAssistantPanel';
 import SimReport from './SimReport';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import RosterPanel from '../RosterPanel/RosterPanel';
@@ -204,7 +205,7 @@ function DraftSimulator({ showCta = false }) {
             </Stack>
           )}
         </Box>
-        <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
+        <Stack sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }} spacing={2}>
           <SimPickFeed
             picks={sim.picks}
             teamsById={teamsById}
@@ -212,7 +213,8 @@ function DraftSimulator({ showCta = false }) {
             teamCount={sim.teams.length}
             slotTags={myAssignment.byPickNumber}
           />
-        </Box>
+          <SimAssistantPanel sim={sim} myTurn={myTurn} secondsLeft={secondsLeft} />
+        </Stack>
       </Stack>
     </Box>
   );
