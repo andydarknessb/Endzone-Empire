@@ -112,6 +112,10 @@ const LEAGUE_ROW = {
   invite_code: 'invite',
   ownerTeamId: VIEWER.teamId,
   ownerTeamName: VIEWER.teamName,
+  // `market` (#748) is gated on a pending draft (758-f2), so this fixture is
+  // pending: the exact-key-set guard below is pinning the shape a commissioner
+  // sees mid-lobby, which is when this payload's market field matters.
+  draft_status: 'pending',
 };
 
 // The fake is keyed on `AS "ownerTeamId"` for the detail query, NOT on
@@ -167,7 +171,7 @@ test('league detail: a teams[] entry is Team identity and team attributes, no ac
 
 // --- league object (as a plain member sees it) ---------------------------
 const LEAGUE_OBJECT_CLEAN = [
-  'co_commissioners', 'current_season', 'id', 'is_commissioner', 'market', 'name',
+  'co_commissioners', 'current_season', 'draft_status', 'id', 'is_commissioner', 'market', 'name',
   'owner_id', 'ownerTeamId', 'ownerTeamName',
 ];
 test('league detail: the league object names the creator by Team, not by account name', async (t) => {

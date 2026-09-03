@@ -393,8 +393,12 @@ router.get('/:id', async (req, res) => {
     // is_commissioner the way invite_code is above - the control that reads it
     // (DraftStartControl) is already commissioner-scoped at the call site, so
     // there is nothing sensitive here for a plain member to see and no second
-    // gate to keep in sync with the first.
-    league.market = await getMarketStatus();
+    // gate to keep in sync with the first. It IS gated on the draft being
+    // pending (decision 3, 758-f2): a running or finished draft already used
+    // whatever market it had, so the field has no meaning past that point.
+    // Gating it here, once, means every current and future consumer gets the
+    // rule for free instead of re-deriving "pending" from draft_status itself.
+    if (league.draft_status === 'pending') league.market = await getMarketStatus();
     // Derived from the ROWS rather than from what this viewer was served, so
     // the flag says the same thing to a member as to a commissioner: a team is
     // flagged exactly when a grant names it. Team identity on both sides of

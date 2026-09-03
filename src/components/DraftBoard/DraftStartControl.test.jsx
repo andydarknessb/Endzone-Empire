@@ -72,3 +72,33 @@ test('no market prop renders neither status line (defensive default for a payloa
 
   expect(screen.queryByText(/player market/i)).not.toBeInTheDocument();
 });
+
+// 758-f1: getMarketStatus reports stale:true both when the last sync is old
+// AND when there has never been a recorded sync at all - and this is the
+// second, real production shape (plenty of players, no data_sync_runs row
+// yet). It must not print a fabricated date: new Date(null) is the Unix
+// epoch, not an Invalid Date, so a naive stale check would have shown
+// "Player market last updated Dec 31, 1969." here. The safe interim (pending
+// a product ruling on copy for this state) is no line at all.
+test('a market with plenty of players but no recorded sync ever renders no line and no fabricated date', () => {
+  render(
+    <DraftStartControl {...baseProps} market={{ adpPlayers: 250, floor: 100, lastSyncAt: null, stale: true }} />
+  );
+
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
+  expect(screen.queryByText(/has not loaded/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/last updated/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/1969/)).not.toBeInTheDocument();
+});
+
+// 758-f3: showHints (team-count/auction copy) and showMarketStatus (market
+// copy) are separate switches - a caller suppressing one must not silently
+// suppress the other's information.
+test('showMarketStatus suppresses the market line independently of showHints', () => {
+  render(<DraftStartControl {...baseProps} market={ABSENT_MARKET} showHints={false} showMarketStatus={false} />);
+
+  expect(screen.queryByText(/has not loaded/)).not.toBeInTheDocument();
+  // The absent state still disables Start even when its copy is suppressed -
+  // suppressing the message is not the same as suppressing the gate.
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
+});

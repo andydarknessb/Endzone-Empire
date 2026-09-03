@@ -40,12 +40,13 @@ function mockLeagueDetail(t, {
   adpPlayers = 250,
   lastAdpRun = { finished_at: new Date().toISOString() },
   dataSyncRunsError = null,
+  draftStatus = 'pending',
 } = {}) {
   const seen = {};
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('ownerTeamId')) {
-      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team" }] };
+      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team", draft_status: draftStatus }] };
     }
     if (text.includes('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('SELECT 1 FROM "leagues"')) {
@@ -259,4 +260,29 @@ test('GET league detail degrades to the no-run market shape, and stays 200, when
   assert.equal(response.status, 200, JSON.stringify(response.body));
   assert.equal(response.body.league.market.lastSyncAt, null);
   assert.equal(response.body.league.market.stale, true);
+});
+
+// 758-f2: decision 3 is "pending drafts only". Gated here, at the route, so
+// every consumer of the payload gets the rule for free rather than each
+// re-deriving "pending" from draft_status on its own.
+for (const draftStatus of ['active', 'complete']) {
+  test(`GET league detail carries no market once draft_status is ${draftStatus}`, async (t) => {
+    mockLeagueDetail(t, { draftStatus });
+
+    const token = signToken({ id: 7, username: 'commissioner' });
+    const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal('market' in response.body.league, false);
+  });
+}
+
+test('GET league detail carries market while draft_status is pending', async (t) => {
+  mockLeagueDetail(t, { draftStatus: 'pending' });
+
+  const token = signToken({ id: 7, username: 'commissioner' });
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal('market' in response.body.league, true);
 });
