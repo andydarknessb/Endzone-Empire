@@ -2286,11 +2286,76 @@ test('renders the league’s own 12 starter / 7 bench / 1 IR shape across rail a
   expect(screen.queryByRole('rowheader', { name: '20' })).not.toBeInTheDocument();
 });
 
-// The room cases that asserted only turn facts - the next pick label and the
-// viewer's own pick list - moved to draftOrderWindow.test.js as unit cases
-// (issue #793 AC4): they rendered the whole room to read a value the one
-// draft-order window now returns directly. The roster-slot tagging cases below
-// stay here, because slot tags are the room's own composition, not the window's.
+// The room cases that asserted the viewer's own pick list (Upcoming's My
+// picks group and its popover) moved to draftOrderWindow.test.js as unit
+// cases (issue #793 AC4): they rendered the whole room to read a value the
+// one draft-order window now returns directly. The roster-slot tagging cases
+// below stay here, because slot tags are the room's own composition, not the
+// window's.
+//
+// The viewer's turn facts (My Roster's Next pick label and remaining-picks
+// warning) lost their only on-screen assertion in that same move: nothing
+// that renders DraftBoard exercised viewerTurn past its threading at
+// DraftBoard.jsx:594. The four cases below restore that wiring coverage
+// (#825). draftOrderWindowFor's own arithmetic keeps its unit coverage in
+// draftOrderWindow.test.js and is not re-verified here.
+
+test('shows the next pick on screen from the league’s own rotation (#825)', async () => {
+  await showRoster([firstPick]);
+  // Two teams, snake: pick 0 was Team A, 1 and 2 are Team B and the third
+  // pick overall is on the clock, so Team A is next up at 2.02.
+  expect(screen.getByText('Next pick 2.02')).toBeInTheDocument();
+});
+
+test('skips a keeper the team already holds when showing the next pick on screen (#825)', async () => {
+  await showRoster([
+    firstPick,
+    {
+      pick_number: 4, teamId: 1, teamName: 'Team A', player_id: 11, is_keeper: true,
+      name: 'Kept Guy', position: 'WR', nfl_team: 'BUF',
+    },
+  ]);
+
+  // 2.02 is Team A's next turn by rotation, but a keeper is already sitting on
+  // it, so the next pick they actually make is 3.01.
+  expect(screen.getByText('Next pick 3.01')).toBeInTheDocument();
+  expect(screen.getByText('Keeper')).toBeInTheDocument();
+});
+
+test('shows the remaining-picks warning on screen late in the draft (#825)', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague({ current_pick: 30 }), {
+    teams: rosterTeams,
+    picks: [firstPick],
+    onTheClock: TEAM_B,
+  })));
+
+  // Two teams, snake, 19 rounds (38 total picks), pick 30 (0-based, so pick
+  // 31 of 38) on the clock. Derived from draftOrderWindowFor with these same
+  // inputs rather than taken on trust: Team A's own remaining picks are the
+  // 0-based numbers 31, 32, 35, 36 (1-based 32, 33, 36, 37) - four picks, the
+  // next at 16.02. That matches the reading in this ticket's brief.
+  expect(screen.getByText('Next pick 16.02')).toBeInTheDocument();
+  expect(screen.getByText('Only 4 picks left for 11 open starting spots.')).toBeInTheDocument();
+});
+
+test('shows neither turn fact when the viewer holds no Team here (#825)', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  // A spectator's join ack carries no Team (#112): a teamId absent from the
+  // frame's own teams, same as the existing NOT_A_MEMBER assertion reaches.
+  connectAsTeam(null);
+  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
+    teams: rosterTeams,
+    picks: [firstPick],
+    onTheClock: TEAM_A,
+  })));
+
+  expect(screen.queryByText(/Next pick/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/picks? left|remaining pick/)).not.toBeInTheDocument();
+});
 
 test('tags the manager’s own picks in the history with the slot they filled', async () => {
   // The history moved to the Board, but it is still handed the viewer's own
