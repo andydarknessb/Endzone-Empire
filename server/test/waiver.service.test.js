@@ -205,6 +205,7 @@ test('processWaivers: the winning claim benches the acquired player', async (t) 
   };
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [league] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
     ] })],
@@ -236,6 +237,7 @@ test('processWaivers clears an expired empty waiver window and refreshes league 
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 1, waiver_type: 'priority' }] })],
     [select('waiver_claims'), () => ({ rows: [] })],
     [remove('waiver_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('leagues'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
   const result = await processWaivers({ leagueId: 1 });
 
@@ -245,6 +247,12 @@ test('processWaivers clears an expired empty waiver window and refreshes league 
   assert.deepEqual(recordingBroadcast().calls, [
     { method: 'rosterChanged', leagueId: 1, payload: undefined },
   ]);
+  // The expired blanket window is spent inside the same transaction, guarded
+  // so an open window survives a manual commissioner trigger. Without this the
+  // league is "due" on every tick and the digest re-runs each time.
+  const spent = fake.matching(/^UPDATE "leagues" SET "waivers_clear_at" = NULL WHERE "id" = \$1 AND "waivers_clear_at" <= now\(\)/);
+  assert.equal(spent.length, 1, 'expired blanket window is NULLed once');
+  assert.equal(spent[0].via, 'client');
   fake.assertClean();
 });
 
@@ -264,6 +272,7 @@ test('processWaivers: the claim drop records no undo, unlike the two undoable dr
   let holdParams;
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [league] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: 77, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
     ] })],

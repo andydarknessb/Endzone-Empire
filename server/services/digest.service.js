@@ -92,6 +92,16 @@ async function sendWeeklyRecapDigest({ leagueId, season, week }) {
 // Per-league watermark so staggered waiver clears within the same hour don't
 // re-email already-digested claims. In-process: a restart falls back to the
 // 1-hour lookback, worst case repeating one recent digest.
+//
+// The watermark is a JS Date, which is MILLISECOND precision; processed_at is
+// timestamptz, which is MICROSECOND precision. pg hands the row back already
+// truncated, so a plain `processed_at > $watermark` re-selects the very claim
+// the watermark was advanced to (03:09:53.450243 > 03:09:53.450) on every
+// scheduler tick, and the manager gets the same "WON" email every five
+// minutes until the worker restarts (66 copies, 2026-09-02). The query
+// truncates its side to milliseconds too so both sides compare at the same
+// precision; a claim sharing the newest claim's millisecond is in the same
+// batch, so nothing falls through the gap.
 const lastWaiverDigestAt = new Map();
 
 /**
@@ -114,7 +124,7 @@ async function sendWaiverResultsDigest({ leagueId }) {
      JOIN "leagues" ON "leagues"."id" = "waiver_claims"."league_id"
      WHERE "waiver_claims"."league_id" = $1
        AND "waiver_claims"."status" IN ('won', 'lost')
-       AND "waiver_claims"."processed_at" > $2`,
+       AND date_trunc('milliseconds', "waiver_claims"."processed_at") > $2`,
     [leagueId, since]
   );
   if (claims.rows.length === 0) return { sent: 0 };
