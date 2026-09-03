@@ -22,8 +22,8 @@ const { teamIdentityColumns } = require('./teamIdentity');
  * and any commissioner overrides); they differ only in which league columns are
  * read and how each object is narrowed for its audience.
  *
- * WHY NAMED COLUMNS, NOT `SELECT *`. The old builder read the league as
- * `SELECT * FROM "leagues"` minus one denylisted column, so publication was the
+ * WHY NAMED COLUMNS. The old builder read the whole `leagues` row - an
+ * unrestricted star-select minus one denylisted column - so publication was the
  * DEFAULT: every column added to `leagues` reached every member on the next
  * `draft:state` the day it landed, and nothing failed. Two such columns were
  * already riding the member broadcast - `owner_id`, an account identifier
@@ -38,6 +38,18 @@ const { teamIdentityColumns } = require('./teamIdentity');
  *
  * `owner_id`, `draft_share_token` and `invite_code` are never selected here,
  * under any circumstances.
+ *
+ * The presenter lists are, in effect, the definition of what a presenter-rendered
+ * component may read. The only consumer today is
+ * src/components/DraftPresenter/DraftPresenter.jsx, which passes the payload into
+ * DraftBoardMatrix, Countdown, lib/rosterShape draftRounds() and lib/teamIdentity;
+ * a component added to that page needs its fields added to the presenter lists
+ * here too. This is the same guarantee publicRead.service.js's rule 2 gives the
+ * rest of the anonymous surface ("every value returned to the client passes
+ * through an explicit serializer that names each field"), reached a different
+ * way - that module cannot serve this route, because its rule 1 forbids it from
+ * touching a league-scoped table and the presenter board is nothing but
+ * league-scoped.
  */
 
 // The league columns an authenticated member's draft:state carries. Derived from

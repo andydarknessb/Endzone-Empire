@@ -10,13 +10,20 @@ jest.mock('../../server/modules/io', () => ({
   getIo: jest.fn(),
   setIo: jest.fn(),
 }));
-// The nothing-draftable escalation (#602) refreshes the paused clock via
-// broadcastDraftState, which reads getDraftState when a Socket.IO server is
-// present (this harness stands one in via the hub). The full draft-state read is
-// not this suite's concern - it would issue DB queries the fake does not model -
-// so stub it; the escalation's own state change is asserted on state.league.
-jest.mock('../../server/modules/draftSocket', () => ({
-  getDraftState: jest.fn().mockResolvedValue({ draft_paused: true }),
+// The nothing-draftable escalation (#602) and the autodraft-flip path refresh
+// the paused clock via getDraftRoomBroadcast().stateChanged, which reads
+// memberSnapshot (#788, formerly a snapshot read on the socket module). The full
+// draft-state read is not this suite's concern - it would issue DB queries the
+// fake does not model - so stub it with a valid snapshot shape. Crucially, a
+// stub that THREW would be swallowed by stateChanged's delivered-or-reported
+// policy (ADR 0025) and deliver nothing, so the STALLED test below asserts the
+// draft:state actually reached the room, proving the broadcast path is exercised
+// rather than passing through a swallowed throw against the mocked pool.
+jest.mock('../../server/services/draftRoomSnapshot', () => ({
+  memberSnapshot: jest.fn().mockResolvedValue({
+    league: { draft_paused: true }, teams: [], picks: [], onTheClock: null,
+  }),
+  presenterSnapshot: jest.fn(),
 }));
 
 const pool = require('../../server/modules/pool');
@@ -37,6 +44,10 @@ const pickClock = require('../../server/services/pickClock.service');
 // old getIo() path used - so every delivery assertion below is unchanged. Only
 // this TEST file changes; no client source is touched.
 const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('../../server/modules/draftRoomBroadcast');
+// The mocked snapshot read (above): the STALLED test asserts it was invoked and
+// that its draft:state reached the room, so the escalation's broadcast is proven
+// to run rather than swallow a throw.
+const { memberSnapshot } = require('../../server/services/draftRoomSnapshot');
 const { processExpiredPickClocks } = pickClock;
 
 const LEAGUE_ID = 7001;
@@ -795,6 +806,15 @@ describe('live snake-draft expiry and autopick integration', () => {
     expect(stalled).toHaveLength(1);
     expect(stalled[0].payload.teamName).toBe('MinneApple');
     expect(stalled[0].payload).not.toHaveProperty('player');
+
+    // The escalation's OTHER broadcast - stateChanged - actually fired: it reads
+    // memberSnapshot (#788) and delivers draft:state. A swallowed memberSnapshot
+    // throw would deliver nothing here, so this is what proves the path runs
+    // rather than the assertions above passing over a silent failure.
+    expect(memberSnapshot).toHaveBeenCalledWith(LEAGUE_ID);
+    const stateDeliveries = hub.deliveries.filter((d) => d.event === 'draft:state');
+    expect(stateDeliveries).toHaveLength(1);
+    expect(stateDeliveries[0].payload.league.draft_paused).toBe(true);
   });
 
   test('repeat sweeps after the escalation commit nothing and append no duplicate entry', async () => {

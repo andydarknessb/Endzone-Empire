@@ -283,8 +283,9 @@ test('draft:join answers the ack before it sends the first draft:state', async (
 });
 
 test('the draft:state snapshot never carries the league invite code', async (t) => {
-  // memberSnapshot deletes it before broadcasting. This snapshot goes to the
-  // whole room, so a regression here hands every member the join code.
+  // memberSnapshot never selects invite_code, so it is absent from the league
+  // it broadcasts (#788). This snapshot goes to the whole room, so a regression
+  // that re-added the column would hand every member the join code.
   world(t);
   const client = await harness.connectAs(MEMBER, t);
 
