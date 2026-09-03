@@ -518,6 +518,16 @@ _Avoid_: value (unqualified), tier, treating 17-game pace or ADP as a stand-in
 A solo practice draft against CPU opponents. It never touches a real league.
 _Avoid_: mock draft
 
+**Draft assistant**:
+A private, opt-in voice in the Draft room and the Draft Sim that comments on
+a manager's own Picks, Queue and Pick clock over approved measures (ADP,
+steal and reach, Starting need, Autopick). It never ranks, recommends or
+alters Best available, presents nothing as Draft value, and is never shown to
+a presenter. "Polk High Legend" is the name of its first voice, not of the
+assistant.
+_Avoid_: bot, advisor, coach, recommendation engine, commentary feed (Draft
+activity is the shared feed; the assistant is private)
+
 ### Roster and lineup
 
 **Roster**:
