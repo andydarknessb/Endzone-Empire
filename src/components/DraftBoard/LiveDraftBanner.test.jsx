@@ -1,6 +1,7 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import LiveDraftBanner from './LiveDraftBanner';
+import { OVERDUE_AFTER_MS } from '../../lib/onTheClock';
 
 const activeLeague = { draft_status: 'active' };
 const bulldogs = { teamId: 2, teamName: 'Bulldogs' };
@@ -84,5 +85,58 @@ describe('LiveDraftBanner - timer slot per On-the-clock state (#754)', () => {
     expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:30');
     act(() => { jest.advanceTimersByTime(3000); });
     expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:27');
+  });
+});
+
+describe('LiveDraftBanner - Overdue announced once in the live region (#769 AC3)', () => {
+  it('appends the Overdue copy to the polite region exactly once at the crossing, and not before', () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    render(<LiveDraftBanner league={activeLeague} onTheClock={running(now + 1000)} isMyTurn={false} />);
+    const region = screen.getByRole('status');
+
+    // Expired but not yet Overdue: the region names the team, and says nothing
+    // about the server. (The leaf's own copy, if any, is a sibling of the
+    // region, never inside it - that separation is #445 AC3.)
+    act(() => { jest.advanceTimersByTime(1000); });
+    expect(region).not.toHaveTextContent('Waiting on the server');
+
+    // Cross the tolerance and keep ticking well past it: the copy lands in the
+    // region, and it is there exactly once - one announcement per turn, not one
+    // per second.
+    act(() => { jest.advanceTimersByTime(OVERDUE_AFTER_MS + 5000); });
+    expect(within(region).getAllByText('Waiting on the server')).toHaveLength(1);
+  });
+
+  it('announces when the clock is ALREADY overdue on arrival (connecting into a stalled draft)', () => {
+    // The exact case the feature exists for: a viewer opens (or re-renders) into
+    // a draft the server has actually stalled on, deadline already well past the
+    // tolerance. The leaf's mount-time onExpire fires in the same commit as the
+    // banner's own mount, so the announcement must survive that commit, not be
+    // clobbered by a reset. A sighted user sees the leaf caption regardless; a
+    // screen-reader user must still get the polite announcement.
+    jest.useFakeTimers();
+    render(
+      <LiveDraftBanner league={activeLeague} onTheClock={running(Date.now() - 60000)} isMyTurn={false} />
+    );
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(within(screen.getByRole('status')).getAllByText('Waiting on the server')).toHaveLength(1);
+  });
+
+  it('resets on a new deadline so the next turn does not inherit the copy', () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    const { rerender } = render(
+      <LiveDraftBanner league={activeLeague} onTheClock={running(now + 1000)} isMyTurn={false} />
+    );
+    act(() => { jest.advanceTimersByTime(1000 + OVERDUE_AFTER_MS + 1000); });
+    expect(screen.getByRole('status')).toHaveTextContent('Waiting on the server');
+
+    // A new pick arrives (a fresh deadline): the one-shot flag clears, so the
+    // fresh clock does not start already announcing the previous turn's stall.
+    rerender(
+      <LiveDraftBanner league={activeLeague} onTheClock={running(Date.now() + 90000)} isMyTurn={false} />
+    );
+    expect(screen.getByRole('status')).not.toHaveTextContent('Waiting on the server');
   });
 });
