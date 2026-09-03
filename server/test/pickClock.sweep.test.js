@@ -35,10 +35,17 @@ const SWEEP_TEAM = { id: 55, owner_id: 7, autodraft: true };
 /**
  * Installs a mock pool.query covering the whole sweep path from the interface:
  * the due-clock query (so the sweep actually selects this league), then the
- * league, the single team, season resolution, and the candidate query answered
- * with `candidates` verbatim (unordered — the module sorts them itself).
+ * league, the team rotation, the on-clock team's current roster positions and
+ * the taken (keeper) pick numbers that feed the need-aware ordering (#746), the
+ * season resolution, and the candidate query answered with `candidates`
+ * verbatim (unordered — the module orders them itself). `rosterPositions` is the
+ * on-clock team's drafted positions and `takenPicks` the 1-based pick numbers
+ * already occupied; both default to empty so the pre-#746 cases are unchanged.
  */
-function installSweepPool(t, { candidates, league = SWEEP_LEAGUE, team = SWEEP_TEAM } = {}) {
+function installSweepPool(
+  t,
+  { candidates, league = SWEEP_LEAGUE, team = SWEEP_TEAM, teams = [team], rosterPositions = [], takenPicks = [] } = {}
+) {
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     // The backstop scans every active deadline and decides due-ness in JS now
@@ -47,12 +54,28 @@ function installSweepPool(t, { candidates, league = SWEEP_LEAGUE, team = SWEEP_T
       return { rows: [{ id: league.id, pick_deadline_at: league.pick_deadline_at }] };
     }
     if (text.includes('FROM "leagues" WHERE "id" = $1')) return { rows: [league] };
-    if (text.includes('FROM "teams"')) return { rows: [team] };
+    if (text.includes('FROM "draft_picks"')) return { rows: takenPicks.map((n) => ({ pick_number: n })) };
+    // The on-clock team's current roster positions (need-aware ordering, #746).
+    // Distinct from the candidate query (FROM "players") and the team rotation
+    // (FROM "teams") by its FROM "team_players".
+    if (text.includes('FROM "team_players"')) return { rows: rosterPositions.map((p) => ({ position: p })) };
+    if (text.includes('FROM "teams"')) return { rows: teams };
     if (text.includes('EXTRACT(MONTH FROM CURRENT_DATE)')) return { rows: [{ season: 2026 }] };
     if (text.includes('FROM "players"')) return { rows: candidates };
     throw new Error(`Unexpected SQL: ${text}`);
   });
 }
+
+// A MinneApple-shaped starting lineup: QB, RBx2, WRx2, TE, FLEX, K, DEF.
+const MINNEAPPLE_ROSTER_SLOTS = [
+  { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
+  { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
+  { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
+  { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+  { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+  { key: 'K', label: 'K', count: 1, eligiblePositions: ['K'] },
+  { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+];
 
 /** Mock draftPlayer to record attempt order; sniped ids throw a 409 like the real service. */
 function recordAttempts(t, { snipe = [] } = {}) {
@@ -151,6 +174,118 @@ test('sweep: after a snipe, falls through to the next best candidate, never to t
   // no-signal red tell) is never reached.
   assert.deepEqual(attempts, [1, 2]);
   assert.deepEqual(outcomes, [{ leagueId: LEAGUE_ID, playerId: 2 }]);
+});
+
+// --- need-aware phases: Starting needs before the bench (#746, ADR 0026) -----
+
+test('sweep: the MinneApple wedge - a needed TE is drafted over a lower-ADP QB', async (t) => {
+  // Twelve-team, fifteen-round MinneApple shape at pick 52 (0-based 51, round 5,
+  // K/DEF window still closed). The on-clock team holds three QBs and no TE, so
+  // only one QB starts and the TE slot is open. A QB of LOWER ADP and a TE of
+  // HIGHER ADP are available: raw Best available would take the QB; the need
+  // phase must take the TE, because the TE fills a Starting need and a fourth QB
+  // does not. Red tell: make fillsStartingNeed return true for every candidate
+  // and the QB (lower ADP) is drafted instead.
+  const te = { id: 200, name: 'Needed TE', adp: '20.0', position: 'TE', queue_rank: null, last_season_points: null };
+  const qb = { id: 201, name: 'Fourth QB', adp: '10.0', position: 'QB', queue_rank: null, last_season_points: null };
+  const leagueA = { ...SWEEP_LEAGUE, current_pick: 51, draft_rounds: 15, roster_slots: MINNEAPPLE_ROSTER_SLOTS };
+  const teamsA = Array.from({ length: 12 }, (_, i) => ({ id: 101 + i, owner_id: 1101 + i, autodraft: true, draft_position: i + 1 }));
+  installSweepPool(t, {
+    candidates: [qb, te], // seeded lower-ADP-first
+    league: leagueA,
+    teams: teamsA,
+    rosterPositions: ['QB', 'QB', 'QB'],
+  });
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [200], 'the TE fills a Starting need; the lower-ADP fourth QB does not');
+});
+
+test('sweep: must-fill guard - with as many picks as open needs, a K/DEF beats a lower-ADP WR', async (t) => {
+  // A team in round 12 of 15 (the K/DEF window is still CLOSED) whose only open
+  // starting needs are K and DEF, and whose remaining picks equal those two open
+  // needs (two of its later picks are keepers, pre-inserted as draft_picks rows).
+  // The must-fill guard fires: it overrides the K/DEF window and drafts a K or a
+  // DEF even though the lowest-ADP player available is a WR that fills nothing.
+  // Red tell: drop the must-fill guard and the closed K/DEF window strands both,
+  // leaving the WR (which the guard exists to refuse) as the pick.
+  const wr = { id: 300, name: 'Cheap WR', adp: '1.0', position: 'WR', queue_rank: null, last_season_points: null };
+  const k = { id: 301, name: 'A Kicker', adp: '50.0', position: 'K', queue_rank: null, last_season_points: null };
+  const def = { id: 302, name: 'A Defense', adp: '60.0', position: 'DEF', queue_rank: null, last_season_points: null };
+  // current_pick 11 => round 12 (single team, so ceil math is exact); 15 rounds
+  // => picks 12..15 remain, and marking pick numbers 14 and 15 as keepers leaves
+  // exactly two remaining picks against the two open needs.
+  const leagueB = { ...SWEEP_LEAGUE, current_pick: 11, draft_rounds: 15, roster_slots: MINNEAPPLE_ROSTER_SLOTS };
+  const rosterB = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'RB']; // QB, RBx2, WRx2, TE, FLEX(RB) all filled; K/DEF open
+  installSweepPool(t, {
+    candidates: [wr, k, def],
+    league: leagueB,
+    team: { id: 55, owner_id: 7, autodraft: true },
+    rosterPositions: rosterB,
+    takenPicks: [14, 15],
+  });
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [301], 'the must-fill guard drafts the K (a need) over the lower-ADP WR');
+});
+
+test('sweep: control - the same league with roster_slots [] takes the raw Best available', async (t) => {
+  // The exact case (b) row but with NO starting slots: nothing fills a need, the
+  // must-fill guard cannot fire, and autopick collapses to raw Best available -
+  // the lowest-ADP WR. This is the pair to the must-fill case: it proves the
+  // K/DEF pick there came from the need logic, not from the ordering at large.
+  // Making fillsStartingNeed return true for every candidate leaves this GREEN
+  // (there are still no slots to fill) while it turns the MinneApple case red.
+  const wr = { id: 300, name: 'Cheap WR', adp: '1.0', position: 'WR', queue_rank: null, last_season_points: null };
+  const k = { id: 301, name: 'A Kicker', adp: '50.0', position: 'K', queue_rank: null, last_season_points: null };
+  const def = { id: 302, name: 'A Defense', adp: '60.0', position: 'DEF', queue_rank: null, last_season_points: null };
+  const leagueC = { ...SWEEP_LEAGUE, current_pick: 11, draft_rounds: 15, roster_slots: [] };
+  installSweepPool(t, {
+    candidates: [k, def, wr], // seeded so raw Best available (the WR) is not first
+    league: leagueC,
+    team: { id: 55, owner_id: 7, autodraft: true },
+    rosterPositions: ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'RB'],
+    takenPicks: [14, 15],
+  });
+  const attempts = recordAttempts(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [300], 'no starting slots => raw Best available, the lowest-ADP WR');
+});
+
+test('sweep: must-fill with its need-fillers sniped falls to the tail, not to escalation', async (t) => {
+  // The must-fill guard fires (two open needs, K and DEF; two picks remaining),
+  // but both K/DEF are sniped between candidate selection and the pick. The
+  // normal phases ride along as a fallback tail (ADR 0026), so autopick degrades
+  // to the draftable WR instead of walking into escalateNothingDraftable with a
+  // player still on the board. Red tell: an early `return [...queued,
+  // ...mustFillers]` drops the WR and this drafts nothing (755-f1).
+  const wr = { id: 400, name: 'Fallback WR', adp: '1.0', position: 'WR', queue_rank: null, last_season_points: null };
+  const k = { id: 401, name: 'A Kicker', adp: '50.0', position: 'K', queue_rank: null, last_season_points: null };
+  const def = { id: 402, name: 'A Defense', adp: '60.0', position: 'DEF', queue_rank: null, last_season_points: null };
+  // current_pick 13 => round 14 of 15 (single team), two picks remain and no
+  // keepers, so picks-remaining is 2 against the two open needs (K, DEF).
+  const league = { ...SWEEP_LEAGUE, current_pick: 13, draft_rounds: 15, roster_slots: MINNEAPPLE_ROSTER_SLOTS };
+  // QB, RBx2, WRx2, TE, FLEX(RB) filled (7 starters); K and DEF are the two open
+  // needs, matching the two remaining picks so the must-fill guard fires.
+  const roster = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'RB'];
+  installSweepPool(t, {
+    candidates: [wr, k, def],
+    league,
+    team: { id: 55, owner_id: 7, autodraft: true },
+    rosterPositions: roster,
+  });
+  const attempts = recordAttempts(t, { snipe: [401, 402] });
+
+  const outcomes = await pickClock.processExpiredPickClocks();
+
+  assert.deepEqual(attempts, [401, 402, 400], 'K then DEF sniped, then the WR from the fallback tail');
+  assert.deepEqual(outcomes, [{ leagueId: LEAGUE_ID, playerId: 400 }], 'the WR is drafted, not an escalation');
 });
 
 // --- the worker broadcast path: no local Socket.IO server --------------------

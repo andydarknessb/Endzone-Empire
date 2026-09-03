@@ -436,7 +436,12 @@ _Avoid_: manager undo, rewind, arbitrary rollback
 
 **Autopick**:
 The single act of the server making a team's pick when its clock expires: the
-first eligible player from that team's queue, otherwise the best available.
+first eligible player from that team's queue, otherwise the best available who
+fills a Starting need, otherwise the best available. A kicker or defense is
+offered only in the last three rounds, unless the team has no more picks left
+than open Starting needs, in which case it fills them, or nothing else remains
+to draft. Autopick never refuses to pick because the market is thin; that is a
+draft-start concern.
 _Avoid_: autodraft (that is the standing mode, not the act)
 
 **Best available**:

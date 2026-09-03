@@ -26,14 +26,22 @@ const AUTOPICK_TEAM = { id: 55, owner_id: 7, autodraft: true };
 
 /**
  * Installs a mock pool.query covering everything autoPick() reads before
- * its candidate query: the league, the (single) team, and season
- * resolution — then answers the candidate query with `candidates` verbatim,
- * unfiltered/unordered by this mock (autoPick sorts them itself).
+ * its candidate query: the league, the (single) team, season resolution, the
+ * on-clock team's current roster positions and the taken (keeper) pick numbers
+ * that feed the need-aware ordering (#746) — then answers the candidate query
+ * with `candidates` verbatim, unfiltered/unordered by this mock (autoPick
+ * orders them itself). `rosterPositions` and `takenPicks` default empty, which
+ * is the pre-#746 shape: no roster, no keepers.
  */
-function installAutopickPool(t, { candidates, league = AUTOPICK_LEAGUE, team = AUTOPICK_TEAM } = {}) {
+function installAutopickPool(
+  t,
+  { candidates, league = AUTOPICK_LEAGUE, team = AUTOPICK_TEAM, rosterPositions = [], takenPicks = [] } = {}
+) {
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('FROM "leagues" WHERE "id" = $1')) return { rows: [league] };
+    if (text.includes('FROM "draft_picks"')) return { rows: takenPicks.map((n) => ({ pick_number: n })) };
+    if (text.includes('FROM "team_players"')) return { rows: rosterPositions.map((p) => ({ position: p })) };
     if (text.includes('FROM "teams"')) return { rows: [team] };
     if (text.includes('EXTRACT(MONTH FROM CURRENT_DATE)')) return { rows: [{ season: 2026 }] };
     if (text.includes('FROM "players"')) return { rows: candidates };

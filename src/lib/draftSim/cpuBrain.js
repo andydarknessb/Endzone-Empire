@@ -11,6 +11,11 @@
  *   - `positionGroupKey` mirrors `positionCapGroup` in
  *     server/services/draft.service.js: IDP roster math is done at the
  *     DL/LB/DB group level, not the literal Tank01 position code.
+ *   - the K/DEF window here (`kickersAndDefensesOpen`) and the starter-need idea
+ *     are twinned on the server by server/services/startingNeed.js (the Pick
+ *     clock's autopick need phase, #746/ADR 0026), whose starter matching is the
+ *     unweighted twin of src/lib/rosterAssignment.js; the window is pinned equal
+ *     by src/lib/draftSim/kickerDefenseWindow.parity.test.js.
  *
  * Everything is pure and takes its randomness from an injected `rng()`, so a
  * seeded sim replays identically (see rng.js).
