@@ -26,6 +26,12 @@ const seasonService = require('../../server/services/season.service');
 const { teamForPick } = require('../../server/services/draftOrder.service');
 const { draftPlayer } = require('../../server/services/draft.service');
 const pickClock = require('../../server/services/pickClock.service');
+// #745: autoPick and the escalation/stall paths now emit through the one Draft
+// room adapter, which throws with no transport (no silent default). Register the
+// adapter over this harness's FakeRealtimeHub - the same io-shaped transport the
+// old getIo() path used - so every delivery assertion below is unchanged. Only
+// this TEST file changes; no client source is touched.
+const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('../../server/modules/draftRoomBroadcast');
 const { processExpiredPickClocks } = pickClock;
 
 const LEAGUE_ID = 7001;
@@ -420,6 +426,7 @@ describe('live snake-draft expiry and autopick integration', () => {
     pool.query.mockImplementation(database.query);
     pool.connect.mockImplementation(database.connect);
     ioRegistry.getIo.mockReturnValue(hub);
+    setDraftRoomBroadcast(createDraftRoomBroadcast(hub, 'io'));
     return state;
   }
 
@@ -449,6 +456,7 @@ describe('live snake-draft expiry and autopick integration', () => {
     benchAcquiredPlayerSpy.mockRestore();
     if (suppliedFetch) delete global.fetch;
     jest.useRealTimers();
+    setDraftRoomBroadcast(null);
     jest.clearAllMocks();
   });
 
