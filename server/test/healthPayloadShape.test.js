@@ -62,10 +62,18 @@ function healthPool(over = {}) {
   return createFakePool([
     [/^SELECT 1$/, () => ({ rows: [{ '?column?': 1 }] })],
     [/FROM "worker_heartbeats"/, () => ({ rows: over.workers || [wideWorkerRow()] })],
+    // The overdue-clock probe (#768): a SELECT over "leagues"; default none.
+    // Rows are raw DB-shaped ({ id, pick_deadline_at, age_ms }).
+    [/FROM "leagues"/, () => ({ rows: over.overdueClocks || [] })],
     // getSchedulerStatus reads the latest ADP run here (#747); default: none.
     [/FROM "data_sync_runs"/, () => ({ rows: over.adpRuns || [] })],
   ]);
 }
+
+/** A raw overdue-clock row as the leagues probe would return it. */
+const overdueRow = (over = {}) => ({
+  id: 42, pick_deadline_at: '2026-09-03T00:00:00.000Z', age_ms: 45000, ...over,
+});
 
 /**
  * There is deliberately no quota stub.
@@ -147,9 +155,10 @@ test('GET /worker publishes exactly ok and workers, each worker an exact key set
 
   const res = await request(app).get('/api/health/worker');
 
-  assert.deepEqual(keys(res.body), ['ok', 'workers']);
+  assert.deepEqual(keys(res.body), ['ok', 'overdueClocks', 'workers']);
   assert.equal(res.body.workers.length, 1);
   assert.deepEqual(keys(res.body.workers[0]), ['lastError', 'lastSeenAt', 'name', 'release', 'stale']);
+  assert.deepEqual(res.body.overdueClocks, [], 'no stuck clocks by default');
   assert.ok(!JSON.stringify(res.body).includes('a_column_added_next_quarter'));
   fake.assertClean();
 });
@@ -157,14 +166,82 @@ test('GET /worker publishes exactly ok and workers, each worker an exact key set
 test('GET /worker adds exactly one key when the heartbeat table cannot be read', async (t) => {
   const fake = createFakePool([
     [/FROM "worker_heartbeats"/, () => { throw new Error('relation does not exist'); }],
+    // The overdue probe is a separate read and still answers (empty here).
+    [/FROM "leagues"/, () => ({ rows: [] })],
   ]).install(t);
 
   const res = await request(app).get('/api/health/worker');
 
   assert.equal(res.status, 503);
-  assert.deepEqual(keys(res.body), ['ok', 'unavailable', 'workers']);
+  assert.deepEqual(keys(res.body), ['ok', 'overdueClocks', 'unavailable', 'workers']);
   assert.deepEqual(res.body.workers, []);
+  assert.deepEqual(res.body.overdueClocks, []);
   assert.ok(!JSON.stringify(res.body).includes('relation does not exist'));
+  fake.assertClean();
+});
+
+// ---------------------------------------------------------------------------
+// /worker - the overdue-clock alarm (#768, ruling 2)
+// ---------------------------------------------------------------------------
+// The API-health half of the two detectors: workerStatus reports Overdue clocks
+// from the stored deadline, so a DEAD worker (which never runs the sweep) is
+// still caught. /worker folds `overdueClocks.length === 0` into its ok and so
+// answers 503; the composite / carries the same section as context but keeps
+// its own ok rule (runtime, db, redis) - a stuck draft clock must not make the
+// API read unhealthy and get the service cycled by Render's probe.
+
+test('GET /worker: an overdue clock publishes the row and fails the check with 503', async (t) => {
+  const fake = healthPool({ overdueClocks: [overdueRow()] }).install(t);
+
+  const res = await request(app).get('/api/health/worker');
+
+  // Red tell: return zero overdue rows and this 503 becomes a 200.
+  assert.equal(res.status, 503, 'a stuck clock fails /worker');
+  assert.equal(res.body.ok, false);
+  assert.deepEqual(res.body.overdueClocks, [
+    { leagueId: 42, deadlineAt: '2026-09-03T00:00:00.000Z', ageMs: 45000 },
+  ]);
+  fake.assertClean();
+});
+
+test('GET /worker: with no overdue clocks and a healthy heartbeat the check passes 200', async (t) => {
+  // The pair to the case above: zero overdue rows must NOT fail the check, which
+  // is what makes the 503 there attributable to the overdue fold and not to the
+  // heartbeat.
+  const fake = healthPool({ overdueClocks: [] }).install(t);
+
+  const res = await request(app).get('/api/health/worker');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.deepEqual(res.body.overdueClocks, []);
+  fake.assertClean();
+});
+
+test('GET /: the SAME overdue fake still answers 200 - the API is healthy when a clock is stuck', async (t) => {
+  // Ruling 2's load-bearing distinction, and the outage guard: / keeps its
+  // (runtime, db, redis) ok rule. Render probes /api/health/readyz, which is
+  // untouched, but / must also not flip to 503 on an overdue clock or an
+  // operator wiring the probe at / would cycle a healthy service.
+  delete process.env.REDIS_URL;
+  // runtime.ready is a load-time capture in the router (not a mockable seam), so
+  // this test drives the real flag: mark ready for the "runtime ok" precondition
+  // and put it back to not-ready afterward so the later "not ready" case still
+  // reads 503.
+  const runtimeState = require('../modules/runtimeState');
+  runtimeState.markReady();
+  t.after(() => runtimeState.markShuttingDown());
+  const fake = healthPool({ overdueClocks: [overdueRow()] }).install(t);
+  stubHoldout(t);
+
+  const res = await request(app).get('/api/health');
+
+  assert.equal(res.status, 200, 'a stuck draft clock does not make the API unhealthy');
+  assert.equal(res.body.ok, true);
+  // The section still rides along as context, with the stuck clock named.
+  assert.deepEqual(res.body.worker.overdueClocks, [
+    { leagueId: 42, deadlineAt: '2026-09-03T00:00:00.000Z', ageMs: 45000 },
+  ]);
   fake.assertClean();
 });
 
@@ -267,7 +344,7 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
   assert.deepEqual(keys(res.body.db), ['latencyMs', 'ok']);
   assert.deepEqual(keys(res.body.redis), ['configured', 'ok']);
   assert.deepEqual(keys(res.body.runtime), ['ready', 'shuttingDown']);
-  assert.deepEqual(keys(res.body.worker), ['ok', 'workers']);
+  assert.deepEqual(keys(res.body.worker), ['ok', 'overdueClocks', 'workers']);
   assert.deepEqual(keys(res.body.worker.workers[0]), ['lastError', 'lastSeenAt', 'name', 'release', 'stale']);
   assert.deepEqual(keys(res.body.quota), ['budget', 'cycleStart', 'mode', 'provider', 'remaining', 'used']);
   assert.deepEqual(keys(res.body.holdout), ['obligations', 'ok']);
