@@ -212,6 +212,23 @@ test('mobile: off-turn Draft stays focusable but aria-disabled, matching the tab
   expect(draftButton).not.toHaveAttribute('disabled');
 });
 
+test('off-turn, the Draft button surfaces the shared explanation as its tooltip text', async () => {
+  // #792 folded the explanation from a module-constant import into a threaded
+  // prop (pickState.explanation -> the `explanation` prop). Every existing
+  // off-turn test asserts only aria-disabled, so a future edit that dropped the
+  // thread would blank the tooltip title and lose the accessible explanation
+  // while staying green. This asserts the TEXT actually reaches the tooltip, so
+  // an empty title fails it (verified by mutation while writing this).
+  const user = userEvent.setup();
+  renderTable({ pickState: { pickUnavailable: true } });
+
+  const draftButton = within(screen.getByRole('table', { name: 'Available Players' }))
+    .getAllByRole('button', { name: 'Draft', exact: true })[0];
+  expect(draftButton).toHaveAttribute('aria-disabled', 'true');
+  await user.hover(draftButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(PICK_UNAVAILABLE_EXPLANATION);
+});
+
 // Cards have no column headers to sort by - mobile keeps the same sort
 // capability the desktop table's TableSortLabel headers give via a "Sort by"
 // Select plus a direction toggle instead (issue #122 code-review finding:

@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DraftRail from './DraftRail';
+import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 
 // Issue #123 acceptance criteria 1-4: the rail's composition follows draft
 // status. DraftRail is provider-free (MUI only - see its own doc comment on
@@ -59,6 +60,26 @@ const baseProps = {
 
 /** The rail's panels in the order a manager meets them, top to bottom. */
 const panelOrder = () => screen.queryAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
+
+test('off-turn, the queue quick-draft button surfaces the shared explanation as its tooltip text', async () => {
+  // #792 replaced the rail's own PICK_UNAVAILABLE_EXPLANATION import with a
+  // threaded pickState.explanation. The composition tests above never render a
+  // non-empty queue, so nothing exercised the quick-draft tooltip; this one
+  // does, asserting the explanation TEXT actually reaches it (an empty title
+  // fails it - verified by mutation while writing this).
+  const user = userEvent.setup();
+  render(<DraftRail
+    {...baseProps}
+    draftStatus="active"
+    queue={[{ id: 1, name: 'Bijan Robinson', position: 'RB' }]}
+    pickState={{ canManualPick: true, pickUnavailable: true, explanation: PICK_UNAVAILABLE_EXPLANATION }}
+  />);
+
+  const draftButton = screen.getByRole('button', { name: 'Draft' });
+  expect(draftButton).toHaveAttribute('aria-disabled', 'true');
+  await user.hover(draftButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(PICK_UNAVAILABLE_EXPLANATION);
+});
 
 test('pending composes Readiness, Draft order, then My Queue', () => {
   render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} />);
