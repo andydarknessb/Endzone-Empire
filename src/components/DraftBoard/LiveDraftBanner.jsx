@@ -1,6 +1,7 @@
 import React from 'react';
 import { Paper, Box, Avatar, Typography } from '@mui/material';
 import PickClock from './PickClock';
+import { DraftRoomAssistantBannerLine, useDraftRoomAssistantControls } from './DraftRoomAssistant';
 
 function initialsFor(name) {
   if (!name) return '?';
@@ -27,6 +28,13 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
   const team = onTheClock?.team ?? null;
   const state = onTheClock?.state ?? 'idle';
   const deadlineAt = onTheClock?.deadlineAt ?? null;
+
+  // The Draft assistant's clock-urgent edge (#787 ruling item 2). Only the
+  // stable controls half of its context is read here, so a landing line never
+  // re-renders this banner or its PickClock leaf; the notifier itself gates on
+  // the viewer's own turn, so forwarding it on every running clock is safe.
+  // Absent the provider (LiveDraftBanner.test.jsx) it is a no-op.
+  const { notifyClockUrgent } = useDraftRoomAssistantControls();
 
   // One-shot Overdue flag (#769 ruling 4). The PickClock leaf owns the per-second
   // tick and tells us ONCE, at the crossing, through onOverdue; we append the
@@ -59,6 +67,9 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
         display: 'flex',
         alignItems: 'center',
         gap: 2,
+        // Wrap so the Draft assistant's latest line (below) drops to its own
+        // full-width row under the avatar/status/clock, which stay on one row.
+        flexWrap: 'wrap',
         bgcolor: isMyTurn ? 'action.hover' : 'background.paper',
         borderColor: isMyTurn ? 'primary.main' : 'divider',
         borderWidth: isMyTurn ? 2 : 1,
@@ -101,7 +112,7 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
         ) : null}
       </Box>
       {state === 'running' ? (
-        <PickClock deadlineAt={onTheClock.deadlineAt} onOverdue={handleOverdue} />
+        <PickClock deadlineAt={onTheClock.deadlineAt} onOverdue={handleOverdue} onUrgent={notifyClockUrgent} />
       ) : state === 'paused' ? (
         <Typography variant="h6" component="div" sx={{ color: 'warning.main', flexShrink: 0 }}>
           Draft paused
@@ -111,6 +122,11 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
           No pick clock
         </Typography>
       )}
+      {/* The Draft assistant's latest line on mobile (#787 ruling item 4): a
+          visual line only, never a live region (the assistant's one polite
+          region lives in the room chrome), so it may show a selection line the
+          region does not speak. Renders nothing when the toggle is off. */}
+      <DraftRoomAssistantBannerLine />
     </Paper>
   );
 }

@@ -31,6 +31,9 @@ import DraftRail from './DraftRail';
 import ReadinessAnnouncer from './ReadinessAnnouncer';
 import PickAnnouncer from './PickAnnouncer';
 import StallAnnouncer from './StallAnnouncer';
+import {
+  DraftRoomAssistantProvider, DraftRoomAssistantRegion, DraftRoomAssistantToggle,
+} from './DraftRoomAssistant';
 import { isStallRelevant } from './stallAnnouncement';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
@@ -306,6 +309,20 @@ function DraftBoard() {
   // without any extra state — the board keeps updating behind the overlay.
   const [quickViewId, setQuickViewId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The Draft assistant's pool-selection signal (#787 ruling item 2): a nonce
+  // set ONLY when a player is selected in the pool table, via a wrapped
+  // onOpenQuickView the pool table alone receives (the rail and Board get the
+  // bare setQuickViewId). A fresh object per selection so re-selecting the same
+  // player fires again, and distinct from quickViewId so a Board/Queue quick
+  // view never counts as a pool selection. The table's declared interface
+  // (issue #792) is untouched - onOpenQuickView is already one of its props.
+  const [poolSelection, setPoolSelection] = useState(null);
+  const poolSelectSeqRef = useRef(0);
+  const handleSelectFromPool = useCallback((playerId) => {
+    poolSelectSeqRef.current += 1;
+    setPoolSelection({ id: playerId, seq: poolSelectSeqRef.current });
+    setQuickViewId(playerId);
+  }, []);
   // A manual Pick awaiting the focused confirmation dialog: { id, name } |
   // null. Every manual-Pick surface (pool row, Quick View, queue quick-draft)
   // routes through requestDraftPlayer below instead of committing directly,
@@ -680,7 +697,10 @@ function DraftBoard() {
     queue,
     onDraft: requestDraftPlayer,
     onQueue: handleQueuePlayer,
-    onOpenQuickView: setQuickViewId,
+    // The pool table alone gets the wrapped handler, so only a selection made
+    // HERE feeds the Draft assistant's pool-selection line (#787 ruling item 2);
+    // the rail and Board keep the bare setQuickViewId below.
+    onOpenQuickView: handleSelectFromPool,
     byeOverlapByWeek,
   };
   // Shared by every DraftRail render below likewise.
@@ -891,6 +911,22 @@ function DraftBoard() {
         : <DraftRail {...draftRailProps} />;
 
   return (
+    <DraftRoomAssistantProvider
+      active={league?.draft_status === 'active'}
+      lastPick={lastPick}
+      isMyTurn={isMyTurn}
+      poolSelection={poolSelection}
+      poolRows={availablePlayers}
+      queue={queue}
+      teamCount={teams.length}
+      viewerTeamId={viewerTeamId}
+      myPicks={rosterView ? rosterView.picks : []}
+      rosterSlots={Array.isArray(league?.roster_slots) ? league.roster_slots : []}
+      draftRounds={rounds}
+      // leagues.current_pick is already 0-based (draft.service.js), so the pick
+      // on the clock is current_pick + 1 in the room's 1-based numbering.
+      currentPickNumber={(Number(league?.current_pick) || 0) + 1}
+    >
     <Container
       component="main"
       id={DRAFT_MAIN_ID}
@@ -953,6 +989,14 @@ function DraftBoard() {
             the banner and the feed's stuck-state line already show it to sighted
             managers. */}
         <StallAnnouncer stall={lastStallActivity} />
+        {/* The Draft assistant's one polite region (#787 ruling item 4). It
+            lives here in the chrome every tab renders, beside the Pick and
+            stall announcers, so the assistant is heard on the Players, Board and
+            Draft tabs alike - not only where the rail panel is mounted. The
+            provider owns its text and clears it on toggle-off; a selection line
+            never reaches it. Visually hidden; the rail panel and banner line
+            show the same lines to sighted managers. */}
+        <DraftRoomAssistantRegion />
         {/* The Draft room's membership-loss announcer (#534 a11y finding 3). It
             lives here in the chrome, like the two above, so a narrow-container
             Chat -> Players -> Chat tab switch never unmounts it: the persistent
@@ -1028,6 +1072,7 @@ function DraftBoard() {
             ) : null}
             onClockAlertOpen={onClockAlertOpen}
             onCloseOnClockAlert={dismissOnClockAlert}
+            assistantToggle={league?.draft_status === 'active' ? <DraftRoomAssistantToggle /> : null}
           />
           {isCommissioner && league?.draft_status === 'active' && (
             <DraftDayControls
@@ -1147,6 +1192,7 @@ function DraftBoard() {
         onCancel={cancelDraftPlayer}
       />
     </Container>
+    </DraftRoomAssistantProvider>
   );
 }
 

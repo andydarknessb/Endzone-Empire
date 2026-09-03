@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { Box, Typography } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
@@ -47,8 +47,18 @@ export const OVERDUE_MESSAGE = 'Waiting on the server';
  * single once-per-turn announcement of the Overdue copy is the banner's job
  * (#769 ruling 4), not this leaf's. The presenter keeps its own, pre-existing
  * live-region posture around it and inherits the copy under the digits.
+ *
+ * `onUrgent` fires ONCE per turn, at the crossing into the urgent window
+ * (issue #787 ruling item 2). It hands the Draft assistant the urgent edge this
+ * leaf ALREADY computes for its own pulse (`showUrgent`), so the assistant adds
+ * no second ticking leaf and no second urgency reading - the same reuse the
+ * Overdue announcement makes of `onOverdue`. It is keyed to the deadline, so a
+ * new turn's clock can cross and fire again; a clock that mounts already urgent
+ * fires on that first render.
  */
-function PickClock({ deadlineAt, prefix = null, variant = 'h1', onOverdue = null }) {
+function PickClock({
+  deadlineAt, prefix = null, variant = 'h1', onOverdue = null, onUrgent = null,
+}) {
   const remainingMs = useCountdownTicking(deadlineAt, { nextDelay: alignedToSecond });
   const overdueRemainingMs = useCountdownTicking(deadlineAt + OVERDUE_AFTER_MS, {
     nextDelay: alignedToSecond,
@@ -60,6 +70,22 @@ function PickClock({ deadlineAt, prefix = null, variant = 'h1', onOverdue = null
   // Overdue drops the urgency signal entirely: the pulse said "act now" and no
   // one in the room can, so it and the error colour end while the digits stay.
   const showUrgent = isUrgent(remaining) && !overdue;
+
+  // The once-per-turn urgent edge, off the same `showUrgent` the pulse uses.
+  // The first effect re-arms on a new deadline (a new turn); the second fires
+  // onUrgent the render `showUrgent` first turns true and not again while it
+  // stays true (its deps are showUrgent, not the per-second remaining). Ordered
+  // so a re-arm on a fresh-but-already-urgent deadline runs before the fire.
+  const urgentFiredRef = useRef(false);
+  useEffect(() => {
+    urgentFiredRef.current = false;
+  }, [deadlineAt]);
+  useEffect(() => {
+    if (showUrgent && !urgentFiredRef.current) {
+      urgentFiredRef.current = true;
+      onUrgent?.();
+    }
+  }, [showUrgent, onUrgent]);
 
   return (
     <Box sx={{ flexShrink: 0, textAlign: prefix ? 'left' : 'right' }}>
@@ -98,6 +124,7 @@ PickClock.propTypes = {
   prefix: PropTypes.string,
   variant: PropTypes.string,
   onOverdue: PropTypes.func,
+  onUrgent: PropTypes.func,
 };
 
 export default PickClock;
