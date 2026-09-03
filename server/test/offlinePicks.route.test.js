@@ -10,6 +10,7 @@ const request = require('supertest');
 const { signToken } = require('../modules/auth');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
+const draftRoomBroadcast = require('../modules/draftRoomBroadcast');
 
 /**
  * POST /api/draft/league/:id/offline-picks - the commissioner bulk-enters an
@@ -123,5 +124,25 @@ test('POST offline-picks: two posted ids produce two pickLanded and no stateChan
   // a non-completing run fans out nothing but the per-Pick pickLanded.
   assert.equal(recorder.calls.some((c) => c.method === 'stateChanged'), false, 'no closing stateChanged');
   assert.equal(recorder.calls.some((c) => c.method === 'rosterChanged'), false, 'no closing rosterChanged either');
+  fake.assertClean();
+});
+
+test('POST offline-picks: a post-COMMIT fan-out failure does not report a landed Pick as failed (#782 blocking)', async (t) => {
+  const fake = offlinePicksPool().install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+  // Unregister the room broadcast so landPick's getDraftRoomBroadcast() throws
+  // AFTER each Pick has committed (#765). The commit is authoritative, so both
+  // Picks must still be counted - not reported as a failedAtIndex that undercounts
+  // `applied` and abandons the rest of the list. (registerRecordingBroadcast's
+  // afterEach restores the prior registration.)
+  draftRoomBroadcast.setDraftRoomBroadcast(null);
+
+  const res = await request(app)
+    .post(`/api/draft/league/${LEAGUE_ID}/offline-picks`)
+    .set('Authorization', authed())
+    .send({ playerIds: [500, 501] });
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body, { applied: 2 }, 'both committed Picks are counted despite the fan-out failure');
   fake.assertClean();
 });

@@ -12,6 +12,8 @@ const { draftRounds } = require('./rosterShape');
 // pick-landed event.
 const pickClock = require('./pickClock.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
+const { logger } = require('../modules/logger');
+const sentry = require('../modules/sentry');
 // DraftError is the app-wide draft refusal (ADR 0008) and the roster-acquisition
 // checks are shared with draft.service.addFreeAgent (#782 ruling 2). draft.service
 // never requires this module back, so this top-level require closes no cycle.
@@ -47,9 +49,14 @@ const { DraftError, assertRosterAcquisitionAllowed } = require('./draft.service'
  * own team, and skips the team-lock check (an offline draft is entirely
  * commissioner-driven).
  *
- * Exported so the autopick and socket-payload suites can mock the commit while
- * leaving the real fan-out in landPick to observe; landPick invokes it through
- * the module exports for that reason.
+ * Exported as the fan-out-free commit seam. `landPick` is the one export a caller
+ * reaches for (ruling 1); `commitPick` is exported because two kinds of test need
+ * the commit WITHOUT the room fan-out, not merely to mock it: the autopick and
+ * socket-payload suites mock it to observe landPick's fan-out over a canned
+ * outcome, and the autopick-clock integration and the correction lock test drive
+ * it DIRECTLY, where a fan-out would either pollute a delivery assertion (a manual
+ * scaffold Pick must not broadcast) or need a broadcast the harness never
+ * registered. landPick invokes it through the module exports so the mock is seen.
  */
 async function commitPick({ leagueId, userId, playerId, auto = false, byCommissioner = false }) {
   const client = await pool.connect();
@@ -293,24 +300,42 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
  * completion `activityAppended` (when present), `rosterChanged`, and
  * `draftCompleted`, in that order. The adapter is resolved through
  * getDraftRoomBroadcast() at call time (ADR 0025), the same way the socket
- * handler and the clock resolve it; a test installs a recording broadcast. The
- * fan-out never throws to the caller: each adapter method is delivered-or-reported.
+ * handler and the clock resolve it; a test installs a recording broadcast.
+ *
+ * THE COMMIT IS AUTHORITATIVE. The Pick is durably committed the moment commitPick
+ * returns, so a room fan-out failure is NOT a Pick failure - ADR 0025 makes the
+ * adapter delivered-or-reported and never thrown post-commit, with a client's
+ * reconnect refetch of draft:state as the backstop. The adapter's own methods
+ * already swallow their emit errors, but RESOLVING the adapter can throw when the
+ * process registered none (getDraftRoomBroadcast, #765). If that throw escaped
+ * here it would misreport a landed Pick as failed - and in the offline route, as a
+ * failedAtIndex that undercounts `applied` and abandons the rest of the list,
+ * sending the commissioner to retry a Pick that already exists. So the whole
+ * fan-out is CONTAINED: on any failure it is reported once and the committed
+ * outcome is returned anyway.
  *
  * commitPick is invoked through the module exports so a test can mock the commit
  * and observe the real fan-out.
  */
 async function landPick({ leagueId, userId, playerId, auto = false, byCommissioner = false }) {
   const outcome = await module.exports.commitPick({ leagueId, userId, playerId, auto, byCommissioner });
-  const broadcast = getDraftRoomBroadcast();
-  await broadcast.pickLanded(leagueId, { ...outcome, auto });
-  if (outcome.draftComplete) {
-    // The Pick that ended the draft also appended a completion lifecycle entry
-    // (#437); deliver it to the room's combined feed on draft:activity beside the
-    // draft:complete board signal. A pick that completes without a completion
-    // entry (defensive) emits no empty activity.
-    if (outcome.completion) await broadcast.activityAppended(leagueId, outcome.completion);
-    await broadcast.rosterChanged(leagueId);
-    await broadcast.draftCompleted(leagueId);
+  try {
+    const broadcast = getDraftRoomBroadcast();
+    await broadcast.pickLanded(leagueId, { ...outcome, auto });
+    if (outcome.draftComplete) {
+      // The Pick that ended the draft also appended a completion lifecycle entry
+      // (#437); deliver it to the room's combined feed on draft:activity beside the
+      // draft:complete board signal. A pick that completes without a completion
+      // entry (defensive) emits no empty activity.
+      if (outcome.completion) await broadcast.activityAppended(leagueId, outcome.completion);
+      await broadcast.rosterChanged(leagueId);
+      await broadcast.draftCompleted(leagueId);
+    }
+  } catch (error) {
+    // The commit already succeeded; report the fan-out failure and return the
+    // outcome rather than throwing a durable Pick's success away.
+    logger.error({ err: error, event: 'draft:picked', leagueId }, 'Pick committed but room fan-out failed');
+    sentry.captureError(error, { event: 'draft:picked', leagueId });
   }
   return outcome;
 }

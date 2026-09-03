@@ -15,6 +15,8 @@ const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
 // Every room-wide emit here rides the one Draft room adapter (#745); addFreeAgent
 // resolves it at call time (ADR 0025), the same way pick.service and the routes do.
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
+const { logger } = require('../modules/logger');
+const sentry = require('../modules/sentry');
 
 const { POSITION_GROUPS } = lineupService;
 
@@ -87,8 +89,9 @@ async function assertPositionCapNotReached(client, { teamId, positionCaps, posit
  * The roster-acquisition checks shared by a Pick (pick.service.commitPick) and a
  * post-draft free-agent add (addFreeAgent below), #782 ruling 2: roster capacity,
  * the per-position cap, and - for a completed draft only - the on-waivers gate.
- * The order matches the one draftPlayer ran before the split, so both callers
- * refuse for the same reason in the same order they always did.
+ * The order matches what the single pre-#782 commit ran before it was split into
+ * pick.service.commitPick and addFreeAgent, so both callers refuse for the same
+ * reason in the same order they always did.
  *
  * Roster capacity is the IR-policy capacity, not the static roster limit: a draft
  * pick and a post-draft add both land here, and an eligible IR stash grants a
@@ -205,12 +208,21 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
  * The post-draft free-agent add the team router calls (#782 ruling 2). Commits the
  * add (commitFreeAgentAdd) and, after COMMIT, fans out ONLY `rosterChanged`
  * through the one Draft room adapter (#745). A post-draft acquisition is never a
- * Pick, so it emits no `pickLanded` and no Draft activity. The fan-out never
- * throws to the caller: the adapter method is delivered-or-reported.
+ * Pick, so it emits no `pickLanded` and no Draft activity.
+ *
+ * The commit is authoritative, the same rule landPick follows (ADR 0025): the add
+ * is durable the moment commitFreeAgentAdd returns, so a room fan-out failure is
+ * not a failure of the add. The fan-out is contained so a post-COMMIT
+ * getDraftRoomBroadcast throw (#765) cannot surface a committed add as a 500.
  */
 async function addFreeAgent({ leagueId, userId, playerId }) {
   const outcome = await commitFreeAgentAdd({ leagueId, userId, playerId });
-  await getDraftRoomBroadcast().rosterChanged(leagueId);
+  try {
+    await getDraftRoomBroadcast().rosterChanged(leagueId);
+  } catch (error) {
+    logger.error({ err: error, event: 'roster:changed', leagueId }, 'free-agent add committed but room fan-out failed');
+    sentry.captureError(error, { event: 'roster:changed', leagueId });
+  }
   return outcome;
 }
 
@@ -272,7 +284,7 @@ async function dropPlayer({ leagueId, userId, playerId }) {
  * Undo the caller's own recent drop: only valid while the player's waiver
  * hold still names this team as the dropper (see `placeOnWaivers`'s
  * `droppedByTeamId`). This is what powers the drop snackbar's "Undo" button —
- * a normal `draftPlayer` call would be rejected by the waiver-hold check.
+ * a normal free-agent add (addFreeAgent) would be rejected by the waiver-hold check.
  *
  * Undo is the one acquisition that does not bench: it returns the player to
  * the stash his drop interrupted, from the record the drop wrote on that
@@ -334,7 +346,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
     //   roster limit by asserting a stash that is not there.
     // - Have `rosterCapacity` hand the record BACK. That keeps the property
     //   but widens a return value four other call sites consume as a bare
-    //   number (draftPlayer, forceTransaction, trade, claimFailureReason),
+    //   number (assertRosterAcquisitionAllowed, forceTransaction, trade, claimFailureReason),
     //   for the benefit of the one caller that passes restoredPlayerIds.
     //
     // The two reads can disagree on one axis, and it is worth being precise
@@ -404,7 +416,7 @@ async function undoDrop({ leagueId, userId, playerId }) {
  * is the separate administrative act the Pick definition defers to - not a
  * manager undo, and not the general N-pick undo route.
  *
- * The league row is locked FOR UPDATE, exactly as draftPlayer locks it, so a
+ * The league row is locked FOR UPDATE, exactly as a Pick commit (pick.service.commitPick) locks it, so a
  * correction and a concurrent Pick (a manager's or an autopick) serialize on
  * the same lock and cannot interleave. `expectedPickNumber` is the Pick the
  * commissioner confirmed; if a newer Pick has landed since, the request is

@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { landPick } = require('../services/pick.service');
+const pickService = require('../services/pick.service');
 const seasonService = require('../services/season.service');
 const lineupService = require('../services/lineup.service');
+const draftRoomBroadcast = require('../modules/draftRoomBroadcast');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
@@ -140,6 +142,27 @@ test('landPick: the Pick that completes the draft fans out pickLanded, activityA
   // tell for AC1 is removing this call, which drops it from the sequence above.
   assert.equal(recorder.calls[2].method, 'rosterChanged');
   fake.assertClean();
+});
+
+// --- the commit is authoritative: a fan-out failure never fails the Pick -----
+
+test('landPick: a post-COMMIT room fan-out failure never throws the committed Pick away (commit is authoritative)', async (t) => {
+  const outcome = {
+    leagueId: LEAGUE_ID, teamId: 11, teamName: 'Team Eleven', player: { id: 500 },
+    pickNumber: 1, nextTeamId: null, draftComplete: false, pickDeadlineAt: null,
+    activity: {}, completion: null,
+  };
+  t.mock.method(pickService, 'commitPick', async () => outcome);
+  // Unregister the process broadcast so getDraftRoomBroadcast() throws - the #765
+  // shape the offline-route regression rode in on. Without landPick's containment
+  // this throw escapes and the caller misreports a landed Pick as failed.
+  const prior = draftRoomBroadcast.peekDraftRoomBroadcast();
+  draftRoomBroadcast.setDraftRoomBroadcast(null);
+  t.after(() => draftRoomBroadcast.setDraftRoomBroadcast(prior));
+
+  const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(result, outcome, 'landPick resolved with the committed outcome despite the fan-out failure');
 });
 
 // --- landPick refuses a non-active draft (the mirror of addFreeAgent's 409) --
@@ -294,6 +317,20 @@ test('landPick: completion uses the fixed draft_rounds even when roster_limit/ir
   const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
 
   assert.equal(result.draftComplete, true);
+  fake.assertClean();
+});
+
+test('landPick: a zero-IR league still drafts every roster_limit round', async (t) => {
+  const league = { ...BASE_LEAGUE, ir_slots: 0, draft_rounds: 3 };
+  withRecorder(t);
+  // 2 teams x 3 rounds = 6 picks. The 4th pick ends a 1-IR league but not this one.
+  const midDraft = pickPool({ league, picksMade: 4 }).install(t);
+  assert.equal((await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 })).draftComplete, false);
+  midDraft.assertClean();
+
+  const fake = pickPool({ league, picksMade: 6 }).install(t);
+  t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
+  assert.equal((await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 })).draftComplete, true);
   fake.assertClean();
 });
 
