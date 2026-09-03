@@ -3878,6 +3878,43 @@ describe('Draft assistant in the live room (#787)', () => {
     expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
   });
 
+  test('a clock-urgent line landing mid-tick re-renders only the pick clock leaf (AC1, #818)', async () => {
+    // The gap #787's AC3 left (the test directly above, labelled AC3 extends
+    // #754 A7): it keeps the viewer OFF the clock, so no line is pushed
+    // mid-tick. #818 files that gap as its AC1. Here the viewer is ON the clock
+    // and the deadline crosses the 10s urgent edge during the tick, so a line
+    // actually lands through notifyClockUrgent - the path the wiring adds - and
+    // the render-count discipline must still hold.
+    assistantOn();
+    jest.useFakeTimers();
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1); // the viewer is Team A
+    // On the clock (TEAM_A), 13s out: not yet urgent (URGENT_SECONDS is 10).
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 13000).toISOString(),
+    }), { onTheClock: TEAM_A })));
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:13');
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+
+    // Count from AFTER the turn-start line has settled: only the urgent line is
+    // under test here.
+    const roomRendersBefore = PlayerPoolTableProbe.renderSpy.mock.calls.length;
+    const urgentLines = POLK_HIGH_LEGEND_LINES[TRIGGERS.CLOCK_URGENT]
+      .map((template) => fillTemplate(template, {}));
+
+    // Tick across the urgent edge (13s -> 9s): the urgent line lands...
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:09');
+    expect(commentaryTexts().some((text) => urgentLines.includes(text))).toBe(true);
+    // ...and nothing outside PickClock re-rendered on it. Red-tell: making the
+    // provider pass a fresh children element per render re-renders the pool
+    // subtree on each pushed line and turns this red.
+    expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
+  });
+
   test('toggle off: the active composition still lists the assistant, and no panel renders (AC5)', async () => {
     // Composition lists it unconditionally...
     expect(railCompositionFor('active')).toContain(RAIL_PANELS.ASSISTANT);
