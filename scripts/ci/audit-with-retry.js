@@ -29,9 +29,13 @@
  *   stderr (it is streamed through every attempt), plus exactly one GitHub
  *   annotation line on stdout naming the cause and this issue.
  * - The npm executable is injectable via AUDIT_NPM_BIN (default `npm`) so a
- *   test can substitute a fake. It is a command string run through a shell,
- *   which lets the fake be `node "<path>"` on any host with no chmod or .cmd
- *   shim; the audit arguments are fixed literals, never caller input.
+ *   test can substitute a fake. The command is spawned WITHOUT a shell and
+ *   every argument is a fixed literal, so no value is ever interpolated into
+ *   a shell line. A test that must run its fake through an interpreter sets
+ *   AUDIT_NPM_BIN to that interpreter (e.g. Node's own binary) and names the
+ *   fake in AUDIT_NPM_BIN_ARGS (a JSON array of leading args); those are the
+ *   only two env-provided tokens, and both are absent in CI, where the
+ *   executable is the literal `npm` with no leading args.
  *
  * Zero dependencies on purpose: the audit jobs do not run `npm ci`, so this
  * must run on a bare checkout with only Node's standard library.
@@ -61,16 +65,32 @@ function auditArgs(prefix) {
   return args;
 }
 
+// Optional leading args for the npm executable (default none). A test that
+// runs its fake through an interpreter (AUDIT_NPM_BIN=<node>) names the fake
+// script here; CI leaves it unset. Parsed defensively so a malformed value
+// degrades to no leading args rather than throwing.
+function parsePreArgs(raw) {
+  if (raw == null || raw.trim() === '') return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// One npm run. stdio is captured (not inherited) so stderr can be inspected
-// for the endpoint line, then written through unchanged so the job log reads
-// exactly as a bare `npm audit` would.
-function runOnce(npmBin, args) {
-  const result = spawnSync(`${npmBin} ${args.join(' ')}`, {
-    shell: true,
+// One npm run. Spawned WITHOUT a shell: the executable and every argument
+// are passed as separate array elements, so nothing is interpolated into a
+// shell line and a path with spaces (npm.cmd, a temp fake) is safe. stdio is
+// captured (not inherited) so stderr can be inspected for the endpoint line,
+// then written through unchanged so the job log reads exactly as a bare
+// `npm audit` would.
+function runOnce(npmBin, npmPreArgs, args) {
+  const result = spawnSync(npmBin, [...npmPreArgs, ...args], {
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -84,12 +104,12 @@ function runOnce(npmBin, args) {
   return { code, stderr };
 }
 
-async function run({ prefix, npmBin, backoff }) {
+async function run({ prefix, npmBin, npmPreArgs = [], backoff }) {
   const args = auditArgs(prefix);
   const maxAttempts = backoff.length + 1;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const { code, stderr } = runOnce(npmBin, args);
+    const { code, stderr } = runOnce(npmBin, npmPreArgs, args);
 
     if (code === 0) return 0;
 
@@ -120,6 +140,7 @@ if (require.main === module) {
   run({
     prefix: process.argv[2],
     npmBin: process.env.AUDIT_NPM_BIN || 'npm',
+    npmPreArgs: parsePreArgs(process.env.AUDIT_NPM_BIN_ARGS),
     backoff: parseBackoff(process.env.AUDIT_RETRY_BACKOFF_MS),
   }).then(
     (exitCode) => {
@@ -132,4 +153,4 @@ if (require.main === module) {
   );
 }
 
-module.exports = { ENDPOINT_FAULT, DEFAULT_BACKOFF_MS, parseBackoff, auditArgs, run };
+module.exports = { ENDPOINT_FAULT, DEFAULT_BACKOFF_MS, parseBackoff, parsePreArgs, auditArgs, run };

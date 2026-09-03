@@ -54,9 +54,11 @@ function runScript({ behavior, prefixArg }) {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        // Named executable, run through node so no chmod/.cmd shim is needed
-        // on any host. The script defaults this to `npm`.
-        AUDIT_NPM_BIN: `node "${fakePath}"`,
+        // Run the fake through this node binary with no shell, so no chmod or
+        // .cmd shim is needed on any host and a path with spaces is safe. In
+        // CI the script defaults the executable to `npm` with no leading args.
+        AUDIT_NPM_BIN: process.execPath,
+        AUDIT_NPM_BIN_ARGS: JSON.stringify([fakePath]),
         // Zero backoff so the test never sleeps.
         AUDIT_RETRY_BACKOFF_MS: '0,0',
         BEHAVIOR: JSON.stringify(behavior),
