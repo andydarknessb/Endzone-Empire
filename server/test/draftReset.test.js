@@ -1,5 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+// The reset route refreshes the board and appends the reset entry through the
+// one Draft room adapter (#745), which throws with no transport; register a
+// recording broadcast per test.
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+registerRecordingBroadcast();
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');

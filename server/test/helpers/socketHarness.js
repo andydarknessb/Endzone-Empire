@@ -42,6 +42,7 @@ const { io: ioClient } = require('socket.io-client');
 const { signToken } = require('../../modules/auth');
 const { attachDraftSocket, closeDraftSocket } = require('../../modules/draftSocket');
 const { getIo, setIo } = require('../../modules/io');
+const { peekDraftRoomBroadcast, setDraftRoomBroadcast } = require('../../modules/draftRoomBroadcast');
 
 /** How long a connect or an ack may take before we call it a failure. */
 const SETTLE_MS = 5_000;
@@ -72,6 +73,11 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
 
   const clients = new Set();
   let priorIo;
+  // attachDraftSocket registers the process's Draft room broadcast (#745) over
+  // the io it creates; capture whatever was registered before so this suite,
+  // like the io singleton, restores it on stop and never leaks its adapter into
+  // the next suite.
+  let priorBroadcast;
   let io = null;
   let server = null;
   let starting = null;
@@ -81,6 +87,7 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
     if (starting) return starting;
     starting = (async () => {
       priorIo = getIo();
+      priorBroadcast = peekDraftRoomBroadcast();
       server = http.createServer();
       await new Promise((resolve, reject) => {
         server.once('error', reject);
@@ -198,6 +205,7 @@ function createSocketHarness({ secret = 'socket-harness-secret' } = {}) {
     // Back to the PRIOR value. `starting` guards `priorIo` ever being read
     // before it was captured.
     if (priorIo !== undefined) setIo(priorIo);
+    if (priorBroadcast !== undefined) setDraftRoomBroadcast(priorBroadcast);
     if (priorSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = priorSecret;
     if (priorRedisUrl === undefined) delete process.env.REDIS_URL;

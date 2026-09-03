@@ -1,8 +1,7 @@
 const { Server } = require('socket.io');
 const pool = require('./pool');
 const { setIo } = require('./io');
-const { broadcastDraftActivity } = require('./draftActivityBroadcast');
-const { broadcastRosterAvailability } = require('./rosterAvailabilityBroadcast');
+const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('./draftRoomBroadcast');
 const { requireSocketAuth } = require('./auth');
 const { draftPlayer, DraftError } = require('../services/draft.service');
 const { teamForPick } = require('../services/draftOrder.service');
@@ -47,6 +46,13 @@ function attachDraftSocket(httpServer) {
   })();
   io.use(requireSocketAuth);
   setIo(io); // let scoring/scheduler broadcast without a circular require
+  // Construct the one Draft room broadcast (#745) over this process's `io` and
+  // register it, so pickClock, draftStart and the draft router emit room-wide
+  // events the same honest way here as the worker does over Redis. The API's
+  // transport is `io` itself: its `to(room).emit(...)` is exactly the shape the
+  // adapter expects.
+  const broadcast = createDraftRoomBroadcast(io, 'io');
+  setDraftRoomBroadcast(broadcast);
 
   // Per-instance flood-control store for chat sends (#440). socket.io sessions
   // are sticky to one instance, so a process-local store sees all of a member's
@@ -285,15 +291,16 @@ function attachDraftSocket(httpServer) {
         // a manual pick is not an autopick. The Pick clock module's autoPick
         // (pickClock.service.js) is the other emit site; socketPayloadShape.test.js
         // pins both to one key set.
-        io.to(`league:${leagueId}`).emit('draft:picked', { ...outcome, auto: false });
+        await broadcast.pickLanded(leagueId, { ...outcome, auto: false });
         if (outcome.draftComplete) {
           // The Pick that ended the draft also appended a completion lifecycle
           // entry (#437); deliver it to the room's combined feed on draft:activity
-          // through the one shared helper (null-safe), beside the draft:complete
-          // board signal.
-          broadcastDraftActivity(leagueId, outcome.completion);
-          await broadcastRosterAvailability(leagueId);
-          io.to(`league:${leagueId}`).emit('draft:complete', { leagueId });
+          // through the one adapter, beside the draft:complete board signal. A
+          // pick that completes without a completion entry (defensive) emits no
+          // empty activity, mirroring the old null-safe helper.
+          if (outcome.completion) await broadcast.activityAppended(leagueId, outcome.completion);
+          await broadcast.rosterChanged(leagueId);
+          await broadcast.draftCompleted(leagueId);
         }
         ack && ack({ ok: true, outcome });
       } catch (error) {

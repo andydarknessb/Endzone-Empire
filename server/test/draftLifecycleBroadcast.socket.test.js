@@ -5,8 +5,6 @@ const request = require('supertest');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { createSocketHarness } = require('./helpers/socketHarness');
 const { signToken } = require('../modules/auth');
-const { broadcastDraftActivity } = require('../modules/draftActivityBroadcast');
-const { getIo, setIo } = require('../modules/io');
 const seasonService = require('../services/season.service');
 const lineupService = require('../services/lineup.service');
 
@@ -25,41 +23,13 @@ const WATCHER = { userId: 8, username: 'watcher', teamId: 12, teamName: 'Sunday 
 
 const harness = createSocketHarness({ secret: SECRET });
 
-// ------------------------------------------------------------- the mechanism
-// broadcastDraftActivity is the ONE helper every lifecycle emit site calls, so
-// proving it here covers the delivery for all five kinds; the route/service
-// tests prove each site calls it with the right entry.
-test('broadcastDraftActivity emits the entry to the league room on draft:activity', () => {
-  const emits = [];
-  const rooms = [];
-  const prior = getIo();
-  setIo({ to: (room) => { rooms.push(room); return { emit: (event, payload) => emits.push({ event, payload }) }; } });
-  try {
-    const entry = { type: 'draft_activity', kind: 'pause', id: 1, seq: 9, teamId: 11, teamName: 'Gridiron Ghosts', created_at: 'now' };
-    broadcastDraftActivity(LEAGUE_ID, entry);
-    assert.deepEqual(rooms, [`league:${LEAGUE_ID}`]);
-    assert.equal(emits.length, 1);
-    assert.equal(emits[0].event, 'draft:activity');
-    assert.deepEqual(emits[0].payload, entry);
-  } finally {
-    setIo(prior);
-  }
-});
-
-test('broadcastDraftActivity is a no-op on a null entry or when there is no io', () => {
-  const prior = getIo();
-  let emitted = 0;
-  setIo({ to: () => ({ emit: () => { emitted += 1; } }) });
-  try {
-    broadcastDraftActivity(LEAGUE_ID, null);
-    assert.equal(emitted, 0, 'a null entry emits nothing');
-    setIo(null);
-    broadcastDraftActivity(LEAGUE_ID, { kind: 'pause' });
-    assert.equal(emitted, 0, 'no io emits nothing');
-  } finally {
-    setIo(prior);
-  }
-});
+// The mechanism this file used to prove in isolation - "the ONE helper every
+// lifecycle emit site calls" - is now the one Draft room adapter's
+// activityAppended, so the "reaches the room on draft:activity" and the
+// construction-refusal ("no io emits nothing" -> "construction with no transport
+// throws") assertions live in draftRoomBroadcast.test.js (#745). What survives
+// here is the true end-to-end: every lifecycle route/socket site reaches every
+// client in the room through that adapter, over the real Socket.IO wiring.
 
 // The identity reads league:join runs (viewerContext -> lookupTeam +
 // isLeagueCommissioner), so BOTH clients hold a team and join the room, and only

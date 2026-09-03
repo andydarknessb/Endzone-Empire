@@ -4,7 +4,14 @@ const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const { appendLifecycleActivity, activityEntryOf, STALLED } = require('../services/draftActivity');
+
+// The pause/resume/reset routes now refresh the board and append the lifecycle
+// entry through the one Draft room adapter (#745), which throws with no
+// transport. Register a recording broadcast around every test so these route
+// tests exercise the DB writes and responses without a live socket.
+registerRecordingBroadcast();
 
 /**
  * The pause/resume route appends Draft LIFECYCLE activity from the SAME

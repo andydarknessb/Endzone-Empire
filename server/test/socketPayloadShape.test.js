@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { STATE_ROOT_CLEAN } = require('./helpers/draftStatePins');
 const { createSocketHarness } = require('./helpers/socketHarness');
-const { getIo, setIo } = require('../modules/io');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const { TEAM_IDENTITY_FIELDS } = require('../services/teamIdentity');
 const {
   presencePayload,
@@ -64,8 +64,8 @@ const lineupService = require('../services/lineup.service');
  *     and BOTH are pinned here so a re-added account id at either site goes red:
  *       * the pick handler (captured off the real room emitter through the
  *         socket harness); and
- *       * the Pick clock module's autoPick (captured off a fake `io` singleton,
- *         since it emits through getIo()).
+ *       * the Pick clock module's autoPick (captured off the one Draft room
+ *         adapter, since #745 routes every room emit through it).
  *     #344 DROPPED the old `by` account object at both (the picker is already
  *     named at the root by Team via `teamId` / `teamName`, so `by` was
  *     redundant account identity) and, in its place, put a single non-identity
@@ -271,10 +271,10 @@ test('draft:picked names the picker by Team at the root, with no by account obje
 // The SECOND draft:picked emit site (the Pick clock module's autoPick,
 // pickClock.service.js), pinned so #344 cannot strip `by` from the pick handler,
 // flip that todo green, and leave autopick still broadcasting `by.userId` to the
-// whole room. autopick emits
-// through the getIo() singleton and reaches draftPlayer by namespace, so both
-// are captured with a fake io and a mocked draftPlayer (its outcome shape is
-// the pick handler's, already pinned above; here it is the same 8-key outcome).
+// whole room. autopick emits through the one Draft room adapter (#745) and
+// reaches draftPlayer by namespace, so both are captured off a recording
+// broadcast with a mocked draftPlayer (its outcome shape is the pick handler's,
+// already pinned above; here it is the same 8-key outcome).
 async function captureAutopickPicked(t) {
   installAutopickPool(t, {
     candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],
@@ -299,13 +299,14 @@ async function captureAutopickPicked(t) {
     // This pick did not end the draft, so no completion lifecycle entry (#437).
     completion: null,
   }));
-  const emitted = [];
-  const priorIo = getIo();
-  setIo({ to: () => ({ emit: (event, payload) => emitted.push({ event, payload }) }) });
-  t.after(() => setIo(priorIo));
+  // #745: autopick now emits through the one Draft room adapter, not the getIo()
+  // singleton. The recording broadcast captures the pickLanded payload - the same
+  // `{ ...outcome, auto: true }` the wire carries - so the shape assertions below
+  // are unchanged; only the capture mechanism moved with the emit path.
+  const broadcast = installRecordingBroadcast(t);
   await autoPick({ leagueId: LEAGUE_ID });
-  const picked = emitted.find((e) => e.event === 'draft:picked');
-  assert.ok(picked, 'autoPick emitted a draft:picked');
+  const picked = broadcast.calls.find((c) => c.method === 'pickLanded');
+  assert.ok(picked, 'autoPick emitted a draft:picked through the adapter');
   return picked.payload;
 }
 
@@ -326,8 +327,8 @@ test('draft:picked (autopick emit site) names the picker by Team at the root, wi
 // The lifecycle broadcast (#437). When a Pick ends the draft, the emit site also
 // broadcasts the completion entry on `draft:activity`; pin that this second
 // broadcast is Team-only too, with no Pick facts and no account identifier. The
-// autopick site is used because it reaches the emit through the getIo singleton
-// with a mockable draftPlayer outcome.
+// autopick site is used because it reaches the emit through the one adapter
+// (#745) with a mockable draftPlayer outcome.
 async function captureAutopickActivity(t) {
   installAutopickPool(t, {
     candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],
@@ -353,13 +354,13 @@ async function captureAutopickActivity(t) {
       teamId: null, teamName: null, isLegacy: false, created_at: '2026-09-01T00:00:01.000Z',
     },
   }));
-  const emitted = [];
-  const priorIo = getIo();
-  setIo({ to: () => ({ emit: (event, payload) => emitted.push({ event, payload }) }) });
-  t.after(() => setIo(priorIo));
+  // #745: the completing autopick's completion entry rides the adapter's
+  // activityAppended, not the getIo() singleton. Capture it off the recording
+  // broadcast; the lifecycle-shape assertions are unchanged.
+  const broadcast = installRecordingBroadcast(t);
   await autoPick({ leagueId: LEAGUE_ID });
-  const activity = emitted.find((e) => e.event === 'draft:activity');
-  assert.ok(activity, 'the completing autopick emitted a draft:activity');
+  const activity = broadcast.calls.find((c) => c.method === 'activityAppended');
+  assert.ok(activity, 'the completing autopick emitted a draft:activity through the adapter');
   return activity.payload;
 }
 

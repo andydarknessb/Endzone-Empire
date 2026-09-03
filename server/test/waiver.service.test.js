@@ -1,9 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+// processWaivers and the drop path refresh league availability through the one
+// Draft room adapter (#745), which throws with no transport; register a
+// recording broadcast per test.
+const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
+const recordingBroadcast = registerRecordingBroadcast();
 const { claimFailureReason, claimTarget, orderClaims, processWaivers, submitClaim } = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
-const { getIo, setIo } = require('../modules/io');
 
 const claim = (id, teamId, bid = 0, createdAt = '2026-07-11T00:00:00Z') => ({
   id,
@@ -233,15 +237,14 @@ test('processWaivers clears an expired empty waiver window and refreshes league 
     [select('waiver_claims'), () => ({ rows: [] })],
     [remove('waiver_players'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
-  const previousIo = getIo();
-  const events = [];
-  setIo({ to: (room) => ({ emit: (event, payload) => events.push({ room, event, payload }) }) });
-  t.after(() => setIo(previousIo));
-
   const result = await processWaivers({ leagueId: 1 });
 
   assert.deepEqual(result, { processed: 0, results: [] });
-  assert.deepEqual(events, [{ room: 'league:1', event: 'roster:changed', payload: { leagueId: 1 } }]);
+  // The empty-window path refreshes league availability through the one Draft
+  // room adapter (#745): exactly one rosterChanged for this league.
+  assert.deepEqual(recordingBroadcast().calls, [
+    { method: 'rosterChanged', leagueId: 1, payload: undefined },
+  ]);
   fake.assertClean();
 });
 

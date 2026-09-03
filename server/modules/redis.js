@@ -2,9 +2,10 @@ const { createClient } = require('redis');
 const { logger } = require('./logger');
 
 // The room-facing publish is bounded so a hung publish (a disconnect that
-// queues rather than fails) cannot leave a caller awaiting forever. The shim in
-// draftEvents.js races the publish against this bound; the constant lives here
-// so the transport owns its own timeout (#744).
+// queues rather than fails) cannot leave a caller awaiting forever. The worker's
+// emitter transport (draftRoomEmitterTransport.js) races the publish against
+// this bound; the constant lives here so the transport owns its own timeout
+// (#744).
 const DRAFT_PUBLISH_TIMEOUT_MS = 2000;
 
 let clientPromise = null;
