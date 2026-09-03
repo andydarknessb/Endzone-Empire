@@ -6,6 +6,8 @@ const pickService = require('../services/pick.service');
 const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool } = require('./helpers/autopickFixtures');
 const lineupService = require('../services/lineup.service');
+const draftStartService = require('../services/draftStart.service');
+const { DraftError } = require('../services/draft.service');
 
 /**
  * Multi-client delivery of Pick activity over the real Socket.IO wiring (#435
@@ -178,4 +180,37 @@ test('an autopick reaches every client in the room, labeled isAutopick', async (
   assert.equal(watcherView.auto, true, 'the broadcast marks the pick auto');
   assert.equal(watcherView.activity.isAutopick, true, 'the activity entry is labeled an autopick');
   assert.equal(watcherView.activity.kind, 'pick');
+});
+
+/**
+ * #808 at the socket boundaries. A 500 DraftError from the seam is an internal
+ * invariant, not manager copy: the ack must carry each handler's own generic
+ * message and never the raw text. (The 4xx refusal path is unchanged and stays
+ * proven by the lifecycle-ack suites; here we pin that a >=500 fault no longer
+ * leaks.) console.error is stubbed only to keep the intended log off the suite
+ * output.
+ */
+test('draft:pick ack on a 500 DraftError is generic copy, not the raw invariant (#808)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(pickService, 'commitPick', async () => {
+    throw new DraftError(500, 'completeDraft requires draft_status = drafting for league 1');
+  });
+  const picker = await harness.connectAs(PICKER, t);
+
+  const ack = await harness.emit(picker, 'draft:pick', { leagueId: LEAGUE_ID, playerId: 500 });
+
+  assert.deepEqual(ack, { error: 'pick failed' }, 'the internal-fault copy, not the raw message');
+  assert.equal(JSON.stringify(ack).includes('completeDraft'), false, 'the invariant text never reaches the client');
+});
+
+test('draft:start ack on a 500 DraftError is generic copy, not the raw invariant (#808)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(draftStartService, 'startDraft', async () => {
+    throw new DraftError(500, 'startDraft found an inconsistent draft_status for league 1');
+  });
+  const picker = await harness.connectAs(PICKER, t);
+
+  const ack = await harness.emit(picker, 'draft:start', { leagueId: LEAGUE_ID });
+
+  assert.deepEqual(ack, { error: 'failed to start draft' }, 'the internal-fault copy, not the raw message');
 });

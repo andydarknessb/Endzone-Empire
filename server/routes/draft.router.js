@@ -6,7 +6,7 @@ const { requireAuth } = require('../modules/auth');
 // route no longer imports anything from the Socket.IO attach module.
 const { presenterSnapshot } = require('../services/draftRoomSnapshot');
 const { teamForPick } = require('../services/draftOrder.service');
-const { correctLatestPick, DraftError } = require('../services/draft.service');
+const { correctLatestPick, isDraftRefusal } = require('../services/draft.service');
 // A Pick lands in one place (#782): the offline bulk route commits AND fans out
 // each Pick through the one seam, landPick, exactly like a live one.
 const { landPick } = require('../services/pick.service');
@@ -126,7 +126,7 @@ router.get('/queue', async (req, res) => {
     );
     res.json(result.rows);
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching draft queue', error);
     res.status(500).json({ error: 'failed to fetch draft queue' });
   }
@@ -160,7 +160,7 @@ router.put('/queue', requireFantasyLeague({ param: 'leagueId', from: 'body' }), 
     res.json({ leagueId, teamId: team.id, queued: playerIds.length });
   } catch (error) {
     await client.query('ROLLBACK');
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     if (error.code === '23503') {
       return res.status(400).json({ error: 'unknown player in queue' });
     }
@@ -513,7 +513,7 @@ router.post('/league/:id/correct-pick', async (req, res) => {
     await broadcast.activityAppended(leagueId, outcome.activity);
     res.json(outcome);
   } catch (error) {
-    if (error instanceof DraftError) {
+    if (isDraftRefusal(error)) {
       return res.status(error.statusCode).json({ error: error.message, code: error.code });
     }
     console.error('Error correcting draft pick', error);
@@ -651,7 +651,7 @@ router.get('/league/:id/keepers', async (req, res) => {
     );
     res.json(result.rows);
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching keepers', error);
     res.status(500).json({ error: 'failed to fetch keepers' });
   }
@@ -791,7 +791,17 @@ router.post('/league/:id/offline-picks', async (req, res) => {
         await landPick({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
         applied++;
       } catch (error) {
-        const message = error instanceof DraftError || error.statusCode ? error.message : 'pick failed';
+        // A refusal below 500 is copy the commissioner reads (which pick failed
+        // and why); a 500-and-up DraftError or any other fault is an internal
+        // invariant, logged here and reported with generic copy, never shown
+        // verbatim (#808).
+        let message;
+        if (isDraftRefusal(error)) {
+          message = error.message;
+        } else {
+          console.error('Error entering offline picks', error);
+          message = 'pick failed';
+        }
         result = { applied, error: message, failedAtIndex: i };
         break;
       }
