@@ -271,6 +271,23 @@ async function spendExpiredBlanketWindow(client, leagueId) {
   );
 }
 
+/**
+ * Open the post-draft blanket waiver window: every undrafted player sits on
+ * waivers for one waiver period from now (leagues.waivers_clear_at). This is the
+ * ONE spelling of that write (#789 ruling 3): column-based, so the interval
+ * reads `waiver_period_hours` off the league row itself and binds no hours
+ * parameter. Runs inside the caller's transaction (draftCompletion.completeDraft),
+ * after the draft_status flip and under the league row's FOR UPDATE lock. The
+ * counterpart that spends the window is spendExpiredBlanketWindow above.
+ */
+async function openPostDraftWaiverWindow(client, { leagueId }) {
+  await client.query(
+    `UPDATE "leagues" SET "waivers_clear_at" = now() + make_interval(hours => "waiver_period_hours")
+     WHERE "id" = $1`,
+    [leagueId]
+  );
+}
+
 async function processWaivers({ leagueId }) {
   const client = await pool.connect();
   try {
@@ -534,4 +551,5 @@ module.exports = {
   cancelClaim,
   processWaivers,
   processAllDueWaivers,
+  openPostDraftWaiverWindow,
 };

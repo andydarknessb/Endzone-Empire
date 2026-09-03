@@ -113,9 +113,13 @@ const COMPLETING_LEAGUE = {
 };
 
 function completingPickWorld(t) {
+  // Stateful league row: the completing Pick's draft_status flip is visible to
+  // the precondition read draftCompletion.completeDraft runs on this same client
+  // (#789), the way a real client reads back its own write.
+  const row = { ...COMPLETING_LEAGUE };
   const fake = createFakePool([
     ...identityReads(),
-    [select('leagues'), () => ({ rows: [{ ...COMPLETING_LEAGUE }] })],
+    [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: START_TEAMS })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Last Pick', position: 'RB', nfl_team: 'KC' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
@@ -126,7 +130,12 @@ function completingPickWorld(t) {
     [insert('draft_picks'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
     [insert('draft_activity'), (() => { let s = 20; return () => ({ rows: [{ id: s, feed_seq: String(s++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }], rowCount: 1 })],
+    [update('leagues'), (text, params) => {
+      // The clock's advance statement carries the draft_status flip; the waiver
+      // window's own UPDATE (#789) leaves the status alone.
+      if (/^UPDATE "leagues" SET "current_pick"/.test(text)) row.draft_status = params[1];
+      return { rows: [{ pick_deadline_at: null }], rowCount: 1 };
+    }],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
   t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
