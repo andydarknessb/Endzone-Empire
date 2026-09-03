@@ -244,6 +244,8 @@ function waiverWorld({ kickedOff = [], removals = [] } = {}) {
     [/^UPDATE "waiver_claims"/, () => ({ rows: [] })],
     [/^UPDATE "teams"/, () => ({ rows: [] })],
     [/^DELETE FROM "waiver_players"/, () => ({ rows: [] })],
+    // Spending an expired blanket window (waivers_clear_at) after processing.
+    [/^UPDATE "leagues"/, () => ({ rows: [], rowCount: 0 })],
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
     [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
