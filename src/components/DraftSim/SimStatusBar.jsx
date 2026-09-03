@@ -64,8 +64,9 @@ function SimStatusBar({
             // display's. Announcing here would read a new time out loud
             // every second for the whole turn. Mirrors the Draft room's
             // PickClock (src/components/DraftBoard/PickClock.jsx), which
-            // carries urgency in the digits' colour alone and stays out of
-            // any announcing region for the same reason.
+            // signals urgency with a colour change plus a pulse (colour
+            // alone under prefers-reduced-motion) and stays out of any
+            // announcing region for the same reason.
             <Box>
               <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.2 }}>
                 Time left

@@ -175,13 +175,17 @@ describe('DraftSimulator', () => {
 
   // Red-tell: reverting this region to an off-turn-only mount turns the
   // "Your pick!" assertion red (#805, ADR 0028). One region, mounted on both
-  // turns, so a screen reader hears exactly one announcement per turn change
-  // whether or not the assistant is on - mirrors LiveDraftBanner in the
-  // Draft room.
+  // turns, so a screen reader hears a turn-change announcement on this axis
+  // even with the assistant off (its default) - mirrors LiveDraftBanner in
+  // the Draft room.
   it('mounts one status region on both turns, announcing the turn change once', async () => {
     await startDraft();
 
     const onUserTurn = screen.getAllByRole('status').find((region) => region.textContent === 'Your pick!');
+    // Asserted separately from toBeInTheDocument so a reverted, off-turn-only
+    // mount fails with a readable "undefined is not defined" rather than
+    // jest-dom's HtmlElementTypeError on a non-element value.
+    expect(onUserTurn).toBeDefined();
     expect(onUserTurn).toBeInTheDocument();
 
     draftFirstAvailable();
