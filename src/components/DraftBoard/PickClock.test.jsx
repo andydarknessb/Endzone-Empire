@@ -144,4 +144,29 @@ describe('PickClock - urgent edge (#787 ruling item 2)', () => {
     });
     expect(onUrgent).toHaveBeenCalledTimes(2);
   });
+
+  it('fires again when a second consecutive deadline also arrives already inside the urgent window (#816)', () => {
+    jest.useFakeTimers();
+    const onUrgent = jest.fn();
+    const start = Date.now();
+    // First turn mounts already urgent (8s out, inside the 10s window): fires
+    // on that first render.
+    const view = renderClock({ deadlineAt: start + 8000, onUrgent });
+    expect(onUrgent).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(onUrgent).toHaveBeenCalledTimes(1);
+
+    // Next turn's deadline also lands already inside the urgent window - the
+    // failing shape from #816: showUrgent never leaves true across the two
+    // turns, so a fire effect keyed only on showUrgent never re-runs.
+    view.rerender(
+      <ThemeProvider theme={theme}>
+        <PickClock deadlineAt={Date.now() + 8000} onUrgent={onUrgent} />
+      </ThemeProvider>
+    );
+    expect(onUrgent).toHaveBeenCalledTimes(2);
+  });
 });
