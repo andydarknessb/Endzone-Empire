@@ -9,7 +9,7 @@ import VoiceOverOffIcon from '@mui/icons-material/VoiceOverOff';
 import PoliteRegion from './PoliteRegion';
 import { useAnnouncement } from './useAnnouncement';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
-import { createLineGenerator, miseryStage } from '../../lib/draftAssistant';
+import { createLineGenerator, miseryStage, SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
 import { readDraftAssistantOn, writeDraftAssistantOn } from '../../lib/draftAssistantPreference';
 import {
   factsForOwnPick, factsForQueueSnipe, factsForPoolBrowse,
@@ -76,12 +76,6 @@ import {
  */
 
 const SCROLLBACK_LIMIT = 20;
-
-/** How long, in ms, a pool-selection line waits before another can fire
- * (ruling item 2's "with a cooldown"): a manager clicking down a shortlist
- * would otherwise draw a line per click. Short enough that the panel still
- * reads live, long enough that a burst of clicks yields one line. */
-export const SELECTION_COOLDOWN_MS = 4000;
 
 const DEFAULT_STATE = {
   assistantOn: false,

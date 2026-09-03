@@ -24,8 +24,8 @@
  *   draftRounds:           number, total rounds in the draft
  *   adp:                   number | null, the player's market ADP
  *   label:                 'steal' | 'reach' | 'value' | 'no-market'
- *                            (src/lib/stealReach.js's stealReachThreshold,
- *                            same labelling analysis.js's pickValues() uses)
+ *                            (src/lib/stealReach.js's stealReachLabel, the
+ *                            same rule analysis.js's pickValues() uses)
  *   earlyKickerOrDefense:  boolean (earlyKickerOrDefense() below)
  *   auto:                  boolean, true when the pick carries the Autopick flag
  *   netVsAdp:               number, the manager's running Net vs ADP so far
@@ -41,4 +41,5 @@ export { earlyKickerOrDefense } from './earlyKickerOrDefense';
 export { miseryStage, MISERY_BANDS } from './miseryStage';
 export { createLineGenerator, fillTemplate } from './lineFor';
 export { TRIGGERS, ALL_TRIGGERS } from './triggers';
+export { SELECTION_COOLDOWN_MS } from './selectionCooldown';
 export { LINES as POLK_HIGH_LEGEND_LINES } from './voices/polkHighLegend';

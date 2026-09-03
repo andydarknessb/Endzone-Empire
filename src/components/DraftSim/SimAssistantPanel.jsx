@@ -15,8 +15,9 @@ import { isUrgent } from '../../lib/onTheClock';
 import { readDraftAssistantOn, writeDraftAssistantOn } from '../../lib/draftAssistantPreference';
 import {
   netVsAdpFor, factsForUserPick, factsForPoolTaken,
-  factsForTurnStart, factsForClockUrgent, userTeamId, SELECTION_COOLDOWN_MS,
+  factsForTurnStart, factsForClockUrgent, userTeamId,
 } from './simAssistantFacts';
+import { SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
 
 const SCROLLBACK_LIMIT = 20;
 

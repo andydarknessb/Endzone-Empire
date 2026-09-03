@@ -11,18 +11,21 @@
  * payload and the reducer-maintained picks array (useDraftSocket.js), neither
  * of which carries a market ADP or an injury status. So this module takes those
  * two facts from the PLAYER POOL ROW instead (ruling item 3: "injury status
- * from the pool row"), looked up by player id, and computes steal/reach itself
- * over the one shared threshold rather than reading a pre-labelled pick.
+ * from the pool row"), looked up by player id, and labels each pick with the
+ * shared steal/reach rule (src/lib/stealReach.js) rather than reading a
+ * pre-labelled pick off draft state the room never receives.
  *
- * STEAL/REACH LABELLING mirrors src/lib/draftSim/analysis.js's pickValues()
- * exactly (its lines computing `label` from `draftValueScore` and
- * stealReachThreshold(round)): draftValueScore is `adp - pickNumber`, a pick
- * that landed LATER than its market ADP scores negative (a steal), one that
- * landed EARLIER scores positive (a reach), and a player with no known ADP is
- * 'no-market', never a steal or a reach. Only the THRESHOLD is a shared module
- * (src/lib/stealReach.js, promoted in #785 per ruling 5); the four-line
- * labelling itself analysis.js keeps inline, so this room-side reader replicates
- * it here rather than importing the Sim's sim-shaped pickValues().
+ * STEAL/REACH LABELLING is the shared rule in src/lib/stealReach.js
+ * (stealReachLabel, promoted in issue #817): draftValueScore is
+ * `round2(adp - pickNumber)`, a pick that landed LATER than its market ADP
+ * scores negative (a steal), one that landed EARLIER scores positive (a
+ * reach), and an ADP that is not finite and positive is 'no-market', never a
+ * steal or a reach. The Sim's post-draft report (analysis.js's draftPickValue
+ * and pickValues) reads the same function, and
+ * stealReachThreshold.parity.test.js drives both venues through it, so the
+ * room and the Sim can no longer disagree about one pick the way they did
+ * before #817. stealReachLabelFor below is that shared function under the
+ * room's local name, not a second copy.
  *
  * NET VS ADP SIGN matches miseryStage()'s own docblock and simAssistantFacts.js:
  * the running sum of draftValueScore, un-negated, so accumulated steals read
@@ -33,7 +36,7 @@
  * them as 0 is the honest reading, not a fabricated one.
  */
 import { TRIGGERS, earlyKickerOrDefense } from '../../lib/draftAssistant';
-import { stealReachThreshold } from '../../lib/stealReach';
+import { stealReachLabel } from '../../lib/stealReach';
 
 /** 1-based draft round for an overall (1-based) pick number, given the number
  * of teams. Mirrors the round arithmetic draftSim/engine and draft.service.js
@@ -46,20 +49,14 @@ export function roundForPick(pickNumber, teamCount) {
 }
 
 /**
- * The steal/reach label and its draftValueScore for one pick, from the shared
- * threshold. Replicates analysis.js's pickValues() rule (see the module
- * docblock). A null ADP is 'no-market' with a zero score, so it can never be
- * called a steal or a reach and contributes nothing to Net vs ADP.
+ * The steal/reach label and its draftValueScore for one pick. This is the
+ * shared rule from src/lib/stealReach.js (issue #817), re-exported under the
+ * room's local name so the room and the Draft Sim's report can never disagree
+ * about one pick. A non-positive, non-numeric or missing ADP is 'no-market'
+ * with a zero score and adpFallback true, so it can never read as a steal or a
+ * reach and contributes nothing to Net vs ADP.
  */
-export function stealReachLabelFor({ adp, pickNumber, round }) {
-  if (adp == null) return { label: 'no-market', draftValueScore: 0 };
-  const draftValueScore = Number(adp) - Number(pickNumber);
-  const threshold = stealReachThreshold(round);
-  let label = 'value';
-  if (draftValueScore <= -threshold) label = 'steal';
-  else if (draftValueScore >= threshold) label = 'reach';
-  return { label, draftValueScore };
-}
+export const stealReachLabelFor = stealReachLabel;
 
 const EMPTY_PLAYER = { name: null, position: null, nfl_team: null, injury_status: null };
 
@@ -93,16 +90,18 @@ function playerFactsFromPick(pick, row) {
 /**
  * The viewer's running Net vs ADP over their OWN picks so far (ruling 8, the
  * Misery Meter). `adpForPlayer(playerId)` returns a known market ADP or null;
- * a pick with no known ADP is skipped rather than guessed (see the module
- * docblock). Always derived fresh from the live picks, never accumulated by
- * hand, so it cannot drift.
+ * a pick with no market ADP contributes 0 through the shared rule's no-market
+ * path (src/lib/stealReach.js) rather than being guessed, so the market guard
+ * is spelled once, in the shared module, and never re-spelled here. Always
+ * derived fresh from the live picks, never accumulated by hand, so it cannot
+ * drift.
  */
 export function netVsAdpFor({ myPicks, adpForPlayer, teamCount }) {
   return myPicks.reduce((sum, pick) => {
-    const adp = adpForPlayer(pick.playerId);
-    if (adp == null) return sum;
     const { draftValueScore } = stealReachLabelFor({
-      adp, pickNumber: pick.pickNumber, round: roundForPick(pick.pickNumber, teamCount),
+      adp: adpForPlayer(pick.playerId),
+      pickNumber: pick.pickNumber,
+      round: roundForPick(pick.pickNumber, teamCount),
     });
     return sum + draftValueScore;
   }, 0);

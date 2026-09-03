@@ -37,16 +37,24 @@ describe('roundForPick', () => {
 
 describe('stealReachLabelFor', () => {
   it('is no-market with a zero score when ADP is unknown', () => {
-    expect(stealReachLabelFor({ adp: null, pickNumber: 1, round: 1 })).toEqual({ label: 'no-market', draftValueScore: 0 });
+    expect(stealReachLabelFor({ adp: null, pickNumber: 1, round: 1 })).toEqual({ label: 'no-market', draftValueScore: 0, adpFallback: true });
+  });
+
+  it('is no-market for the degenerate ADP values the shared guard rejects (#817)', () => {
+    // The room now uses the Sim's and server's guard (finite and > 0), not the
+    // old `adp == null`: zero, negative and non-numeric ADP are no-market too.
+    for (const adp of [0, -5, 'abc']) {
+      expect(stealReachLabelFor({ adp, pickNumber: 30, round: 3 })).toEqual({ label: 'no-market', draftValueScore: 0, adpFallback: true });
+    }
   });
 
   it('is a steal when the pick lands far later than ADP', () => {
     // round 1 threshold 7.5; adp 1 at pick 20 scores -19.
-    expect(stealReachLabelFor({ adp: 1, pickNumber: 20, round: 1 })).toEqual({ label: 'steal', draftValueScore: -19 });
+    expect(stealReachLabelFor({ adp: 1, pickNumber: 20, round: 1 })).toEqual({ label: 'steal', draftValueScore: -19, adpFallback: false });
   });
 
   it('is a reach when the pick lands far earlier than ADP', () => {
-    expect(stealReachLabelFor({ adp: 20, pickNumber: 1, round: 1 })).toEqual({ label: 'reach', draftValueScore: 19 });
+    expect(stealReachLabelFor({ adp: 20, pickNumber: 1, round: 1 })).toEqual({ label: 'reach', draftValueScore: 19, adpFallback: false });
   });
 
   it('is plain value inside the threshold band', () => {
