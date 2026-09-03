@@ -183,17 +183,22 @@ export function factsForQueueSnipe({
 }
 
 /**
- * Facts for the viewer SELECTING a player in the pool (TRIGGERS
- * .POOL_PLAYER_SELECTED, ruling 7's "a player selected in the pool (cooldown)").
- * The room takes the selection from its own quick-view state rather than
- * widening PlayerPoolTable's interface (issue #792), so the full row - name,
- * position, ADP, injury status - is already in hand.
+ * Facts for the viewer BROWSING a player in the pool (TRIGGERS
+ * .POOL_PLAYER_BROWSED, the Draft-room half of the #815 split of the old
+ * shared pool trigger). The viewer opened this still-available player's quick
+ * view from the pool table; the copy is scouting, never departure. The room
+ * takes the selection from its own quick-view state rather than widening
+ * PlayerPoolTable's interface (issue #792), so the full row - name, position,
+ * ADP, injury status - is already in hand. pickNumber and round are null by
+ * construction (a browse is not a pick), and adp/injury_status may be null (the
+ * pool is windowed, a healthy player has no status); the browsed voice pool
+ * references none of those, so a null field is never rendered.
  */
-export function factsForPoolSelection({
+export function factsForPoolBrowse({
   poolRow, teamCount, draftRounds, netVsAdp,
 }) {
   return {
-    trigger: TRIGGERS.POOL_PLAYER_SELECTED,
+    trigger: TRIGGERS.POOL_PLAYER_BROWSED,
     player: playerFactsFromRow(poolRow),
     pickNumber: null,
     round: null,

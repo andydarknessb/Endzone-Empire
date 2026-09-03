@@ -101,10 +101,15 @@ describe('SimAssistantPanel (#786)', () => {
     const region = screen.getByRole('status');
     expect(region.textContent).toBe('');
 
-    // First other-team selection: allowed, starts the cooldown.
+    // First other-team selection: allowed, starts the cooldown. The rendered
+    // line is a filled template from the TAKEN (departure) pool, not merely the
+    // player's name (#815): rng=firstDraw draws POOL_PLAYER_TAKEN[0].
     const pickA = { pickNumber: 2, teamId: 2, playerId: PLAYER_A.playerId, auto: false };
     rerender(<SimAssistantPanel sim={makeSim([pickA])} myTurn={false} secondsLeft={null} rng={firstDraw} />);
-    expect(screen.getByText(new RegExp(PLAYER_A.name))).toBeInTheDocument();
+    const takenLineA = fillTemplate(
+      POLK_HIGH_LEGEND_LINES[TRIGGERS.POOL_PLAYER_TAKEN][0], { player: { name: PLAYER_A.name } }
+    );
+    expect(within(commentaryList()).getByText(takenLineA)).toBeInTheDocument();
     expect(within(commentaryList()).getAllByRole('listitem')).toHaveLength(1);
     expect(region.textContent).toBe('');
 
@@ -134,7 +139,11 @@ describe('SimAssistantPanel (#786)', () => {
         rng={firstDraw}
       />
     );
-    expect(screen.getByText(new RegExp(PLAYER_C.name))).toBeInTheDocument();
+    // Second line drawn for this trigger: POOL_PLAYER_TAKEN[1], filled for C.
+    const takenLineC = fillTemplate(
+      POLK_HIGH_LEGEND_LINES[TRIGGERS.POOL_PLAYER_TAKEN][1], { player: { name: PLAYER_C.name } }
+    );
+    expect(within(commentaryList()).getByText(takenLineC)).toBeInTheDocument();
     expect(within(commentaryList()).getAllByRole('listitem')).toHaveLength(2);
     // Selection lines never reach the live region, cooldown-suppressed or not.
     expect(region.textContent).toBe('');

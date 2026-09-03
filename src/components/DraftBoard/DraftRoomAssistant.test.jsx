@@ -158,18 +158,33 @@ describe('DraftRoomAssistant (#787)', () => {
     expect(within(commentaryList()).getAllByText(urgent)).toHaveLength(1);
   });
 
-  it('renders a pool-selection line in the panel but never speaks it, and honours the cooldown', () => {
+  it('renders a browse line from the browsed pool in the panel but never speaks it, and honours the cooldown', () => {
     on();
     const { rerender } = render(ui());
     rerender(ui({ poolSelection: { id: BROWSED_GUY.id, seq: 1 } }));
 
-    const expected = filled(TRIGGERS.POOL_PLAYER_SELECTED, { player: { name: 'Browsed Guy' } });
+    // A filled template from the BROWSED pool, not the departure (TAKEN) pool
+    // (#815). Red-tell: pointing this at TRIGGERS.POOL_PLAYER_TAKEN turns it red.
+    const expected = filled(TRIGGERS.POOL_PLAYER_BROWSED, { player: { name: 'Browsed Guy' } });
     expect(within(commentaryList()).getByText(expected)).toBeInTheDocument();
-    // Never announced (ruling item 4: the region does not speak a selection line).
+    // Never announced (ruling item 4: the region does not speak a browse line).
     expect(region().textContent).toBe('');
 
-    // A second selection within the cooldown adds nothing.
+    // A second browse within the cooldown adds nothing.
     rerender(ui({ poolSelection: { id: STEAL_STAR.id, seq: 2 } }));
     expect(within(commentaryList()).getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  it('fires no assistant line for a quick view opened from the Board or Queue (poolSelection never set)', () => {
+    // A Board/Queue quick view goes through the UNWRAPPED handler and never
+    // sets the provider's poolSelection nonce, so no browse line is drawn even
+    // as picks, turns and clock edges churn around it (#815, ruling item 6).
+    on();
+    const { rerender } = render(ui());
+    // Toggle is on and the draft is live, but poolSelection stays null: the
+    // only thing a Board/Queue quick view could have moved is untouched here.
+    rerender(ui({ poolSelection: null, isMyTurn: false }));
+    expect(commentaryList()).not.toBeInTheDocument();
+    expect(region().textContent).toBe('');
   });
 });

@@ -12,7 +12,7 @@ import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { createLineGenerator, miseryStage } from '../../lib/draftAssistant';
 import { readDraftAssistantOn, writeDraftAssistantOn } from '../../lib/draftAssistantPreference';
 import {
-  factsForOwnPick, factsForQueueSnipe, factsForPoolSelection,
+  factsForOwnPick, factsForQueueSnipe, factsForPoolBrowse,
   factsForTurnStart, factsForClockUrgent, netVsAdpFor, roundForPick,
 } from './roomAssistantFacts';
 
@@ -58,15 +58,18 @@ import {
  *   - TURN_START: the not-my-turn -> my-turn edge, announced.
  *   - CLOCK_URGENT: the urgent edge PickClock already computes, forwarded once
  *     per turn through onUrgent (ruling item 2: no new ticking leaf), announced.
- *   - POOL_PLAYER_SELECTED: the viewer selecting a player IN THE POOL TABLE,
- *     cooldown-throttled and NEVER announced (ruling item 4: the polite region
- *     never speaks a selection line). The room wraps the pool table's own
- *     onOpenQuickView (already one of PlayerPoolTable's eleven props, #792) so
- *     the table's declared interface is untouched, and gives the rail and Board
- *     the unwrapped handler - so a quick view opened from the Board or the Queue
- *     does NOT fire a pool-selection line. Delivered here as a `poolSelection`
- *     nonce ({ id, seq }), a fresh object per table selection, so re-selecting
- *     the same player fires again.
+ *   - POOL_PLAYER_BROWSED: the viewer BROWSING a player IN THE POOL TABLE (the
+ *     Draft-room half of the #815 split of the old shared pool trigger; the
+ *     Sim's departure meaning is now POOL_PLAYER_TAKEN and never fires here).
+ *     The viewer opened a still-available player's quick view, so the line is
+ *     scouting copy, never a departure elegy. Cooldown-throttled and NEVER
+ *     announced (ruling item 4: the polite region never speaks a browse line).
+ *     The room wraps the pool table's own onOpenQuickView (already one of
+ *     PlayerPoolTable's eleven props, #792) so the table's declared interface
+ *     is untouched, and gives the rail and Board the unwrapped handler - so a
+ *     quick view opened from the Board or the Queue does NOT fire a browse line.
+ *     Delivered here as a `poolSelection` nonce ({ id, seq }), a fresh object
+ *     per table selection, so re-browsing the same player fires again.
  *
  * Never narrates Overdue: nothing here reads the Overdue edge (ruling item 6);
  * only the urgent edge is wired.
@@ -299,12 +302,12 @@ export function DraftRoomAssistantProvider({
     prevMyTurnRef.current = isMyTurn;
   }, [isMyTurn, active, assistantOn, currentPickNumber, teamCount, draftRounds, netVsAdp, pushLine]);
 
-  // The viewer selecting a player in the pool table (ruling item 2), never
-  // announced (ruling item 4) and cooldown-throttled. Keyed on the nonce's
+  // The viewer browsing a player in the pool table (POOL_PLAYER_BROWSED, #815),
+  // never announced (ruling item 4) and cooldown-throttled. Keyed on the nonce's
   // identity - a fresh object per pool-table selection - so a rerender never
   // re-fires and a Board/Queue quick view (which does not set poolSelection at
   // all) fires nothing. seenSelectionRef advances even while off, so turning
-  // the toggle on never replays the selection made while it was silent.
+  // the toggle on never replays the browse made while it was silent.
   useEffect(() => {
     if (!poolSelection) return;
     if (seenSelectionRef.current === poolSelection) return;
@@ -316,7 +319,7 @@ export function DraftRoomAssistantProvider({
     if (last != null && now - last < SELECTION_COOLDOWN_MS) return;
     lastSelectionAtRef.current = now;
     pushLine(
-      factsForPoolSelection({
+      factsForPoolBrowse({
         poolRow: poolRowFor(poolSelection.id), teamCount, draftRounds, netVsAdp,
       }),
       { spoken: false }

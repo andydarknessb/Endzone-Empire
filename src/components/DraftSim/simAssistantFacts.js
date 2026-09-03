@@ -29,11 +29,12 @@ import { userTeam, currentRound } from '../../lib/draftSim/engine';
 import { pickValues } from '../../lib/draftSim/analysis';
 import { TRIGGERS, earlyKickerOrDefense } from '../../lib/draftAssistant';
 
-/** How long, in ms, an "other team took a player" line waits before another
- * one can fire (ruling 7's "a player selected in the pool (cooldown)"): CPU
- * picks land every CPU_PICK_MS (400ms, useDraftSim.js) so without a floor the
- * panel would print a line for nearly every pick in the room. Comfortably
- * above one CPU pacing tick, short enough that the panel still reads live. */
+/** How long, in ms, a POOL_PLAYER_TAKEN ("other team took a player") line
+ * waits before another one can fire (ruling 7's pool cooldown, the Sim half of
+ * the #815 split): CPU picks land every CPU_PICK_MS (400ms, useDraftSim.js) so
+ * without a floor the panel would print a line for nearly every pick in the
+ * room. Comfortably above one CPU pacing tick, short enough that the panel
+ * still reads live. */
 export const SELECTION_COOLDOWN_MS = 4000;
 
 function emptyPlayerFacts() {
@@ -116,15 +117,18 @@ export function factsForUserPick({ sim, pickNumber, rosterSlots }) {
 
 /**
  * Facts for a player leaving the pool via ANOTHER team's pick
- * (TRIGGERS.POOL_PLAYER_SELECTED) - "somebody wanted him more than you did".
- * The user's OWN picks never take this path; factsForUserPick covers those.
+ * (TRIGGERS.POOL_PLAYER_TAKEN, the Sim half of the #815 split of the old
+ * shared pool trigger) - "somebody wanted him more than you did". The Sim has
+ * no browse action (a pool row click there IS the pick), so it never emits
+ * POOL_PLAYER_BROWSED; that trigger is the Draft room's alone. The user's OWN
+ * picks never take this path; factsForUserPick covers those.
  */
-export function factsForPoolSelection({ sim, pickNumber }) {
+export function factsForPoolTaken({ sim, pickNumber }) {
   const values = pickValues(sim);
   const pick = values.find((p) => p.pickNumber === pickNumber);
   if (!pick) return null;
   return {
-    trigger: TRIGGERS.POOL_PLAYER_SELECTED,
+    trigger: TRIGGERS.POOL_PLAYER_TAKEN,
     player: playerFactsFor(sim, pick.playerId),
     pickNumber: pick.pickNumber,
     round: pick.round,
