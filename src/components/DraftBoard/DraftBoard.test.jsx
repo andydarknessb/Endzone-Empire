@@ -2286,19 +2286,21 @@ test('renders the league’s own 12 starter / 7 bench / 1 IR shape across rail a
   expect(screen.queryByRole('rowheader', { name: '20' })).not.toBeInTheDocument();
 });
 
-// The room cases that asserted the viewer's own pick list (Upcoming's My
-// picks group and its popover) moved to draftOrderWindow.test.js as unit
-// cases (issue #793 AC4): they rendered the whole room to read a value the
-// one draft-order window now returns directly. The roster-slot tagging cases
-// below stay here, because slot tags are the room's own composition, not the
-// window's.
+// The room cases that derived the next pick label and the viewer's own pick
+// list - the Upcoming strip's My picks group and its popover - moved to
+// draftOrderWindow.test.js as unit cases on draftOrderWindowFor (issue #793
+// AC4): they rendered the whole room to read a value the one draft-order
+// window now returns directly. The roster-slot tagging cases below stay
+// here, because slot tags are the room's own composition, not the window's.
 //
-// The viewer's turn facts (My Roster's Next pick label and remaining-picks
-// warning) lost their only on-screen assertion in that same move: nothing
-// that renders DraftBoard exercised viewerTurn past its threading at
-// DraftBoard.jsx:594. The four cases below restore that wiring coverage
-// (#825). draftOrderWindowFor's own arithmetic keeps its unit coverage in
-// draftOrderWindow.test.js and is not re-verified here.
+// That move took the DERIVATION of both facts with it; what the four cases
+// below restore is the RENDERING of one of them. The viewer's turn facts (My
+// Roster's Next pick label and remaining-picks warning) lost their only
+// on-screen assertion in the same move: nothing that renders DraftBoard
+// exercised viewerTurn past its threading at DraftBoard.jsx:594. These four
+// cases restore that wiring coverage (#825); draftOrderWindowFor's own
+// arithmetic keeps its unit coverage in draftOrderWindow.test.js and is not
+// re-verified here.
 
 test('shows the next pick on screen from the league’s own rotation (#825)', async () => {
   await showRoster([firstPick]);
@@ -2344,9 +2346,11 @@ test('shows the remaining-picks warning on screen late in the draft (#825)', asy
 test('shows neither turn fact when the viewer holds no Team here (#825)', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
-  // A spectator's join ack carries no Team (#112): a teamId absent from the
-  // frame's own teams, same as the existing NOT_A_MEMBER assertion reaches.
-  connectAsTeam(null);
+  // Ruling 3: a teamId absent from the frame's own teams (rosterTeams holds
+  // only 1 and 2), not a null viewerTeamId. rosterViewFor resolves myTeam
+  // with `teams.find(...) || null`, a lookup-miss path distinct from its
+  // separate `viewerTeamId == null` short-circuit; this exercises the miss.
+  connectAsTeam(3);
   act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
     teams: rosterTeams,
     picks: [firstPick],
