@@ -126,7 +126,10 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       // nfl_team rides along for the Draft-activity snapshot (#435): the feed's
       // Pick entry shows the player's NFL team, and the activity is written from
       // this same transaction, so the fact is read here rather than re-fetched.
-      `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
+      // adp rides along for the Draft room's Misery Meter (#833): the draft:picked
+      // outcome carries the player's market ADP (players.adp, the Draft-grade
+      // column) so the meter reads it off the pick, never off the windowed pool.
+      `SELECT "id", "name", "position", "nfl_team", "adp" FROM "players" WHERE "id" = $1`,
       [playerId]
     );
     if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');

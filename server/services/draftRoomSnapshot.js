@@ -150,9 +150,18 @@ async function readTeams(leagueId) {
  */
 async function readPicks(leagueId) {
   const result = await pool.query(
+    // `adp` rides on every pick so the Draft room's Misery Meter reads a pick's
+    // market ADP straight off the pick, not off the windowed player pool (#833):
+    // a keeper is pre-filled into draft_picks AND team_players together, so it is
+    // never delivered to the available-player pool, and a pool-derived ADP left
+    // the meter dark for the whole draft. It is `players.adp`, the same column
+    // Draft grades read. The member snapshot returns these rows verbatim, so the
+    // column reaches the client as a top-level `adp`; the presenter narrows to
+    // PRESENTER_PICK_FIELDS, which does not name it, so a share link never gets it.
     `SELECT "draft_picks"."pick_number", "draft_picks"."team_id", "draft_picks"."is_keeper",
             ${teamIdentityColumns()},
-            "players"."id" AS "player_id", "players"."name", "players"."position", "players"."nfl_team"
+            "players"."id" AS "player_id", "players"."name", "players"."position",
+            "players"."nfl_team", "players"."adp"
      FROM "draft_picks" JOIN "players" ON "players"."id" = "draft_picks"."player_id"
      LEFT JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
      WHERE "draft_picks"."league_id" = $1 ORDER BY "pick_number"`,

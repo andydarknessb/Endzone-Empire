@@ -51,7 +51,9 @@ const TEAMS = [
 
 /** A world covering the whole commitPick transaction. `commissioner` adds the
  *  `SELECT 1 FROM "leagues"` answer the byCommissioner authority check reads. */
-function pickPool({ league, picksMade, commissioner = false } = {}) {
+function pickPool({
+  league, picksMade, commissioner = false, playerAdp = 3.2,
+} = {}) {
   // Stateful: the completing Pick's draft_status flip is visible to the
   // precondition read draftCompletion.completeDraft runs on this same client
   // (#789), the way a real client reads back its own write.
@@ -63,7 +65,15 @@ function pickPool({ league, picksMade, commissioner = false } = {}) {
   handlers.push(
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t })) })],
-    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
+    // #833: the player read now names `adp`, which rides on the draft:picked
+    // outcome. The row carries adp ONLY when the real SELECT names it, so a test
+    // asserting outcome.player.adp is a true red-tell against dropping the column.
+    [select('players'), (text) => ({
+      rows: [{
+        id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC',
+        ...(/"adp"/.test(text) ? { adp: playerAdp } : {}),
+      }],
+    })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
@@ -176,6 +186,30 @@ test('landPick: a post-COMMIT room fan-out failure never throws the committed Pi
   const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
 
   assert.equal(result, outcome, 'landPick resolved with the committed outcome despite the fan-out failure');
+});
+
+// --- #833 AC2 (the draft:picked half): the outcome carries the player's ADP ---
+
+test('landPick: the committed outcome carries the player market ADP (#833 AC2)', async (t) => {
+  const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1, playerAdp: 3.2 }).install(t);
+  withRecorder(t);
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  // Present and equal to players.adp. Red-tell: drop `"adp"` from the players
+  // SELECT in pick.service.js and outcome.player.adp is undefined, not 3.2.
+  assert.equal(outcome.player.adp, 3.2);
+  fake.assertClean();
+});
+
+test('landPick: the outcome ADP is null when the player has no market ADP (#833 AC2)', async (t) => {
+  const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1, playerAdp: null }).install(t);
+  withRecorder(t);
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.strictEqual(outcome.player.adp, null);
+  fake.assertClean();
 });
 
 // --- landPick refuses a non-active draft (the mirror of addFreeAgent's 409) --

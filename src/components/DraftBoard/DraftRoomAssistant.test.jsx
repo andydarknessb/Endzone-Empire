@@ -6,12 +6,11 @@ import {
   DraftRoomAssistantBannerLine,
   DraftRoomAssistantRegion,
   DraftRoomAssistantToggle,
-  MISERY_INCOMPLETE_MESSAGE,
   useDraftRoomAssistantControls,
 } from './DraftRoomAssistant';
 import { DRAFT_ASSISTANT_KEY } from '../../lib/draftAssistantPreference';
 import {
-  fillTemplate, miseryStage, MISERY_BANDS, TRIGGERS, POLK_HIGH_LEGEND_LINES,
+  fillTemplate, miseryStage, TRIGGERS, POLK_HIGH_LEGEND_LINES,
 } from '../../lib/draftAssistant';
 
 // rng() => 0 always draws the FIRST remaining index of a trigger's pool
@@ -178,49 +177,57 @@ describe('DraftRoomAssistant (#787)', () => {
     expect(within(commentaryList()).getAllByRole('listitem')).toHaveLength(1);
   });
 
-  // --- Misery Meter: pool-driven banding and the incomplete state (#818) ---
+  // --- Misery Meter: ADP rides on the pick, so the pool never gates it (#833) ---
   //
-  // Both render under React.StrictMode (AC4). StrictMode double-invokes the
-  // render body and re-invokes mount effects; these stay green because the
-  // component writes no ref during render and its fill/liveRef effects are
-  // idempotent (ruling 2), so the doubled pass produces the same Map, snapshot
-  // and band as a single one. It is the render-phase-side-effect check, not a
-  // check of the fill's own idempotency (Map.set by id is idempotent anyway).
-
+  // Each own pick carries its own market ADP as `pick.adp`; the meter sums those
+  // and never reads the windowed player pool for ADP (ruling 1, 2). So a keeper
+  // (pre-filled into the roster and never delivered to the available pool) no
+  // longer darkens the meter, and the hidden-until-complete placeholder retired
+  // (ruling 4). These render under React.StrictMode (the #818 AC4 render-phase
+  // discipline is untouched: the component still writes no ref during render).
+  //
+  // adp 1 at pick 20 -> draftValueScore round2(1 - 20) = -19 -> the best band.
   const strictUi = (props = {}) => <React.StrictMode>{ui(props)}</React.StrictMode>;
-  // adp 1 at pick 20 -> draftValueScore -19 -> the best band.
-  const STEAL_PICK = [{ pickNumber: 20, position: 'RB', playerId: STEAL_STAR.id }];
+  const STEAL_PICK = [{ pickNumber: 20, position: 'RB', playerId: STEAL_STAR.id, adp: 1 }];
 
-  it('re-bands the meter when a pick\'s ADP row arrives after myPicks settles (AC2a, ruling 3)', () => {
+  it('bands the meter from a keeper pick that is absent from every delivered pool page (AC1a)', () => {
     on();
-    // The viewer's one pick is not in the loaded pool yet, so the meter cannot
-    // read its ADP: no band, just the placeholder.
-    const { rerender } = render(strictUi({ myPicks: STEAL_PICK, poolRows: [QUEUED_GUY] }));
-    expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
-    expect(screen.getByText(MISERY_INCOMPLETE_MESSAGE)).toBeInTheDocument();
-
-    // Deliver the row carrying that pick's ADP (a new poolRows reference). The
-    // band appears. Red-tell: restoring the netVsAdp memo deps to
-    // [myPicks, adpForPlayer, teamCount] leaves this stuck on the placeholder.
-    rerender(strictUi({ myPicks: STEAL_PICK, poolRows: [QUEUED_GUY, STEAL_STAR] }));
+    // A keeper: carries a numeric ADP on the pick, is drafted, and so is NEVER in
+    // the available-player pool the room loads. poolRows here contain other
+    // players only. Under the retired gate this hid the band for the whole draft.
+    const keeperPick = [{
+      pickNumber: 20, position: 'RB', playerId: STEAL_STAR.id, adp: 1, keeper: true,
+    }];
+    render(strictUi({ myPicks: keeperPick, poolRows: [QUEUED_GUY, BROWSED_GUY] }));
+    // The band renders, computed from the pick's own ADP. Red-tell: restoring the
+    // loaded-pool completeness gate (myPicks.every(loadedPool has row)) turns this
+    // red - the keeper is never in loadedPool, so the band would hide.
     expect(screen.getByText('Misery Meter')).toBeInTheDocument();
     expect(screen.getByText(miseryStage(-19))).toBeInTheDocument();
-    expect(screen.queryByText(MISERY_INCOMPLETE_MESSAGE)).not.toBeInTheDocument();
   });
 
-  it('hides the band and shows the placeholder when an own pick is missing from the loaded pool (AC2b, ruling 4)', () => {
+  it('bands the meter from the other picks alone when one own pick has a null ADP (AC1b, ruling 3)', () => {
     on();
-    render(strictUi({ myPicks: STEAL_PICK, poolRows: [QUEUED_GUY, BROWSED_GUY] }));
-    // No band label and none of the four band names render...
-    expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
-    MISERY_BANDS.forEach((band) => expect(screen.queryByText(band)).not.toBeInTheDocument());
-    // ...the neutral placeholder does. (No-em-dash house style is not
-    // re-asserted here: the constant lives in DraftRoomAssistant.jsx, and
-    // scripts/emDashGuard.js strips comments but scans string literals under
-    // src/, so that copy is already guarded at its source. The guard excludes
-    // test files, so a string introduced HERE would not be covered - another
-    // reason the constant, not a local literal, is the thing under test.)
-    expect(screen.getByText(MISERY_INCOMPLETE_MESSAGE)).toBeInTheDocument();
+    // One steal (adp 1 at pick 20 -> -19), one no-market pick (adp null ->
+    // contributes 0). The band reads the steal alone; the null pick is neutral,
+    // exactly as Draft grades treat a no-market pick.
+    const mixed = [
+      { pickNumber: 20, position: 'RB', playerId: STEAL_STAR.id, adp: 1 },
+      { pickNumber: 21, position: 'WR', playerId: 999, adp: null },
+    ];
+    render(strictUi({ myPicks: mixed, poolRows: [] }));
+    expect(screen.getByText('Misery Meter')).toBeInTheDocument();
+    expect(screen.getByText(miseryStage(-19))).toBeInTheDocument();
+  });
+
+  it('bands the meter from pick ADP even when the pool delivers no rows at all (AC1c)', () => {
+    on();
+    // The pool has delivered nothing (a mid-draft refresh, or a keeper-only
+    // roster). The meter still bands, from the pick's own ADP. Red-tell: the
+    // loaded-pool completeness gate turns this red - loadedPool is empty here.
+    render(strictUi({ myPicks: STEAL_PICK, poolRows: [] }));
+    expect(screen.getByText('Misery Meter')).toBeInTheDocument();
+    expect(screen.getByText(miseryStage(-19))).toBeInTheDocument();
   });
 
   // The Board/Queue-quick-view-fires-nothing criterion (#815 ruling item 6)

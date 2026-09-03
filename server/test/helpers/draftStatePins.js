@@ -25,7 +25,10 @@ const MEMBER_TEAM_FIELDS = [
 ];
 const MEMBER_PICK_FIELDS = [
   'pick_number', 'team_id', 'is_keeper', 'teamId', 'teamName',
-  'player_id', 'name', 'position', 'nfl_team',
+  // `adp` (players.adp) rides on every member pick since #833 so the Draft room's
+  // Misery Meter reads a pick's market ADP off the pick, not off the windowed
+  // pool. The presenter still never publishes it (PRESENTER_PICK_FIELDS below).
+  'player_id', 'name', 'position', 'nfl_team', 'adp',
 ];
 
 const PRESENTER_LEAGUE_FIELDS = [
