@@ -29,14 +29,6 @@ import { userTeam, currentRound } from '../../lib/draftSim/engine';
 import { pickValues } from '../../lib/draftSim/analysis';
 import { TRIGGERS, earlyKickerOrDefense } from '../../lib/draftAssistant';
 
-/** How long, in ms, a POOL_PLAYER_TAKEN ("other team took a player") line
- * waits before another one can fire (ruling 7's pool cooldown, the Sim half of
- * the #815 split): CPU picks land every CPU_PICK_MS (400ms, useDraftSim.js) so
- * without a floor the panel would print a line for nearly every pick in the
- * room. Comfortably above one CPU pacing tick, short enough that the panel
- * still reads live. */
-export const SELECTION_COOLDOWN_MS = 4000;
-
 function emptyPlayerFacts() {
   return {
     name: null, position: null, nfl_team: null, injury_status: null,
