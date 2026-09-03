@@ -8,12 +8,20 @@ function get(obj, path) {
 // Convenience aliases over the facts shape (see index.js's docblock) so the
 // copy table can write the common cases as {player}/{position}/{team}
 // instead of the fully qualified {player.name}/{player.position}/etc.
-const PLACEHOLDER_ALIASES = {
+export const PLACEHOLDER_ALIASES = {
   player: 'player.name',
   position: 'player.position',
   team: 'player.nfl_team',
   injuryStatus: 'player.injury_status',
 };
+
+// Top-level facts fields the copy table is allowed to reference directly
+// (i.e. not through an alias above). Exported alongside PLACEHOLDER_ALIASES
+// so polkHighLegend.test.js can assert every {placeholder} actually used in
+// the table is one or the other -- a typo'd or dropped key would otherwise
+// only ever render as silent empty text (fillTemplate's designed fallback
+// for a genuinely absent fact), never fail loudly.
+export const KNOWN_DIRECT_KEYS = ['pickNumber', 'round', 'draftRounds', 'adp'];
 
 /** Fills a template's {placeholder} slots from a facts object. A missing value renders empty. */
 export function fillTemplate(template, facts) {

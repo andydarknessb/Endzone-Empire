@@ -1,5 +1,12 @@
 import { LINES } from './polkHighLegend';
 import { ALL_TRIGGERS } from '../triggers';
+import { PLACEHOLDER_ALIASES, KNOWN_DIRECT_KEYS } from '../lineFor';
+
+const KNOWN_PLACEHOLDER_KEYS = new Set([...Object.keys(PLACEHOLDER_ALIASES), ...KNOWN_DIRECT_KEYS]);
+
+function placeholderKeysIn(line) {
+  return [...line.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+}
 
 // Issue #785 names two mechanical guards the PR must pass, run from the
 // shell against src/lib/draftAssistant: a case-insensitive check for a short
@@ -52,6 +59,31 @@ describe('polkHighLegend copy table', () => {
       for (const line of LINES[trigger]) {
         expect(line).not.toMatch(/—/);
       }
+    }
+  });
+
+  it('never uses "the board" to mean the Draft pool (CONTEXT.md reserves it for the Draft board)', () => {
+    for (const trigger of ALL_TRIGGERS) {
+      for (const line of LINES[trigger]) {
+        expect(line).not.toMatch(/\bboard\b/i);
+      }
+    }
+  });
+
+  it('uses only known placeholder keys, so a typo cannot silently render empty', () => {
+    for (const trigger of ALL_TRIGGERS) {
+      for (const line of LINES[trigger]) {
+        for (const key of placeholderKeysIn(line)) {
+          expect(KNOWN_PLACEHOLDER_KEYS.has(key)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('uses every known placeholder key at least once somewhere in the table', () => {
+    const used = new Set(Object.values(LINES).flat().flatMap(placeholderKeysIn));
+    for (const key of KNOWN_PLACEHOLDER_KEYS) {
+      expect(used.has(key)).toBe(true);
     }
   });
 });

@@ -15,14 +15,22 @@
  * injury-status joke this repo's data can actually support.
  *
  * Placeholders (filled by lineFor.js's fillTemplate, aliases over the facts
- * shape documented in src/lib/draftAssistant/index.js):
- *   {player}      -> facts.player.name
- *   {position}    -> facts.player.position
- *   {team}        -> facts.player.nfl_team
- *   {pickNumber}  -> facts.pickNumber
- *   {round}       -> facts.round
- *   {draftRounds} -> facts.draftRounds
- *   {adp}         -> facts.adp
+ * shape documented in src/lib/draftAssistant/index.js). Every placeholder
+ * listed here is used by at least one line below; lineFor.test.js asserts
+ * that, so an unused alias (or a typo'd one that would silently render
+ * empty) does not go unnoticed:
+ *   {player}       -> facts.player.name
+ *   {position}     -> facts.player.position
+ *   {team}         -> facts.player.nfl_team
+ *   {injuryStatus} -> facts.player.injury_status
+ *   {pickNumber}   -> facts.pickNumber
+ *   {round}        -> facts.round
+ *   {draftRounds}  -> facts.draftRounds
+ *   {adp}          -> facts.adp
+ *
+ * "The pool" is the Draft pool (players still available); CONTEXT.md
+ * reserves "the board" for the Draft board, the committed-pick matrix, so
+ * that word never appears here to mean the opposite.
  *
  * Every trigger keeps at least six lines (ruling 7 minimum); most keep more
  * so the "no repeat until exhausted" rule has real room to breathe.
@@ -32,13 +40,14 @@ import { TRIGGERS } from '../triggers';
 export const LINES = {
   [TRIGGERS.PICK_STEAL]: [
     '{player} at pick {pickNumber}? That is the kind of theft I would have gotten flagged for in \'66.',
-    'Somebody napped through the whole board. {player} falls to you and you take it. Good.',
+    'Somebody napped through the whole pool. {player} falls to you and you take it. Good.',
     'You stole {player} like a discount pair of cleats off the clearance rack.',
     'That is a steal, plain and simple. My 1966 team would have drafted that fast too.',
     '{player} at that spot is a gift. Say thank you and move along.',
-    'The board handed you {player} for nothing. Enjoy it, it will not happen twice tonight.',
+    'The pool handed you {player} for nothing. Enjoy it, it will not happen twice tonight.',
     'I have sold a lot of shoes in my life, and that is still the best deal I have seen all week.',
-    'Pick {pickNumber}, {player} still on the board. Somebody in this league needs new glasses.',
+    'Pick {pickNumber}, {player} still in the pool. Somebody in this league needs new glasses.',
+    '{player} out of {team} for that price is closer to theft than a deal.',
   ],
   [TRIGGERS.PICK_REACH]: [
     'You paid full price for {player} at pick {pickNumber}. The clearance rack was right there.',
@@ -49,13 +58,14 @@ export const LINES = {
     'I did not stretch that far for a touchdown in the 1966 championship, and I scored four.',
     'That pick cost you more than it should have. Welcome to the club, I overpay for everything too.',
     '{player} was not walking out the door on you. You just paid retail for nothing.',
+    '{player}\'s ADP had him going around pick {adp}. You did not wait that long.',
   ],
   [TRIGGERS.PICK_EARLY_KDEF]: [
     'A {position} this early? Kickers were barely athletes in 1966, and they have not improved.',
     'You burned a real pick on {player} the {position} with rounds still left on the clock. Bold strategy.',
     '{position} can wait. It always waits. You just told the room you do not know that yet.',
     'I sold shoes to men who made better decisions than drafting {player} the {position} right now.',
-    'Plenty of {position}s left on that board later. You did not need to move this early.',
+    'Plenty of {position}s left in the pool later. You did not need to move this early.',
     'That is a rookie mistake, and you are not even a rookie. {position}, this early, really?',
     'Somewhere a veteran manager is laughing at that {position} pick. It might be me.',
     'You had time. You did not need {player} yet. Now you are out a real pick.',
@@ -67,7 +77,7 @@ export const LINES = {
     '{player} at running back. Nothing wrong with it. Nothing exciting about it either.',
     'That is a running back pick a shoe salesman could have made blindfolded.',
     'You went with {player} at running back. Sturdy choice. Sturdy like a bad knee brace.',
-    'Running back, pick {pickNumber}. The board will not remember it, and neither will I by next week.',
+    'Running back, pick {pickNumber}. Nobody will remember it, and neither will I by next week.',
     '{player} joins your backfield. Somewhere a fullback is grateful nobody drafts them anymore.',
   ],
   [TRIGGERS.PICK_GENERIC]: [
@@ -79,6 +89,7 @@ export const LINES = {
     'In 1966 I scored four touchdowns and never once had to think this hard about a decision.',
     '{player} at {position}, pick {pickNumber}. Adequate. I have built a career on adequate.',
     'That pick will not make anybody\'s grade sheet, good or bad. Move along.',
+    '{player} carries a {injuryStatus} tag. My knees have said worse since the \'66 game.',
   ],
   [TRIGGERS.QUEUE_PICKED_BY_OTHER]: [
     '{player} was on your Queue. Somebody else just walked out with your shoe size.',
@@ -86,7 +97,7 @@ export const LINES = {
     'That is what happens when you sit on a Queue instead of pulling the trigger. {player}, gone.',
     'Another team just picked {player} right out from under your Queue. Ouch.',
     'I would tell you to move faster next time, but you would not listen. Nobody does.',
-    '{player} is off the board, and it was not you who took him. Adjust the Queue.',
+    '{player} is out of the pool, and it was not you who took him. Adjust the Queue.',
     'You had {player} lined up and someone else beat you to the register.',
     'That is one fewer name on your Queue and zero more players on your roster. Bad trade.',
   ],
@@ -98,26 +109,26 @@ export const LINES = {
     'Your turn again already. Time flies when you are watching other people\'s mistakes.',
     'The room is waiting on you. So am I, and I have got nowhere better to be.',
     'Pick\'s yours. Make it a good one, or at least make it fast.',
-    'Your turn. Round {round}, and the shoe store never had lines this slow.',
+    'Your turn. Round {round} of {draftRounds}, and the shoe store never had lines this slow.',
   ],
   [TRIGGERS.CLOCK_URGENT]: [
     'Ten seconds. That is not a lot of time, and you are not using it well.',
     'Clock is running out, and so is my patience. Pick something.',
-    'Ten seconds left. I made a better decision than this in less time in 1966, under contact.',
+    'Not much time left. I made a better decision than this in less time in 1966, under contact.',
     'The clock does not care that you are still thinking. Pick.',
     'You are about to let the clock make this pick for you. That never goes well.',
-    'Ten seconds on the board. Move, before Autopick moves for you.',
+    'Ten seconds on the clock. Move, before Autopick moves for you.',
     'Tick tock. I sold a man a pair of shoes faster than you are making this decision.',
     'Clock is nearly out. Whatever you are thinking about, it is not worth this delay.',
   ],
   [TRIGGERS.POOL_PLAYER_SELECTED]: [
-    '{player} is off the board. Somebody wanted him more than you did, apparently.',
+    '{player} is out of the pool. Somebody wanted him more than you did, apparently.',
     'There goes {player}. The pool gets a little thinner and the room gets a little louder.',
     '{player}, gone. If he was on your list, cross him off and keep moving.',
-    'Another name off the board. {player}, taken. The board does not wait for anybody.',
+    'Another name out of the pool. {player}, taken. The pool does not wait for anybody.',
     '{player} just got picked. Hope he was not the one you were waiting on.',
-    'That is {player} off the pool. Somebody just made their move while you were reading this.',
-    'Board is a little emptier now. {player} is somebody else\'s problem to start on Sundays.',
+    'That is {player} out of the pool. Somebody just made their move while you were reading this.',
+    'One less name in the pool now. {player} is somebody else\'s problem to start on Sundays.',
     '{player} is gone. That is one less argument you get to have with yourself later.',
   ],
   [TRIGGERS.PICK_AUTO]: [

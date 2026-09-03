@@ -27,16 +27,24 @@ function unfilledKickerDefenseSlots({ roster, rosterSlots }) {
 }
 
 /**
- * Ruling 6 (issue #784, ADR 0027): "early" for a kicker or defense is
- * relative to the league's own roster shape, never a fixed round number.
+ * Implements #785's acceptance criteria exactly: false in the final round
+ * for a one-K one-DEF template, true two rounds earlier (same template, same
+ * empty roster), and false in every round for a template with no K or DEF
+ * slots at all. Concretely: true while at least as many rounds remain as the
+ * team's unfilled DEDICATED K + DEF starting slots (there's slack, so
+ * grabbing one now reads as jumping the gun); false once fewer rounds remain
+ * than that. A template with no K or DEF slots has nothing to be early for,
+ * so it is always false regardless of rounds remaining.
  *
- * True while there is still at least as much draft left as the team has
- * unfilled DEDICATED K + DEF starting slots to fill — there's slack, so
- * grabbing one now reads as jumping the gun. It flips to false once fewer
- * rounds remain than that: the exact point ruling 6 names as where waiting
- * any longer stops being an option, i.e. it is no longer early, it is just
- * necessary. A template with no K or DEF slots at all has nothing to be
- * early FOR, so it is always false.
+ * Issue #784 ruling 6's own wording ("early... is relative: fewer rounds
+ * remain than the team's unfilled K plus DEF starting slots") reads as the
+ * INVERSE of the predicate above: taken literally, it would only read as
+ * "early" once the team is nearly out of rounds to grab K/DEF, which would
+ * roast a kicker or defense pick at precisely the point where taking one is
+ * correct. This function follows #785's acceptance criteria, not that
+ * literal reading; #796 tracks the ruling 6 wording contradiction for Cory to
+ * settle, and this code does not change on the outcome of that discussion
+ * alone.
  *
  * @param {object} args
  * @param {Array}  args.rosterSlots  the league's roster_slots shape
