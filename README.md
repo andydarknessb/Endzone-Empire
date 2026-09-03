@@ -99,7 +99,6 @@ All routes except `/api/auth/*` require `Authorization: Bearer <jwt>`.
 | POST | `/api/auth/login` | Login → `{ token, user }` |
 | GET | `/api/user` | Current user profile |
 | GET | `/api/players?page=N&position=QB&leagueId=N&available=true` | Paginated player pool (25/page, strict integer validation) |
-| POST | `/api/players/draft/:playerId` | Draft a player (transactional; body `{ leagueId }`) |
 | POST | `/api/league` | Create league (invite code, roster limit, max teams) |
 | POST | `/api/league/join` | Join by invite code |
 | GET | `/api/league` / `/api/league/:id` | My leagues / league detail + standings |
