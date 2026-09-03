@@ -74,13 +74,13 @@ test('no market prop renders neither status line (defensive default for a payloa
 });
 
 // 758-f1: getMarketStatus reports stale:true both when the last sync is old
-// AND when there has never been a recorded sync at all - and this is the
-// second, real production shape (plenty of players, no data_sync_runs row
-// yet). It must not print a fabricated date: new Date(null) is the Unix
-// epoch, not an Invalid Date, so a naive stale check would have shown
-// "Player market last updated Dec 31, 1969." here. The safe interim (pending
-// a product ruling on copy for this state) is no line at all.
-test('a market with plenty of players but no recorded sync ever renders no line and no fabricated date', () => {
+// AND when there has never been a recorded sync at all. It must not print a
+// fabricated date: new Date(null) is the Unix epoch, not an Invalid Date, so
+// a naive stale check would show "Player market last updated Dec 31, 1969."
+// here. #758's interim fix was no line at all; #773 gives this state its own
+// copy instead, but the epoch string must never appear regardless of which
+// copy renders, so this guard stays even though the state is no longer silent.
+test('a market with plenty of players but no recorded sync ever renders no fabricated date', () => {
   render(
     <DraftStartControl {...baseProps} market={{ adpPlayers: 250, floor: 100, lastSyncAt: null, stale: true }} />
   );
@@ -89,6 +89,42 @@ test('a market with plenty of players but no recorded sync ever renders no line 
   expect(screen.queryByText(/has not loaded/)).not.toBeInTheDocument();
   expect(screen.queryByText(/last updated/)).not.toBeInTheDocument();
   expect(screen.queryByText(/1969/)).not.toBeInTheDocument();
+});
+
+// #773: the fourth market state - present, but no sync has ever been
+// recorded (lastSyncAt null). Distinct from the stale case above: that state
+// has a timestamp worth naming, this one does not, so the copy never claims
+// an age. Red-tell: swapping this fixture's lastSyncAt for a real ISO
+// timestamp (as STALE_MARKET does) makes the never-synced string disappear
+// and the stale string take its place instead - never both, never neither.
+const NEVER_SYNCED_MARKET = { adpPlayers: 234, floor: 100, lastSyncAt: null, stale: true };
+
+test('a market with no sync ever recorded shows the never-synced line, not the stale line, and no year', () => {
+  render(<DraftStartControl {...baseProps} market={NEVER_SYNCED_MARKET} />);
+
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
+  expect(screen.getByText(
+    'Player market loaded (234 players carry an ADP), but no sync has been recorded. Autopicks will use that market.'
+  )).toBeInTheDocument();
+  expect(screen.queryByText(/Player market last updated/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/20\d{2}/)).not.toBeInTheDocument();
+});
+
+test('the never-synced line is exclusive with the stale line: a real lastSyncAt swaps one for the other', () => {
+  jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-09-02T12:00:00.000Z').getTime());
+  try {
+    render(
+      <DraftStartControl
+        {...baseProps}
+        market={{ ...NEVER_SYNCED_MARKET, lastSyncAt: '2026-08-20T12:00:00.000Z' }}
+      />
+    );
+
+    expect(screen.queryByText(/no sync has been recorded/)).not.toBeInTheDocument();
+    expect(screen.getByText('Player market last updated Aug 20. Autopicks will use that market.')).toBeInTheDocument();
+  } finally {
+    jest.restoreAllMocks();
+  }
 });
 
 // 758-f3: showHints (team-count/auction copy) and showMarketStatus (market
