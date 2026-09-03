@@ -47,12 +47,9 @@ import { MEMBERSHIP_MEMBER, MEMBERSHIP_NON_MEMBER } from './draftMembership';
 import useContainerWidth, { draftPaneLayout } from './useContainerWidth';
 import useFocusRescue from './useFocusRescue';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
-import { upcomingTeamsFor } from './upcomingTeams';
-import { viewerPicksFor } from './viewerPicks';
+import { draftOrderWindowFor } from './draftOrderWindow';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
-import {
-  turnSummaryFor, pickLabelFor, teamsInDraftOrder, draftOrderIsSettled,
-} from '../../lib/draftTurns';
+import { pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
@@ -85,27 +82,26 @@ const draftTabPanelId = (view) => `draft-tabpanel-${view}`;
  * Returns null when there is nothing honest to show - before the first
  * draft:state frame, or for a spectator with no team in the league.
  */
-function rosterViewFor({ league, teams, picks, viewerTeamId }) {
+function rosterViewFor({ league, teams, picks, viewerTeamId, viewerTurn }) {
   const rosterSlots = Array.isArray(league?.roster_slots) ? league.roster_slots : [];
   const myTeam = viewerTeamId == null ? null : teams.find((team) => team.teamId === viewerTeamId) || null;
   if (!myTeam || rosterSlots.length === 0) return null;
 
-  // Base Draft order, and the question of whether it is settled, both come
-  // from src/lib/draftTurns.js, which owns everything else about order and
-  // carries the sync obligation against the server's own ordering. Keeping a
-  // hand-copy here is what let this and the Upcoming strip start to disagree.
-  const ordered = teamsInDraftOrder(teams);
-  const teamIds = ordered.map((team) => team.teamId);
   // Rounds are Draft rounds (ADR 0005): the live-derived draft roster size
   // while pending, or the fixed value once the draft is active/complete.
   // Mirrors draft.service.js.
   const rounds = draftRounds(league);
+  // The board reads a pick's label off the team count alone. Ordering the teams
+  // does not add or drop any, so this is the same count the window ordered from
+  // - no second hand-copy of the draft order lives here (issue #793): the turn
+  // facts below come from the one draft-order window.
+  const teamCount = teams.length;
 
   const myPicks = picks
     .filter((pick) => pick.teamId === myTeam.teamId)
     .map((pick) => ({
       pickNumber: pick.pick_number,
-      pickLabel: pickLabelFor(pick.pick_number - 1, teamIds.length),
+      pickLabel: pickLabelFor(pick.pick_number - 1, teamCount),
       playerId: pick.player_id,
       name: pick.name,
       position: pick.position,
@@ -119,26 +115,6 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
     // The socket reducer stores picks newest-first for the history list.
     .sort((a, b) => a.pickNumber - b.pickNumber);
 
-  // Before the order is set there is no honest next pick to name.
-  const orderKnown = draftOrderIsSettled({ league, orderedTeams: ordered, rounds });
-
-  const turn = orderKnown
-    ? turnSummaryFor({
-      teamId: myTeam.teamId,
-      teamIds,
-      // leagues.current_pick is ALREADY 0-based - see draft.service.js, which
-      // passes it straight to teamForPick and stores current_pick + 1 as the
-      // 1-based draft_picks.pick_number.
-      fromPick0: Number(league.current_pick) || 0,
-      totalPicks: teamIds.length * rounds,
-      rotation: league.draft_rotation || 'snake',
-      overrides: league.draft_order_overrides || null,
-      // Keepers are pre-inserted at future pick numbers and the live draft
-      // skips them, so they are not picks this team still has coming.
-      takenPickNumbers: new Set(picks.map((pick) => pick.pick_number - 1)),
-    })
-    : null;
-
   const benchCount = Number(league.bench_slots) || 0;
   const irCount = Number(league.ir_slots) || 0;
 
@@ -148,8 +124,11 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
     irCount,
     rounds,
     picks: myPicks,
-    remainingPicks: turn ? turn.remainingPicks : null,
-    nextPickLabel: turn && turn.nextPick ? turn.nextPick.label : null,
+    // The viewer's turn facts come from the one draft-order window, which
+    // orders the teams and evaluates the settled-guard once for the whole room.
+    // Null there means the order is not settled or the viewer holds no Team.
+    remainingPicks: viewerTurn ? viewerTurn.remainingPicks : null,
+    nextPickLabel: viewerTurn ? viewerTurn.nextPickLabel : null,
     // One assignment feeds the history's slot tags; the panel recomputes the
     // same pure function, which is guaranteed to agree.
     slotTags: assignRosterSlots({
@@ -606,7 +585,14 @@ function DraftBoard() {
     );
   }
 
-  const rosterView = rosterViewFor({ league, teams, picks, viewerTeamId });
+  // The Draft order, windowed once at the current pick (issue #793): who picks
+  // next, which of those picks are the viewer's own, and the viewer's turn
+  // facts. One ordering and one settled-guard for the whole room, so My Roster
+  // and the Upcoming strip cannot read the order differently.
+  const draftWindow = draftOrderWindowFor({ league, teams, picks, viewerTeamId });
+  const rosterView = rosterViewFor({
+    league, teams, picks, viewerTeamId, viewerTurn: draftWindow.viewerTurn,
+  });
   // Draft rounds (ADR 0005): derived while pending, the frozen snapshot once
   // the draft is active or complete. One call, shared by everything below
   // that needs to know how long this draft is.
@@ -724,15 +710,13 @@ function DraftBoard() {
     isXs,
     onOpenQuickView: setQuickViewId,
     rosterView,
-    // The next three picks after the one on the clock, for the active rail's
-    // compact Upcoming strip. Empty for a draft whose order is not settled.
-    upcoming: upcomingTeamsFor({ league, teams, picks, rounds }),
-    // The same order read viewer-relatively: which of the picks still to come
-    // are this manager's own. Empty on the same conditions, plus for a
-    // spectator holding no Team here.
-    viewerPicks: viewerPicksFor({
-      league, teams, picks, rounds, viewerTeamId,
-    }),
+    // Both read off the one draft-order window above. `upcoming` is the next
+    // three picks after the one on the clock, empty for a draft whose order is
+    // not settled; `viewerPicks` is the same order read viewer-relatively -
+    // which of the picks still to come are this manager's own - empty on the
+    // same conditions, plus for a spectator holding no Team here.
+    upcoming: draftWindow.upcoming,
+    viewerPicks: draftWindow.viewerPicks,
   };
 
   // The combined League chat + Draft activity feed (#435/#437/#442), wired to

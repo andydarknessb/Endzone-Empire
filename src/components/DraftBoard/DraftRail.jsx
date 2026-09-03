@@ -86,11 +86,11 @@ function DraftRail({
   isXs,
   onOpenQuickView,
   rosterView = null,
-  // The next three picks after the one on the clock (see upcomingTeams.js).
+  // The next three picks after the one on the clock (see draftOrderWindow.js).
   // Empty whenever the Draft order is not settled enough to read.
   upcoming = [],
   // The viewer's OWN remaining Pick numbers - `next` for the inline strip,
-  // `all` for the popover behind it (see viewerPicks.js). Both empty whenever
+  // `all` for the popover behind it (see draftOrderWindow.js). Both empty whenever
   // the Draft order is not settled enough to read, which includes every
   // pending lobby.
   viewerPicks = { all: [], next: [] },
@@ -412,7 +412,7 @@ function DraftRail({
 
   // The compact Upcoming strip: who picks after the Team on the clock, which
   // is stated persistently above and deliberately not repeated here. A Team
-  // holding two picks across a snake turn appears twice - see upcomingTeams.js.
+  // holding two picks across a snake turn appears twice - see draftOrderWindow.js.
   //
   // The full Draft order sits behind a disclosure inside this panel rather
   // than as a panel of its own. Compact is the point of the strip (spec #108
@@ -434,11 +434,14 @@ function DraftRail({
         Upcoming
       </Typography>
       {upcoming.length === 0 && (
-        // Deliberately does not say why. There are two reasons the strip can
-        // be empty - the draft is on its last pick, or the Draft order is not
-        // settled enough to read forward from - and the rail cannot tell them
-        // apart from here. Neutral copy beats a heading standing over nothing,
-        // and beats guessing at a cause.
+        // The two reasons the strip can be empty - the draft is on its last
+        // pick, or the Draft order is not settled enough to read forward from -
+        // are now distinguishable: draftOrderWindowFor evaluates the
+        // settled-guard once and holds both facts, so this could name the
+        // cause. The copy stays neutral by choice, not for want of the answer:
+        // no `reason` field is passed down, because neither cause is one a
+        // manager here can act on, and neutral copy beats a heading standing
+        // over a named non-problem.
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           No upcoming picks to show.
         </Typography>
@@ -482,7 +485,7 @@ function DraftRail({
           disclosure: the next three are the whole point of the strip, and a
           wait a manager has to open something to learn is one they estimate
           wrong instead. Absent entirely for a spectator, and for a manager
-          whose picks are all made - viewerPicks.js answers empty rather than
+          whose picks are all made - draftOrderWindow.js answers empty rather than
           guessing, and a group heading over nothing is worse than no group. */}
       {hasViewerPicks && (
         <Box

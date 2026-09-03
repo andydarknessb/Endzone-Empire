@@ -26,7 +26,7 @@ const ROSTER_VIEW = {
 
 // Deliberately the snake-turn case: Harbor Hawks holds 1.02 and 2.01 back to
 // back, so the same Team appears twice. That is the honest reading (see
-// upcomingTeams.js) but only if each entry says which Pick it is - two
+// draftOrderWindow.js) but only if each entry says which Pick it is - two
 // identical-looking rows read as a duplicate-render bug, and a manager who
 // discounts the strip as glitchy loses the wait it exists to tell them.
 const UPCOMING = [

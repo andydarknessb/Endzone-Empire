@@ -2199,85 +2199,11 @@ test('renders the league’s own 12 starter / 7 bench / 1 IR shape across rail a
   expect(screen.queryByRole('rowheader', { name: '20' })).not.toBeInTheDocument();
 });
 
-test('names the next pick from the league’s own rotation', async () => {
-  await showRoster([firstPick]);
-  // Two teams, snake: pick 0 was Team A, 1 and 2 are Team B and... the third
-  // pick overall is on the clock, so Team A is next up at 2.02.
-  expect(screen.getByText('Next pick 2.02')).toBeInTheDocument();
-});
-
-test('names the viewer’s own next three Picks, with the rest behind the popover', async () => {
-  // The wiring, not the arithmetic: viewerPicks.test.js already sweeps
-  // rotations and league sizes. What this asks is whether the live league row,
-  // its Teams and its committed Picks reach viewerPicksFor and come back out
-  // on screen (issue #124 acceptance criterion 4). Two teams, snake, the third
-  // pick of the draft on the clock, and Team A has already made 1.01.
-  await showRoster([firstPick]);
-
-  const upcoming = screen.getByRole('region', { name: 'Upcoming' });
-  const myPicks = within(upcoming).getByRole('group', { name: 'My picks' });
-  expect(within(myPicks).getByText('2.02 · 3.01 · 4.02')).toBeInTheDocument();
-
-  // 19 Draft rounds (roster_limit 20 less the undraftable IR slot), less the
-  // pick already made.
-  await userEvent.click(within(myPicks).getByRole('button', { name: 'All 18 of my picks' }));
-  const allPicks = screen.getByRole('dialog', { name: 'All my picks' });
-  const listed = within(allPicks).getAllByRole('listitem').map((item) => item.textContent);
-  expect(listed).toHaveLength(18);
-  expect(listed[0]).toBe('2.02');
-  expect(listed[listed.length - 1]).toBe('19.01');
-});
-
-test('reads the viewer’s Picks off a linear league’s own rotation, not a snake assumption', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  connectAsTeam(1);
-  act(() => fakeSocket.trigger('draft:state', stateEvent(
-    rosterLeague({ draft_rotation: 'linear', current_pick: 1 }),
-    { teams: rosterTeams, picks: [], onTheClock: TEAM_A },
-  )));
-
-  const myPicks = within(screen.getByRole('region', { name: 'Upcoming' }))
-    .getByRole('group', { name: 'My picks' });
-  // Linear: slot 1 in every round. Under a snake reading the second of these
-  // would be 2.02, which is a wait of one turn rather than three.
-  expect(within(myPicks).getByText('2.01 · 3.01 · 4.01')).toBeInTheDocument();
-});
-
-test('a spectator with no Team here is offered no picks of their own', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  // viewerTeamId comes from the draft:join acknowledgement and never from a
-  // broadcast (#112), so a spectator is one whose join ack carried no Team.
-  connectAsTeam(null);
-  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
-    teams: rosterTeams,
-    picks: [firstPick],
-    onTheClock: TEAM_A,
-  })));
-
-  const upcoming = screen.getByRole('region', { name: 'Upcoming' });
-  // The panel still stands on its league-wide strip; only the viewer-relative
-  // group is gone. Verified to fail against a rail that defaults a spectator
-  // to the first Team's picks.
-  expect(within(upcoming).queryByRole('group', { name: 'My picks' })).not.toBeInTheDocument();
-  expect(within(upcoming).getByRole('button', { name: 'Full Draft order' })).toBeInTheDocument();
-});
-
-test('skips a keeper the team already holds when naming the next pick', async () => {
-  await showRoster([
-    firstPick,
-    {
-      pick_number: 4, teamId: 1, teamName: 'Team A', player_id: 11, is_keeper: true,
-      name: 'Kept Guy', position: 'WR', nfl_team: 'BUF',
-    },
-  ]);
-
-  // 2.02 is Team A's next turn by rotation, but a keeper is already sitting on
-  // it, so the next pick they actually make is 3.01.
-  expect(screen.getByText('Next pick 3.01')).toBeInTheDocument();
-  expect(screen.getByText('Keeper')).toBeInTheDocument();
-});
+// The room cases that asserted only turn facts - the next pick label and the
+// viewer's own pick list - moved to draftOrderWindow.test.js as unit cases
+// (issue #793 AC4): they rendered the whole room to read a value the one
+// draft-order window now returns directly. The roster-slot tagging cases below
+// stay here, because slot tags are the room's own composition, not the window's.
 
 test('tags the manager’s own picks in the history with the slot they filled', async () => {
   // The history moved to the Board, but it is still handed the viewer's own
