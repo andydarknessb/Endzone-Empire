@@ -28,6 +28,7 @@ function createRecordingBroadcast() {
     draftCompleted: record('draftCompleted'),
     rosterChanged: record('rosterChanged'),
     stateChanged: record('stateChanged'),
+    scoresUpdated: record('scoresUpdated'),
   };
 }
 

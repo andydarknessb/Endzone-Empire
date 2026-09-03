@@ -12,24 +12,23 @@ const path = require('node:path');
  * `io.to(...)` in a router or service is caught here, by name, instead of
  * quietly re-opening the drift #745 closed.
  *
- * The allowed set is spelled as a fixture this test reads. It has THREE entries,
- * and only two of them are the Draft room:
+ * The allowed set is spelled as a fixture this test reads. It has TWO entries,
+ * both of them the Draft room:
  *   - modules/draftRoomBroadcast.js - the one Draft room home (this module IS
  *     the `io.to(...)`);
  *   - modules/draftSocket.js - ONLY its deliverFeedEntry block, the per-recipient
  *     League chat delivery deliberately left outside the adapter (ADR 0012, and
  *     #745 scope item 4); a second assertion below pins it to that block.
- *   - services/scoring.service.js - the live-game `scores:updated` broadcast, a
- *     DIFFERENT domain (the live game engine, not the Draft room) that predates
- *     #745 and is deliberately out of its scope. It is listed so the guard is
- *     honest about every current `io.to(` and still fails on a NEW one; the raw
- *     `git grep "io.to("` in the issue's criterion 3 likewise returns this line.
+ *
+ * services/scoring.service.js was a third entry until #765: its live-game
+ * `scores:updated` broadcast folded into the adapter as `scoresUpdated`, so the
+ * scoring service no longer spells `io.to(` at all and the file is guarded again
+ * like any other. A stray `io.to(` reintroduced there is now caught by name.
  */
 const SERVER_DIR = path.join(__dirname, '..');
 const ALLOWED = [
   'modules/draftRoomBroadcast.js',
   'modules/draftSocket.js',
-  'services/scoring.service.js',
 ];
 
 /** Every .js file under a root, excluding server/test, node_modules, coverage. */

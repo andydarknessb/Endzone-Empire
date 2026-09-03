@@ -9,7 +9,7 @@ const { appendLifecycleActivity, DRAFT_START, COMPLETE } = require('./draftActiv
 // The one Draft room adapter (#745), injected the same way the Pick clock reads
 // it: in the WORKER (scheduled autostart) its transport is the Redis emitter, so
 // the draft_start activity and the state refresh below are published rather than
-// silently dropped the way the old getIo()-null path dropped them (ADR 0018).
+// silently dropped the way the old null-`io` registry path dropped them (ADR 0018).
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // The Pick clock module owns arming (ADR 0018): the draft-started event fixes
 // draft_rounds and arms the first open pick's clock in one statement.

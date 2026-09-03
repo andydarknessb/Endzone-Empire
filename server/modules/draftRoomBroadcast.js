@@ -21,6 +21,11 @@ const sentry = require('./sentry');
  * is no `require('./io')` here on purpose: the module never reaches for a
  * transport, it is handed one, which is what makes the worker path honest.
  *
+ * The Draft room events were its first tenants; the live-score broadcast
+ * (`scoresUpdated` -> `scores:updated`) joined them in #765 under the same room
+ * and the same delivered-or-reported policy, so the worker's scheduled scoring
+ * tick and daily correction pass stopped dropping scores into a null `io`.
+ *
  * The interface is by MEANING (`pickLanded`, `activityAppended`, ...); the wire
  * names (`draft:picked`, `draft:activity`, ...) are internal to this module, so
  * a caller cannot spell one wrong. Each method is "delivered or reported": it
@@ -86,6 +91,15 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
         return { delivered: false, transport: transportName, error };
       }
     },
+    /** The live-score pass pushed fresh matchup scores (and, on the live sync
+     *  path only, the typed touchdown `plays`) to the league room. It joined the
+     *  adapter in #765: the same `league:<id>` room and the same two transports,
+     *  so the worker's scheduled live tick and daily stat-correction pass now
+     *  ride the emitter to every API instance instead of the null-`io` drop that
+     *  silenced them since the worker split. The payload
+     *  (`{ leagueId, season, week, scored, plays }`) is the caller's shape; the
+     *  wire name `scores:updated` is this module's secret, like the others. */
+    scoresUpdated: (leagueId, payload) => send(leagueId, 'scores:updated', payload),
   };
 }
 

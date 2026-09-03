@@ -57,6 +57,49 @@ test('each named method reaches to(league:<id>).emit(<wire name>, payload) on th
   ]);
 });
 
+test('scoresUpdated reaches to(league:<id>).emit(scores:updated, payload) with the payload unchanged (#765)', async () => {
+  const transport = recordingTransport();
+  const broadcast = createDraftRoomBroadcast(transport, 'emitter');
+
+  const payload = {
+    leagueId: 7,
+    season: 2026,
+    week: 8,
+    scored: [{ matchupId: 70, homeScore: 12.5, awayScore: 9 }],
+    plays: [{ playerId: 3, type: 'passing', isTouchdown: true }],
+  };
+
+  // Negative control (PR body): deleting the scoresUpdated method turns this red
+  // (there is no such method to call), so the case pins the new tenant, not a
+  // pre-existing one.
+  assert.deepEqual(await broadcast.scoresUpdated(7, payload), { delivered: true, transport: 'emitter' });
+  assert.equal(transport.emits.length, 1);
+  assert.equal(transport.emits[0].room, 'league:7');
+  assert.equal(transport.emits[0].event, 'scores:updated');
+  assert.deepEqual(transport.emits[0].payload, payload);
+});
+
+test('scoresUpdated over a transport whose emit rejects yields { delivered: false } plus one pino error and one captureError (#765)', async (t) => {
+  const boom = new Error('publish rejected');
+  const transport = { to: () => ({ emit: () => Promise.reject(boom) }) };
+  const broadcast = createDraftRoomBroadcast(transport, 'emitter');
+
+  const errors = [];
+  const captured = [];
+  t.mock.method(logger, 'error', (obj, msg) => errors.push({ obj, msg }));
+  t.mock.method(sentry, 'captureError', (err, ctx) => captured.push({ err, ctx }));
+
+  const result = await broadcast.scoresUpdated(7, { leagueId: 7 });
+
+  assert.equal(result.delivered, false);
+  assert.equal(result.transport, 'emitter');
+  assert.equal(result.error, boom);
+  assert.equal(errors.length, 1, 'exactly one pino error');
+  assert.equal(captured.length, 1, 'exactly one captureError');
+  assert.deepEqual(captured[0].ctx, { event: 'scores:updated', leagueId: 7 });
+  assert.equal(captured[0].err, boom);
+});
+
 test('a transport whose emit rejects yields { delivered: false } plus one pino error and one captureError', async (t) => {
   const boom = new Error('publish rejected');
   const transport = { to: () => ({ emit: () => Promise.reject(boom) }) };

@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
 const { tenureHandlers } = require('./helpers/tenureFakes');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const {
   calculateFantasyPoints,
   tank01Body,
@@ -18,6 +19,10 @@ const {
 } = require('../services/scoring.service');
 
 test('scoreMatchups excludes IR occupants from the best-ball candidate pool', async (t) => {
+  // scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
+  // broadcast is registered (ruling 2, #765). Install a recording one so the pass
+  // has a transport; this test is about the IR slot rule, not the emit.
+  installRecordingBroadcast(t);
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [{
       id: 5,

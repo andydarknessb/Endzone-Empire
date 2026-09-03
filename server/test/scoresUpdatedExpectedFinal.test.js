@@ -1,7 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
-const { setIo } = require('../modules/io');
+const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
+const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { scoreMatchups } = require('../services/scoring.service');
 const expectedFinalService = require('../services/expectedFinal.service');
 
@@ -32,12 +33,13 @@ function scoringPool({ matchups }) {
   ]);
 }
 
+// The pass now emits through the one Draft room broadcast adapter (#765), read
+// via getDraftRoomBroadcast(); the recording broadcast captures each adapter
+// call as { method, leagueId, payload }. `scoresUpdated` is the method, and the
+// wire name `scores:updated` is now the adapter's secret, so the service test
+// asserts by MEANING (the method) rather than by wire name.
 function captureEmits(t) {
-  const emitted = [];
-  const io = { to: () => ({ emit: (event, payload) => emitted.push({ event, payload }) }) };
-  setIo(io);
-  t.after(() => setIo(null));
-  return emitted;
+  return installRecordingBroadcast(t).calls;
 }
 
 test('scores:updated carries each open side\'s expected final and players remaining; a final matchup carries null', async (t) => {
@@ -73,9 +75,10 @@ test('scores:updated carries each open side\'s expected final and players remain
   assert.deepEqual(producerCalls[0].teamIds, [10, 20]);
   assert.equal(producerCalls[0].league.id, LEAGUE_ID);
   assert.equal(producerCalls[0].week, WEEK);
-  // The same entries went out on the socket.
+  // The same entries went out on the socket, now through the adapter's
+  // scoresUpdated method (the wire name is the adapter's secret).
   assert.equal(emitted.length, 1);
-  assert.equal(emitted[0].event, 'scores:updated');
+  assert.equal(emitted[0].method, 'scoresUpdated');
   assert.deepEqual(emitted[0].payload.scored, scored);
 });
 
@@ -106,4 +109,50 @@ test('a settle pass never asks for expected finals: the week as played is its sc
   await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK, settle: true });
 
   assert.deepEqual(producerCalls, []);
+});
+
+test('scoreMatchups emits exactly one scoresUpdated carrying leagueId/season/week/scored/plays; plays pass through (#765)', async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map());
+  scoringPool({ matchups: [OPEN] }).install(t);
+  const emitted = captureEmits(t);
+
+  const plays = [{ playerId: 3, type: 'passing', isTouchdown: true }];
+  const { scored } = await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK, plays });
+
+  assert.equal(emitted.length, 1);
+  const rec = emitted[0];
+  assert.equal(rec.method, 'scoresUpdated');
+  assert.equal(rec.leagueId, LEAGUE_ID);
+  assert.equal(rec.payload.leagueId, LEAGUE_ID);
+  assert.equal(rec.payload.season, SEASON);
+  assert.equal(rec.payload.week, WEEK);
+  assert.deepEqual(rec.payload.scored, scored);
+  assert.deepEqual(rec.payload.plays, plays);
+});
+
+test('scoreMatchups defaults plays to an empty array when the caller passes none (#765)', async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map());
+  scoringPool({ matchups: [OPEN] }).install(t);
+  const emitted = captureEmits(t);
+
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(emitted.length, 1);
+  assert.deepEqual(emitted[0].payload.plays, []);
+});
+
+test('with no broadcast registered, scoreMatchups rejects with the not-initialised error, not a silent drop (ruling 2, #765)', async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map());
+  scoringPool({ matchups: [OPEN] }).install(t);
+  // Explicitly clear the process registration for this pass and restore it after.
+  // The scores are already committed when the emit runs, so the throw proves the
+  // configuration error is loud (ADR 0025) rather than a quiet if-broadcast path.
+  const prior = peekDraftRoomBroadcast();
+  setDraftRoomBroadcast(null);
+  t.after(() => setDraftRoomBroadcast(prior));
+
+  await assert.rejects(
+    scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK }),
+    /not initialised/
+  );
 });
