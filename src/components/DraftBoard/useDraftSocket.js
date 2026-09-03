@@ -1,18 +1,21 @@
 import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { MEMBERSHIP_UNKNOWN, MEMBERSHIP_NON_MEMBER, membershipAfterJoinAck } from './draftMembership';
+import { deriveOnTheClock, isTeamOnTheClock } from '../../lib/onTheClock';
 
 const initialState = {
   league: null,
   teams: [],
   picks: [],
-  onTheClock: null,
-  deadline: null, // epoch ms the current pick is due, or null (untimed/paused/inactive)
-  secondsLeft: null,
+  // The On-the-clock value (src/lib/onTheClock): `{ team, state, deadlineAt }`.
+  // Holds the DEADLINE and never a per-second field (#754 amendments A1): the
+  // seconds are read off `deadlineAt` by the one leaf that ticks (PickClock),
+  // so nothing in this store, and so nothing in the room, re-renders per second.
+  onTheClock: deriveOnTheClock(),
   draftComplete: false,
 };
 
-/** Deadline + seconds-left pair for a league snapshot, or nulls when there's no live clock. */
+/** Epoch-ms deadline for a timed, active, unpaused league, else null. */
 function deadlineFromLeague(league, deadlineAtIso) {
   if (
     league?.draft_status === 'active' &&
@@ -20,25 +23,31 @@ function deadlineFromLeague(league, deadlineAtIso) {
     !league?.draft_paused &&
     deadlineAtIso
   ) {
-    const deadline = Date.parse(deadlineAtIso);
-    return { deadline, secondsLeft: Math.max(0, Math.floor((deadline - Date.now()) / 1000)) };
+    return Date.parse(deadlineAtIso);
   }
-  return { deadline: null, secondsLeft: null };
+  return null;
+}
+
+/** Map a league snapshot plus the team up into the On-the-clock value. */
+function onTheClockFor(league, team, deadlineAt) {
+  return deriveOnTheClock({
+    team,
+    deadlineAt,
+    paused: !!league?.draft_paused,
+    active: league?.draft_status === 'active',
+  });
 }
 
 function reducer(state, action) {
   switch (action.type) {
     case 'state': {
       const { league, teams, picks, onTheClock } = action.data;
-      const { deadline, secondsLeft } = deadlineFromLeague(league, league?.pick_deadline_at);
       return {
         ...state,
         league,
         teams,
         picks: [...picks].reverse(), // history renders newest first
-        onTheClock,
-        deadline,
-        secondsLeft,
+        onTheClock: onTheClockFor(league, onTheClock, deadlineFromLeague(league, league?.pick_deadline_at)),
       };
     }
     case 'picked': {
@@ -64,14 +73,11 @@ function reducer(state, action) {
 
       // Server sends the new deadline directly; fall back to a client-side
       // estimate (pick_time_seconds from now) if it's ever omitted.
-      let deadline = null;
-      let secondsLeft = null;
+      let deadlineAt = null;
       if (data.pickDeadlineAt) {
-        deadline = Date.parse(data.pickDeadlineAt);
-        secondsLeft = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+        deadlineAt = Date.parse(data.pickDeadlineAt);
       } else if (state.league?.pick_time_seconds > 0) {
-        deadline = Date.now() + state.league.pick_time_seconds * 1000;
-        secondsLeft = state.league.pick_time_seconds;
+        deadlineAt = Date.now() + state.league.pick_time_seconds * 1000;
       }
 
       const draftComplete = data.draftComplete ? true : state.draftComplete;
@@ -81,26 +87,17 @@ function reducer(state, action) {
       return {
         ...state,
         picks: [pick, ...state.picks],
-        onTheClock: nextOnTheClock,
-        deadline: data.draftComplete ? null : deadline,
-        secondsLeft: data.draftComplete ? null : secondsLeft,
+        // A completing pick derives `idle` (league is no longer active).
+        onTheClock: onTheClockFor(league, nextOnTheClock, deadlineAt),
         draftComplete,
         league,
       };
     }
-    case 'complete':
-      return { ...state, draftComplete: true };
-    case 'tick': {
-      if (
-        state.league?.draft_status === 'active' &&
-        state.league?.pick_time_seconds > 0 &&
-        !state.league?.draft_paused &&
-        state.deadline
-      ) {
-        const secondsLeft = Math.max(0, Math.floor((state.deadline - Date.now()) / 1000));
-        return secondsLeft === state.secondsLeft ? state : { ...state, secondsLeft };
-      }
-      return state.secondsLeft === null ? state : { ...state, secondsLeft: null };
+    case 'complete': {
+      // Same as a completing pick: the league is no longer active, so the
+      // On-the-clock value derives idle and the leaf unmounts.
+      const league = state.league ? { ...state.league, draft_status: 'complete' } : state.league;
+      return { ...state, draftComplete: true, league, onTheClock: onTheClockFor(league, null, null) };
     }
     default:
       return state;
@@ -329,18 +326,12 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     };
   }, [leagueId]);
 
-  // Ticks the on-the-clock countdown once a second off the reducer's deadline.
-  useEffect(() => {
-    const interval = setInterval(() => dispatch({ type: 'tick' }), 1000);
-    return () => clearInterval(interval);
-  }, []);
+  // No tick lives here (#754 amendments A1): the pick clock's seconds are the
+  // PickClock leaf's own state, read off `onTheClock.deadlineAt`.
 
-  const isMyTurn = !!(
-    state.onTheClock &&
-    viewerTeamId != null &&
-    state.onTheClock.teamId != null &&
-    state.onTheClock.teamId === viewerTeamId
-  );
+  // A viewer fact, not a clock fact, so it stays beside the store rather than
+  // inside the value object: the on-clock sound edge below keys on it.
+  const isMyTurn = isTeamOnTheClock(state.onTheClock, viewerTeamId);
 
   // Fires the "you're on the clock" alert exactly once per turn: only on the
   // false -> true transition of isMyTurn, guarded by prevIsMyTurnRef so
@@ -381,7 +372,6 @@ export default function useDraftSocket(leagueId, { onPickLanded, onDraftActivity
     gifMessagesEnabled,
     membership,
     revokeMembership,
-    secondsLeft: state.secondsLeft,
     reconnecting,
     isMyTurn,
     draftComplete: state.draftComplete,

@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
 import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
-import Countdown from '../Countdown/Countdown';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
+import PickClock from '../DraftBoard/PickClock';
+import { deriveOnTheClock } from '../../lib/onTheClock';
 import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 import { draftRounds } from '../../lib/rosterShape';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
@@ -80,8 +81,17 @@ function DraftPresenter() {
     );
   }
 
-  const { league, teams, onTheClock } = draftState;
+  const { league, teams } = draftState;
   const isActive = league.draft_status === 'active';
+  // The same On-the-clock value the room derives (#754), off this page's
+  // polled snapshot: derived once per poll, never per second. The PickClock
+  // leaf below owns the tick, so this page does not repaint on it.
+  const onTheClock = deriveOnTheClock({
+    team: draftState.onTheClock,
+    deadlineAt: league.pick_deadline_at ? Date.parse(league.pick_deadline_at) : null,
+    paused: !!league.draft_paused,
+    active: isActive,
+  });
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: { xs: 2, md: 4 } }}>
@@ -110,19 +120,15 @@ function DraftPresenter() {
                 {isActive ? 'On the clock' : 'Draft status'}
               </Typography>
               <Typography variant="h3" sx={{ fontSize: { xs: '1.6rem', md: '2.5rem' }, fontWeight: 'bold' }}>
-                {isActive && onTheClock ? `${onTheClock.teamName} is on the clock` : league.draft_status}
+                {onTheClock.team ? `${onTheClock.team.teamName} is on the clock` : league.draft_status}
               </Typography>
             </Box>
-            {isActive && !league.draft_paused && league.pick_deadline_at ? (
-              // This is the per-pick clock, not the Draft's own schedule: no
-              // milestone announcer (the surrounding Paper is already one
-              // aria-live=polite region) and no timezone/calendar detail.
-              <Countdown
-                date={league.pick_deadline_at}
-                prefix="Time remaining:"
-                announce={false}
-                showScheduleDetail={false}
-              />
+            {onTheClock.state === 'running' ? (
+              // This is the per-pick clock, not the Draft's own schedule, so
+              // it is the room's PickClock leaf (one m:ss vocabulary, #754),
+              // not the schedule Countdown: no milestone announcer, no
+              // timezone/calendar detail.
+              <PickClock deadlineAt={onTheClock.deadlineAt} prefix="Time remaining:" variant="h6" />
             ) : (
               <Typography variant="h6" sx={{ color: league.draft_paused ? 'warning.main' : 'text.secondary' }}>
                 {league.draft_paused ? 'Draft paused' : 'No active pick clock'}

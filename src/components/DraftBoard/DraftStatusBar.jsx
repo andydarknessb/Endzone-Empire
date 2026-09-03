@@ -11,10 +11,12 @@ import { draftStatusLabel, draftStatusChipColor } from './draftStatusCopy';
 // exactly what #508/#510 got wrong the first time.
 const SOUND_TOGGLE_LABEL = 'On-the-clock sound';
 
-/** Status chip row (reconnecting/on-the-clock/timer) and the "you're on the
+/** Status chip row (reconnecting/on-the-clock) and the "you're on the
  * clock" snackbar, plus the controls that used to sit inside that same row.
- * The prominent pick-clock display lives in LiveDraftBanner, rendered
- * separately so it can stay sticky on its own.
+ * The room's one pick-clock display lives in LiveDraftBanner, rendered
+ * separately so it can stay sticky on its own; the timer chip that used to
+ * duplicate it here is gone (#754). `onTheClock` is the On-the-clock value
+ * (src/lib/onTheClock); only its team is read here.
  *
  * Two groups, not one (issue #123 acceptance criterion 6). Everything here
  * used to be a single flex row, so the mute toggle - a per-manager setting
@@ -26,7 +28,6 @@ const SOUND_TOGGLE_LABEL = 'On-the-clock sound';
 function DraftStatusBar({
   league,
   onTheClock,
-  secondsLeft,
   reconnecting,
   soundOn,
   toggleSound,
@@ -53,9 +54,9 @@ function DraftStatusBar({
         {/* What the draft is doing. */}
         <Box role="group" aria-label="Draft status" sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           {reconnecting && <Chip label="Reconnecting…" color="default" size="small" variant="outlined" />}
-          {onTheClock ? (
+          {onTheClock?.team ? (
             <Chip
-              label={`On the clock: ${onTheClock.teamName}`}
+              label={`On the clock: ${onTheClock.team.teamName}`}
               color="primary"
               sx={{ fontWeight: 'bold' }}
             />
@@ -68,13 +69,6 @@ function DraftStatusBar({
               // status is spoken (see draftStatusCopy).
               label={draftStatusLabel(league?.draft_status)}
               color={draftStatusChipColor(league?.draft_status)}
-            />
-          )}
-          {secondsLeft !== null && (
-            <Chip
-              label={`⏱ ${secondsLeft}s`}
-              color={secondsLeft <= 10 ? 'error' : 'default'}
-              sx={{ fontWeight: 'bold' }}
             />
           )}
           {league?.draft_paused && <Chip label="Draft Paused" color="warning" />}

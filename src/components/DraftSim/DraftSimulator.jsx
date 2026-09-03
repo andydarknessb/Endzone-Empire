@@ -17,6 +17,7 @@ import {
 import { templateFor, SIM_BENCH_SLOTS } from '../../lib/draftSim/templates';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
+import { deriveOnTheClock } from '../../lib/onTheClock';
 
 /**
  * The whole Draft Simulator, deliberately tree-agnostic: it imports no
@@ -165,7 +166,10 @@ function DraftSimulator({ showCta = false }) {
             <DraftBoardMatrix
               teams={board.teams}
               picks={board.picks}
-              onTheClock={board.onTheClock}
+              // The shared matrix reads the On-the-clock value (#754); the sim
+              // engine keeps its own flat team, so derive at this seam. The sim
+              // clock is drawn by SimStatusBar, so the board value is untimed.
+              onTheClock={deriveOnTheClock({ team: board.onTheClock, active: true })}
               draftRounds={board.draftRounds}
               readOnly
             />

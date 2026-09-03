@@ -3,13 +3,10 @@ import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText,
   DialogTitle, LinearProgress, Paper, Stack, Typography,
 } from '@mui/material';
-
-function formatClock(seconds) {
-  const safe = Math.max(0, Number(seconds) || 0);
-  const mins = Math.floor(safe / 60);
-  const secs = safe % 60;
-  return `${mins}:${String(secs).padStart(2, '0')}`;
-}
+// The one pick-clock vocabulary (#754): the sim keeps its own engine seconds
+// and its own display rule (timer only on the user's turn), but the format
+// and the urgency threshold are the shared ones, not a private copy.
+import { formatRemaining, isUrgent } from '../../lib/onTheClock';
 
 /**
  * The persistent draft-room header: where the draft is, who's on the clock,
@@ -22,7 +19,7 @@ function SimStatusBar({
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const progress = totalPicks > 0 ? Math.min(100, ((pickNumber - 1) / totalPicks) * 100) : 0;
-  const urgent = myTurn && secondsLeft != null && secondsLeft <= 10;
+  const urgent = myTurn && isUrgent(secondsLeft);
 
   return (
     <Paper sx={{ p: 2, mb: 2 }}>
@@ -69,7 +66,7 @@ function SimStatusBar({
                 variant="h6"
                 sx={{ fontWeight: 800, color: urgent ? 'error.main' : 'text.primary' }}
               >
-                {formatClock(secondsLeft)}
+                {formatRemaining(secondsLeft)}
               </Typography>
             </Box>
           )}
