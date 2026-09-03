@@ -41,12 +41,15 @@ class DraftError extends Error {
  *
  * The predicate deliberately does not require `instanceof DraftError`: it
  * admits any error carrying a numeric `statusCode` below 500. That widening is
- * intentional (#808) — five of the seven draft boundaries this predicate
- * replaced tested a bare `error.statusCode`, not a `DraftError` specifically,
- * and narrowing to `DraftError` would have changed their behavior. Anything
- * without a numeric `statusCode` (a bare Error, a driver error) is not a
- * refusal either, so it takes the same generic, logged path. This is the one
- * predicate the seven draft boundaries branch on (#808).
+ * intentional (#808): narrowing to `instanceof DraftError` would have changed
+ * the behavior of six of the seven draft boundaries this predicate replaced,
+ * each of which let a non-`DraftError` with a `statusCode` through too (four
+ * tested a bare `error.statusCode` alone, two tested
+ * `instanceof DraftError || error.statusCode`); the seventh, the correct-pick
+ * boundary, already tested `instanceof DraftError` alone, so the widening is a
+ * no-op there. Anything without a numeric `statusCode` (a bare Error, a driver
+ * error) is not a refusal either, so it takes the same generic, logged path.
+ * This is the one predicate the seven draft boundaries branch on (#808).
  */
 function isDraftRefusal(error) {
   return !!error && typeof error.statusCode === 'number' && error.statusCode < 500;
