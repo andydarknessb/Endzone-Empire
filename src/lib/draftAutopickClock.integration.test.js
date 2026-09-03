@@ -14,15 +14,17 @@ jest.mock('../../server/modules/io', () => ({
 // the paused clock via getDraftRoomBroadcast().stateChanged, which reads
 // memberSnapshot (#788, formerly a snapshot read on the socket module). The full
 // draft-state read is not this suite's concern - it would issue DB queries the
-// fake does not model - so stub it with a valid snapshot shape. Crucially, a
+// fake does not model - so stub it with a valid snapshot shape. The resolved
+// value is (re)established in install() below, NOT here: the cross-tree jest
+// runner (react-scripts) runs with resetMocks:true, which strips a factory-set
+// implementation before every test, so a value set only here delivers `undefined`
+// in `npm run test:server` while passing under a bare `npx jest`. Crucially, a
 // stub that THREW would be swallowed by stateChanged's delivered-or-reported
 // policy (ADR 0025) and deliver nothing, so the STALLED test below asserts the
 // draft:state actually reached the room, proving the broadcast path is exercised
 // rather than passing through a swallowed throw against the mocked pool.
 jest.mock('../../server/services/draftRoomSnapshot', () => ({
-  memberSnapshot: jest.fn().mockResolvedValue({
-    league: { draft_paused: true }, teams: [], picks: [], onTheClock: null,
-  }),
+  memberSnapshot: jest.fn(),
   presenterSnapshot: jest.fn(),
 }));
 
@@ -443,6 +445,12 @@ describe('live snake-draft expiry and autopick integration', () => {
     pool.connect.mockImplementation(database.connect);
     ioRegistry.getIo.mockReturnValue(hub);
     setDraftRoomBroadcast(createDraftRoomBroadcast(hub, 'io'));
+    // Re-establish the snapshot stub every test, the same way pool.query and
+    // getIo above are: resetMocks:true (react-scripts) clears a factory-set
+    // implementation before each test, and stateChanged awaits this value.
+    memberSnapshot.mockResolvedValue({
+      league: { draft_paused: true }, teams: [], picks: [], onTheClock: null,
+    });
     return state;
   }
 
