@@ -172,4 +172,23 @@ describe('DraftSimulator', () => {
     render(<DraftSimulator />);
     expect(screen.queryByRole('link', { name: 'Get started free' })).not.toBeInTheDocument();
   });
+
+  // Red-tell: reverting this region to an off-turn-only mount turns the
+  // "Your pick!" assertion red (#805, ADR 0028). One region, mounted on both
+  // turns, so a screen reader hears exactly one announcement per turn change
+  // whether or not the assistant is on - mirrors LiveDraftBanner in the
+  // Draft room.
+  it('mounts one status region on both turns, announcing the turn change once', async () => {
+    await startDraft();
+
+    const onUserTurn = screen.getAllByRole('status').find((region) => region.textContent === 'Your pick!');
+    expect(onUserTurn).toBeInTheDocument();
+
+    draftFirstAvailable();
+
+    // Same node, new text once the CPU is on the clock - not a second region
+    // replacing a first.
+    await waitFor(() => expect(onUserTurn).toHaveTextContent(/is on the clock…$/));
+    expect(screen.getAllByRole('status').filter((region) => region.textContent.includes('on the clock'))).toHaveLength(1);
+  });
 });

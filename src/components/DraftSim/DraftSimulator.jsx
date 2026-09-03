@@ -133,14 +133,22 @@ function DraftSimulator({ showCta = false }) {
         onRestart={restart}
       />
 
-      {!myTurn && (
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }} aria-live="polite">
-          <CircularProgress size={16} />
+      {/* The room's one turn-status region (#805, ADR 0028): mounted on BOTH
+          turns, never gated behind myTurn, with role="status" aria-live=
+          "polite" so a screen reader hears exactly one announcement per turn
+          change whether or not the assistant is on - mirrors LiveDraftBanner's
+          Box in the Draft room (src/components/DraftBoard/LiveDraftBanner.jsx,
+          #445 AC3). The spinner is purely decorative and stays off-turn only;
+          it sits beside the region, not inside it, so it never becomes part
+          of the announced text. */}
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+        {!myTurn && <CircularProgress size={16} />}
+        <Box role="status" aria-live="polite">
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {onTheClock ? `${onTheClock.name} is on the clock…` : 'Wrapping up…'}
+            {myTurn ? 'Your pick!' : onTheClock ? `${onTheClock.name} is on the clock…` : 'Wrapping up…'}
           </Typography>
-        </Stack>
-      )}
+        </Box>
+      </Stack>
 
       <Tabs
         value={tab}
