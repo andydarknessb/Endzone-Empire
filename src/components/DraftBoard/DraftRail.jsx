@@ -22,7 +22,6 @@ import CloseIcon from '@mui/icons-material/Close';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
-import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
@@ -69,14 +68,18 @@ function DraftRail({
   onMoveDown,
   onRemoveFromQueue,
   onDraft,
-  isMyTurn,
-  draftPaused,
+  // The room's one pick-availability reading (issue #792 ruling 3): whether a
+  // manual Pick exists in this draft at all, whether it is only temporarily
+  // unavailable right now, and the one shared explanation for that. Derived once
+  // by the room from pickAvailability.js and shared with the pool table and
+  // Quick View, so this rail no longer imports pickAvailability or keys on the
+  // raw isMyTurn/draftPaused/draftType facts itself.
+  pickState,
   teams,
   onTheClock,
   isCommissioner,
   viewerTeamId,
   draftStatus,
-  draftType,
   onToggleAutodraft,
   onToggleReady,
   isXs,
@@ -192,8 +195,8 @@ function DraftRail({
           // paused), rendered focusable aria-disabled with the same shared
           // explanation rather than disappearing (issue #120 acceptance
           // criteria 2, 5).
-          const showQuickDraft = index === 0 && pickActionExists({ draftStatus, draftType });
-          const quickDraftUnavailable = showQuickDraft && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
+          const showQuickDraft = index === 0 && pickState.canManualPick;
+          const quickDraftUnavailable = showQuickDraft && pickState.pickUnavailable;
           return (
             <Box
               key={player.id}
@@ -215,7 +218,7 @@ function DraftRail({
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 {showQuickDraft && (
-                  <Tooltip title={quickDraftUnavailable ? PICK_UNAVAILABLE_EXPLANATION : ''}>
+                  <Tooltip title={quickDraftUnavailable ? pickState.explanation : ''}>
                     <span>
                       <Button
                         variant="contained"
