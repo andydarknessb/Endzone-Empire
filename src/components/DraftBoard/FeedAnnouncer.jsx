@@ -21,19 +21,27 @@ import { useAnnouncement } from './useAnnouncement';
  * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed
  * and its active-phase siblings belong to an ACTIVE one, and a draft is one
  * or the other, never both. Do not hand-enumerate this feed's active-phase
- * siblings here - that list has gone stale before (#654):
+ * siblings here - that list has gone stale before (#654), and again across
+ * #791: most of the room's polite regions render the shared PoliteRegion leaf
+ * now (#791), so a `role="status"` grep alone no longer finds them.
+ * `git grep -nF '<PoliteRegion' src/components/DraftBoard/` surfaces the leaf's
+ * callers - PickAnnouncer, StallAnnouncer, this one, ReadinessAnnouncer and
+ * DraftChatMembershipAnnouncer - but READ WHAT IT RETURNS rather than trusting
+ * the count: it also matches ReadinessAnnouncer's call site even though that
+ * component renders null outside the PENDING phase (railCompositionFor). The
+ * two regions that do NOT use the shared leaf - LiveDraftBanner (a visible
+ * region in a different form) and ComposerCharacterCount (#486, in
+ * src/components/ChatPanel/ - ChatPanel is part of the room, DraftRoomChat.jsx
+ * imports ChatConversation from it) - still carry a literal `role="status"`, so
  * `git grep -nF 'role="status"' src/components/DraftBoard/ src/components/ChatPanel/`
- * (ChatPanel is part of the room - DraftRoomChat.jsx imports ChatConversation
- * from it, which is where ComposerCharacterCount #486 lives) surfaces most of
- * them, but READ WHAT IT RETURNS rather than trusting the count: it also
- * matches ReadinessAnnouncer's source even though that component renders null
- * outside the PENDING phase (railCompositionFor), and it structurally cannot
- * see RosterNeedsStrip (src/components/RosterPanel/, mounted in the ACTIVE
- * rail composition, railComposition.js) - that region carries
- * `aria-live="polite"` WITHOUT `role="status"`; its own docblock is the
- * source of truth for that ruling (#664). Each region is on
- * its own axis, none folding into another (ADR 0028). This one still earns its
- * place rather than folding into any of them:
+ * finds those two (plus PoliteRegion.jsx's own definition, which is the leaf
+ * itself, not a sibling). Neither grep sees RosterNeedsStrip
+ * (src/components/RosterPanel/, mounted in the ACTIVE rail composition,
+ * railComposition.js) - that region carries `aria-live="polite"` WITHOUT
+ * `role="status"` and does not use the shared leaf either; its own docblock is
+ * the source of truth for that ruling (#664). Each region is on its own axis,
+ * none folding into another (ADR 0028). This one still earns its place rather
+ * than folding into any of them:
  *
  *  - It carries a DIFFERENT axis: human-message arrival, which neither
  *    ComposerCharacterCount (#486) nor LiveDraftBanner announces. Folding it
@@ -172,7 +180,7 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
 /**
  * The concise polite-region text for one combined-feed entry (#445 AC2), moved
  * module-private here in #791 - the one caller made the pure-function/component
- * split ADR 0028's rulings 4 and 5 ask for unnecessary.
+ * split #791's rulings 4 and 5 ask for unnecessary.
  *
  * Only ONE kind is announced here now (#513 moved Picks to the room-level
  * PickAnnouncer): the human League chat message.

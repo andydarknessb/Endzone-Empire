@@ -113,7 +113,7 @@ function StallAnnouncer({ stall = null }) {
 /**
  * The concise polite-region text for a nothing-draftable stall (#636), moved
  * module-private here in #791 - the one caller made the pure-function/component
- * split ADR 0028's rulings 4 and 5 ask for unnecessary. The entry/exit
+ * split #791's rulings 4 and 5 ask for unnecessary. The entry/exit
  * predicates (isStallEntry, isStallExit, isStallRelevant) and the lifecycle
  * roster stay in stallAnnouncement.js: they have two callers apiece (this
  * component and DraftBoard.jsx) and stallAnnouncement.parity.test.js pins the

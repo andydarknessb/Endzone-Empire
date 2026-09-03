@@ -7,7 +7,7 @@ import {
 
 // stallAnnouncementFor (the announcement TEXT) moved into StallAnnouncer.jsx as
 // a module-private function in #791 - it had exactly one caller, so the
-// pure-function/component split ADR 0028's rulings 4 and 5 ask for was
+// pure-function/component split #791's rulings 4 and 5 ask for was
 // unnecessary. Its string-equality cases moved up to StallAnnouncer.test.jsx as
 // assertions on the rendered region's text. This file keeps the entry/exit
 // CLASSIFICATION below: isStallEntry, isStallExit and isStallRelevant have two

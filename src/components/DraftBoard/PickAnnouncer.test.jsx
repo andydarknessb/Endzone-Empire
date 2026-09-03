@@ -18,6 +18,13 @@ describe('PickAnnouncer', () => {
     expect(region).toHaveTextContent('');
   });
 
+  it('says nothing for a null or undefined pick', () => {
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    rerender(<PickAnnouncer pick={undefined} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
   it('announces a Pick that lands after mount', () => {
     const { rerender } = render(<PickAnnouncer pick={null} />);
     expect(screen.getByRole('status')).toHaveTextContent('');
@@ -107,8 +114,8 @@ describe('PickAnnouncer', () => {
 
   // The copy assertions that used to live one layer down, against
   // pickAnnouncementFor directly (pickAnnouncement.test.js, now deleted), moved
-  // up here as assertions on the rendered region's text (#791, ADR 0028 ruling
-  // 5): pickAnnouncementFor is now module-private to this file.
+  // up here as assertions on the rendered region's text (#791's ruling 5):
+  // pickAnnouncementFor is now module-private to this file.
   it('falls back to "a player" when a Pick carries no player name', () => {
     const { rerender } = render(<PickAnnouncer pick={null} />);
     rerender(<PickAnnouncer pick={{ teamName: 'Gridiron Giants', player: {}, auto: false }} />);

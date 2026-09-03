@@ -39,6 +39,19 @@ describe('FeedAnnouncer', () => {
     expect(screen.getByRole('status')).toHaveTextContent('New message from Team Rocket');
   });
 
+  it('announces a new human message by Team, not its content', () => {
+    // Presence, not content (#445 AC2): the region names WHO spoke so a reader
+    // can navigate the log to read it, and never voices arbitrary (possibly
+    // long or already-moderated) message text. `toBe`, not a substring match:
+    // toHaveTextContent would pass even if the message body leaked into the
+    // region, which is exactly what this case exists to rule out.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(
+      <FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Team Rocket', 'hello there everyone')]} />
+    );
+    expect(screen.getByRole('status').textContent).toBe('New message from Team Rocket');
+  });
+
   it('stays silent when a Pick arrives live - the room-level PickAnnouncer speaks it (#513)', () => {
     // Picks moved to a room-level announcer (PickAnnouncer, #513) so they are
     // heard on every tab. The feed announcer must NOT also speak a Pick, or a
@@ -253,8 +266,8 @@ describe('FeedAnnouncer', () => {
 
   // The copy assertions that used to live one layer down, against
   // feedAnnouncementFor directly (feedAnnouncement.test.js, now deleted), moved
-  // up here as assertions on the rendered region's text (#791, ADR 0028 ruling
-  // 5): feedAnnouncementFor is now module-private to this file.
+  // up here as assertions on the rendered region's text (#791's ruling 5):
+  // feedAnnouncementFor is now module-private to this file.
   it('treats an untyped entry as a League chat message', () => {
     // feedEntryKey defaults a missing type to league_chat; the announcer agrees.
     const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
@@ -290,6 +303,20 @@ describe('FeedAnnouncer', () => {
         ]}
       />
     );
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('says nothing for a null or undefined entry', () => {
+    // A live tail can genuinely be null: entries shrinking back to empty after
+    // a real arrival (not just the initial-mount case, which never reaches
+    // feedAnnouncementFor at all - see 'mounts a persistent polite status
+    // region' above). Seed a real announcement, then let entries go empty:
+    // the tail becomes null, feedAnnouncementFor(null) returns '', and the
+    // prior announcement clears rather than lingering.
+    const { rerender } = render(<FeedAnnouncer entries={[chat(1, 'A', 'seed')]} />);
+    rerender(<FeedAnnouncer entries={[chat(1, 'A', 'seed'), chat(2, 'Rivals', 'hi')]} />);
+    expect(screen.getByRole('status')).toHaveTextContent('New message from Rivals');
+    rerender(<FeedAnnouncer entries={[]} />);
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 

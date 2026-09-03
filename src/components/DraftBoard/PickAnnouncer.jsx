@@ -65,7 +65,7 @@ function PickAnnouncer({ pick = null }) {
 /**
  * The concise polite-region text for one live committed Pick (#513, moved
  * module-private here in #791 - the one caller made the pure-function/component
- * split ADR 0028's rulings 4 and 5 ask for unnecessary).
+ * split #791's rulings 4 and 5 ask for unnecessary).
  *
  * It reads the `draft:picked` broadcast shape straight off the wire: the server
  * emits `{ ...outcome, auto }` from both the manual pick handler (draftSocket.js,

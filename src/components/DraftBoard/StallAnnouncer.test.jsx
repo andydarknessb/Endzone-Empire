@@ -130,7 +130,7 @@ describe('StallAnnouncer', () => {
 
   // The copy assertions that used to live one layer down, against
   // stallAnnouncementFor directly (stallAnnouncement.test.js), moved up here as
-  // assertions on the rendered region's text (#791, ADR 0028 ruling 5):
+  // assertions on the rendered region's text (#791's ruling 5):
   // stallAnnouncementFor is now module-private to this file.
   it('names the cause and the commissioner next step, and names the Team without casting it as the actor', () => {
     const { rerender } = render(<StallAnnouncer stall={null} />);
