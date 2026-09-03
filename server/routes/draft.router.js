@@ -2,7 +2,9 @@ const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
-const { getDraftState } = require('../modules/draftSocket');
+// The anonymous presenter board reads its own narrow snapshot (#788), so this
+// route no longer imports anything from the Socket.IO attach module.
+const { presenterSnapshot } = require('../services/draftRoomSnapshot');
 const { teamForPick } = require('../services/draftOrder.service');
 const { correctLatestPick, DraftError } = require('../services/draft.service');
 // A Pick lands in one place (#782): the offline bulk route commits AND fans out
@@ -21,86 +23,13 @@ const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagu
 const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
 const { listPresenterDraftActivity } = require('../services/leagueFeed');
-// Every room-wide emit in this router rides the one Draft room adapter (#745);
-// getDraftState above stays only for the anonymous presenter board read.
+// Every room-wide emit in this router rides the one Draft room adapter (#745).
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 const router = express.Router();
 
 function intOrNull(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
-}
-
-/**
- * The public presenter board's payload contract (#173).
- *
- * These lists are an ALLOWLIST, and that direction is the point. The snapshot
- * they select from is `SELECT * FROM "leagues"` joined to the manager
- * accounts behind each team, so under the previous "take everything, delete
- * the fields we thought of" shape, publication was the DEFAULT: every column
- * added to `leagues` reached anonymous viewers the day it landed, and nothing
- * failed. Here, a field is published only because it is named below, and
- * `server/test/draftPresenterBoard.test.js` pins the exact key set of each
- * object so a new column fails loudly instead of shipping silently.
- *
- * Adding a name to one of these lists is a deliberate act of publication to
- * anyone holding a league's share link. Account identity never qualifies:
- * teams and the clock are identified by Team identity only (`teamId` /
- * `teamName`, #112), per CONTEXT.md's Team identity rule.
- *
- * This is the same guarantee publicRead.service.js's rule 2 gives the rest of
- * the anonymous surface ("every value returned to the client passes through
- * an explicit serializer that names each field"), reached a different way.
- * That module cannot serve this route: its rule 1 forbids it from touching a
- * league-scoped table, and the presenter board is nothing but league-scoped.
- *
- * These lists are also, in effect, the definition of what a presenter-rendered
- * component may read. The only consumer today is src/components/DraftPresenter
- * /DraftPresenter.jsx, which passes the payload into DraftBoardMatrix,
- * Countdown, lib/rosterShape draftRounds() and lib/teamIdentity. A component
- * added to that page needs its fields added here too.
- */
-const PUBLIC_LEAGUE_FIELDS = [
-  'name',
-  'draft_status',
-  'draft_paused',
-  'pick_deadline_at',
-  // draftRounds() on the client reads all three (ADR 0005).
-  'draft_rounds',
-  'roster_limit',
-  'ir_slots',
-];
-const PUBLIC_TEAM_FIELDS = ['teamId', 'teamName', 'draft_position'];
-const PUBLIC_PICK_FIELDS = [
-  'pick_number',
-  'teamId',
-  'teamName',
-  // No `team_id`: redundant with teamId since #113, and nothing reads it.
-  // DraftBoardMatrix, the presenter's own Recent picks list and (on the
-  // authenticated Board only) PickHistory all resolve a Pick's Team by
-  // teamId / teamName. Confirmed against #123 before it was dropped.
-  'is_keeper',
-  'player_id',
-  'name',
-  'position',
-  'nfl_team',
-];
-
-/**
- * A new object carrying `fields` and nothing else. A field the source lacks
- * is answered with null rather than omitted, so the key set is a property of
- * the list above and not of whatever the row happened to hold, and a consumer
- * can read every field unconditionally (the same rule teamIdentityOf() states
- * for Team identity). A null source stays null: an absent object is absent,
- * not an object of nulls.
- */
-function allowlisted(source, fields) {
-  if (!source) return null;
-  const published = {};
-  for (const field of fields) {
-    published[field] = source[field] === undefined ? null : source[field];
-  }
-  return published;
 }
 
 /**
@@ -129,17 +58,13 @@ router.get('/board/:token', async (req, res) => {
   try {
     const leagueId = await presenterLeagueId(token);
     if (leagueId == null) return res.status(404).json({ error: 'invalid presenter link' });
-    const state = await getDraftState(leagueId);
+    // The presenter snapshot (#788) is already narrowed to the published league,
+    // team and pick fields at the source - a narrow query, not a redaction of a
+    // wide read - so the route just resolves the token and serves it. A field
+    // can reach an anonymous viewer only by being named in the snapshot module.
+    const state = await presenterSnapshot(leagueId);
     if (!state) return res.status(404).json({ error: 'invalid presenter link' });
-    // Anonymous viewers get the allowlist above and nothing else, including
-    // nothing the snapshot grows later. Built as a fresh object rather than
-    // by mutating `state`, so a field can only appear here by being named.
-    res.json({
-      league: allowlisted(state.league, PUBLIC_LEAGUE_FIELDS),
-      teams: state.teams.map((team) => allowlisted(team, PUBLIC_TEAM_FIELDS)),
-      picks: state.picks.map((pick) => allowlisted(pick, PUBLIC_PICK_FIELDS)),
-      onTheClock: allowlisted(state.onTheClock, PUBLIC_TEAM_FIELDS),
-    });
+    res.json(state);
   } catch (error) {
     console.error('Error fetching presenter board', error);
     res.status(500).json({ error: 'failed to fetch draft board' });

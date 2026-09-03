@@ -48,7 +48,7 @@ function identityReads() {
 
 // A pending fantasy league the commissioner can start: 2 teams, snake, roster 2,
 // keepers off, so startPlan opens pick 0 and the draft goes active (no all-keeper
-// completion). Stateful so getDraftState reads back the 'active' status the start
+// completion). Stateful so memberSnapshot reads back the 'active' status the start
 // wrote.
 const START_LEAGUE = {
   id: LEAGUE_ID, owner_id: COMMISH.userId, pickem_only: false,
@@ -162,7 +162,7 @@ httpApp.use(express.json());
 httpApp.use('/api/draft', require('../routes/draft.router'));
 const commishAuth = () => `Bearer ${signToken({ id: COMMISH.userId, username: COMMISH.username })}`;
 
-// The reads getDraftState runs for the post-change draft:state broadcast.
+// The reads memberSnapshot runs for the post-change draft:state broadcast.
 function draftStateReads(leagueRow) {
   return [
     [select('leagues'), () => ({ rows: [{ ...leagueRow }] })],
@@ -205,7 +205,7 @@ for (const { paused, kind } of [{ paused: true, kind: 'pause' }, { paused: false
 test('POST /reset broadcasts a reset lifecycle entry to the room', async (t) => {
   createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // The reset's guarded league lookup, more specific than getDraftState's SELECT *.
+    // The reset's guarded league lookup, more specific than memberSnapshot's league read.
     [/SELECT "id", "current_season" FROM "leagues"/, () => ({ rows: [{ id: LEAGUE_ID, current_season: 2026 }] })],
     [select('matchups'), () => ({ rows: [] })],
     [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 0 })],

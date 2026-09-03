@@ -25,9 +25,9 @@
  *
  *   both joins   lookupTeam            SELECT "id", "name" FROM "teams" ...
  *   both joins   isLeagueCommissioner  SELECT 1 FROM "leagues" ... EXISTS (league_commissioners)
- *   draft:join   getDraftState league  SELECT * FROM "leagues" WHERE "id" = $1
- *   draft:join   getDraftState teams   ... FROM "teams" JOIN "users" ...
- *   draft:join   getDraftState picks   ... FROM "draft_picks" JOIN "players" ...
+ *   draft:join   memberSnapshot league  SELECT "id", "name", ... FROM "leagues" WHERE "id" = $1
+ *   draft:join   memberSnapshot teams   ... FROM "teams" (Team identity, no users join)
+ *   draft:join   memberSnapshot picks   ... FROM "draft_picks" JOIN "players" ...
  *
  * What this proves and what it does not: like `draftJoinCommissioner`'s
  * fixture, the commissioner predicate is not EXECUTED here - the world
@@ -54,7 +54,7 @@ const OUTSIDER = { userId: 404, username: 'stranger' };
 
 const MANAGERS = [OWNER, CO_COMMISSIONER, MEMBER];
 
-/** The `leagues` row `getDraftState` reads. Pending on purpose: an active
+/** The `leagues` row `memberSnapshot` reads. Pending on purpose: an active
  *  draft would pull `teamForPick` and the draft-order rules into a test that
  *  is about the join acknowledgement and nothing else. */
 const LEAGUE_ROW = {
@@ -116,7 +116,7 @@ function leagueWorld({ coCommissioners = [] } = {}) {
       rows: leagueId === LEAGUE_ID && commissioners.has(userId) ? [{ '?column?': 1 }] : [],
     })],
 
-    // getDraftState's three reads, reached only by draft:join and only once
+    // memberSnapshot's three reads, reached only by draft:join and only once
     // the membership answer above was yes.
     [select('leagues'), (text, [leagueId]) => ({
       rows: leagueId === LEAGUE_ID ? [{ ...LEAGUE_ROW }] : [],

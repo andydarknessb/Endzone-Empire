@@ -275,7 +275,7 @@ test('draft:join answers the ack before it sends the first draft:state', async (
 
   assert.deepEqual(arrivals, ['ack', 'draft:state']);
   assert.equal(ack.viewerTeamId, OWNER.teamId);
-  // The snapshot really was built (the three getDraftState reads were
+  // The snapshot really was built (the three memberSnapshot reads were
   // answered), so the ordering above is not an artefact of a failed state read.
   assert.equal(state.league.id, LEAGUE_ID);
   assert.equal(state.teams.length, 3);
@@ -283,7 +283,7 @@ test('draft:join answers the ack before it sends the first draft:state', async (
 });
 
 test('the draft:state snapshot never carries the league invite code', async (t) => {
-  // getDraftState deletes it before broadcasting. This snapshot goes to the
+  // memberSnapshot deletes it before broadcasting. This snapshot goes to the
   // whole room, so a regression here hands every member the join code.
   world(t);
   const client = await harness.connectAs(MEMBER, t);

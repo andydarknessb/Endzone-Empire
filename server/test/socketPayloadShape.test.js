@@ -9,8 +9,8 @@ const {
   presencePayload,
   chatMessagePayload,
   joinAck,
-  getDraftState,
 } = require('../modules/draftSocket');
+const { memberSnapshot } = require('../services/draftRoomSnapshot');
 const pickService = require('../services/pick.service');
 const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool, AUTOPICK_TEAM } = require('./helpers/autopickFixtures');
@@ -51,7 +51,7 @@ const lineupService = require('../services/lineup.service');
  *
  * TWO THINGS this file narrows itself on:
  *
- *   - getDraftState returns its `teams` rows VERBATIM from the SELECT (no
+ *   - memberSnapshot returns its `teams` rows VERBATIM from the SELECT (no
  *     serializer allowlist narrows them), so an exact-key-set guard driven by a
  *     fixture can only ever describe the fixture. The account fields left the
  *     PROJECTION, so the live guard here also asserts the SQL TEXT no longer
@@ -377,7 +377,7 @@ test('draft:activity carries a Team-only lifecycle entry, no Pick facts and no a
 });
 
 // ================================================================ draft:state
-// getDraftState(leagueId) -> { league, teams, picks, onTheClock }. Ten emit
+// memberSnapshot(leagueId) -> { league, teams, picks, onTheClock }. Ten emit
 // sites (socket join, six draft.router lifecycle routes, autopick, draftStart)
 // all broadcast this one builder, so pinning it pins them all.
 
@@ -391,9 +391,9 @@ const DRAFT_STATE_LEAGUE = {
   invite_code: 'invite',
 };
 
-// A `teams` row exactly as getDraftState's SELECT projects it now that #344
+// A `teams` row exactly as memberSnapshot's SELECT projects it now that #344
 // has narrowed it: the team's own draft columns and Team identity, and no
-// account fields. The row passes through getDraftState verbatim, so it MIRRORS
+// account fields. The row passes through memberSnapshot verbatim, so it MIRRORS
 // the narrowed SELECT for the exact-key-set guard to describe the real shape
 // (see header caveat).
 const draftStateTeamRow = ({ teamId, teamName }, draftPosition) => ({
@@ -408,7 +408,7 @@ const draftStateTeamRow = ({ teamId, teamName }, draftPosition) => ({
 
 function draftStateFake(t) {
   return createFakePool([
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...DRAFT_STATE_LEAGUE }] })],
+    [select('leagues'), () => ({ rows: [{ ...DRAFT_STATE_LEAGUE }] })],
     [/FROM "teams"\s+WHERE/, () => ({
       rows: [draftStateTeamRow(VIEWER, 1), draftStateTeamRow(OTHER, 2)],
     })],
@@ -424,14 +424,14 @@ const STATE_TEAM_CLEAN = [
 // viewer-relative field.
 test('draft:state root is league/teams/picks/onTheClock, and never a viewer-relative field', async (t) => {
   draftStateFake(t);
-  const state = await getDraftState(LEAGUE_ID);
+  const state = await memberSnapshot(LEAGUE_ID);
   assertExactKeys(state, STATE_ROOT_CLEAN);
   assertForbidden(state, VIEWER_RELATIVE);
 });
 
 test('draft:state teams[] entry no longer projects owner_id / owner from the SELECT', async (t) => {
   const fake = draftStateFake(t);
-  await getDraftState(LEAGUE_ID);
+  await memberSnapshot(LEAGUE_ID);
   // Pinned to the SELECT, not only the fixture: the rows pass through verbatim,
   // so the projection is what #344 narrowed and what must stay narrowed.
   const [teamsQuery] = fake.matching(/FROM "teams"\s+WHERE/);
@@ -442,13 +442,13 @@ test('draft:state teams[] entry no longer projects owner_id / owner from the SEL
 
 test('draft:state teams[] entry carries no viewer-relative field', async (t) => {
   draftStateFake(t);
-  const state = await getDraftState(LEAGUE_ID);
+  const state = await memberSnapshot(LEAGUE_ID);
   for (const team of state.teams) assertForbidden(team, VIEWER_RELATIVE);
 });
 
 test('draft:state teams[] entry is Team identity and draft attributes, not the manager account', async (t) => {
   draftStateFake(t);
-  const state = await getDraftState(LEAGUE_ID);
+  const state = await memberSnapshot(LEAGUE_ID);
   for (const team of state.teams) assertExactKeys(team, STATE_TEAM_CLEAN);
 });
 
