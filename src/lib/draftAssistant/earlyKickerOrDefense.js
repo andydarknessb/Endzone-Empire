@@ -36,15 +36,15 @@ function unfilledKickerDefenseSlots({ roster, rosterSlots }) {
  * than that. A template with no K or DEF slots has nothing to be early for,
  * so it is always false regardless of rounds remaining.
  *
- * Issue #784 ruling 6's own wording ("early... is relative: fewer rounds
- * remain than the team's unfilled K plus DEF starting slots") reads as the
- * INVERSE of the predicate above: taken literally, it would only read as
+ * Issue #784 ruling 6's original wording ("early... is relative: fewer
+ * rounds remain than the team's unfilled K plus DEF starting slots") read as
+ * the INVERSE of the predicate above: taken literally, it would only read as
  * "early" once the team is nearly out of rounds to grab K/DEF, which would
  * roast a kicker or defense pick at precisely the point where taking one is
- * correct. This function follows #785's acceptance criteria, not that
- * literal reading; #796 tracks the ruling 6 wording contradiction for Cory to
- * settle, and this code does not change on the outcome of that discussion
- * alone.
+ * correct. This function follows #785's acceptance criteria. #796 confirmed
+ * the acceptance criteria were right, and ruling 6 was amended on 2026-09-03
+ * to match this predicate (ADR 0027 carries the same dated amendment); this
+ * code does not change.
  *
  * @param {object} args
  * @param {Array}  args.rosterSlots  the league's roster_slots shape
