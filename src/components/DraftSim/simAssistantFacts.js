@@ -8,11 +8,12 @@
  * it does not re-derive either. `earlyKickerOrDefense`, `miseryStage` and the
  * trigger table come straight from the library (issue #785); round, label
  * ('steal' | 'reach' | 'value' | 'no-market') and draftValueScore come from
- * analysis.js's pickValues() - the one caller of it today is analysis.js's
- * own overallGrade(), so this module's read of a pick can never disagree
- * with the post-draft report's. (The urgency threshold isn't this module's
- * concern at all: SimAssistantPanel.jsx calls lib/onTheClock.js's isUrgent()
- * directly, the #754 shared threshold SimStatusBar.jsx also imports.)
+ * analysis.js's pickValues() - the same function analysis.js itself calls
+ * from all three of its report paths (overallGrade, rosterConstruction and
+ * analyzeDraft), so this module's read of a pick can never disagree with the
+ * post-draft report's. (The urgency threshold isn't this module's concern at
+ * all: SimAssistantPanel.jsx calls lib/onTheClock.js's isUrgent() directly,
+ * the #754 shared threshold SimStatusBar.jsx also imports.)
  *
  * NET VS ADP SIGN. pickValues()'s draftValueScore is `marketAdp - actualPick`
  * (analysis.js): negative means the pick landed LATER than its market ADP (a
