@@ -250,6 +250,27 @@ async function cancelClaim({ leagueId, userId, claimId }) {
  * priority order. Everything happens inside one transaction with the league
  * row locked, so the scheduler and a manual trigger can't double-process.
  */
+/**
+ * The post-draft blanket window (leagues.waivers_clear_at) is spent once it
+ * has expired and been processed, exactly like an expired waiver_players row.
+ * Left in place, an expired window keeps the league in processAllDueWaivers'
+ * due list on EVERY scheduler tick for the rest of the season, and every
+ * listing re-runs the waiver-results email digest (NanaGoat's 66 copies of one
+ * "WON" email, 2026-09-02). Every reader already treats a past window and a
+ * NULL one identically (isOnWaivers, the Player Browser's window flag), so
+ * NULLing it changes no read model. Guarded on `<= now()` because a
+ * commissioner may trigger processing while the window is still open, and an
+ * open window must survive that. Runs inside the caller's transaction, after
+ * the league row's FOR UPDATE lock.
+ */
+async function spendExpiredBlanketWindow(client, leagueId) {
+  await client.query(
+    `UPDATE "leagues" SET "waivers_clear_at" = NULL
+     WHERE "id" = $1 AND "waivers_clear_at" <= now()`,
+    [leagueId]
+  );
+}
+
 async function processWaivers({ leagueId }) {
   const client = await pool.connect();
   try {
@@ -280,6 +301,7 @@ async function processWaivers({ leagueId }) {
         `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "available_at" <= now()`,
         [leagueId]
       );
+      await spendExpiredBlanketWindow(client, leagueId);
       await client.query('COMMIT');
       // The scheduler also reaches this path when an empty blanket window
       // expires. No roster write is needed, but the Player read model changed
@@ -422,6 +444,7 @@ async function processWaivers({ leagueId }) {
       `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "available_at" <= now()`,
       [leagueId]
     );
+    await spendExpiredBlanketWindow(client, leagueId);
 
     await client.query('COMMIT');
     await getDraftRoomBroadcast().rosterChanged(leagueId);
