@@ -33,10 +33,11 @@ import { draftRounds } from '../../lib/rosterShape';
  * directly instead would misread a legacy league row that never stored it.
  */
 
-// The Upcoming strip shows at most this many picks after the one on the clock,
-// and the viewer's inline preview shows at most this many of their own next
-// picks before the popover takes over (issue #124: "the next three").
+// The Upcoming strip shows at most this many picks after the one on the clock
+// (issue #123 AC2).
 const UPCOMING_LIMIT = 3;
+// The viewer's inline preview shows at most this many of their own next picks
+// before the popover takes over (issue #124 AC4: "the next three").
 const INLINE_PREVIEW_COUNT = 3;
 
 export function draftOrderWindowFor({

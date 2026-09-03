@@ -90,7 +90,7 @@ function DraftRail({
   // Empty whenever the Draft order is not settled enough to read.
   upcoming = [],
   // The viewer's OWN remaining Pick numbers - `next` for the inline strip,
-  // `all` for the popover behind it (see viewerPicks.js). Both empty whenever
+  // `all` for the popover behind it (see draftOrderWindow.js). Both empty whenever
   // the Draft order is not settled enough to read, which includes every
   // pending lobby.
   viewerPicks = { all: [], next: [] },
@@ -485,7 +485,7 @@ function DraftRail({
           disclosure: the next three are the whole point of the strip, and a
           wait a manager has to open something to learn is one they estimate
           wrong instead. Absent entirely for a spectator, and for a manager
-          whose picks are all made - viewerPicks.js answers empty rather than
+          whose picks are all made - draftOrderWindow.js answers empty rather than
           guessing, and a group heading over nothing is worse than no group. */}
       {hasViewerPicks && (
         <Box
