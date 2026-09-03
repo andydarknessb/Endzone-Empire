@@ -4,7 +4,7 @@
  *
  * The whole ticket rests on ONE mechanism: a correction and a pick serialize on
  * the league row lock, so a correction "cannot race a manager or autopick".
- * draftPlayer takes `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE` before
+ * commitPick takes `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE` before
  * touching draft_picks; correctLatestPick takes the identical lock on the same
  * row. The fast suites assert both paths ISSUE that lock (a check on the code);
  * only a real Postgres can show that two real transactions actually SERIALIZE on
@@ -22,16 +22,16 @@
  * transaction for the pick to block on. This models the correction transaction
  * with the exact statements correctLatestPick commits (the same DELETE / paused
  * UPDATE, and the REAL appendCorrectionActivity), while the pick side is the
- * REAL draftPlayer. correctLatestPick's own atomicity and error contract are
+ * REAL commitPick. correctLatestPick's own atomicity and error contract are
  * proven in draftCorrection.route.test.js and .socket.test.js.
  *
  * WHAT THIS DOES NOT COVER, and where its sibling does. This proves a claim
  * about POSTGRES: given that SOME transaction holds the league row FOR UPDATE,
- * the real draftPlayer blocks and then observes the committed state. It does NOT
+ * the real commitPick blocks and then observes the committed state. It does NOT
  * prove that correctLatestPick is the code that takes that lock - it replays the
  * statements rather than calling the service. The static half,
  * draftCorrection.route.test.js's "locks the league FOR UPDATE before any
- * mutation" test, proves correctLatestPick issues the same lock draftPlayer
+ * mutation" test, proves correctLatestPick issues the same lock commitPick
  * does. Neither is sufficient alone: this one is blind to the service issuing the
  * lock; that one is blind to Postgres actually serialising on it. The residual
  * gap is precise and left open on purpose - if correctLatestPick's statements

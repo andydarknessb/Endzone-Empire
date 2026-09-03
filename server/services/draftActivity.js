@@ -209,7 +209,7 @@ function activityEntryOf(row) {
  * Append a committed Pick to the Draft-activity feed, INSIDE the caller's
  * transaction `client`, and return the typed feed entry for the live broadcast.
  *
- * Called from draft.service.draftPlayer between the `draft_picks` INSERT and
+ * Called from pick.service.commitPick between the `draft_picks` INSERT and
  * the COMMIT, so the activity and the Pick are one atomic act (#435 AC1): a
  * rolled-back Pick leaves no orphan activity, and a committed Pick always has
  * its entry. The row names no `feed_seq`; the trigger allocates it and it comes
@@ -272,7 +272,7 @@ async function appendPickActivity(client, { leagueId, team, player, round, pickN
  *
  * Called from the same transaction that changes the shared Draft state - the
  * league UPDATE in startDraft, the pause/resume UPDATE, the reset transaction,
- * the completion side of draftPlayer - so the activity and the state change are
+ * the completion side of commitPick - so the activity and the state change are
  * one atomic act (#437 AC1-AC4): a rolled-back transition leaves no orphan
  * activity, and a committed one always has its entry. The row names no
  * `feed_seq`; the trigger allocates it from the shared per-league sequence and

@@ -157,7 +157,7 @@ const harness = createSocketHarness({ secret: 'socket-payload-shape-secret' });
 
 // A league mid-draft with the viewer's Team on the clock (current_pick 0,
 // 0-based; the viewer holds draft_position 1). Enough of the row for
-// draftPlayer to run one pick to completion without finishing the draft.
+// commitPick to run one pick to completion without finishing the draft.
 const PICKED_LEAGUE = {
   id: LEAGUE_ID,
   draft_status: 'active',
@@ -177,11 +177,11 @@ const PICKED_LEAGUE = {
 };
 
 // One fake answers BOTH the league:join membership reads (viewerContext) and
-// the whole draftPlayer transaction. The two collide under the shape matchers,
+// the whole commitPick transaction. The two collide under the shape matchers,
 // so the narrow reads go FIRST (the fakePool header's "overrides before
 // defaults"): lookupTeam's `SELECT "id", "name" FROM "teams"` ahead of
-// draftPlayer's wider teams read, and isLeagueCommissioner's `SELECT 1 FROM
-// "leagues"` ahead of draftPlayer's `SELECT * FROM "leagues"`.
+// commitPick's wider teams read, and isLeagueCommissioner's `SELECT 1 FROM
+// "leagues"` ahead of commitPick's `SELECT * FROM "leagues"`.
 function pickWorld(t) {
   const fake = createFakePool([
     [/^SELECT "id", "name" FROM "teams"/, (text, [leagueId, userId]) => ({
@@ -227,7 +227,7 @@ async function capturePicked(t) {
   return picked;
 }
 
-// draftPlayer's outcome is `{ leagueId, teamId, teamName, player, pickNumber,
+// commitPick's outcome is `{ leagueId, teamId, teamName, player, pickNumber,
 // nextTeamId, draftComplete, pickDeadlineAt }`. #344 dropped the account `by`
 // object (the picker is already named at the root by Team) and, in its place,
 // added a single non-identity fact the room still needs: `auto`, whether the
@@ -272,8 +272,8 @@ test('draft:picked names the picker by Team at the root, with no by account obje
 // pickClock.service.js), pinned so #344 cannot strip `by` from the pick handler,
 // flip that todo green, and leave autopick still broadcasting `by.userId` to the
 // whole room. autopick emits through the one Draft room adapter (#745) and
-// reaches draftPlayer by namespace, so both are captured off a recording
-// broadcast with a mocked draftPlayer (its outcome shape is the pick handler's,
+// reaches commitPick by namespace, so both are captured off a recording
+// broadcast with a mocked commitPick (its outcome shape is the pick handler's,
 // already pinned above; here it is the same 8-key outcome).
 async function captureAutopickPicked(t) {
   installAutopickPool(t, {
@@ -288,7 +288,7 @@ async function captureAutopickPicked(t) {
     nextTeamId: null,
     draftComplete: false,
     pickDeadlineAt: null,
-    // draftPlayer returns the typed activity entry; the autopick emit spreads it
+    // commitPick returns the typed activity entry; the autopick emit spreads it
     // onto the broadcast just as the pick handler does. isAutopick is true here.
     activity: {
       type: 'draft_activity', kind: 'pick', id: 3, seq: 2,
@@ -328,7 +328,7 @@ test('draft:picked (autopick emit site) names the picker by Team at the root, wi
 // broadcasts the completion entry on `draft:activity`; pin that this second
 // broadcast is Team-only too, with no Pick facts and no account identifier. The
 // autopick site is used because it reaches the emit through the one adapter
-// (#745) with a mockable draftPlayer outcome.
+// (#745) with a mockable commitPick outcome.
 async function captureAutopickActivity(t) {
   installAutopickPool(t, {
     candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],

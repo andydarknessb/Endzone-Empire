@@ -17,7 +17,7 @@ const pickClock = require('../services/pickClock.service');
  * retry), and the consecutive-timeout streak all live inside the module now.
  * These tests drive the module's PUBLIC sweep entry point,
  * pickClock.processExpiredPickClocks(), and read back the order in which the
- * on-the-clock team's candidates were attempted (via a mocked draftPlayer) and
+ * on-the-clock team's candidates were attempted (via a mocked commitPick) and
  * the sweep's own outcome list. This suite supersedes autopick.service.test.js;
  * the candidate comparator is no longer exported, so its ordering contracts are
  * re-expressed here through the interface.
@@ -423,7 +423,7 @@ test('overdue: a deadline 31s past raises exactly one alarm with the pick-clock-
   pickClock.cancelAllExpiryTimers(); // clear any episode recorded by an earlier test
   const league = overdueLeague(31);
   installSweepPool(t, { candidates: ONE_CANDIDATE, league });
-  recordAttempts(t); // draftPlayer succeeds, so the only capture is the alarm
+  recordAttempts(t); // commitPick succeeds, so the only capture is the alarm
   const captured = spyCaptures(t);
 
   await pickClock.processExpiredPickClocks();
