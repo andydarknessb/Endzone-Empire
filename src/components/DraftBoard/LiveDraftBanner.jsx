@@ -32,13 +32,17 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
   // tick and tells us ONCE, at the crossing, through onOverdue; we append the
   // same copy inside the existing role=status region so a screen reader hears
   // it a single time this turn - never per second (#445 AC3, #754 isolation).
-  // It resets whenever the deadline changes (a new pick, or the same pick
-  // re-armed), so the next turn starts clean.
-  const [overdue, setOverdue] = React.useState(false);
-  React.useEffect(() => {
-    setOverdue(false);
-  }, [deadlineAt]);
-  const handleOverdue = React.useCallback(() => setOverdue(true), []);
+  //
+  // Key the flag to the deadline it belongs to, rather than a boolean cleared by
+  // an effect. When a pick arrives ALREADY past the tolerance (a viewer opening
+  // into a stalled draft - the case this feature exists for), the leaf's
+  // mount-time onExpire and a reset effect would both run in the same commit;
+  // child effects run before parent effects, so the reset would win and the
+  // announcement would be lost. Recording the deadline sidesteps that race and
+  // still self-clears on a new pick (overdueDeadline no longer matches).
+  const [overdueDeadline, setOverdueDeadline] = React.useState(null);
+  const handleOverdue = React.useCallback(() => setOverdueDeadline(deadlineAt), [deadlineAt]);
+  const overdue = deadlineAt != null && overdueDeadline === deadlineAt;
 
   if (league?.draft_status !== 'active') return null;
 

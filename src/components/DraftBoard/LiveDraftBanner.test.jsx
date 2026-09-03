@@ -108,6 +108,21 @@ describe('LiveDraftBanner - Overdue announced once in the live region (#769 AC3)
     expect(within(region).getAllByText('Waiting on the server')).toHaveLength(1);
   });
 
+  it('announces when the clock is ALREADY overdue on arrival (connecting into a stalled draft)', () => {
+    // The exact case the feature exists for: a viewer opens (or re-renders) into
+    // a draft the server has actually stalled on, deadline already well past the
+    // tolerance. The leaf's mount-time onExpire fires in the same commit as the
+    // banner's own mount, so the announcement must survive that commit, not be
+    // clobbered by a reset. A sighted user sees the leaf caption regardless; a
+    // screen-reader user must still get the polite announcement.
+    jest.useFakeTimers();
+    render(
+      <LiveDraftBanner league={activeLeague} onTheClock={running(Date.now() - 60000)} isMyTurn={false} />
+    );
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(within(screen.getByRole('status')).getAllByText('Waiting on the server')).toHaveLength(1);
+  });
+
   it('resets on a new deadline so the next turn does not inherit the copy', () => {
     jest.useFakeTimers();
     const now = Date.now();
