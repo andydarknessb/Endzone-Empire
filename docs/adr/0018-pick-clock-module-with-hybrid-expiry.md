@@ -83,3 +83,16 @@ clears. A later change may route the correction's clear through the
 module's existing clear operation with no behaviour change, which would
 make the original claim literally true; until then this amendment is the
 accurate wording.
+
+## Amendment (2026-09-03): the two deferred items were decided
+
+The consequences above leave a stale-deadline liveness alarm and a
+separate pool budget for the draft loop out of scope. Both were later
+grilled (#768, #769). The alarm exists and lives in two places on purpose:
+the API health surface, which reports Overdue clocks (see CONTEXT.md) from
+the stored deadline so a dead worker is still caught, and the worker sweep,
+which raises one Sentry event per Overdue episode so a live worker whose
+Autopick keeps failing is caught too. Neither path is a Draft activity.
+The pool budget was dropped: no pool exhaustion has ever been observed,
+so the alarm attaches pool counters instead and the question becomes a
+measurement rather than a design.

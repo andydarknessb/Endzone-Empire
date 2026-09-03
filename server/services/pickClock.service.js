@@ -1,4 +1,7 @@
 const pool = require('../modules/pool');
+// Required as a module object (not destructured at load) so captureError stays a
+// mockable seam for the overdue-alarm and catch-routing tests (#768).
+const sentry = require('../modules/sentry');
 const { teamForPick } = require('./draftOrder.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { lastCompletedNflSeason } = require('./nflSeason.service');
@@ -41,6 +44,31 @@ const AUTODRAFT_DELAY_FLOOR = 1;
 
 // Defensive bound on draftPlayer() attempts after a snipe - not a ranking cutoff.
 const AUTOPICK_CANDIDATE_LIMIT = 25;
+
+/**
+ * The Overdue tolerance (#768, ruling 1): a Pick clock is Overdue only once its
+ * deadline has been elapsed for longer than this, and still undischarged. 30s is
+ * three #614 backstop intervals - long enough that a single late arm or a slow
+ * candidate walk does not false-alarm, short enough that a genuinely stuck clock
+ * surfaces fast. This is the ONE spelling of the tolerance; the #769 client half
+ * pins its copy to this export by a parity test, so the export name and location
+ * are load-bearing. Never inline the number.
+ */
+const OVERDUE_AFTER_MS = 30_000;
+
+/**
+ * The three pg Pool counters (#768, ruling 4) as Sentry-extra fields. Every
+ * capture from this ticket rides them, so a stuck-clock alarm carries whether
+ * the connection pool was also saturated at the time. Read off the live Pool
+ * instance the module already uses for queries.
+ */
+function poolCounters() {
+  return {
+    'pool.totalCount': pool.totalCount,
+    'pool.idleCount': pool.idleCount,
+    'pool.waitingCount': pool.waitingCount,
+  };
+}
 
 /**
  * Pure: seconds on the clock for the next pick, or null for "no clock". An
@@ -616,6 +644,45 @@ async function escalateNothingDraftable({ leagueId }) {
 const expiryTimers = new Map();
 
 /**
+ * Overdue alarm episodes (#768, ruling 2), keyed `${leagueId}:${deadlineMs}`.
+ * One Sentry event per (leagueId, deadlineAt): a new deadline is a new episode.
+ * In-memory beside expiryTimers and lost on a worker restart, which is why a
+ * post-restart re-alarm is accepted - the ['pick-clock-overdue', leagueId]
+ * fingerprint groups it into the same Sentry issue rather than a new one. No
+ * column, no migration. Cleared alongside the timers by cancelAllExpiryTimers.
+ */
+const overdueEpisodes = new Map();
+
+function overdueEpisodeKey(leagueId, deadline) {
+  return `${leagueId}:${new Date(deadline).getTime()}`;
+}
+
+/**
+ * Raise one Sentry alarm for an Overdue clock, once per episode (#768, ruling
+ * 2). Called from the sweep for an already-elapsed deadline: if its age exceeds
+ * OVERDUE_AFTER_MS and this (leagueId, deadlineAt) episode has not alarmed yet,
+ * capture it (fingerprinted so a league's alarms group, pool counters riding
+ * along) and record the episode. An expired-but-not-Overdue clock, or a repeat
+ * of an episode already seen, is silent. The sweep autopicks exactly as before
+ * either way - this only observes.
+ */
+function alarmIfOverdue(leagueId, deadline) {
+  const ageMs = -msUntilDeadline(deadline);
+  if (ageMs <= OVERDUE_AFTER_MS) return;
+  const key = overdueEpisodeKey(leagueId, deadline);
+  if (overdueEpisodes.has(key)) return;
+  overdueEpisodes.set(key, true);
+  const error = new Error(
+    `pick clock overdue for league ${leagueId}: ${Math.round(ageMs)}ms past the deadline`
+  );
+  sentry.captureError(
+    error,
+    { leagueId, path: 'sweep', deadlineAt: deadline, ageMs, ...poolCounters() },
+    { fingerprint: ['pick-clock-overdue', String(leagueId)] }
+  );
+}
+
+/**
  * Milliseconds from now until `deadline` (a Date or timestamp): positive while
  * the clock is still running, zero or negative once it has elapsed. The one
  * spelling of the clock-elapsed comparison, shared by the arming math, the
@@ -653,7 +720,7 @@ function armExpiryTimer(leagueId, deadline) {
     // (autoPick returns null and re-arms nothing) no stale handle is left
     // behind, and if it commits, its re-arm installs a fresh entry.
     expiryTimers.delete(leagueId);
-    fireExpiryTimer(leagueId);
+    fireExpiryTimer(leagueId, deadline);
   }, fireInMs);
   if (typeof timer.unref === 'function') timer.unref();
   expiryTimers.set(leagueId, timer);
@@ -676,6 +743,11 @@ function cancelExpiryTimer(leagueId) {
 function cancelAllExpiryTimers() {
   for (const timer of expiryTimers.values()) clearTimeout(timer);
   expiryTimers.clear();
+  // The overdue-alarm episodes are the sibling in-memory expiry state; a full
+  // teardown (scheduler stop, test reset) clears them too, so a fresh start
+  // re-alarms an ongoing Overdue episode once - the same restart behaviour the
+  // fingerprint already tolerates (#768).
+  overdueEpisodes.clear();
 }
 
 /**
@@ -691,12 +763,22 @@ function cancelAllExpiryTimers() {
  * exactly one Pick commits. A null outcome (not due, sniped off every candidate,
  * or nothing draftable) arms nothing.
  */
-async function fireExpiryTimer(leagueId) {
+async function fireExpiryTimer(leagueId, deadline) {
   try {
     const outcome = await autoPick({ leagueId });
     if (outcome) armExpiryTimer(leagueId, outcome.pickDeadlineAt);
   } catch (err) {
+    // Keep the operator log line and ALSO route to Sentry (#768, ruling 3) so a
+    // persistently-throwing autopick on the fast path is visible, not just a
+    // line in the worker log. `deadline` is the timer's own armed instant.
     console.error('draft clock timer fire failed for league %s:', leagueId, err.message);
+    sentry.captureError(err, {
+      leagueId,
+      path: 'timer',
+      deadlineAt: deadline ?? null,
+      ageMs: deadline == null ? null : -msUntilDeadline(deadline),
+      ...poolCounters(),
+    });
   }
 }
 
@@ -727,6 +809,12 @@ async function processExpiredPickClocks() {
     );
     for (const row of active.rows) {
       if (msUntilDeadline(row.pick_deadline_at) <= 0) {
+        // Alarm BEFORE autopicking (#768, ruling 2): a clock overdue past the
+        // tolerance raises one Sentry event per episode, then the autopick runs
+        // exactly as it does today. A dead worker never reaches here, which is
+        // why the API-health detector exists too - this half catches the live
+        // worker whose autopick keeps failing.
+        alarmIfOverdue(row.id, row.pick_deadline_at);
         try {
           const outcome = await autoPick({ leagueId: row.id });
           if (outcome) {
@@ -734,7 +822,15 @@ async function processExpiredPickClocks() {
             armExpiryTimer(row.id, outcome.pickDeadlineAt);
           }
         } catch (err) {
+          // Keep the operator log line and ALSO route to Sentry (#768, ruling 3).
           console.error('auto-pick failed for league %s:', row.id, err.message);
+          sentry.captureError(err, {
+            leagueId: row.id,
+            path: 'sweep',
+            deadlineAt: row.pick_deadline_at,
+            ageMs: -msUntilDeadline(row.pick_deadline_at),
+            ...poolCounters(),
+          });
         }
       } else {
         armExpiryTimer(row.id, row.pick_deadline_at);
@@ -743,13 +839,16 @@ async function processExpiredPickClocks() {
   } catch (err) {
     // Contain the sweep: log and return what we have so the NEXT interval tick
     // still runs, instead of the rejection escaping to the caller and killing
-    // the draft-clock loop (#600).
+    // the draft-clock loop (#600). The outer catch has no league in scope, so it
+    // routes through captureError with path 'sweep' only (#768, ruling 3).
     console.error('draft clock sweep failed:', err.message);
+    sentry.captureError(err, { path: 'sweep', ...poolCounters() });
   }
   return outcomes;
 }
 
 module.exports = {
+  OVERDUE_AFTER_MS,
   nextPickClockSeconds,
   clockSecondsFor,
   onDraftStarted,
@@ -762,5 +861,6 @@ module.exports = {
   autoPick,
   processExpiredPickClocks,
   armExpiryTimer,
+  fireExpiryTimer,
   cancelAllExpiryTimers,
 };

@@ -576,6 +576,132 @@ test('does not show the pending-draft start action to a non-commissioner', async
   expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
 });
 
+// --- the Start control's player-market state (#760) ---
+//
+// The room reads `market` from GET /api/league/:id (the shared useLeague
+// resource) and hands it to DraftStartControl alongside the team-count/
+// auction props it already passed - the same three states Draft Settings
+// already renders for the same league. The socket `league` on draft:state
+// carries no `market` field at all (#748 decision 3 attaches it to the
+// detail payload only), so these cases are what proves the room is reading
+// the second source rather than the snapshot.
+
+const pendingCommissionerState = () => ({
+  league: {
+    name: 'Sunday Ballers',
+    draft_status: 'pending',
+    draft_type: 'snake',
+    min_teams: 2,
+  },
+  teams: [TEAM_A, TEAM_B],
+  picks: [],
+  onTheClock: null,
+});
+
+test('renders the market-absent copy inside the room and disables Start when adpPlayers is below floor (#760)', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/draft/queue') return Promise.resolve({ data: [] });
+    // adpPlayers (5) below floor (10): the fixture that makes this case red
+    // is raising adpPlayers to equal floor, per the acceptance criterion.
+    if (url === '/api/league/1') {
+      return Promise.resolve({
+        data: { league: { market: { adpPlayers: 5, floor: 10, lastSyncAt: null, stale: true } } },
+      });
+    }
+    return Promise.resolve(playersPage());
+  });
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
+
+  act(() => fakeSocket.trigger('draft:state', pendingCommissionerState()));
+
+  await screen.findByText('The player market has not loaded (5 of 10 players carry an ADP). Ask your admin to run the ADP sync.');
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
+});
+
+test('renders the market-stale copy inside the room with Start still enabled (#760)', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/draft/queue') return Promise.resolve({ data: [] });
+    if (url === '/api/league/1') {
+      return Promise.resolve({
+        data: {
+          league: {
+            market: {
+              adpPlayers: 50, floor: 10, lastSyncAt: '2026-08-01T00:00:00Z', stale: true,
+            },
+          },
+        },
+      });
+    }
+    return Promise.resolve(playersPage());
+  });
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
+
+  act(() => fakeSocket.trigger('draft:state', pendingCommissionerState()));
+
+  await screen.findByText(/Player market last updated/);
+  expect(screen.getByRole('button', { name: 'Start Draft' })).toBeEnabled();
+});
+
+test('renders neither market string inside the room when the market is fresh (#760)', async () => {
+  let resolveLeagueDetail;
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/draft/queue') return Promise.resolve({ data: [] });
+    if (url === '/api/league/1') return new Promise((resolve) => { resolveLeagueDetail = resolve; });
+    return Promise.resolve(playersPage());
+  });
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
+
+  act(() => fakeSocket.trigger('draft:state', pendingCommissionerState()));
+  const startButton = await screen.findByRole('button', { name: 'Start Draft' });
+  expect(startButton).toBeEnabled();
+
+  // Resolve the detail request deliberately, rather than trusting an absence
+  // that could just as easily mean the request never landed: only once a
+  // fresh market has actually arrived does "no line" mean anything.
+  await act(async () => {
+    resolveLeagueDetail({
+      data: {
+        league: {
+          market: {
+            adpPlayers: 50, floor: 10, lastSyncAt: '2026-08-01T00:00:00Z', stale: false,
+          },
+        },
+      },
+    });
+  });
+
+  expect(screen.queryByText(/The player market has not loaded/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Player market last updated/)).not.toBeInTheDocument();
+  expect(startButton).toBeEnabled();
+});
+
+test('a non-commissioner sees no market copy and no Start control even when the market is absent (#760)', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/draft/queue') return Promise.resolve({ data: [] });
+    if (url === '/api/league/1') {
+      return Promise.resolve({
+        data: { league: { market: { adpPlayers: 5, floor: 10, lastSyncAt: null, stale: true } } },
+      });
+    }
+    return Promise.resolve(playersPage());
+  });
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+
+  act(() => fakeSocket.trigger('draft:state', pendingCommissionerState()));
+
+  expect(screen.queryByRole('button', { name: 'Start Draft' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/The player market has not loaded/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Player market last updated/)).not.toBeInTheDocument();
+});
+
 test('clicking Draft on a player emits draft:pick with the league and player id', async () => {
   renderBoard(3);
   await screen.findByText('Patrick Mahomes');
@@ -1183,6 +1309,36 @@ test('a ticking pick clock re-renders only its own leaf, never the room (#754 A7
   // ...and nothing above it did. Storing a per-second field in the socket
   // reducer again (the shape #754 first proposed) turns this red.
   expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
+});
+
+test('crossing the Overdue boundary re-renders the room at most once, never per second (#769 AC4)', async () => {
+  jest.useFakeTimers();
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 5000).toISOString(),
+    })))
+  );
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:05');
+  const roomRendersBefore = PlayerPoolTableProbe.renderSpy.mock.calls.length;
+
+  // Run through the deadline (5s) and well past the 30s tolerance. The leaf
+  // ticks ~35 times on its own; the banner lifts a one-shot Overdue boolean at
+  // the crossing (#769 ruling 4).
+  act(() => {
+    jest.advanceTimersByTime(5000 + 30000 + 2000);
+  });
+
+  // We really crossed: digits pin at 0:00 and the room shows the Overdue copy
+  // (the leaf under the digits and the banner's once-per-turn announcement).
+  expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:00');
+  expect(screen.getAllByText('Waiting on the server').length).toBeGreaterThanOrEqual(1);
+  // Isolation holds across the boundary: ~35 per-second ticks reach only the
+  // leaf, and the banner's single re-render does not cascade to the pool. At
+  // most one, not one per second.
+  expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBeLessThanOrEqual(roomRendersBefore + 1);
 });
 
 test('a paused draft shows the paused chip and leaves drafting focusable but aria-disabled', async () => {

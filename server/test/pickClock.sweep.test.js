@@ -5,6 +5,7 @@ const { logger } = require('../modules/logger');
 const { withAdvisoryLock } = require('../modules/advisoryLock');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const draftService = require('../services/draft.service');
+const sentry = require('../modules/sentry');
 const pickClock = require('../services/pickClock.service');
 
 /**
@@ -391,4 +392,135 @@ test('advisory lock: a skipped tick (lock not acquired) is visible in the log ou
   assert.deepEqual(result, { skipped: true }, 'the skip is reported to the caller');
   assert.equal(skips.length, 1, 'the skip is logged, not silent');
   assert.match(skips[0].msg, /skip/i);
+});
+
+// --- Overdue alarm: the sweep detector (#768, ruling 2) ----------------------
+// The sweep raises one Sentry event per Overdue episode - an elapsed deadline
+// whose age exceeds the tolerance - keyed (leagueId, deadlineAt), then autopicks
+// as it does today. captureError is spied through the sentry module object (the
+// module calls sentry.captureError, so the spy intercepts it).
+
+/** A single trivially-draftable candidate for the on-clock team. */
+const ONE_CANDIDATE = [{ id: 8, name: 'Any Pick', adp: '1.0', queue_rank: null, last_season_points: null }];
+
+/** A league whose stored deadline is `secondsPast` seconds in the past. */
+const overdueLeague = (secondsPast) => ({
+  ...SWEEP_LEAGUE, pick_deadline_at: new Date(Date.now() - secondsPast * 1000),
+});
+
+function spyCaptures(t) {
+  const captured = [];
+  t.mock.method(sentry, 'captureError', (err, ctx, opts) => captured.push({ err, ctx, opts }));
+  return captured;
+}
+
+test('overdue: a deadline 31s past raises exactly one alarm with the pick-clock-overdue fingerprint', async (t) => {
+  pickClock.cancelAllExpiryTimers(); // clear any episode recorded by an earlier test
+  const league = overdueLeague(31);
+  installSweepPool(t, { candidates: ONE_CANDIDATE, league });
+  recordAttempts(t); // draftPlayer succeeds, so the only capture is the alarm
+  const captured = spyCaptures(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.equal(captured.length, 1, 'exactly one alarm for the overdue clock');
+  const { ctx, opts } = captured[0];
+  assert.deepEqual(opts.fingerprint, ['pick-clock-overdue', String(LEAGUE_ID)],
+    'the alarm carries the pick-clock-overdue fingerprint');
+  assert.equal(ctx.path, 'sweep');
+  assert.equal(ctx.leagueId, LEAGUE_ID);
+  assert.ok(ctx.ageMs > 30000, 'the age exceeds the 30s tolerance');
+  // Ruling 4: pool counters ride every capture from this ticket.
+  assert.ok('pool.totalCount' in ctx && 'pool.idleCount' in ctx && 'pool.waitingCount' in ctx,
+    'the three pool counters ride the capture');
+});
+
+test('overdue: a second sweep over the same deadline raises no second alarm (episode dedupe)', async (t) => {
+  pickClock.cancelAllExpiryTimers();
+  const league = overdueLeague(31); // one fixed deadline instant reused across both passes
+  installSweepPool(t, { candidates: ONE_CANDIDATE, league });
+  recordAttempts(t);
+  const captured = spyCaptures(t);
+
+  await pickClock.processExpiredPickClocks();
+  await pickClock.processExpiredPickClocks();
+
+  assert.equal(captured.length, 1, 'the same (leagueId, deadlineAt) episode alarms once, not twice');
+});
+
+test('overdue: a deadline only 5s past is expired but not Overdue - no alarm', async (t) => {
+  pickClock.cancelAllExpiryTimers();
+  installSweepPool(t, { candidates: ONE_CANDIDATE, league: overdueLeague(5) });
+  recordAttempts(t);
+  const captured = spyCaptures(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.equal(captured.length, 0, 'within the tolerance the sweep autopicks silently');
+});
+
+test('overdue: a deadline 29s past is still within tolerance - no alarm (the 30s boundary is asserted)', async (t) => {
+  // The red tell for AC1: seed 29s and the "exactly one" assertion above would go
+  // red. This pins that the tolerance itself is asserted, not the mere presence
+  // of a capture.
+  pickClock.cancelAllExpiryTimers();
+  installSweepPool(t, { candidates: ONE_CANDIDATE, league: overdueLeague(29) });
+  recordAttempts(t);
+  const captured = spyCaptures(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.equal(captured.length, 0, '29s < 30s tolerance raises nothing');
+});
+
+// --- captureError routing for the three catch blocks (#768, ruling 3) --------
+
+test('overdue: a rejecting autopick in the sweep loop routes its error through captureError', async (t) => {
+  // Deadline 5s past: expired (so the sweep autopicks) but NOT Overdue, so the
+  // only capture is the catch-block routing, not the alarm.
+  pickClock.cancelAllExpiryTimers();
+  installSweepPool(t, { candidates: ONE_CANDIDATE, league: overdueLeague(5) });
+  t.mock.method(draftService, 'draftPlayer', async () => { throw new Error('autopick blew up'); });
+  const captured = spyCaptures(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  // Red tell: remove captureError from the sweep per-league catch and this goes
+  // to zero.
+  assert.equal(captured.length, 1, 'the sweep catch routes exactly one capture');
+  assert.equal(captured[0].ctx.path, 'sweep');
+  assert.equal(captured[0].ctx.leagueId, LEAGUE_ID);
+});
+
+test('overdue: a rejecting autopick in fireExpiryTimer routes its error through captureError with path timer', async (t) => {
+  const league = overdueLeague(5);
+  installSweepPool(t, { candidates: ONE_CANDIDATE, league });
+  t.mock.method(draftService, 'draftPlayer', async () => { throw new Error('autopick blew up'); });
+  const captured = spyCaptures(t);
+
+  // fireExpiryTimer is the fast (timer) path; call it directly rather than
+  // racing a setTimeout.
+  await pickClock.fireExpiryTimer(LEAGUE_ID, league.pick_deadline_at);
+
+  // Red tell: remove captureError from the fireExpiryTimer catch and this goes
+  // to zero.
+  assert.equal(captured.length, 1, 'the timer catch routes exactly one capture');
+  assert.equal(captured[0].ctx.path, 'timer');
+  assert.equal(captured[0].ctx.leagueId, LEAGUE_ID);
+});
+
+test('overdue: the outer sweep catch has no league and passes path sweep only', async (t) => {
+  // A rejecting due query is caught by the outer catch, which has no league in
+  // scope (ruling 3): path 'sweep' with no leagueId.
+  t.mock.method(pool, 'query', async (sql) => {
+    if (String(sql).includes('"pick_deadline_at" IS NOT NULL')) throw new Error('sweep query blew up');
+    throw new Error(`unexpected: ${sql}`);
+  });
+  const captured = spyCaptures(t);
+
+  await pickClock.processExpiredPickClocks();
+
+  assert.equal(captured.length, 1, 'the outer catch routes exactly one capture');
+  assert.equal(captured[0].ctx.path, 'sweep');
+  assert.equal(captured[0].ctx.leagueId, undefined, 'the outer catch has no league to name');
 });

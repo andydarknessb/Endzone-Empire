@@ -367,6 +367,14 @@ are what places a team into Autodraft.
 _Avoid_: countdown (the display), deadline (the stored instant, not the
 concept), pick timer
 
+**Overdue**:
+A Pick clock whose deadline has passed and which has not been discharged
+within the tolerance the server allows itself. Expiry alone is not Overdue;
+a clock is normally discharged within moments of expiring. An Overdue clock
+is an operational condition for the operator, never a Draft event: it writes
+no Draft activity and the room only stops treating the moment as urgent.
+_Avoid_: stalled (that is the nothing-draftable pause), stuck, late clock
+
 **Pick**:
 A team's committed claim of one player during a draft. Once accepted it
 advances the shared draft state and cannot be undone by the manager who made
