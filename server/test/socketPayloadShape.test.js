@@ -11,7 +11,7 @@ const {
   joinAck,
   getDraftState,
 } = require('../modules/draftSocket');
-const draftService = require('../services/draft.service');
+const pickService = require('../services/pick.service');
 const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool, AUTOPICK_TEAM } = require('./helpers/autopickFixtures');
 const lineupService = require('../services/lineup.service');
@@ -279,7 +279,7 @@ async function captureAutopickPicked(t) {
   installAutopickPool(t, {
     candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],
   });
-  t.mock.method(draftService, 'draftPlayer', async () => ({
+  t.mock.method(pickService, 'commitPick', async () => ({
     leagueId: LEAGUE_ID,
     teamId: AUTOPICK_TEAM.id,
     teamName: 'The Autodrafters',
@@ -333,7 +333,7 @@ async function captureAutopickActivity(t) {
   installAutopickPool(t, {
     candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],
   });
-  t.mock.method(draftService, 'draftPlayer', async () => ({
+  t.mock.method(pickService, 'commitPick', async () => ({
     leagueId: LEAGUE_ID,
     teamId: AUTOPICK_TEAM.id,
     teamName: 'The Autodrafters',

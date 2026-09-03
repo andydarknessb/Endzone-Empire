@@ -4,7 +4,10 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { getDraftState } = require('../modules/draftSocket');
 const { teamForPick } = require('../services/draftOrder.service');
-const { draftPlayer, correctLatestPick, DraftError } = require('../services/draft.service');
+const { correctLatestPick, DraftError } = require('../services/draft.service');
+// A Pick lands in one place (#782): the offline bulk route commits AND fans out
+// each Pick through the one seam, landPick, exactly like a live one.
+const { landPick } = require('../services/pick.service');
 // The Pick clock module owns arming (ADR 0018): pause, resume, the autodraft
 // toggle and undo re-arm the deadline only through its named events, so no route
 // writes the pick deadline column directly.
@@ -853,13 +856,15 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       return res.status(409).json({ error: 'offline pick entry requires an active offline draft' });
     }
     let applied = 0;
-    let draftComplete = false;
     let result = { applied };
     for (let i = 0; i < playerIds.length; i++) {
       try {
-        const outcome = await draftPlayer({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
+        // Each committed offline Pick fans out exactly like a live one through
+        // landPick (#782 ruling 3): a `pickLanded` per Pick, and the final Pick's
+        // own draftCompleted / rosterChanged cover completion. The route no longer
+        // emits a closing stateChanged / rosterChanged of its own.
+        await landPick({ leagueId, userId: req.user.id, playerId: playerIds[i], byCommissioner: true });
         applied++;
-        draftComplete = outcome.draftComplete;
       } catch (error) {
         const message = error instanceof DraftError || error.statusCode ? error.message : 'pick failed';
         result = { applied, error: message, failedAtIndex: i };
@@ -867,9 +872,6 @@ router.post('/league/:id/offline-picks', async (req, res) => {
       }
     }
     if (!result.error) result = { applied };
-    const broadcast = getDraftRoomBroadcast();
-    if (draftComplete) await broadcast.rosterChanged(leagueId);
-    if (applied > 0) await broadcast.stateChanged(leagueId);
     res.json(result);
   } catch (error) {
     console.error('Error entering offline picks', error);

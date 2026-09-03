@@ -64,8 +64,9 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
   }
 
   return {
-    /** A committed Pick (manual or auto). The payload is built at the caller
-     *  (`{ ...outcome, auto }`) so socketPayloadShape keeps its pinnable sites. */
+    /** A committed Pick (manual or auto). The payload is built at the ONE caller,
+     *  landPick in pick.service.js (`{ ...outcome, auto }`), so socketPayloadShape
+     *  pins a single site (#782). */
     pickLanded: (leagueId, payload) => send(leagueId, 'draft:picked', payload),
     /** One typed lifecycle/Pick activity entry for the combined feed (ADR 0012). */
     activityAppended: (leagueId, entry) => send(leagueId, 'draft:activity', entry),

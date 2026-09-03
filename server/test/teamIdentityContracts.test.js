@@ -14,7 +14,9 @@ const {
   presencePayload,
   chatMessagePayload,
 } = require('../modules/draftSocket');
-const { draftPlayer } = require('../services/draft.service');
+// A Pick's commit + outcome now lives in pick.service (#782); this contract checks
+// the outcome shape, so it drives the pure commit (no fan-out) directly.
+const { commitPick } = require('../services/pick.service');
 const lineupService = require('../services/lineup.service');
 
 /**
@@ -312,7 +314,7 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
   ]).install(t);
   t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
 
-  const outcome = await draftPlayer({ leagueId: LEAGUE_ID, userId: VIEWER.userId, playerId: 500 });
+  const outcome = await commitPick({ leagueId: LEAGUE_ID, userId: VIEWER.userId, playerId: 500 });
 
   assert.equal(outcome.teamId, VIEWER.teamId, 'the legacy Team id field survives');
   assert.equal(outcome.teamName, VIEWER.teamName);

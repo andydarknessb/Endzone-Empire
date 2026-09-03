@@ -61,11 +61,13 @@ if (!ENABLED) {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only ever see a disposable PG* database`);
   });
 } else {
-  // draftPlayer uses the module-level pool singleton; with DATABASE_URL* absent it
-  // reads the standard PG* variables - the disposable database. The same pool
-  // serves seeding and the lock holder, so all three contend on one real DB.
+  // commitPick (the Pick commit moved to pick.service, #782) uses the module-level
+  // pool singleton; with DATABASE_URL* absent it reads the standard PG* variables -
+  // the disposable database. The same pool serves seeding and the lock holder, so
+  // all three contend on one real DB. commitPick, not landPick, so no room
+  // broadcast is required in this transaction-lock test.
   const pool = require('../modules/pool');
-  const { draftPlayer } = require('../services/draft.service');
+  const { commitPick } = require('../services/pick.service');
   const { appendCorrectionActivity } = require('../services/draftActivity');
   const connection = {
     host: process.env.PGHOST || '127.0.0.1',
@@ -174,10 +176,10 @@ if (!ENABLED) {
     await correction.query('BEGIN');
     await correction.query('SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE', [leagueId]);
 
-    // The pick, the REAL draftPlayer, for the team on the clock. Its first
+    // The pick, the REAL commitPick, for the team on the clock. Its first
     // statement after BEGIN is the same SELECT ... FOR UPDATE, so it blocks on
     // the row the correction holds.
-    const pickOutcome = draftPlayer({ leagueId, userId: ownerB, playerId: playerNext }).then(
+    const pickOutcome = commitPick({ leagueId, userId: ownerB, playerId: playerNext }).then(
       (value) => ({ status: 'fulfilled', value }),
       (reason) => ({ status: 'rejected', reason })
     );

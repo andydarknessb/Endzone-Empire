@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { createSocketHarness } = require('./helpers/socketHarness');
-const draftService = require('../services/draft.service');
+const pickService = require('../services/pick.service');
 const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool } = require('./helpers/autopickFixtures');
 const lineupService = require('../services/lineup.service');
@@ -151,7 +151,7 @@ test('an autopick reaches every client in the room, labeled isAutopick', async (
   installAutopickPool(t, {
     candidates: [{ id: 500, name: 'Pick Me', adp: '1.0', queue_rank: null, last_season_points: null }],
   });
-  t.mock.method(draftService, 'draftPlayer', async () => ({
+  t.mock.method(pickService, 'commitPick', async () => ({
     leagueId: LEAGUE_ID,
     teamId: PICKER.teamId,
     teamName: PICKER.teamName,

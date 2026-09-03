@@ -24,7 +24,12 @@ const ioRegistry = require('../../server/modules/io');
 const lineupService = require('../../server/services/lineup.service');
 const seasonService = require('../../server/services/season.service');
 const { teamForPick } = require('../../server/services/draftOrder.service');
-const { draftPlayer } = require('../../server/services/draft.service');
+// The Pick commit moved to pick.service (#782). These tests drive the pure commit
+// (commitPick) for the manual scaffold picks that advance the draft between
+// autopick turns: it takes the same FOR UPDATE lock and returns the same outcome
+// the old draftPlayer did, without landPick's room fan-out, so the autopick
+// broadcast assertions below still count only the autopick deliveries.
+const { commitPick } = require('../../server/services/pick.service');
 const pickClock = require('../../server/services/pickClock.service');
 // #745: autoPick and the escalation/stall paths now emit through the one Draft
 // room adapter, which throws with no transport (no silent default). Register the
@@ -555,7 +560,7 @@ describe('live snake-draft expiry and autopick integration', () => {
 
     const automatic = processExpiredPickClocks();
     await database.candidateRead.promise;
-    const manual = draftPlayer({
+    const manual = commitPick({
       leagueId: LEAGUE_ID,
       userId: TEAM_A.owner_id,
       playerId: 302,
@@ -618,7 +623,7 @@ describe('live snake-draft expiry and autopick integration', () => {
           observed = { outcomes };
           expected = { outcomes: [{ leagueId: LEAGUE_ID, playerId: available.id }] };
         } else {
-          const outcome = await draftPlayer({
+          const outcome = await commitPick({
             leagueId: LEAGUE_ID,
             userId: team.owner_id,
             playerId: available.id,
