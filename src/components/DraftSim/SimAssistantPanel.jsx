@@ -2,7 +2,7 @@ import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import {
-  Box, FormControlLabel, List, ListItem, Paper, Stack, Switch, Typography,
+  Box, List, ListItem, Paper, Stack, Switch, Typography,
 } from '@mui/material';
 import PoliteRegion from '../DraftBoard/PoliteRegion';
 import { useAnnouncement } from '../DraftBoard/useAnnouncement';
@@ -55,6 +55,20 @@ const SCROLLBACK_LIMIT = 20;
  * ONCE per mounted panel via a ref, so its per-draft "no repeat until the pool
  * is exhausted" tracking (ruling 2) survives across every render of one draft
  * and starts fresh for the next.
+ *
+ * THE POLITE REGION IS PERMANENTLY MOUNTED, never gated behind `assistantOn`
+ * (pre-PR-ready accessibility review, #786): PickAnnouncer.jsx's own docblock
+ * states the constraint this mirrors - "THIS region is permanently mounted…
+ * which a live region must be to be observed" - and ReadinessAnnouncer.jsx
+ * spells out why a gated region is unsafe either direction: assistive tech
+ * generally does not announce text a live region already holds when it is
+ * FIRST inserted into the DOM (a region mounted "on" already showing a stale
+ * line from before it was toggled off is silently mis-read as new), and a
+ * region that unmounts on toggle-off loses whatever the reader was tracking.
+ * Because it is always present, the panel also explicitly clears it
+ * (`announce('')`) whenever the toggle goes off, the same clear-on-exit idiom
+ * StallAnnouncer.jsx uses - otherwise a later toggle-on would flash the old
+ * line at mount before the next real trigger ever fires.
  */
 function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
   const [assistantOn, setAssistantOn] = useState(readDraftAssistantOn);
@@ -84,6 +98,14 @@ function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
       return next;
     });
   }, []);
+
+  // Clears the permanently-mounted region the moment the toggle goes off, so
+  // a later toggle-on never mounts-then-shows a stale line from before (see
+  // the docblock above). A no-op while already off/empty - announce('') on an
+  // already-empty region always lands plain (useAnnouncement.js).
+  useEffect(() => {
+    if (!assistantOn) announce('');
+  }, [assistantOn, announce]);
 
   const pushLine = useCallback((facts, { spoken }) => {
     const line = facts ? lineGenRef.current(facts, rng) : null;
@@ -155,20 +177,27 @@ function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
   }, [sim, assistantOn, myTeamId, rosterSlots, pushLine]);
 
   return (
-    <Paper component="section" aria-label="Draft assistant" sx={{ p: 2 }}>
+    <Paper component="section" aria-labelledby="sim-assistant-heading" sx={{ p: 2 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Typography variant="h6">Draft assistant</Typography>
-        <FormControlLabel
-          control={(
-            <Switch
-              checked={assistantOn}
-              onChange={toggleAssistant}
-              inputProps={{ 'aria-label': 'Draft assistant' }}
-            />
-          )}
-          label={assistantOn ? 'On' : 'Off'}
-          labelPlacement="start"
-        />
+        <Typography id="sim-assistant-heading" variant="h6" component="h2">
+          Draft assistant
+        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {/* Decorative: the Switch's own checked state already carries "on"/
+              "off" to assistive tech, and giving the Switch a stable
+              accessible name (rather than this changing "On"/"Off" string)
+              avoids the WCAG 2.5.3 Label-in-Name mismatch a FormControlLabel
+              built from this text would otherwise have (accessibility
+              review, #786). */}
+          <Typography variant="body2" sx={{ color: 'text.secondary' }} aria-hidden="true">
+            {assistantOn ? 'On' : 'Off'}
+          </Typography>
+          <Switch
+            checked={assistantOn}
+            onChange={toggleAssistant}
+            inputProps={{ 'aria-label': 'Draft assistant commentary' }}
+          />
+        </Stack>
       </Stack>
 
       {assistantOn && (
@@ -197,10 +226,10 @@ function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
               ))}
             </List>
           )}
-
-          <PoliteRegion text={announcement} />
         </Box>
       )}
+
+      <PoliteRegion text={announcement} />
     </Paper>
   );
 }

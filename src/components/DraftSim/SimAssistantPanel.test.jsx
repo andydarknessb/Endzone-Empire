@@ -56,7 +56,10 @@ describe('SimAssistantPanel (#786)', () => {
     expect(screen.getByText('Draft assistant')).toBeInTheDocument(); // the toggle control itself
     expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    // The polite region is permanently mounted (accessibility review, #786) so
+    // assistive tech has already discovered it before there is ever anything
+    // to announce - present, but silent, while the toggle is off.
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 
   it('with the toggle on, a user reach pick renders a line from the reach pool and the live region announces it once', () => {
@@ -140,9 +143,38 @@ describe('SimAssistantPanel (#786)', () => {
     render(<SimAssistantPanel sim={makeSim([])} myTurn={false} secondsLeft={null} />);
     expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant commentary' }));
 
     expect(screen.getByText('Misery Meter')).toBeInTheDocument();
     expect(window.localStorage.getItem(DRAFT_ASSISTANT_KEY)).toBe('1');
+  });
+
+  it('clears the live region on toggle-off and never re-shows the stale line merely from mounting it again', () => {
+    // Accessibility review regression guard (#786): a region that mounts
+    // already holding old text is the exact failure ReadinessAnnouncer.jsx's
+    // docblock warns about - assistive tech generally does not announce
+    // content a live region already holds when first observed, so a stale
+    // line surviving a toggle off/on is silently misread as new (or missed).
+    window.localStorage.setItem(DRAFT_ASSISTANT_KEY, '1');
+    const { rerender } = render(
+      <SimAssistantPanel sim={makeSim([])} myTurn={false} secondsLeft={null} rng={firstDraw} />
+    );
+
+    // Drive a real turn-start announcement (no pick needed for this trigger).
+    rerender(
+      <SimAssistantPanel sim={makeSim([])} myTurn secondsLeft={null} rng={firstDraw} />
+    );
+    const region = screen.getByRole('status');
+    expect(region.textContent).not.toBe('');
+
+    // Toggle off: the region stays mounted (still queryable by role) but its
+    // text is cleared, not merely hidden.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant commentary' }));
+    expect(screen.getByRole('status').textContent).toBe('');
+
+    // Toggle back on with nothing new having happened: still silent, not the
+    // old turn-start line reappearing just because the panel is visible again.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant commentary' }));
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 });
