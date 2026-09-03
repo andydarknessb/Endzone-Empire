@@ -798,13 +798,20 @@ function PlayerPoolTable({
   );
 }
 
-// The pool panel's whole contract, eleven props (issue #792 ruling 2): the
+// The pool panel's declared contract, eleven props (issue #792 ruling 2): the
 // fifteen filter/sort/search/paging fields ride inside `controls` and the four
 // draft facts inside `pickState`, so a new filter or a new pick rule never
-// widens this list. A prop that silently stops being passed used to just render
-// with a stale default; naming the interface here makes that a dev-time warning,
-// and the sibling keys test (PlayerPoolTable.test.jsx) fails the moment a
-// twelfth prop appears.
+// widens this list. This declaration is what the sibling keys test
+// (PlayerPoolTable.test.jsx) pins: it reads Object.keys(propTypes), so adding a
+// key here (or dropping/renaming one) is what turns it red - it keeps the
+// DECLARATION honest, not the destructure. It cannot catch a twelfth prop that
+// is only added to the signature and left undeclared: eslint-config-react-app
+// does not enable react/prop-types (see DraftRail.jsx - ~30 props, no propTypes,
+// lint clean). Of these, only the eight top-level isRequired props warn at
+// dev time when a caller omits one; the fifteen `controls` and three
+// `pickState` fields are optional inside their shapes, so a missing loadMore or
+// explanation warns about nothing (the tooltip-text tests in the two suites are
+// what actually guard the threaded explanation).
 PlayerPoolTable.propTypes = {
   players: PropTypes.arrayOf(PropTypes.object).isRequired,
   controls: PropTypes.shape({

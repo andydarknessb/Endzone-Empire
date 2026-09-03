@@ -90,15 +90,19 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-// The whole point of #792: the panel owns its controls, and the interface is
-// exactly eleven props. Adding a twelfth (or dropping one) turns this red -
-// the propTypes declaration is the single place the contract is named.
+// The whole point of #792: the panel owns its controls, and its DECLARED
+// contract is exactly eleven props. This reads Object.keys(propTypes), so adding
+// a key to the propTypes declaration (or dropping/renaming one) turns it red; it
+// keeps the declaration honest. It does NOT tie the declaration to the
+// signature - a twelfth prop added only to the destructure and left undeclared
+// stays green (eslint-config-react-app does not enable react/prop-types).
 test('the table declares exactly its eleven-prop interface via propTypes (#792 ruling 2)', () => {
   // Reading the component's own propTypes is the whole point of the assertion
   // (issue #792 AC3): it is the single declared place the eleven-prop contract
-  // lives, so a twelfth prop turns this red. forbid-foreign-prop-types guards
-  // against reading ANOTHER component's propTypes at runtime; here it is this
-  // component's own contract, read in a test that never ships to production.
+  // lives, so adding/dropping a propTypes key turns this red.
+  // forbid-foreign-prop-types guards against reading ANOTHER component's
+  // propTypes at runtime; here it is this component's own contract, read in a
+  // test that never ships to production.
   // eslint-disable-next-line react/forbid-foreign-prop-types
   expect(Object.keys(PlayerPoolTable.propTypes).sort()).toEqual([
     'byeOverlapByWeek',
