@@ -252,7 +252,7 @@ function correctionTarget(picks, currentPick, expectedPickNumber = null) {
 function startPlan(league, teams, keepers = []) {
   if (league.draft_type === 'auction') {
     return {
-      error: { status: 501, message: 'Salary cap / auction drafts are not supported yet. This league cannot start its draft until that ships.' },
+      error: { status: 409, message: 'Salary cap / auction drafts are not supported yet. This league cannot start its draft until that ships.' },
     };
   }
 

@@ -9,6 +9,7 @@ const {
   correctionTarget,
   startPlan,
 } = require('../services/draftValidation.service');
+const { DraftError, isDraftRefusal } = require('../services/draft.service');
 
 // --- positionCapsFeasible ---------------------------------------------------
 
@@ -313,9 +314,20 @@ const baseLeague = {
 };
 const startTeams = [{ id: 1, autodraft: false }, { id: 2, autodraft: false }];
 
-test('startPlan: auction leagues are blocked with a 501', () => {
+test('startPlan: auction leagues are blocked with a 409', () => {
   const plan = startPlan({ ...baseLeague, draft_type: 'auction' }, startTeams, []);
-  assert.equal(plan.error.status, 501);
+  assert.equal(plan.error.status, 409);
+  assert.equal(
+    plan.error.message,
+    'Salary cap / auction drafts are not supported yet. This league cannot start its draft until that ships.',
+  );
+});
+
+test('startPlan: the auction refusal is a refusal once wrapped as a DraftError, not an internal invariant', () => {
+  const plan = startPlan({ ...baseLeague, draft_type: 'auction' }, startTeams, []);
+  const wrapped = new DraftError(plan.error.status, plan.error.message);
+  assert.equal(isDraftRefusal(wrapped), true);
+  assert.equal(isDraftRefusal(new DraftError(500, 'internal')), false);
 });
 
 test('startPlan: autopick leagues plan to autodraft every team', () => {
