@@ -112,6 +112,10 @@ const LEAGUE_ROW = {
   invite_code: 'invite',
   ownerTeamId: VIEWER.teamId,
   ownerTeamName: VIEWER.teamName,
+  // `market` (#748) is gated on a pending draft (758-f2), so this fixture is
+  // pending: the exact-key-set guard below is pinning the shape a commissioner
+  // sees mid-lobby, which is when this payload's market field matters.
+  draft_status: 'pending',
 };
 
 // The fake is keyed on `AS "ownerTeamId"` for the detail query, NOT on
@@ -125,6 +129,10 @@ function leagueDetailFake(t, { isCommissioner = false, coCommissioners = [] } = 
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: isCommissioner ? [{ '?column?': 1 }] : [] })],
     [/FROM "league_commissioners"/, () => ({ rows: coCommissioners })],
+    // The market status line (#748): a fresh market by default, so this
+    // shape-contract fake doesn't have to think about staleness.
+    [select('players'), () => ({ rows: [{ n: 250 }] })],
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ finished_at: new Date().toISOString() }] })],
     [/COUNT\("team_players"\."id"\)/, () => ({ rows: [teamRow(VIEWER), teamRow(OTHER)] })],
   ]).install(t);
 }
@@ -163,7 +171,7 @@ test('league detail: a teams[] entry is Team identity and team attributes, no ac
 
 // --- league object (as a plain member sees it) ---------------------------
 const LEAGUE_OBJECT_CLEAN = [
-  'co_commissioners', 'current_season', 'id', 'is_commissioner', 'name',
+  'co_commissioners', 'current_season', 'draft_status', 'id', 'is_commissioner', 'market', 'name',
   'owner_id', 'ownerTeamId', 'ownerTeamName',
 ];
 test('league detail: the league object names the creator by Team, not by account name', async (t) => {

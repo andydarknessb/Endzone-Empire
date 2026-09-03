@@ -85,6 +85,9 @@ function leagueDetailFake(t, { coCommissioners = [] } = {}) {
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/FROM "league_commissioners"/, () => ({ rows: coCommissioners })],
+    // The market status line (#748): a fresh market by default.
+    [select('players'), () => ({ rows: [{ n: 250 }] })],
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ finished_at: new Date().toISOString() }] })],
     [/COUNT\("team_players"\."id"\)/, () => ({ rows: [teamRow(VIEWER), teamRow(OTHER)] })],
   ]).install(t);
 }
