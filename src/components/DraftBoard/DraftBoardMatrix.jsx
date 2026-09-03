@@ -63,9 +63,19 @@ function useFlashKey(value) {
  * needed to place a landed pick, only to know the round a pick_number falls in
  * (ceil(pick_number / teamCount)).
  *
- * `teams` and `onTheClock` are read as `teamId` / `teamName` for the same
- * reason: a cell key matches a Pick's Team against a column's Team, so both
- * sides have to be spelled the same way.
+ * `teams` are read as `teamId` / `teamName` for the same reason: a cell key
+ * matches a Pick's Team against a column's Team, so both sides have to be
+ * spelled the same way.
+ *
+ * `onTheClock` is the one On-the-clock VALUE OBJECT (#754), not a bare team:
+ * `{ team: { teamId, teamName } | null, state, deadlineAt }`. The team on the
+ * clock is read through `isTeamOnTheClock(onTheClock, teamId)` and, for the
+ * next-pick cell key, `onTheClock.team.teamId` - never a flat team id hung
+ * directly off `onTheClock`.
+ * A caller holding a bare wire team (e.g. the sim engine's `{ teamId, teamName }`)
+ * must build the value object with `deriveOnTheClock(...)` before passing it here;
+ * a flat shape does not crash, it silently drops the on-the-clock cell label and
+ * the column marker.
  */
 function DraftBoardMatrix({
   teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false, headerAction = null,
