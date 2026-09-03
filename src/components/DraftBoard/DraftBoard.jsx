@@ -16,6 +16,7 @@ import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import useDraftSocket from './useDraftSocket';
+import { useLeague } from '../../hooks/useLeague';
 import usePlayerPool from './usePlayerPool';
 import useMyRoster from './useMyRoster';
 import useDraftQueue from './useDraftQueue';
@@ -313,6 +314,17 @@ function DraftBoard() {
 
   const pool = usePlayerPool(leagueId);
   const myRoster = useMyRoster(leagueId);
+  // The league DETAIL row (GET /api/league/:id, #760), read through the same
+  // shared/cached resource Draft Settings, League Rules and Game Center
+  // already use - never a second fetch of this URL. The room reads exactly
+  // one field off it, `market`: the player market's absent/stale/fresh state
+  // (#748), which only means anything while pending and so is deliberately
+  // NOT folded into the socket snapshot (draft:state is recomputed and
+  // broadcast on every pick and admin action; a COUNT-plus-sync-lookup has no
+  // business riding that path). `leagueDetail` on purpose, never `league` -
+  // the socket `league` destructured below stays the one source for
+  // draft_status and everything else the room renders.
+  const { league: leagueDetail } = useLeague(leagueId);
   // useDraftSocket registers its socket listeners once per leagueId (not
   // per render), so the `onPickLanded` it calls must stay stable in
   // identity while still seeing this render's `teams`/`viewerTeamId` - a ref
@@ -984,6 +996,7 @@ function DraftBoard() {
                     teamCount={teams.length}
                     minimumTeams={minimumTeams}
                     auctionUnavailable={auctionUnavailable}
+                    market={leagueDetail?.market}
                     onStart={admin.handleStartDraft}
                   />
                 )}
