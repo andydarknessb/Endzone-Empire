@@ -378,8 +378,11 @@ _Avoid_: stalled (that is the nothing-draftable pause), stuck, late clock
 **Pick**:
 A team's committed claim of one player during a draft. Once accepted it
 advances the shared draft state and cannot be undone by the manager who made
-it; commissioner correction is a separate administrative act.
-_Avoid_: selection, reversible pick
+it; commissioner correction is a separate administrative act. A Pick is made
+only while the draft is active: a player added after the draft completes is a
+Free agent acquisition, not a Pick, and it is never part of the Draft record.
+_Avoid_: selection, reversible pick, free-agent add (a post-draft acquisition,
+not a Pick)
 
 **Draft activity**:
 The chronological record of consequential shared Draft events: Draft start,
@@ -514,6 +517,16 @@ _Avoid_: value (unqualified), tier, treating 17-game pace or ADP as a stand-in
 **Draft Sim**:
 A solo practice draft against CPU opponents. It never touches a real league.
 _Avoid_: mock draft
+
+**Draft assistant**:
+A private, opt-in voice in the Draft room and the Draft Sim that comments on
+a manager's own Picks, Queue and Pick clock over approved measures (ADP,
+steal and reach, Starting need, Autopick). It never ranks, recommends or
+alters Best available, presents nothing as Draft value, and is never shown to
+a presenter. "Polk High Legend" is the name of its first voice, not of the
+assistant.
+_Avoid_: bot, advisor, coach, recommendation engine, commentary feed (Draft
+activity is the shared feed; the assistant is private)
 
 ### Roster and lineup
 
