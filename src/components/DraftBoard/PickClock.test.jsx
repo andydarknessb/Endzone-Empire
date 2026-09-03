@@ -96,3 +96,52 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     expect(screen.queryByTestId('draft-clock-overdue')).not.toBeInTheDocument();
   });
 });
+
+describe('PickClock - urgent edge (#787 ruling item 2)', () => {
+  it('fires onUrgent once at the crossing into the urgent window, never per second', () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    const onUrgent = jest.fn();
+    // 12s out: outside the 10s urgent window, so nothing yet.
+    renderClock({ deadlineAt: now + 12000, onUrgent });
+    expect(onUrgent).not.toHaveBeenCalled();
+
+    // Cross into the urgent window (~9s left): exactly one call.
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(onUrgent).toHaveBeenCalledTimes(1);
+
+    // Several more ticks INSIDE the window: still one - the edge fired, not the
+    // per-second count (its effect keys on the urgent flag, not the seconds).
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(onUrgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-arms on a new deadline so the next turn can fire again', () => {
+    jest.useFakeTimers();
+    const onUrgent = jest.fn();
+    const view = renderClock({ deadlineAt: Date.now() + 12000, onUrgent });
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(onUrgent).toHaveBeenCalledTimes(1);
+
+    // A fresh, further-out deadline (a new turn). The fired flag re-arms on the
+    // deadline change, so a clock still 12s out has not fired again...
+    view.rerender(
+      <ThemeProvider theme={theme}>
+        <PickClock deadlineAt={Date.now() + 12000} onUrgent={onUrgent} />
+      </ThemeProvider>
+    );
+    expect(onUrgent).toHaveBeenCalledTimes(1);
+
+    // ...until this turn's clock crosses too.
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(onUrgent).toHaveBeenCalledTimes(2);
+  });
+});

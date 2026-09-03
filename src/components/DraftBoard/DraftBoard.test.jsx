@@ -13,6 +13,9 @@ import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
 import DraftBoard from './DraftBoard';
 import PlayerPoolTableProbe from './PlayerPoolTable';
+import { railCompositionFor, RAIL_PANELS } from './railComposition';
+import { DRAFT_ASSISTANT_KEY } from '../../lib/draftAssistantPreference';
+import { fillTemplate, TRIGGERS, POLK_HIGH_LEGEND_LINES } from '../../lib/draftAssistant';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -3757,5 +3760,125 @@ describe('the final Pick and Draft completion (#519)', () => {
     act(() => ack({ error: 'you are not in this league' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('you are not in this league');
+  });
+});
+
+// --- Draft assistant, room venue (#787) ---
+//
+// These prove the WIRING between the live room and the assistant provider: the
+// socket seam and toggle reach the presenter, and the render-count discipline
+// (#754 A7) survives the assistant. The exact line-per-trigger behaviour is
+// pinned deterministically in DraftRoomAssistant.test.jsx (rng-injected) and
+// roomAssistantFacts.test.js; here rng is real, so assertions are membership in
+// a trigger's own pool - which no OTHER trigger's pool shares - or presence.
+//
+// The viewer is kept OFF the clock (onTheClock TEAM_B, picks' nextTeamId 2) so
+// the not-my-turn -> my-turn TURN_START trigger never fires alongside the line
+// under test; TURN_START is exercised on its own in DraftRoomAssistant.test.jsx.
+describe('Draft assistant in the live room (#787)', () => {
+  const commentaryTexts = () =>
+    within(screen.getByRole('list', { name: 'Draft assistant commentary' }))
+      .getAllByRole('listitem')
+      .map((li) => li.textContent);
+  const assistantOn = () => window.localStorage.setItem(DRAFT_ASSISTANT_KEY, '1');
+  const linesFor = (trigger, name) =>
+    POLK_HIGH_LEGEND_LINES[trigger].map((t) => fillTemplate(t, { player: { name } }));
+
+  afterEach(() => {
+    window.localStorage.removeItem(DRAFT_ASSISTANT_KEY);
+  });
+
+  test('a queued player taken by another team speaks a snipe (AC1 positive)', async () => {
+    assistantOn();
+    mockGets({ queue: [{ id: 7, name: 'Queued Star', position: 'WR', nfl_team: 'BUF' }] });
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    act(() => fakeSocket.trigger('draft:picked', {
+      pickNumber: 1, teamId: 2, teamName: 'Team B',
+      player: { id: 7, name: 'Queued Star', position: 'WR', nfl_team: 'BUF' },
+      nextTeamId: 2, draftComplete: false, auto: false,
+    }));
+
+    const snipes = linesFor(TRIGGERS.QUEUE_PICKED_BY_OTHER, 'Queued Star');
+    expect(commentaryTexts().some((t) => snipes.includes(t))).toBe(true);
+  });
+
+  test('an un-queued player taken by another team says nothing (AC1 negative, ruling item 6)', async () => {
+    assistantOn();
+    mockGets({ queue: [] });
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    act(() => fakeSocket.trigger('draft:picked', {
+      pickNumber: 1, teamId: 2, teamName: 'Team B',
+      player: { id: 999, name: 'Some Nobody', position: 'WR', nfl_team: 'NYJ' },
+      nextTeamId: 2, draftComplete: false, auto: false,
+    }));
+
+    // The assistant is on (its panel heading shows) but nothing was said.
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
+  });
+
+  test("the viewer's own autopick speaks a line from the Autopick pool (AC2)", async () => {
+    assistantOn();
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    act(() => fakeSocket.trigger('draft:picked', {
+      pickNumber: 1, teamId: 1, teamName: 'Team A',
+      player: { id: 50, name: 'Auto Star', position: 'RB', nfl_team: 'KC' },
+      nextTeamId: 2, draftComplete: false, auto: true,
+    }));
+
+    const autos = linesFor(TRIGGERS.PICK_AUTO, 'Auto Star');
+    expect(commentaryTexts().some((t) => autos.includes(t))).toBe(true);
+  });
+
+  test('with the assistant on, a ticking pick clock still re-renders only its own leaf (AC3, extends #754 A7)', async () => {
+    assistantOn();
+    jest.useFakeTimers();
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+    }), { onTheClock: TEAM_B })));
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:30');
+    // The assistant panel is mounted and on for this whole run.
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+    const roomRendersBefore = PlayerPoolTableProbe.renderSpy.mock.calls.length;
+
+    // Tick inside the non-urgent zone (30s -> 27s): the leaf ticks...
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:27');
+    // ...and nothing outside PickClock re-renders, assistant on and all.
+    expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
+  });
+
+  test('toggle off: the active composition still lists the assistant, and no panel renders (AC5)', async () => {
+    // Composition lists it unconditionally...
+    expect(railCompositionFor('active')).toContain(RAIL_PANELS.ASSISTANT);
+
+    // ...but with the toggle off (the default), the room shows the toggle and
+    // NO assistant panel: composition wants it, the panel declines.
+    window.localStorage.removeItem(DRAFT_ASSISTANT_KEY);
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    expect(screen.getByRole('button', { name: 'Draft assistant commentary' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Draft assistant' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
   });
 });

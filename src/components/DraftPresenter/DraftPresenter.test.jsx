@@ -160,3 +160,18 @@ test('an empty activity feed reads as an explicit empty state', async () => {
   await screen.findByRole('heading', { name: 'Sunday Ballers' });
   expect(screen.getByText(/No draft activity yet/i)).toBeInTheDocument();
 });
+
+test('the presenter link carries no Draft assistant: no panel, no toggle, no banner line (#787)', async () => {
+  // The presenter link never joins the member socket, so it never mounts the
+  // room's assistant provider or its surfaces (LiveDraftBanner and DraftRail are
+  // member-room components this page does not render). Ruling item 5 asks the
+  // presenter test to ASSERT that absence rather than the assistant to guard it.
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+  await screen.findByRole('heading', { name: 'Sunday Ballers' });
+
+  // No rail panel (its heading), no per-device toggle, no scrollback list.
+  expect(screen.queryByRole('heading', { name: 'Draft assistant' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
+});

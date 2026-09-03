@@ -10,13 +10,17 @@ test('pending is Readiness, Draft order, then My Queue', () => {
   ]);
 });
 
-test('active is My Queue, My Roster, then the compact Upcoming strip', () => {
-  // On the clock is the fourth member of the active composition and is
+test('active is My Queue, My Roster, the compact Upcoming strip, then the Draft assistant', () => {
+  // On the clock is a further member of the active composition and is
   // deliberately not a rail panel: it is the persistent banner above the
   // rail's own scrolling region (issue #122), which is what makes it
   // persistent at all. A copy inside the rail would scroll away.
+  //
+  // The Draft assistant (issue #787) IS a rail panel, listed unconditionally:
+  // composition says the active status wants it, and the panel itself renders
+  // nothing while the toggle is off (see the toggle-off test below).
   expect(railCompositionFor('active')).toEqual([
-    RAIL_PANELS.QUEUE, RAIL_PANELS.ROSTER, RAIL_PANELS.UPCOMING,
+    RAIL_PANELS.QUEUE, RAIL_PANELS.ROSTER, RAIL_PANELS.UPCOMING, RAIL_PANELS.ASSISTANT,
   ]);
 });
 
@@ -31,7 +35,7 @@ test('Readiness appears in no composition but pending', () => {
   expect(railCompositionFor('complete')).not.toContain(RAIL_PANELS.READINESS);
 });
 
-test('the compositions between them name exactly five panels, and no history panel', () => {
+test('the compositions between them name exactly six panels, and no history panel', () => {
   // CONTEXT.md: Draft board. Pick history is the chronological view of the
   // same committed picks, so it is a view within Board, never a second rail
   // panel competing with live decisions.
@@ -49,7 +53,7 @@ test('the compositions between them name exactly five panels, and no history pan
     ...railCompositionFor('complete'),
   ]);
 
-  expect([...named].sort()).toEqual(['order', 'queue', 'readiness', 'roster', 'upcoming']);
+  expect([...named].sort()).toEqual(['assistant', 'order', 'queue', 'readiness', 'roster', 'upcoming']);
 });
 
 test('every panel a composition names is a declared RAIL_PANELS member', () => {
