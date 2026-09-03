@@ -223,8 +223,9 @@ describe('parity with server/services/draftOrder.service.js', () => {
 });
 
 // teamsInDraftOrder and draftOrderIsSettled moved here from two hand-copies
-// (rosterViewFor in DraftBoard.jsx, and upcomingTeams.js) that had already
-// begun to diverge. Both are mirrors of server ordering, so they are tested
+// (rosterViewFor in DraftBoard.jsx, and the old upcomingTeams.js) that had
+// already begun to diverge; the draft-order window (draftOrderWindow.js) is now
+// their one consumer. Both are mirrors of server ordering, so they are tested
 // where the sync obligation is recorded rather than beside each consumer.
 describe('teamsInDraftOrder', () => {
   const team = (teamId, draft_position) => ({ teamId, draft_position });
