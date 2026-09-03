@@ -7,9 +7,12 @@ const { DraftError } = require('../services/draft.service');
 // A Pick lands in one place (#782): the socket handler commits AND fans out the
 // Pick through the one seam, landPick, rather than re-deriving the room events here.
 const { landPick } = require('../services/pick.service');
-const { teamForPick } = require('../services/draftOrder.service');
+// The draft:state snapshot lives in its own module (#788): the join emit reads
+// the member snapshot here, and the presenter route and the broadcast adapter
+// read their own snapshots there. The snapshot builder no longer lives on this
+// module.
+const { memberSnapshot } = require('../services/draftRoomSnapshot');
 const {
-  teamIdentityColumns,
   teamIdentityOf,
   lookupTeam,
 } = require('../services/teamIdentity');
@@ -99,7 +102,7 @@ function attachDraftSocket(httpServer) {
           return ack && ack(joinError({ code: 'NOT_A_MEMBER', message: 'you are not in this league' }));
         }
         socket.join(`league:${leagueId}`);
-        const state = await getDraftState(leagueId);
+        const state = await memberSnapshot(leagueId);
         // Acknowledge before the first snapshot, so a client knows which Team
         // is its own, and whether it may act as commissioner, before it has
         // any Team identity or draft state to apply either answer to.
@@ -553,49 +556,9 @@ async function deliverFeedEntry(io, db, { leagueId, event, entry, authorUserId }
   }
 }
 
-/** Full draft-room snapshot: league, teams in draft order, picks so far, on the clock. */
-async function getDraftState(leagueId) {
-  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-  const league = leagueResult.rows[0];
-  if (!league) return null;
-  delete league.invite_code;
-
-  // Team identity only, no manager account: the snapshot is broadcast to the
-  // whole league room, so it names each team by Team and never by its owner's
-  // account (#344, #115 child C). The `owner_id` column and the
-  // `"users"."username" AS "owner"` join that fed the old `owner` field are
-  // gone; the join is dropped with them, which also lets a team whose owner
-  // has left the league appear rather than being filtered out.
-  const teamsResult = await pool.query(
-    `SELECT "teams"."id", "teams"."name", "teams"."draft_position", "teams"."autodraft",
-            "teams"."draft_ready", ${teamIdentityColumns()}
-     FROM "teams"
-     WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "teams"."id"`,
-    [leagueId]
-  );
-  // A pick's own `name` is the PLAYER's, so the Team that made it needs its
-  // own contract fields rather than a second bare `name` (#112, parent #108).
-  const picksResult = await pool.query(
-    `SELECT "draft_picks"."pick_number", "draft_picks"."team_id", "draft_picks"."is_keeper",
-            ${teamIdentityColumns()},
-            "players"."id" AS "player_id", "players"."name", "players"."position", "players"."nfl_team"
-     FROM "draft_picks" JOIN "players" ON "players"."id" = "draft_picks"."player_id"
-     LEFT JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
-     WHERE "draft_picks"."league_id" = $1 ORDER BY "pick_number"`,
-    [leagueId]
-  );
-  const teams = teamsResult.rows;
-  const onTheClock = league.draft_status === 'active' && teams.length > 0
-    ? teamForPick(league.current_pick, teams, { rotation: league.draft_rotation, overrides: league.draft_order_overrides })
-    : null;
-
-  return { league, teams, picks: picksResult.rows, onTheClock };
-}
-
 module.exports = {
   attachDraftSocket,
   closeDraftSocket,
-  getDraftState,
   viewerContext,
   joinAck,
   joinError,

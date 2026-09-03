@@ -128,7 +128,7 @@ test('POST correct-pick: pauses, reverses the latest non-keeper Pick, appends a 
 
 test('POST correct-pick: locks the league FOR UPDATE before any mutation, serializing against a concurrent pick', async (t) => {
   // The concurrency defence (#439: cannot race a manager or autopick) is the
-  // SAME row lock draftPlayer takes: both do SELECT ... FOR UPDATE on the league
+  // SAME row lock commitPick takes: both do SELECT ... FOR UPDATE on the league
   // before touching draft_picks, so a correction and a concurrent pick serialize
   // on it. This proves correctLatestPick ISSUES that lock, before any
   // DELETE/UPDATE. It does NOT prove Postgres actually serialises two real

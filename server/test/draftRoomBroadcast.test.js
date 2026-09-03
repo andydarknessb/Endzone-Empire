@@ -1,7 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-const draftSocket = require('../modules/draftSocket');
+const { memberSnapshot } = require('../services/draftRoomSnapshot');
+const { createFakePool, select } = require('./helpers/fakePool');
 const { logger } = require('../modules/logger');
 const sentry = require('../modules/sentry');
 
@@ -37,10 +38,16 @@ test('each named method reaches to(league:<id>).emit(<wire name>, payload) on th
 
   const pickPayload = { player: { id: 7 }, auto: true };
   const activityEntry = { type: 'draft_activity', kind: 'pick', id: 3 };
-  const snapshot = { league: { id: 5 }, teams: [], picks: [], onTheClock: null };
-  // stateChanged computes the snapshot in-process via getDraftState (in EITHER
-  // process); pin the wire mapping without touching the database.
-  t.mock.method(draftSocket, 'getDraftState', async () => snapshot);
+  // stateChanged computes the snapshot in-process via memberSnapshot (in EITHER
+  // process). memberSnapshot is now a top-level require here, so pin the wire
+  // mapping by driving it over a fakePool - not the database - and computing the
+  // expected draft:state the same way the adapter will.
+  createFakePool([
+    [select('leagues'), () => ({ rows: [{ id: 5 }] })],
+    [/FROM "teams"/, () => ({ rows: [] })],
+    [/FROM "draft_picks"/, () => ({ rows: [] })],
+  ]).install(t);
+  const snapshot = await memberSnapshot(5);
 
   assert.deepEqual(await broadcast.pickLanded(5, pickPayload), { delivered: true, transport: 'io' });
   await broadcast.activityAppended(5, activityEntry);
@@ -127,7 +134,9 @@ test('stateChanged reports (never throws) when the in-process snapshot read fail
   const transport = recordingTransport();
   const broadcast = createDraftRoomBroadcast(transport, 'io');
   const boom = new Error('snapshot read failed');
-  t.mock.method(draftSocket, 'getDraftState', async () => { throw boom; });
+  createFakePool([
+    [select('leagues'), () => { throw boom; }],
+  ]).install(t);
   const captured = [];
   t.mock.method(logger, 'error', () => {});
   t.mock.method(sentry, 'captureError', (err, ctx) => captured.push({ err, ctx }));

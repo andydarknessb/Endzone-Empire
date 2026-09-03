@@ -85,7 +85,7 @@ between that and the response.
 | `POST /api/auth/forgot-password` | as above | route literal `{ ok, message }` | n/a | authPayloadShape |
 | `POST /api/auth/reset-password` | as above | service literal `{ ok }`; the service reads `SELECT * FROM "auth_tokens"` and publishes nothing from it | n/a | authPayloadShape |
 | `POST /api/auth/verify-email` | as above | service literal `{ ok }`; same `SELECT *`, same non-publication | n/a | authPayloadShape |
-| `GET /api/draft/board/:token` | registered at draft.router.js:96, ahead of `router.use(requireAuth)` at :125 | `SELECT * FROM "leagues"` (the `getDraftState` snapshot) | **allowlist** since #199 | draftPresenterBoard (#199) |
+| `GET /api/draft/board/:token` | registered at draft.router.js:53, ahead of `router.use(requireAuth)` at :107 | `presenterSnapshot` (draftRoomSnapshot.js) selects only the published league/team/pick fields | **named-column query** since #788 (formerly an allowlist over a star-select, #199) | draftPresenterBoard (#199, #788) |
 | `GET /api/health/livez` | health.router has no guard at all | route literal | allowlist | healthPayloadShape |
 | `GET /api/health/readyz` | as above | route literal over two probe helpers | allowlist | healthPayloadShape |
 | `GET /api/health/holdout` | as above | service snapshot: route destructures `{ ok, obligations }`; each obligation is a named literal built by holdout.service over named-column selects | allowlist at the route's top level; the obligations array is published exactly as the service built it | healthPayloadShape |

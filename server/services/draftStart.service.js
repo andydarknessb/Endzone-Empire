@@ -5,7 +5,7 @@ const { startPlan } = require('./draftValidation.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { MARKET_FLOOR } = require('./adp.service');
-const { appendLifecycleActivity, DRAFT_START, COMPLETE } = require('./draftActivity');
+const { appendLifecycleActivity, DRAFT_START } = require('./draftActivity');
 // The one Draft room adapter (#745), injected the same way the Pick clock reads
 // it: in the WORKER (scheduled autostart) its transport is the Redis emitter, so
 // the draft_start activity and the state refresh below are published rather than
@@ -14,6 +14,9 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // The Pick clock module owns arming (ADR 0018): the draft-started event fixes
 // draft_rounds and arms the first open pick's clock in one statement.
 const pickClock = require('./pickClock.service');
+// The one draft->season handoff (#789), shared with the completing-Pick path.
+// Module object so the all-keeper-start suite can mock completeDraft.
+const draftCompletion = require('./draftCompletion');
 
 /**
  * Start a league's draft — the single entry point for every "start" trigger
@@ -139,7 +142,7 @@ async function startDraft({ leagueId, userId = null }) {
 
     if (plan.firstOpenPick === null) {
       // Every roster slot was pre-filled by keepers — the draft is over before
-      // a single live pick, so run the same completion side effects draftPlayer
+      // a single live pick, so run the same completion side effects commitPick
       // would have on the final pick. draft_rounds is fixed here too (ADR
       // 0005): a draft that completes without a live pick is still "active or
       // completed" for every later read, so it must not fall through to a
@@ -147,15 +150,14 @@ async function startDraft({ leagueId, userId = null }) {
       pickDeadlineAt = await pickClock.onDraftStarted(client, {
         leagueId, complete: true, currentPick: plan.totalPicks, rounds: plan.rounds,
       });
-      const { generateRegularSeason } = require('./season.service');
-      await generateRegularSeason({ leagueId }, client);
-      // The same transaction also completed the draft (no live pick was ever
-      // possible), so record the completion after the start (#437 AC4). It is an
-      // actor-less state transition, so no Team is attributed (#437 AC5).
-      activities.push(await appendLifecycleActivity(client, { leagueId, kind: COMPLETE, team: null }));
+      // The clock flipped draft_status to 'complete' above; the one draft->season
+      // handoff runs on this same transaction (#789), opening the waiver window,
+      // scheduling the season, and appending the actor-less COMPLETE entry after
+      // the start (#437 AC4, AC5). Collected for the post-COMMIT broadcast.
+      activities.push(await draftCompletion.completeDraft(client, { leagueId }));
     } else {
       // Fix draft_rounds once, from Draft roster size at this instant (ADR
-      // 0005). draftPlayer's completion check and every other active/completed
+      // 0005). commitPick's completion check and every other active/completed
       // read use this stored value from here on; none of them call
       // draftRosterSize() again for this league.
       pickDeadlineAt = await pickClock.onDraftStarted(client, {

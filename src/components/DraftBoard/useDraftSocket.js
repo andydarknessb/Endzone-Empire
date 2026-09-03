@@ -130,9 +130,10 @@ function reducer(state, action) {
  * way, on the same ack, for the same reason (#178): the server decides it
  * with the predicate every commissioner-gated route authorizes with, so the
  * owner and a co-commissioner answer alike. It could never have come off
- * `draft:state`, whose league is a bare `SELECT *` on `leagues` - the room
- * used to ask that row for an `is_commissioner` it has no column for, and
- * silently fell through to an owner-only account comparison.
+ * `draft:state`, whose league is a named-column read of `leagues` (#788) with
+ * no per-viewer column - the room used to ask that row for an `is_commissioner`
+ * it has no column for, and silently fell through to an owner-only account
+ * comparison.
  *
  * The room reads this and nothing else - there is no client-side fallback to
  * fall back to - which makes re-reading it on EVERY join, not just the

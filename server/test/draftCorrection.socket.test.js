@@ -60,7 +60,7 @@ function correctionWorld(t) {
     [remove('lineup_entries'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), () => ({ rows: [{ id: LEAGUE_ID }], rowCount: 1 })],
     [insert('draft_activity'), () => ({ rows: [{ id: 30, feed_seq: '18', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
-    // getDraftState after commit: no league returned -> null draft:state, which
+    // memberSnapshot after commit: no league returned -> null draft:state, which
     // keeps this test off the whole-state read and on the activity broadcast.
     [select('leagues'), () => ({ rows: [] })],
   ]).install(t);

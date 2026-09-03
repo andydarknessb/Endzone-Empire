@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { landPick } = require('../services/pick.service');
 const pickService = require('../services/pick.service');
 const seasonService = require('../services/season.service');
+const draftCompletion = require('../services/draftCompletion');
 const lineupService = require('../services/lineup.service');
 const draftRoomBroadcast = require('../modules/draftRoomBroadcast');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
@@ -51,12 +52,16 @@ const TEAMS = [
 /** A world covering the whole commitPick transaction. `commissioner` adds the
  *  `SELECT 1 FROM "leagues"` answer the byCommissioner authority check reads. */
 function pickPool({ league, picksMade, commissioner = false } = {}) {
+  // Stateful: the completing Pick's draft_status flip is visible to the
+  // precondition read draftCompletion.completeDraft runs on this same client
+  // (#789), the way a real client reads back its own write.
+  const row = { ...league };
   const handlers = [];
   if (commissioner) {
     handlers.push([/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })]);
   }
   handlers.push(
-    [select('leagues'), () => ({ rows: [{ ...league }] })],
+    [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t })) })],
     [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
@@ -68,7 +73,15 @@ function pickPool({ league, picksMade, commissioner = false } = {}) {
     // the completion entry (6) draw distinct feed_seqs the way the trigger does.
     [insert('draft_activity'), (() => { let s = 5; return () => ({ rows: [{ id: 70 + s, feed_seq: String(s++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [update('leagues'), () => ({ rows: [{ pick_deadline_at: null }] })],
+    [update('leagues'), (text, params) => {
+      // The clock's advance statement carries the draft_status flip; the waiver
+      // window's own UPDATE (#789) leaves the status alone.
+      if (/^UPDATE "leagues" SET "current_pick"/.test(text)) {
+        row.draft_status = params[1];
+        return { rows: [{ pick_deadline_at: null }] };
+      }
+      return { rows: [], rowCount: 1 };
+    }],
     [update('teams'), () => ({ rows: [], rowCount: 1 })]
   );
   return createFakePool(handlers);
@@ -346,43 +359,30 @@ test('landPick: an active league with a null draft_rounds falls back to the live
   fake.assertClean();
 });
 
-// #194: the completing pick sets draft_status = 'complete' before it schedules
-// the season, on ONE transaction, and generateRegularSeason refuses a league that
-// is still pre-draft or drafting. Runs the real generateRegularSeason against a
-// fake that honours the transaction's own write.
-test('landPick: the completing pick schedules the season for real, gate and all (#194)', async (t) => {
-  const row = { ...BASE_LEAGUE, current_season: 2026, regular_season_weeks: 1 };
-  const fake = createFakePool([
-    [select('leagues'), () => ({ rows: [{ ...row }] })],
-    [select('teams'), () => ({ rows: TEAMS.map((t2) => ({ ...t2 })) })],
-    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
-    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
-    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
-    [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: 4 }] })],
-    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
-    [insert('draft_picks'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
-    [insert('draft_activity'), () => ({ rows: [{ id: 78, feed_seq: '9', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
-    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [select('matchups'), () => ({ rows: [] })],
-    [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
-    [update('leagues'), (text, params) => {
-      if (/^UPDATE "leagues" SET "current_pick"/.test(text)) row.draft_status = params[1];
-      return { rows: [{ pick_deadline_at: null }] };
-    }],
-    [update('teams'), () => ({ rows: [], rowCount: 1 })],
-  ]).install(t);
+// #194 / #789: the completing pick hands off to draftCompletion.completeDraft
+// AFTER the clock flips draft_status to 'complete' on this one transaction. The
+// handoff's own contract - waiver window, season schedule and completion entry
+// in order, and the flip-first precondition - is draftCompletion.test.js's; here
+// we pin only that the caller reaches completeDraft after the flip.
+test('landPick: the completing pick reaches completeDraft after the status flip (#194, #789)', async (t) => {
+  const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
   withRecorder(t);
-  // generateRegularSeason is deliberately NOT mocked here.
+  let callsAtHandoff = null;
+  t.mock.method(draftCompletion, 'completeDraft', async (client, { leagueId }) => {
+    assert.equal(leagueId, LEAGUE_ID);
+    callsAtHandoff = fake.calls.length;
+    return { kind: 'complete', id: 78 };
+  });
 
   const result = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
 
   assert.equal(result.draftComplete, true);
-  assert.equal(fake.matching(insert('matchups')).length, 1);
-  const completedAt = fake.calls.findIndex(
+  assert.equal(result.completion.kind, 'complete', 'the returned handoff entry rode out on the outcome');
+  const flipAt = fake.calls.findIndex(
     (c) => /^UPDATE "leagues" SET "current_pick"/.test(c.text) && c.params[1] === 'complete'
   );
-  const scheduledAt = fake.calls.findIndex((c) => /"matchups"/.test(c.text));
-  assert.ok(completedAt !== -1 && scheduledAt !== -1);
-  assert.ok(completedAt < scheduledAt, 'draft_status must be set to complete before generateRegularSeason is called');
+  assert.notEqual(flipAt, -1, 'the clock flipped draft_status to complete');
+  assert.notEqual(callsAtHandoff, null, 'completeDraft was reached');
+  assert.ok(flipAt < callsAtHandoff, 'the flip precedes the completeDraft handoff');
   fake.assertClean();
 });

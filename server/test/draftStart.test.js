@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const { startDraft } = require('../services/draftStart.service');
+const draftCompletion = require('../services/draftCompletion');
 const { MARKET_FLOOR } = require('../services/adp.service');
 
 // startDraft now broadcasts its state refresh and lifecycle entries through the
@@ -156,32 +157,31 @@ test('startDraft rolls back without writes when keepers exceed the current per-t
   fake.assertClean();
 });
 
-// #194: season operations now refuse to schedule a season for a league still
-// pre-draft or drafting, and this path calls generateRegularSeason INSIDE the
-// start transaction. It survives that gate only because the draft_status =
-// 'complete' UPDATE runs first, so the phase read on this same client sees
-// 'complete'. Nothing in draftStart.service states that order, so pin it:
-// reordering those two statements would break every keeper-filled draft start.
-test('startDraft marks the draft complete BEFORE it generates the season schedule (#194)', async (t) => {
+// #194 / #789: an all-keeper start completes the draft with no live pick, so it
+// hands off to draftCompletion.completeDraft AFTER the clock flips draft_status
+// to 'complete' on this one transaction. completeDraft's own contract (waiver
+// window, season schedule, completion entry, and the flip-first precondition) is
+// draftCompletion.test.js's; here we pin only that the start reaches it after
+// the flip.
+test('startDraft reaches completeDraft after it marks the draft complete (#194, #789)', async (t) => {
   const fake = draftStartPool({
     league: { ...KEEPER_FILLED_LEAGUE, regular_season_weeks: 1 },
     keepers: TWO_KEEPERS,
     teams: TWO_TEAMS,
   }).install(t);
+  let callsAtHandoff = null;
+  t.mock.method(draftCompletion, 'completeDraft', async (client, { leagueId }) => {
+    assert.equal(leagueId, 1);
+    callsAtHandoff = fake.calls.length;
+    return { kind: 'complete', id: 200 };
+  });
 
   await startDraft({ leagueId: 1, userId: 7 });
 
-  const sql = texts(fake);
-  const completedAt = sql.findIndex((s) => update('leagues').test(s) && s.includes("'complete'"));
-  const scheduledAt = sql.findIndex((s) => /"matchups"/.test(s));
+  const completedAt = texts(fake).findIndex((s) => update('leagues').test(s) && s.includes("'complete'"));
   assert.notEqual(completedAt, -1, 'the draft was marked complete');
-  assert.notEqual(scheduledAt, -1, 'season operations ran on this transaction');
-  assert.ok(
-    completedAt < scheduledAt,
-    'draft_status must be set to complete before generateRegularSeason is called'
-  );
-  // And it actually scheduled: 2 teams over 1 regular-season week is one game.
-  assert.equal(fake.matching(insert('matchups')).length, 1);
+  assert.notEqual(callsAtHandoff, null, 'completeDraft was reached');
+  assert.ok(completedAt < callsAtHandoff, 'the flip precedes the completeDraft handoff');
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
   assert.equal(fake.matching(/^ROLLBACK$/).length, 0);
   fake.assertClean();
@@ -260,23 +260,32 @@ test('startDraft proceeds when exactly MARKET_FLOOR players carry an ADP', async
   fake.assertClean();
 });
 
-test('startDraft that completes on keeper pre-fill appends draft_start then complete (#437 AC1, AC4)', async (t) => {
+test('startDraft that completes on keeper pre-fill appends draft_start then reaches completeDraft (#437 AC1, #789)', async (t) => {
   const fake = draftStartPool({
     league: { ...KEEPER_FILLED_LEAGUE, regular_season_weeks: 0 },
     keepers: TWO_KEEPERS,
     teams: TWO_TEAMS,
   }).install(t);
+  let callsAtHandoff = null;
+  t.mock.method(draftCompletion, 'completeDraft', async () => {
+    callsAtHandoff = fake.calls.length;
+    return { kind: 'complete', team_id: null, team_name: null };
+  });
 
   await startDraft({ leagueId: 1, userId: 7 });
 
+  // draftStart owns only the start entry now: attributed to the acting
+  // commissioner's Team (#437 AC1). The completion entry is completeDraft's
+  // (draftCompletion.test.js pins its kind/actor-less shape).
   const appended = fake.matching(insert('draft_activity'));
-  assert.equal(appended.length, 2, 'a start and a completion');
+  assert.equal(appended.length, 1, 'draftStart appends the start entry only');
   assert.equal(appended[0].params[1], 'draft_start');
   assert.deepEqual([appended[0].params[2], appended[0].params[3]], [11, 'Team Eleven']);
-  // The completion is an actor-less state transition (#437 AC5).
-  assert.equal(appended[1].params[1], 'complete');
-  assert.equal(appended[1].params[2], null);
-  assert.equal(appended[1].params[3], null);
+  // The handoff runs after the status flip.
+  const completedAt = texts(fake).findIndex((s) => update('leagues').test(s) && s.includes("'complete'"));
+  assert.notEqual(completedAt, -1, 'the draft was marked complete');
+  assert.notEqual(callsAtHandoff, null, 'completeDraft was reached');
+  assert.ok(completedAt < callsAtHandoff, 'the flip precedes the completeDraft handoff');
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
   fake.assertClean();
 });
