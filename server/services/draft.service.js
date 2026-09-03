@@ -33,12 +33,23 @@ class DraftError extends Error {
 /**
  * Whether a caught error is a draft REFUSAL rather than an internal fault. A
  * `DraftError` below 500 is a refusal: its message is copy a manager reads, so
- * a boundary echoes it verbatim. A `DraftError` of 500 or above is an internal
- * invariant, not copy: every boundary logs it and answers with its own generic
- * message instead of showing the raw text. Anything without a numeric
- * `statusCode` (a bare Error, a driver error) is not a refusal either, so it
- * takes the same generic, logged path. This is the one predicate the seven
- * draft boundaries branch on (#808).
+ * a boundary echoes it verbatim. That holds with no exception today, including
+ * the salary-cap/auction `startPlan` branch, which now answers 409 like every
+ * other `startPlan` refusal (#824). A `DraftError` of 500 or above is an
+ * internal invariant, not copy: every boundary logs it and answers with its
+ * own generic message instead of showing the raw text.
+ *
+ * The predicate deliberately does not require `instanceof DraftError`: it
+ * admits any error carrying a numeric `statusCode` below 500. That widening is
+ * intentional (#808): narrowing to `instanceof DraftError` would have changed
+ * the behavior of six of the seven draft boundaries this predicate replaced,
+ * each of which let a non-`DraftError` with a `statusCode` through too (four
+ * tested a bare `error.statusCode` alone, two tested
+ * `instanceof DraftError || error.statusCode`); the seventh, the correct-pick
+ * boundary, already tested `instanceof DraftError` alone, so the widening is a
+ * no-op there. Anything without a numeric `statusCode` (a bare Error, a driver
+ * error) is not a refusal either, so it takes the same generic, logged path.
+ * This is the one predicate the seven draft boundaries branch on (#808).
  */
 function isDraftRefusal(error) {
   return !!error && typeof error.statusCode === 'number' && error.statusCode < 500;

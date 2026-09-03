@@ -25,9 +25,9 @@ const draftCompletion = require('./draftCompletion');
  * logic. `userId: null` means the caller is the scheduler, which bypasses the
  * owner check (there's no acting user).
  *
- * Locks the league row, re-validates via startPlan() (auction 501, stale
- * order-overrides/keepers 409), pre-inserts any keeper picks, and arms the
- * first open pick's clock. Broadcasts the resulting draft:state on success.
+ * Locks the league row, re-validates via startPlan() (auction and stale
+ * order-overrides/keepers both 409), pre-inserts any keeper picks, and arms
+ * the first open pick's clock. Broadcasts the resulting draft:state on success.
  */
 async function startDraft({ leagueId, userId = null }) {
   const client = await pool.connect();
