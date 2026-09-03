@@ -165,6 +165,12 @@ describe('StallAnnouncer', () => {
     // Only the stall speaks through this announcer; every other activity kind
     // leaves the region as it was (Picks are the room-level PickAnnouncer's,
     // #513; the rest is the combined-feed announcer's deliberate silence).
+    // 'pick', 'pause' and 'draft_start' are all NEITHER a stall entry nor a
+    // stall exit, so each one genuinely exercises stallAnnouncementFor's own
+    // empty-string fallback rather than being shadowed by the isStallExit
+    // clear branch (an exit kind such as 'complete' would clear via that
+    // branch without ever reaching the builder - that case is covered by the
+    // it.each exit-clearing test above instead).
     const { rerender } = render(<StallAnnouncer stall={null} />);
     const region = screen.getByRole('status');
     expect(region).toHaveTextContent('');
@@ -172,7 +178,7 @@ describe('StallAnnouncer', () => {
     expect(region).toHaveTextContent('');
     rerender(<StallAnnouncer stall={lifecycle('pause', 2)} />);
     expect(region).toHaveTextContent('');
-    rerender(<StallAnnouncer stall={lifecycle('complete', 3)} />);
+    rerender(<StallAnnouncer stall={lifecycle('draft_start', 3)} />);
     expect(region).toHaveTextContent('');
   });
 

@@ -16,6 +16,21 @@ describe('PoliteRegion', () => {
     expect(regions[0]).toHaveTextContent('Gridiron Giants drafted Justin Jefferson');
   });
 
+  it('is visually hidden (MUI visuallyHidden), never a plain visible span', () => {
+    // The five prior inline copies were each styled sx={visuallyHidden}; this
+    // leaf must reproduce it exactly, or an announcement would render as
+    // visible text in the Draft room chrome on every tab.
+    render(<PoliteRegion text="The draft is stuck on MinneApple: no draftable player." />);
+    expect(screen.getByRole('status')).toHaveStyle({
+      position: 'absolute',
+      width: '1px',
+      height: '1px',
+      overflow: 'hidden',
+      clip: 'rect(0 0 0 0)',
+      whiteSpace: 'nowrap',
+    });
+  });
+
   it('renders empty rather than absent when text is the empty string', () => {
     render(<PoliteRegion text="" />);
     const region = screen.getByRole('status');

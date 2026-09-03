@@ -60,9 +60,9 @@ describe('useAnnouncement', () => {
   it('clears to a plain empty string via announce(""), never empty-plus-ZWSP', () => {
     // The clear path every gated announcer's exit/hidden/own-message branch
     // uses (StallAnnouncer's exit edge, FeedAnnouncer's hidden-arrival and
-    // own-message cases): the prior text is never itself empty when a real
-    // clear fires, so announce('') lands on the "different text" branch, not
-    // the exact-repeat one.
+    // own-message cases). Here `prev` is a real announcement, so this alone
+    // would pass even without the exemption below - see the next test for the
+    // case that actually depends on it.
     const { result } = renderHook(() => useAnnouncement());
     act(() => result.current[1]('The draft is stuck on MinneApple: no draftable player.'));
     act(() => result.current[1](''));
@@ -70,9 +70,13 @@ describe('useAnnouncement', () => {
   });
 
   it('stays a plain empty string across two consecutive clears', () => {
-    // Two exits in a row (or two own-messages arriving while already silent)
-    // both clear via announce(''); the empty string is exempt from the repeat
-    // check, so a second clear never appends a zero-width space onto silence.
+    // The case the exemption exists for: `prev` CAN already be empty when a
+    // real clear fires - a room opens onto silent backlog and the first live
+    // entry is the viewer's own message (FeedAnnouncer), or two stall exits
+    // land back to back (StallAnnouncer). Without the `text !== ''` exemption
+    // in useAnnouncement.js, this second clear would land on the exact-repeat
+    // branch and append a zero-width space onto what should read as genuine
+    // silence.
     const { result } = renderHook(() => useAnnouncement());
     act(() => result.current[1](''));
     expect(result.current[0]).toBe('');

@@ -147,10 +147,13 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
     const text = feedAnnouncementFor(tail, viewerTeamId);
     if (!text) {
       // A lifecycle entry, a hidden arrival, or the viewer's own message: clear
-      // to empty via the shared hook. `announce('')` never lands on the
-      // exact-repeat branch here (the prior text is never itself the empty
-      // string when this clear fires), so it mutates the node value rather than
-      // removing it - there is no announcement of silence.
+      // to empty via the shared hook. This CAN land with `prev` already empty -
+      // the room opens onto backlog silently, so the first live entry a manager
+      // sends themselves reaches here with nothing yet rendered - and
+      // useAnnouncement's `announce('')` is exempt from the repeat check
+      // specifically for that reason: the empty string never gains a trailing
+      // zero-width space, so two clears in a row (or a clear while already
+      // silent) still read as genuine silence, not an invisible character.
       announce('');
       return;
     }
