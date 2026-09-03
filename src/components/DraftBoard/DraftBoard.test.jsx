@@ -2132,6 +2132,84 @@ test('missing 17-game pace shows a neutral placeholder with a keyboard-accessibl
   expect(placeholder).toBeTruthy();
 });
 
+// --- Room-level derivations feeding the pool table (issue #806) ---
+// #792 ruling 5 moved eight table-shaped cases down to the PlayerPoolTable
+// suites, which is right for the narrowed eleven-prop interface - but three of
+// those crossed a derivation step the room itself performs (picks -> drafted
+// Set, roster -> Bye Map, two clicks -> an accumulated filter). The table
+// tests below supply the derived value ready-made, so nothing here duplicates
+// them; each test below drives the same room-level input its moved ancestor
+// drove and asserts only that the derivation reached the table.
+
+test('draftedIds derives from live picks: an already-drafted pool row keeps only the Drafted chip', async () => {
+  renderBoard(1, { user: { id: 5 } });
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ teamId: 1, teamName: 'Team A' }],
+        picks: [{ pick_number: 1, team_id: 1, player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' }],
+        onTheClock: { teamId: 1, teamName: 'Team A' },
+      })
+    )
+  );
+
+  const table = screen.getByRole('table', { name: 'Available Players' });
+  const row = within(table).getByRole('row', { name: /Patrick Mahomes/ });
+  expect(within(row).getByText('Drafted')).toBeInTheDocument();
+  expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
+});
+
+test('byeOverlapByWeek derives from the caller\'s own roster and surfaces on the matching candidate', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/team/roster') {
+      // The caller's own roster already holds a KC player on Bye 10 (Travis
+      // Kelce) - Patrick Mahomes below shares that same Bye as a candidate.
+      return Promise.resolve({
+        data: [{ id: 99, name: 'Travis Kelce', position: 'TE', nfl_team: 'KC', bye_week: 10 }],
+      });
+    }
+    return Promise.resolve(
+      playersPage([
+        { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC', bye_week: 10 },
+        { id: 2, name: 'No Overlap Guy', position: 'RB', nfl_team: 'DAL', bye_week: 6 },
+      ])
+    );
+  });
+  renderBoard(1);
+
+  await screen.findByText('Patrick Mahomes');
+  const overlapHint = await screen.findByLabelText(/Bye overlap: 1 rostered player.*Travis Kelce/);
+  expect(overlapHint).toBeInTheDocument();
+  // No overlap for the other row (different Bye week) - the Map is keyed per
+  // week, not a blanket "rostered someone" flag.
+  expect(
+    within(screen.getByRole('row', { name: /No Overlap Guy/ })).queryByLabelText(/Bye overlap/)
+  ).not.toBeInTheDocument();
+});
+
+test('the Bye-weeks multi-select accumulates across two clicks via usePlayerPool state feeding back', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  apiClient.get.mockClear();
+  apiClient.get.mockResolvedValue(playersPage([]));
+
+  await userEvent.click(screen.getByLabelText('Bye week'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Week 9' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'Week 6' }));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: expect.objectContaining({ byeWeeks: '6,9' }), // sorted regardless of pick order
+    })
+  );
+  expect(screen.getByText('Bye 6')).toBeInTheDocument();
+  expect(screen.getByText('Bye 9')).toBeInTheDocument();
+});
+
 // ---------------------------------------------------------------------------
 // My Roster (src/components/RosterPanel/) - the league supplies its own shape.
 // ---------------------------------------------------------------------------
