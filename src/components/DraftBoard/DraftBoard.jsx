@@ -958,7 +958,7 @@ function DraftBoard() {
             the chrome every tab renders, so a committed Pick is announced on the
             Players, Board and Draft tabs too - not only while Chat is mounted -
             and once, since the Chat-scoped feed announcer no longer speaks Picks
-            (feedAnnouncement.js). Fed by the live-only onPickLanded seam, so
+            (FeedAnnouncer.jsx). Fed by the live-only onPickLanded seam, so
             initial history and reconnect snapshots are never replayed. Visually
             hidden; the visible board already shows the Pick to sighted managers. */}
         <PickAnnouncer pick={lastPick} />
@@ -1003,7 +1003,7 @@ function DraftBoard() {
           // ASSERTIVE live region) so this success banner stays VISIBLE and in
           // document order but never speaks (#519). The final Pick is announced
           // once, politely, by PickAnnouncer above - its text now carries
-          // ". Draft complete." on the completing Pick (pickAnnouncement.js) -
+          // ". Draft complete." on the completing Pick (PickAnnouncer.jsx) -
           // so this Alert must not compete with it, as an assertive OR a polite
           // live region. Scope is this completion Alert ALONE: the error Alert
           // just above keeps its assertive default, which is correct for errors.

@@ -1,8 +1,9 @@
 /**
  * Pure facts-object builders for the Draft Sim's Draft assistant presenter
  * (issue #786, part of the #784 spec). Everything here is the Sim-venue half
- * of ruling 13's "pickAnnouncement.js / PickAnnouncer.jsx split": no DOM, no
- * React, so SimAssistantPanel.jsx stays a thin caller.
+ * of ruling 13's builder / presenter split (the shape PickAnnouncer.jsx keeps
+ * in-file since #791): no DOM, no React, so SimAssistantPanel.jsx stays a
+ * thin caller.
  *
  * THIS MODULE CONSUMES src/lib/draftAssistant AND src/lib/draftSim/analysis,
  * it does not re-derive either. `earlyKickerOrDefense`, `miseryStage` and the

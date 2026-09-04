@@ -1,9 +1,9 @@
 /**
  * Pure facts-object builders for the Draft ROOM's Draft assistant presenter
  * (issue #787, part of the #784 spec). This is the room-venue half of ruling
- * 13's "pickAnnouncement.js / PickAnnouncer.jsx split": no DOM, no React, so
- * DraftRoomAssistant.jsx stays a thin caller, exactly as simAssistantFacts.js
- * is for the Sim (#786).
+ * 13's builder / presenter split (the shape PickAnnouncer.jsx keeps in-file
+ * since #791): no DOM, no React, so DraftRoomAssistant.jsx stays a thin
+ * caller, exactly as simAssistantFacts.js is for the Sim (#786).
  *
  * WHY THIS IS NOT simAssistantFacts.js. The Sim consumes its whole draft state
  * through src/lib/draftSim (userTeam, pickValues), which the room does not
