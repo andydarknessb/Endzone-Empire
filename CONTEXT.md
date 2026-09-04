@@ -395,7 +395,15 @@ _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
 **Presenter**:
-An anonymous viewer of a league's Draft through its share link (the presenter
+This term carries two numbered senses. "Presenter link" and any presenter
+described as a person or a viewer is always sense 1. An unqualified
+"presenter" inside the Draft assistant modules (the `src/lib/draftAssistant`
+tree, the room and Sim `*AssistantFacts` builders, and the room and Sim
+assistant panel components they feed) is always sense 2; a new comment in
+those modules that could be read either way says "presenter (sense 2)" or
+"venue presenter" instead of the bare word.
+
+1. An anonymous viewer of a league's Draft through its share link (the presenter
 link), holding no account and belonging to no league. A presenter is whoever
 holds the link, authorized by the opaque draft share token alone and scoped to
 exactly that one league. A presenter sees the read-only Draft board and the
@@ -410,6 +418,13 @@ feed at all, so a presenter sees no tombstone and no gap where one would be: cha
 hidden or not, is simply absent from the Draft-activity feed the presenter reads.
 _Avoid_: spectator, guest, viewer account (a presenter has no account), broadcast
 link
+
+2. The thin, venue-specific view in the Draft assistant that turns live Draft
+state into the facts object the pure line generator, `lineFor()`, consumes.
+One presenter exists per venue, the Draft room and the Draft Sim; it renders
+and owns no rules of its own, so the trigger and line logic it fronts stay in
+the pure builder and generator beneath it.
+_Avoid_: view component, renderer
 
 **Legacy feed entry**:
 A chat message or Pick that existed before the Draft room's combined feed and
