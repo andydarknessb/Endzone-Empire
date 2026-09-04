@@ -84,3 +84,35 @@ sighted user reads on screen, so it is built as its own inline element with
 `LiveDraftBanner`'s are both visible status regions in this sense. Nothing
 above this amendment governed that distinction; it was silent, not
 contradicted.
+
+## Amendment (2026-09-04, #819): a visible status region uses the hook
+
+The 2026-09-03 amendment above ends its "Hidden leaf versus visible status
+region" paragraph with the clause (at the sentence beginning "it does not mount
+`PoliteRegion`"):
+
+> it does not mount `PoliteRegion` and does not use the hidden leaf or the hook.
+
+That clause is too wide in one half. Its own stated reasoning is that a visible
+region "carries copy a sighted user reads on screen". That argument reaches the
+leaf, which is a `visuallyHidden` renderer, and does not reach the hook, which
+renders no DOM at all and only decides which string lands in the text node.
+`useAnnouncement` is `useState` plus one gated `useCallback`; its zero-width
+space is invisible and unspoken, so it behaves on visible copy exactly as it
+does on hidden copy. Read the clause above as replaced by:
+
+> a visible status region does not mount `PoliteRegion`, and it uses
+> `useAnnouncement` for its repeat-safe update like any other region that speaks
+> discrete turn events, because the idiom governs the text node and not whether
+> the region is hidden.
+
+This is what lets `LiveDraftBanner`'s and `DraftSimulator`'s turn-status regions
+mount empty and announce the first turn (and every repeat turn) from an effect
+keyed on the pick identity, rather than mounting already holding their text and
+going unannounced (#819).
+
+Rejected alternatives, recorded so they are not revisited: a duplicated local
+setter recreates the second ungated writer that `useAnnouncement`'s docblock
+says #791 folded away; a new shared module for two lines is not worth its own
+surface. Amending twice in one day is cheaper than keeping a clause whose stated
+reasoning does not support its second half.
