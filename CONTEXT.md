@@ -395,7 +395,15 @@ _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
 **Presenter**:
-An anonymous viewer of a league's Draft through its share link (the presenter
+This term carries two senses, numbered below. "Presenter link" and any
+presenter described as a person or a viewer is always sense 1. An
+unqualified "presenter" inside the Draft assistant modules (the
+`src/lib/draftAssistant` tree, the room and Sim `*AssistantFacts` builders,
+and the room and Sim assistant panel components they feed) is always sense
+2; a new comment in those modules that could be read either way says
+"presenter (sense 2)" or "venue presenter" instead of the bare word.
+
+**Sense 1**: An anonymous viewer of a league's Draft through its share link (the presenter
 link), holding no account and belonging to no league. A presenter is whoever
 holds the link, authorized by the opaque draft share token alone and scoped to
 exactly that one league. A presenter sees the read-only Draft board and the
@@ -410,6 +418,25 @@ feed at all, so a presenter sees no tombstone and no gap where one would be: cha
 hidden or not, is simply absent from the Draft-activity feed the presenter reads.
 _Avoid_: spectator, guest, viewer account (a presenter has no account), broadcast
 link
+
+**Sense 2**: The Draft assistant's thin, venue-specific view that sits between the pure
+facts builder (a room or Sim `*AssistantFacts` module) and the pure line
+generator, `lineFor()`. One presenter engine exists per venue, the Draft
+room and the Draft Sim, each mounted once and sharing one line generator
+and one polite region; the room realises its engine as a provider plus thin
+consumer pieces (a region, a rail panel, a banner line, a toggle) that
+share it, while the Sim realises its engine as one panel component. The
+presenter owns the trigger decisions common to both venues: whether a line
+fires at all, the once-per-turn urgent gate, the turn-boundary reset, and
+the selection cooldown; the Queue-snipe check is the Draft room's alone,
+since the Sim has no Queue. Once a trigger fires, the presenter calls the
+builder to shape the facts object and hands it to `lineFor()`. The builder
+shapes the facts; the Sim's builder may itself decline, returning null when
+the fact it needs is absent, while the room's builder always returns a
+facts object. The line generator owns line selection, including the
+per-draft no-repeat pool that keeps a trigger from reusing a line until its
+pool is exhausted.
+_Avoid_: view component, renderer
 
 **Legacy feed entry**:
 A chat message or Pick that existed before the Draft room's combined feed and
@@ -523,8 +550,8 @@ A private, opt-in voice in the Draft room and the Draft Sim that comments on
 a manager's own Picks, Queue and Pick clock over approved measures (ADP,
 steal and reach, Starting need, Autopick). It never ranks, recommends or
 alters Best available, presents nothing as Draft value, and is never shown to
-a presenter. "Polk High Legend" is the name of its first voice, not of the
-assistant.
+a presenter (sense 1, the share-link viewer). "Polk High Legend" is the name
+of its first voice, not of the assistant.
 _Avoid_: bot, advisor, coach, recommendation engine, commentary feed (Draft
 activity is the shared feed; the assistant is private)
 
