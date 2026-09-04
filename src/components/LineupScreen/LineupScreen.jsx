@@ -21,6 +21,11 @@ import {
   Divider,
   Tooltip,
   Stack,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -228,6 +233,7 @@ export function LineupEditor({
   const [benchSeasonTotal, setBenchSeasonTotal] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
+  const [dropCandidate, setDropCandidate] = useState(null); // entry awaiting drop confirmation
   const advicePanelRef = useRef(null);
   const rosterByPlayerId = new Map((roster || []).map((player) => [player.id, player]));
 
@@ -506,6 +512,14 @@ export function LineupEditor({
     }
   };
 
+  const closeDropConfirmation = () => setDropCandidate(null);
+
+  const confirmDrop = async () => {
+    const entry = dropCandidate;
+    setDropCandidate(null);
+    if (entry) await dropPlayer(entry);
+  };
+
   const renderRow = ({ key, testId, slotLabel, slotType, entry }) => {
     const isSelected = !!(entry && selectedEntry && selectedEntry.id === entry.id);
     const showEligibility = !!selectedEntry && !isSelected;
@@ -622,7 +636,7 @@ export function LineupEditor({
                       aria-label="Drop"
                       onClick={(event) => {
                         event.stopPropagation();
-                        dropPlayer(entry);
+                        setDropCandidate(entry);
                       }}
                       sx={{ color: 'error.main' }}
                     >
@@ -1175,6 +1189,27 @@ export function LineupEditor({
           ))
         )}
       </Menu>
+
+      <Dialog
+        open={!!dropCandidate}
+        onClose={closeDropConfirmation}
+        aria-labelledby="drop-player-dialog-title"
+      >
+        <DialogTitle id="drop-player-dialog-title">Drop {dropCandidate?.name}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {dropCandidate?.name} leaves your Team and becomes available to every other manager
+            in the league. His slot will be empty until you fill it. You can undo right after
+            dropping, but not once another manager claims him.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDropConfirmation}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={confirmDrop}>
+            Drop
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <PlayerQuickView
         open={quickViewId != null}

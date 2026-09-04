@@ -199,12 +199,36 @@ test('drops from a Lineup row and offers an undo that uses the undo-drop endpoin
 
   await screen.findByText('Starting Quarterback');
   await userEvent.click(screen.getByRole('button', { name: 'Drop' }));
+  expect(apiClient.delete).not.toHaveBeenCalled();
+
+  const dialog = await screen.findByRole('dialog', { name: /Drop .*\?/ });
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Drop' }));
   await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/10?leagueId=1'));
   expect(await screen.findByText(/No players rostered yet/)).toBeInTheDocument();
 
   await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/10/undo-drop', { leagueId: 1 }));
   expect(await screen.findByText('Starting Quarterback')).toBeInTheDocument();
+});
+
+test('cancelling the drop warning keeps the player and never calls the drop endpoint', async () => {
+  mockTeamApi({
+    roster: rosterRows().slice(0, 1),
+    lineup: lineupResponse({ entries: [lineupResponse().entries[0]] }),
+  });
+
+  renderWithProviders(<SnackbarProvider><TeamLineup /></SnackbarProvider>);
+
+  await screen.findByText('Starting Quarterback');
+  await userEvent.click(screen.getByRole('button', { name: 'Drop' }));
+
+  const dialog = await screen.findByRole('dialog', { name: /Drop .*\?/ });
+  expect(within(dialog).getByText(/becomes available to every other manager/)).toBeInTheDocument();
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(apiClient.delete).not.toHaveBeenCalled();
+  expect(screen.getByText('Starting Quarterback')).toBeInTheDocument();
 });
 
 test('shows the Draft Room state for a pre-draft Team with no roster', async () => {
