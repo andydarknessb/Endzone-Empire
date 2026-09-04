@@ -802,6 +802,50 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
 });
 
+test('the banner announces each live turn even though league.current_pick never advances (#819)', async () => {
+  // The regression the #819 risk review caught, driven the way the room actually
+  // works. On a live draft the reducer advances the committed-pick count and
+  // onTheClock on every draft:picked (picks: [pick, ...state.picks]) but leaves
+  // league.current_pick frozen - it moves only on a draft:state snapshot, which
+  // a landed pick does not emit. So the banner's polite status region keys its
+  // announcement on the committed-pick count (picks.length), never current_pick,
+  // or every turn after the first goes unannounced and the visible turn text
+  // freezes. Red-tell: key the effect on league.current_pick (absent here, and
+  // unchanged by draft:picked) and both post-pick assertions below go red - this
+  // is the test that would have caught the original mis-keying.
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active' },
+      teams: [TEAM_A, TEAM_B],
+      picks: [],
+      onTheClock: TEAM_A,
+    })
+  );
+  // First turn announced on mount, from the pick count (0), not current_pick.
+  expect(screen.getByText('Team A is on the clock')).toBeInTheDocument();
+
+  apiClient.get.mockResolvedValue(playersPage([]));
+  act(() =>
+    fakeSocket.trigger('draft:picked', {
+      pickNumber: 1,
+      teamId: 1,
+      teamName: 'Team A',
+      player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' },
+      nextTeamId: 2,
+      draftComplete: false,
+      auto: false,
+    })
+  );
+
+  // The committed-pick count advanced 0 -> 1 (league.current_pick did not), so
+  // the region re-announces the new turn on the same node.
+  expect(screen.getByText('Team B is on the clock')).toBeInTheDocument();
+  expect(screen.queryByText('Team A is on the clock')).not.toBeInTheDocument();
+});
+
 test('a pick landing refetches the caller\'s own roster only when THAT pick is theirs', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');

@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Box, CircularProgress, Stack, Tab, Tabs, Typography,
+  Box, CircularProgress, Stack, Tab, Tabs,
 } from '@mui/material';
 import useDraftSim from './useDraftSim';
 import SimConfigForm from './SimConfigForm';
 import SimStatusBar from './SimStatusBar';
+import SimTurnStatus from './SimTurnStatus';
 import SimPlayerPool from './SimPlayerPool';
 import SimPickFeed from './SimPickFeed';
 import SimAssistantPanel from './SimAssistantPanel';
@@ -133,24 +134,27 @@ function DraftSimulator({ showCta = false }) {
         onRestart={restart}
       />
 
-      {/* The room's one turn-status region (#805, ADR 0028): mounted on BOTH
-          turns, never gated behind myTurn, announcing politely on this axis
-          - mirrors LiveDraftBanner's Box in the Draft room
-          (src/components/DraftBoard/LiveDraftBanner.jsx, #445 AC3). The
-          assistant's own PoliteRegion (SimAssistantPanel.jsx) is a separate,
-          sanctioned axis (ADR 0028) that may also speak on a turn change
-          when it's toggled on - this region's job is only to make sure a
-          turn change is heard at all when the assistant is off. The spinner
-          is decorative (aria-hidden) and stays off-turn only; it sits
-          beside the region, not inside it, so it never becomes part of the
-          announced text. */}
+      {/* The room's one turn-status region (#805, #819, ADR 0028): mounted on
+          BOTH turns, never gated behind myTurn, announcing politely on this axis
+          - mirrors LiveDraftBanner's status region in the Draft room
+          (src/components/DraftBoard/LiveDraftBanner.jsx, #445 AC3). The region
+          mounts empty and fills its turn text from an effect keyed on the pick
+          identity (#819): SimTurnStatus owns that, so the first turn is
+          announced rather than mounting already holding its text. The turn
+          identity is sim.currentPick, never the derived string, so a snake
+          turnaround (same team, two consecutive picks, byte-identical text) is
+          still heard. The assistant's own polite region (SimAssistantPanel.jsx)
+          is a separate, sanctioned axis (ADR 0028) that may also speak on a turn
+          change when it's toggled on - this region's job is only to make sure a
+          turn change is heard at all when the assistant is off. The spinner is
+          decorative (aria-hidden) and stays off-turn only; it sits beside the
+          region, not inside it, so it never becomes part of the announced text. */}
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
         {!myTurn && <CircularProgress size={16} aria-hidden="true" />}
-        <Box role="status" aria-live="polite">
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {myTurn ? 'Your pick!' : onTheClock ? `${onTheClock.name} is on the clock…` : 'Wrapping up…'}
-          </Typography>
-        </Box>
+        <SimTurnStatus
+          turnKey={sim.currentPick}
+          text={myTurn ? 'Your pick!' : onTheClock ? `${onTheClock.name} is on the clock…` : 'Wrapping up…'}
+        />
       </Stack>
 
       <Tabs
