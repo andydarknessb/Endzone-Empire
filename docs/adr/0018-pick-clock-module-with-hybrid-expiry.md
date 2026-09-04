@@ -96,3 +96,18 @@ Autopick keeps failing is caught too. Neither path is a Draft activity.
 The pool budget was dropped: no pool exhaustion has ever been observed,
 so the alarm attaches pool counters instead and the question becomes a
 measurement rather than a design.
+
+## Amendment (2026-09-04): the pulse ends at expiry, the colour at Overdue
+
+The #769 leaf kept the whole urgency signal (error colour and pulse) from
+the urgent edge through `0:00` until the Overdue crossing, on the reasoning
+that the server may advance an expired clock at any moment. Watching a real
+stall (#839) showed the pulse at `0:00` reads as alarm with nothing to do:
+once the digits are zero nobody in the room can act, whatever the server is
+about to do. So the pulse now ends at `0:00` and the error colour stays
+until Overdue, which still ends both (#844). Reduced motion is unchanged,
+the colour already carried the signal there. The banner's copy of the
+Overdue string stays in its polite region for the one announcement but is
+no longer displayed; the leaf's line under the digits is the one visible
+Overdue text. Neither change touches the server, the tolerance, or the
+Overdue definition in CONTEXT.md.

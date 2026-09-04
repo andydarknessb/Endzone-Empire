@@ -105,7 +105,14 @@ describe('LiveDraftBanner - Overdue announced once in the live region (#769 AC3)
     // region, and it is there exactly once - one announcement per turn, not one
     // per second.
     act(() => { jest.advanceTimersByTime(OVERDUE_AFTER_MS + 5000); });
-    expect(within(region).getAllByText('Waiting on the server')).toHaveLength(1);
+    const announced = within(region).getAllByText('Waiting on the server');
+    expect(announced).toHaveLength(1);
+    // Announcement only (#844): the region's copy is visually hidden, so the
+    // one VISIBLE "Waiting on the server" in the room is the leaf's own line
+    // under the digits. Red tell: render the region copy as ordinary text and
+    // the position/width assertions below go red.
+    expect(announced[0]).toHaveStyle({ position: 'absolute', width: '1px', height: '1px' });
+    expect(screen.getByTestId('draft-clock-overdue')).toHaveTextContent('Waiting on the server');
   });
 
   it('announces when the clock is ALREADY overdue on arrival (connecting into a stalled draft)', () => {
