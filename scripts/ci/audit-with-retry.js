@@ -85,10 +85,11 @@ function sleep(ms) {
 
 // One npm run. Spawned WITHOUT a shell: the executable and every argument
 // are passed as separate array elements, so nothing is interpolated into a
-// shell line and a path with spaces (npm.cmd, a temp fake) is safe. stdio is
-// captured (not inherited) so stderr can be inspected for the endpoint line,
-// then written through unchanged so the job log reads exactly as a bare
-// `npm audit` would.
+// shell line. (Node refuses to spawn a `.cmd` without a shell, so on the
+// ubuntu runners the gates use the executable is the ELF `npm`; this is not a
+// way to launch npm.cmd on Windows.) stdio is captured (not inherited) so
+// stderr can be inspected for the endpoint line, then written through
+// unchanged so the job log reads exactly as a bare `npm audit` would.
 function runOnce(npmBin, npmPreArgs, args) {
   const result = spawnSync(npmBin, [...npmPreArgs, ...args], {
     encoding: 'utf8',
@@ -99,8 +100,13 @@ function runOnce(npmBin, npmPreArgs, args) {
   if (stdout) process.stdout.write(stdout);
   if (stderr) process.stderr.write(stderr);
   // A launch failure (result.error) has no exit code; treat it as a non-zero,
-  // non-endpoint result so it passes through red without retry.
+  // non-endpoint result so it passes through red without retry. Name it so
+  // the red says why: a bare silent exit 1 is the very thing this gate exists
+  // to remove.
   const code = typeof result.status === 'number' ? result.status : 1;
+  if (result.error) {
+    process.stderr.write(`dependency audit: could not launch '${npmBin}': ${result.error.message}\n`);
+  }
   return { code, stderr };
 }
 

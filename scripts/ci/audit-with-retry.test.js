@@ -20,7 +20,9 @@ const EXHAUSTION_ANNOTATION =
 const ENDPOINT_LINE = 'npm error audit endpoint returned an error';
 
 // A fake npm. Each invocation appends one line to COUNTER_FILE (so the test
-// can count invocations) and emits the attempt-th entry of BEHAVIOR
+// can count invocations) and one JSON line to ARGV_FILE recording the exact
+// argv the wrapper handed npm (so the test can assert the audit command, not
+// only its retry behaviour), then emits the attempt-th entry of BEHAVIOR
 // (a JSON array of { code, stderr?, stdout? }); the last entry repeats once
 // the attempts run past the array. This is the "fake npm executable" the
 // acceptance criteria call for: a real subprocess the script spawns, whose
@@ -28,6 +30,7 @@ const ENDPOINT_LINE = 'npm error audit endpoint returned an error';
 const FAKE_NPM = `
 const fs = require('node:fs');
 fs.appendFileSync(process.env.COUNTER_FILE, 'call\\n');
+fs.appendFileSync(process.env.ARGV_FILE, JSON.stringify(process.argv.slice(2)) + '\\n');
 const attempt = fs.readFileSync(process.env.COUNTER_FILE, 'utf8').trim().split('\\n').length;
 const behavior = JSON.parse(process.env.BEHAVIOR);
 const step = behavior[Math.min(attempt - 1, behavior.length - 1)];
@@ -40,8 +43,10 @@ function runScript({ behavior, prefixArg }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-retry-'));
   const fakePath = path.join(dir, 'fake-npm.js');
   const counterFile = path.join(dir, 'calls.log');
+  const argvFile = path.join(dir, 'argv.log');
   fs.writeFileSync(fakePath, FAKE_NPM);
   fs.writeFileSync(counterFile, '');
+  fs.writeFileSync(argvFile, '');
 
   const args = [SCRIPT];
   if (prefixArg) args.push(prefixArg);
@@ -63,6 +68,7 @@ function runScript({ behavior, prefixArg }) {
         AUDIT_RETRY_BACKOFF_MS: '0,0',
         BEHAVIOR: JSON.stringify(behavior),
         COUNTER_FILE: counterFile,
+        ARGV_FILE: argvFile,
       },
     });
   } catch (err) {
@@ -72,7 +78,9 @@ function runScript({ behavior, prefixArg }) {
 
   const calls = fs.readFileSync(counterFile, 'utf8').trim();
   const invocations = calls === '' ? 0 : calls.split('\n').length;
-  return { status, stdout, invocations };
+  const argvLog = fs.readFileSync(argvFile, 'utf8').trim();
+  const argv = argvLog === '' ? [] : argvLog.split('\n').map((l) => JSON.parse(l));
+  return { status, stdout, invocations, argv };
 }
 
 // (i) The endpoint fault clears on a retry: two faults then a clean exit 0.
@@ -123,13 +131,29 @@ test('stays red with one annotation when the endpoint never answers', () => {
   assert.deepEqual(annotations, [EXHAUSTION_ANNOTATION]);
 });
 
-// The server gate passes the prefix through; the fake ignores args, so this
-// only asserts the prefix does not change the retry contract.
-test('accepts a prefix argument without changing the contract', () => {
-  const { status, invocations } = runScript({
+// (iv) The exact audit command for the root gate. Asserting argv (not just
+// the retry contract) is what catches a regression in auditArgs: replacing it
+// with `return ['audit']` drops --omit=dev and --audit-level=high and turns
+// this red.
+test('runs the exact root audit argv (no prefix)', () => {
+  const { status, argv } = runScript({
+    behavior: [{ code: 0, stdout: 'found 0 vulnerabilities\n' }],
+  });
+  assert.equal(status, 0);
+  assert.deepEqual(argv, [['audit', '--omit=dev', '--audit-level=high']]);
+});
+
+// (v) The exact audit command for the server gate. --prefix server is the
+// ONLY thing scoping dependency-audit-server to server/; if a later edit
+// drops it, that gate audits the root tree and goes green under the server
+// name (the very failure this ticket removes, one layer up). Asserting the
+// full argv here fails the moment --prefix, the prefix value, or either flag
+// changes. Replacing auditArgs with `return ['audit']` turns this red too.
+test('runs the exact server audit argv (--prefix server)', () => {
+  const { status, argv } = runScript({
     behavior: [{ code: 0, stdout: 'found 0 vulnerabilities\n' }],
     prefixArg: 'server',
   });
   assert.equal(status, 0);
-  assert.equal(invocations, 1);
+  assert.deepEqual(argv, [['audit', '--prefix', 'server', '--omit=dev', '--audit-level=high']]);
 });
