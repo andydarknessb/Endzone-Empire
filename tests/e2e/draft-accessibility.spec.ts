@@ -115,7 +115,7 @@ test.describe('Draft room accessibility (#445)', () => {
     // not by this Chat-scoped feed announcer, so that a committed Pick is heard on
     // every tab and exactly once. The Pick announcement path (draft:picked ->
     // onPickLanded -> concise text) is pinned at the component level in
-    // PickAnnouncer.test.jsx, pickAnnouncement.test.js and DraftBoard.test.jsx
+    // PickAnnouncer.test.jsx and DraftBoard.test.jsx
     // (wide plus all four narrow tabs, counting to prove no duplicate); it is not
     // re-driven here because draft:picked also feeds the board reducer, which
     // needs a full pick fixture unrelated to this message announcement.

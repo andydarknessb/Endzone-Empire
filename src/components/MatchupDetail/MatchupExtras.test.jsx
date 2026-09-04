@@ -1,6 +1,8 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { BenchWhatIf, SlotComparisonList, StickyScoreboard, LiveTicker } from './MatchupExtras';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import {
+  BenchWhatIf, SlotComparisonList, RosterPreviewGrid, StickyScoreboard, LiveTicker, pairStartersBySlot,
+} from './MatchupExtras';
 
 const player = (overrides = {}) => ({
   id: 1,
@@ -15,8 +17,95 @@ const player = (overrides = {}) => ({
   ...overrides,
 });
 
+// The single slot row whose centre chip reads `label` (throws if there are several).
+const rowOfChip = (label) => {
+  const rows = screen.getAllByTestId('slot-row').filter((row) => within(row).queryByText(label));
+  if (rows.length !== 1) throw new Error(`expected exactly one ${label} row, found ${rows.length}`);
+  return rows[0];
+};
+
+// Regression: one side has set a single WR, the other a full lineup with IDP
+// slots. Rows used to be zipped by index, so the away QB rendered under the
+// home side's WR chip and the K/DEF/DL rows all drifted one slot.
+const shortHome = [player({ id: 1, name: "Ja'Marr Chase", slot: 'WR', position: 'WR' })];
+const fullAway = [
+  player({ id: 2, name: 'Trevor Lawrence', slot: 'QB' }),
+  player({ id: 3, name: 'Jonathan Taylor', slot: 'RB', position: 'RB' }),
+  player({ id: 4, name: 'DJ Moore', slot: 'WR', position: 'WR' }),
+  player({ id: 5, name: 'Cam Little', slot: 'K', position: 'K' }),
+  player({ id: 6, name: 'Los Angeles Rams', slot: 'DEF', position: 'DEF' }),
+  player({ id: 7, name: 'Emmanuel Ogbah', slot: 'D LINE', position: 'DL' }),
+];
+
+describe('pairStartersBySlot', () => {
+  test('pairs by slot key, never by index, and leaves the unfilled side empty', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway);
+    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['QB', null, 'Trevor Lawrence'],
+      ['RB', null, 'Jonathan Taylor'],
+      ['WR', "Ja'Marr Chase", 'DJ Moore'],
+      ['K', null, 'Cam Little'],
+      ['DEF', null, 'Los Angeles Rams'],
+      ['D LINE', null, 'Emmanuel Ogbah'],
+    ]);
+  });
+
+  test('pairs the nth starter of a multi-count slot with the nth on the other side', () => {
+    const home = [player({ id: 1, name: 'H RB1', slot: 'RB' }), player({ id: 2, name: 'H RB2', slot: 'RB' })];
+    const away = [player({ id: 3, name: 'A RB1', slot: 'RB' })];
+    expect(pairStartersBySlot(home, away).map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['RB', 'H RB1', 'A RB1'],
+      ['RB', 'H RB2', null],
+    ]);
+  });
+
+  test('follows the league slotOrder when given, then appends slots only the starters know about', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway, ['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    expect(rows.map((r) => r.slot)).toEqual(['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    const extra = pairStartersBySlot([player({ id: 9, name: 'Flex Guy', slot: 'IDP FLEX' })], [], ['QB']);
+    expect(extra.map((r) => r.slot)).toEqual(['IDP FLEX']);
+  });
+});
+
+describe('RosterPreviewGrid', () => {
+  test('keeps each player beside their own slot label when the lineups differ in length', () => {
+    render(<RosterPreviewGrid homeStarters={shortHome} awayStarters={fullAway} />);
+    expect(rowOfChip('QB')).toHaveTextContent('Trevor Lawrence');
+    expect(rowOfChip('QB')).not.toHaveTextContent("Ja'Marr Chase");
+    expect(rowOfChip('WR')).toHaveTextContent("Ja'Marr Chase");
+    expect(rowOfChip('WR')).toHaveTextContent('DJ Moore');
+    expect(rowOfChip('K')).toHaveTextContent('Cam Little');
+    expect(rowOfChip('D/ST')).toHaveTextContent('Los Angeles Rams');
+    expect(rowOfChip('D LINE')).toHaveTextContent('Emmanuel Ogbah');
+  });
+
+  test('renders nothing when neither side has starters', () => {
+    const { container } = render(<RosterPreviewGrid homeStarters={[]} awayStarters={[]} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
 describe('SlotComparisonList', () => {
-  test('pairs home and away starters index-by-index into one row per slot', () => {
+  test('keeps each player beside their own slot label when the lineups differ in length', () => {
+    render(
+      <SlotComparisonList
+        homeStarters={shortHome}
+        awayStarters={fullAway}
+        expandedId={null}
+        onToggle={jest.fn()}
+        onOpenPlayer={jest.fn()}
+      />
+    );
+    expect(rowOfChip('QB')).toHaveTextContent('Trevor Lawrence');
+    expect(rowOfChip('QB')).not.toHaveTextContent("Ja'Marr Chase");
+    expect(rowOfChip('WR')).toHaveTextContent("Ja'Marr Chase");
+    expect(rowOfChip('WR')).toHaveTextContent('DJ Moore');
+    expect(rowOfChip('K')).toHaveTextContent('Cam Little');
+    expect(rowOfChip('D/ST')).toHaveTextContent('Los Angeles Rams');
+    expect(rowOfChip('D LINE')).toHaveTextContent('Emmanuel Ogbah');
+  });
+
+  test('pairs home and away starters by slot into one row per slot', () => {
     const home = [player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 2, name: 'C. McCaffrey', slot: 'RB' })];
     const away = [player({ id: 3, name: 'J. Allen', slot: 'QB' }), player({ id: 4, name: 'D. Henry', slot: 'RB' })];
 
