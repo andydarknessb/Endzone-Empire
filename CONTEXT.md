@@ -396,24 +396,23 @@ lives in the Draft board)
 
 **Presenter**:
 This term carries two senses, numbered below. A reader tells them apart by
-what the word describes and never by which directory the file sits in.
-Sense 1 is a person or a link: the anonymous viewer of a league's Draft
-through its share link, the "presenter link", "presenter board" and
-"presenter feed" that viewer holds or is shown, and any presenter that is
-itself an actor or a viewing surface, one shown a feed or a line, paired
-with a member or another viewer, or listed among the Draft surfaces a
-viewer reaches (as in "the room, the presenter and the mock draft").
-Sense 2 is architectural: a thin view that fronts a pure module or hook,
-wherever it lives. It covers a widget whose model hook does the deriving so
-the UI stays a thin presenter, a component that consumes a hook's result
-and draws it, and the Draft assistant's per-venue presenter defined below.
-A presenter that fronts a hook or module, or that acts on its own view
-state (clearing an input, drawing a derived value), is sense 2. When the
-two tests seem to collide, the actor test wins: a presenter shown a line
-beside a member is that member's counterpart viewer, sense 1, even though
-it "renders". A new comment that could be read either way, anywhere in the
-tree, says "presenter (sense 1)" or "the share-link presenter", or
-"presenter (sense 2)" or "venue presenter", instead of the bare word.
+what the word describes and never by which directory the file sits in, by
+asking one question: is a person looking, or is code wired to it? Sense 1
+is a person, or the account-less viewing product a person uses: the
+anonymous viewer of a league's Draft through its share link, the presenter
+link, board and feed that viewer holds or is shown, a presenter paired with
+a member or contrasted with an account holder, and a presenter listed among
+the Draft surfaces a viewer watches. Sense 2 is a code role, named by its
+position relative to a module: a thin view that fronts a pure module or
+hook, a component that consumes a hook's or provider's result, a view that
+owns its own render state (clearing an input, drawing a derived value), a
+provider that other components reach, and the Draft assistant's per-venue
+presenter defined below. When a phrase could read either way, let the far
+side of the word decide: a person or an audience there is sense 1, a
+module, hook, provider or component there is sense 2. A new comment that
+could still be read either way, anywhere in the tree, says "presenter
+(sense 1)" or "the share-link presenter", or "presenter (sense 2)" or
+"venue presenter", instead of the bare word.
 
 **Sense 1**: An anonymous viewer of a league's Draft through its share link (the presenter
 link), holding no account and belonging to no league. A presenter is whoever
@@ -437,19 +436,18 @@ that sits between the pure facts builder (a room or Sim `*AssistantFacts`
 module) and the pure line generator, `lineFor()`. One presenter engine
 exists per venue, the Draft room and the Draft Sim, each mounted once and
 sharing one line generator and one polite region; the room realises its
-engine as a provider plus thin
-consumer pieces (a region, a rail panel, a banner line, a toggle) that
-share it, while the Sim realises its engine as one panel component. The
-presenter owns the trigger decisions common to both venues: whether a line
-fires at all, the once-per-turn urgent gate, the turn-boundary reset, and
-the selection cooldown; the Queue-snipe check is the Draft room's alone,
-since the Sim has no Queue. Once a trigger fires, the presenter calls the
-builder to shape the facts object and hands it to `lineFor()`. The builder
-shapes the facts; the Sim's builder may itself decline, returning null when
-the fact it needs is absent, while the room's builder always returns a
-facts object. The line generator owns line selection, including the
-per-draft no-repeat pool that keeps a trigger from reusing a line until its
-pool is exhausted.
+engine as a provider plus thin consumer pieces (a region, a rail panel, a
+banner line, a toggle) that share it, while the Sim realises its engine as
+one panel component. The presenter owns the trigger decisions common to
+both venues: whether a line fires at all, the once-per-turn urgent gate,
+the turn-boundary reset, and the selection cooldown; the Queue-snipe check
+is the Draft room's alone, since the Sim has no Queue. Once a trigger
+fires, the presenter calls the builder to shape the facts object and hands
+it to `lineFor()`. The builder shapes the facts; the Sim's builder may
+itself decline, returning null when the fact it needs is absent, while the
+room's builder always returns a facts object. The line generator owns line
+selection, including the per-draft no-repeat pool that keeps a trigger from
+reusing a line until its pool is exhausted.
 _Avoid_: view component, renderer
 
 **Legacy feed entry**:
