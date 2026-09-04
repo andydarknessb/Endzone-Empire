@@ -395,13 +395,25 @@ _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
 **Presenter**:
-This term carries two senses, numbered below. "Presenter link" and any
-presenter described as a person or a viewer is always sense 1. An
-unqualified "presenter" inside the Draft assistant modules (the
-`src/lib/draftAssistant` tree, the room and Sim `*AssistantFacts` builders,
-and the room and Sim assistant panel components they feed) is always sense
-2; a new comment in those modules that could be read either way says
-"presenter (sense 2)" or "venue presenter" instead of the bare word.
+This term carries two senses, numbered below. A reader tells them apart by
+what the word describes and never by which directory the file sits in.
+Sense 1 is a person or a link: the anonymous viewer of a league's Draft
+through its share link, the "presenter link", "presenter board" and
+"presenter feed" that viewer holds or is shown, and any presenter that is
+itself an actor or a viewing surface, one shown a feed or a line, paired
+with a member or another viewer, or listed among the Draft surfaces a
+viewer reaches (as in "the room, the presenter and the mock draft").
+Sense 2 is architectural: a thin view that fronts a pure module or hook,
+wherever it lives. It covers a widget whose model hook does the deriving so
+the UI stays a thin presenter, a component that consumes a hook's result
+and draws it, and the Draft assistant's per-venue presenter defined below.
+A presenter that fronts a hook or module, or that acts on its own view
+state (clearing an input, drawing a derived value), is sense 2. When the
+two tests seem to collide, the actor test wins: a presenter shown a line
+beside a member is that member's counterpart viewer, sense 1, even though
+it "renders". A new comment that could be read either way, anywhere in the
+tree, says "presenter (sense 1)" or "the share-link presenter", or
+"presenter (sense 2)" or "venue presenter", instead of the bare word.
 
 **Sense 1**: An anonymous viewer of a league's Draft through its share link (the presenter
 link), holding no account and belonging to no league. A presenter is whoever
@@ -419,11 +431,13 @@ hidden or not, is simply absent from the Draft-activity feed the presenter reads
 _Avoid_: spectator, guest, viewer account (a presenter has no account), broadcast
 link
 
-**Sense 2**: The Draft assistant's thin, venue-specific view that sits between the pure
-facts builder (a room or Sim `*AssistantFacts` module) and the pure line
-generator, `lineFor()`. One presenter engine exists per venue, the Draft
-room and the Draft Sim, each mounted once and sharing one line generator
-and one polite region; the room realises its engine as a provider plus thin
+**Sense 2**: A thin view that fronts a pure module, the general architectural sense set
+out above. Its worked example is the Draft assistant's venue-specific view
+that sits between the pure facts builder (a room or Sim `*AssistantFacts`
+module) and the pure line generator, `lineFor()`. One presenter engine
+exists per venue, the Draft room and the Draft Sim, each mounted once and
+sharing one line generator and one polite region; the room realises its
+engine as a provider plus thin
 consumer pieces (a region, a rail panel, a banner line, a toggle) that
 share it, while the Sim realises its engine as one panel component. The
 presenter owns the trigger decisions common to both venues: whether a line

@@ -23,7 +23,7 @@ function round2(value) {
 
 /**
  * The steal/reach label for one pick, shared by the Draft assistant's room
- * presenter (roomAssistantFacts.js) and the Draft Sim's post-draft report
+ * facts builder (roomAssistantFacts.js) and the Draft Sim's post-draft report
  * (draftSim/analysis.js) so the two never disagree about one pick. Promoted
  * here in issue #817: ADR 0027 already promised a shared label with a parity
  * test, but only the THRESHOLD above was ever shared; the label rule had been
