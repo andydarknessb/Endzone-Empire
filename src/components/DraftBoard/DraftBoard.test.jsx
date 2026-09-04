@@ -446,6 +446,7 @@ test('shows the prominent on-clock timer with "Your pick!" for the active user',
         owner_id: 99,
         pick_time_seconds: 90,
         pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+        current_pick: 0,
       },
       teams: [{ teamId: 5, teamName: "Bob's Team", draft_position: 1, autodraft: false }],
       picks: [],
@@ -1217,6 +1218,10 @@ const activeLeague = (overrides = {}) => ({
   draft_paused: false,
   pick_deadline_at: null,
   owner_id: 99,
+  // The pick identity the LiveDraftBanner status region keys its announce
+  // effect on (#819): the banner mounts empty and fills the turn text from an
+  // effect keyed on current_pick, so an active league carries one.
+  current_pick: 0,
   ...overrides,
 });
 

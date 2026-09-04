@@ -3,6 +3,7 @@ import { Paper, Box, Avatar, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import PickClock from './PickClock';
 import { DraftRoomAssistantBannerLine, useDraftRoomAssistantControls } from './DraftRoomAssistant';
+import { useAnnouncement } from './useAnnouncement';
 
 function initialsFor(name) {
   if (!name) return '?';
@@ -52,6 +53,34 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
   const [overdueDeadline, setOverdueDeadline] = React.useState(null);
   const handleOverdue = React.useCallback(() => setOverdueDeadline(deadlineAt), [deadlineAt]);
   const overdue = deadlineAt != null && overdueDeadline === deadlineAt;
+
+  // The turn text is announced from an effect after mount, not rendered inline
+  // (#819). A region inserted into the DOM already holding its text is generally
+  // not announced (ReadinessAnnouncer.jsx docblock, #445 AC3), so an inline
+  // string leaves the very first turn unspoken. This region mounts empty and
+  // fills from the effect below, through the same repeat-safe update every
+  // discrete-event announcer shares (useAnnouncement, #791). ADR 0028, as
+  // amended for #819, is explicit that a VISIBLE status region uses this hook:
+  // the zero-width-space idiom governs the text node, not whether the region is
+  // hidden.
+  //
+  // The dependency is the pick identity (league.current_pick), NEVER the derived
+  // string. At a snake turnaround the same team holds two consecutive picks, so
+  // the string is byte-identical; an effect keyed on the text would not refire
+  // and that turn would go unannounced. current_pick already advances per pick
+  // inside the league prop (DraftBoard.jsx derives currentPickNumber from it),
+  // so no new prop is needed. deadlineAt is deliberately not the key: it is null
+  // in the untimed and paused states, so an untimed draft would announce nothing.
+  const [announcement, announce] = useAnnouncement();
+  const currentPick = league?.current_pick;
+  const turnText = isMyTurn ? 'Your pick!' : team ? `${team.teamName} is on the clock` : 'Waiting…';
+  React.useEffect(() => {
+    if (currentPick == null) return;
+    announce(turnText);
+    // Keyed on the pick identity alone (see above); turnText is intentionally
+    // omitted so a byte-identical repeat turn still refires on the pick change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPick]);
 
   if (league?.draft_status !== 'active') return null;
 
@@ -104,7 +133,7 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
           noWrap
           sx={{ fontWeight: 'bold', color: isMyTurn ? 'primary.main' : 'text.primary' }}
         >
-          {isMyTurn ? 'Your pick!' : team ? `${team.teamName} is on the clock` : 'Waiting…'}
+          {announcement}
         </Typography>
         {/* Announcement only (#844): the visible Overdue line is the PickClock
             leaf's, right after this region. This copy exists so the polite

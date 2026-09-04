@@ -3,7 +3,11 @@ import { act, render, screen, within } from '@testing-library/react';
 import LiveDraftBanner from './LiveDraftBanner';
 import { OVERDUE_AFTER_MS } from '../../lib/onTheClock';
 
-const activeLeague = { draft_status: 'active' };
+// current_pick is the turn identity the status region's announce effect keys on
+// (#819): the region mounts empty and fills from an effect after mount, so a
+// league with a pick identity is what makes the turn text land. The fixtures
+// below carry one; the empty-at-mount test renders a league without it.
+const activeLeague = { draft_status: 'active', current_pick: 0 };
 const bulldogs = { teamId: 2, teamName: 'Bulldogs' };
 const running = (deadlineAt) => ({ team: bulldogs, state: 'running', deadlineAt });
 
@@ -29,6 +33,77 @@ describe('LiveDraftBanner - on-the-clock announcement (#445 AC3)', () => {
   it('announces the viewer\'s own turn', () => {
     render(<LiveDraftBanner league={activeLeague} onTheClock={{ team: { teamId: 11, teamName: 'Anvils' }, state: 'running', deadlineAt: Date.now() + 30000 }} isMyTurn />);
     expect(screen.getByRole('status')).toHaveTextContent('Your pick!');
+  });
+
+  it('mounts the status region empty and fills the turn text from an effect after mount (#819 AC1)', () => {
+    // A region inserted into the DOM already holding its text is generally not
+    // announced (ReadinessAnnouncer.jsx docblock), so an inline turn string
+    // leaves the FIRST turn unspoken. The region must mount empty and receive
+    // its text from an effect keyed on the pick identity.
+    //
+    // Red-tell: rendering the turn text inline in the region again (the pre-#819
+    // shape) makes it present on the very first commit, before any pick identity
+    // keys the effect, so the empty assertion below goes red.
+    // The empty render is isMyTurn; the filled render names a team. The two
+    // derived strings differ, so this test isolates the empty-then-filled
+    // behaviour from the turn-identity keying: swapping the effect's dependency
+    // to the text (the AC7 red-tell) leaves THIS test green, because the text
+    // still changes between the two renders.
+    const { rerender } = render(
+      <LiveDraftBanner league={{ draft_status: 'active' }} onTheClock={running(Date.now() + 30000)} isMyTurn />
+    );
+    // No pick identity yet: the region is present (a node assistive tech can
+    // observe) but empty. textContent, not toHaveTextContent(''), because an
+    // empty-string substring match passes against any content.
+    expect(screen.getByRole('status').textContent).toBe('');
+
+    // A pick identity arrives: the effect lands the turn text after mount.
+    rerender(
+      <LiveDraftBanner league={{ draft_status: 'active', current_pick: 5 }} onTheClock={running(Date.now() + 30000)} isMyTurn={false} />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Bulldogs is on the clock');
+  });
+
+  it('re-announces a snake-turnaround turn whose text is byte-identical to the previous pick (#819 AC7)', () => {
+    // Snake turnaround: the same team is on the clock for two consecutive picks,
+    // so the derived string is byte-identical. React bails on an Object.is-equal
+    // state, so without the repeat-safe update the second turn's text node is
+    // untouched and a screen reader stays silent. The pick identity (current_pick)
+    // advances, so the effect refires and useAnnouncement's zero-width space
+    // flips the node value.
+    const { rerender } = render(
+      <LiveDraftBanner league={{ draft_status: 'active', current_pick: 8 }} onTheClock={running(Date.now() + 30000)} isMyTurn={false} />
+    );
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('Bulldogs is on the clock');
+    const afterFirst = region.textContent;
+
+    // The next pick: the same team is on the clock again (a snake turnaround),
+    // a new current_pick.
+    rerender(
+      <LiveDraftBanner league={{ draft_status: 'active', current_pick: 9 }} onTheClock={running(Date.now() + 30000)} isMyTurn={false} />
+    );
+    expect(region).toHaveTextContent('Bulldogs is on the clock');
+    // The raw node value changed by exactly a zero-width space (invisible,
+    // unspoken), so assistive tech re-announces. Red-tell: keying the effect on
+    // the turn text instead of current_pick makes this equal afterFirst (silent).
+    expect(region.textContent).not.toBe(afterFirst);
+    expect(region.textContent).toBe('Bulldogs is on the clock' + String.fromCharCode(0x200b));
+  });
+
+  it('does not re-fire the region on a rerender that leaves the pick identity unchanged (#819)', () => {
+    // Proof the effect keys on current_pick and nothing else: a rerender that
+    // moves the deadline (a per-render prop) but keeps current_pick must leave
+    // the region's text node untouched, so a clock tick is not an announcement.
+    const { rerender } = render(
+      <LiveDraftBanner league={{ draft_status: 'active', current_pick: 8 }} onTheClock={running(Date.now() + 30000)} isMyTurn={false} />
+    );
+    const region = screen.getByRole('status');
+    const after = region.textContent;
+    rerender(
+      <LiveDraftBanner league={{ draft_status: 'active', current_pick: 8 }} onTheClock={running(Date.now() + 25000)} isMyTurn={false} />
+    );
+    expect(region.textContent).toBe(after);
   });
 
   it('keeps the per-second countdown OUT of the live region, so ticks are not announced', () => {
