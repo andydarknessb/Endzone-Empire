@@ -426,8 +426,10 @@ the Draft Sim, and it owns the trigger decisions: whether a line fires at
 all, such as the once-per-turn urgent gate, the turn-boundary reset, the
 Queue-snipe check and the selection cooldown. Once a trigger fires, the
 presenter calls the builder to shape the facts object and hands it to
-`lineFor()`; the builder and the line generator hold no trigger logic of
-their own, only fact shaping and line copy.
+`lineFor()`. The builder shapes the facts and may itself decline, returning
+null when the fact it needs is absent; the line generator owns line
+selection, including the per-draft no-repeat pool that keeps a trigger from
+reusing a line until its pool is exhausted.
 _Avoid_: view component, renderer
 
 **Legacy feed entry**:
