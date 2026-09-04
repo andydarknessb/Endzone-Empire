@@ -802,6 +802,58 @@ test('a draft:picked event prepends the new pick, updates who is on the clock, a
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players', expect.any(Object)));
 });
 
+test('the Upcoming strip advances with league.current_pick when a draft:picked carries nextPickIndex (#854)', async () => {
+  // The Upcoming strip reads league.current_pick through draftOrderWindowFor, so
+  // once the reducer follows the shared field to the broadcast's nextPickIndex,
+  // the strip re-reads forward from the NEW on-the-clock pick without a fresh
+  // draft:state. Written against the reducer and the strip only: it asserts
+  // nothing about DraftBoard.jsx's own JSX, so it neither assumes nor forbids the
+  // #819 changes on that file.
+  //
+  // Four teams, linear rotation, so "the team after the one on the clock" is
+  // unambiguous: index n is drafted by the team in slot n % 4.
+  const teams = [
+    { teamId: 1, teamName: 'Team A', draft_position: 1 },
+    { teamId: 2, teamName: 'Team B', draft_position: 2 },
+    { teamId: 3, teamName: 'Team C', draft_position: 3 },
+    { teamId: 4, teamName: 'Team D', draft_position: 4 },
+  ];
+  const firstUpcoming = () => within(
+    screen.getByRole('region', { name: 'Upcoming' })
+  ).getAllByRole('listitem')[0];
+
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  // A spectator holding no Team here, so the strip carries only the league-wide
+  // list (no viewer-relative My picks group to disambiguate).
+  connectAsTeam(99);
+  act(() => fakeSocket.trigger('draft:state', {
+    league: activeLeague({ draft_rotation: 'linear', draft_rounds: 5, current_pick: 0 }),
+    teams,
+    picks: [],
+    onTheClock: teams[0],
+  }));
+
+  // current_pick 0: Team A is on the clock, so the first upcoming pick is Team B.
+  expect(firstUpcoming()).toHaveTextContent('Team B');
+
+  act(() => fakeSocket.trigger('draft:picked', {
+    pickNumber: 1,
+    teamId: 1,
+    teamName: 'Team A',
+    player: { id: 30, name: 'New Pick', position: 'RB', nfl_team: 'KC' },
+    nextTeamId: 2,
+    // The server wrote current_pick = 1 this commit; the reducer follows it.
+    nextPickIndex: 1,
+    draftComplete: false,
+    auto: false,
+  }));
+
+  // Team B is now on the clock, so the first upcoming pick is Team C. Red-tell:
+  // against today's reducer current_pick stays 0 and this is still Team B.
+  expect(firstUpcoming()).toHaveTextContent('Team C');
+});
+
 test('the banner announces each live turn even though league.current_pick never advances (#819)', async () => {
   // The regression the #819 risk review caught, driven the way the room actually
   // works. On a live draft the reducer advances the committed-pick count and

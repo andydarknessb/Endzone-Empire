@@ -239,8 +239,13 @@ async function capturePicked(t) {
 // #437 added `completion`: the actor-less completion lifecycle entry on the Pick
 // that ends the draft, else null. It is a root key on every outcome (null when
 // the draft did not complete), so both emit sites carry it too.
+// #854 added `nextPickIndex`: the 0-based value the Pick clock wrote to
+// leagues.current_pick in this commit, so the room reducer advances the shared
+// field every reader keys on. It is a root key on every outcome (both emit
+// sites share this set), so both carry it; deleting it from the outcome turns
+// the pick-handler capture red against this exact-key guard.
 const PICKED_ROOT_CLEAN = [
-  'activity', 'completion', 'auto', 'draftComplete', 'leagueId', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
+  'activity', 'completion', 'auto', 'draftComplete', 'leagueId', 'nextPickIndex', 'nextTeamId', 'pickDeadlineAt', 'pickNumber', 'player', TEAM_ID, TEAM_NAME,
 ];
 
 // The Draft-activity entry now rides on a room broadcast, so it is bound by the
@@ -286,6 +291,9 @@ async function captureAutopickPicked(t) {
     player: { id: 500, name: 'Pick Me', position: 'RB' },
     pickNumber: 1,
     nextTeamId: null,
+    // The next open index the clock wrote this commit (#854); a root key on
+    // every outcome, so the autopick emit carries it too.
+    nextPickIndex: 1,
     draftComplete: false,
     pickDeadlineAt: null,
     // commitPick returns the typed activity entry; the autopick emit spreads it
@@ -340,6 +348,8 @@ async function captureAutopickActivity(t) {
     player: { id: 500, name: 'Pick Me', position: 'RB' },
     pickNumber: 1,
     nextTeamId: null,
+    // The completing pick's own number rides here (#854); still a root key.
+    nextPickIndex: 1,
     draftComplete: true,
     pickDeadlineAt: null,
     activity: {
