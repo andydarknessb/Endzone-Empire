@@ -7,8 +7,9 @@
  *
  * This directory holds the venue-agnostic pieces only: pure functions over a
  * facts object, no DOM, no presenter. A thin presenter per venue (the
- * existing pickAnnouncement.js / PickAnnouncer.jsx split, per ruling 13)
- * turns real Draft state into a facts object and calls lineFor() with it.
+ * builder-beside-presenter shape PickAnnouncer.jsx keeps in-file, per
+ * ruling 13) turns real Draft state into a facts object and calls lineFor()
+ * with it.
  *
  * THE FACTS SHAPE, as built by a presenter and consumed by lineFor():
  * {

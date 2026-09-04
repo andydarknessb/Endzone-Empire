@@ -18,8 +18,9 @@ import {
 
 /**
  * The Draft ROOM's Draft assistant presenter (issue #787, part of the #784
- * spec; ships after the Sim per ruling 13). It is the room-venue side of the
- * "pickAnnouncement.js / PickAnnouncer.jsx split": one venue-agnostic line
+ * spec; ships after the Sim per ruling 13). It is the room-venue side of
+ * ruling 13's split (a pure builder beside a thin presenter, the shape
+ * PickAnnouncer.jsx keeps in-file since #791): one venue-agnostic line
  * generator (src/lib/draftAssistant) driven by a room-shaped facts module
  * (roomAssistantFacts.js), fronted by thin presenter pieces here.
  *
