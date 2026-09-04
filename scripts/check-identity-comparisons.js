@@ -183,7 +183,12 @@ const ALLOWLIST = [
   {
     file: 'server/services/draft.service.js',
     code: 't.owner_id === userId',
-    rule: 'caller: the drafting manager\'s own team, by the caller\'s own id',
+    rule: 'caller: the free-agent-adding manager\'s own team, by the caller\'s own id (addFreeAgent, #782)',
+  },
+  {
+    file: 'server/services/pick.service.js',
+    code: 't.owner_id === userId',
+    rule: 'caller: the drafting manager\'s own team, by the caller\'s own id - the Pick commit moved here from draft.service.draftPlayer (#782)',
   },
   {
     file: 'server/services/draftStart.service.js',

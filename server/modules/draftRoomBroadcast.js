@@ -1,5 +1,10 @@
 const { logger } = require('./logger');
 const sentry = require('./sentry');
+// The draft:state snapshot builder (#788). A top-level require now, not the lazy
+// require of the socket module that stateChanged used to do: the snapshot left
+// draftSocket for its own module, so the construction cycle that forced the lazy
+// require (draftSocket builds this adapter at attach time) is gone.
+const { memberSnapshot } = require('../services/draftRoomSnapshot');
 
 /**
  * The one adapter every room-wide Draft broadcast rides (#745). It folds the
@@ -64,8 +69,9 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
   }
 
   return {
-    /** A committed Pick (manual or auto). The payload is built at the caller
-     *  (`{ ...outcome, auto }`) so socketPayloadShape keeps its pinnable sites. */
+    /** A committed Pick (manual or auto). The payload is built at the ONE caller,
+     *  landPick in pick.service.js (`{ ...outcome, auto }`), so socketPayloadShape
+     *  pins a single site (#782). */
     pickLanded: (leagueId, payload) => send(leagueId, 'draft:picked', payload),
     /** One typed lifecycle/Pick activity entry for the combined feed (ADR 0012). */
     activityAppended: (leagueId, entry) => send(leagueId, 'draft:activity', entry),
@@ -79,11 +85,10 @@ function createDraftRoomBroadcast(io, transportName = 'local') {
      *  like any other, never thrown post-commit. */
     stateChanged: async (leagueId) => {
       try {
-        // Lazy require: draftSocket constructs this adapter at attach time, so a
-        // top-level require would close a cycle. getDraftState reads only the
-        // pool, so it runs in the worker as well as the API.
-        const { getDraftState } = require('./draftSocket');
-        const snapshot = await getDraftState(leagueId);
+        // The member snapshot reads only the pool, so it runs in the worker as
+        // well as the API (ADR 0025): the adapter computes draft:state in
+        // whichever process it runs.
+        const snapshot = await memberSnapshot(leagueId);
         return await send(leagueId, 'draft:state', snapshot);
       } catch (error) {
         logger.error({ err: error, event: 'draft:state', leagueId }, 'draft room broadcast failed');

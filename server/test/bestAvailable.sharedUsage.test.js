@@ -13,7 +13,7 @@ const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 registerRecordingBroadcast();
 const pool = require('../modules/pool');
 const bestAvailable = require('../services/bestAvailable.service');
-const draftService = require('../services/draft.service');
+const pickService = require('../services/pick.service');
 const publicRead = require('../services/publicRead.service');
 const { autoPick } = require('../services/pickClock.service');
 const { installAutopickPool } = require('./helpers/autopickFixtures');
@@ -56,7 +56,7 @@ test('autopick sorts unqueued candidates through the shared bestAvailable compar
     { id: 1, name: 'A', adp: '5', queue_rank: null, last_season_points: null },
   ] });
   const attempts = [];
-  t.mock.method(draftService, 'draftPlayer', async ({ playerId }) => {
+  t.mock.method(pickService, 'commitPick', async ({ playerId }) => {
     attempts.push(playerId);
     return { player: { id: playerId }, draftComplete: false };
   });

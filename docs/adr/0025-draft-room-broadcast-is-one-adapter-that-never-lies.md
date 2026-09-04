@@ -150,3 +150,12 @@ entry. The consecutive-timeout streak stays with the Pick clock module as ADR
 0018 places it. The adapter's interface, transports and delivered-or-reported
 policy are unchanged; this amendment only narrows who may decide that a Pick
 happened.
+
+## Amendment (2026-09-03): the free-agent add has no Pick fan-out
+
+#801 found that "no room fan-out" in the paragraph above reads as
+contradicting the `rosterChanged` emit the code and #782 ruling 2 both call
+for. `addFreeAgent` is not a Pick, so it never calls `pickLanded`,
+`activityAppended` or `draftCompleted`; it emits `rosterChanged` only,
+exactly as the team router did before the split. "No room fan-out" in the
+earlier paragraph meant "no Pick fan-out". See #801 and #782 ruling 2.

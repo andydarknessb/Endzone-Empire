@@ -22,9 +22,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
-import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
+import { DraftRoomAssistantPanel } from './DraftRoomAssistant';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import useFocusRescue from './useFocusRescue';
 import DraftOrderPanel from '../../widgets/draft-order/ui/DraftOrderPanel';
@@ -69,24 +69,28 @@ function DraftRail({
   onMoveDown,
   onRemoveFromQueue,
   onDraft,
-  isMyTurn,
-  draftPaused,
+  // The room's one pick-availability reading (issue #792 ruling 3): whether a
+  // manual Pick exists in this draft at all, whether it is only temporarily
+  // unavailable right now, and the one shared explanation for that. Derived once
+  // by the room from pickAvailability.js and shared with the pool table and
+  // Quick View, so this rail no longer imports pickAvailability or keys on the
+  // raw isMyTurn/draftPaused/draftType facts itself.
+  pickState,
   teams,
   onTheClock,
   isCommissioner,
   viewerTeamId,
   draftStatus,
-  draftType,
   onToggleAutodraft,
   onToggleReady,
   isXs,
   onOpenQuickView,
   rosterView = null,
-  // The next three picks after the one on the clock (see upcomingTeams.js).
+  // The next three picks after the one on the clock (see draftOrderWindow.js).
   // Empty whenever the Draft order is not settled enough to read.
   upcoming = [],
   // The viewer's OWN remaining Pick numbers - `next` for the inline strip,
-  // `all` for the popover behind it (see viewerPicks.js). Both empty whenever
+  // `all` for the popover behind it (see draftOrderWindow.js). Both empty whenever
   // the Draft order is not settled enough to read, which includes every
   // pending lobby.
   viewerPicks = { all: [], next: [] },
@@ -192,8 +196,8 @@ function DraftRail({
           // paused), rendered focusable aria-disabled with the same shared
           // explanation rather than disappearing (issue #120 acceptance
           // criteria 2, 5).
-          const showQuickDraft = index === 0 && pickActionExists({ draftStatus, draftType });
-          const quickDraftUnavailable = showQuickDraft && pickTemporarilyUnavailable({ isMyTurn, draftPaused });
+          const showQuickDraft = index === 0 && pickState.canManualPick;
+          const quickDraftUnavailable = showQuickDraft && pickState.pickUnavailable;
           return (
             <Box
               key={player.id}
@@ -215,7 +219,7 @@ function DraftRail({
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 {showQuickDraft && (
-                  <Tooltip title={quickDraftUnavailable ? PICK_UNAVAILABLE_EXPLANATION : ''}>
+                  <Tooltip title={quickDraftUnavailable ? pickState.explanation : ''}>
                     <span>
                       <Button
                         variant="contained"
@@ -408,7 +412,7 @@ function DraftRail({
 
   // The compact Upcoming strip: who picks after the Team on the clock, which
   // is stated persistently above and deliberately not repeated here. A Team
-  // holding two picks across a snake turn appears twice - see upcomingTeams.js.
+  // holding two picks across a snake turn appears twice - see draftOrderWindow.js.
   //
   // The full Draft order sits behind a disclosure inside this panel rather
   // than as a panel of its own. Compact is the point of the strip (spec #108
@@ -430,11 +434,14 @@ function DraftRail({
         Upcoming
       </Typography>
       {upcoming.length === 0 && (
-        // Deliberately does not say why. There are two reasons the strip can
-        // be empty - the draft is on its last pick, or the Draft order is not
-        // settled enough to read forward from - and the rail cannot tell them
-        // apart from here. Neutral copy beats a heading standing over nothing,
-        // and beats guessing at a cause.
+        // The two reasons the strip can be empty - the draft is on its last
+        // pick, or the Draft order is not settled enough to read forward from -
+        // are now distinguishable: draftOrderWindowFor evaluates the
+        // settled-guard once and holds both facts, so this could name the
+        // cause. The copy stays neutral by choice, not for want of the answer:
+        // no `reason` field is passed down, because neither cause is one a
+        // manager here can act on, and neutral copy beats a heading standing
+        // over a named non-problem.
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           No upcoming picks to show.
         </Typography>
@@ -478,7 +485,7 @@ function DraftRail({
           disclosure: the next three are the whole point of the strip, and a
           wait a manager has to open something to learn is one they estimate
           wrong instead. Absent entirely for a spectator, and for a manager
-          whose picks are all made - viewerPicks.js answers empty rather than
+          whose picks are all made - draftOrderWindow.js answers empty rather than
           guessing, and a group heading over nothing is worse than no group. */}
       {hasViewerPicks && (
         <Box
@@ -603,6 +610,14 @@ function DraftRail({
     [RAIL_PANELS.QUEUE]: queuePanel,
     [RAIL_PANELS.ROSTER]: rosterPanel,
     [RAIL_PANELS.UPCOMING]: upcomingPanel,
+    // The private, opt-in Draft assistant (issue #787). A self-contained
+    // consumer of the room's assistant context (DraftRoomAssistant.jsx), so the
+    // rail passes it no props and holds none of its state; the engine lives once
+    // above the tabs in DraftBoard's chrome. It returns null while the toggle is
+    // off, so this composes into `active` unconditionally yet the rail is
+    // unchanged until a manager turns the voice on. Rendered without a provider
+    // (DraftRail.test.jsx) it reads the off default and likewise renders nothing.
+    [RAIL_PANELS.ASSISTANT]: <DraftRoomAssistantPanel />,
   };
 
   const composed = railCompositionFor(draftStatus)

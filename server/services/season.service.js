@@ -192,15 +192,9 @@ async function generateRegularSeason({ leagueId }, existingClient = null) {
     );
     const league = leagueResult.rows[0];
     if (!league) throw new SeasonError(404, 'league not found');
-    // #194: season operations are unavailable before the draft finishes.
-    // Derived from league phase, never a bare draft_status comparison.
-    // NOTE: this reads the row the CALLER'S client just saw, which is what
-    // lets draft completion through. Both completion paths (the final live
-    // pick in draft.service, and a draft start with no live picks in
-    // draftStart.service) set draft_status = 'complete' on their own
-    // transaction BEFORE calling in here, so this sees 'complete'. That
-    // ordering is load-bearing: move the generateRegularSeason call above
-    // the UPDATE on either path and every finished draft starts failing.
+    // #194: season operations refuse a league still pre-draft or drafting (league
+    // phase, not a bare draft_status read). The draft-time caller is
+    // draftCompletion.completeDraft, which runs after the status flip.
     if (!seasonOperationsAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
     const teamsResult = await client.query(
       `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,

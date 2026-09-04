@@ -53,3 +53,34 @@ more.
 - A future review that finds five identical spans should reach for this ADR,
   not for a collapse. Reopening it needs a product ruling that changes a
   mount scope, not a line count.
+
+## Amendment (2026-09-03, #820): the rule reaches the Draft Sim, and visible status regions
+
+Filed against #820, which found that #805's brief and the code it produced
+(`DraftSimulator.jsx`, `SimStatusBar.jsx`, PR #813) cite this ADR for two
+claims it did not yet make: that the one-region-per-axis rule reaches the
+Draft Sim, and that it covers a visible status region as well as the five
+hidden room announcers above. This amendment makes both citations true; it
+changes no ruling above.
+
+**Scope extends to the Draft Sim.** The one-region-per-axis rule is not
+Draft-room-specific; it applies wherever more than one axis can speak. The
+Draft Sim has two such axes: the turn status, announced by
+`DraftSimulator`'s own region, and the assistant commentary, announced by
+`SimAssistantPanel`'s `PoliteRegion`. These are two regions because they are
+two axes, the same reasoning the five room announcers rest on, not an
+exception to it. The 2026-09-03 ruling on #805 confirmed this shape for the
+Sim.
+
+**Hidden leaf versus visible status region.** The "shared parts are exactly
+two" in Consequences above, the `PoliteRegion` rendering leaf and the
+`useAnnouncement` repeat-safe hook, govern hidden announcers only: components
+that are `visuallyHidden` and exist solely to speak to assistive technology.
+A visible status region is a different kind of thing. It carries copy a
+sighted user reads on screen, so it is built as its own inline element with
+`role="status"` and `aria-live="polite"`, following the shape
+`LiveDraftBanner` established in the Draft room; it does not mount
+`PoliteRegion` and does not use the hidden leaf or the hook. `DraftSimulator`'s turn-status region and
+`LiveDraftBanner`'s are both visible status regions in this sense. Nothing
+above this amendment governed that distinction; it was silent, not
+contradicted.

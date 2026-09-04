@@ -347,6 +347,14 @@ const PAIRINGS = [
   // AA_LARGE like the other focus-ring rows; the opaque ring needs no
   // compositing (#155).
   pairing('focus-ring', 'dash-surface', AA_LARGE, 'focus ring on a dashboard card'),
+  // The Draft assistant's Misery Meter stage label (issue #786, ADR 0027):
+  // SimAssistantPanel.jsx colors the band name (e.g. "1966 Form") with
+  // `secondary.main` on its Paper, whose background is `background.paper` ==
+  // `surface` (AppThemeProvider.jsx), the same backdrop SimPickFeed's own
+  // `accent-soft` row already resolves to. `secondary`/`success` share one
+  // token value and neither had a text-on-surface pairing guarded before this
+  // - this is that measurement, not an assumption.
+  pairing('secondary', 'surface', AA_TEXT, 'Misery Meter stage label on the Draft assistant panel'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can

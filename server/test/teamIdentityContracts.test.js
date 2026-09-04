@@ -8,13 +8,15 @@ const { createFakePool, select, insert, update } = require('./helpers/fakePool')
 const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
 const {
-  getDraftState,
   joinAck,
   joinError,
   presencePayload,
   chatMessagePayload,
 } = require('../modules/draftSocket');
-const { draftPlayer } = require('../services/draft.service');
+const { memberSnapshot } = require('../services/draftRoomSnapshot');
+// A Pick's commit + outcome now lives in pick.service (#782); this contract checks
+// the outcome shape, so it drives the pure commit (no fan-out) directly.
+const { commitPick } = require('../services/pick.service');
 const lineupService = require('../services/lineup.service');
 
 /**
@@ -191,7 +193,7 @@ const DRAFT_LEAGUE = {
   invite_code: 'invite',
 };
 
-// Mirrors the narrowed getDraftState SELECT after #344: Team identity and the
+// Mirrors the narrowed memberSnapshot SELECT after #344: Team identity and the
 // team's own draft columns, no manager account fields.
 const draftTeamRow = ({ teamId, teamName }, draftPosition) => ({
   id: teamId,
@@ -205,7 +207,7 @@ const draftTeamRow = ({ teamId, teamName }, draftPosition) => ({
 
 function draftStateFake(t) {
   return createFakePool([
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ ...DRAFT_LEAGUE }] })],
+    [select('leagues'), () => ({ rows: [{ ...DRAFT_LEAGUE }] })],
     [/FROM "teams"\s+WHERE/, () => ({
       rows: [draftTeamRow(VIEWER, 1), draftTeamRow(OTHER, 2)],
     })],
@@ -228,7 +230,7 @@ function draftStateFake(t) {
 test('Draft snapshot: every team is named by Team identity and no account fields', async (t) => {
   const fake = draftStateFake(t);
 
-  const state = await getDraftState(LEAGUE_ID);
+  const state = await memberSnapshot(LEAGUE_ID);
 
   assert.deepEqual(
     state.teams.map((team) => [team.teamId, team.teamName]),
@@ -248,7 +250,7 @@ test('Draft snapshot: every team is named by Team identity and no account fields
 test('Draft snapshot: the team On the clock carries Team identity and no account fields', async (t) => {
   draftStateFake(t);
 
-  const state = await getDraftState(LEAGUE_ID);
+  const state = await memberSnapshot(LEAGUE_ID);
 
   assert.equal(state.onTheClock.teamId, VIEWER.teamId);
   assert.equal(state.onTheClock.teamName, VIEWER.teamName);
@@ -258,7 +260,7 @@ test('Draft snapshot: the team On the clock carries Team identity and no account
 test('Draft snapshot: every Pick names the Team that made it, not just its id', async (t) => {
   const fake = draftStateFake(t);
 
-  const state = await getDraftState(LEAGUE_ID);
+  const state = await memberSnapshot(LEAGUE_ID);
 
   const [pick] = state.picks;
   assert.equal(pick.teamId, OTHER.teamId);
@@ -312,7 +314,7 @@ test('draft:picked: the Pick outcome names the Team that made it', async (t) => 
   ]).install(t);
   t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
 
-  const outcome = await draftPlayer({ leagueId: LEAGUE_ID, userId: VIEWER.userId, playerId: 500 });
+  const outcome = await commitPick({ leagueId: LEAGUE_ID, userId: VIEWER.userId, playerId: 500 });
 
   assert.equal(outcome.teamId, VIEWER.teamId, 'the legacy Team id field survives');
   assert.equal(outcome.teamName, VIEWER.teamName);

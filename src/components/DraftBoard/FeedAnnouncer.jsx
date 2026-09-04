@@ -1,17 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Box } from '@mui/material';
-import { visuallyHidden } from '@mui/utils';
-import { feedEntryKey } from '../../lib/teamIdentity';
-import { feedAnnouncementFor } from './feedAnnouncement';
-import { nextAnnouncement } from './announcerRepeat';
+import React, { useEffect, useRef } from 'react';
+import { feedEntryKey, teamNameLabel } from '../../lib/teamIdentity';
+import PoliteRegion from './PoliteRegion';
+import { useAnnouncement } from './useAnnouncement';
 
 /**
  * The Draft room's combined-feed announcer (#445 AC2): one persistent, visually
- * hidden polite region that speaks a CONCISE summary when a human message
- * arrives live. It follows the room's established idiom exactly - the room's
- * other visually-hidden status regions (e.g. ReadinessAnnouncer #164, the
- * countdown #117) mount a Box with role="status" / aria-live="polite", styled
- * visuallyHidden, and only change its TEXT.
+ * hidden polite region (PoliteRegion, #791) that speaks a CONCISE summary when a
+ * human message arrives live.
  *
  * IT NO LONGER ANNOUNCES PICKS (#513). Picks moved to the room-level
  * PickAnnouncer, mounted in the Draft room's chrome so a committed Pick is heard
@@ -26,19 +21,27 @@ import { nextAnnouncement } from './announcerRepeat';
  * Draft-schedule countdown (#117) belong to a PENDING draft, while this feed
  * and its active-phase siblings belong to an ACTIVE one, and a draft is one
  * or the other, never both. Do not hand-enumerate this feed's active-phase
- * siblings here - that list has gone stale before (#654):
+ * siblings here - that list has gone stale before (#654), and again across
+ * #791: most of the room's polite regions render the shared PoliteRegion leaf
+ * now (#791), so a `role="status"` grep alone no longer finds them.
+ * `git grep -nF '<PoliteRegion' src/components/DraftBoard/` surfaces the leaf's
+ * callers - PickAnnouncer, StallAnnouncer, this one, ReadinessAnnouncer and
+ * DraftChatMembershipAnnouncer - but READ WHAT IT RETURNS rather than trusting
+ * the count: it also matches ReadinessAnnouncer's call site even though that
+ * component renders null outside the PENDING phase (railCompositionFor). The
+ * two regions that do NOT use the shared leaf - LiveDraftBanner (a visible
+ * region in a different form) and ComposerCharacterCount (#486, in
+ * src/components/ChatPanel/ - ChatPanel is part of the room, DraftRoomChat.jsx
+ * imports ChatConversation from it) - still carry a literal `role="status"`, so
  * `git grep -nF 'role="status"' src/components/DraftBoard/ src/components/ChatPanel/`
- * (ChatPanel is part of the room - DraftRoomChat.jsx imports ChatConversation
- * from it, which is where ComposerCharacterCount #486 lives) surfaces most of
- * them, but READ WHAT IT RETURNS rather than trusting the count: it also
- * matches ReadinessAnnouncer's source even though that component renders null
- * outside the PENDING phase (railCompositionFor), and it structurally cannot
- * see RosterNeedsStrip (src/components/RosterPanel/, mounted in the ACTIVE
- * rail composition, railComposition.js) - that region carries
- * `aria-live="polite"` WITHOUT `role="status"`; its own docblock is the
- * source of truth for that ruling (#664). Each region is on
- * its own axis, none folding into another. This one still earns its place
- * rather than folding into any of them:
+ * finds those two (plus PoliteRegion.jsx's own definition, which is the leaf
+ * itself, not a sibling). Neither grep sees RosterNeedsStrip
+ * (src/components/RosterPanel/, mounted in the ACTIVE rail composition,
+ * railComposition.js) - that region carries `aria-live="polite"` WITHOUT
+ * `role="status"` and does not use the shared leaf either; its own docblock is
+ * the source of truth for that ruling (#664). Each region is on its own axis,
+ * none folding into another (ADR 0028). This one still earns its place rather
+ * than folding into any of them:
  *
  *  - It carries a DIFFERENT axis: human-message arrival, which neither
  *    ComposerCharacterCount (#486) nor LiveDraftBanner announces. Folding it
@@ -47,13 +50,13 @@ import { nextAnnouncement } from './announcerRepeat';
  *    shared per-league seq past the highest we have announced. A render that does
  *    not change the tail says nothing, and there is no timer and no debounce, so
  *    it cannot chatter the way a per-tick region would.
- *  - It announces PRESENCE, not content, and only human-message arrivals
- *    (feedAnnouncement.js), so it stays terse rather than reading long message
- *    bodies or every lifecycle transition.
+ *  - It announces PRESENCE, not content, and only human-message arrivals, so it
+ *    stays terse rather than reading long message bodies or every lifecycle
+ *    transition.
  *
  * What a test can show about this region - that it exists, its DOM order, and
  * that its text changes exactly on a strictly-newer entry - is asserted here and
- * in FeedAnnouncer.test.js. Whether a reader actually reaches an announcement
+ * in FeedAnnouncer.test.jsx. Whether a reader actually reaches an announcement
  * before a later one supersedes it is not observable from a test and is verified
  * by a human (#156).
  *
@@ -67,29 +70,20 @@ import { nextAnnouncement } from './announcerRepeat';
  *    an OLDER row with a different key - so the guard is the monotonic seq.
  *  - The viewer's OWN message: the server echoes a send to the whole room
  *    including the sender, and a manager does not need their own line read back.
- *    Suppressed by teamId in feedAnnouncement.
+ *    Suppressed by teamId below.
  *
  * TWO ENTRIES THAT DESCRIBE IDENTICALLY. Two messages from the same Team both
- * read "New message from <Team>". React bails on an Object.is-equal state, so a
- * byte-identical string would leave the text node untouched and the second
- * arrival silent. So when the new text would exactly repeat the CURRENTLY
- * RENDERED announcement, a zero-width space is appended - invisible and unspoken -
- * so the node value still changes and the repeat is announced. Comparing against
- * the rendered value (the functional setState `prev`), not a separate last-text
- * ref or a parity counter, is what makes this hold for ANY interleaving: a
- * different entry landing between two repeats (A, A, B, B) cannot desync a counter
- * from what is on screen, because there is no counter (#518 fixed the earlier
- * parity-flip that had exactly that desync). This is distinct from the
- * identical-TAIL rerender above, which is a non-event and stays silent.
- *
- * The repeat-safe update itself - compare the new text against the rendered
- * value and append a zero-width space on an exact repeat - is now the shared
- * nextAnnouncement helper (announcerRepeat.js). This and PickAnnouncer (#513)
- * had each carried it inline, and this docblock used to say to extract it "at
- * three copies, not two"; StallAnnouncer (#636) was that third copy, so the
- * idiom was extracted and all three now call it. Only the two-line repeat idiom
- * moved; the GATING stays per-component. It is NOT that all three gate alike -
- * this announcer's effect and StallAnnouncer's share a seq high-water discipline,
+ * read "New message from <Team>". The repeat-safe update that keeps the second
+ * one audible - append a zero-width space on an exact repeat of what is
+ * CURRENTLY RENDERED, correct across ANY interleaving such as A, A, B, B - is
+ * the shared useAnnouncement hook (#791, folding announcerRepeat.js in). This
+ * and PickAnnouncer (#513) had each carried it inline, and this docblock used
+ * to say to extract it "at three copies, not two"; StallAnnouncer (#636) was
+ * that third copy, so the idiom was extracted (announcerRepeat.js) and all
+ * three called it; #791 moved that extraction into a hook so the state and the
+ * update travel together. Only the two-line repeat idiom moved; the GATING
+ * stays per-component (ADR 0028). It is NOT that all three gate alike - this
+ * announcer's effect and StallAnnouncer's share a seq high-water discipline,
  * but they diverge past it: this one is an EVENT announcer, tail-only, because a
  * newer chat message supersedes an older one; StallAnnouncer is a STATE announcer
  * that scans the whole newly-arrived slice for the newest stall (a stall is not
@@ -97,12 +91,10 @@ import { nextAnnouncement } from './announcerRepeat';
  * different again, keyed on a single pick prop with no feed at all. The reason a
  * shared GATING hook is still refused is not "different lifecycles" alone: it is
  * that folding in a clear/reset path only some of them own is exactly the
- * reset-semantics hazard #513 identified. (The 22-line similarity an earlier
- * review flagged between this effect and StallAnnouncer's was the pre-state-model
- * StallAnnouncer; the #636 state-model fix diverged them.)
+ * reset-semantics hazard #513 identified.
  */
 function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
-  const [announcement, setAnnouncement] = useState('');
+  const [announcement, announce] = useAnnouncement();
   // The tail key we have already accounted for, and the highest seq we have
   // announced or seeded. null/-Infinity until the first non-empty feed seeds
   // them silently, so the opening backlog is never announced.
@@ -163,33 +155,82 @@ function FeedAnnouncer({ entries = [], viewerTeamId = null }) {
     const text = feedAnnouncementFor(tail, viewerTeamId);
     if (!text) {
       // A lifecycle entry, a hidden arrival, or the viewer's own message: clear
-      // to empty. That mutates the node value rather than removing the node, so
-      // there is no announcement of silence.
-      setAnnouncement('');
+      // to empty via the shared hook. This CAN land with `prev` already empty -
+      // the room opens onto backlog silently, so the first live entry a manager
+      // sends themselves reaches here with nothing yet rendered - and
+      // useAnnouncement's `announce('')` is exempt from the repeat check
+      // specifically for that reason: the empty string never gains a trailing
+      // zero-width space, so two clears in a row (or a clear while already
+      // silent) still read as genuine silence, not an invisible character.
+      announce('');
       return;
     }
     // Two DIFFERENT entries can describe identically - two messages from the same
-    // Team both read "New message from <Team>". React bails on an Object.is-equal
-    // state, so a byte-identical string would leave the region's text node
-    // untouched and a screen reader silent: the first announced, the rest lost.
-    // When the new text would exactly repeat what is CURRENTLY RENDERED, append a
-    // zero-width space so the node value still changes and the repeat is
-    // announced; otherwise set it clean. The marker is invisible and unspoken.
-    // Comparing against `prev` (the rendered value in the functional setState),
-    // not a separate last-text ref or a parity counter, is what keeps this correct
-    // across ANY interleaving such as A, A, B, B: a different entry landing between
-    // two repeat-pairs cannot desync from what is on screen, because there is no
-    // counter. This is not the identical-tail case above - that returns before
-    // here and stays deliberately silent. The append-on-exact-repeat itself is
-    // the shared nextAnnouncement helper (announcerRepeat.js).
-    setAnnouncement((prev) => nextAnnouncement(prev, text));
-  }, [tailKey, tailSeq, tail, viewerTeamId]);
+    // Team both read "New message from <Team>". The shared useAnnouncement hook
+    // appends a zero-width space on an exact repeat of what is CURRENTLY
+    // RENDERED so the node value still changes and the repeat is announced. This
+    // is not the identical-tail case above - that returns before here and stays
+    // deliberately silent.
+    announce(text);
+  }, [tailKey, tailSeq, tail, viewerTeamId, announce]);
 
-  return (
-    <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
-      {announcement}
-    </Box>
-  );
+  return <PoliteRegion text={announcement} />;
+}
+
+/**
+ * The concise polite-region text for one combined-feed entry (#445 AC2), moved
+ * module-private here in #791 - the one caller made the pure-function/component
+ * split #791's rulings 4 and 5 ask for unnecessary.
+ *
+ * Only ONE kind is announced here now (#513 moved Picks to the room-level
+ * PickAnnouncer): the human League chat message.
+ *  - a human League chat message announces its ARRIVAL by Team ("New message
+ *    from <Team>"), not its content. Naming who spoke is concise and lets a
+ *    reader navigate the named log to read it; reading arbitrary message text
+ *    into a polite region would be unbounded (up to 500 chars), could voice
+ *    already-hidden or abusive content, and would compete badly with the room's
+ *    other polite regions. A message that arrived already hidden is a tombstone,
+ *    not new correspondence, so it is silent.
+ * Picks are NO LONGER announced here (#513). They moved to a room-level
+ * announcer (PickAnnouncer) mounted in the Draft room's chrome, above the tabs
+ * and present in both layouts, so a Pick is heard on every tab - not only while
+ * Chat is mounted. If this feed announcer also spoke Picks, a screen-reader user
+ * with Chat mounted beside the board would hear each Pick TWICE; leaving Picks to
+ * the room-level announcer is what keeps it exactly once. Human messages stay
+ * scoped here on purpose: chat a manager cannot see should not be announced or
+ * marked read from another tab, and a Pick is different because a sighted manager
+ * on any tab is watching Picks land.
+ *
+ * So EVERY Draft activity entry - Picks and every lifecycle kind alike (the
+ * roster is stallAnnouncement.js's LIFECYCLE_KINDS, pinned to the server's by
+ * stallAnnouncement.parity.test.js) - and any unknown entry returns the empty
+ * string here. An empty string is a real return, not a gap: the announcer keeps
+ * its region mounted and silent rather than unmounting it (the ReadinessAnnouncer
+ * #164 lesson).
+ *
+ * The identity is rendered through teamNameLabel, the one shared helper, so a
+ * departed author reads as a former manager rather than blank or "null", exactly
+ * as the visible feed renders it.
+ *
+ * `viewerTeamId`, when given, suppresses the viewer's OWN chat message: the
+ * server echoes a send to the whole room including the sender, and a manager who
+ * just typed a line does not need it read back to them. That is the only
+ * suppression; a hidden arrival and any Draft activity already return the empty
+ * string above. (The room-level PickAnnouncer, which now owns Picks, announces a
+ * Pick regardless of who made it - the viewer's own included - but that rule
+ * lives in PickAnnouncer.jsx, not here.)
+ */
+function feedAnnouncementFor(entry, viewerTeamId = null) {
+  if (!entry) return '';
+
+  // Draft activity - Picks (#513, now the room-level PickAnnouncer's job) and
+  // lifecycle alike - is not announced by the Chat-scoped feed.
+  if (entry.type === 'draft_activity') return '';
+
+  // A human League chat message (type 'league_chat' or an older untyped shape).
+  if (entry.hidden) return '';
+  if (viewerTeamId != null && entry.teamId != null && entry.teamId === viewerTeamId) return '';
+  return `New message from ${teamNameLabel(entry.teamName)}`;
 }
 
 export default FeedAnnouncer;

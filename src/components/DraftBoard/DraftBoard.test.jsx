@@ -13,6 +13,9 @@ import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
 import DraftBoard from './DraftBoard';
 import PlayerPoolTableProbe from './PlayerPoolTable';
+import { railCompositionFor, RAIL_PANELS } from './railComposition';
+import { DRAFT_ASSISTANT_KEY } from '../../lib/draftAssistantPreference';
+import { fillTemplate, TRIGGERS, POLK_HIGH_LEGEND_LINES } from '../../lib/draftAssistant';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -1934,46 +1937,6 @@ test('shows projected points and injury badges in the available players table', 
   expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });
 
-test('shows a sortable Pos rank column so IDP players (no ADP) still order sensibly', async () => {
-  apiClient.get.mockResolvedValue(
-    playersPage([
-      // An IDP player: no ADP by design, ranked from last season's points.
-      { id: 3, name: 'Jordyn Brooks', position: 'LB', nfl_team: 'DET', adp: null, position_rank: 1, projected_points: 160.2 },
-      { id: 4, name: 'Rookie Backer', position: 'LB', nfl_team: 'DAL', adp: null, position_rank: null, projected_points: null },
-    ])
-  );
-  renderBoard(1);
-
-  await screen.findByText('Jordyn Brooks');
-  expect(screen.getByText('#1')).toBeInTheDocument();
-  expect(screen.getByLabelText(/Pos rank: Position rank:/)).toBeInTheDocument();
-
-  // Clicking the header re-fetches with the server's whitelisted sort key.
-  apiClient.get.mockClear();
-  await userEvent.click(screen.getByText('Pos rank'));
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ sort: 'position_rank' }),
-    })
-  );
-});
-
-test('shows each pool player\'s bye week, with an em dash when the schedule is unknown', async () => {
-  apiClient.get.mockResolvedValue(
-    playersPage([
-      { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC', adp: 12.1, position_rank: 1, projected_points: 380.5, bye_week: 10 },
-      { id: 2, name: 'Rookie Backer', position: 'LB', nfl_team: 'DAL', adp: null, position_rank: null, projected_points: null, bye_week: null },
-    ])
-  );
-  renderBoard(1);
-
-  await screen.findByText('Patrick Mahomes');
-  expect(screen.getByText('Bye')).toBeInTheDocument();
-  expect(within(screen.getByRole('row', { name: /Patrick Mahomes/ })).getByText('10')).toBeInTheDocument();
-  const rookieCells = within(screen.getByRole('row', { name: /Rookie Backer/ })).getAllByText('-');
-  expect(rookieCells.length).toBeGreaterThan(0);
-});
-
 test('clicking a player name opens the quick-view dialog and never drafts the player', async () => {
   apiClient.get.mockImplementation((url) =>
     url.endsWith('/summary')
@@ -2095,31 +2058,6 @@ test('an offline-type active draft never renders a manual Draft control from the
   expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
 });
 
-test('an already-drafted pool row hides both Draft and Queue entirely, keeping only the Drafted chip', async () => {
-  renderBoard(1, { user: { id: 5 } });
-  await screen.findByText('Patrick Mahomes');
-
-  act(() =>
-    fakeSocket.trigger(
-      'draft:state',
-      stateEvent(activeLeague(), {
-        teams: [{ teamId: 1, teamName: 'Team A' }],
-        picks: [{ pick_number: 1, team_id: 1, player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' }],
-        onTheClock: { teamId: 1, teamName: 'Team A' },
-      })
-    )
-  );
-
-  const table = screen.getByRole('table', { name: 'Available Players' });
-  const row = within(table).getByRole('row', { name: /Patrick Mahomes/ });
-  // The old .closest('tr') started from the name button, so it asserted the
-  // name is a button in passing. Keep that explicit rather than lose it.
-  expect(within(row).getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
-  expect(within(row).getByText('Drafted')).toBeInTheDocument();
-  expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
-  expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
-});
-
 test('Quick View shows Draft as focusable aria-disabled with the shared explanation off-turn, and suppresses activation', async () => {
   apiClient.get.mockImplementation((url) =>
     url.endsWith('/summary')
@@ -2178,64 +2116,63 @@ test('a stale confirmation (the turn moved on while the dialog sat open) never c
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 
-// --- Schedule-aware pool: columns, Column guide, Bye filter, Bye overlap ---
-// (issue #119, parent spec #108)
-
-test('the desktop columns are exactly Name/Position/Bye/ADP/Pos rank/17-game pace/Actions', async () => {
+test('missing 17-game pace shows a neutral placeholder with a keyboard-accessible explanation', async () => {
+  apiClient.get.mockResolvedValue(
+    playersPage([
+      { id: 1, name: 'Rookie No Pace', position: 'WR', nfl_team: 'DAL', projected_points: null },
+    ])
+  );
   renderBoard(1);
+
+  await screen.findByText('Rookie No Pace');
+  const row = within(screen.getByRole('row', { name: /Rookie No Pace/ }));
+  // Several cells can render a plain "-" (Bye/ADP/Pos rank); only the pace
+  // cell's placeholder is keyboard-focusable with an explanatory tooltip.
+  const placeholder = row.getAllByText('-').find((el) => el.getAttribute('tabIndex') === '0');
+  expect(placeholder).toBeTruthy();
+});
+
+// --- Room-level derivations feeding the pool table (issue #806) ---
+// #792 ruling 5 moved eight table-shaped cases down into the PlayerPoolTable
+// suites, which is right for the narrowed eleven-prop interface - but three of
+// those crossed a derivation step the room itself performs (picks -> drafted
+// Set, roster -> Bye Map, two clicks -> an accumulated filter). The
+// assertions below are deliberately the same ones the table suites make; what
+// is new is the input. The table suites hand the derived value in ready-made,
+// while each test below drives the room-level input its moved ancestor drove
+// (a socket frame, a roster fixture, two real clicks) and lets the room
+// derive its own way down, so the derivation itself is what's under test.
+//
+// The Bye-weeks accumulation case in particular MUST live here, not in a
+// table suite: MUI's multiple Select computes its next array from its
+// `value` prop, so a second click against a table suite's static mocked
+// `controls` yields [6], not [6, 9]. Accumulation only exists where
+// usePlayerPool feeds real filter state back into the controlled Select - a
+// table-suite version of this test would pass while proving nothing.
+
+test('draftedIds derives from live picks: an already-drafted pool row keeps only the Drafted chip', async () => {
+  renderBoard(1, { user: { id: 5 } });
   await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger(
+      'draft:state',
+      stateEvent(activeLeague(), {
+        teams: [{ teamId: 1, teamName: 'Team A' }],
+        picks: [{ pick_number: 1, team_id: 1, player_id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' }],
+        onTheClock: { teamId: 1, teamName: 'Team A' },
+      })
+    )
+  );
 
   const table = screen.getByRole('table', { name: 'Available Players' });
-  // Render index, Draft value, and Tier are all absent from this table.
-  expect(within(table).queryByText(/^#$/)).not.toBeInTheDocument();
-  expect(within(table).queryByText('Draft value')).not.toBeInTheDocument();
-  expect(within(table).queryByText('Tier')).not.toBeInTheDocument();
-  expect(within(table).queryByText('Season Proj')).not.toBeInTheDocument();
-
-  for (const label of ['Name', 'Position', 'ADP', '17-game pace', 'Actions']) {
-    expect(within(table).getByText(label)).toBeInTheDocument();
-  }
-  expect(within(table).queryByRole('columnheader', { name: 'NFL Team' })).not.toBeInTheDocument();
-  expect(within(table).getByText(/· Kansas City Chiefs/)).toBeInTheDocument();
-  // Bye and Pos rank headers carry their AbbreviationTooltip aria-label
-  // (asserted precisely in the tests below) rather than a plain text node.
-  expect(within(table).getByRole('button', { name: /^Bye:/ })).toBeInTheDocument();
-  expect(within(table).getByRole('button', { name: /^Pos rank:/ })).toBeInTheDocument();
+  const row = within(table).getByRole('row', { name: /Patrick Mahomes/ });
+  expect(within(row).getByText('Drafted')).toBeInTheDocument();
+  expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
 });
 
-test('the visible Bye header is sortable and passes its server field name through', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  apiClient.get.mockClear();
-
-  await userEvent.click(screen.getByRole('button', { name: /^Bye:/ }));
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ sort: 'bye_week' }),
-    })
-  );
-});
-
-test('the Bye-weeks multi-select filters across the pool and renders removable chips', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  apiClient.get.mockClear();
-  apiClient.get.mockResolvedValue(playersPage([]));
-
-  await userEvent.click(screen.getByLabelText('Bye week'));
-  await userEvent.click(await screen.findByRole('option', { name: 'Week 9' }));
-  await userEvent.click(await screen.findByRole('option', { name: 'Week 6' }));
-
-  await waitFor(() =>
-    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: expect.objectContaining({ byeWeeks: '6,9' }), // sorted regardless of pick order
-    })
-  );
-  expect(screen.getByText('Bye 6')).toBeInTheDocument();
-  expect(screen.getByText('Bye 9')).toBeInTheDocument();
-});
-
-test('shows a neutral Bye overlap hint for a candidate sharing a Bye with a rostered player', async () => {
+test('byeOverlapByWeek derives from the caller\'s own roster and surfaces on the matching candidate', async () => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/team/roster') {
       // The caller's own roster already holds a KC player on Bye 10 (Travis
@@ -2256,44 +2193,30 @@ test('shows a neutral Bye overlap hint for a candidate sharing a Bye with a rost
   await screen.findByText('Patrick Mahomes');
   const overlapHint = await screen.findByLabelText(/Bye overlap: 1 rostered player.*Travis Kelce/);
   expect(overlapHint).toBeInTheDocument();
-  // No overlap for the other row (different Bye week).
+  // No overlap for the other row (different Bye week) - the Map is keyed per
+  // week, not a blanket "rostered someone" flag.
   expect(
     within(screen.getByRole('row', { name: /No Overlap Guy/ })).queryByLabelText(/Bye overlap/)
   ).not.toBeInTheDocument();
-  // Neutral: no "conflict"/"risk"/"warning" language anywhere near the hint.
-  expect(overlapHint.getAttribute('aria-label')).not.toMatch(/conflict|risk|warning/i);
 });
 
-test('missing 17-game pace shows a neutral placeholder with a keyboard-accessible explanation', async () => {
-  apiClient.get.mockResolvedValue(
-    playersPage([
-      { id: 1, name: 'Rookie No Pace', position: 'WR', nfl_team: 'DAL', projected_points: null },
-    ])
-  );
-  renderBoard(1);
-
-  await screen.findByText('Rookie No Pace');
-  const row = within(screen.getByRole('row', { name: /Rookie No Pace/ }));
-  // Several cells can render a plain "-" (Bye/ADP/Pos rank); only the pace
-  // cell's placeholder is keyboard-focusable with an explanatory tooltip.
-  const placeholder = row.getAllByText('-').find((el) => el.getAttribute('tabIndex') === '0');
-  expect(placeholder).toBeTruthy();
-});
-
-test('the Column guide is a keyboard-reachable dialog explaining abbreviations and injury-status codes', async () => {
+test('the Bye-weeks multi-select accumulates across two clicks via usePlayerPool state feeding back', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
+  apiClient.get.mockClear();
+  apiClient.get.mockResolvedValue(playersPage([]));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Column guide' }));
+  await userEvent.click(screen.getByLabelText('Bye week'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Week 9' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'Week 6' }));
 
-  const dialog = await screen.findByRole('dialog');
-  expect(within(dialog).getByText('Column guide')).toBeInTheDocument();
-  expect(within(dialog).getByText('17-game pace')).toBeInTheDocument();
-  expect(within(dialog).getByText('IR')).toBeInTheDocument();
-  expect(within(dialog).getByText('Injured Reserve')).toBeInTheDocument();
-
-  await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: expect.objectContaining({ byeWeeks: '6,9' }), // sorted regardless of pick order
+    })
+  );
+  expect(screen.getByText('Bye 6')).toBeInTheDocument();
+  expect(screen.getByText('Bye 9')).toBeInTheDocument();
 });
 
 // ---------------------------------------------------------------------------
@@ -2363,72 +2286,30 @@ test('renders the league’s own 12 starter / 7 bench / 1 IR shape across rail a
   expect(screen.queryByRole('rowheader', { name: '20' })).not.toBeInTheDocument();
 });
 
-test('names the next pick from the league’s own rotation', async () => {
+// The room cases that derived the next pick label and the viewer's own pick
+// list - the Upcoming strip's My picks group and its popover - moved to
+// draftOrderWindow.test.js as unit cases on draftOrderWindowFor (issue #793
+// AC4): they rendered the whole room to read a value the one draft-order
+// window now returns directly. The roster-slot tagging cases below stay
+// here, because slot tags are the room's own composition, not the window's.
+//
+// That move took the DERIVATION of both facts with it; what the four cases
+// below restore is the RENDERING of one of them. The viewer's turn facts (My
+// Roster's Next pick label and remaining-picks warning) lost their only
+// on-screen assertion in the same move: nothing that renders DraftBoard
+// exercised viewerTurn past its threading at DraftBoard.jsx:594. These four
+// cases restore that wiring coverage (#825); draftOrderWindowFor's own
+// arithmetic keeps its unit coverage in draftOrderWindow.test.js and is not
+// re-verified here.
+
+test('shows the next pick on screen from the league’s own rotation (#825)', async () => {
   await showRoster([firstPick]);
-  // Two teams, snake: pick 0 was Team A, 1 and 2 are Team B and... the third
+  // Two teams, snake: pick 0 was Team A, 1 and 2 are Team B and the third
   // pick overall is on the clock, so Team A is next up at 2.02.
   expect(screen.getByText('Next pick 2.02')).toBeInTheDocument();
 });
 
-test('names the viewer’s own next three Picks, with the rest behind the popover', async () => {
-  // The wiring, not the arithmetic: viewerPicks.test.js already sweeps
-  // rotations and league sizes. What this asks is whether the live league row,
-  // its Teams and its committed Picks reach viewerPicksFor and come back out
-  // on screen (issue #124 acceptance criterion 4). Two teams, snake, the third
-  // pick of the draft on the clock, and Team A has already made 1.01.
-  await showRoster([firstPick]);
-
-  const upcoming = screen.getByRole('region', { name: 'Upcoming' });
-  const myPicks = within(upcoming).getByRole('group', { name: 'My picks' });
-  expect(within(myPicks).getByText('2.02 · 3.01 · 4.02')).toBeInTheDocument();
-
-  // 19 Draft rounds (roster_limit 20 less the undraftable IR slot), less the
-  // pick already made.
-  await userEvent.click(within(myPicks).getByRole('button', { name: 'All 18 of my picks' }));
-  const allPicks = screen.getByRole('dialog', { name: 'All my picks' });
-  const listed = within(allPicks).getAllByRole('listitem').map((item) => item.textContent);
-  expect(listed).toHaveLength(18);
-  expect(listed[0]).toBe('2.02');
-  expect(listed[listed.length - 1]).toBe('19.01');
-});
-
-test('reads the viewer’s Picks off a linear league’s own rotation, not a snake assumption', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  connectAsTeam(1);
-  act(() => fakeSocket.trigger('draft:state', stateEvent(
-    rosterLeague({ draft_rotation: 'linear', current_pick: 1 }),
-    { teams: rosterTeams, picks: [], onTheClock: TEAM_A },
-  )));
-
-  const myPicks = within(screen.getByRole('region', { name: 'Upcoming' }))
-    .getByRole('group', { name: 'My picks' });
-  // Linear: slot 1 in every round. Under a snake reading the second of these
-  // would be 2.02, which is a wait of one turn rather than three.
-  expect(within(myPicks).getByText('2.01 · 3.01 · 4.01')).toBeInTheDocument();
-});
-
-test('a spectator with no Team here is offered no picks of their own', async () => {
-  renderBoard(1);
-  await screen.findByText('Patrick Mahomes');
-  // viewerTeamId comes from the draft:join acknowledgement and never from a
-  // broadcast (#112), so a spectator is one whose join ack carried no Team.
-  connectAsTeam(null);
-  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
-    teams: rosterTeams,
-    picks: [firstPick],
-    onTheClock: TEAM_A,
-  })));
-
-  const upcoming = screen.getByRole('region', { name: 'Upcoming' });
-  // The panel still stands on its league-wide strip; only the viewer-relative
-  // group is gone. Verified to fail against a rail that defaults a spectator
-  // to the first Team's picks.
-  expect(within(upcoming).queryByRole('group', { name: 'My picks' })).not.toBeInTheDocument();
-  expect(within(upcoming).getByRole('button', { name: 'Full Draft order' })).toBeInTheDocument();
-});
-
-test('skips a keeper the team already holds when naming the next pick', async () => {
+test('skips a keeper the team already holds when showing the next pick on screen (#825)', async () => {
   await showRoster([
     firstPick,
     {
@@ -2441,6 +2322,43 @@ test('skips a keeper the team already holds when naming the next pick', async ()
   // it, so the next pick they actually make is 3.01.
   expect(screen.getByText('Next pick 3.01')).toBeInTheDocument();
   expect(screen.getByText('Keeper')).toBeInTheDocument();
+});
+
+test('shows the remaining-picks warning on screen late in the draft (#825)', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsTeam(1);
+  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague({ current_pick: 30 }), {
+    teams: rosterTeams,
+    picks: [firstPick],
+    onTheClock: TEAM_B,
+  })));
+
+  // Two teams, snake, 19 rounds (38 total picks), pick 30 (0-based, so pick
+  // 31 of 38) on the clock. Derived from draftOrderWindowFor with these same
+  // inputs rather than taken on trust: Team A's own remaining picks are the
+  // 0-based numbers 31, 32, 35, 36 (1-based 32, 33, 36, 37) - four picks, the
+  // next at 16.02. That matches the reading in this ticket's brief.
+  expect(screen.getByText('Next pick 16.02')).toBeInTheDocument();
+  expect(screen.getByText('Only 4 picks left for 11 open starting spots.')).toBeInTheDocument();
+});
+
+test('shows neither turn fact when the viewer holds no Team here (#825)', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+  // Ruling 3: a teamId absent from the frame's own teams (rosterTeams holds
+  // only 1 and 2), not a null viewerTeamId. rosterViewFor resolves myTeam
+  // with `teams.find(...) || null`, a lookup-miss path distinct from its
+  // separate `viewerTeamId == null` short-circuit; this exercises the miss.
+  connectAsTeam(3);
+  act(() => fakeSocket.trigger('draft:state', stateEvent(rosterLeague(), {
+    teams: rosterTeams,
+    picks: [firstPick],
+    onTheClock: TEAM_A,
+  })));
+
+  expect(screen.queryByText(/Next pick/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/picks? left|remaining pick/)).not.toBeInTheDocument();
 });
 
 test('tags the manager’s own picks in the history with the slot they filled', async () => {
@@ -3924,5 +3842,225 @@ describe('the final Pick and Draft completion (#519)', () => {
     act(() => ack({ error: 'you are not in this league' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('you are not in this league');
+  });
+});
+
+// --- Draft assistant, room venue (#787) ---
+//
+// These prove the WIRING between the live room and the assistant provider: the
+// socket seam and toggle reach the presenter, and the render-count discipline
+// (#754 A7) survives the assistant. The exact line-per-trigger behaviour is
+// pinned deterministically in DraftRoomAssistant.test.jsx (rng-injected) and
+// roomAssistantFacts.test.js; here rng is real, so assertions are membership in
+// a trigger's own pool - which no OTHER trigger's pool shares - or presence.
+//
+// The viewer is kept OFF the clock (onTheClock TEAM_B, picks' nextTeamId 2) so
+// the not-my-turn -> my-turn TURN_START trigger never fires alongside the line
+// under test; TURN_START is exercised on its own in DraftRoomAssistant.test.jsx.
+describe('Draft assistant in the live room (#787)', () => {
+  const commentaryTexts = () =>
+    within(screen.getByRole('list', { name: 'Draft assistant commentary' }))
+      .getAllByRole('listitem')
+      .map((li) => li.textContent);
+  const assistantOn = () => window.localStorage.setItem(DRAFT_ASSISTANT_KEY, '1');
+  const linesFor = (trigger, name) =>
+    POLK_HIGH_LEGEND_LINES[trigger].map((t) => fillTemplate(t, { player: { name } }));
+
+  afterEach(() => {
+    window.localStorage.removeItem(DRAFT_ASSISTANT_KEY);
+  });
+
+  test('a queued player taken by another team speaks a snipe (AC1 positive)', async () => {
+    assistantOn();
+    mockGets({ queue: [{ id: 7, name: 'Queued Star', position: 'WR', nfl_team: 'BUF' }] });
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    act(() => fakeSocket.trigger('draft:picked', {
+      pickNumber: 1, teamId: 2, teamName: 'Team B',
+      player: { id: 7, name: 'Queued Star', position: 'WR', nfl_team: 'BUF' },
+      nextTeamId: 2, draftComplete: false, auto: false,
+    }));
+
+    const snipes = linesFor(TRIGGERS.QUEUE_PICKED_BY_OTHER, 'Queued Star');
+    expect(commentaryTexts().some((t) => snipes.includes(t))).toBe(true);
+  });
+
+  test('an un-queued player taken by another team says nothing (AC1 negative, ruling item 6)', async () => {
+    assistantOn();
+    mockGets({ queue: [] });
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    act(() => fakeSocket.trigger('draft:picked', {
+      pickNumber: 1, teamId: 2, teamName: 'Team B',
+      player: { id: 999, name: 'Some Nobody', position: 'WR', nfl_team: 'NYJ' },
+      nextTeamId: 2, draftComplete: false, auto: false,
+    }));
+
+    // The assistant is on (its panel heading shows) but nothing was said.
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
+  });
+
+  test("the viewer's own autopick speaks a line from the Autopick pool (AC2)", async () => {
+    assistantOn();
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    act(() => fakeSocket.trigger('draft:picked', {
+      pickNumber: 1, teamId: 1, teamName: 'Team A',
+      player: { id: 50, name: 'Auto Star', position: 'RB', nfl_team: 'KC' },
+      nextTeamId: 2, draftComplete: false, auto: true,
+    }));
+
+    const autos = linesFor(TRIGGERS.PICK_AUTO, 'Auto Star');
+    expect(commentaryTexts().some((t) => autos.includes(t))).toBe(true);
+  });
+
+  test('with the assistant on, a ticking pick clock still re-renders only its own leaf (AC3, extends #754 A7)', async () => {
+    assistantOn();
+    jest.useFakeTimers();
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 30000).toISOString(),
+    }), { onTheClock: TEAM_B })));
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:30');
+    // The assistant panel is mounted and on for this whole run.
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+    const roomRendersBefore = PlayerPoolTableProbe.renderSpy.mock.calls.length;
+
+    // Tick inside the non-urgent zone (30s -> 27s): the leaf ticks...
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:27');
+    // ...and nothing outside PickClock re-renders, assistant on and all.
+    expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
+  });
+
+  test('a clock-urgent line landing mid-tick re-renders only the pick clock leaf (AC1, #818)', async () => {
+    // The gap #787's AC3 left (the test directly above, labelled AC3 extends
+    // #754 A7): it keeps the viewer OFF the clock, so no line is pushed
+    // mid-tick. #818 files that gap as its AC1. Here the viewer is ON the clock
+    // and the deadline crosses the 10s urgent edge during the tick, so a line
+    // actually lands through notifyClockUrgent - the path the wiring adds - and
+    // the render-count discipline must still hold.
+    assistantOn();
+    jest.useFakeTimers();
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1); // the viewer is Team A
+    // On the clock (TEAM_A), 13s out: not yet urgent (URGENT_SECONDS is 10).
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      pick_deadline_at: new Date(Date.now() + 13000).toISOString(),
+    }), { onTheClock: TEAM_A })));
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:13');
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+
+    // Count from AFTER the turn-start line has settled: only the urgent line is
+    // under test here.
+    const roomRendersBefore = PlayerPoolTableProbe.renderSpy.mock.calls.length;
+    const urgentLines = POLK_HIGH_LEGEND_LINES[TRIGGERS.CLOCK_URGENT]
+      .map((template) => fillTemplate(template, {}));
+
+    // Tick across the urgent edge (13s -> 9s): the urgent line lands...
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(screen.getByTestId('draft-clock')).toHaveTextContent('0:09');
+    expect(commentaryTexts().some((text) => urgentLines.includes(text))).toBe(true);
+    // ...and nothing outside PickClock re-rendered on it. Red-tell: making the
+    // provider pass a fresh children element per render re-renders the pool
+    // subtree on each pushed line and turns this red.
+    expect(PlayerPoolTableProbe.renderSpy.mock.calls.length).toBe(roomRendersBefore);
+  });
+
+  test('toggle off: the active composition still lists the assistant, and no panel renders (AC5)', async () => {
+    // Composition lists it unconditionally...
+    expect(railCompositionFor('active')).toContain(RAIL_PANELS.ASSISTANT);
+
+    // ...but with the toggle off (the default), the room shows the toggle and
+    // NO assistant panel: composition wants it, the panel declines.
+    window.localStorage.removeItem(DRAFT_ASSISTANT_KEY);
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), { onTheClock: TEAM_B })));
+
+    expect(screen.getByRole('button', { name: 'Draft assistant commentary' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Draft assistant' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
+  });
+
+  // #815 ruling item 6: a quick view opened from the Board (or Queue) fires NO
+  // assistant line; only the pool table's quick view does. This exercises the
+  // real DraftBoard seam - the pool table alone gets handleSelectFromPool (the
+  // nonce), the Board/Queue get the bare setQuickViewId - by opening a real
+  // quick view from each surface. The pool-table half is a live positive
+  // control, so the Board-half silence cannot pass merely because the panel is
+  // empty. The browsed lines fill {position}/{team} too, so the expected set is
+  // built from the full pool row, not the name alone.
+  test('a pool-table quick view draws a browse line; a Board quick view adds none (#815, ruling item 6)', async () => {
+    assistantOn();
+    mockGets({ queue: [] });
+    renderBoard(1);
+    await screen.findByText('Patrick Mahomes');
+    connectAsTeam(1);
+    // Off the clock (onTheClock TEAM_B) so TURN_START never fires; a committed
+    // Pick gives the Board a player to quick-view. Initial pick history reaches
+    // the matrix and history, never the assistant (only draft:picked does), so
+    // the panel starts silent.
+    act(() => fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+      onTheClock: TEAM_B,
+      picks: [{
+        pick_number: 1, teamId: 2, teamName: 'Team B',
+        player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills',
+      }],
+    })));
+
+    // BOARD PATH FIRST, while no pool selection has started the cooldown (so a
+    // mis-wire to handleSelectFromPool here really would draw a line rather than
+    // being silently swallowed by the throttle). Open the drafted player's quick
+    // view from Pick history: it goes through the bare setQuickViewId, never
+    // handleSelectFromPool, so the nonce is untouched and NO browse line is
+    // drawn - though the quick view really opens (the dialog proves the gesture
+    // reached the room, and closing it makes the rail observable again).
+    await openPickHistory();
+    await userEvent.click(screen.getByRole('button', { name: 'Josh Allen' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // The assistant is on (heading present) but silent: no commentary list.
+    expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
+
+    // POOL PATH (live positive control): the pool table's quick view runs
+    // through handleSelectFromPool, which sets the nonce, so a browse line IS
+    // drawn. That a line appears here - in the same panel that stayed empty for
+    // the Board gesture - is what proves the Board silence above is real, not an
+    // empty-panel artefact. The browsed lines fill {position}/{team} too, so the
+    // expected set is built from the full pool row, not the name alone.
+    await userEvent.click(screen.getByRole('button', { name: 'Players' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    const mahomesRow = { name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' };
+    const browsed = POLK_HIGH_LEGEND_LINES[TRIGGERS.POOL_PLAYER_BROWSED]
+      .map((t) => fillTemplate(t, { player: mahomesRow }));
+    await waitFor(() => {
+      expect(commentaryTexts().some((t) => browsed.includes(t))).toBe(true);
+    });
+    expect(commentaryTexts()).toHaveLength(1);
   });
 });

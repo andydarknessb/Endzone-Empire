@@ -18,6 +18,13 @@ describe('PickAnnouncer', () => {
     expect(region).toHaveTextContent('');
   });
 
+  it('says nothing for a null or undefined pick', () => {
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    rerender(<PickAnnouncer pick={undefined} />);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
   it('announces a Pick that lands after mount', () => {
     const { rerender } = render(<PickAnnouncer pick={null} />);
     expect(screen.getByRole('status')).toHaveTextContent('');
@@ -103,5 +110,112 @@ describe('PickAnnouncer', () => {
     // The fourth event's node value must differ from the third's, or the second
     // B is never spoken.
     expect(region.textContent).not.toBe(afterThird);
+  });
+
+  // The copy assertions that used to live one layer down, against
+  // pickAnnouncementFor directly (pickAnnouncement.test.js, now deleted), moved
+  // up here as assertions on the rendered region's text (#791's ruling 5):
+  // pickAnnouncementFor is now module-private to this file.
+  it('falls back to "a player" when a Pick carries no player name', () => {
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    rerender(<PickAnnouncer pick={{ teamName: 'Gridiron Giants', player: {}, auto: false }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Gridiron Giants drafted a player');
+    // And when the player object is missing entirely.
+    rerender(<PickAnnouncer pick={{ teamName: 'Gridiron Giants', auto: false, id: 'no-player-object' }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Gridiron Giants drafted a player');
+  });
+
+  it('names a Pick with no Team identity as a former manager, never blank or "null"', () => {
+    // A Pick's Team cannot really be null (draft_picks.team_id is NOT NULL and
+    // cascades), but the rendering rule must never print nothing or "null".
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    rerender(<PickAnnouncer pick={{ teamName: null, player: { name: 'Josh Allen' }, auto: false }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Former manager drafted Josh Allen');
+  });
+
+  it('appends "Draft complete." to the Pick that completes the draft (#519)', () => {
+    // The final live Pick carries draftComplete:true on the same draft:picked
+    // payload (server spreads the pick outcome). One ordered polite update:
+    // Team and player FIRST, then the completion sentence, so a reader hears
+    // who was picked before hearing the draft is over.
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    rerender(
+      <PickAnnouncer
+        pick={{ teamName: 'Gridiron Giants', player: { name: 'Justin Jefferson' }, auto: false, draftComplete: true }}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Gridiron Giants drafted Justin Jefferson. Draft complete.'
+    );
+  });
+
+  it('appends "Draft complete." to a final AUTOMATIC Pick too (#519)', () => {
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    rerender(
+      <PickAnnouncer
+        pick={{ teamName: 'Gridiron Giants', player: { name: 'Bijan Robinson' }, auto: true, draftComplete: true }}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Gridiron Giants autodrafted Bijan Robinson. Draft complete.'
+    );
+  });
+
+  it('reuses a name-final period instead of doubling the full stop (#519)', () => {
+    // A final Pick landing on a suffixed name is an ordinary way for a draft to
+    // end. "Jr.. Draft complete." would render a double stop in braille output,
+    // so the name's own period is reused rather than a second one added.
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    rerender(
+      <PickAnnouncer
+        pick={{ teamName: 'Gridiron Giants', player: { name: 'Marvin Harrison Jr.' }, auto: false, draftComplete: true }}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Gridiron Giants drafted Marvin Harrison Jr. Draft complete.'
+    );
+    // ...and for a final autopick of a suffixed name.
+    rerender(
+      <PickAnnouncer
+        pick={{ teamName: 'Gridiron Giants', player: { name: 'Michael Pittman Jr.' }, auto: true, draftComplete: true }}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Gridiron Giants autodrafted Michael Pittman Jr. Draft complete.'
+    );
+  });
+
+  it('adds no completion sentence to a non-final Pick (#519)', () => {
+    // Every Pick before the last leaves the wording exactly as it was: a
+    // draftComplete that is false, or absent entirely, means no completion
+    // sentence.
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    rerender(
+      <PickAnnouncer
+        pick={{ teamName: 'Gridiron Giants', player: { name: 'Justin Jefferson' }, auto: false, draftComplete: false }}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Gridiron Giants drafted Justin Jefferson');
+    expect(screen.getByRole('status').textContent).not.toMatch(/draft complete/i);
+    rerender(<PickAnnouncer pick={{ teamName: 'Gridiron Giants', player: { name: 'Bijan Robinson' }, auto: true }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Gridiron Giants autodrafted Bijan Robinson');
+    expect(screen.getByRole('status').textContent).not.toMatch(/draft complete/i);
+  });
+
+  it('uses no em-dashes in any announcement (house style, guarded copy)', () => {
+    const { rerender } = render(<PickAnnouncer pick={null} />);
+    const cases = [
+      { teamName: 'A', player: { name: 'P' }, auto: false },
+      { teamName: 'A', player: { name: 'P' }, auto: true },
+      { teamName: 'A', player: { name: 'P' }, auto: false, draftComplete: true },
+      { teamName: 'A', player: { name: 'P' }, auto: true, draftComplete: true },
+    ];
+    for (const one of cases) {
+      rerender(<PickAnnouncer pick={null} />);
+      rerender(<PickAnnouncer pick={one} />);
+      // The literal em dash (U+2014, bytes e2 80 94) the guards chain forbids in
+      // user-facing copy.
+      expect(screen.getByRole('status').textContent).not.toMatch(/—/);
+    }
   });
 });

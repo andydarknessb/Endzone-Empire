@@ -51,13 +51,29 @@ test('fetches page 1 on mount and clears the initial loading flag', async () => 
   });
 });
 
+test('returns exactly the four room-facing fields, with every control folded into controls (#792 ruling 1)', async () => {
+  const { Wrapper } = makeWrapper();
+  const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  // The room reads only these three plus the controls handoff - never a filter,
+  // sort, search or paging field off the top level. Adding one back here (so the
+  // interface widens again) turns this red.
+  expect(Object.keys(result.current).sort()).toEqual(['availablePlayers', 'controls', 'loading', 'refetch']);
+  expect(Object.keys(result.current.controls).sort()).toEqual([
+    'byeWeeksFilter', 'dir', 'hasMore', 'hideDrafted', 'loadMore', 'loadingMore',
+    'onByeWeeksFilterChange', 'onPositionFilterChange', 'onSort', 'positionFilter',
+    'search', 'searchInput', 'setHideDrafted', 'setSearchInput', 'sort',
+  ]);
+});
+
 test('a bogus or legacy ?sort= value falls back to the default (adp) rather than being trusted verbatim', async () => {
   const { Wrapper, searchRef } = makeWrapper('/league/1/draft?sort=not_a_real_field');
   const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
 
   await waitFor(() => expect(result.current.loading).toBe(false));
 
-  expect(result.current.sort).toBe('adp');
+  expect(result.current.controls.sort).toBe('adp');
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
     params: { page: 1, leagueId: 1, sort: 'adp', available: true },
   });
@@ -90,8 +106,8 @@ test('debounces the search box 300ms before committing and refetching', async ()
   await waitFor(() => expect(result.current.loading).toBe(false));
   apiClient.get.mockClear();
 
-  act(() => result.current.setSearchInput('mahomes'));
-  expect(result.current.search).toBe(''); // not committed yet
+  act(() => result.current.controls.setSearchInput('mahomes'));
+  expect(result.current.controls.search).toBe(''); // not committed yet
   expect(apiClient.get).not.toHaveBeenCalled();
 
   act(() => {
@@ -102,7 +118,7 @@ test('debounces the search box 300ms before committing and refetching', async ()
   await act(async () => {
     jest.advanceTimersByTime(1);
   });
-  expect(result.current.search).toBe('mahomes');
+  expect(result.current.controls.search).toBe('mahomes');
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
@@ -116,13 +132,13 @@ test('mirrors position/search/sort/dir/hideDrafted into the URL (replace)', asyn
   const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
   await waitFor(() => expect(result.current.loading).toBe(false));
 
-  act(() => result.current.handlePositionFilterChange('RB'));
+  act(() => result.current.controls.onPositionFilterChange('RB'));
   await waitFor(() => expect(searchRef.current).toBe('pos=RB'));
 
-  act(() => result.current.handleSort('name'));
+  act(() => result.current.controls.onSort('name'));
   await waitFor(() => expect(searchRef.current).toBe('pos=RB&sort=name'));
 
-  act(() => result.current.setHideDrafted(false));
+  act(() => result.current.controls.setHideDrafted(false));
   await waitFor(() => expect(searchRef.current).toBe('pos=RB&sort=name&showDrafted=1'));
 });
 
@@ -132,11 +148,11 @@ test('loadMore appends the next page onto the existing list', async () => {
   const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
   await waitFor(() => expect(result.current.loading).toBe(false));
 
-  expect(result.current.hasMore).toBe(true);
+  expect(result.current.controls.hasMore).toBe(true);
   apiClient.get.mockResolvedValueOnce(playersPage([{ id: 2, name: 'Page 2 Player' }], 2));
 
   await act(async () => {
-    result.current.loadMore();
+    result.current.controls.loadMore();
   });
 
   await waitFor(() => expect(result.current.availablePlayers).toHaveLength(2));
@@ -144,7 +160,7 @@ test('loadMore appends the next page onto the existing list', async () => {
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/players', {
     params: { page: 2, leagueId: 1, sort: 'adp', available: true },
   });
-  expect(result.current.hasMore).toBe(false);
+  expect(result.current.controls.hasMore).toBe(false);
 });
 
 test('changing the Bye-weeks filter refetches page 1 with a sorted, deduped byeWeeks param and mirrors it into the URL', async () => {
@@ -153,14 +169,14 @@ test('changing the Bye-weeks filter refetches page 1 with a sorted, deduped byeW
   await waitFor(() => expect(result.current.loading).toBe(false));
   apiClient.get.mockClear();
 
-  act(() => result.current.handleByeWeeksFilterChange([9, 6, 6]));
+  act(() => result.current.controls.onByeWeeksFilterChange([9, 6, 6]));
 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
       params: { page: 1, leagueId: 1, sort: 'adp', available: true, byeWeeks: '6,9' },
     })
   );
-  expect(result.current.byeWeeksFilter).toEqual([6, 9]);
+  expect(result.current.controls.byeWeeksFilter).toEqual([6, 9]);
   await waitFor(() => expect(searchRef.current).toBe('byes=6%2C9'));
 });
 
@@ -169,7 +185,7 @@ test('restores the Bye-weeks filter from the URL on mount', async () => {
   const { result } = renderHook(() => usePlayerPool(1), { wrapper: Wrapper });
   await waitFor(() => expect(result.current.loading).toBe(false));
 
-  expect(result.current.byeWeeksFilter).toEqual([6, 9]);
+  expect(result.current.controls.byeWeeksFilter).toEqual([6, 9]);
   expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
     params: { page: 1, leagueId: 1, sort: 'adp', available: true, byeWeeks: '6,9' },
   });

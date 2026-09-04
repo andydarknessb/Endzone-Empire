@@ -10,7 +10,7 @@ const startingNeed = require('./startingNeed');
 const { parseLineupSettings } = require('./lineup.service');
 const { draftRounds } = require('./rosterShape');
 // draftActivity requires only teamIdentity, so there is no cycle back to this
-// module (unlike draft.service, required lazily in autoPick): a top-level
+// module (unlike pick.service, required lazily in autoPick): a top-level
 // require is safe.
 const { appendLifecycleActivity, STALLED } = require('./draftActivity');
 
@@ -34,15 +34,15 @@ const { appendLifecycleActivity, STALLED } = require('./draftActivity');
  * queue first, then Best available among players who fill a Starting need, then
  * Best available among everyone else, with the snipe retry - ADR 0026) and the
  * consecutive-timeout streak live here too. The clock re-arm on a committed autopick still rides the
- * pick-landed event through draft.service.draftPlayer, so expiry and arming
- * share the one policy. draft.service is required lazily inside autoPick because
- * it requires this module in turn (ADR 0018); a top-level require would capture
- * its partial exports during the cycle.
+ * pick-landed event through pick.service.landPick, so expiry and arming
+ * share the one policy. pick.service is required lazily inside autoPick because
+ * it requires this module in turn (ADR 0018, #782 ruling 6); a top-level require
+ * would capture its partial exports during the cycle.
  */
 
 const AUTODRAFT_DELAY_FLOOR = 1;
 
-// Defensive bound on draftPlayer() attempts after a snipe - not a ranking cutoff.
+// Defensive bound on landPick() attempts after a snipe - not a ranking cutoff.
 const AUTOPICK_CANDIDATE_LIMIT = 25;
 
 /**
@@ -109,14 +109,15 @@ function clockSecondsFor({ draftComplete, onClockAutodraft, league }) {
 async function onDraftStarted(client, { leagueId, complete, currentPick, clockSeconds, rounds }) {
   if (complete) {
     // Every roster slot was pre-filled by keepers: no live pick is possible, so
-    // the draft is complete before it began. No clock, and the waiver window
-    // opens exactly as it would on the final live pick.
+    // the draft is complete before it began. This statement flips the status and
+    // clears the clock; the waiver window and the rest of the draft->season
+    // handoff are draftCompletion.completeDraft's, called by draftStart next on
+    // this same transaction (#789).
     await client.query(
       `UPDATE "leagues"
          SET "draft_status" = 'complete', "current_pick" = $2, "updated_at" = now(),
              "draft_autostart_failed" = false, "pick_deadline_at" = NULL,
-             "draft_rounds" = $3,
-             "waivers_clear_at" = now() + make_interval(hours => "waiver_period_hours")
+             "draft_rounds" = $3
        WHERE "id" = $1`,
       [leagueId, currentPick, rounds]
     );
@@ -396,17 +397,21 @@ async function countPicksRemaining({ leagueId, league, teams, teamId, rounds }) 
  * the queue first, then Best available among players who fill a Starting need,
  * then Best available among everyone else (see orderAutopickCandidates). The
  * committed pick re-arms the next team's clock
- * through draft.service.draftPlayer -> onPickLanded, so expiry never writes the
+ * through pick.service.landPick -> onPickLanded, so expiry never writes the
  * deadline directly; it goes through the same arming policy as every other event.
  *
  * Candidate selection and the pick itself are separate transactions, so a
- * candidate can be sniped in between - draftPlayer's own validation catches that
- * (409) and we simply try the next candidate.
+ * candidate can be sniped in between - landPick's own commit validation catches
+ * that (409) and we simply try the next candidate.
  */
 async function autoPick({ leagueId }) {
-  // draft.service requires this module (ADR 0018), so it is required at call time
-  // rather than at module load to avoid capturing its partial exports mid-cycle.
-  const draftService = require('./draft.service');
+  // pick.service requires this module (ADR 0018), so landPick is required at call
+  // time rather than at module load to avoid capturing its partial exports
+  // mid-cycle (#782 ruling 6). shouldAutoEnableAutodraft (the streak/flip
+  // decision, ruling 4) stays in draft.service and is required lazily beside it;
+  // draft.service no longer requires this module, so it closes no cycle either.
+  const { landPick } = require('./pick.service');
+  const { shouldAutoEnableAutodraft } = require('./draft.service');
 
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
@@ -420,7 +425,7 @@ async function autoPick({ leagueId }) {
   // early, committing a second Pick off one expiry. It does NOT cover the
   // CONCURRENT case (two firings that both read this same elapsed deadline
   // before either commits): both pass this check, and the loser is stopped one
-  // level down by draft.service's turn re-check under FOR UPDATE (see autoPick's
+  // level down by pick.service's turn re-check under FOR UPDATE (see autoPick's
   // 409 handling and fireExpiryTimer). A null deadline (untimed non-autodrafting
   // turn, or a completed draft) is likewise not an expiry and never autopicks.
   const deadline = league.pick_deadline_at;
@@ -484,36 +489,27 @@ async function autoPick({ leagueId }) {
 
   for (const candidate of candidates) {
     try {
-      const outcome = await draftService.draftPlayer({
+      // A Pick lands in one place (#782): landPick commits the autopick AND fans
+      // it out to the room (pickLanded, and on completion the completion activity,
+      // rosterChanged, draftCompleted) through the one Draft room adapter (#745).
+      // The clock no longer re-derives that fan-out here - the socket handler and
+      // the offline route reach the same seam.
+      const outcome = await landPick({
         leagueId,
         userId: onTheClock.owner_id,
         playerId: candidate.id,
         auto: true,
       });
-      // The one Draft room adapter (#745). In the worker it publishes over the
-      // Redis emitter transport; in the API it emits in-process. Either way this
-      // is the same named event, so a committed autopick can no longer reach the
-      // room one way here and another way from the socket handler.
-      const broadcast = getDraftRoomBroadcast();
-      await broadcast.pickLanded(leagueId, { ...outcome, auto: true });
-      if (outcome.draftComplete) {
-        // An autopick can be the Pick that ends the draft; its completion
-        // lifecycle entry (#437) rides to the combined feed on draft:activity.
-        if (outcome.completion) {
-          await broadcast.activityAppended(leagueId, outcome.completion);
-        }
-        await broadcast.rosterChanged(leagueId);
-        await broadcast.draftCompleted(leagueId);
-      }
       // After a genuine timeout, track the streak and flip autodraft on once it
-      // crosses the threshold, so a persistently-absent owner stops stalling.
+      // crosses the threshold, so a persistently-absent owner stops stalling. The
+      // streak/flip stays with the clock (ADR 0018, ruling 4).
       if (wasTimeout) {
         const bumped = await pool.query(
           `UPDATE "teams" SET "consecutive_timeouts" = "consecutive_timeouts" + 1
            WHERE "id" = $1 RETURNING "consecutive_timeouts"`,
           [onTheClock.id]
         );
-        if (draftService.shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) {
+        if (shouldAutoEnableAutodraft(bumped.rows[0].consecutive_timeouts)) {
           await pool.query(`UPDATE "teams" SET "autodraft" = true WHERE "id" = $1`, [onTheClock.id]);
           await getDraftRoomBroadcast().stateChanged(leagueId);
         }
@@ -568,7 +564,7 @@ async function autoPick({ leagueId }) {
  * The still-elapsed re-check covers a second race the pause check alone would
  * miss: a concurrent firing that did NOT hit nothing-draftable but committed a
  * real Pick for this turn (it drafted a candidate this firing could not, or won
- * the draftPlayer FOR UPDATE turn re-check). That firing advanced current_pick
+ * the landPick FOR UPDATE turn re-check). That firing advanced current_pick
  * and armed the next team's fresh clock, so under the lock this firing reads a
  * future-or-null deadline and declines, rather than pausing a Draft that in
  * fact moved on.
@@ -758,7 +754,7 @@ function cancelAllExpiryTimers() {
  * after the turn advanced is declined by autoPick's expiry guard (the next
  * deadline is future or null); two firings that read this same elapsed deadline
  * concurrently BOTH pass that guard, and the loser is stopped by
- * draft.service.draftPlayer's turn re-check under FOR UPDATE, surfacing as the
+ * pick.service.landPick's turn re-check under FOR UPDATE, surfacing as the
  * 409 autoPick walks off its remaining candidates to a null outcome. Either way
  * exactly one Pick commits. A null outcome (not due, sniped off every candidate,
  * or nothing draftable) arms nothing.

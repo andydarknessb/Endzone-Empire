@@ -19,6 +19,9 @@ import {
 } from './templates';
 import { rosterFor, roundOfPick } from './engine';
 import { positionGroupKey, slotCapacityFor, benchToleranceFor } from './cpuBrain';
+import { stealReachThreshold, stealReachLabel } from '../stealReach';
+
+export { stealReachThreshold };
 
 function round2(value) {
   return Math.round(value * 100) / 100;
@@ -53,16 +56,19 @@ export function gradeTeams(teamValues) {
   return rows.map((row, i) => ({ ...row, rank: i + 1 }));
 }
 
-/** Mirror of draftgrade.service.js draftPickValue. */
+/** Mirror of draftgrade.service.js draftPickValue. The market guard, score and
+ * fallback come from the shared stealReachLabel() (src/lib/stealReach.js, issue
+ * #817) so the Sim's report and the room assistant read one rule; this keeps
+ * `marketAdp`, which the report needs and the shared label does not carry
+ * (`safeAdp` is the actual pick when there is no market). Round-independent:
+ * the label is pickValues()'s concern below, with the pick's round. */
 export function draftPickValue({ pickNumber, marketAdp }) {
-  const actualPick = Number(pickNumber);
-  const parsedAdp = Number(marketAdp);
-  const hasMarketAdp = Number.isFinite(parsedAdp) && parsedAdp > 0;
-  const safeAdp = hasMarketAdp ? parsedAdp : actualPick;
+  const { draftValueScore, adpFallback } = stealReachLabel({ adp: marketAdp, pickNumber });
+  const safeAdp = adpFallback ? Number(pickNumber) : Number(marketAdp);
   return {
     marketAdp: round2(safeAdp),
-    draftValueScore: round2(safeAdp - actualPick),
-    adpFallback: !hasMarketAdp,
+    draftValueScore,
+    adpFallback,
   };
 }
 
@@ -120,15 +126,6 @@ export function optimalLineup(players, rosterSlots, pointsFor = new Map()) {
 // Sim-specific analysis
 // ---------------------------------------------------------------------------
 
-/**
- * How far off market a pick has to be, in that round, to read as a steal or a
- * reach. Scaled by round because ADP noise widens as the board thins — a
- * 10-pick swing in round 1 is a story, in round 12 it's rounding.
- */
-export function stealReachThreshold(round) {
-  return 6 + 1.5 * round;
-}
-
 /** Projected-points lookup for optimalLineup / bench math. */
 export function pointsMap(state) {
   return new Map(state.players.map((p) => [p.playerId, Number(p.projectedPoints) || 0]));
@@ -147,10 +144,7 @@ export function pickValues(state) {
     const round = roundOfPick(state, pick.pickNumber);
     const value = draftPickValue({ pickNumber: pick.pickNumber, marketAdp: player.adp });
     const threshold = stealReachThreshold(round);
-    let label = 'value';
-    if (value.adpFallback) label = 'no-market';
-    else if (value.draftValueScore <= -threshold) label = 'steal';
-    else if (value.draftValueScore >= threshold) label = 'reach';
+    const { label } = stealReachLabel({ adp: player.adp, pickNumber: pick.pickNumber, round });
     return {
       pickNumber: pick.pickNumber,
       round,

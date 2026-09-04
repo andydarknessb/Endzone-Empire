@@ -58,7 +58,16 @@ function SimStatusBar({
             </Stack>
           </Box>
           {myTurn && secondsLeft != null && (
-            <Box aria-live="polite">
+            // Deliberately not a live region (#805, ADR 0028): the room's
+            // shape is one status region per axis, and the once-per-turn
+            // announcement is DraftSimulator's job, not this per-second
+            // display's. Announcing here would read a new time out loud
+            // every second for the whole turn. Mirrors the Draft room's
+            // PickClock (src/components/DraftBoard/PickClock.jsx), which
+            // signals urgency with a colour change plus a pulse (colour
+            // alone under prefers-reduced-motion) and stays out of any
+            // announcing region for the same reason.
+            <Box>
               <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.2 }}>
                 Time left
               </Typography>

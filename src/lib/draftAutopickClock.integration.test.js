@@ -10,13 +10,22 @@ jest.mock('../../server/modules/io', () => ({
   getIo: jest.fn(),
   setIo: jest.fn(),
 }));
-// The nothing-draftable escalation (#602) refreshes the paused clock via
-// broadcastDraftState, which reads getDraftState when a Socket.IO server is
-// present (this harness stands one in via the hub). The full draft-state read is
-// not this suite's concern - it would issue DB queries the fake does not model -
-// so stub it; the escalation's own state change is asserted on state.league.
-jest.mock('../../server/modules/draftSocket', () => ({
-  getDraftState: jest.fn().mockResolvedValue({ draft_paused: true }),
+// The nothing-draftable escalation (#602) and the autodraft-flip path refresh
+// the paused clock via getDraftRoomBroadcast().stateChanged, which reads
+// memberSnapshot (#788, formerly a snapshot read on the socket module). The full
+// draft-state read is not this suite's concern - it would issue DB queries the
+// fake does not model - so stub it with a valid snapshot shape. The resolved
+// value is (re)established in install() below, NOT here: the cross-tree jest
+// runner (react-scripts) runs with resetMocks:true, which strips a factory-set
+// implementation before every test, so a value set only here delivers `undefined`
+// in `npm run test:server` while passing under a bare `npx jest`. Crucially, a
+// stub that THREW would be swallowed by stateChanged's delivered-or-reported
+// policy (ADR 0025) and deliver nothing, so the STALLED test below asserts the
+// draft:state actually reached the room, proving the broadcast path is exercised
+// rather than passing through a swallowed throw against the mocked pool.
+jest.mock('../../server/services/draftRoomSnapshot', () => ({
+  memberSnapshot: jest.fn(),
+  presenterSnapshot: jest.fn(),
 }));
 
 const pool = require('../../server/modules/pool');
@@ -24,7 +33,12 @@ const ioRegistry = require('../../server/modules/io');
 const lineupService = require('../../server/services/lineup.service');
 const seasonService = require('../../server/services/season.service');
 const { teamForPick } = require('../../server/services/draftOrder.service');
-const { draftPlayer } = require('../../server/services/draft.service');
+// The Pick commit moved to pick.service (#782). These tests drive the pure commit
+// (commitPick) for the manual scaffold picks that advance the draft between
+// autopick turns: it takes the same FOR UPDATE lock and returns the same outcome
+// the old draftPlayer did, without landPick's room fan-out, so the autopick
+// broadcast assertions below still count only the autopick deliveries.
+const { commitPick } = require('../../server/services/pick.service');
 const pickClock = require('../../server/services/pickClock.service');
 // #745: autoPick and the escalation/stall paths now emit through the one Draft
 // room adapter, which throws with no transport (no silent default). Register the
@@ -32,6 +46,10 @@ const pickClock = require('../../server/services/pickClock.service');
 // old getIo() path used - so every delivery assertion below is unchanged. Only
 // this TEST file changes; no client source is touched.
 const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('../../server/modules/draftRoomBroadcast');
+// The mocked snapshot read (above): the STALLED test asserts it was invoked and
+// that its draft:state reached the room, so the escalation's broadcast is proven
+// to run rather than swallow a throw.
+const { memberSnapshot } = require('../../server/services/draftRoomSnapshot');
 const { processExpiredPickClocks } = pickClock;
 
 const LEAGUE_ID = 7001;
@@ -311,6 +329,11 @@ class FakeDraftDatabase {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
+    // draftCompletion.completeDraft's flip-first precondition read (#789): the
+    // completing pick's UPDATE has already set draft_status on this client.
+    if (sql.includes('SELECT "draft_status" FROM "leagues"')) {
+      return { rows: values[0] === state.league.id ? [{ draft_status: state.league.draft_status }] : [] };
+    }
     // onResumed's league read (#599): resolves the on-clock team and clock policy
     // for a resume. Used by the #602 escalate->resume case.
     if (sql.includes('SELECT "current_pick", "draft_type"') && sql.includes('FROM "leagues"')) {
@@ -427,6 +450,12 @@ describe('live snake-draft expiry and autopick integration', () => {
     pool.connect.mockImplementation(database.connect);
     ioRegistry.getIo.mockReturnValue(hub);
     setDraftRoomBroadcast(createDraftRoomBroadcast(hub, 'io'));
+    // Re-establish the snapshot stub every test, the same way pool.query and
+    // getIo above are: resetMocks:true (react-scripts) clears a factory-set
+    // implementation before each test, and stateChanged awaits this value.
+    memberSnapshot.mockResolvedValue({
+      league: { draft_paused: true }, teams: [], picks: [], onTheClock: null,
+    });
     return state;
   }
 
@@ -555,7 +584,7 @@ describe('live snake-draft expiry and autopick integration', () => {
 
     const automatic = processExpiredPickClocks();
     await database.candidateRead.promise;
-    const manual = draftPlayer({
+    const manual = commitPick({
       leagueId: LEAGUE_ID,
       userId: TEAM_A.owner_id,
       playerId: 302,
@@ -618,7 +647,7 @@ describe('live snake-draft expiry and autopick integration', () => {
           observed = { outcomes };
           expected = { outcomes: [{ leagueId: LEAGUE_ID, playerId: available.id }] };
         } else {
-          const outcome = await draftPlayer({
+          const outcome = await commitPick({
             leagueId: LEAGUE_ID,
             userId: team.owner_id,
             playerId: available.id,
@@ -790,6 +819,15 @@ describe('live snake-draft expiry and autopick integration', () => {
     expect(stalled).toHaveLength(1);
     expect(stalled[0].payload.teamName).toBe('MinneApple');
     expect(stalled[0].payload).not.toHaveProperty('player');
+
+    // The escalation's OTHER broadcast - stateChanged - actually fired: it reads
+    // memberSnapshot (#788) and delivers draft:state. A swallowed memberSnapshot
+    // throw would deliver nothing here, so this is what proves the path runs
+    // rather than the assertions above passing over a silent failure.
+    expect(memberSnapshot).toHaveBeenCalledWith(LEAGUE_ID);
+    const stateDeliveries = hub.deliveries.filter((d) => d.event === 'draft:state');
+    expect(stateDeliveries).toHaveLength(1);
+    expect(stateDeliveries[0].payload.league.draft_paused).toBe(true);
   });
 
   test('repeat sweeps after the escalation commit nothing and append no duplicate entry', async () => {

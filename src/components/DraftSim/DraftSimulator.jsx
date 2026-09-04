@@ -7,6 +7,7 @@ import SimConfigForm from './SimConfigForm';
 import SimStatusBar from './SimStatusBar';
 import SimPlayerPool from './SimPlayerPool';
 import SimPickFeed from './SimPickFeed';
+import SimAssistantPanel from './SimAssistantPanel';
 import SimReport from './SimReport';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import RosterPanel from '../RosterPanel/RosterPanel';
@@ -132,14 +133,25 @@ function DraftSimulator({ showCta = false }) {
         onRestart={restart}
       />
 
-      {!myTurn && (
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }} aria-live="polite">
-          <CircularProgress size={16} />
+      {/* The room's one turn-status region (#805, ADR 0028): mounted on BOTH
+          turns, never gated behind myTurn, announcing politely on this axis
+          - mirrors LiveDraftBanner's Box in the Draft room
+          (src/components/DraftBoard/LiveDraftBanner.jsx, #445 AC3). The
+          assistant's own PoliteRegion (SimAssistantPanel.jsx) is a separate,
+          sanctioned axis (ADR 0028) that may also speak on a turn change
+          when it's toggled on - this region's job is only to make sure a
+          turn change is heard at all when the assistant is off. The spinner
+          is decorative (aria-hidden) and stays off-turn only; it sits
+          beside the region, not inside it, so it never becomes part of the
+          announced text. */}
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+        {!myTurn && <CircularProgress size={16} aria-hidden="true" />}
+        <Box role="status" aria-live="polite">
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {onTheClock ? `${onTheClock.name} is on the clock…` : 'Wrapping up…'}
+            {myTurn ? 'Your pick!' : onTheClock ? `${onTheClock.name} is on the clock…` : 'Wrapping up…'}
           </Typography>
-        </Stack>
-      )}
+        </Box>
+      </Stack>
 
       <Tabs
         value={tab}
@@ -204,7 +216,7 @@ function DraftSimulator({ showCta = false }) {
             </Stack>
           )}
         </Box>
-        <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
+        <Stack sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }} spacing={2}>
           <SimPickFeed
             picks={sim.picks}
             teamsById={teamsById}
@@ -212,7 +224,8 @@ function DraftSimulator({ showCta = false }) {
             teamCount={sim.teams.length}
             slotTags={myAssignment.byPickNumber}
           />
-        </Box>
+          <SimAssistantPanel sim={sim} myTurn={myTurn} secondsLeft={secondsLeft} />
+        </Stack>
       </Stack>
     </Box>
   );

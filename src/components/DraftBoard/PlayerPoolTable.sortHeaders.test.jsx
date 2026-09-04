@@ -36,42 +36,67 @@ const players = [
 // suite, scrambled table.
 const EXPECTED_COLUMN_ORDER = ['name', 'bye_week', 'adp', 'position_rank', 'proj'];
 
-const baseProps = {
-  searchInput: '',
-  onSearchInputChange: jest.fn(),
-  positionFilter: 'All',
-  onPositionFilterChange: jest.fn(),
-  hideDrafted: false,
-  onHideDraftedChange: jest.fn(),
-  byeWeeksFilter: [],
-  onByeWeeksFilterChange: jest.fn(),
-  sort: 'adp',
-  dir: 'asc',
-  onSort: jest.fn(),
-  search: '',
-  displayPlayers: players,
-  draftedIds: new Set(),
-  draftStatus: 'active',
-  draftType: 'snake',
-  isMyTurn: true,
-  draftPaused: false,
-  queue: [],
-  onDraft: jest.fn(),
-  onQueue: jest.fn(),
-  onOpenQuickView: jest.fn(),
-  hasMore: false,
-  loadingMore: false,
-  onLoadMore: jest.fn(),
-};
+// The pool's filter/sort/search/paging controls ride inside one `controls`
+// object now, and the draft facts inside `pickState` (issue #792 rulings 1 and
+// 3). These tests only ever vary the sort key/direction and the onSort spy, so
+// the helper takes a `controls` override and everything else defaults.
+function makeProps({ controls } = {}) {
+  return {
+    players,
+    controls: {
+      searchInput: '',
+      setSearchInput: jest.fn(),
+      search: '',
+      positionFilter: 'All',
+      onPositionFilterChange: jest.fn(),
+      hideDrafted: false,
+      setHideDrafted: jest.fn(),
+      byeWeeksFilter: [],
+      onByeWeeksFilterChange: jest.fn(),
+      sort: 'adp',
+      dir: 'asc',
+      onSort: jest.fn(),
+      hasMore: false,
+      loadingMore: false,
+      loadMore: jest.fn(),
+      ...controls,
+    },
+    draftedIds: new Set(),
+    pickState: { canManualPick: true, pickUnavailable: false, explanation: '' },
+    queue: [],
+    onDraft: jest.fn(),
+    onQueue: jest.fn(),
+    onOpenQuickView: jest.fn(),
+    byeOverlapByWeek: new Map(),
+    isMobile: false,
+    headerAction: null,
+  };
+}
 
 afterEach(() => {
   jest.clearAllMocks();
 });
 
+test('the visible Bye header is sortable and passes its server field name through', async () => {
+  // Moved down from DraftBoard.test.jsx (#792 ruling 5). The full-room ancestor
+  // asserted the /api/players call carried sort: 'bye_week'; here it asserts the
+  // header hands that same server field name straight to onSort. The hook then
+  // maps it into the request (usePlayerPool.test.js owns that leg now), so the
+  // trigger driven is identical - a click on the visible Bye header - and the
+  // key it passes through is the same one.
+  const user = userEvent.setup();
+  const props = makeProps();
+  render(<PlayerPoolTable {...props} />);
+
+  await user.click(screen.getByRole('button', { name: /^Bye:/ }));
+
+  expect(props.controls.onSort).toHaveBeenCalledWith('bye_week');
+});
+
 test('every visible desktop sort field has exactly one header wired to its shared key', async () => {
   const user = userEvent.setup();
   const onSort = jest.fn();
-  render(<PlayerPoolTable {...baseProps} onSort={onSort} />);
+  render(<PlayerPoolTable {...makeProps({ controls: { onSort } })} />);
 
   const headerRow = screen.getAllByRole('row')[0];
   const sortButtons = within(headerRow).getAllByRole('button');
@@ -104,7 +129,7 @@ test('every visible desktop sort field has exactly one header wired to its share
 });
 
 test('every desktop sortable header shows the label SORT_FIELDS assigns its key, in the fixed column order', () => {
-  render(<PlayerPoolTable {...baseProps} />);
+  render(<PlayerPoolTable {...makeProps()} />);
 
   const headerRow = screen.getAllByRole('row')[0];
   const sortButtons = within(headerRow).getAllByRole('button');
@@ -143,7 +168,7 @@ test('every desktop sortable header shows the label SORT_FIELDS assigns its key,
 // to its original #211 question - does the definition reach the name at
 // all - independent of #212's direction suffix, which has its own tests.
 test('every numeric desktop sort header keeps its AbbreviationTooltip accessible name', () => {
-  render(<PlayerPoolTable {...baseProps} sort="name" />);
+  render(<PlayerPoolTable {...makeProps({ controls: { sort: 'name' } })} />);
 
   const headerRow = screen.getAllByRole('row')[0];
   ['Bye', 'ADP', 'Pos rank', '17-game pace'].forEach((term) => {
@@ -176,7 +201,7 @@ test('the numeric desktop sort header label renders with AbbreviationTooltip\'s 
   const [, sharedClass] = tooltipLabel.className.match(/\bcss-(\S+)\b/);
   expect(sharedClass).toBeTruthy();
 
-  render(<PlayerPoolTable {...baseProps} sort="name" />);
+  render(<PlayerPoolTable {...makeProps({ controls: { sort: 'name' } })} />);
   const headerRow = screen.getAllByRole('row')[0];
   const headerLabel = within(headerRow).getByText('ADP');
   expect(headerLabel.className.split(' ')).toContain(`css-${sharedClass}`);
@@ -193,7 +218,7 @@ test('the numeric desktop sort header label renders with AbbreviationTooltip\'s 
 // numeric header's accessible name carries BOTH, not just whichever one
 // last happened to win.
 test('the active numeric desktop sort header\'s accessible name includes both its AbbreviationTooltip definition and the sort direction', () => {
-  render(<PlayerPoolTable {...baseProps} sort="adp" dir="desc" />);
+  render(<PlayerPoolTable {...makeProps({ controls: { sort: 'adp', dir: 'desc' } })} />);
 
   const headerRow = screen.getAllByRole('row')[0];
   const expectedName = `ADP: ${STAT_DEFINITIONS.ADP}, sorted descending`;
@@ -249,7 +274,7 @@ test('every RIGHT_ALIGNED_SORT_KEYS entry is a real SORT_FIELDS key', () => {
 // in DOM order and recording the key it invokes onSort with.
 test('the active desktop sort header carries aria-sort matching its direction, and every inactive sortable header carries none', () => {
   ['asc', 'desc'].forEach((dir) => {
-    const { unmount } = render(<PlayerPoolTable {...baseProps} sort="adp" dir={dir} />);
+    const { unmount } = render(<PlayerPoolTable {...makeProps({ controls: { sort: 'adp', dir } })} />);
     const headerRow = screen.getAllByRole('row')[0];
     const sortButtons = within(headerRow).getAllByRole('button');
 
@@ -290,7 +315,7 @@ test('the active desktop sort header carries aria-sort matching its direction, a
 // present only on the active header, and matches its actual direction.
 test('only the active desktop sort header carries visually-hidden sort-direction text, matching the active direction', () => {
   [['asc', 'sorted ascending'], ['desc', 'sorted descending']].forEach(([dir, expectedText]) => {
-    const { unmount } = render(<PlayerPoolTable {...baseProps} sort="adp" dir={dir} />);
+    const { unmount } = render(<PlayerPoolTable {...makeProps({ controls: { sort: 'adp', dir } })} />);
     const headerRow = screen.getAllByRole('row')[0];
     const sortButtons = within(headerRow).getAllByRole('button');
 
@@ -326,7 +351,7 @@ test('only the active desktop sort header carries visually-hidden sort-direction
 // Tab stops; the fix moved the tooltip/definition onto the button's own
 // aria-label instead of nesting a second focusable element.
 test('each desktop sort header (including every numeric one) exposes exactly one focusable tab stop', () => {
-  render(<PlayerPoolTable {...baseProps} />);
+  render(<PlayerPoolTable {...makeProps()} />);
 
   const headerRow = screen.getAllByRole('row')[0];
   const sortButtons = within(headerRow).getAllByRole('button');

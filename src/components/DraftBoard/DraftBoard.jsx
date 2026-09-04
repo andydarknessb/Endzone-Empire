@@ -31,6 +31,9 @@ import DraftRail from './DraftRail';
 import ReadinessAnnouncer from './ReadinessAnnouncer';
 import PickAnnouncer from './PickAnnouncer';
 import StallAnnouncer from './StallAnnouncer';
+import {
+  DraftRoomAssistantProvider, DraftRoomAssistantRegion, DraftRoomAssistantToggle,
+} from './DraftRoomAssistant';
 import { isStallRelevant } from './stallAnnouncement';
 import DraftBoardMatrix from './DraftBoardMatrix';
 import PickHistory from './PickHistory';
@@ -44,12 +47,9 @@ import { MEMBERSHIP_MEMBER, MEMBERSHIP_NON_MEMBER } from './draftMembership';
 import useContainerWidth, { draftPaneLayout } from './useContainerWidth';
 import useFocusRescue from './useFocusRescue';
 import { pickActionExists, pickTemporarilyUnavailable, PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
-import { upcomingTeamsFor } from './upcomingTeams';
-import { viewerPicksFor } from './viewerPicks';
+import { draftOrderWindowFor } from './draftOrderWindow';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
-import {
-  turnSummaryFor, pickLabelFor, teamsInDraftOrder, draftOrderIsSettled,
-} from '../../lib/draftTurns';
+import { pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
@@ -82,31 +82,34 @@ const draftTabPanelId = (view) => `draft-tabpanel-${view}`;
  * Returns null when there is nothing honest to show - before the first
  * draft:state frame, or for a spectator with no team in the league.
  */
-function rosterViewFor({ league, teams, picks, viewerTeamId }) {
+function rosterViewFor({ league, teams, picks, viewerTeamId, viewerTurn }) {
   const rosterSlots = Array.isArray(league?.roster_slots) ? league.roster_slots : [];
   const myTeam = viewerTeamId == null ? null : teams.find((team) => team.teamId === viewerTeamId) || null;
   if (!myTeam || rosterSlots.length === 0) return null;
 
-  // Base Draft order, and the question of whether it is settled, both come
-  // from src/lib/draftTurns.js, which owns everything else about order and
-  // carries the sync obligation against the server's own ordering. Keeping a
-  // hand-copy here is what let this and the Upcoming strip start to disagree.
-  const ordered = teamsInDraftOrder(teams);
-  const teamIds = ordered.map((team) => team.teamId);
   // Rounds are Draft rounds (ADR 0005): the live-derived draft roster size
   // while pending, or the fixed value once the draft is active/complete.
   // Mirrors draft.service.js.
   const rounds = draftRounds(league);
+  // The board reads a pick's label off the team count alone. Ordering the teams
+  // does not add or drop any, so this is the same count the window ordered from
+  // - no second hand-copy of the draft order lives here (issue #793): the turn
+  // facts below come from the one draft-order window.
+  const teamCount = teams.length;
 
   const myPicks = picks
     .filter((pick) => pick.teamId === myTeam.teamId)
     .map((pick) => ({
       pickNumber: pick.pick_number,
-      pickLabel: pickLabelFor(pick.pick_number - 1, teamIds.length),
+      pickLabel: pickLabelFor(pick.pick_number - 1, teamCount),
       playerId: pick.player_id,
       name: pick.name,
       position: pick.position,
       nflTeam: pick.nfl_team,
+      // The pick's market ADP, carried from the server on both socket payloads
+      // (#833), so the room assistant's Misery Meter sums it off the pick rather
+      // than the windowed player pool. Null when the player has no market ADP.
+      adp: pick.adp ?? null,
       // Neither flag is on both socket payloads: draft:state carries is_keeper
       // but no autopick flag, draft:picked carries one but no is_keeper.
       // Each renders when the data happens to be there.
@@ -115,26 +118,6 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
     }))
     // The socket reducer stores picks newest-first for the history list.
     .sort((a, b) => a.pickNumber - b.pickNumber);
-
-  // Before the order is set there is no honest next pick to name.
-  const orderKnown = draftOrderIsSettled({ league, orderedTeams: ordered, rounds });
-
-  const turn = orderKnown
-    ? turnSummaryFor({
-      teamId: myTeam.teamId,
-      teamIds,
-      // leagues.current_pick is ALREADY 0-based - see draft.service.js, which
-      // passes it straight to teamForPick and stores current_pick + 1 as the
-      // 1-based draft_picks.pick_number.
-      fromPick0: Number(league.current_pick) || 0,
-      totalPicks: teamIds.length * rounds,
-      rotation: league.draft_rotation || 'snake',
-      overrides: league.draft_order_overrides || null,
-      // Keepers are pre-inserted at future pick numbers and the live draft
-      // skips them, so they are not picks this team still has coming.
-      takenPickNumbers: new Set(picks.map((pick) => pick.pick_number - 1)),
-    })
-    : null;
 
   const benchCount = Number(league.bench_slots) || 0;
   const irCount = Number(league.ir_slots) || 0;
@@ -145,8 +128,11 @@ function rosterViewFor({ league, teams, picks, viewerTeamId }) {
     irCount,
     rounds,
     picks: myPicks,
-    remainingPicks: turn ? turn.remainingPicks : null,
-    nextPickLabel: turn && turn.nextPick ? turn.nextPick.label : null,
+    // The viewer's turn facts come from the one draft-order window, which
+    // orders the teams and evaluates the settled-guard once for the whole room.
+    // Null there means the order is not settled or the viewer holds no Team.
+    remainingPicks: viewerTurn ? viewerTurn.remainingPicks : null,
+    nextPickLabel: viewerTurn ? viewerTurn.nextPickLabel : null,
     // One assignment feeds the history's slot tags; the panel recomputes the
     // same pure function, which is guaranteed to agree.
     slotTags: assignRosterSlots({
@@ -306,6 +292,20 @@ function DraftBoard() {
   // without any extra state — the board keeps updating behind the overlay.
   const [quickViewId, setQuickViewId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The Draft assistant's pool-selection signal (#787 ruling item 2): a nonce
+  // set ONLY when a player is selected in the pool table, via a wrapped
+  // onOpenQuickView the pool table alone receives (the rail and Board get the
+  // bare setQuickViewId). A fresh object per selection so re-selecting the same
+  // player fires again, and distinct from quickViewId so a Board/Queue quick
+  // view never counts as a pool selection. The table's declared interface
+  // (issue #792) is untouched - onOpenQuickView is already one of its props.
+  const [poolSelection, setPoolSelection] = useState(null);
+  const poolSelectSeqRef = useRef(0);
+  const handleSelectFromPool = useCallback((playerId) => {
+    poolSelectSeqRef.current += 1;
+    setPoolSelection({ id: playerId, seq: poolSelectSeqRef.current });
+    setQuickViewId(playerId);
+  }, []);
   // A manual Pick awaiting the focused confirmation dialog: { id, name } |
   // null. Every manual-Pick surface (pool row, Quick View, queue quick-draft)
   // routes through requestDraftPlayer below instead of committing directly,
@@ -589,7 +589,14 @@ function DraftBoard() {
     );
   }
 
-  const rosterView = rosterViewFor({ league, teams, picks, viewerTeamId });
+  // The Draft order, windowed once at the current pick (issue #793): who picks
+  // next, which of those picks are the viewer's own, and the viewer's turn
+  // facts. One ordering and one settled-guard for the whole room, so My Roster
+  // and the Upcoming strip cannot read the order differently.
+  const draftWindow = draftOrderWindowFor({ league, teams, picks, viewerTeamId });
+  const rosterView = rosterViewFor({
+    league, teams, picks, viewerTeamId, viewerTurn: draftWindow.viewerTurn,
+  });
   // Draft rounds (ADR 0005): derived while pending, the frozen snapshot once
   // the draft is active or complete. One call, shared by everything below
   // that needs to know how long this draft is.
@@ -606,7 +613,11 @@ function DraftBoard() {
   const quickViewDraftedBy = quickViewPick ? teamNameLabel(quickViewPick.teamName) : null;
 
   const draftedIds = new Set(picks.map((p) => p.player_id));
-  const displayPlayers = pool.availablePlayers;
+  // The room reads the available list itself only to feed the pool table and
+  // the Quick View's navigation set; it never touches the filter/sort/search/
+  // paging state, which rides through the pool's `controls` object untouched
+  // (issue #792 ruling 1). The old aliased copy of this list is gone with it.
+  const availablePlayers = pool.availablePlayers;
 
   // Bye overlap (see PlayerPoolTable): which of the caller's OWN rostered
   // players share a Bye week, keyed by that week. A neutral roster fact for
@@ -626,19 +637,30 @@ function DraftBoard() {
   // banner covers that case), and Draft itself is omitted entirely (not just
   // disabled) whenever no manual Pick control exists in this draft's status/
   // type at all (#120 acceptance criteria 1-2, 5).
-  const quickViewAvail = pool.availablePlayers.find((p) => p.id === quickViewId);
+  const quickViewAvail = availablePlayers.find((p) => p.id === quickViewId);
+  // The room's one pick-availability reading (issue #792 ruling 3): whether a
+  // manual Pick exists in this draft at all, whether it is only temporarily
+  // unavailable right now, and the one shared explanation for that. Derived once
+  // from pickAvailability.js here and passed to the pool table, the queue rail
+  // and the Quick View actions below, so the three surfaces cannot answer the
+  // question differently. (confirmDraftPlayer above re-derives it against the
+  // LATEST live state, on purpose, for a dialog that sat open across a turn.)
   const canManualPick = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
-  const pickUnavailable = canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused });
+  const pickState = {
+    canManualPick,
+    pickUnavailable: canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused }),
+    explanation: PICK_UNAVAILABLE_EXPLANATION,
+  };
   const quickViewActions =
     quickViewAvail && !quickViewDraftedBy
       ? [
-          ...(canManualPick
+          ...(pickState.canManualPick
             ? [
                 {
                   label: 'Draft',
                   variant: 'contained',
                   color: 'success',
-                  unavailableReason: pickUnavailable ? PICK_UNAVAILABLE_EXPLANATION : null,
+                  unavailableReason: pickState.pickUnavailable ? pickState.explanation : null,
                   onClick: () => requestDraftPlayer(quickViewAvail.id),
                 },
               ]
@@ -653,33 +675,22 @@ function DraftBoard() {
       : [];
 
   // Shared by every PlayerPoolTable render below - built once instead of
-  // duplicated between the desktop and mobile branches.
+  // duplicated between the desktop and mobile branches. The eleven-prop
+  // interface (issue #792 ruling 2): the pool's own filter/sort/search/paging
+  // controls ride in the pool's `controls` object untouched, the pick rules in
+  // `pickState`, and `isMobile`/`headerAction` are supplied at each render site.
   const playerPoolProps = {
-    searchInput: pool.searchInput,
-    onSearchInputChange: pool.setSearchInput,
-    positionFilter: pool.positionFilter,
-    onPositionFilterChange: pool.handlePositionFilterChange,
-    hideDrafted: pool.hideDrafted,
-    onHideDraftedChange: pool.setHideDrafted,
-    byeWeeksFilter: pool.byeWeeksFilter,
-    onByeWeeksFilterChange: pool.handleByeWeeksFilterChange,
-    sort: pool.sort,
-    dir: pool.dir,
-    onSort: pool.handleSort,
-    search: pool.search,
-    displayPlayers,
+    players: availablePlayers,
+    controls: pool.controls,
     draftedIds,
-    draftStatus: league?.draft_status,
-    draftType: league?.draft_type,
-    isMyTurn,
-    draftPaused: !!league?.draft_paused,
+    pickState,
     queue,
     onDraft: requestDraftPlayer,
     onQueue: handleQueuePlayer,
-    onOpenQuickView: setQuickViewId,
-    hasMore: pool.hasMore,
-    loadingMore: pool.loadingMore,
-    onLoadMore: pool.loadMore,
+    // The pool table alone gets the wrapped handler, so only a selection made
+    // HERE feeds the Draft assistant's pool-selection line (#787 ruling item 2);
+    // the rail and Board keep the bare setQuickViewId below.
+    onOpenQuickView: handleSelectFromPool,
     byeOverlapByWeek,
   };
   // Shared by every DraftRail render below likewise.
@@ -690,28 +701,26 @@ function DraftBoard() {
     onMoveDown: handleMoveDown,
     onRemoveFromQueue: handleRemoveFromQueue,
     onDraft: requestDraftPlayer,
-    isMyTurn,
-    draftPaused: !!league?.draft_paused,
+    // The same one pick-availability reading the pool table gets (issue #792
+    // ruling 3), so the queue's top-row quick-draft answers identically.
+    pickState,
     teams,
     onTheClock,
     isCommissioner,
     viewerTeamId,
     draftStatus: league?.draft_status,
-    draftType: league?.draft_type,
     onToggleAutodraft: admin.handleToggleAutodraft,
     onToggleReady: admin.handleToggleReady,
     isXs,
     onOpenQuickView: setQuickViewId,
     rosterView,
-    // The next three picks after the one on the clock, for the active rail's
-    // compact Upcoming strip. Empty for a draft whose order is not settled.
-    upcoming: upcomingTeamsFor({ league, teams, picks, rounds }),
-    // The same order read viewer-relatively: which of the picks still to come
-    // are this manager's own. Empty on the same conditions, plus for a
-    // spectator holding no Team here.
-    viewerPicks: viewerPicksFor({
-      league, teams, picks, rounds, viewerTeamId,
-    }),
+    // Both read off the one draft-order window above. `upcoming` is the next
+    // three picks after the one on the clock, empty for a draft whose order is
+    // not settled; `viewerPicks` is the same order read viewer-relatively -
+    // which of the picks still to come are this manager's own - empty on the
+    // same conditions, plus for a spectator holding no Team here.
+    upcoming: draftWindow.upcoming,
+    viewerPicks: draftWindow.viewerPicks,
   };
 
   // The combined League chat + Draft activity feed (#435/#437/#442), wired to
@@ -890,6 +899,22 @@ function DraftBoard() {
         : <DraftRail {...draftRailProps} />;
 
   return (
+    <DraftRoomAssistantProvider
+      active={league?.draft_status === 'active'}
+      lastPick={lastPick}
+      isMyTurn={isMyTurn}
+      poolSelection={poolSelection}
+      poolRows={availablePlayers}
+      queue={queue}
+      teamCount={teams.length}
+      viewerTeamId={viewerTeamId}
+      myPicks={rosterView ? rosterView.picks : []}
+      rosterSlots={Array.isArray(league?.roster_slots) ? league.roster_slots : []}
+      draftRounds={rounds}
+      // leagues.current_pick is already 0-based (draft.service.js), so the pick
+      // on the clock is current_pick + 1 in the room's 1-based numbering.
+      currentPickNumber={(Number(league?.current_pick) || 0) + 1}
+    >
     <Container
       component="main"
       id={DRAFT_MAIN_ID}
@@ -952,6 +977,14 @@ function DraftBoard() {
             the banner and the feed's stuck-state line already show it to sighted
             managers. */}
         <StallAnnouncer stall={lastStallActivity} />
+        {/* The Draft assistant's one polite region (#787 ruling item 4). It
+            lives here in the chrome every tab renders, beside the Pick and
+            stall announcers, so the assistant is heard on the Players, Board and
+            Draft tabs alike - not only where the rail panel is mounted. The
+            provider owns its text and clears it on toggle-off; a selection line
+            never reaches it. Visually hidden; the rail panel and banner line
+            show the same lines to sighted managers. */}
+        <DraftRoomAssistantRegion />
         {/* The Draft room's membership-loss announcer (#534 a11y finding 3). It
             lives here in the chrome, like the two above, so a narrow-container
             Chat -> Players -> Chat tab switch never unmounts it: the persistent
@@ -1027,6 +1060,7 @@ function DraftBoard() {
             ) : null}
             onClockAlertOpen={onClockAlertOpen}
             onCloseOnClockAlert={dismissOnClockAlert}
+            assistantToggle={league?.draft_status === 'active' ? <DraftRoomAssistantToggle /> : null}
           />
           {isCommissioner && league?.draft_status === 'active' && (
             <DraftDayControls
@@ -1134,7 +1168,7 @@ function DraftBoard() {
           search: location.search,
         })}
         draftedBy={quickViewDraftedBy}
-        playerIds={displayPlayers.map((p) => p.id)}
+        playerIds={availablePlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
         actions={quickViewActions}
       />
@@ -1146,6 +1180,7 @@ function DraftBoard() {
         onCancel={cancelDraftPlayer}
       />
     </Container>
+    </DraftRoomAssistantProvider>
   );
 }
 

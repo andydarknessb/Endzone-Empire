@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DraftRail from './DraftRail';
+import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 
 // Issue #123 acceptance criteria 1-4: the rail's composition follows draft
 // status. DraftRail is provider-free (MUI only - see its own doc comment on
@@ -25,7 +26,7 @@ const ROSTER_VIEW = {
 
 // Deliberately the snake-turn case: Harbor Hawks holds 1.02 and 2.01 back to
 // back, so the same Team appears twice. That is the honest reading (see
-// upcomingTeams.js) but only if each entry says which Pick it is - two
+// draftOrderWindow.js) but only if each entry says which Pick it is - two
 // identical-looking rows read as a duplicate-render bug, and a manager who
 // discounts the strip as glitchy loses the wait it exists to tell them.
 const UPCOMING = [
@@ -40,14 +41,16 @@ const baseProps = {
   onMoveDown: jest.fn(),
   onRemoveFromQueue: jest.fn(),
   onDraft: jest.fn(),
-  isMyTurn: false,
-  draftPaused: false,
+  // The room's one pick-availability reading (issue #792 ruling 3), replacing
+  // the raw isMyTurn/draftPaused/draftType facts the rail used to key on. These
+  // composition tests never render a non-empty queue, so the quick-draft block
+  // that reads it never runs here (the room suite covers that behaviour).
+  pickState: { canManualPick: true, pickUnavailable: false, explanation: '' },
   teams: TEAMS,
   onTheClock: null,
   isCommissioner: false,
   viewerTeamId: 1,
   draftStatus: 'active',
-  draftType: 'snake',
   onToggleAutodraft: jest.fn(),
   onToggleReady: jest.fn(),
   onOpenQuickView: jest.fn(),
@@ -57,6 +60,26 @@ const baseProps = {
 
 /** The rail's panels in the order a manager meets them, top to bottom. */
 const panelOrder = () => screen.queryAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
+
+test('off-turn, the queue quick-draft button surfaces the shared explanation as its tooltip text', async () => {
+  // #792 replaced the rail's own PICK_UNAVAILABLE_EXPLANATION import with a
+  // threaded pickState.explanation. The composition tests above never render a
+  // non-empty queue, so nothing exercised the quick-draft tooltip; this one
+  // does, asserting the explanation TEXT actually reaches it (an empty title
+  // fails it - verified by mutation while writing this).
+  const user = userEvent.setup();
+  render(<DraftRail
+    {...baseProps}
+    draftStatus="active"
+    queue={[{ id: 1, name: 'Bijan Robinson', position: 'RB' }]}
+    pickState={{ canManualPick: true, pickUnavailable: true, explanation: PICK_UNAVAILABLE_EXPLANATION }}
+  />);
+
+  const draftButton = screen.getByRole('button', { name: 'Draft' });
+  expect(draftButton).toHaveAttribute('aria-disabled', 'true');
+  await user.hover(draftButton);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(PICK_UNAVAILABLE_EXPLANATION);
+});
 
 test('pending composes Readiness, Draft order, then My Queue', () => {
   render(<DraftRail {...baseProps} draftStatus="pending" upcoming={[]} />);

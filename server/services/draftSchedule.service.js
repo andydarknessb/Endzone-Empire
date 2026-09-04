@@ -24,7 +24,7 @@ function scheduledDraftAction(league, teamCount, now, marketCount = Infinity) {
   if (league.draft_status !== 'pending' || !league.draft_date) return null;
   const ms = new Date(league.draft_date).getTime() - now.getTime();
   if (ms <= 0) {
-    // Auction drafts have no draft workflow yet — starting would always 501,
+    // Auction drafts have no draft workflow yet — starting would always 409,
     // so don't retry every tick; flag it once like the understaffed case.
     if (league.draft_type === 'auction') {
       return league.draft_autostart_failed ? null : 'auction_unsupported';
