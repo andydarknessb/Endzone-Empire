@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const { logger } = require('../modules/logger');
-const { withAdvisoryLock } = require('../modules/advisoryLock');
+const { withAdvisoryLock, resetSkipStreaks, SKIP_ALARM_STREAK } = require('../modules/advisoryLock');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 // autoPick now reaches the one seam pick.service.landPick (#782); landPick owns
 // the room fan-out, so these tests mock the inner commitPick and let the REAL
@@ -452,15 +452,76 @@ test('advisory lock: a skipped tick (lock not acquired) is visible in the log ou
   };
   t.mock.method(pool, 'connect', async () => client);
   const skips = [];
-  t.mock.method(logger, 'debug', (obj, msg) => skips.push({ obj, msg }));
+  t.mock.method(logger, 'warn', (obj, msg) => skips.push({ obj, msg }));
+  resetSkipStreaks();
 
   let ran = false;
   const result = await withAdvisoryLock(23002, 'draft-clock', async () => { ran = true; });
 
   assert.equal(ran, false, 'the work never ran because the lock was not acquired');
   assert.deepEqual(result, { skipped: true }, 'the skip is reported to the caller');
-  assert.equal(skips.length, 1, 'the skip is logged, not silent');
+  // Red tell (#842): the pre-change code logged the skip at debug, invisible
+  // in production (LOG_LEVEL info) for the whole #839 stall.
+  assert.equal(skips.length, 1, 'the skip is logged at warn, not silent');
   assert.match(skips[0].msg, /skip/i);
+  assert.deepEqual(skips[0].obj, { job: 'draft-clock', lockId: 23002, streak: 1 });
+});
+
+// --- advisory lock: skip streaks alarm once per streak (#842) ---------------
+
+function lockClient(locked) {
+  return {
+    query: async (sql) => {
+      const text = String(sql);
+      if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked }] };
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(text)) return { rows: [] };
+      throw new Error(`unexpected: ${sql}`);
+    },
+    release: () => {},
+  };
+}
+
+test('advisory lock: the third consecutive skip raises ONE fingerprinted Sentry event, later skips in the streak are silent (#842)', async (t) => {
+  resetSkipStreaks();
+  t.mock.method(logger, 'warn', () => {});
+  const captured = [];
+  t.mock.method(sentry, 'captureError', (error, context, options) => captured.push({ message: error.message, context, options }));
+  t.mock.method(pool, 'connect', async () => lockClient(false));
+
+  for (let i = 0; i < SKIP_ALARM_STREAK + 2; i++) {
+    assert.deepEqual(await withAdvisoryLock(23002, 'draft-clock', async () => 'never'), { skipped: true });
+  }
+
+  assert.equal(captured.length, 1, 'exactly one alarm per streak');
+  assert.match(captured[0].message, /23002/);
+  assert.deepEqual(captured[0].context, { job: 'draft-clock', lockId: 23002, streak: SKIP_ALARM_STREAK });
+  assert.deepEqual(captured[0].options, { fingerprint: ['advisory-lock-skip', '23002'] });
+});
+
+test('advisory lock: an acquired tick ends the streak, so the next streak alarms again; streaks are per lock id (#842)', async (t) => {
+  resetSkipStreaks();
+  t.mock.method(logger, 'warn', () => {});
+  const captured = [];
+  t.mock.method(sentry, 'captureError', (error, context) => captured.push(context));
+  let acquire = false;
+  t.mock.method(pool, 'connect', async () => lockClient(acquire));
+
+  for (let i = 0; i < SKIP_ALARM_STREAK; i++) await withAdvisoryLock(23002, 'draft-clock', async () => {});
+  assert.equal(captured.length, 1);
+
+  acquire = true;
+  assert.equal(await withAdvisoryLock(23002, 'draft-clock', async () => 'ran'), 'ran');
+  acquire = false;
+  // Below the threshold again because the acquire reset the count.
+  for (let i = 0; i < SKIP_ALARM_STREAK - 1; i++) await withAdvisoryLock(23002, 'draft-clock', async () => {});
+  assert.equal(captured.length, 1, 'no alarm below the threshold after a reset');
+  await withAdvisoryLock(23002, 'draft-clock', async () => {});
+  assert.equal(captured.length, 2, 'the new streak alarms on its own third skip');
+
+  // Another lock id counts separately: two skips there never reach the threshold.
+  for (let i = 0; i < SKIP_ALARM_STREAK - 1; i++) await withAdvisoryLock(23001, 'league-scheduler', async () => {});
+  assert.equal(captured.length, 2);
+  assert.ok(captured.every((c) => c.lockId === 23002));
 });
 
 // --- Overdue alarm: the sweep detector (#768, ruling 2) ----------------------
