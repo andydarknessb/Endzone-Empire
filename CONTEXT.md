@@ -419,11 +419,15 @@ hidden or not, is simply absent from the Draft-activity feed the presenter reads
 _Avoid_: spectator, guest, viewer account (a presenter has no account), broadcast
 link
 
-2. The thin, venue-specific view in the Draft assistant that turns live Draft
-state into the facts object the pure line generator, `lineFor()`, consumes.
-One presenter exists per venue, the Draft room and the Draft Sim; it renders
-and owns no rules of its own, so the trigger and line logic it fronts stay in
-the pure builder and generator beneath it.
+2. The thin, venue-specific view in the Draft assistant that sits between the
+pure facts builder (a room or Sim `*AssistantFacts` module) and the pure line
+generator, `lineFor()`. One presenter exists per venue, the Draft room and
+the Draft Sim, and it owns the trigger decisions: whether a line fires at
+all, such as the once-per-turn urgent gate, the turn-boundary reset, the
+Queue-snipe check and the selection cooldown. Once a trigger fires, the
+presenter calls the builder to shape the facts object and hands it to
+`lineFor()`; the builder and the line generator hold no trigger logic of
+their own, only fact shaping and line copy.
 _Avoid_: view component, renderer
 
 **Legacy feed entry**:
@@ -538,8 +542,8 @@ A private, opt-in voice in the Draft room and the Draft Sim that comments on
 a manager's own Picks, Queue and Pick clock over approved measures (ADP,
 steal and reach, Starting need, Autopick). It never ranks, recommends or
 alters Best available, presents nothing as Draft value, and is never shown to
-a presenter. "Polk High Legend" is the name of its first voice, not of the
-assistant.
+a presenter (sense 1, the share-link viewer). "Polk High Legend" is the name
+of its first voice, not of the assistant.
 _Avoid_: bot, advisor, coach, recommendation engine, commentary feed (Draft
 activity is the shared feed; the assistant is private)
 

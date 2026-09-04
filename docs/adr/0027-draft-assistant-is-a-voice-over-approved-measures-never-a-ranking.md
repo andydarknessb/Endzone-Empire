@@ -62,7 +62,7 @@ reopening of it. The original bullet above is superseded by this amendment;
 `earlyKickerOrDefense` in `src/lib/draftAssistant` and its tests are
 unchanged.
 
-## Amendment (2026-09-03): "presenter" in this ADR is CONTEXT.md's Presenter sense 2
+## Amendment (2026-09-03, #849): "presenter" in this ADR is CONTEXT.md's Presenter sense 2
 
 #849 found that this ADR uses "presenter" in two senses within three lines of
 itself: "absent from the presenter link" is the anonymous share-link viewer,
