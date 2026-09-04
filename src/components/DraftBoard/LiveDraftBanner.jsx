@@ -26,7 +26,7 @@ function initialsFor(name) {
  * the PickClock leaf, which owns its own tick so this banner and the room
  * around it never re-render per second; `paused` and `untimed`/`idle` show a
  * static label instead. */
-function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
+function LiveDraftBanner({ league, onTheClock, isMyTurn, committedPickCount = null }) {
   const team = onTheClock?.team ?? null;
   const state = onTheClock?.state ?? 'idle';
   const deadlineAt = onTheClock?.deadlineAt ?? null;
@@ -64,25 +64,37 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
   // the zero-width-space idiom governs the text node, not whether the region is
   // hidden.
   //
-  // The dependency is the pick identity (league.current_pick), NEVER the derived
+  // The dependency is the pick identity (committedPickCount), NEVER the derived
   // string. At a snake turnaround the same team holds two consecutive picks, so
   // the string is byte-identical; an effect keyed on the text would not refire
-  // and that turn would go unannounced. current_pick already advances per pick
-  // inside the league prop (DraftBoard.jsx derives currentPickNumber from it),
-  // so no new prop is needed. deadlineAt is deliberately not the key: it is null
-  // in the untimed and paused states, so an untimed draft would announce nothing.
+  // and that turn would go unannounced. committedPickCount is the number of
+  // committed picks, which advances by one on every live `draft:picked` (the
+  // reducer prepends to `picks`) and still differs across a snake turnaround.
+  // league.current_pick was rejected as the key (#819 ruling): it only moves on
+  // a draft:state snapshot, so it is stale across live picks and every turn after
+  // the first would go unannounced. deadlineAt is rejected too: it is null in the
+  // untimed and paused states, so an untimed draft would announce nothing.
+  //
+  // The active flag is folded INTO the key, not just gated inside the effect,
+  // because a draft that starts has zero committed picks, so the count alone
+  // does not change on the pending -> active edge. Keying on `turnKey` makes the
+  // effect fire when the draft becomes active (null -> the current count), so
+  // entering a running draft announces the current turn once (#769 AC3, ruling
+  // 3), then re-announces on every later pick. While inactive the region stays
+  // empty; this component renders null then anyway.
   const [announcement, announce] = useAnnouncement();
-  const currentPick = league?.current_pick;
+  const active = league?.draft_status === 'active';
+  const turnKey = active && committedPickCount != null ? committedPickCount : null;
   const turnText = isMyTurn ? 'Your pick!' : team ? `${team.teamName} is on the clock` : 'Waiting…';
   React.useEffect(() => {
-    if (currentPick == null) return;
+    if (turnKey == null) return;
     announce(turnText);
     // Keyed on the pick identity alone (see above); turnText is intentionally
     // omitted so a byte-identical repeat turn still refires on the pick change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPick]);
+  }, [turnKey]);
 
-  if (league?.draft_status !== 'active') return null;
+  if (!active) return null;
 
   return (
     <Paper
