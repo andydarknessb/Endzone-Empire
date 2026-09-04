@@ -214,6 +214,14 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       nextPickIndex = nextOpenPickNumber(takenSet, league.current_pick + 1, totalPicks);
       nextTeam = nextPickIndex === null ? null : teamForPick(nextPickIndex, teams, rotationOpts);
     }
+    // The 0-based index the Pick clock writes to leagues.current_pick in this
+    // commit: the next OPEN slot on an ordinary pick (keepers skipped), or the
+    // completing pick's own number on the last pick. Computed once here and
+    // handed to the clock as `nextPick`; it also rides out on the outcome (#854)
+    // as `nextPickIndex` so every room reader of league.current_pick advances
+    // with the exact value the server wrote, never a client-side re-derivation
+    // that a keeper slot would silently make wrong.
+    const committedPickIndex = draftComplete ? pickNumber : nextPickIndex;
     // Advance the turn and arm the next team's clock through the Pick clock
     // module (ADR 0018): the only writer of current_pick and the deadline.
     // draft_status rides that statement because the final pick's advance IS the
@@ -221,7 +229,7 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
     // being set first (#194).
     pickDeadlineAt = await pickClock.onPickLanded(client, {
       leagueId,
-      nextPick: draftComplete ? pickNumber : nextPickIndex,
+      nextPick: committedPickIndex,
       draftStatus: draftComplete ? 'complete' : 'active',
       draftComplete,
       nextTeam,
@@ -265,6 +273,12 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       player: playerResult.rows[0],
       pickNumber,
       nextTeamId,
+      // The 0-based value the Pick clock wrote to leagues.current_pick in this
+      // same commit (#854): the next open index on an ordinary pick (keepers
+      // skipped), the completing pick's own number on the last pick. The room
+      // reducer follows league.current_pick to it so the Draft assistant, the
+      // Upcoming strip and the correction target stop reading a frozen snapshot.
+      nextPickIndex: committedPickIndex,
       draftComplete,
       pickDeadlineAt,
       // The typed Draft-activity entry for the combined feed (#435), so the

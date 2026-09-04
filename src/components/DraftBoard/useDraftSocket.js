@@ -86,8 +86,25 @@ function reducer(state, action) {
       }
 
       const draftComplete = data.draftComplete ? true : state.draftComplete;
-      const league =
-        data.draftComplete && state.league ? { ...state.league, draft_status: 'complete' } : state.league;
+      // The pick advances the shared field the whole room reads (#854). The
+      // server sends the 0-based value it wrote to leagues.current_pick in this
+      // commit as `nextPickIndex` (the next OPEN slot, keepers skipped, so it is
+      // NOT current_pick + 1 in a keeper league). When it is a finite number the
+      // returned `league` is a NEW object with `current_pick` set to it, so the
+      // assistant's currentPickNumber, the Upcoming strip and the correction
+      // target - all of which read this one field - recompute off a fresh
+      // reference. When the key is absent or null the `league` is left exactly as
+      // before (same reference): this keeps a newer client correct against an
+      // older server that has not shipped the field yet, and is load-bearing for
+      // an unrelated broadcast (#819's live picked payload carries no
+      // nextPickIndex and must leave current_pick untouched).
+      const advancesPick = Number.isFinite(data.nextPickIndex);
+      let league = state.league;
+      if (state.league && (data.draftComplete || advancesPick)) {
+        league = { ...state.league };
+        if (data.draftComplete) league.draft_status = 'complete';
+        if (advancesPick) league.current_pick = data.nextPickIndex;
+      }
 
       return {
         ...state,
