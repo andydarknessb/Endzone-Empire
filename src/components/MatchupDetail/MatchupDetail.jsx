@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Container,
@@ -41,6 +41,14 @@ const TICKER_LIMIT = 12;
 function MatchupDetail() {
   const { leagueId, matchupId } = useParams();
   const { league } = useLeague(leagueId);
+  // League roster_slots keys in commissioner order, so the two lineup views
+  // pair rows by slot in the order the league defines them (IDP slots included).
+  const slotOrder = useMemo(
+    () => (Array.isArray(league?.roster_slots) ? league.roster_slots : [])
+      .map((s) => (s && s.key != null ? String(s.key) : null))
+      .filter(Boolean),
+    [league]
+  );
   const { realGameIds } = useFantasyMatchupGames(matchupId);
   const [matchup, setMatchup] = useState(null);
   const [home, setHome] = useState(null);
@@ -420,6 +428,7 @@ function MatchupDetail() {
                   awayStarters={away?.starters}
                   homeBench={home?.bench}
                   awayBench={away?.bench}
+                  slotOrder={slotOrder}
                   activePlay={retroActivePlay}
                 />
               </Box>
@@ -490,6 +499,7 @@ function MatchupDetail() {
                 <SlotComparisonList
                   homeStarters={home?.starters}
                   awayStarters={away?.starters}
+                  slotOrder={slotOrder}
                   expandedId={expandedId}
                   onToggle={toggleRow}
                   onOpenPlayer={setQuickViewId}
