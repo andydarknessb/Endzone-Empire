@@ -132,6 +132,7 @@ function RetroField({
   awayStarters,
   homeBench,
   awayBench,
+  slotOrder,
   activePlay,
 }) {
   const theme = useTheme();
@@ -323,7 +324,7 @@ function RetroField({
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
           Starting Lineups
         </Typography>
-        <RosterPreviewGrid homeStarters={homeStarters} awayStarters={awayStarters} />
+        <RosterPreviewGrid homeStarters={homeStarters} awayStarters={awayStarters} slotOrder={slotOrder} />
       </Box>
 
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.5 }}>
@@ -374,6 +375,7 @@ RetroField.propTypes = {
   awayStarters: PropTypes.array,
   homeBench: PropTypes.array,
   awayBench: PropTypes.array,
+  slotOrder: PropTypes.arrayOf(PropTypes.string),
   activePlay: PropTypes.shape({
     side: PropTypes.oneOf(['home', 'away']),
     type: PropTypes.string,
