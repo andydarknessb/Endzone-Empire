@@ -114,5 +114,5 @@ going unannounced (#819).
 Rejected alternatives, recorded so they are not revisited: a duplicated local
 setter recreates the second ungated writer that `useAnnouncement`'s docblock
 says #791 folded away; a new shared module for two lines is not worth its own
-surface. Amending twice in one day is cheaper than keeping a clause whose stated
+surface. A second amendment is cheaper than keeping a clause whose stated
 reasoning does not support its second half.

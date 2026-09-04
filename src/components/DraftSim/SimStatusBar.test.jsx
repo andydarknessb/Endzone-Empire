@@ -24,23 +24,38 @@ describe('SimStatusBar (#805)', () => {
   // The real guard (#819 ruling 4b): the per-second countdown must never be a
   // live region - DraftSimulator's own status region (SimTurnStatus) owns the
   // once-per-turn announcement (ADR 0028; mirrors PickClock's posture in the
-  // Draft room). Walk the shared ancestor of the "Time left" label and its
-  // value DOWN through every descendant, so an aria-live on the value SIBLING
-  // is caught, not only one on an ancestor of the label. Red-tell: adding
-  // aria-live="polite" to the Time left value Typography turns this red.
-  it('puts no aria-live anywhere in the Time left label/value subtree', () => {
+  // Draft room). Two walks from the "Time left" label, because an aria-live in
+  // EITHER direction puts the countdown in a live region:
+  //   - UP through every ancestor to the document root, so an aria-live on the
+  //     enclosing Paper (or any wrapper) is caught. This is the original walk,
+  //     kept: ruling 4b's "down through every descendant" widened coverage to
+  //     the value sibling but must not narrow it away from the ancestors.
+  //   - DOWN through the shared ancestor's subtree, so an aria-live on the value
+  //     SIBLING (not an ancestor of the label) is caught.
+  // Red-tells (#819): aria-live on the enclosing Paper turns the upward walk
+  // red; aria-live on the Time left value Typography turns the downward walk red.
+  it('puts no aria-live anywhere on the Time left label/value ancestors or subtree', () => {
     renderStatusBar();
     const label = screen.getByText('Time left');
 
-    // The immediate shared ancestor of the label and its value (they are
-    // siblings inside one Box), then the ancestor itself and every descendant
-    // under it - the value node and its children included.
+    // Upward: the label and every ancestor up to the document root.
+    // eslint-disable-next-line testing-library/no-node-access
+    let node = label;
+    while (node) {
+      expect(node).not.toHaveAttribute('aria-live');
+      // eslint-disable-next-line testing-library/no-node-access
+      node = node.parentElement;
+    }
+
+    // Downward: the immediate shared ancestor of the label and its value (they
+    // are siblings inside one Box) and every descendant under it - the value
+    // node and its children included.
     // eslint-disable-next-line testing-library/no-node-access
     const subtree = label.parentElement;
     expect(subtree).not.toHaveAttribute('aria-live');
     // eslint-disable-next-line testing-library/no-node-access
-    subtree.querySelectorAll('*').forEach((node) => {
-      expect(node).not.toHaveAttribute('aria-live');
+    subtree.querySelectorAll('*').forEach((descendant) => {
+      expect(descendant).not.toHaveAttribute('aria-live');
     });
   });
 

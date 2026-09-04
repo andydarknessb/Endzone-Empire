@@ -130,19 +130,28 @@ describe('LiveDraftBanner - on-the-clock announcement (#445 AC3)', () => {
     expect(region).toHaveTextContent('Anvils is on the clock');
   });
 
-  it('does not re-fire the region on a rerender that leaves the pick identity unchanged (#819)', () => {
-    // Proof the effect keys on committedPickCount and nothing else: a rerender
-    // that moves the deadline (a per-render prop) but keeps the count must leave
-    // the region's text node untouched, so a clock tick is not an announcement.
+  it('does not re-fire the region when the pick identity is unchanged even though the turn text changes (#819)', () => {
+    // The control that pins "key on the pick identity, and NOTHING ELSE": hold
+    // committedPickCount fixed while the DERIVED TEXT changes (isMyTurn flips
+    // from another team on the clock to the viewer's own turn). A correct effect
+    // keyed on the count alone does not refire, so the region keeps the previous
+    // turn's text. Red-tell: adding turnText to the dependency array (keying on
+    // [committedPickCount, turnText]) makes the region update to "Your pick!" and
+    // this goes red - which the earlier version, moving only the deadline with a
+    // byte-identical text, could not catch.
     const { rerender } = render(
       <LiveDraftBanner league={activeLeague} onTheClock={running(Date.now() + 30000)} isMyTurn={false} committedPickCount={8} />
     );
     const region = screen.getByRole('status');
-    const after = region.textContent;
+    expect(region).toHaveTextContent('Bulldogs is on the clock');
+    // Same committed-pick count, but the derived text would now be "Your pick!".
     rerender(
-      <LiveDraftBanner league={activeLeague} onTheClock={running(Date.now() + 25000)} isMyTurn={false} committedPickCount={8} />
+      <LiveDraftBanner league={activeLeague} onTheClock={running(Date.now() + 30000)} isMyTurn committedPickCount={8} />
     );
-    expect(region.textContent).toBe(after);
+    // The key did not change, so the region did not re-announce: it still holds
+    // the previous turn's text, not "Your pick!".
+    expect(region).toHaveTextContent('Bulldogs is on the clock');
+    expect(region).not.toHaveTextContent('Your pick!');
   });
 
   it('keeps the per-second countdown OUT of the live region, so ticks are not announced', () => {
