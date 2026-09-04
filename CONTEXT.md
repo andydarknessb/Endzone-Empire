@@ -395,15 +395,15 @@ _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
 **Presenter**:
-This term carries two numbered senses. "Presenter link" and any presenter
-described as a person or a viewer is always sense 1. An unqualified
-"presenter" inside the Draft assistant modules (the `src/lib/draftAssistant`
-tree, the room and Sim `*AssistantFacts` builders, and the room and Sim
-assistant panel components they feed) is always sense 2; a new comment in
-those modules that could be read either way says "presenter (sense 2)" or
-"venue presenter" instead of the bare word.
+This term carries two senses, numbered below. "Presenter link" and any
+presenter described as a person or a viewer is always sense 1. An
+unqualified "presenter" inside the Draft assistant modules (the
+`src/lib/draftAssistant` tree, the room and Sim `*AssistantFacts` builders,
+and the room and Sim assistant panel components they feed) is always sense
+2; a new comment in those modules that could be read either way says
+"presenter (sense 2)" or "venue presenter" instead of the bare word.
 
-1. An anonymous viewer of a league's Draft through its share link (the presenter
+**Sense 1**: An anonymous viewer of a league's Draft through its share link (the presenter
 link), holding no account and belonging to no league. A presenter is whoever
 holds the link, authorized by the opaque draft share token alone and scoped to
 exactly that one league. A presenter sees the read-only Draft board and the
@@ -419,17 +419,23 @@ hidden or not, is simply absent from the Draft-activity feed the presenter reads
 _Avoid_: spectator, guest, viewer account (a presenter has no account), broadcast
 link
 
-2. The thin, venue-specific view in the Draft assistant that sits between the
-pure facts builder (a room or Sim `*AssistantFacts` module) and the pure line
-generator, `lineFor()`. One presenter exists per venue, the Draft room and
-the Draft Sim, and it owns the trigger decisions: whether a line fires at
-all, such as the once-per-turn urgent gate, the turn-boundary reset, the
-Queue-snipe check and the selection cooldown. Once a trigger fires, the
-presenter calls the builder to shape the facts object and hands it to
-`lineFor()`. The builder shapes the facts and may itself decline, returning
-null when the fact it needs is absent; the line generator owns line
-selection, including the per-draft no-repeat pool that keeps a trigger from
-reusing a line until its pool is exhausted.
+**Sense 2**: The Draft assistant's thin, venue-specific view that sits between the pure
+facts builder (a room or Sim `*AssistantFacts` module) and the pure line
+generator, `lineFor()`. One presenter engine exists per venue, the Draft
+room and the Draft Sim, each mounted once and sharing one line generator
+and one polite region; the room realises its engine as a provider plus thin
+consumer pieces (a region, a rail panel, a banner line, a toggle) that
+share it, while the Sim realises its engine as one panel component. The
+presenter owns the trigger decisions common to both venues: whether a line
+fires at all, the once-per-turn urgent gate, the turn-boundary reset, and
+the selection cooldown; the Queue-snipe check is the Draft room's alone,
+since the Sim has no Queue. Once a trigger fires, the presenter calls the
+builder to shape the facts object and hands it to `lineFor()`. The builder
+shapes the facts; the Sim's builder may itself decline, returning null when
+the fact it needs is absent, while the room's builder always returns a
+facts object. The line generator owns line selection, including the
+per-draft no-repeat pool that keeps a trigger from reusing a line until its
+pool is exhausted.
 _Avoid_: view component, renderer
 
 **Legacy feed entry**:
