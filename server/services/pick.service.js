@@ -214,6 +214,18 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       nextPickIndex = nextOpenPickNumber(takenSet, league.current_pick + 1, totalPicks);
       nextTeam = nextPickIndex === null ? null : teamForPick(nextPickIndex, teams, rotationOpts);
     }
+    // The value the Pick clock writes to leagues.current_pick in this commit.
+    // On an ordinary pick it is the next OPEN slot: a 0-based index with keepers
+    // skipped. On the COMPLETING pick it is `pickNumber`, which is 1-based
+    // (draft_picks.pick_number; draftTurns.js documents the 0/1-based split).
+    // That is intentional and correct here, not a mixed convention: the last
+    // pick number equals totalPicks, which is exactly the one-past-the-end
+    // sentinel current_pick holds once the draft is done. Computed once here and
+    // handed to the clock as `nextPick`; it also rides out on the outcome (#854)
+    // as `nextPickIndex` so every room reader of league.current_pick advances
+    // with the exact value the server wrote, never a client-side re-derivation
+    // that a keeper slot would silently make wrong.
+    const committedPickIndex = draftComplete ? pickNumber : nextPickIndex;
     // Advance the turn and arm the next team's clock through the Pick clock
     // module (ADR 0018): the only writer of current_pick and the deadline.
     // draft_status rides that statement because the final pick's advance IS the
@@ -221,7 +233,7 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
     // being set first (#194).
     pickDeadlineAt = await pickClock.onPickLanded(client, {
       leagueId,
-      nextPick: draftComplete ? pickNumber : nextPickIndex,
+      nextPick: committedPickIndex,
       draftStatus: draftComplete ? 'complete' : 'active',
       draftComplete,
       nextTeam,
@@ -265,6 +277,14 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
       player: playerResult.rows[0],
       pickNumber,
       nextTeamId,
+      // The value the Pick clock wrote to leagues.current_pick in this same
+      // commit (#854): the 0-based next open index on an ordinary pick (keepers
+      // skipped), or the completing pick's 1-based number on the last pick, which
+      // equals totalPicks and so is the correct one-past-the-end sentinel (see
+      // committedPickIndex above). The room reducer follows league.current_pick
+      // to it so the Draft assistant, the Upcoming strip and the correction
+      // target stop reading a frozen snapshot.
+      nextPickIndex: committedPickIndex,
       draftComplete,
       pickDeadlineAt,
       // The typed Draft-activity entry for the combined feed (#435), so the

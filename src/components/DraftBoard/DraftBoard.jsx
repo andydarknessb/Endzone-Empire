@@ -1106,7 +1106,18 @@ function DraftBoard() {
           shell), so the banner just sits in place - visible on every tab,
           satisfying acceptance criterion 5 for mobile and trivially for
           desktop. */}
-      <LiveDraftBanner league={league} onTheClock={onTheClock} isMyTurn={isMyTurn} />
+      {/* committedPickCount is the turn identity the banner's status region
+          announces on (#819): it advances by one on every live `draft:picked`
+          (the reducer does picks: [pick, ...state.picks]), unlike
+          league.current_pick, which only moves on a draft:state snapshot and so
+          is stale across live picks. It still differs across a snake turnaround,
+          so a repeat turn is heard. */}
+      <LiveDraftBanner
+        league={league}
+        onTheClock={onTheClock}
+        isMyTurn={isMyTurn}
+        committedPickCount={picks.length}
+      />
 
       {/* Tabs are a narrow-container affordance only: a wide container shows the
           three panes at once, so it needs no tab bar (and #444 forbids a

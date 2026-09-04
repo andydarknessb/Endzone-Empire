@@ -4,6 +4,7 @@ const { landPick } = require('../services/pick.service');
 const pickService = require('../services/pick.service');
 const seasonService = require('../services/season.service');
 const draftCompletion = require('../services/draftCompletion');
+const pickClock = require('../services/pickClock.service');
 const lineupService = require('../services/lineup.service');
 const draftRoomBroadcast = require('../modules/draftRoomBroadcast');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
@@ -52,7 +53,7 @@ const TEAMS = [
 /** A world covering the whole commitPick transaction. `commissioner` adds the
  *  `SELECT 1 FROM "leagues"` answer the byCommissioner authority check reads. */
 function pickPool({
-  league, picksMade, commissioner = false, playerAdp = 3.2,
+  league, picksMade, commissioner = false, playerAdp = 3.2, takenPickNumbers = [],
 } = {}) {
   // Stateful: the completing Pick's draft_status flip is visible to the
   // precondition read draftCompletion.completeDraft runs on this same client
@@ -77,7 +78,7 @@ function pickPool({
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
-    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: [] })],
+    [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: takenPickNumbers.map((pick_number) => ({ pick_number })) })],
     [insert('draft_picks'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
     // The draft_activity insert is stateful so the Pick (5) and, on completion,
     // the completion entry (6) draw distinct feed_seqs the way the trigger does.
@@ -390,6 +391,74 @@ test('landPick: an active league with a null draft_rounds falls back to the live
 
   // roster_limit 3 - ir_slots 1 = 2 rounds x 2 teams = 4 totalPicks; 3 < 4.
   assert.equal(result.draftComplete, false);
+  fake.assertClean();
+});
+
+// --- #854: the outcome carries nextPickIndex, the value written to the clock --
+// The room reducer follows league.current_pick to this field, so it must be the
+// EXACT value the Pick clock was handed as `nextPick` in this same commit, never
+// a re-derivation. Each case mocks onPickLanded to capture that argument and
+// asserts the outcome's nextPickIndex equals it.
+
+test('landPick: the outcome nextPickIndex equals the clock nextPick on an ordinary pick', async (t) => {
+  const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
+  withRecorder(t);
+  let clockNextPick;
+  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
+    clockNextPick = nextPick;
+    return null;
+  });
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  // No keepers taken, so the next open index is current_pick + 1 = 1.
+  assert.equal(clockNextPick, 1, 'the clock was advanced to the next open index');
+  assert.equal(outcome.nextPickIndex, clockNextPick, 'the outcome carries the exact value written to the clock');
+  assert.equal(outcome.draftComplete, false);
+  fake.assertClean();
+});
+
+test('landPick: the outcome nextPickIndex is the next OPEN index when a keeper occupies the following slot', async (t) => {
+  // current_pick 0; index 1 is a pre-inserted keeper (pick_number 2), so the
+  // next open index is 2, not current_pick + 1. picks 1 and 2 are taken.
+  const fake = pickPool({
+    league: { ...BASE_LEAGUE, current_pick: 0 },
+    picksMade: 2,
+    takenPickNumbers: [1, 2],
+  }).install(t);
+  withRecorder(t);
+  let clockNextPick;
+  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
+    clockNextPick = nextPick;
+    return null;
+  });
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(clockNextPick, 2, 'the clock skipped the keeper slot to index 2');
+  assert.equal(outcome.nextPickIndex, 2, 'the outcome carries the keeper-skipped index, never current_pick + 1');
+  assert.notEqual(outcome.nextPickIndex, 1, 'a naive +1 would be wrong in a keeper league');
+  assert.equal(outcome.draftComplete, false);
+  fake.assertClean();
+});
+
+test('landPick: the completing pick nextPickIndex is the completing pick number, matching the clock', async (t) => {
+  const fake = pickPool({ league: BASE_LEAGUE, picksMade: 4 }).install(t);
+  withRecorder(t);
+  let clockNextPick;
+  t.mock.method(pickClock, 'onPickLanded', async (client, { nextPick }) => {
+    clockNextPick = nextPick;
+    return null;
+  });
+  t.mock.method(draftCompletion, 'completeDraft', async () => ({ kind: 'complete', id: 78, seq: 6 }));
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(outcome.draftComplete, true);
+  // On the last pick the clock is handed the completing pick's own number (4),
+  // not a next open index; the outcome carries that same value.
+  assert.equal(clockNextPick, 4, 'the completing pick hands its own number to the clock');
+  assert.equal(outcome.nextPickIndex, clockNextPick, 'the outcome carries the completing pick number');
   fake.assertClean();
 });
 

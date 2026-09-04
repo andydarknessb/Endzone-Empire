@@ -61,3 +61,14 @@ never addressed that zero case, so this clause is an addition to it, not a
 reopening of it. The original bullet above is superseded by this amendment;
 `earlyKickerOrDefense` in `src/lib/draftAssistant` and its tests are
 unchanged.
+
+## Amendment (2026-09-03): "presenter" in this ADR is CONTEXT.md's Presenter sense 2
+
+#849 found that this ADR uses "presenter" in two senses within three lines of
+itself: "absent from the presenter link" is the anonymous share-link viewer,
+and "one thin presenter per venue" is the Draft assistant's per-venue view.
+CONTEXT.md's Presenter glossary entry now numbers those as sense 1 and sense
+2, so this note points at that entry rather than restating it: the "one
+thin presenter per venue" line above uses sense 2, never sense 1's anonymous
+viewer. This amendment does not restate or alter ruling 6 or any other
+ruling in this ADR.

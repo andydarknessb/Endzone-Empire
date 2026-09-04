@@ -204,6 +204,79 @@ test('a landed pick carries the player market ADP through to history (#833)', ()
   expect(pick.adp).toBe(3.2);
 });
 
+// --- #854: a landed pick advances the shared current_pick the room reads ---
+//
+// The Pick clock is the server's only writer of leagues.current_pick, and the
+// draft:picked broadcast now carries the value it wrote as `nextPickIndex`. The
+// reducer follows league.current_pick to it, on a NEW league object so memoised
+// readers (the assistant's currentPickNumber, the Upcoming strip, the correction
+// target) recompute. When the key is absent or null the league is left exactly as
+// it was, so a newer client stays correct against an older server (and an
+// unrelated live picked payload that carries no nextPickIndex, #819, is untouched).
+
+const pickedWith = (extra) => ({
+  pickNumber: 1,
+  teamId: 1,
+  teamName: 'Team A',
+  player: { id: 10, name: 'X', position: 'QB', nfl_team: 'KC' },
+  nextTeamId: 2,
+  draftComplete: false,
+  auto: false,
+  ...extra,
+});
+
+function snapshotAtPickZero() {
+  const view = renderHook(() => useDraftSocket(1));
+  act(() => fakeSocket.trigger('connect'));
+  ackJoin(1);
+  act(() => {
+    fakeSocket.trigger('draft:state', {
+      league: { draft_status: 'active', current_pick: 0 },
+      teams: [teamA, teamB],
+      picks: [],
+      onTheClock: teamA,
+    });
+  });
+  return view;
+}
+
+test('a landed pick advances league.current_pick to the payload nextPickIndex, on a new league reference', () => {
+  const { result } = snapshotAtPickZero();
+  expect(result.current.league.current_pick).toBe(0);
+  const before = result.current.league;
+
+  act(() => fakeSocket.trigger('draft:picked', pickedWith({ nextPickIndex: 1 })));
+
+  // Red-tell against today's reducer: current_pick stays 0 (Expected 1, Received 0).
+  expect(result.current.league.current_pick).toBe(1);
+  // A new reference, so memoised readers of `league` recompute.
+  expect(result.current.league).not.toBe(before);
+});
+
+test('current_pick follows nextPickIndex over the keeper-skipped slots, never a naive current_pick + 1', () => {
+  const { result } = snapshotAtPickZero();
+
+  // A keeper occupies index 1, so the server wrote 2, not 1. The client must
+  // take the server's value and never re-derive current_pick + 1.
+  act(() => fakeSocket.trigger('draft:picked', pickedWith({ nextPickIndex: 2 })));
+
+  expect(result.current.league.current_pick).toBe(2);
+  expect(result.current.league.current_pick).not.toBe(1);
+});
+
+test('a draft:picked with no nextPickIndex leaves league unchanged, same reference (#819 rolling-release safety)', () => {
+  const { result } = snapshotAtPickZero();
+  const before = result.current.league;
+
+  // No nextPickIndex on the wire (an older server, or #819's announcement-only
+  // picked payload): the field is frozen at the snapshot and the object identity
+  // is preserved so nothing keyed on `league` re-runs off this pick.
+  act(() => fakeSocket.trigger('draft:picked', pickedWith({})));
+
+  expect(result.current.league).toBe(before);
+  expect(result.current.league.current_pick).toBe(0);
+});
+
 test('fires the on-clock alert exactly once per turn, and again once the turn comes back around', () => {
   const { result } = renderHook(() => useDraftSocket(1));
 
