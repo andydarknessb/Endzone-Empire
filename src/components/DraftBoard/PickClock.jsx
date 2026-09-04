@@ -26,12 +26,14 @@ export const OVERDUE_MESSAGE = 'Waiting on the server';
  * deadline, owns its own tick, and renders `m:ss`; the store above it holds
  * the deadline and never a per-second field, so a tick reaches nothing else.
  *
- * Expired vs Overdue (#769). "Expired" is the ordinary moment the deadline
- * passes: digits sit at `0:00`, urgent, while the server advances the clock -
- * moments on the timer path, up to 10s on an API-armed clock (#614). "Overdue"
- * is expired for longer than OVERDUE_AFTER_MS and still undischarged: the pulse
- * means "act now" and nobody in the room can act on a clock the server owns, so
- * urgency ends and the leaf says the room is waiting. A SECOND countdown, to
+ * Expired vs Overdue (#769, #844). "Expired" is the ordinary moment the
+ * deadline passes: digits sit at `0:00` in the urgent colour while the server
+ * advances the clock - moments on the timer path, up to 10s on an API-armed
+ * clock (#614). The pulse stops AT `0:00` (#844): it means "act now", and
+ * once the digits read zero nobody in the room can, so it carries nothing;
+ * the colour still says this turn is over and the server owes a pick. "Overdue"
+ * is expired for longer than OVERDUE_AFTER_MS and still undischarged: the
+ * colour ends too and the leaf says the room is waiting. A SECOND countdown, to
  * `deadlineAt + OVERDUE_AFTER_MS`, provides that flag: the store never holds it
  * (#754 A1) and the hook stops at zero by contract (Countdown depends on that),
  * so a second `useCountdownTicking` reaching zero - never a bare setTimeout,
@@ -71,6 +73,9 @@ function PickClock({
   // Overdue drops the urgency signal entirely: the pulse said "act now" and no
   // one in the room can, so it and the error colour end while the digits stay.
   const showUrgent = isUrgent(remaining) && !overdue;
+  // The pulse ends one step earlier than the colour, at 0:00 (#844): an
+  // expired clock is the server's to advance, so "act now" has no reader.
+  const showPulse = showUrgent && remaining > 0;
 
   // The once-per-turn urgent edge, off the same window `showUrgent` uses for
   // the pulse. A single effect compares the deadline it last fired for
@@ -120,7 +125,7 @@ function PickClock({
           lineHeight: 1.1,
           fontVariantNumeric: 'tabular-nums',
           color: showUrgent ? 'error.main' : 'text.primary',
-          animation: showUrgent ? `${pulse} 1s ease-in-out infinite` : 'none',
+          animation: showPulse ? `${pulse} 1s ease-in-out infinite` : 'none',
           '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
         }}
       >

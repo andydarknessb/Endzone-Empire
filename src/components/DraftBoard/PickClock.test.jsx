@@ -28,15 +28,19 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     const now = Date.now();
     renderClock({ deadlineAt: now + 1000 });
 
-    // Expired: the deadline has just passed. Digits pin at 0:00, still urgent
-    // (the server may advance the clock at any moment), and the room is not yet
-    // told to stop waiting on itself.
+    // Expired: the deadline has just passed. Digits pin at 0:00, still in the
+    // urgent colour (the server may advance the clock at any moment), but the
+    // pulse has stopped (#844): "act now" has no reader once the digits read
+    // zero. The room is not yet told to stop waiting on itself.
     act(() => {
       jest.advanceTimersByTime(1000);
     });
     const clock = screen.getByTestId('draft-clock');
     expect(clock).toHaveTextContent('0:00');
     expect(clock).toHaveStyle({ color: ERROR });
+    // Red tell (#844): the pre-change leaf kept the pulse through 0:00 until
+    // the Overdue crossing; this reads the animation as 'none' at 0:00.
+    expect(clock).toHaveStyle({ animation: 'none' });
     expect(screen.queryByTestId('draft-clock-overdue')).not.toBeInTheDocument();
 
     // Overdue: expired for longer than the tolerance. The pulse meant "act now"
@@ -48,6 +52,30 @@ describe('PickClock - Expired vs Overdue (#769 AC1)', () => {
     expect(screen.getByTestId('draft-clock-overdue')).toHaveTextContent('Waiting on the server');
     expect(clock).toHaveStyle({ color: PRIMARY });
     expect(clock).not.toHaveStyle({ color: ERROR });
+    expect(clock).toHaveStyle({ animation: 'none' });
+  });
+
+  it('inside the urgent window with time left, the pulse runs; at 0:00 only the colour remains (#844)', () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    renderClock({ deadlineAt: now + 5000 });
+    const clock = screen.getByTestId('draft-clock');
+
+    // 5s left: urgent, pulsing. The animation name is an emotion keyframe, so
+    // assert on its shape rather than a literal name.
+    expect(clock).toHaveTextContent('0:05');
+    expect(clock).toHaveStyle({ color: ERROR });
+    expect(getComputedStyle(clock).animation).toMatch(/1s ease-in-out infinite/);
+
+    // 1s left: still pulsing (the boundary is zero, not the urgent edge).
+    act(() => { jest.advanceTimersByTime(4000); });
+    expect(clock).toHaveTextContent('0:01');
+    expect(getComputedStyle(clock).animation).toMatch(/1s ease-in-out infinite/);
+
+    // 0:00: colour stays, pulse gone.
+    act(() => { jest.advanceTimersByTime(1000); });
+    expect(clock).toHaveTextContent('0:00');
+    expect(clock).toHaveStyle({ color: ERROR });
     expect(clock).toHaveStyle({ animation: 'none' });
   });
 

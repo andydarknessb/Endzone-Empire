@@ -1,5 +1,6 @@
 import React from 'react';
 import { Paper, Box, Avatar, Typography } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import PickClock from './PickClock';
 import { DraftRoomAssistantBannerLine, useDraftRoomAssistantControls } from './DraftRoomAssistant';
 
@@ -105,8 +106,12 @@ function LiveDraftBanner({ league, onTheClock, isMyTurn }) {
         >
           {isMyTurn ? 'Your pick!' : team ? `${team.teamName} is on the clock` : 'Waiting…'}
         </Typography>
+        {/* Announcement only (#844): the visible Overdue line is the PickClock
+            leaf's, right after this region. This copy exists so the polite
+            region reads it once; showing it too put the same words on screen
+            twice, a hand's width apart. */}
         {overdue ? (
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          <Typography variant="body2" sx={visuallyHidden}>
             Waiting on the server
           </Typography>
         ) : null}
