@@ -7,6 +7,8 @@ const scheduler = require('../modules/scheduler');
 const liveGameEngine = require('../modules/liveGameEngine');
 const { getRuntimeState } = require('../modules/runtimeState');
 const { getRedisClient } = require('../modules/redis');
+// Module object, not a destructure: tests substitute the read (#842).
+const draftSweepLiveness = require('../modules/draftSweepLiveness');
 const { getQuotaState } = require('../modules/tank01Client');
 const { classifyError } = require('../modules/errorCategory');
 // One spelling of the Overdue tolerance (#768): the constant lives in the Pick
@@ -112,6 +114,11 @@ async function overdueClocks() {
 
 async function workerStatus() {
   const overdue = await overdueClocks();
+  // Sweep liveness (#842): the worker stamps Redis after every draft sweep. A
+  // missing or >60s-old stamp while a worker row exists means the process is
+  // alive but its sweep is not running (the #839 shape), and fails this section.
+  // Redis unknown answers stale:false - the composite's redis section owns that.
+  const sweep = await draftSweepLiveness.readDraftSweepLiveness();
   try {
     const result = await pool.query(
       `SELECT "worker_name", "last_seen_at", "last_error", "release_sha"
@@ -134,12 +141,22 @@ async function workerStatus() {
       // a stuck clock never flips the whole API to unhealthy.
       ok: workers.length > 0
         && workers.every((worker) => !worker.stale && !worker.lastError)
-        && overdue.length === 0,
+        && overdue.length === 0
+        && !sweep.draftSweepStale,
       workers,
       overdueClocks: overdue,
+      lastDraftSweepAt: sweep.lastDraftSweepAt,
+      draftSweepStale: sweep.draftSweepStale,
     };
   } catch (error) {
-    return { ok: false, workers: [], overdueClocks: overdue, unavailable: true };
+    return {
+      ok: false,
+      workers: [],
+      overdueClocks: overdue,
+      lastDraftSweepAt: sweep.lastDraftSweepAt,
+      draftSweepStale: sweep.draftSweepStale,
+      unavailable: true,
+    };
   }
 }
 

@@ -2,6 +2,7 @@ const pool = require('./pool');
 const { processAllDueWaivers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
 const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
+const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
@@ -426,6 +427,9 @@ async function draftTickUnlocked() {
   draftRunning = true;
   try {
     const picks = await processExpiredPickClocks();
+    // The sweep ran (it contains its own failures, so returning IS running):
+    // stamp the liveness key /api/health/worker reads (#842). Never throws.
+    await draftSweepLiveness.recordDraftSweep();
     if (picks.length > 0) console.log(`scheduler: auto-picked for ${picks.length} league(s)`);
   } catch (err) {
     console.error('draft clock tick failed:', err.message);

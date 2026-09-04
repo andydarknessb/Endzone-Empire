@@ -1,5 +1,35 @@
 const pool = require('./pool');
 const { logger } = require('./logger');
+const sentry = require('./sentry');
+
+/**
+ * Consecutive skips per lock id (#842). After #839 a skip can only mean another
+ * process holds the lock, which a deploy overlap explains for a few seconds and
+ * nothing explains for longer. The third consecutive skip raises one Sentry
+ * event per streak (fingerprinted per lock id so a lock's streaks group); an
+ * acquired tick ends the streak so the next one alarms again. In memory: a
+ * restart starts the count over, which is the right answer for a fresh process.
+ */
+const SKIP_ALARM_STREAK = 3;
+const skipStreaks = new Map();
+
+function noteSkip(lockId, name) {
+  const streak = (skipStreaks.get(lockId) || 0) + 1;
+  skipStreaks.set(lockId, streak);
+  logger.warn({ job: name, lockId, streak }, 'job skipped because another worker holds the lock');
+  if (streak === SKIP_ALARM_STREAK) {
+    sentry.captureError(
+      new Error(`advisory lock ${lockId} (${name}) skipped ${streak} consecutive ticks`),
+      { job: name, lockId, streak },
+      { fingerprint: ['advisory-lock-skip', String(lockId)] }
+    );
+  }
+}
+
+/** Test seam: forget every streak. */
+function resetSkipStreaks() {
+  skipStreaks.clear();
+}
 
 /**
  * Run `work` while holding the advisory lock `lockId`, or skip it when another
@@ -32,9 +62,10 @@ async function withAdvisoryLock(lockId, name, work) {
     const result = await client.query('SELECT pg_try_advisory_xact_lock($1) AS locked', [lockId]);
     const locked = Boolean(result.rows[0]?.locked);
     if (!locked) {
-      logger.debug({ job: name }, 'job skipped because another worker holds the lock');
+      noteSkip(lockId, name);
       return { skipped: true };
     }
+    skipStreaks.delete(lockId);
     try {
       return await work();
     } catch (error) {
@@ -66,4 +97,4 @@ async function withAdvisoryLock(lockId, name, work) {
   }
 }
 
-module.exports = { withAdvisoryLock };
+module.exports = { withAdvisoryLock, resetSkipStreaks, SKIP_ALARM_STREAK };

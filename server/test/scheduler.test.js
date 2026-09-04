@@ -35,6 +35,7 @@ const scheduler = require('../modules/scheduler');
 const tank01Client = require('../modules/tank01Client');
 const pool = require('../modules/pool');
 const pickClock = require('../services/pickClock.service');
+const draftSweepLiveness = require('../modules/draftSweepLiveness');
 
 test('syncEveryTicks doubles the box-score cadence once quota is degraded', async (t) => {
   t.mock.method(tank01Client, 'getQuotaState', async () => ({ mode: 'degraded' }));
@@ -42,6 +43,33 @@ test('syncEveryTicks doubles the box-score cadence once quota is degraded', asyn
 });
 
 // ---- draft-clock tick containment (#600) -----------------------------------
+
+test('draftTick stamps the draft-sweep liveness key after the sweep runs, and not on a skipped tick (#842)', async (t) => {
+  const stamps = [];
+  t.mock.method(draftSweepLiveness, 'recordDraftSweep', async () => { stamps.push(Date.now()); return true; });
+  let locked = true;
+  const client = {
+    query: async (sql) => {
+      const text = String(sql);
+      if (text.includes('pg_try_advisory_xact_lock')) return { rows: [{ locked }] };
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(text)) return { rows: [] };
+      throw new Error(`unexpected: ${text}`);
+    },
+    release: () => {},
+  };
+  t.mock.method(pool, 'connect', async () => client);
+  // The sweep's one read: no active draft, so it returns at once.
+  t.mock.method(pool, 'query', async () => ({ rows: [] }));
+
+  await scheduler.draftTick();
+  assert.equal(stamps.length, 1, 'an acquired tick stamps liveness exactly once');
+
+  locked = false;
+  await scheduler.draftTick();
+  // Red tell: stamping before the lock (or on skip) would count 2 here and let a
+  // worker that never runs its sweep look alive.
+  assert.equal(stamps.length, 1, 'a skipped tick does not stamp');
+});
 
 test('draftTick contains a failure in the advisory-lock acquisition itself, without throwing', async (t) => {
   // The sweep contains its own failures, and draftTickUnlocked has always caught

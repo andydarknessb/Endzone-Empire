@@ -9,6 +9,7 @@ const { createFakePool } = require('./helpers/fakePool');
 const { keys, NEXT_QUARTER } = require('./helpers/payloadShape');
 const scheduler = require('../modules/scheduler');
 const liveGameEngine = require('../modules/liveGameEngine');
+const draftSweepLiveness = require('../modules/draftSweepLiveness');
 const { ERROR_CATEGORIES } = require('../modules/errorCategory');
 
 // The published error fields must always be null (healthy) or a member of this
@@ -155,7 +156,7 @@ test('GET /worker publishes exactly ok and workers, each worker an exact key set
 
   const res = await request(app).get('/api/health/worker');
 
-  assert.deepEqual(keys(res.body), ['ok', 'overdueClocks', 'workers']);
+  assert.deepEqual(keys(res.body), ['draftSweepStale', 'lastDraftSweepAt', 'ok', 'overdueClocks', 'workers']);
   assert.equal(res.body.workers.length, 1);
   assert.deepEqual(keys(res.body.workers[0]), ['lastError', 'lastSeenAt', 'name', 'release', 'stale']);
   assert.deepEqual(res.body.overdueClocks, [], 'no stuck clocks by default');
@@ -173,7 +174,7 @@ test('GET /worker adds exactly one key when the heartbeat table cannot be read',
   const res = await request(app).get('/api/health/worker');
 
   assert.equal(res.status, 503);
-  assert.deepEqual(keys(res.body), ['ok', 'overdueClocks', 'unavailable', 'workers']);
+  assert.deepEqual(keys(res.body), ['draftSweepStale', 'lastDraftSweepAt', 'ok', 'overdueClocks', 'unavailable', 'workers']);
   assert.deepEqual(res.body.workers, []);
   assert.deepEqual(res.body.overdueClocks, []);
   assert.ok(!JSON.stringify(res.body).includes('relation does not exist'));
@@ -344,7 +345,7 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
   assert.deepEqual(keys(res.body.db), ['latencyMs', 'ok']);
   assert.deepEqual(keys(res.body.redis), ['configured', 'ok']);
   assert.deepEqual(keys(res.body.runtime), ['ready', 'shuttingDown']);
-  assert.deepEqual(keys(res.body.worker), ['ok', 'overdueClocks', 'workers']);
+  assert.deepEqual(keys(res.body.worker), ['draftSweepStale', 'lastDraftSweepAt', 'ok', 'overdueClocks', 'workers']);
   assert.deepEqual(keys(res.body.worker.workers[0]), ['lastError', 'lastSeenAt', 'name', 'release', 'stale']);
   assert.deepEqual(keys(res.body.quota), ['budget', 'cycleStart', 'mode', 'provider', 'remaining', 'used']);
   assert.deepEqual(keys(res.body.holdout), ['obligations', 'ok']);
@@ -504,5 +505,45 @@ test('GET /worker: a file-path error message also leaks nothing', async (t) => {
   const res = await request(app).get('/api/health/worker');
   assert.ok(CATEGORY_ENUM.has(res.body.workers[0].lastError));
   assertNoHostileSubstring(res.body);
+  fake.assertClean();
+});
+
+// ---------------------------------------------------------------------------
+// /worker - draft sweep liveness (#842)
+// ---------------------------------------------------------------------------
+// The worker stamps Redis after every draft sweep. A stale or missing stamp
+// while a worker row exists means the process heartbeat is green but its sweep
+// is not running - the #839 shape the Overdue detector missed because every
+// pause/resume re-armed the clock inside the tolerance. It fails /worker.
+
+test('GET /worker: a stale draft-sweep stamp publishes the fields and fails the check with 503 (#842)', async (t) => {
+  const fake = healthPool().install(t);
+  const stamp = new Date(Date.now() - 61 * 1000).toISOString();
+  t.mock.method(draftSweepLiveness, 'readDraftSweepLiveness', async () => ({ lastDraftSweepAt: stamp, draftSweepStale: true }));
+
+  const res = await request(app).get('/api/health/worker');
+
+  // Red tell: drop the stale fold from workerStatus's ok and this reads 200.
+  assert.equal(res.status, 503, 'a sweep that stopped running fails /worker');
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.draftSweepStale, true);
+  assert.equal(res.body.lastDraftSweepAt, stamp);
+  fake.assertClean();
+});
+
+test('GET /worker: a fresh draft-sweep stamp passes, and an unknown stamp (Redis down) fails open (#842)', async (t) => {
+  const fake = healthPool().install(t);
+  const stamp = new Date(Date.now() - 5 * 1000).toISOString();
+  t.mock.method(draftSweepLiveness, 'readDraftSweepLiveness', async () => ({ lastDraftSweepAt: stamp, draftSweepStale: false }));
+
+  let res = await request(app).get('/api/health/worker');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.lastDraftSweepAt, stamp);
+
+  t.mock.method(draftSweepLiveness, 'readDraftSweepLiveness', async () => ({ lastDraftSweepAt: null, draftSweepStale: false }));
+  res = await request(app).get('/api/health/worker');
+  assert.equal(res.status, 200, 'Redis unknown never manufactures a 503 here; the composite redis section owns it');
+  assert.equal(res.body.lastDraftSweepAt, null);
   fake.assertClean();
 });

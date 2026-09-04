@@ -6,6 +6,7 @@ const bootGates = require('./modules/bootGates');
 const { installConsoleBridge, logger } = require('./modules/logger');
 const { initSentry, captureError, flushSentry } = require('./modules/sentry');
 const { startScheduler, stopScheduler, getSchedulerStatus } = require('./modules/scheduler');
+const draftSweepLiveness = require('./modules/draftSweepLiveness');
 const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('./modules/draftRoomBroadcast');
 const { createEmitterTransport } = require('./modules/draftRoomEmitterTransport');
 const {
@@ -40,6 +41,10 @@ async function startWorker() {
   // rather than the silent drop this replaces.
   setDraftRoomBroadcast(createDraftRoomBroadcast(createEmitterTransport(), 'emitter'));
   await heartbeat();
+  // Boot stamp for the sweep-liveness key (#842), so a missing key never means
+  // "just started": from here on only a sweep that stopped running leaves it
+  // absent or stale.
+  await draftSweepLiveness.recordDraftSweep();
   startScheduler();
   startLiveGameEngine();
   heartbeatTimer = setInterval(() => {
