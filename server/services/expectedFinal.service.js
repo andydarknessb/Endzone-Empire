@@ -95,11 +95,19 @@ function gameStateFor({ liveStatus, kickoffAt, onBye, points, now }) {
 
 /**
  * Expected finals for the given teams in one (season, week) of one league.
- * Returns a Map<teamId, { expectedFinal, playersRemaining, starters }> with
- * an entry only for teams that have at least one starter row; `starters` is
- * an array of { playerId, projection, points, gameState, expectedFinal }
- * for callers that show per-player figures. Best-ball entries contain the
- * optimizer's chosen lineup. `db` may be a pool or a checked-out client.
+ * Returns a Map<teamId, { expectedFinal, playersRemaining, starters, bench }>
+ * with an entry only for teams that have at least one lineup row; `starters`
+ * and `bench` are arrays of
+ *   { playerId, position, projection, points, gameState, expectedFinal,
+ *     availability: { available, reason } }
+ * for callers that show per-player figures. Every lineup row, starter or
+ * bench, is priced by the one rule (the weekly projection under the
+ * availability rule: bye, Out and IR count zero, and the row says why); only
+ * the starters are summed into the team's Expected final and counted as
+ * Players remaining. Bench rows ride along so the detail route never runs a
+ * second, differently-ruled projection read for them (#883). Best-ball
+ * entries' `starters` are the optimizer's chosen lineup; which rows it chose
+ * is not marked. `db` may be a pool or a checked-out client.
  */
 async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool, now = new Date() }) {
   const result = new Map();
@@ -112,7 +120,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   const rules = rulesForLeague(league);
 
   const candidateRows = await db.query(
-    `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id",
+    `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
             "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -122,7 +130,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
        AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
      WHERE "lineup_entries"."team_id" = ANY($1)
        AND "lineup_entries"."season" = $2 AND "lineup_entries"."week" = $3
-       AND "lineup_entries"."slot" ${league.best_ball ? "!= 'IR'" : "NOT IN ('BENCH', 'IR')"}`,
+       AND "lineup_entries"."slot" != 'IR'`,
     [ids, season, week]
   );
   if (candidateRows.rows.length === 0) return result;
@@ -172,6 +180,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   const kickoffByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.kickoff_at]));
 
   const byTeam = new Map();
+  const benchByTeam = new Map();
   for (const row of candidateRows.rows) {
     const team = normalizeNflTeam(row.nfl_team);
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
@@ -194,6 +203,13 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const starter = {
       playerId: row.player_id,
       position: row.position,
+      // The availability rule's verdict, so a surface can say WHY a row prices
+      // at zero (on bye, out, on IR) instead of printing the number.
+      // Questionable and Doubtful are available; their reason is not carried.
+      availability: {
+        available: availability.available,
+        reason: availability.available ? null : availability.reason,
+      },
       // Figures are null without a projection run (no forecast of zero); the
       // game state is real either way. rawExpectedFinal stays a number so the
       // best-ball optimizer can still order the lineup by points on the board.
@@ -203,8 +219,23 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       expectedFinal: priced ? expectedFinalForStarter({ projection, points, gameState }) : null,
       rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, round: false }),
     };
+    // A BENCH row is priced like any other but never summed. In a redraft
+    // league it is only a bench row; in best ball every non-IR row is also a
+    // candidate for the optimizer, so it sits in both lists.
+    if (row.slot === 'BENCH') {
+      if (!benchByTeam.has(row.team_id)) benchByTeam.set(row.team_id, []);
+      benchByTeam.get(row.team_id).push(starter);
+      if (!league.best_ball) continue;
+    }
     if (!byTeam.has(row.team_id)) byTeam.set(row.team_id, []);
     byTeam.get(row.team_id).push(starter);
+  }
+
+  const stripRaw = ({ rawExpectedFinal, ...priced }) => priced;
+  // A team with bench rows and no starter rows still gets an entry (its bench
+  // is priced); its figures are null, as they were when the team was absent.
+  for (const teamId of benchByTeam.keys()) {
+    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
   }
 
   for (const [teamId, candidates] of byTeam) {
@@ -223,14 +254,18 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
         return chosen.map(({ playerId }) => byPlayerId.get(playerId));
       })()
       : candidates;
+    // No starters (a team whose only rows are bench) has no figures, exactly as
+    // when it was absent: a bench is never summed into an Expected final.
+    const figures = priced && starters.length > 0;
     result.set(Number(teamId), {
-      expectedFinal: priced ? round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)) : null,
-      playersRemaining: priced ? starters.filter((s) => s.gameState !== 'final').length : null,
+      expectedFinal: figures ? round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)) : null,
+      playersRemaining: figures ? starters.filter((s) => s.gameState !== 'final').length : null,
       // The status is read from these starters' game states. That reading is
       // trustworthy for a redraft league even without projections (the lineup
       // is fixed), but not for best ball without a chosen lineup.
       statusReliable: !league.best_ball || priced,
-      starters: starters.map(({ rawExpectedFinal, ...starter }) => starter),
+      starters: starters.map(stripRaw),
+      bench: (benchByTeam.get(teamId) || []).map(stripRaw),
     });
   }
   return result;

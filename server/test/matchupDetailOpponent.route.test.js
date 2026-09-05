@@ -82,6 +82,9 @@ async function getHomeStarter(t, { starterRow, scheduleRows }) {
     [/"lineup_entries"\."slot" NOT IN/, (text, params) => ({
       rows: params[0] === VIEWER.teamId ? [starterRow] : [], // starters; only the home team has one
     })],
+    // The producer's own read (every non-IR row for both teams)
+    // read; it does not matter to the opponent question.
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({ rows: [] })],
   ]).install(t);
 
   const res = await request(app)

@@ -59,7 +59,8 @@ const MATCHUP_ROW = {
 
 // Home starters: a QB whose game is final at 22.5 (562.5 passing yards at
 // 0.04), a WR ruled Out (projection 11.3 counts 0) not yet kicked off. Home
-// bench: an RB with a raw projection of 7.7. Away: one starter, a bye.
+// bench: an available RB with a weekly projection of 7.7, and a TE ruled Out
+// (projection 5.5 counts 0). Away: one starter, a bye.
 const player = (id, name, position, nfl_team, injury_status, slot, stats) => ({
   id, name, position, nfl_team, injury_status, slot, stats,
 });
@@ -67,13 +68,17 @@ const HOME_STARTERS = [
   player(101, 'Some Passer', 'QB', 'KC', null, 'QB', { passingYards: 562.5 }),
   player(102, 'Some Wideout', 'WR', 'PHI', 'O', 'WR', null),
 ];
-const HOME_BENCH = [player(103, 'Some Runner', 'RB', 'DAL', null, 'BENCH', null)];
+const HOME_BENCH = [
+  player(103, 'Some Runner', 'RB', 'DAL', null, 'BENCH', null),
+  player(104, 'Hurt Tight End', 'TE', 'DAL', 'O', 'BENCH', null),
+];
 const AWAY_STARTERS = [player(201, 'Resting Back', 'RB', 'Ghosts', null, 'RB', null)];
 
 const PROJECTIONS = new Map([
   [101, { points: 19 }],
   [102, { points: 11.3 }],
   [103, { points: 7.7 }],
+  [104, { points: 5.5 }],
   [201, { points: 9 }],
 ]);
 const LIVE = [{ home_team: 'KC', away_team: 'LV', game_status: 'final' }];
@@ -115,11 +120,12 @@ async function getDetail(t, { gameRows = [], throwGames = false } = {}) {
     [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
       rows: params[0] === HOME ? HOME_STARTERS : AWAY_STARTERS,
     })],
-    // The producer's one read across both teams.
+    // The producer's one read across both teams: every non-IR lineup row,
+    // bench included, each carrying its slot.
     [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
       rows: [
-        ...HOME_STARTERS.map((p) => ({ team_id: HOME, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
-        ...AWAY_STARTERS.map((p) => ({ team_id: AWAY, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...[...HOME_STARTERS, ...HOME_BENCH].map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...AWAY_STARTERS.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
       ],
     })],
   ]).install(t);
@@ -143,16 +149,35 @@ test('each side carries its expected final and players remaining, and projectedT
   assert.equal('projectedTotal' in body.away, false);
 });
 
-test('starters project under the availability rule and bench players from the same run raw', async (t) => {
-  const { body, runCalls } = await getDetail(t);
-  const byId = new Map([...body.home.starters, ...body.home.bench, ...body.away.starters].map((p) => [p.id, p]));
-  assert.equal(byId.get(101).projected, 19);
-  assert.equal(byId.get(102).projected, 0, 'a starter ruled Out projects zero');
-  assert.equal(byId.get(201).projected, 0, 'a starter on bye projects zero');
-  assert.equal(byId.get(103).projected, 7.7, 'a bench player shows the run\'s raw number');
-  assert.equal(byId.get(101).points, 22.5);
-  // Two reads of the weekly run: the producer's (every starter) and the bench's.
-  assert.deepEqual(runCalls, [[101, 102, 201], [103]]);
+// #883: every row, starter or bench, is priced by the one rule, and an
+// unavailable row says why. Red-tell: removing the availability zeroing for
+// bench rows in the decorator turns the Out-bench case red and no other.
+test('an Out bench player projects zero with the reason, an available bench player carries the weekly figure', async (t) => {
+  const { body } = await getDetail(t);
+  const byId = new Map(body.home.bench.map((p) => [p.id, p]));
+  assert.equal(byId.get(104).projected, 0, 'an Out bench player projects zero');
+  assert.deepEqual(byId.get(104).availability, { available: false, reason: 'out' });
+  assert.equal(byId.get(103).projected, 7.7, 'an available bench player carries the weekly figure');
+  assert.deepEqual(byId.get(103).availability, { available: true, reason: null });
+});
+
+test('a starter on bye projects zero with the reason and is excluded from the expected final', async (t) => {
+  const { body } = await getDetail(t);
+  const [resting] = body.away.starters;
+  assert.equal(resting.id, 201);
+  assert.equal(resting.projected, 0);
+  assert.deepEqual(resting.availability, { available: false, reason: 'bye' });
+  assert.equal(body.away.expectedFinal, 0, 'the bye contributes nothing to the team');
+  // A starter ruled Out reads the same way; an available starter carries no reason.
+  const home = new Map(body.home.starters.map((p) => [p.id, p]));
+  assert.deepEqual(home.get(102).availability, { available: false, reason: 'out' });
+  assert.deepEqual(home.get(101).availability, { available: true, reason: null });
+  assert.equal(home.get(101).projected, 19);
+});
+
+test('the detail route makes one projection read per matchup, bench rows included', async (t) => {
+  const { runCalls } = await getDetail(t);
+  assert.deepEqual(runCalls, [[101, 102, 103, 104, 201]]);
 });
 
 // ---------------------------------------------------------------------------
@@ -215,8 +240,8 @@ async function detailStatus(t, { live, schedule, throwLive = false }) {
     })],
     [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
       rows: [
-        ...homeStarters.map((p) => ({ team_id: HOME, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
-        ...awayStarters.map((p) => ({ team_id: AWAY, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...homeStarters.map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...awayStarters.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
       ],
     })],
   ]).install(t);

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import MatchupDetail from './MatchupDetail';
+import supabase from '../../api/supabaseClient';
 import { useLeague } from '../../hooks/useLeague';
 
 jest.mock('../../api/apiClient', () => ({
@@ -11,16 +12,38 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn() },
 }));
 
+// The anon Supabase client the entity hook reads live game states through
+// (#885). Its initial read answers from `liveGameRows`; the channel is inert.
+jest.mock('../../api/supabaseClient', () => ({
+  __esModule: true,
+  default: {
+    from: jest.fn(),
+    channel: jest.fn(),
+    removeChannel: jest.fn(),
+  },
+}));
+
 jest.mock('../../hooks/useLeague', () => ({
   useLeague: jest.fn(),
 }));
 
-// Stubbed so the ticker tests are isolated from useLiveGameRealtime/Supabase —
-// this file only needs to verify MatchupDetail passes the right gameIds.
+// Stubbed so the strip tests only verify which game rows MatchupDetail hands
+// down from the model (the entity's one subscription), not the strip's render.
 jest.mock('../LiveGameStatus/LiveGameStatus', () => ({
   __esModule: true,
-  default: ({ gameId }) => <div data-testid="live-game-status">{gameId}</div>,
+  default: ({ state }) => <div data-testid="live-game-status">{state.tank01_game_id}</div>,
 }));
+
+let liveGameRows = [];
+function installSupabase() {
+  const inFn = jest.fn().mockImplementation((column, ids) => Promise.resolve({
+    data: liveGameRows.filter((r) => ids.includes(r.tank01_game_id)),
+    error: null,
+  }));
+  supabase.from.mockReturnValue({ select: jest.fn().mockReturnValue({ in: inFn }) });
+  const channelObj = { on: jest.fn(() => channelObj), subscribe: jest.fn(() => channelObj) };
+  supabase.channel.mockReturnValue(channelObj);
+}
 
 const renderDetail = (leagueId = 1, matchupId = 9) =>
   renderWithProviders(<MatchupDetail />, {
@@ -115,6 +138,8 @@ beforeEach(() => {
     socket = makeFakeSocket();
     return socket;
   };
+  liveGameRows = [];
+  installSupabase();
   useLeague.mockReturnValue({
     league: {
       id: 1,
@@ -571,26 +596,69 @@ test('re-joins the league room and refetches the matchup when the manager reconn
   await screen.findByText('Week 3 Matchup');
 });
 
-test('mounts one live-game strip entry per NFL game id on the detail body, with no second fetch for games (#884)', async () => {
+// #884 / #885: the game ids come from the detail body the page already
+// fetched, and their rows from the entity's one subscription - the page issues
+// no second fetch for games. Red-tell: reading game ids from anywhere but the
+// detail body turns this case red.
+test('a detail body carrying two game ids mounts two game status entries with no second fetch', async () => {
+  liveGameRows = [
+    { tank01_game_id: '20260910_BUF@KC', game_status: 'in_progress', quarter: 'Q2', time_remaining: '3:10', home_team: 'KC', away_team: 'BUF', current_score_home: 14, current_score_away: 7 },
+    { tank01_game_id: '20260913_SF@LAR', game_status: 'scheduled', home_team: 'LAR', away_team: 'SF', current_score_home: 0, current_score_away: 0 },
+  ];
   apiClient.get.mockResolvedValue(matchupResponse({ nflGameIds: ['20260910_BUF@KC', '20260913_SF@LAR'] }));
 
   renderDetail();
 
   await screen.findByText('Week 3 Matchup');
-  const games = screen.getAllByTestId('live-game-status');
+  const games = await screen.findAllByTestId('live-game-status');
   expect(games.map((g) => g.textContent)).toEqual(['20260910_BUF@KC', '20260913_SF@LAR']);
-  // The ids came off the body the page already fetched (the detail read, plus the
-  // notification prefs the page reads for its celebrations): no GET asks for games.
-  const urls = apiClient.get.mock.calls.map(([url]) => url);
-  expect(urls).toContain('/api/league/1/matchups/9');
-  expect(urls.filter((url) => /game/i.test(url))).toEqual([]);
+  // The games came with the detail body: no request names a games resource.
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league/1/matchups/9');
+  expect(apiClient.get.mock.calls.filter(([url]) => /game/i.test(url))).toEqual([]);
 });
 
 test('does not render the live-game ticker once the matchup is final', async () => {
-  apiClient.get.mockResolvedValue(matchupResponse({ nflGameIds: ['20260910_BUF@KC'], matchup: { final: true } }));
+  liveGameRows = [
+    { tank01_game_id: '20260910_BUF@KC', game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 24, current_score_away: 20 },
+  ];
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { final: true }, nflGameIds: ['20260910_BUF@KC'] }));
 
   renderDetail();
 
   await screen.findByText('Week 3 Matchup');
   expect(screen.queryByTestId('live-game-status')).not.toBeInTheDocument();
+});
+
+// #883: an Unavailable player shows why in place of his projection and no pace
+// bar; an available row keeps its projection and pace bar. Red-tell: rendering
+// the number instead of the label for `available: false` turns the first case
+// red and no other.
+test('an unavailable bench row renders its reason and no pace bar; an available row keeps its projection', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({
+    homeStarters: [starter({ projected: 21.4, availability: { available: true, reason: null } })],
+    homeBench: [
+      { id: 20, name: 'Bench Runner', position: 'RB', points: 0, projected: 0, availability: { available: false, reason: 'out' } },
+      { id: 21, name: 'Bye Receiver', position: 'WR', points: 0, projected: 0, availability: { available: false, reason: 'bye' } },
+      { id: 22, name: 'Healthy Tight End', position: 'TE', points: 3.1, projected: 6.5, availability: { available: true, reason: null } },
+    ],
+  }));
+
+  renderDetail();
+  await screen.findByText('P. Mahomes');
+
+  // The starter's expandable row: available, so the pace bar and projection show.
+  // The expandable row is the button that carries aria-expanded (the name link
+  // inside it is a button too, without it).
+  await userEvent.click(screen.getByRole('button', { name: /P\. Mahomes/, expanded: false }));
+  expect(screen.getByText('Pace')).toBeInTheDocument();
+  expect(screen.getByText(/21\.4 proj/)).toBeInTheDocument();
+  expect(screen.queryByTestId('unavailable-reason')).not.toBeInTheDocument();
+
+  // The benches (Scoreboard mode): the Out and bye rows say so, the healthy one projects.
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Show Benches' }));
+  const reasons = screen.getAllByTestId('unavailable-reason').map((el) => el.textContent.trim());
+  expect(reasons).toEqual(['· out', '· on bye']);
+  expect(screen.getByText('· Proj 6.5')).toBeInTheDocument();
+  expect(screen.queryByText('· Proj 0.0')).not.toBeInTheDocument();
 });

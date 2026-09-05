@@ -1,29 +1,22 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { Box, Chip, Typography, Skeleton, Alert } from '@mui/material';
-import useLiveGameRealtime from '../../hooks/useLiveGameRealtime';
+import { Box, Chip, Typography } from '@mui/material';
 
 /**
- * Standalone real-NFL-game status strip (score, quarter, clock) driven by
- * Supabase Realtime. Matchup Detail renders one of these per real NFL game a
- * live fantasy matchup maps to (the matchup detail body carries the ids, #884);
- * a fantasy matchup can span many real games, so the caller lays them out in a
- * horizontal strip.
+ * One real NFL game's status strip (score, quarter, clock): a pure render of
+ * a `live_game_states` row handed in by the page. It reads nothing itself:
+ * the Matchup entity hook owns the one realtime subscription for every game a
+ * Matchup spans (#885) and hands each game's current row down, so this strip
+ * cannot open a channel of its own. Matchup Detail renders one per game.
  */
-export default function LiveGameStatus({ gameId }) {
-  const { state, loading, error } = useLiveGameRealtime(gameId);
-
-  // The skeleton is a decorative placeholder with no text, role or name, so
-  // data-testid is the only seam a test has for it (same as page-skeleton).
-  if (loading) return <Skeleton variant="rounded" height={64} data-testid="live-game-skeleton" />;
-  if (error) return <Alert severity="error">{error}</Alert>;
+export default function LiveGameStatus({ state }) {
   if (!state) return null;
 
   const isLive = state.game_status === 'in_progress';
   const isFinal = state.game_status === 'final';
   const label = isLive
     ? `${state.quarter || ''} ${state.time_remaining || ''}`.trim() || 'LIVE'
-    : state.game_status.toUpperCase();
+    : String(state.game_status || '').toUpperCase();
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -36,5 +29,16 @@ export default function LiveGameStatus({ gameId }) {
 }
 
 LiveGameStatus.propTypes = {
-  gameId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]).isRequired,
+  // A live_game_states row: game_status, quarter, time_remaining, the two team
+  // codes and the two current scores. Null renders nothing.
+  state: PropTypes.shape({
+    tank01_game_id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    game_status: PropTypes.string,
+    quarter: PropTypes.string,
+    time_remaining: PropTypes.string,
+    home_team: PropTypes.string,
+    away_team: PropTypes.string,
+    current_score_home: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    current_score_away: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+  }),
 };

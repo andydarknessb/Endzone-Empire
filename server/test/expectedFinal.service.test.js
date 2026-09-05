@@ -151,6 +151,39 @@ test('a team is the sum of its starters across all three phases, with players re
   ]);
 });
 
+// #883: bench rows are priced by the same rule as starters and ride on the
+// team's entry, but never enter the Expected final or Players remaining.
+// Red-tell: adding a bench row's figure into the sum turns the sum case red
+// and no other.
+test('bench rows are priced alongside the starters, with the availability rule, and never summed', async (t) => {
+  const bench = [
+    // An available bench RB, in progress at 3.0 with a 10.0 projection.
+    { team_id: 10, player_id: 6, slot: 'BENCH', position: 'RB', nfl_team: 'BUF', injury_status: null, stats: { rushingYards: 30 } },
+    // A bench WR ruled Out: priced zero, and the row says why.
+    { team_id: 10, player_id: 7, slot: 'BENCH', position: 'WR', nfl_team: 'DAL', injury_status: 'O', stats: null },
+  ];
+  const projections = new Map([...PROJECTIONS, [6, { points: 10.0 }], [7, { points: 12.0 }]]);
+  const fake = weekPool(t, { starters: [...STARTERS, ...bench], projections });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  const home = byTeam.get(10);
+  // The sum and the count are the starters' alone: 47.8 and 2, as above.
+  assert.equal(home.expectedFinal, 47.8);
+  assert.equal(home.playersRemaining, 2);
+  assert.deepEqual(home.starters.map((s) => s.playerId), [1, 2, 3]);
+  assert.deepEqual(home.bench.map((b) => [b.playerId, b.projection, b.gameState, b.expectedFinal, b.availability]), [
+    [6, 10, 'in_progress', 10, { available: true, reason: null }],
+    [7, 0, 'in_progress', 0, { available: false, reason: 'out' }],
+  ]);
+  // Starters carry the same verdict shape; the Out kicker on team 20 says so.
+  assert.deepEqual(byTeam.get(20).starters.map((s) => [s.playerId, s.availability.reason]), [[4, 'bye'], [5, 'out']]);
+  assert.deepEqual(byTeam.get(20).bench, []);
+  // One projection read covers starters and bench together.
+  const [call] = projectionService.getWeeklyProjections.mock.calls;
+  assert.deepEqual([...call.arguments[0].playerIds].sort(), [1, 2, 3, 4, 5, 6, 7]);
+});
+
 test('the projection run is asked once for the union of every starter under the league', async (t) => {
   const fake = weekPool(t);
   await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });

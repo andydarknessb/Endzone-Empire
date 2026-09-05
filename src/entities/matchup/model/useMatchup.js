@@ -1,10 +1,97 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import apiClient from '../../../api/apiClient';
+import supabase from '../../../api/supabaseClient';
 import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 import {
   matchupFromDetailBody, applyScoreEvent, applyIdentityPatch, pairStartersBySlot,
 } from './matchupModel';
+
+const LIVE_GAMES_TABLE = 'live_game_states';
+
+/** The listed games in id order, from the id -> row map the subscription keeps. */
+function gamesInOrder(ids, byId) {
+  return ids.map((id) => byId.get(String(id))).filter(Boolean);
+}
+
+/**
+ * The live state of every NFL game a Matchup spans (its detail body's
+ * `nflGameIds`, #884), through ONE realtime subscription instead of one channel
+ * per game (#885): an initial read of every listed game's row, then one channel
+ * filtered on the whole id set, opened only while a listed game is in progress
+ * and closed once every listed game is final. A game already final at the
+ * initial read is never subscribed to. Nothing else on the client reads
+ * live_game_states (ADR 0009 keeps it the anon-readable surface; this is its
+ * one reader). Returns the games' rows in id order; empty when there is no
+ * client (realtime disabled), no ids, or the read failed.
+ */
+function useLiveGames(matchupId, gameIds) {
+  const [byId, setById] = useState(() => new Map());
+  // A stable key so a fresh but equal ids array never re-subscribes.
+  const idsKey = (gameIds || []).map(String).join(',');
+
+  useEffect(() => {
+    const ids = idsKey ? idsKey.split(',') : [];
+    setById(new Map());
+    if (!supabase || ids.length === 0) return undefined;
+
+    let cancelled = false;
+    let channel = null;
+    const close = () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
+
+    // Open the one channel over the games not yet final, and keep it only
+    // while one of them is in progress; every listed game final closes it.
+    const subscribe = (rows) => {
+      const open = rows.filter((r) => r.game_status !== 'final').map((r) => String(r.tank01_game_id));
+      const anyLive = rows.some((r) => r.game_status === 'in_progress');
+      if (!anyLive || open.length === 0 || channel) return;
+      channel = supabase
+        .channel(`live-games-${matchupId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: LIVE_GAMES_TABLE,
+            filter: `tank01_game_id=in.(${open.join(',')})`,
+          },
+          (payload) => {
+            if (cancelled || !payload || !payload.new) return;
+            setById((prev) => {
+              const next = new Map(prev);
+              next.set(String(payload.new.tank01_game_id), payload.new);
+              const listed = gamesInOrder(ids, next);
+              if (listed.length === ids.length && listed.every((r) => r.game_status === 'final')) close();
+              return next;
+            });
+          }
+        )
+        .subscribe();
+    };
+
+    (async () => {
+      const { data, error } = await supabase
+        .from(LIVE_GAMES_TABLE)
+        .select('*')
+        .in('tank01_game_id', ids);
+      if (cancelled || error || !Array.isArray(data)) return;
+      setById(new Map(data.map((r) => [String(r.tank01_game_id), r])));
+      subscribe(data);
+    })();
+
+    return () => {
+      cancelled = true;
+      close();
+    };
+  }, [matchupId, idsKey]);
+
+  return useMemo(() => gamesInOrder(idsKey ? idsKey.split(',') : [], byId), [idsKey, byId]);
+}
 
 /**
  * Applies the score event's per-play point deltas to a side's starters,
@@ -158,7 +245,13 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
     [home, away, slotOrder]
   );
 
-  return { matchup, detail, starterRows, loading, error, refetch: loadMatchup };
+  // The NFL games this Matchup spans (the detail body's `nflGameIds`) and their
+  // live state, on the model as `games` (#885). One subscription for all of
+  // them; the page renders a strip per row and opens nothing itself.
+  const games = useLiveGames(matchupId, detail?.nflGameIds);
+  const model = useMemo(() => (matchup ? { ...matchup, games } : matchup), [matchup, games]);
+
+  return { matchup: model, detail, starterRows, loading, error, refetch: loadMatchup };
 }
 
 export default useMatchup;
