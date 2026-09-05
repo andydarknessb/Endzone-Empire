@@ -47,6 +47,8 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
       week: 3,
       final: false,
       status: 'live',
+      firstKickoffAt: null,
+      syncedAt: null,
       home: {
         teamId: 10,
         name: 'Home Town',
@@ -75,6 +77,8 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
       week: 3,
       final: false,
       status: 'played',
+      firstKickoffAt: null,
+      syncedAt: null,
       home: {
         teamId: 10,
         name: 'Home Town',
@@ -324,5 +328,38 @@ describe('pairStartersBySlot: starters paired by slot, in the league order', () 
     expect(pairStartersBySlot(shortHome, fullAway, [])).toEqual([]);
     expect(pairStartersBySlot(shortHome, fullAway, null)).toEqual([]);
     expect(pairStartersBySlot(shortHome, fullAway, [null, undefined])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #892: the two week facts, first kickoff and sync time, on every wire.
+// ---------------------------------------------------------------------------
+describe('firstKickoffAt and syncedAt (#892)', () => {
+  test('a list row maps first_kickoff_at and synced_at, null when absent', () => {
+    const withFacts = matchupFromListRow({ ...listRow, first_kickoff_at: '2025-09-21T17:00:00.000Z', synced_at: '2025-09-21T19:42:00.000Z' });
+    expect(withFacts.firstKickoffAt).toBe('2025-09-21T17:00:00.000Z');
+    expect(withFacts.syncedAt).toBe('2025-09-21T19:42:00.000Z');
+    const without = matchupFromListRow(listRow);
+    expect(without.firstKickoffAt).toBeNull();
+    expect(without.syncedAt).toBeNull();
+  });
+
+  test('a detail body maps them off the matchup object', () => {
+    const model = matchupFromDetailBody({
+      ...detailBody,
+      matchup: { ...detailBody.matchup, first_kickoff_at: '2025-09-21T17:00:00.000Z', synced_at: '2025-09-21T19:42:00.000Z' },
+    });
+    expect(model.firstKickoffAt).toBe('2025-09-21T17:00:00.000Z');
+    expect(model.syncedAt).toBe('2025-09-21T19:42:00.000Z');
+  });
+
+  test('a score event moves them only when carried; an older entry leaves them untouched', () => {
+    const base = matchupFromListRow({ ...listRow, first_kickoff_at: '2025-09-21T17:00:00.000Z', synced_at: '2025-09-21T19:42:00.000Z' });
+    const older = applyScoreEvent(base, { matchupId: 5, homeScore: 50, awayScore: 60 });
+    expect(older.firstKickoffAt).toBe('2025-09-21T17:00:00.000Z');
+    expect(older.syncedAt).toBe('2025-09-21T19:42:00.000Z');
+    const newer = applyScoreEvent(base, { matchupId: 5, homeScore: 50, awayScore: 60, syncedAt: '2025-09-21T20:12:00.000Z', firstKickoffAt: null });
+    expect(newer.syncedAt).toBe('2025-09-21T20:12:00.000Z');
+    expect(newer.firstKickoffAt).toBeNull();
   });
 });

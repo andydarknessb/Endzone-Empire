@@ -1,0 +1,277 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=Press+Start+2P&amp;display=swap">
+  <style>
+
+[data-theme="dark"]{
+  --bg:#0b1015; --surface:#141b23; --surface2:#1b242f; --surface3:#222e3b;
+  --line:rgba(154,183,211,.12); --line-strong:rgba(154,183,211,.22);
+  --ink:#e8eef4; --dim:#93a4b5; --faint:#8a9bad;
+  --accent:#2fd97b; --accent-soft:rgba(47,217,123,.12); --accent-line:rgba(47,217,123,.35); --on-accent:#0b1015;
+  --home:#7eaaff; --home-soft:rgba(126,170,255,.16); --away:#7ee2a8; --away-soft:rgba(126,226,168,.16);
+  --danger:#ff6b6b; --danger-soft:rgba(255,107,107,.14); --warning:#f0b34e; --warning-soft:rgba(240,179,78,.14);
+  --success:#7ee2a8; --success-soft:rgba(126,226,168,.14);
+  --pos-qb:#ff8a80; --pos-rb:#7ee2a8; --pos-wr:#7fb0ff; --pos-te:#f0b34e; --pos-k:#c4a2f5; --pos-def:#b0bec5; --pos-flex:#93a4b5; --on-pos:#0f1419;
+  --led:#ffb547; --led-dim:rgba(255,181,71,.28); --board:#07090c;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45); --shadow-2:0 6px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg:#eef2f6; --surface:#ffffff; --surface2:#f4f7fa; --surface3:#e6ecf2;
+  --line:rgba(31,45,58,.12); --line-strong:rgba(31,45,58,.22);
+  --ink:#141b23; --dim:#55636f; --faint:#5e6a74;
+  --accent:#0f6a41; --accent-soft:rgba(15,106,65,.12); --accent-line:rgba(15,106,65,.32); --on-accent:#ffffff;
+  --home:#1e5bb8; --home-soft:rgba(30,91,184,.10); --away:#1b7d4f; --away-soft:rgba(27,125,79,.12);
+  --danger:#c62828; --danger-soft:rgba(198,40,40,.10); --warning:#8a5a00; --warning-soft:rgba(138,90,0,.12);
+  --success:#1b7d4f; --success-soft:rgba(27,125,79,.12);
+  --pos-qb:#c62828; --pos-rb:#15663f; --pos-wr:#1e5bb8; --pos-te:#9a5100; --pos-k:#6d28d9; --pos-def:#4b5c66; --pos-flex:#586472; --on-pos:#ffffff;
+  --led:#ffb547; --led-dim:rgba(255,181,71,.28); --board:#0b1015;
+  --shadow-1:0 1px 2px rgba(16,24,32,.08); --shadow-2:0 4px 12px rgba(16,24,32,.10);
+}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent);text-decoration:underline}
+.root{width:390px;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.display{font-family:"Barlow Condensed",Impact,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.led{font-family:"Press Start 2P","Courier New",monospace}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.tile{background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);background:var(--surface2);color:var(--dim);white-space:nowrap}
+.chip.live{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.final{background:var(--success-soft);color:var(--success);border-color:var(--success)}
+.chip.you{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);font-size:10.5px;letter-spacing:.08em}
+.chip.warn{background:var(--warning-soft);color:var(--warning);border-color:var(--warning)}
+.dot{width:8px;height:8px;border-radius:999px;background:currentColor;flex:none}
+.pos{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:20px;padding:0 6px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--on-pos)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid var(--line-strong);color:var(--dim);background:transparent;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.icon{width:38px;padding:0}
+.seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg > div{height:30px;padding:0 14px;border-radius:7px;display:flex;align-items:center;font-size:13px;font-weight:600;color:var(--dim)}
+.seg > div.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.hair{height:1px;background:var(--line)}
+.avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--surface3);color:var(--ink);font-weight:700;flex:none}
+.pace{height:5px;border-radius:3px;background:var(--surface3);overflow:hidden}
+.pace > div{height:100%;border-radius:3px}
+.split{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--surface3)}
+.row{display:flex;align-items:center}
+.stack{display:flex;flex-direction:column}
+.grow{flex:1 1 0;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12px;color:var(--faint)}
+svg{display:block}
+  </style>
+</helmet>
+<div class="root" data-theme="{{theme}}" style="width: 390px; min-height: 1560px; background: var(--bg); color: var(--ink);">
+
+
+<div class="row" style="height: 56px; padding: 0 12px; gap: 10px; background: var(--surface); border-bottom: 1px solid var(--line);">
+  <div style="color: var(--dim); display: flex;"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg></div>
+  <div class="row display" style="gap: 10px; font-size: 22px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">
+    <div style="width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16c3-9 7-12 12-12 0 5-3 9-12 12z"/><path d="m8 12 4-4M9 13l1-1M11 9l1-1"/></svg></div>
+    <span>Endzone Empire</span>
+  </div>
+  
+  <div class="grow"></div>
+  <div class="row" style="gap: 6px; color: var(--dim);">
+    <div class="btn icon" style="border: 0;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg></div>
+    <div class="btn icon" style="border: 0;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 2h-13z"/><path d="M8.5 17.5a1.5 1.5 0 0 0 3 0"/></svg></div>
+    <div class="avatar" style="width: 32px; height: 32px; font-size: 12px; background: var(--home-soft); color: var(--home);">CA</div>
+  </div>
+</div>
+<div class="stack" style="padding: 14px 14px 32px; gap: 14px;">
+  <div class="stack" style="gap: 4px;">
+    <span class="note">Northwoods League</span>
+    <h1 class="display" style="margin: 0; font-size: 30px; font-weight: 700; line-height: 1.05; text-transform: uppercase;">Game Center</h1>
+    <div class="row" style="gap: 6px; font-size: 12px; color: var(--faint);"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 8A6.5 6.5 0 0 0 4.5 6.5M4 12a6.5 6.5 0 0 0 11.5 1.5"/><path d="M16 3v5h-5M4 17v-5h5"/></svg><span>Scores synced 3:42 PM · next pass in 8 min</span></div>
+  </div>
+  <div class="row" style="gap: 6px; width: 100%;">
+  <div class="btn icon" aria-label="Previous week"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5"/></svg></div>
+  <div class="seg" style="flex: 1 1 0;">
+    <div class="" style="flex: 1 1 0; justify-content: center; padding: 0;">Wk 1</div><div class="" style="flex: 1 1 0; justify-content: center; padding: 0;">Wk 2</div><div class="on" style="flex: 1 1 0; justify-content: center; padding: 0;">Wk 3</div><div class="" style="flex: 1 1 0; justify-content: center; padding: 0;">Wk 4</div>
+  </div>
+  <div class="btn icon" aria-label="Next week"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg></div>
+</div>
+  
+<div class="card row" style="gap: 12px; padding: 8px 12px; overflow: hidden; border-color: var(--danger-soft);">
+  <span class="chip live" style="flex: none;"><span class="dot"></span>Live</span>
+  <div class="row grow" style="gap: 20px; white-space: nowrap; overflow: hidden;">
+    <div class="row" style="gap: 8px; font-size: 13px;">
+      <span style="font-weight: 600;">J. Jefferson</span><span style="color: var(--faint);">MIN</span>
+      <span style="color: var(--dim);">34-yd receiving TD</span>
+      <span class="num" style="font-weight: 700; color: var(--success);">+10.4</span>
+      <span style="color: var(--faint);">to Fargo Frostbite</span>
+    </div>
+  </div>
+  
+</div>
+  
+<div class="card" style="padding: 16px 14px 12px;">
+  <div class="row" style="justify-content: space-between; margin-bottom: 12px;">
+    <div class="row" style="gap: 8px;"><span class="display" style="font-size: 16px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;">Your matchup</span><span class="note">Week 3</span></div>
+    <span class="chip live"><span class="dot"></span>Live</span>
+  </div>
+  
+  <div class="row" style="gap: 12px; padding: 8px 0;">
+    <div class="avatar display" style="width: 44px; height: 44px; font-size: 17px; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--home);">DD</div>
+    <div class="stack grow" style="min-width: 0;">
+      <div class="row" style="gap: 6px;"><span class="display ellip" style="font-size: 18px; font-weight: 700; line-height: 1.1;">Duluth Dockworkers</span><span class="chip you">You</span></div>
+      <span class="note num">2-0 · EF 110.5 · PMR 4</span>
+    </div>
+    <div class="display num" style="font-size: 34px; font-weight: 700; line-height: 1;">82.2</div>
+  </div>
+  <div class="row" style="gap: 12px; padding: 8px 0;">
+    <div class="avatar display" style="width: 44px; height: 44px; font-size: 17px; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--away);">FF</div>
+    <div class="stack grow" style="min-width: 0;">
+      <div class="row" style="gap: 6px;"><span class="display ellip" style="font-size: 18px; font-weight: 700; line-height: 1.1;">Fargo Frostbite</span></div>
+      <span class="note num">1-1 · EF 123.9 · PMR 6</span>
+    </div>
+    <div class="display num" style="font-size: 34px; font-weight: 700; line-height: 1;">77.0</div>
+  </div>
+  <div class="stack" style="gap: 6px; margin-top: 8px;">
+    <div class="row num" style="justify-content: space-between; font-size: 13px; font-weight: 700;"><span style="color: var(--home);">36%</span><span class="label">Win probability</span><span style="color: var(--away);">64%</span></div>
+    <div class="split" role="img" aria-label="Win probability" style="height: 8px;">
+  <div style="width: 36%; background: var(--home);"></div>
+  <div style="width: 64%; background: var(--away);"></div>
+</div>
+    <span class="note">Ahead now, projected to trail by 13.4</span>
+  </div>
+  <div class="row" style="gap: 8px; margin-top: 14px;">
+    <div class="btn grow">Compare rosters</div>
+    <div class="btn primary grow">Set lineup</div>
+  </div>
+</div>
+  <div class="row" style="gap: 8px; margin-top: 4px;"><span class="display" style="font-size: 16px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;">League matchups</span><span class="note">4 more</span></div>
+  
+<div class="card" style="padding: 10px 14px;">
+  <div class="row" style="justify-content: space-between; margin-bottom: 2px;"><span class="note">Week 3</span><span class="chip live"><span class="dot"></span>Live</span></div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">BB</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 700;">Bemidji Blizzard</span><span class="note num">EF 118.0 · PMR 2</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink);">92.1</span>
+  </div>
+  <div class="split" role="img" aria-label="Win probability" style="height: 4px;">
+  <div style="width: 49%; background: var(--home);"></div>
+  <div style="width: 51%; background: var(--away);"></div>
+</div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">MM</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 500;">Mankato Mavericks</span><span class="note num">EF 119.4 · PMR 3</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink);">88.7</span>
+  </div>
+</div>
+<div class="card" style="padding: 10px 14px;">
+  <div class="row" style="justify-content: space-between; margin-bottom: 2px;"><span class="note">Week 3</span><span class="chip live"><span class="dot"></span>Live</span></div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">RK</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 500;">Rochester Rail Kings</span><span class="note num">EF 96.8 · PMR 3</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink);">55.2</span>
+  </div>
+  <div class="split" role="img" aria-label="Win probability" style="height: 4px;">
+  <div style="width: 21%; background: var(--home);"></div>
+  <div style="width: 79%; background: var(--away);"></div>
+</div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">SC</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 700;">St. Cloud Sentinels</span><span class="note num">EF 112.3 · PMR 4</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink);">71.0</span>
+  </div>
+</div>
+<div class="card" style="padding: 10px 14px;">
+  <div class="row" style="justify-content: space-between; margin-bottom: 2px;"><span class="note">Week 3</span><span class="chip warn">Awaiting final</span></div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">WW</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 700;">Winona Wolfpack</span><span class="note num">EF - · PMR 0</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink);">101.3</span>
+  </div>
+  <div class="split" role="img" aria-label="Win probability" style="height: 4px;">
+  <div style="width: 58%; background: var(--home);"></div>
+  <div style="width: 42%; background: var(--away);"></div>
+</div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">MO</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 500;">Moorhead Monarchs</span><span class="note num">EF - · PMR 0</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink);">97.6</span>
+  </div>
+</div>
+<div class="card" style="padding: 10px 14px;">
+  <div class="row" style="justify-content: space-between; margin-bottom: 2px;"><span class="note">Kicks off Sun 7:20 PM</span><span class="chip">Scheduled</span></div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">HH</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 500;">Hibbing Hawks</span><span class="note num">Proj 108.3</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--faint);"></span>
+  </div>
+  <div class="hair"></div>
+  
+  <div class="row" style="gap: 10px; padding: 5px 0;">
+    <div class="avatar display" style="width: 28px; height: 28px; font-size: 11px; ">BR</div>
+    <div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 500;">Brainerd Bruisers</span><span class="note num">Proj 111.9</span></div>
+    <span class="display num" style="font-size: 24px; font-weight: 700; line-height: 1; color: var(--faint);"></span>
+  </div>
+</div>
+  
+<div class="card">
+  <div class="row" style="gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line);">
+    <span class="display" style="font-size: 17px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;">Scoring feed</span><span class="note">Week 3</span>
+    <div class="grow"></div><span class="note">TDs only</span>
+  </div>
+  <div class="stack">
+    
+    <div class="row" style="gap: 12px; padding: 10px 18px; ">
+      <span class="num note" style="width: 56px; flex: none;">3:41 PM</span>
+      <span class="dot" style="color: var(--away);"></span>
+      <div class="stack grow" style="min-width: 0;">
+        <span class="ellip" style="font-size: 13px;"><strong>J. Jefferson</strong> · 34-yd receiving TD</span>
+        <span class="note ellip">MIN · Fargo Frostbite</span>
+      </div>
+      <span class="num" style="font-weight: 700; color: var(--success);">+10.4</span>
+    </div>
+    <div class="row" style="gap: 12px; padding: 10px 18px; border-top: 1px solid var(--line);">
+      <span class="num note" style="width: 56px; flex: none;">3:37 PM</span>
+      <span class="dot" style="color: var(--home);"></span>
+      <div class="stack grow" style="min-width: 0;">
+        <span class="ellip" style="font-size: 13px;"><strong>A. Jones</strong> · 3-yd rushing TD</span>
+        <span class="note ellip">GB · Duluth Dockworkers</span>
+      </div>
+      <span class="num" style="font-weight: 700; color: var(--success);">+9.3</span>
+    </div>
+    <div class="row" style="gap: 12px; padding: 10px 18px; border-top: 1px solid var(--line);">
+      <span class="num note" style="width: 56px; flex: none;">3:29 PM</span>
+      <span class="dot" style="color: var(--home);"></span>
+      <div class="stack grow" style="min-width: 0;">
+        <span class="ellip" style="font-size: 13px;"><strong>T. Kelce</strong> · 12-yd receiving TD</span>
+        <span class="note ellip">KC · Duluth Dockworkers</span>
+      </div>
+      <span class="num" style="font-weight: 700; color: var(--success);">+7.2</span>
+    </div>
+  </div>
+  
+</div>
+</div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},"$preview":{"width":390,"height":1560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme === 'light' ? 'light' : 'dark' };
+  }
+}
+</script>
+</body>
+</html>

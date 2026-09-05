@@ -41,6 +41,10 @@ export function matchupFromListRow(row) {
     week: r.week ?? null,
     final: !!r.final,
     status: r.status ?? null,
+    // The earliest kickoff among either side's starters, and when the live
+    // score pass last touched the week (#892); ISO strings or null.
+    firstKickoffAt: r.first_kickoff_at ?? null,
+    syncedAt: r.synced_at ?? null,
     home: {
       teamId: r.home_team_id ?? null,
       name: r.home_team_name ?? null,
@@ -80,6 +84,8 @@ export function matchupFromDetailBody(body) {
     week: m.week ?? null,
     final: !!m.final,
     status: m.status ?? null,
+    firstKickoffAt: m.first_kickoff_at ?? null,
+    syncedAt: m.synced_at ?? null,
     home: {
       teamId: h.teamId ?? null,
       name: h.name ?? null,
@@ -126,6 +132,10 @@ export function applyScoreEvent(model, entry) {
   return {
     ...model,
     ...(has(entry, 'status') ? { status: entry.status } : {}),
+    // The two week facts (#892) move with the same has-it guard: an older
+    // entry without them leaves the model's values as they were.
+    ...(has(entry, 'firstKickoffAt') ? { firstKickoffAt: entry.firstKickoffAt } : {}),
+    ...(has(entry, 'syncedAt') ? { syncedAt: entry.syncedAt } : {}),
     home: patchSide(model.home, 'home'),
     away: patchSide(model.away, 'away'),
   };

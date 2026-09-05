@@ -248,6 +248,16 @@ const PAIRINGS = [
   //     held to AA_TEXT (4.5). `dash-faint` was lightened from the mockup value
   //     so it clears 4.5 on every plain surface (tokens.js). On the accent tint
   //     it clears only over a card; see the tint rows below.
+  // ---- Game Center / Matchup Detail island (ADR 0031, #891). The home and
+  // away colors carry per-side percentages and small labels on a card and on
+  // a stat tile (AA_TEXT); they are NOT registered on the raised tile, so a
+  // widget paints them on `dash-surface`/`-surface2` only. The LED digits are
+  // amber on the board token, which stays dark in both themes.
+  pairing('dash-home', 'dash-surface', AA_TEXT, 'home side percentage on a card'),
+  pairing('dash-home', 'dash-surface2', AA_TEXT, 'home side percentage on a stat tile'),
+  pairing('dash-away', 'dash-surface', AA_TEXT, 'away side percentage on a card'),
+  pairing('dash-away', 'dash-surface2', AA_TEXT, 'away side percentage on a stat tile'),
+  pairing('dash-led', 'dash-board', AA_TEXT, 'LED digits on the scoreboard face'),
   pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
   pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
   pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),

@@ -8,3 +8,8 @@ export { default as Card } from './Card';
 export { default as Badge } from './Badge';
 export { default as GradeChip } from './GradeChip';
 export { default as Skeleton } from './Skeleton';
+// Game Center / Matchup Detail pieces (ADR 0031, #891).
+export { default as StatTile } from './StatTile';
+export { default as SplitBar } from './SplitBar';
+export { default as PosChip } from './PosChip';
+export { default as SegmentedControl } from './SegmentedControl';

@@ -885,7 +885,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       });
       const lineupRows = await client.query(
         `SELECT "players"."id", "players"."name", "players"."position",
-                "players"."nfl_team", "players"."injury_status",
+                "players"."nfl_team", "players"."injury_status", "players"."photo_url",
                 "lineup_entries"."slot", "player_stats"."stats"
          FROM "lineup_entries"
          JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -901,7 +901,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       );
       const starterRows = await client.query(
         `SELECT "players"."id", "players"."name", "players"."position",
-                "players"."nfl_team", "players"."injury_status",
+                "players"."nfl_team", "players"."injury_status", "players"."photo_url",
                 "lineup_entries"."slot", "player_stats"."stats"
          FROM "lineup_entries"
          JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -958,6 +958,10 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       console.error('matchup expected finals unavailable', efErr.message);
     }
     matchup.status = decoration.status;
+    // The earliest kickoff among either side's starters and when the live score
+    // pass last touched the week (#892), the same two facts the list row carries.
+    matchup.first_kickoff_at = decoration.firstKickoffAt ?? null;
+    matchup.synced_at = decoration.syncedAt ?? null;
     const toPlayer = (row, priced) => {
       const projected = priced ? priced.projection : null;
       // With no priced row (the producer's read failed) the availability rule
@@ -985,6 +989,12 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
           : null,
         availability,
         opponent: opponentByTeam.get(normalizeNflTeam(row.nfl_team)) || null,
+        // The producer's per-starter game classification and the live clock
+        // while in progress (#892); null when nothing was priced. The headshot
+        // is the players row's ESPN photo_url, null when none resolved.
+        game_state: priced ? priced.gameState : null,
+        game_clock: priced ? priced.gameClock ?? null : null,
+        photo_url: row.photo_url || null,
       };
     };
     const buildTeam = (raw, team) => {

@@ -112,6 +112,18 @@ export const colorTokens = {
     'dash-grade-f-text': '#c62f2f',
     'dash-on-grade': '#0b1015',
     'dash-on-accent': '#ffffff',
+    // Game Center / Matchup Detail island (ADR 0031, #891): the two Matchup
+    // sides as a data encoding (home blue, away green, the app's accent and
+    // secondary hues) for split bars, side dots and per-side percentages, and
+    // the Scoreboard view's LED face: amber digits on a board that stays dark
+    // in both themes (a scoreboard is black; the theme does not lighten it).
+    'dash-home': '#1e5bb8',
+    'dash-home-soft': 'rgba(30, 91, 184, 0.10)',
+    'dash-away': '#1b7d4f',
+    'dash-away-soft': 'rgba(27, 125, 79, 0.12)',
+    'dash-led': '#ffb547',
+    'dash-led-dim': 'rgba(255, 181, 71, 0.28)',
+    'dash-board': '#0b1015',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -217,6 +229,15 @@ export const colorTokens = {
     // The dark ink the mockup paints on grade chips and on the primary button.
     'dash-on-grade': '#0b1015',
     'dash-on-accent': '#0b1015',
+    // Home/away encoding and the LED face (see the light note): the dark
+    // theme's accent and secondary hues, lightened for dark surfaces.
+    'dash-home': '#7eaaff',
+    'dash-home-soft': 'rgba(126, 170, 255, 0.16)',
+    'dash-away': '#7ee2a8',
+    'dash-away-soft': 'rgba(126, 226, 168, 0.16)',
+    'dash-led': '#ffb547',
+    'dash-led-dim': 'rgba(255, 181, 71, 0.28)',
+    'dash-board': '#07090c',
   },
 };
 
