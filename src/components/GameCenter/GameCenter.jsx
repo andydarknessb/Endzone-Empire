@@ -65,7 +65,7 @@ function WinProbabilitySplitBar({ homeName, awayName, homeProb }) {
           {Math.round(home * 100)}%
         </Typography>
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Win Probability
+          Win probability
         </Typography>
         <Typography variant="caption" sx={{ fontWeight: 600 }}>
           {Math.round(away * 100)}%
