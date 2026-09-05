@@ -82,6 +82,13 @@ const baseProps = {
 
 const rowAt = (i) => screen.getAllByTestId('slot-row')[i];
 const cell = (i, side) => within(rowAt(i)).getByTestId(`slot-cell-${side}`);
+// What a side's headshot wrapper holds: the avatar photo (its src) or the
+// initials fallback (its text). The avatar is aria-hidden, hence `hidden`.
+const avatarOf = (i, side) => {
+  const wrapper = within(cell(i, side)).getByTestId('slot-headshot');
+  const photo = within(wrapper).queryByRole('img', { hidden: true });
+  return photo ? { photo: photo.getAttribute('src') } : { initials: wrapper.textContent };
+};
 
 beforeEach(() => {
   baseProps.onOpenPlayer.mockClear();
@@ -96,10 +103,18 @@ test('renders the header with both Team names, a headshot per filled side and th
   expect(screen.getByText('Duluth Dockworkers')).toBeInTheDocument();
   expect(screen.getByText('Fargo Frostbite')).toBeInTheDocument();
 
-  // Seven filled sides across four rows: the TE row's away side is empty.
+  // Seven filled sides across four rows: the TE row's away side is empty. Each
+  // headshot wrapper holds PlayerAvatar itself: the photo for the one starter
+  // with a photo_url (Barkley), the initials fallback for the six without, so
+  // a wrapper drawn with no avatar inside reads as neither and fails here.
   expect(screen.getAllByTestId('slot-row')).toHaveLength(4);
   expect(screen.getAllByTestId('slot-headshot')).toHaveLength(7);
-  expect(within(cell(3, 'home')).getByTestId('slot-headshot')).toBeInTheDocument();
+  expect([0, 1, 2, 3].map((i) => avatarOf(i, 'home'))).toEqual([
+    { initials: 'JG' }, { initials: 'AJ' }, { initials: 'DA' }, { initials: 'TK' },
+  ]);
+  expect([0, 1, 2].map((i) => avatarOf(i, 'away'))).toEqual([
+    { initials: 'JA' }, { photo: 'https://cdn.example/barkley.png' }, { initials: 'NC' },
+  ]);
   expect(within(cell(3, 'away')).queryByTestId('slot-headshot')).not.toBeInTheDocument();
 
   // The rows render as given, never re-sorted.
@@ -117,11 +132,18 @@ test('a final starter shows the check and no clock', () => {
   expect(within(goff).getByTestId('slot-line2')).not.toHaveTextContent(/Q\d/);
 });
 
-test('an in-progress starter shows the live dot and its clock', () => {
+test('an in-progress starter shows the live dot, in the design danger red, and its clock', () => {
   render(<SlotComparison {...baseProps} />);
   const jones = cell(1, 'home');
 
-  expect(within(jones).getByRole('img', { name: 'In progress' })).toBeInTheDocument();
+  const live = within(jones).getByRole('img', { name: 'In progress' });
+  expect(live).toBeInTheDocument();
+  // The dot is the design's `--danger` (build.mjs stateDot and the legend), not
+  // the kit's accent: the pace bar's at-or-ahead fill is already green beside
+  // it. jsdom cannot read a var() color, so the dot declares its tone.
+  expect(within(live).getByTestId('live-dot')).toHaveAttribute('data-tone', 'danger');
+  expect(within(screen.getByTestId('slot-legend')).getByTestId('live-dot'))
+    .toHaveAttribute('data-tone', 'danger');
   expect(within(jones).queryByRole('img', { name: 'Final' })).not.toBeInTheDocument();
   expect(within(jones).getByTestId('slot-line2')).toHaveTextContent('GB vs TB · Q3 6:42');
   expect(within(jones).getByTestId('slot-points')).toHaveTextContent('14.3');

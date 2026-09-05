@@ -38,13 +38,16 @@ import {
  * the name opens the player and a click anywhere else on the cell toggles.
  *
  * Composes `shared/ui` (Card, PosChip) and reaches below the island only for
- * PlayerAvatar, the sanctioned headshot (ADR 0031). Paints `dash-*` tokens
- * only, plus the `pos-*` ring: every ink-on-surface pairing here (ink, dim and
- * faint on the card and on the surface2 footer and expanded strip) is already
- * registered in tokens.contrast.test.js; the pace fills (`dash-home` behind,
- * `dash-away` at or ahead, the design's success green in both themes) and
- * the live dot (`dash-accent`, the kit's own live color, see Badge's `live`
- * variant) are graphics beside text, not text pairings.
+ * PlayerAvatar, the sanctioned headshot (ADR 0031). Paints `dash-*` tokens,
+ * the `pos-*` ring, and four app-group tokens: `--danger` for the live dot,
+ * `--focus-ring` for the two controls' focus rings, `--radius-pill` for the
+ * dot, the bars and the headshot ring, and `--transition-base` for the pace
+ * fill. Every ink-on-surface pairing here (ink, dim and faint on the card and
+ * on the surface2 footer and expanded strip) is already registered in
+ * tokens.contrast.test.js; the pace fills (`dash-home` behind, `dash-away` at
+ * or ahead, the design's success green in both themes) and the live dot
+ * (`danger`, as the design paints it) are graphics beside text, not text
+ * pairings.
  */
 export default function SlotComparison({
   rows,
@@ -57,7 +60,8 @@ export default function SlotComparison({
 }) {
   const baseId = useId();
   // The headshot is a number-sized avatar, so its two sizes (38 desktop, 30
-  // mobile) switch on the same breakpoint the CSS-only parts of the cell use.
+  // mobile, the sizes the brief rules; the canvas's mobile branch draws 28)
+  // switch on the same breakpoint the CSS-only parts of the cell use.
   // `useTheme` falls back to the default theme outside a provider (a widget
   // test renders bare), where the callback form of useMediaQuery would not.
   const theme = useTheme();
@@ -236,19 +240,26 @@ function Icon({ name, size = 14 }) {
   );
 }
 
-// The design's `.dot` in the in-progress color: an 8px disc. The design paints
-// it `--danger`, which has no `dash-*` token; the kit's own live color is the
-// accent (Badge's `live` variant), so the dot reads in that vocabulary.
+// The design's `.dot` in the in-progress color: an 8px disc painted `--danger`,
+// as build.mjs stateDot() and the slotList() legend paint it. The dashboard
+// group has no dash-danger; `danger` is an app token defined in both themes
+// (tokens.js), reached the way `--focus-ring` and `--radius-pill` are here, so
+// the live marker stays red beside the pace bar's green at-or-ahead fill.
+// `data-tone` declares that paint where a test can read it (jsdom drops a
+// var() color from computed and inline style alike), as Badge's `data-variant`
+// does; a regression to the accent changes both or is caught.
 function LiveDot() {
   return (
     <Box
       component="span"
+      data-testid="live-dot"
+      data-tone="danger"
       aria-hidden="true"
       sx={{
         width: 8,
         height: 8,
         borderRadius: 'var(--radius-pill)',
-        backgroundColor: 'var(--dash-accent)',
+        backgroundColor: 'var(--danger)',
         flex: 'none',
       }}
     />
