@@ -93,7 +93,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
     const action = scheduledDraftAction(league, league.team_count, now, marketCount);
     if (!action) continue;
     try {
-      await runAction(league, action, marketCount);
+      await runAction(league, action, marketCount, now);
       actions.push({ leagueId: league.id, action });
     } catch (err) {
       console.error('scheduled draft %s failed for league %s:', action, league.id, err.message);
@@ -102,7 +102,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
   return actions;
 }
 
-async function runAction(league, action, marketCount = Infinity) {
+async function runAction(league, action, marketCount = Infinity, now = new Date()) {
   // 'start' delegates entirely to draftStart.service's startDraft(), which
   // does its own fresh SELECT ... FOR UPDATE + re-validation — running that
   // under this function's own lock too would have the two connections
@@ -123,8 +123,12 @@ async function runAction(league, action, marketCount = Infinity) {
     const row = fresh.rows[0];
     // Recompute against the locked row; bail if the situation changed. The
     // market count is global (#747), so the same value the tick read is carried
-    // into the recompute rather than re-queried under the lock.
-    if (!row || scheduledDraftAction({ ...row, draft_status: row.draft_status }, row.team_count, new Date(), marketCount) !== action) {
+    // into the recompute rather than re-queried under the lock. The clock is the
+    // tick's own `now`, not a fresh read: the FOR UPDATE re-read of the row
+    // (status, date, type, staffing, reminder stage, autostart flag) is what
+    // catches a concurrent join/start/reschedule; time elapsed during the lock
+    // wait must not flip the action across a bucket edge (#880).
+    if (!row || scheduledDraftAction({ ...row, draft_status: row.draft_status }, row.team_count, now, marketCount) !== action) {
       await client.query('ROLLBACK');
       return;
     }
