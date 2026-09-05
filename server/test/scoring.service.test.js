@@ -69,6 +69,10 @@ test('scoreMatchups excludes IR occupants from the best-ball candidate pool', as
     awayExpectedFinal: null,
     homePlayersRemaining: null,
     awayPlayersRemaining: null,
+    // The two week facts (#892) ride every entry; a settled matchup was not
+    // decorated, so both are null like its figures.
+    firstKickoffAt: null,
+    syncedAt: null,
   }]);
   fake.assertClean();
 });
