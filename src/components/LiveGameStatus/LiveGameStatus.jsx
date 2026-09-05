@@ -6,7 +6,7 @@ import useLiveGameRealtime from '../../hooks/useLiveGameRealtime';
 /**
  * Standalone real-NFL-game status strip (score, quarter, clock) driven by
  * Supabase Realtime. Matchup Detail renders one of these per real NFL game a
- * live fantasy matchup maps to (useFantasyMatchupGames resolves the mapping);
+ * live fantasy matchup maps to (the matchup detail body carries the ids, #884);
  * a fantasy matchup can span many real games, so the caller lays them out in a
  * horizontal strip.
  */

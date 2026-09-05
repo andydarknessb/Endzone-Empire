@@ -15,7 +15,6 @@ import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
 import { useMatchup, matchupStatusView } from '../../entities/matchup';
-import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
 import { classifyPlays } from '../../lib/scoringEvents';
 import { matchupWinProbability } from '../../lib/winProbability';
 import TecmoCutscene from './TecmoCutscene';
@@ -53,8 +52,6 @@ function MatchupDetail() {
       .filter(Boolean),
     [league]
   );
-  const { realGameIds } = useFantasyMatchupGames(matchupId);
-
   // The lineups (starters/bench per side) and the viewer's Team id live on the
   // hook's `detail` now: the model (entities/matchup) is the scoreboard, the
   // hook's `starterRows` are the paired starters with their optimistic bumps, and
@@ -176,6 +173,9 @@ function MatchupDetail() {
     onScores: handleScores,
     slotOrder,
   });
+  // The NFL games either roster plays in this week ride the detail body (#884):
+  // the strip below mounts from them, so the page never fetches games separately.
+  const nflGameIds = detail?.nflGameIds ?? [];
 
   const whatIf = detail?.viewerWhatIf ?? null;
 
@@ -346,7 +346,7 @@ function MatchupDetail() {
             </ToggleButtonGroup>
           </Box>
 
-          {isLive && realGameIds.length > 0 && (
+          {isLive && nflGameIds.length > 0 && (
             <Box
               sx={{
                 display: 'flex',
@@ -357,7 +357,7 @@ function MatchupDetail() {
                 pb: 0.5,
               }}
             >
-              {realGameIds.map((gameId) => (
+              {nflGameIds.map((gameId) => (
                 <Paper
                   key={gameId}
                   variant="outlined"

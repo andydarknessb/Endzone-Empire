@@ -88,7 +88,7 @@ for (let w = 1; w <= 18; w++) {
   if (w !== WEEK) BYE_ROWS.push({ nfl_team: 'Ghosts', week: w });
 }
 
-async function getDetail(t) {
+async function getDetail(t, { gameRows = [] } = {}) {
   const runCalls = [];
   t.mock.method(projectionService, 'getWeeklyProjections', async (args) => {
     runCalls.push([...args.playerIds].sort());
@@ -105,6 +105,9 @@ async function getDetail(t) {
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
     [/FROM "nfl_games"/, () => ({ rows: SCHEDULE })],
     [/FROM "live_game_states"/, () => ({ rows: LIVE })],
+    // The NFL games either roster plays in this week (one row per rostered
+    // player and game, so a game repeats once per player from that team).
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: gameRows })],
     // The route's own per-team reads (bench by slot, starters by NOT IN).
     [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
       rows: params[0] === HOME ? HOME_BENCH : [],
@@ -153,6 +156,28 @@ test('starters project under the availability rule and bench players from the sa
 });
 
 // ---------------------------------------------------------------------------
+// nflGameIds on the detail body (#884): the NFL games either roster plays in
+// this week, read from view_matchup_nfl_games inside the same request that
+// materializes both lineups, replacing the separate games route it used to need.
+// ---------------------------------------------------------------------------
+
+test('nflGameIds lists each NFL game once, sorted, however many rostered players share it (#884)', async (t) => {
+  const { body } = await getDetail(t, {
+    gameRows: [
+      { tank01_game_id: '20260913_SF@LAR' },
+      { tank01_game_id: '20260910_BUF@KC' },
+      { tank01_game_id: '20260910_BUF@KC' }, // two Chiefs on one roster: one game
+    ],
+  });
+  assert.deepEqual(body.nflGameIds, ['20260910_BUF@KC', '20260913_SF@LAR']);
+});
+
+test('nflGameIds is an empty array, not an error, for a week with no live game rows yet (#884)', async (t) => {
+  const { body } = await getDetail(t, { gameRows: [] });
+  assert.deepEqual(body.nflGameIds, []);
+});
+
+// ---------------------------------------------------------------------------
 // matchup.status on the detail body, at a fixed instant.
 // ---------------------------------------------------------------------------
 
@@ -177,6 +202,7 @@ async function detailStatus(t, { live, schedule, throwLive = false }) {
     [/FROM "nfl_games" "ng"/, () => ({ rows: byes })],
     [/FROM "nfl_games"/, () => ({ rows: schedule })],
     [/FROM "live_game_states"/, () => { if (throwLive) throw new Error('live table unavailable'); return { rows: live }; }],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
     [/"lineup_entries"\."slot" = \$4/, () => ({ rows: [] })],
     [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
       rows: params[0] === HOME ? homeStarters : awayStarters,
