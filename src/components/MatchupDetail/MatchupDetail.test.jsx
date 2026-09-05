@@ -243,6 +243,31 @@ test('the "Win probability" caption shows in live, played and final alike, never
   expect(screen.queryByText('Live win probability')).not.toBeInTheDocument();
 });
 
+// #887: the sticky scoreboard's thin track and the full WinProbabilityBar both
+// used to expose role="img" with the same "Win probability: ..." accessible
+// name once a matchup started, so assistive tech announced it twice. Only the
+// full bar keeps the accessible name now; the sticky track is decorative. This
+// counts named img roles only — it says nothing about row contents, which is
+// #883's surface, not this ticket's.
+test('exposes exactly one "Win probability" accessible name per started state, live, played and final alike', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'live' } }));
+  const { unmount } = renderDetail();
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
+  unmount();
+
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'played', home_score: '99', away_score: '92' } }));
+  const { unmount: unmountPlayed } = renderDetail();
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
+  unmountPlayed();
+
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { final: true } }));
+  renderDetail();
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
+});
+
 // One render test proving a model update from the hook reaches the DOM: the
 // score, the Expected final, Players remaining and the chip label all follow a
 // scores:updated event, with no refetch. The status moves scheduled -> played,
