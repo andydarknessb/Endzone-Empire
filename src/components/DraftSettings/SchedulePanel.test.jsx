@@ -57,24 +57,24 @@ test('a UTC draft date converts to the correct instant once the zone is picked a
   const user = userEvent.setup();
   const { onSave } = renderPanel();
 
-  fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '2026-09-04T13:00' } });
+  fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '2036-09-04T13:00' } });
   await scheduleAndAcknowledge(user, 'America/New_York');
   fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
   expect(onSave).toHaveBeenCalledWith(
-    { draftDate: '2026-09-04T17:00:00.000Z', draftTimezone: 'America/New_York' },
+    { draftDate: '2036-09-04T17:00:00.000Z', draftTimezone: 'America/New_York' },
     'Draft schedule saved'
   );
 });
 
 test('clearing an existing schedule sends both draftDate and draftTimezone as null, unconditionally (#116 AC5)', () => {
   const { onSave } = renderPanel({
-    draftDate: '2026-09-04T17:00:00.000Z',
+    draftDate: '2036-09-04T17:00:00.000Z',
     draftTimezone: 'America/New_York',
   });
 
   // Displayed back in its stored zone, not the test runner's own.
-  expect(screen.getByLabelText('Draft date')).toHaveValue('2026-09-04T13:00');
+  expect(screen.getByLabelText('Draft date')).toHaveValue('2036-09-04T13:00');
   // Clearing needs no acknowledgement: nothing is left to confirm.
   fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
@@ -84,7 +84,7 @@ test('clearing an existing schedule sends both draftDate and draftTimezone as nu
 
 test('re-editing an already-scheduled draft still requires a fresh acknowledgement', () => {
   const { onSave } = renderPanel({
-    draftDate: '2026-09-04T17:00:00.000Z',
+    draftDate: '2036-09-04T17:00:00.000Z',
     draftTimezone: 'America/New_York',
   });
 
