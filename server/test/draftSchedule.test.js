@@ -114,12 +114,16 @@ const FRESH_ROW = (over = {}) => ({
 });
 
 function scheduleFakePool({ league, fresh, coCommissioners = [], market = 500 } = {}) {
+  // `market` is either a fixed count or a function called per query, so a test
+  // can make the count change between the tick's read and the locked re-read
+  // (#882: a concurrent ADP sync landing during the FOR UPDATE wait).
+  const marketFn = typeof market === 'function' ? market : () => market;
   return createFakePool([
     [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
     [/^SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage"/, () => ({ rows: [fresh] })],
     // The market gate's count of players carrying an ADP (#747), read once per
     // tick. Default clears MARKET_FLOOR so the pre-#747 cases are unaffected.
-    [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: market }] })],
+    [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: marketFn() }] })],
     [/^UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = \$1$/, () => ({ rows: [], rowCount: 1 })],
     [/^UPDATE "leagues" SET "draft_autostart_failed" = true WHERE "id" = \$1 AND "draft_status" = 'pending'$/, () => ({ rows: [], rowCount: 1 })],
     [/FROM "league_commissioners"/, () => ({ rows: coCommissioners.map((user_id) => ({ user_id, username: `co${user_id}` })) })],
@@ -203,6 +207,77 @@ test('no_market: notifies commissioners with type draft_no_market and the market
   // Flagged once, like understaffed: draft_autostart_failed is set so the next
   // tick recomputes to null.
   assert.equal(fake.matching(/SET "draft_autostart_failed" = true/).length, 1);
+});
+
+/* ------------------------------------------------------------------ *
+ * #882: the transient-market-count race. The tick reads the global    *
+ * count once and carries it; if an ADP sync lands during the FOR       *
+ * UPDATE wait, a carried "no_market" is stale. Re-read under the lock   *
+ * for that one action so a market that HAS loaded is not reported as    *
+ * missing.                                                              *
+ * ------------------------------------------------------------------ */
+
+test('no_market that clears the floor on the locked re-read bails: no notification, no flag (#882)', async (t) => {
+  // Staffed and due. The tick's market read answers MARKET_FLOOR - 1 (no_market),
+  // but the ADP sync lands during the lock wait, so the locked re-read answers
+  // MARKET_FLOOR. The recheck now computes 'start', disagrees with the carried
+  // 'no_market', and bails: the market loaded, so no commissioner is told it did
+  // not, and the league is not flagged (the next tick returns 'start').
+  const league = LEAGUE_ROW({ min_teams: 2, team_count: 5 });
+  const fresh = FRESH_ROW({ min_teams: 2, team_count: 5 });
+  let reads = 0;
+  const market = () => (++reads === 1 ? MARKET_FLOOR - 1 : MARKET_FLOOR);
+  const fake = scheduleFakePool({ league, fresh, coCommissioners: [CO_COMMISSIONER], market });
+  fake.install(t);
+
+  await processScheduledDrafts({ now: NOW });
+
+  assert.equal(fake.matching(/^INSERT INTO "notifications"/).length, 0, 'the market loaded: no no_market notification');
+  assert.equal(fake.matching(/SET "draft_autostart_failed" = true/).length, 0, 'no flag on a bail');
+});
+
+test('no_market re-reads the count on the locked client and speaks the fresh value (#882)', async (t) => {
+  // The market stays at MARKET_FLOOR - 1 on both reads, so the re-read agrees with
+  // the carried 'no_market' and the notification is sent. The market query is
+  // issued exactly twice: once by the tick (via the pool) and once by runAction
+  // under the lock (via the client). The copy uses the re-read (fresh) value.
+  const league = LEAGUE_ROW({ min_teams: 2, team_count: 5 });
+  const fresh = FRESH_ROW({ min_teams: 2, team_count: 5 });
+  const fake = scheduleFakePool({ league, fresh, coCommissioners: [CO_COMMISSIONER], market: MARKET_FLOOR - 1 });
+  fake.install(t);
+
+  const actions = await processScheduledDrafts({ now: NOW });
+  assert.deepEqual(actions, [{ leagueId: LEAGUE_ID, action: 'no_market' }]);
+
+  const marketReads = fake.matching(/FROM "players" WHERE "adp" IS NOT NULL/);
+  assert.equal(marketReads.length, 2, 'the tick reads once, runAction re-reads once under the lock');
+  assert.deepEqual(marketReads.map((c) => c.via).sort(), ['client', 'pool'], 'once via the pool, once via the locked client');
+
+  const notifications = fake.matching(/^INSERT INTO "notifications"/);
+  assert.equal(notifications.length, 2, 'one per commissioner');
+  for (const call of notifications) {
+    assert.equal(call.params[2], 'draft_no_market');
+    assert.match(call.params[3], new RegExp(`\\(${MARKET_FLOOR - 1} of ${MARKET_FLOOR} players carry an ADP\\)`));
+  }
+});
+
+test('understaffed issues no market re-read: only actions that could show a stale count re-read (#882)', async (t) => {
+  // The re-read is confined to the no_market branch. An understaffed tick reads
+  // the market once (the tick's own read) and never again under the lock.
+  const fake = scheduleFakePool({
+    league: LEAGUE_ROW({ min_teams: 8, team_count: 5 }),
+    fresh: FRESH_ROW({ min_teams: 8, team_count: 5 }),
+    coCommissioners: [CO_COMMISSIONER],
+  });
+  fake.install(t);
+
+  const actions = await processScheduledDrafts({ now: NOW });
+  assert.deepEqual(actions, [{ leagueId: LEAGUE_ID, action: 'understaffed' }]);
+  assert.equal(
+    fake.matching(/FROM "players" WHERE "adp" IS NOT NULL/).length,
+    1,
+    'no re-read outside the no_market branch'
+  );
 });
 
 test('a scheduled start that fails to auto-start notifies the owner AND every co-commissioner', async (t) => {
