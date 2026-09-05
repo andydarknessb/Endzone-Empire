@@ -60,11 +60,12 @@ import { matchupFromListRow, matchupFromDetailBody } from '../../../entities/mat
  *     A best-ball league is the one cause the fallback cannot help with:
  *     the matchup detail route computes its totals through the very same
  *     producer, `expectedFinalsForWeek` (expectedFinal.service.js), and best
- *     ball chooses no lineup at all, so the detail route's lineup
- *     materialization - the very thing that rescues the standard no-starter-rows
- *     case above - buys nothing here. When the list reads null for a best-ball
- *     league (no priced projection run yet), the detail read, running that same
- *     producer over the same absent run, reads null too; firing it only pays for
+ *     ball sets no manager-chosen lineup (it optimises one only once a run has
+ *     priced the week), so the detail route's lineup materialization - the very
+ *     thing that rescues the standard no-starter-rows case above - buys nothing
+ *     here. When the list reads null for a best-ball league (no priced
+ *     projection run yet), the detail read, running that same producer over the
+ *     same absent run, reads null too; firing it only pays for
  *     a transaction that materializes both lineups and a `liveWhatIf` for the
  *     same null on the one field (`expectedFinal`) this widget reads. (The
  *     detail response also carries starters, bench and `viewerWhatIf`, which

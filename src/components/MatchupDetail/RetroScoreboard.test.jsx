@@ -12,8 +12,7 @@ const renderScoreboard = (props = {}) =>
         awayName="Sexual Tyrannosaurus"
         homeScore={101.5}
         awayScore={88}
-        isFinal={false}
-        isLive={false}
+        chipLabel="Scheduled"
         {...props}
       />
     </ThemeProvider>
@@ -29,21 +28,28 @@ test('renders the league name, both team names, and rounded scores', () => {
   expect(screen.getByText('88')).toBeInTheDocument();
 });
 
-test('shows NOT STARTED before kickoff, LIVE while in progress, and FINAL once over', () => {
-  const { rerender } = renderScoreboard({ isFinal: false, isLive: false });
-  expect(screen.getByText('NOT STARTED')).toBeInTheDocument();
+test('uppercases the predicate chip label, and shows nothing for an unknown status', () => {
+  const { rerender } = renderScoreboard({ chipLabel: 'Scheduled' });
+  expect(screen.getByText('SCHEDULED')).toBeInTheDocument();
 
-  rerender(
-    <ThemeProvider theme={createTheme()}>
-      <RetroScoreboard homeName="A" awayName="B" homeScore={0} awayScore={0} isFinal={false} isLive />
-    </ThemeProvider>
-  );
+  const rerenderWith = (chipLabel) =>
+    rerender(
+      <ThemeProvider theme={createTheme()}>
+        <RetroScoreboard homeName="A" awayName="B" homeScore={0} awayScore={0} chipLabel={chipLabel} />
+      </ThemeProvider>
+    );
+
+  rerenderWith('LIVE');
   expect(screen.getByText('LIVE')).toBeInTheDocument();
 
-  rerender(
-    <ThemeProvider theme={createTheme()}>
-      <RetroScoreboard homeName="A" awayName="B" homeScore={0} awayScore={0} isFinal isLive={false} />
-    </ThemeProvider>
-  );
+  rerenderWith('Awaiting final');
+  expect(screen.getByText('AWAITING FINAL')).toBeInTheDocument();
+
+  rerenderWith('Final');
   expect(screen.getByText('FINAL')).toBeInTheDocument();
+
+  // ADR 0030: a status the server could not compute shows blank, never a
+  // guessed "NOT STARTED".
+  rerenderWith(null);
+  expect(screen.queryByText('NOT STARTED')).not.toBeInTheDocument();
 });

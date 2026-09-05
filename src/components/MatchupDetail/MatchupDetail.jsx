@@ -62,6 +62,10 @@ function MatchupDetail() {
   // local state seeded from each fetch of the detail body.
   const [home, setHome] = useState(null);
   const [away, setAway] = useState(null);
+  // The viewer's own Team id, seeded from the detail body (below) alongside the
+  // lineups. State, not a ref: the play handler reads it directly in its deps,
+  // so nothing shadows a stale closure.
+  const [viewerTeamId, setViewerTeamId] = useState(null);
 
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
@@ -80,10 +84,6 @@ function MatchupDetail() {
   // Touchdown-celebration preference (opt-out: default on). A ref, not state:
   // it configures the play handler without driving a re-render on load.
   const celebrationsRef = useRef(true);
-  // The viewer id is read inside handleScores through a ref so a fresh lineup
-  // never re-subscribes the feed, yet the handler always sees the current id.
-  // It is assigned from the detail body once that has loaded (below).
-  const viewerTeamRef = useRef(null);
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -102,9 +102,10 @@ function MatchupDetail() {
   // the score feed's whole event through the hook's `onScores`. The scores,
   // Expected final, Players remaining and status all move on the model inside
   // the hook (applyScoreEvent); this handler never touches them, so there is no
-  // per-side camelCase carry here any more. It reads the current lineups and
-  // viewer directly (a fresh callback each render), so no ref shadows a stale
-  // closure: the hook reads it through its own ref and never re-subscribes.
+  // per-side camelCase carry here any more. It closes over the current lineups
+  // and viewer id (in its deps below), so nothing shadows a stale closure; the
+  // hook reads this callback through its own `onScoresRef` and never
+  // re-subscribes when a fresh one is passed.
   const handleScores = useCallback((event) => {
     const plays = (event && event.plays) || [];
     if (!plays.length) return;
@@ -134,10 +135,9 @@ function MatchupDetail() {
     setHome((prev) => applyDeltas(prev));
     setAway((prev) => applyDeltas(prev));
 
-    const viewer = viewerTeamRef.current;
-    const iAmHome = viewer && home?.teamId === viewer;
-    const myIds = viewer ? (iAmHome ? homeIds : awayIds) : new Set();
-    const oppIds = viewer ? (iAmHome ? awayIds : homeIds) : new Set();
+    const iAmHome = viewerTeamId && home?.teamId === viewerTeamId;
+    const myIds = viewerTeamId ? (iAmHome ? homeIds : awayIds) : new Set();
+    const oppIds = viewerTeamId ? (iAmHome ? awayIds : homeIds) : new Set();
 
     // Cutscenes/toasts/ticker are touchdown-only; non-TD "moment" plays
     // (sack/FG/INT/fumble/punt return) never reach this gate.
@@ -186,9 +186,7 @@ function MatchupDetail() {
         retroDashTimeoutRef.current = null;
       }, latest.isTouchdown === false ? RETRO_MOMENT_MS : RETRO_DASH_MS);
     }
-  // `home`/`away`/the viewer are read fresh each render; pushToasts is stable.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [home, away, pushToasts]);
+  }, [home, away, viewerTeamId, pushToasts]);
 
   // The Matchup as a read model (entities/matchup), with the score feed and the
   // Team identity feed composed over the pure module inside the hook. The whole
@@ -197,16 +195,15 @@ function MatchupDetail() {
     onScores: handleScores,
   });
 
-  const detailViewerTeamId = detail?.viewerTeamId ?? null;
   const whatIf = detail?.viewerWhatIf ?? null;
-  viewerTeamRef.current = detailViewerTeamId;
 
-  // Seed the local lineups from each fetch of the detail body. A resync inside
-  // the hook replaces `detail`, which re-seeds here and drops any optimistic
-  // per-starter deltas in favour of the authoritative totals.
+  // Seed the local lineups and the viewer id from each fetch of the detail body.
+  // A resync inside the hook replaces `detail`, which re-seeds here and drops any
+  // optimistic per-starter deltas in favour of the authoritative totals.
   useEffect(() => {
     setHome(detail?.home ?? null);
     setAway(detail?.away ?? null);
+    setViewerTeamId(detail?.viewerTeamId ?? null);
   }, [detail]);
 
   // Touchdown-celebration preference (opt-out: default on).
@@ -297,13 +294,20 @@ function MatchupDetail() {
     awayExpectedFinal: model?.away.expectedFinal,
   });
 
-  // The status chip and the started/live state are the server's status fact
-  // (ADR 0030), read through the entity's one predicate - never inferred from a
-  // score-arrived timer or a five-conjunct liveness rule. `chipLabel` is null
-  // for a status the server could not compute (no chip, not a guessed one), and
-  // the live-only UI keys off the exact `live` status.
-  const { chipLabel } = matchupStatusView(model?.status);
+  // The status chip and the started state are the server's status fact (ADR
+  // 0030), read through the entity's one predicate - never inferred from a
+  // score-arrived timer or a five-conjunct liveness rule. `chipLabel` drives
+  // both the header chip and the scoreboard chips (identical, so they never
+  // disagree), and is null for a status the server could not compute (no chip,
+  // never a guessed "Scheduled"/"Not started"). `hasStarted` gates the win
+  // probability: true once started (live/played/final), false before kickoff,
+  // and null (unknown) asserts neither - exactly as Game Center reads it.
+  const { chipLabel, hasStarted } = matchupStatusView(model?.status);
   const isFinal = !!model?.final;
+  // `isLive` is the exact live status, deliberately NOT the started state: it
+  // gates the live-broadcast surfaces (the real-game strip, the live scoring
+  // ticker, the live bench what-if), which show only while a matchup is
+  // actually live and never for a played or final one.
   const isLive = model?.status === 'live';
   const chipColor = model?.status === 'final' ? 'success' : model?.status === 'live' ? 'error' : 'default';
   const chipVariant = model?.status === 'live' || model?.status === 'final' ? 'filled' : 'outlined';
@@ -315,9 +319,9 @@ function MatchupDetail() {
   // is hidden rather than printed as a zero (ADR 0023). Until the league is
   // known the line stays hidden too, so a best-ball zero never flashes.
   const showBenchLeft = !!league && !league.best_ball;
-  const viewerTeam = detailViewerTeamId === home?.teamId
+  const viewerTeam = viewerTeamId === home?.teamId
     ? home
-    : detailViewerTeamId === away?.teamId
+    : viewerTeamId === away?.teamId
       ? away
       : null;
   const viewerHasRoster = !!viewerTeam
@@ -391,8 +395,7 @@ function MatchupDetail() {
                 awayName={awayName}
                 homeScore={homeScore}
                 awayScore={awayScore}
-                isFinal={isFinal}
-                isLive={isLive}
+                chipLabel={chipLabel}
               />
               <Box sx={{ mt: 2, mb: 2 }}>
                 <RetroField
@@ -425,11 +428,13 @@ function MatchupDetail() {
                 homeScore={homeScore}
                 awayScore={awayScore}
                 homeProb={winProb.home}
-                final={isFinal}
-                isLive={isLive}
+                chipLabel={chipLabel}
+                chipColor={chipColor}
+                chipVariant={chipVariant}
+                started={hasStarted}
               />
 
-              {isLive && (
+              {hasStarted === true && (
                 <WinProbabilityBar
                   homeName={homeName}
                   awayName={awayName}
@@ -461,16 +466,19 @@ function MatchupDetail() {
                         Left {col.benchLeft} on the bench
                       </Typography>
                     )}
+                    {/* Projection is hidden once final (a settled game has a
+                        score, not a forecast), exactly as Game Center does. */}
                     {!isFinal && col.side.expectedFinal != null && (
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
                         Projected {Number(col.side.expectedFinal).toFixed(1)}
                       </Typography>
                     )}
-                    {!isFinal && (
-                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
-                        Players remaining {playersRemainingLabel(col.side.playersRemaining)}
-                      </Typography>
-                    )}
+                    {/* Players remaining is shown throughout, final included (it
+                        is a real 0 there), so the two surfaces this ticket
+                        unifies agree - Game Center gates the projection, not this. */}
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                      Players remaining {playersRemainingLabel(col.side.playersRemaining)}
+                    </Typography>
                   </Grid>
                 ))}
               </Grid>

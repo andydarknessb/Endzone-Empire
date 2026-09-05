@@ -54,7 +54,10 @@ const starter = (overrides = {}) => ({
 const matchupResponse = (overrides = {}) => {
   const m = overrides.matchup || {};
   const final = m.final ?? false;
-  const status = m.status ?? (final ? 'final' : 'live');
+  // `'status' in m` (not `??`) so a test can force `status: null` - the exact
+  // "server could not compute it" case (ADR 0030) - without the default
+  // reclaiming it.
+  const status = 'status' in m ? m.status : (final ? 'final' : 'live');
   return {
     data: {
       matchup: {
@@ -170,14 +173,35 @@ test('a scheduled matchup shows no LIVE chip and no win-probability bar', async 
 });
 
 // ADR 0030: a played (games done, not finalised) matchup reads "Awaiting final",
-// never a guessed LIVE.
-test('a played matchup renders the Awaiting final chip and no LIVE', async () => {
+// never a guessed LIVE - and the sticky scoreboard says the SAME thing as the
+// header, never a contradictory "Not started".
+test('a played matchup renders Awaiting final in both header and sticky bar, and never Not started or LIVE', async () => {
   apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'played', home_score: '99', away_score: '92' } }));
 
   renderDetail();
 
   expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('Awaiting final');
+  // Both the header chip and the sticky scoreboard chip show it - two on screen.
+  expect(screen.getAllByText('Awaiting final')).toHaveLength(2);
+  expect(screen.queryByText('Not started')).not.toBeInTheDocument();
   expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
+});
+
+// ADR 0030: a status the server could not compute is null. No chip anywhere
+// (not the header's, not the sticky bar's), and never a false "Not started" -
+// the exact case the ticket exists to protect.
+test('a null-status matchup shows no chip and never Not started', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: null } }));
+
+  renderDetail();
+
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.queryByTestId('matchup-status-chip')).not.toBeInTheDocument();
+  expect(screen.queryByText('Not started')).not.toBeInTheDocument();
+  expect(screen.queryByText('Scheduled')).not.toBeInTheDocument();
+  expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
+  // The win-probability bar asserts neither started nor not-started for unknown.
+  expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
 });
 
 // The LIVE chip comes from the fetched status alone: no socket event is fired
