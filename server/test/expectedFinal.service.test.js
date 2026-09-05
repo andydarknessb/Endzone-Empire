@@ -445,3 +445,36 @@ test('a final-only list never touches the database', async () => {
   assert.equal(out[0].home_expected_final, null);
   assert.equal(fake.calls.length, 0);
 });
+
+// #892: each team entry carries the earliest of its starters' kickoffs and
+// the newest live row update of the week; the decorator lifts both onto the
+// matchup (the earlier side's kickoff). Red-tell: taking the latest kickoff
+// instead of the earliest turns the first assertion red and no other.
+test('team entries carry firstKickoffAt (earliest starter kickoff) and syncedAt (newest live update)', async (t) => {
+  const live = [
+    { home_team: 'KC', away_team: 'LV', game_status: 'final', updated_at: '2026-10-25T18:20:00.000Z' },
+    { home_team: 'BUF', away_team: 'MIA', game_status: 'in_progress', quarter: 'Q3', time_remaining: '6:42', updated_at: '2026-10-25T18:29:30.000Z' },
+    { home_team: 'DAL', away_team: 'NYG', game_status: 'in_progress', quarter: 'Q2', time_remaining: '0:48', updated_at: '2026-10-25T18:25:00.000Z' },
+  ];
+  const fake = weekPool(t, { live });
+  const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
+  // Team 10: KC and BUF at 17:00Z, PHI at 20:25Z -> 17:00Z. Team 20: the Ghosts
+  // are on bye (no kickoff), DAL at 17:00Z -> 17:00Z.
+  assert.equal(byTeam.get(10).firstKickoffAt, '2026-10-25T17:00:00.000Z');
+  assert.equal(byTeam.get(20).firstKickoffAt, '2026-10-25T17:00:00.000Z');
+  assert.equal(byTeam.get(10).syncedAt, '2026-10-25T18:29:30.000Z');
+  assert.equal(byTeam.get(20).syncedAt, '2026-10-25T18:29:30.000Z');
+  // The clock rides only on an in-progress starter: the Bills RB, not the final QB.
+  const clocks = byTeam.get(10).starters.map((s) => [s.playerId, s.gameClock]);
+  assert.deepEqual(clocks, [[1, null], [2, 'Q3 6:42'], [3, null]]);
+});
+
+test('with no live rows syncedAt is null and a team of byes has no first kickoff', async (t) => {
+  const fake = weekPool(t, {
+    live: [],
+    starters: [{ team_id: 20, player_id: 4, position: 'RB', nfl_team: 'Ghosts', injury_status: null, stats: null }],
+  });
+  const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [20], db: fake, now: NOW });
+  assert.equal(byTeam.get(20).syncedAt, null);
+  assert.equal(byTeam.get(20).firstKickoffAt, null);
+});

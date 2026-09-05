@@ -93,6 +93,18 @@ function gameStateFor({ liveStatus, kickoffAt, onBye, points, now }) {
   return actual > 0 ? 'in_progress' : 'scheduled';
 }
 
+/** The earliest of the starters' kickoffs as an ISO string, or null. */
+function earliestKickoff(starters) {
+  let earliest = null;
+  for (const s of starters) {
+    if (!s.kickoffAt) continue;
+    const at = new Date(s.kickoffAt);
+    if (!Number.isFinite(at.getTime())) continue;
+    if (earliest == null || at < earliest) earliest = at;
+  }
+  return earliest ? earliest.toISOString() : null;
+}
+
 /**
  * Expected finals for the given teams in one (season, week) of one league.
  * Returns a Map<teamId, { expectedFinal, playersRemaining, starters, bench }>
@@ -148,7 +160,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       }),
     computeByeWeeks(nflTeams, season, { client: db }),
     db.query(
-      `SELECT "home_team", "away_team", "game_status"
+      `SELECT "home_team", "away_team", "game_status", "quarter", "time_remaining", "updated_at"
        FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
       [season, week]
     ),
@@ -173,9 +185,26 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   // looked up the same way, so a DEF unit's full team name and Tank01's raw
   // abbreviation agree (the #423 / #425 pattern).
   const liveByTeam = new Map();
+  const clockByTeam = new Map();
+  // When the live score pass last touched this week: the newest live row
+  // update, or null when the week has no live rows yet (#892). One value for
+  // the (season, week), carried on every team entry so a caller need not
+  // re-derive it.
+  let syncedAt = null;
   for (const row of liveRows.rows) {
-    liveByTeam.set(normalizeNflTeam(row.home_team), row.game_status);
-    liveByTeam.set(normalizeNflTeam(row.away_team), row.game_status);
+    // The game clock as one string ("Q3 6:42"), only while in progress; Tank01's
+    // own quarter and clock vocabulary, joined, never parsed.
+    const clock = row.game_status === 'in_progress'
+      ? `${row.quarter || ''} ${row.time_remaining || ''}`.trim() || null
+      : null;
+    for (const team of [row.home_team, row.away_team]) {
+      liveByTeam.set(normalizeNflTeam(team), row.game_status);
+      clockByTeam.set(normalizeNflTeam(team), clock);
+    }
+    if (row.updated_at) {
+      const at = new Date(row.updated_at);
+      if (Number.isFinite(at.getTime()) && (syncedAt == null || at > syncedAt)) syncedAt = at;
+    }
   }
   const kickoffByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.kickoff_at]));
 
@@ -216,6 +245,11 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       projection: priced ? projection : null,
       points: round2(points),
       gameState,
+      // The live clock while his game is in progress, else null (#892).
+      gameClock: gameState === 'in_progress' ? (clockByTeam.get(team) || null) : null,
+      // His team's scheduled kickoff this week (null on a bye or with no
+      // schedule row), so a team's first kickoff is the earliest of these.
+      kickoffAt: onBye ? null : (kickoffByTeam.get(team) || null),
       expectedFinal: priced ? expectedFinalForStarter({ projection, points, gameState }) : null,
       rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, round: false }),
     };
@@ -266,6 +300,10 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       // trustworthy for a redraft league even without projections (the lineup
       // is fixed), but not for best ball without a chosen lineup.
       statusReliable: !league.best_ball || priced,
+      // The earliest scheduled kickoff among the starters' NFL teams (ISO), or
+      // null when none is scheduled (#892); the matchup's is the earlier side.
+      firstKickoffAt: earliestKickoff(starters),
+      syncedAt: syncedAt ? syncedAt.toISOString() : null,
       starters: starters.map(stripRaw),
       bench: (benchByTeam.get(teamId) || []).map(stripRaw),
     });
@@ -374,12 +412,17 @@ async function decorateMatchups(matchups, { league, db = pool, now = new Date() 
     // The classification is not trustworthy if a present side reports it so
     // (best ball with no projection run).
     const unreliable = (home && home.statusReliable === false) || (away && away.statusReliable === false);
+    // The matchup's first kickoff is the earlier of its two sides' (#892).
+    const kickoffs = [home && home.firstKickoffAt, away && away.firstKickoffAt].filter(Boolean).map((k) => new Date(k));
+    const firstKickoffAt = kickoffs.length ? new Date(Math.min(...kickoffs.map((k) => k.getTime()))).toISOString() : null;
     return {
       status: statusForMatchup({ settled: !!matchup.final, home, away, computed, unreliable }),
       homeExpectedFinal: home ? home.expectedFinal : null,
       awayExpectedFinal: away ? away.expectedFinal : null,
       homePlayersRemaining: home ? home.playersRemaining : null,
       awayPlayersRemaining: away ? away.playersRemaining : null,
+      firstKickoffAt,
+      syncedAt: (home && home.syncedAt) || (away && away.syncedAt) || null,
       home,
       away,
     };
@@ -401,6 +444,10 @@ async function attachExpectedFinals(rows, { league, db = pool, now = new Date() 
     away_expected_final: decorations[index].awayExpectedFinal,
     home_players_remaining: decorations[index].homePlayersRemaining,
     away_players_remaining: decorations[index].awayPlayersRemaining,
+    // The earliest kickoff among either side's starters and when the live
+    // score pass last touched the week (#892); both ISO or null.
+    first_kickoff_at: decorations[index].firstKickoffAt,
+    synced_at: decorations[index].syncedAt,
   }));
 }
 
@@ -432,6 +479,8 @@ async function attachScoredExpectedFinals(scored, { openMatchups = [], league, d
     entry.awayExpectedFinal = decoration ? decoration.awayExpectedFinal : null;
     entry.homePlayersRemaining = decoration ? decoration.homePlayersRemaining : null;
     entry.awayPlayersRemaining = decoration ? decoration.awayPlayersRemaining : null;
+    entry.firstKickoffAt = decoration ? decoration.firstKickoffAt : null;
+    entry.syncedAt = decoration ? decoration.syncedAt : null;
   }
   return scored;
 }

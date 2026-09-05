@@ -84,7 +84,7 @@ for (let w = 1; w <= 18; w++) for (const team of ['KC', 'BUF', 'DAL']) BYE_ROWS.
 // are deterministic whenever it runs.
 const FIXED_NOW = '2026-09-13T16:00:00.000Z';
 
-async function listMatchups(t, { matchups, starters = STARTERS, projections = PROJECTIONS }) {
+async function listMatchups(t, { matchups, starters = STARTERS, projections = PROJECTIONS, live = LIVE }) {
   t.mock.method(clock, 'now', () => new Date(FIXED_NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projections instanceof Error) throw projections;
@@ -96,7 +96,7 @@ async function listMatchups(t, { matchups, starters = STARTERS, projections = PR
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [/FROM "lineup_entries"/, () => ({ rows: starters })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
-    [/FROM "live_game_states"/, () => ({ rows: LIVE })],
+    [/FROM "live_game_states"/, () => ({ rows: live })],
     [/FROM "nfl_games" WHERE/, () => ({ rows: SCHEDULE })],
   ]);
   fake.install(t);
@@ -223,4 +223,33 @@ test('each list row carries its status: scheduled, live, played and final at a f
   assert.equal(byId.get(32).status, 'live');
   assert.equal(byId.get(33).status, 'played');
   assert.equal(byId.get(34).status, 'final');
+});
+
+// ---------------------------------------------------------------------------
+// #892: the two week facts on the list row. Red-tell: taking the latest kickoff
+// instead of the earliest turns the first case red and no other.
+// ---------------------------------------------------------------------------
+
+test('first_kickoff_at is the earliest kickoff among either side\'s starters', async (t) => {
+  const { body } = await listMatchups(t, { matchups: [OPEN, FINAL] });
+  const open = body.find((m) => m.id === 7);
+  // Home starters kick off 2026-09-13T17:00Z; the away starter's game (DAL)
+  // kicked off 2026-09-10T00:20Z, which is the matchup's first kickoff.
+  assert.equal(open.first_kickoff_at, '2026-09-10T00:20:00.000Z');
+  // A final matchup is not decorated: null, like its figures.
+  assert.equal(body.find((m) => m.id === 6).first_kickoff_at, null);
+});
+
+test('synced_at is the newest live row update for the week, null with no live rows', async (t) => {
+  const live = [
+    { home_team: 'DAL', away_team: 'PHI', game_status: 'final', updated_at: '2026-09-13T15:58:00.000Z' },
+    { home_team: 'KC', away_team: 'LV', game_status: 'scheduled', updated_at: '2026-09-13T15:42:00.000Z' },
+  ];
+  const { body } = await listMatchups(t, { matchups: [OPEN], live });
+  assert.equal(body[0].synced_at, '2026-09-13T15:58:00.000Z');
+
+  const { body: quiet } = await listMatchups(t, { matchups: [OPEN], live: [] });
+  assert.equal(quiet[0].synced_at, null);
+  // No live row: the schedule still names the first kickoff.
+  assert.equal(quiet[0].first_kickoff_at, '2026-09-10T00:20:00.000Z');
 });

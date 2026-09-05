@@ -69,7 +69,7 @@ const HOME_STARTERS = [
   player(102, 'Some Wideout', 'WR', 'PHI', 'O', 'WR', null),
 ];
 const HOME_BENCH = [
-  player(103, 'Some Runner', 'RB', 'DAL', null, 'BENCH', null),
+  { ...player(103, 'Some Runner', 'RB', 'DAL', null, 'BENCH', null), photo_url: 'https://a.espncdn.com/i/headshots/nfl/players/full/103.png' },
   player(104, 'Hurt Tight End', 'TE', 'DAL', 'O', 'BENCH', null),
 ];
 const AWAY_STARTERS = [player(201, 'Resting Back', 'RB', 'Ghosts', null, 'RB', null)];
@@ -297,4 +297,43 @@ test('the detail body states matchup.status null when a read fails, never a fals
   assert.deepEqual(body.away.starters[0].availability, { available: false, reason: 'out' });
   assert.deepEqual(body.home.starters[0].availability, { available: true, reason: null });
   assert.equal(body.away.starters[0].projected, null);
+});
+
+// ---------------------------------------------------------------------------
+// #892: per-row game state, clock and headshot; the two week facts on the
+// matchup object.
+// ---------------------------------------------------------------------------
+
+test('a final starter carries game_state final and no clock; a bench row carries its headshot; the matchup its week facts', async (t) => {
+  const { body } = await getDetail(t);
+  const passer = body.home.starters.find((p) => p.id === 101);
+  assert.equal(passer.game_state, 'final');
+  assert.equal(passer.game_clock, null);
+  const wideout = body.home.starters.find((p) => p.id === 102);
+  assert.equal(wideout.game_state, 'scheduled');
+  const runner = body.home.bench.find((p) => p.id === 103);
+  assert.equal(runner.photo_url, 'https://a.espncdn.com/i/headshots/nfl/players/full/103.png');
+  assert.equal(body.home.starters.find((p) => p.id === 102).photo_url, null);
+  // The earliest kickoff among either side's starters (KC at 17:00Z, PHI at
+  // 20:25Z; the bye has none), and no live update time on a final-only row set.
+  assert.equal(body.matchup.first_kickoff_at, '2099-10-25T17:00:00.000Z');
+  assert.equal(body.matchup.synced_at, null);
+});
+
+test('an in-progress starter carries the live clock as one string', async (t) => {
+  const body = await detailStatus(t, {
+    live: [{ home_team: 'KC', away_team: 'LV', game_status: 'in_progress', quarter: 'Q3', time_remaining: '6:42', updated_at: '2026-10-25T17:58:00.000Z' }],
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-27T00:20:00.000Z' },
+    ],
+  });
+  const [homeQb] = body.home.starters;
+  assert.equal(homeQb.game_state, 'in_progress');
+  assert.equal(homeQb.game_clock, 'Q3 6:42');
+  const [awayRb] = body.away.starters;
+  assert.equal(awayRb.game_state, 'scheduled');
+  assert.equal(awayRb.game_clock, null);
+  assert.equal(body.matchup.synced_at, '2026-10-25T17:58:00.000Z');
+  assert.equal(body.matchup.first_kickoff_at, '2026-10-25T17:00:00.000Z');
 });

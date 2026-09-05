@@ -1,6 +1,6 @@
 # League surfaces share an entities layer
 
-Status: accepted (2026-09-04)
+Status: accepted (2026-09-04); scope superseded by ADR 0031 (2026-09-05)
 
 ADR 0017 opened a local Feature-Sliced Design island and ADR 0020 grew it to
 cover the League Dashboard: `shared`, `features`, `widgets` and `pages`, with
