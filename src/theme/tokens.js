@@ -135,6 +135,17 @@ export const colorTokens = {
     'dash-led': '#ffb547',
     'dash-led-dim': 'rgba(255, 181, 71, 0.28)',
     'dash-board': '#0b1015',
+    // The island's warning pair (ADR 0031, #900): the Bench what-if card's
+    // border and bolt, and the gain chip's text on the tint. Same hex as the
+    // app's `warning` (the canvas's `--warning`/`--warning-soft` are lifted
+    // verbatim), a `dash-*` name so island slices never reach for an app token
+    // (see the rule above). The tint alpha differs by mode on the canvas (12%
+    // light, 14% dark) and is kept that way. Warning TEXT on the tint clears
+    // AA_TEXT over a card and a stat tile only (4.66 light over surface2; it
+    // fails over the raised tile at 4.23 and the page at 4.48), so a slice
+    // paints the tinted chip on `dash-surface`/`-surface2`, never elsewhere.
+    'dash-warning': '#8a5a00',
+    'dash-warning-soft': 'rgba(138, 90, 0, 0.12)',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -253,6 +264,10 @@ export const colorTokens = {
     'dash-led': '#ffb547',
     'dash-led-dim': 'rgba(255, 181, 71, 0.28)',
     'dash-board': '#07090c',
+    // The island's warning pair (see the light note): the app's dark `warning`
+    // amber, and the canvas's 14% tint (the light tint is 12%).
+    'dash-warning': '#f0b34e',
+    'dash-warning-soft': 'rgba(240, 179, 78, 0.14)',
   },
 };
 

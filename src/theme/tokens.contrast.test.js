@@ -266,6 +266,18 @@ const PAIRINGS = [
   // 4.05 / 4.09 over the raised tile. A danger pill on any other surface is
   // not guarded here.
   pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over a card (the only guarded danger backdrop)', 'dash-surface'),
+  // bench-what-if (#900): the card's warning border and bolt icon are non-text
+  // UI on `dash-surface` (AA_LARGE), and the gain chip (the canvas's
+  // `.chip.warn`) is warning TEXT on the warning tint, painted on the swap row
+  // (`dash-surface2`), with its own warning border on that row. The chip is
+  // 11px/700 uppercase, normal text by WCAG, so AA_TEXT. Thin in light (4.66
+  // over surface2; 5.00 over a card); the tint over the raised tile (4.23) and
+  // the page (4.48) FAILS in light, so the tinted chip is registered on a card
+  // and a stat tile only and a slice paints it nowhere else (tokens.js).
+  pairing('dash-warning', 'dash-surface', AA_LARGE, 'bench what-if card border and bolt on a card'),
+  pairing('dash-warning', 'dash-surface2', AA_LARGE, 'bench what-if gain chip border on the swap row'),
+  pairing('dash-warning', 'dash-warning-soft', AA_TEXT, 'warning chip text on the warning tint over a card', 'dash-surface'),
+  pairing('dash-warning', 'dash-warning-soft', AA_TEXT, 'bench what-if gain chip text on the warning tint over the swap row', 'dash-surface2'),
   pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
   pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
   pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),
