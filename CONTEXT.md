@@ -770,6 +770,16 @@ The count of a team's starters whose NFL games have not finished this week. A
 starter whose game has not kicked off counts.
 _Avoid_: PMR (in prose), players left, yet to play
 
+**Matchup status**:
+Where a Matchup sits in its week, read from its starters' NFL games: scheduled
+until the first of them kicks off, live while any is in progress, played once
+every one is over, and final once the score of record is written. It is a fact
+the server states beside a team's Expected final, never inferred from when a
+score last arrived. A Matchup with no lineup rows on either side is scheduled
+until it is final.
+_Avoid_: live (unqualified, as a state name), in progress (that is one NFL
+game), started
+
 **Hindsight**:
 A settled week re-read against the best legal lineup its team could have
 started from the week as played, the same players the settle pass read, with
