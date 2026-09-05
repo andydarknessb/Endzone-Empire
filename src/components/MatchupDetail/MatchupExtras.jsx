@@ -20,6 +20,17 @@ function slotLabel(slot) {
   return slot === 'DEF' ? 'D/ST' : slot;
 }
 
+/**
+ * The reason an Unavailable player (CONTEXT.md, Roster and lineup) shows in
+ * place of his projection, in the Lineup page's words; null for an available
+ * row (or a row that carries no verdict), which shows its number as ever.
+ */
+const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };
+export function unavailableLabel(availability) {
+  if (!availability || availability.available !== false) return null;
+  return UNAVAILABLE_LABELS[availability.reason] || 'out';
+}
+
 // --- Win probability bar ---------------------------------------------------
 
 export function WinProbabilityBar({ homeName, awayName, homeProb }) {
@@ -379,7 +390,15 @@ export function SlotComparisonList({ rows, expandedId, onToggle, onOpenPlayer })
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   {openPlayer ? (formatStatLine(openPlayer.stats) || 'No stats recorded yet.') : ''}
                 </Typography>
-                {openPlayer && <PaceBar actual={openPlayer.points} projected={openPlayer.projected} />}
+                {/* An Unavailable player shows why in place of his projection and
+                    no pace bar: there is no number to pace against (#883). */}
+                {openPlayer && (unavailableLabel(openPlayer.availability) ? (
+                  <Typography variant="caption" data-testid="unavailable-reason" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                    Projection: {unavailableLabel(openPlayer.availability)}
+                  </Typography>
+                ) : (
+                  <PaceBar actual={openPlayer.points} projected={openPlayer.projected} />
+                ))}
               </Box>
             </Collapse>
           </Box>
@@ -441,7 +460,9 @@ function RosterPreviewSide({ player, side }) {
         <Typography variant="body2" noWrap>{player.name}</Typography>
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
           {Number(player.points || 0).toFixed(1)} pts
-          {player.projected != null ? ` · Proj ${Number(player.projected).toFixed(1)}` : ''}
+          {unavailableLabel(player.availability)
+            ? ` · ${unavailableLabel(player.availability)}`
+            : (player.projected != null ? ` · Proj ${Number(player.projected).toFixed(1)}` : '')}
         </Typography>
       </Box>
     </Box>

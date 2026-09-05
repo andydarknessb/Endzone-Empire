@@ -414,7 +414,8 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   //
   // This list is therefore EXPECTED to change when the app legitimately adds a
   // path-mounted middleware. Adding the new line is the decision; the failure
-  // is the prompt to make it deliberately.
+  // is the prompt to make it deliberately. (The counts last moved when #884
+  // deleted the games router and its root-mounted requireAuth.)
   const { app } = require('../server');
 
   // The three counts the paragraph above argues from, asserted rather than

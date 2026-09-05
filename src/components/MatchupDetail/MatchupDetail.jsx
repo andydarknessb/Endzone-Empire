@@ -173,9 +173,6 @@ function MatchupDetail() {
     onScores: handleScores,
     slotOrder,
   });
-  // The NFL games either roster plays in this week ride the detail body (#884):
-  // the strip below mounts from them, so the page never fetches games separately.
-  const nflGameIds = detail?.nflGameIds ?? [];
 
   const whatIf = detail?.viewerWhatIf ?? null;
 
@@ -295,6 +292,11 @@ function MatchupDetail() {
 
   const homeName = model?.home.name;
   const awayName = model?.away.name;
+  // The real NFL games this Matchup spans ride the detail body as `nflGameIds`
+  // (#884); the entity hook holds the one realtime subscription over them and
+  // hands their rows down as `model.games` (#885). This page renders one strip
+  // per row and fetches nothing for games itself.
+  const games = model?.games || [];
 
   // Best ball sets no lineup, so nothing is ever left on the bench and the line
   // is hidden rather than printed as a zero (ADR 0023). Until the league is
@@ -346,7 +348,7 @@ function MatchupDetail() {
             </ToggleButtonGroup>
           </Box>
 
-          {isLive && nflGameIds.length > 0 && (
+          {isLive && games.length > 0 && (
             <Box
               sx={{
                 display: 'flex',
@@ -357,13 +359,13 @@ function MatchupDetail() {
                 pb: 0.5,
               }}
             >
-              {nflGameIds.map((gameId) => (
+              {games.map((game) => (
                 <Paper
-                  key={gameId}
+                  key={game.tank01_game_id}
                   variant="outlined"
                   sx={{ px: 1.5, py: 0.75, borderRadius: 2, flexShrink: 0 }}
                 >
-                  <LiveGameStatus gameId={gameId} />
+                  <LiveGameStatus state={game} />
                 </Paper>
               ))}
             </Box>

@@ -118,9 +118,15 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
   });
   t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   return createFakePool([
-    [/FROM "lineup_entries"/, (text, params) => ({
-      rows: typeof starters === 'function' ? starters(text, params) : starters,
-    })],
+    // The fake answers the read's slot predicate the way the table would: a
+    // statement that still excludes BENCH rows gets none. This is what binds
+    // the #883 WHERE clause change (`!= 'IR'` for every league): restoring the
+    // old NOT IN ('BENCH', 'IR') predicate turns the bench cases red.
+    [/FROM "lineup_entries"/, (text, params) => {
+      const rows = typeof starters === 'function' ? starters(text, params) : starters;
+      const excludesBench = /NOT IN \('BENCH'/.test(text);
+      return { rows: excludesBench ? rows.filter((r) => r.slot !== 'BENCH') : rows };
+    }],
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
     [/FROM "live_game_states"/, () => ({ rows: live })],
     [/FROM "nfl_games" WHERE/, () => ({ rows: schedule })],
@@ -151,6 +157,42 @@ test('a team is the sum of its starters across all three phases, with players re
   ]);
 });
 
+// #883: bench rows are priced by the same rule as starters and ride on the
+// team's entry, but never enter the Expected final or Players remaining.
+// Red-tell: adding a bench row's figure into the sum turns the sum case red
+// and no other.
+test('bench rows are priced alongside the starters, with the availability rule, and never summed', async (t) => {
+  const bench = [
+    // An available bench RB, in progress at 3.0 with a 10.0 projection.
+    { team_id: 10, player_id: 6, slot: 'BENCH', position: 'RB', nfl_team: 'BUF', injury_status: null, stats: { rushingYards: 30 } },
+    // A bench WR ruled Out: priced zero, and the row says why.
+    { team_id: 10, player_id: 7, slot: 'BENCH', position: 'WR', nfl_team: 'DAL', injury_status: 'O', stats: null },
+  ];
+  const projections = new Map([...PROJECTIONS, [6, { points: 10.0 }], [7, { points: 12.0 }]]);
+  const fake = weekPool(t, { starters: [...STARTERS, ...bench], projections });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  const home = byTeam.get(10);
+  // The sum and the count are the starters' alone: 47.8 and 2, as above.
+  assert.equal(home.expectedFinal, 47.8);
+  assert.equal(home.playersRemaining, 2);
+  assert.deepEqual(home.starters.map((s) => s.playerId), [1, 2, 3]);
+  assert.deepEqual(home.bench.map((b) => [b.playerId, b.projection, b.gameState, b.expectedFinal, b.availability]), [
+    [6, 10, 'in_progress', 10, { available: true, reason: null }],
+    [7, 0, 'in_progress', 0, { available: false, reason: 'out' }],
+  ]);
+  // Starters carry the same verdict shape; the Out kicker on team 20 says so,
+  // and the Questionable RB on team 10 carries no reason at all (Q and D are
+  // available). Red-tell: carrying the rule's raw reason turns this red.
+  assert.deepEqual(byTeam.get(20).starters.map((s) => [s.playerId, s.availability.reason]), [[4, 'bye'], [5, 'out']]);
+  assert.deepEqual(home.starters.find((s) => s.playerId === 2).availability, { available: true, reason: null });
+  assert.deepEqual(byTeam.get(20).bench, []);
+  // One projection read covers starters and bench together.
+  const [call] = projectionService.getWeeklyProjections.mock.calls;
+  assert.deepEqual([...call.arguments[0].playerIds].sort(), [1, 2, 3, 4, 5, 6, 7]);
+});
+
 test('the projection run is asked once for the union of every starter under the league', async (t) => {
   const fake = weekPool(t);
   await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
@@ -163,18 +205,41 @@ test('the projection run is asked once for the union of every starter under the 
   assert.deepEqual([...args.playerIds].sort(), [1, 2, 3, 4, 5]);
 });
 
-test('a team with no starter rows is absent', async (t) => {
-  const fake = weekPool(t, { starters: STARTERS.filter((s) => s.team_id === 10) });
-  const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
+test('a team with no lineup rows is absent; a team with only bench rows is present with null figures and a priced bench', async (t) => {
+  // No rows of any slot: absent, as before.
+  let fake = weekPool(t, { starters: STARTERS.filter((s) => s.team_id === 10) });
+  let byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
   assert.ok(byTeam.has(10));
   assert.equal(byTeam.has(20), false);
 
+  // Only bench rows (#883): present, so the route can read the priced bench,
+  // but the figures stay null (a bench is never summed, and null is not a
+  // forecast of zero) and the status cascade reads it as no starters.
+  const benchOnly = [
+    ...STARTERS.filter((s) => s.team_id === 10),
+    { team_id: 30, player_id: 8, slot: 'BENCH', position: 'RB', nfl_team: 'BUF', injury_status: null, stats: null },
+  ];
+  fake = weekPool(t, { starters: benchOnly, projections: new Map([...PROJECTIONS, [8, { points: 5 }]]) });
+  byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 30], db: fake, now: NOW });
+  const team = byTeam.get(30);
+  assert.ok(team, 'a bench-only team gets an entry');
+  assert.equal(team.expectedFinal, null);
+  assert.equal(team.playersRemaining, null);
+  assert.deepEqual(team.starters, []);
+  assert.deepEqual(team.bench.map((b) => [b.playerId, b.projection]), [[8, 5]]);
+  assert.equal(statusForMatchup({ settled: false, home: byTeam.get(10), away: team, computed: true, unreliable: false }), 'live');
 });
 
+// Best-ball rows are materialized on BENCH (lineup.service never seeds a
+// starting slot in best ball and refuses moves outside BENCH/IR), so these
+// fixtures carry that shape. Red-tell (#883): dropping the best-ball keep in the
+// producer's BENCH branch (`if (!league.best_ball) continue;` -> `continue;`)
+// turns this case red (expectedFinal null, starters []) and the 'status in best
+// ball' case red (status scheduled); F2 is an absence case and stays green.
 test('best ball optimizes per-player expected finals rather than raw projections', async (t) => {
   const candidates = [
-    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: { passingYards: 750 } },
-    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'Philadelphia Eagles', injury_status: null, stats: null },
+    { team_id: 10, player_id: 6, slot: 'BENCH', position: 'QB', nfl_team: 'BUF', injury_status: null, stats: { passingYards: 750 } },
+    { team_id: 10, player_id: 7, slot: 'BENCH', position: 'QB', nfl_team: 'Philadelphia Eagles', injury_status: null, stats: null },
   ];
   const projections = new Map([[6, { points: 10 }], [7, { points: 20 }]]);
   const league = {
@@ -192,6 +257,9 @@ test('best ball optimizes per-player expected finals rather than raw projections
   assert.equal(team.expectedFinal, 30);
   assert.equal(team.playersRemaining, 1);
   assert.deepEqual(team.starters.map((starter) => starter.playerId), [6]);
+  // Every best-ball row also rides in `bench`, chosen or not, so the detail
+  // route reads a priced row for the one the optimizer left out.
+  assert.deepEqual(team.bench.map((b) => b.playerId), [6, 7]);
   assert.deepEqual(projectionService.getWeeklyProjections.mock.calls[0].arguments[0].playerIds.sort(), [6, 7]);
 
   const decorated = await attachExpectedFinals(
@@ -274,8 +342,8 @@ test('status in best ball reads the optimizer\'s chosen lineup, not every candid
   // Chosen QB (KC) is final at 30; the benched candidate (BUF) is in progress.
   // Reading the chosen lineup gives played; reading every candidate would give live.
   const candidates = [
-    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // 30, final
-    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: { passingYards: 125 } }, // 5, in progress
+    { team_id: 10, player_id: 6, slot: 'BENCH', position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // 30, final
+    { team_id: 10, player_id: 7, slot: 'BENCH', position: 'QB', nfl_team: 'BUF', injury_status: null, stats: { passingYards: 125 } }, // 5, in progress
   ];
   const projections = new Map([[6, { points: 10 }], [7, { points: 20 }]]);
   const league = { ...LEAGUE, best_ball: true, roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] };
@@ -355,8 +423,8 @@ test('best ball without a projection run states no status, never a false played 
   // there is no chosen lineup, so points-only ordering would pick the finished
   // player over the in-progress one and the matchup would read played mid-slate.
   const candidates = [
-    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // final, 30 pts
-    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: null }, // in progress, 0 pts
+    { team_id: 10, player_id: 6, slot: 'BENCH', position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // final, 30 pts
+    { team_id: 10, player_id: 7, slot: 'BENCH', position: 'QB', nfl_team: 'BUF', injury_status: null, stats: null }, // in progress, 0 pts
   ];
   const league = { ...LEAGUE, best_ball: true, roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] };
   const fake = weekPool(t, { starters: candidates, projections: new Error('run store down') });

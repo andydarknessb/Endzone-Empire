@@ -7,7 +7,9 @@
  * legacy tree below the island for two things the brief and precedent settle -
  * the existing generic Team profile helper (`src/lib/teamProfileEvents`, which
  * the issue mandated) and a plain fetch (`src/api/apiClient`, the same module
- * `shared/lib/useEndpoint` reads). Everything else in this folder is internal.
+ * `shared/lib/useEndpoint` reads) - plus, since #885, the anon Supabase client
+ * (`src/api/supabaseClient`) for the one live game state subscription a
+ * Matchup holds. Everything else in this folder is internal.
  */
 export {
   matchupFromListRow,

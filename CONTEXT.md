@@ -577,6 +577,13 @@ _Avoid_: lineup
 The subset of a roster a team starts in one week, one player per starting slot.
 _Avoid_: roster, starting roster
 
+**Unavailable**:
+A player who cannot play this week: on bye, Out, or on IR. His projection
+counts as zero wherever a total is summed, and every surface shows the reason
+("on bye", "out", "on IR") instead of a number. Questionable and Doubtful are
+not unavailable.
+_Avoid_: inactive, injured
+
 **Roster Management presentation**:
 The single row presentation every occupied Lineup row uses, whether
 Starter, Bench, or IR: profile image, position, Bye, status, and

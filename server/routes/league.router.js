@@ -859,9 +859,9 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const leagueRow = leagueResult.rows[0];
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
     const { materializeLineup } = require('../services/lineup.service');
-    const projectionService = require('../services/projection.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
+    const { availabilityFor } = require('../services/projectionModel');
     const rules = rulesForLeague(leagueRow);
 
     // This week's real-game opponents, for the cutscene's chasing defender.
@@ -941,18 +941,16 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       console.error('matchup nfl games unavailable', gamesErr.message);
     }
 
-    // Expected final and per-starter projections come from the one shared
-    // producer (expectedFinal.service): the weekly projection under this
-    // league's scoring with the availability rule, so the totals here, the
-    // Game Center card and the Lineup page agree. Bench rows read the same
-    // weekly run so a bench number is comparable to a starter's. Both are
-    // best-effort: a miss leaves projections null, never an error.
     // The one decorator (expectedFinal.service): the matchup's status and each
-    // side's per-team result (expected final, players remaining, per-starter
-    // projections) from a single producer read, at this request's instant.
-    // The one decorator is the sole source of the status; the detail route does
-    // not derive its own. If the call itself throws, the status is unknown
-    // (null), never a guessed scheduled/final (ADR 0030, F1).
+    // side's per-team result (expected final, players remaining, and EVERY
+    // lineup row, starter and bench, priced by the one rule - the weekly
+    // projection under this league's scoring with the availability rule) from a
+    // single producer read, at this request's instant. So the totals here, the
+    // Game Center card and the Lineup page agree, and a bench number is priced
+    // exactly like a starter's (#883). Best-effort: a miss leaves projections
+    // null, never an error. The decorator is the sole source of the status;
+    // if the call itself throws, the status is unknown (null), never a guessed
+    // scheduled/final (ADR 0030, F1).
     let decoration = { status: null, home: null, away: null };
     try {
       [decoration] = await decorateMatchups([matchup], { league: leagueRow, now: clock.now() });
@@ -960,20 +958,16 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       console.error('matchup expected finals unavailable', efErr.message);
     }
     matchup.status = decoration.status;
-    let benchProjections = new Map();
-    const benchIds = [...homeRaw.benchRows, ...awayRaw.benchRows].map((row) => row.id);
-    if (benchIds.length > 0) {
-      try {
-        const run = await projectionService.getWeeklyProjections({
-          season: matchup.season, week: matchup.week, league: leagueRow, playerIds: benchIds,
-        });
-        benchProjections = projectionService.toLegacyProjectionMap(run);
-      } catch (projErr) {
-        console.error('matchup bench projections unavailable', projErr.message);
-      }
-    }
-    const toPlayer = (row, projectionOf) => {
-      const projected = projectionOf(row.id);
+    const toPlayer = (row, priced) => {
+      const projected = priced ? priced.projection : null;
+      // With no priced row (the producer's read failed) the availability rule
+      // still speaks from the injury designation alone; a bye is unknown then.
+      const availability = priced
+        ? priced.availability
+        : (() => {
+          const verdict = availabilityFor({ injuryStatus: row.injury_status, onBye: false });
+          return { available: verdict.available, reason: verdict.available ? null : verdict.reason };
+        })();
       return {
         id: row.id,
         name: row.name,
@@ -984,17 +978,22 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         // Full stat line for the expandable row; safe to expose (public NFL data).
         stats: row.stats || null,
         points: row.stats ? calculateFantasyPoints(row.stats, rules) : 0,
+        // 0 when the player is unavailable (the rule already zeroed it), so the
+        // row and the team total agree; null only when nothing was priced.
         projected: Number.isFinite(Number(projected)) && projected != null
           ? Math.round(Number(projected) * 100) / 100
           : null,
+        availability,
         opponent: opponentByTeam.get(normalizeNflTeam(row.nfl_team)) || null,
       };
     };
     const buildTeam = (raw, team) => {
-      const starterProjection = new Map((team ? team.starters : []).map((s) => [s.playerId, s.projection]));
+      const pricedById = new Map(
+        [...(team ? team.starters : []), ...(team && team.bench ? team.bench : [])].map((p) => [p.playerId, p])
+      );
       return {
-        starters: raw.starterRows.map((row) => toPlayer(row, (id) => (starterProjection.has(id) ? starterProjection.get(id) : null))),
-        bench: raw.benchRows.map((row) => toPlayer(row, (id) => benchProjections.get(id)?.points ?? null)),
+        starters: raw.starterRows.map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+        bench: raw.benchRows.map((row) => toPlayer(row, pricedById.get(row.id) || null)),
         expectedFinal: team ? team.expectedFinal : null,
         playersRemaining: team ? team.playersRemaining : null,
       };

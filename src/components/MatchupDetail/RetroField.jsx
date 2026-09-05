@@ -6,7 +6,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { Sprite } from './TecmoSprite';
 import { getSpriteColors } from '../../lib/nflTeamColors';
 import { playLabel } from '../../lib/scoringEvents';
-import { RosterPreviewGrid } from './MatchupExtras';
+import { RosterPreviewGrid, unavailableLabel } from './MatchupExtras';
 
 const YARD_LABELS = ['10', '20', '30', '40', '50', '40', '30', '20', '10'];
 const LEG_FRAME_MS = 140;
@@ -351,6 +351,17 @@ function RetroField({
                 <Box key={p.id} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.4 }}>
                   <Typography variant="body2" noWrap sx={{ color: 'text.secondary' }}>
                     {p.name} <Typography component="span" variant="caption">({p.position})</Typography>
+                    {/* An Unavailable bench player says why (#883); an available
+                        one shows his projection beside his points. */}
+                    {unavailableLabel(p.availability) ? (
+                      <Typography component="span" variant="caption" data-testid="unavailable-reason" sx={{ ml: 0.5 }}>
+                        · {unavailableLabel(p.availability)}
+                      </Typography>
+                    ) : (p.projected != null && (
+                      <Typography component="span" variant="caption" sx={{ ml: 0.5 }}>
+                        · Proj {Number(p.projected).toFixed(1)}
+                      </Typography>
+                    ))}
                   </Typography>
                   <Typography variant="body2" sx={{ color: 'text.secondary', flexShrink: 0, ml: 1 }}>
                     {Number(p.points || 0).toFixed(1)}
