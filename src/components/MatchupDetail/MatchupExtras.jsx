@@ -398,7 +398,7 @@ SlotComparisonList.propTypes = {
   onOpenPlayer: PropTypes.func.isRequired,
 };
 
-// --- Compact roster preview (Matchups list page) ----------------------------
+// --- Compact roster preview (retro field) -----------------------------------
 
 function playerInitials(name) {
   if (!name) return '?';

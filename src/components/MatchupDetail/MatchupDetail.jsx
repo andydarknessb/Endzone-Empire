@@ -55,18 +55,12 @@ function MatchupDetail() {
   );
   const { realGameIds } = useFantasyMatchupGames(matchupId);
 
-  // The two lineups (starters/bench) are the box score's own state: the model
-  // (entities/matchup) is the scoreboard - totals, status, Expected final,
-  // Players remaining - and `detail` is the lineup payload beneath it. Live
-  // per-starter point bumps are applied here on the plays, so the lineups are
-  // local state seeded from each fetch of the detail body.
-  const [home, setHome] = useState(null);
-  const [away, setAway] = useState(null);
-  // The viewer's own Team id, seeded from the detail body (below) alongside the
-  // lineups. State, not a ref: the play handler reads it directly in its deps,
-  // so nothing shadows a stale closure.
-  const [viewerTeamId, setViewerTeamId] = useState(null);
-
+  // The lineups (starters/bench per side) and the viewer's Team id live on the
+  // hook's `detail` now: the model (entities/matchup) is the scoreboard, the
+  // hook's `starterRows` are the paired starters with their optimistic bumps, and
+  // `detail` carries the raw lineups this page still reads for bench arrays, id
+  // sets and the viewer roster check - all of which the score feed never mutates,
+  // so there is no second lineup copy to keep here.
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
@@ -84,6 +78,10 @@ function MatchupDetail() {
   // Touchdown-celebration preference (opt-out: default on). A ref, not state:
   // it configures the play handler without driving a re-render on load.
   const celebrationsRef = useRef(true);
+  // The latest detail body, so the async play handler reads the current lineups
+  // and viewer id without closing over them (and without re-subscribing the feed
+  // when they change). Updated in an effect below from the hook's `detail`.
+  const detailRef = useRef(null);
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -103,20 +101,22 @@ function MatchupDetail() {
   // all move on the model inside the hook (applyScoreEvent), and the optimistic
   // per-starter point bumps now live in the hook too (on the paired rows it
   // exposes), so this handler never touches any of them - it reads the lineups
-  // only to route plays to the right side. It closes over the current lineups
-  // and viewer id (in its deps below), so nothing shadows a stale closure; the
-  // hook reads this callback through its own `onScoresRef` and never
-  // re-subscribes when a fresh one is passed.
+  // only to route plays to the right side. It reads them from `detailRef` (the
+  // latest detail body) rather than closing over state, so it stays stable and
+  // the hook, which reads this callback through its own `onScoresRef`, never
+  // re-subscribes the feed.
   const handleScores = useCallback((event) => {
     const plays = (event && event.plays) || [];
     if (!plays.length) return;
 
-    const homeStarters = home?.starters || [];
-    const awayStarters = away?.starters || [];
+    const detailNow = detailRef.current;
+    const viewerTeamId = detailNow?.viewerTeamId ?? null;
+    const homeStarters = detailNow?.home?.starters || [];
+    const awayStarters = detailNow?.away?.starters || [];
     const homeIds = new Set(homeStarters.map((p) => p.id));
     const awayIds = new Set(awayStarters.map((p) => p.id));
 
-    const iAmHome = viewerTeamId && home?.teamId === viewerTeamId;
+    const iAmHome = viewerTeamId && detailNow?.home?.teamId === viewerTeamId;
     const myIds = viewerTeamId ? (iAmHome ? homeIds : awayIds) : new Set();
     const oppIds = viewerTeamId ? (iAmHome ? awayIds : homeIds) : new Set();
 
@@ -167,7 +167,7 @@ function MatchupDetail() {
         retroDashTimeoutRef.current = null;
       }, latest.isTouchdown === false ? RETRO_MOMENT_MS : RETRO_DASH_MS);
     }
-  }, [home, away, viewerTeamId, pushToasts]);
+  }, [pushToasts]);
 
   // The Matchup as a read model (entities/matchup), with the score feed and the
   // Team identity feed composed over the pure module inside the hook. The whole
@@ -179,13 +179,11 @@ function MatchupDetail() {
 
   const whatIf = detail?.viewerWhatIf ?? null;
 
-  // Seed the local lineups and the viewer id from each fetch of the detail body.
-  // A resync inside the hook replaces `detail`, which re-seeds here and drops any
-  // optimistic per-starter deltas in favour of the authoritative totals.
+  // Keep the play handler's view of the lineups current: it reads `detailRef`
+  // rather than closing over `detail`, so it never re-subscribes the feed when a
+  // resync replaces the body.
   useEffect(() => {
-    setHome(detail?.home ?? null);
-    setAway(detail?.away ?? null);
-    setViewerTeamId(detail?.viewerTeamId ?? null);
+    detailRef.current = detail;
   }, [detail]);
 
   // Touchdown-celebration preference (opt-out: default on).
@@ -302,10 +300,11 @@ function MatchupDetail() {
   // is hidden rather than printed as a zero (ADR 0023). Until the league is
   // known the line stays hidden too, so a best-ball zero never flashes.
   const showBenchLeft = !!league && !league.best_ball;
-  const viewerTeam = viewerTeamId === home?.teamId
-    ? home
-    : viewerTeamId === away?.teamId
-      ? away
+  const viewerTeamId = detail?.viewerTeamId ?? null;
+  const viewerTeam = viewerTeamId === detail?.home?.teamId
+    ? detail?.home
+    : viewerTeamId === detail?.away?.teamId
+      ? detail?.away
       : null;
   const viewerHasRoster = !!viewerTeam
     && ((viewerTeam.starters || []).length > 0 || (viewerTeam.bench || []).length > 0);
@@ -386,8 +385,8 @@ function MatchupDetail() {
                   awayName={awayName}
                   homeProb={winProb.home}
                   starterRows={starterRows}
-                  homeBench={home?.bench}
-                  awayBench={away?.bench}
+                  homeBench={detail?.home?.bench}
+                  awayBench={detail?.away?.bench}
                   activePlay={retroActivePlay}
                 />
               </Box>

@@ -216,8 +216,11 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
 
   const home = homeStarters || [];
   const away = awayStarters || [];
+  // Key on the slot as a string on both sides, matching the stringified order
+  // above, so a numeric slot key never groups under a value the order can't find.
+  const slotKey = (p) => (p.slot == null ? '' : String(p.slot));
   const bySlot = (list) => list.reduce((acc, p) => {
-    const key = p.slot ?? '';
+    const key = slotKey(p);
     if (!acc.has(key)) acc.set(key, []);
     acc.get(key).push(p);
     return acc;
@@ -233,8 +236,8 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
     order.push(key);
   };
   ordered.forEach(add);
-  home.forEach((p) => add(p.slot ?? ''));
-  away.forEach((p) => add(p.slot ?? ''));
+  home.forEach((p) => add(slotKey(p)));
+  away.forEach((p) => add(slotKey(p)));
 
   const rows = [];
   for (const slot of order) {
