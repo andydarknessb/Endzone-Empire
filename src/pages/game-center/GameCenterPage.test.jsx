@@ -332,17 +332,19 @@ test('syncLineText: the countdown floors at zero once the pass is due', () => {
 
 // --- week at a glance ------------------------------------------------------
 
+// A week every glance fact can be read from: two live Matchups and one still
+// scheduled. Shared by the desktop and the mobile glance cases.
+const glanceWeek = () => [
+  row({ id: 1, status: 'live', home_team_id: 10, away_team_id: 20, home_team_name: 'Alpha', away_team_name: 'Beta', home_score: '101.3', away_score: '97.9', home_expected_final: 105, away_expected_final: 130, home_players_remaining: 2, away_players_remaining: 3 }),
+  row({ id: 2, status: 'live', home_team_id: 30, away_team_id: 40, home_team_name: 'Gamma', away_team_name: 'Delta', home_score: '88.0', away_score: '72.2', home_expected_final: 90, away_expected_final: 80, home_players_remaining: 4, away_players_remaining: 5 }),
+  row({ id: 3, status: 'scheduled', home_team_id: 50, away_team_id: 60, home_team_name: 'Epsilon', away_team_name: 'Zeta', home_score: '0', away_score: '0', home_expected_final: 140, away_expected_final: 120, home_players_remaining: 9, away_players_remaining: 9 }),
+];
+
 // Red-tell (#897): deriving the top score from Expected final instead of the
 // score turns this case red and no other. Beta's Expected final (130) and
 // Epsilon's (140) both exceed Alpha's score (101.3); Alpha still tops the week.
 test('the glance tile\'s top score is the highest score in the week, never an Expected final', async () => {
-  mockApi({
-    matchups: [
-      row({ id: 1, status: 'live', home_team_id: 10, away_team_id: 20, home_team_name: 'Alpha', away_team_name: 'Beta', home_score: '101.3', away_score: '97.9', home_expected_final: 105, away_expected_final: 130, home_players_remaining: 2, away_players_remaining: 3 }),
-      row({ id: 2, status: 'live', home_team_id: 30, away_team_id: 40, home_team_name: 'Gamma', away_team_name: 'Delta', home_score: '88.0', away_score: '72.2', home_expected_final: 90, away_expected_final: 80, home_players_remaining: 4, away_players_remaining: 5 }),
-      row({ id: 3, status: 'scheduled', home_team_id: 50, away_team_id: 60, home_team_name: 'Epsilon', away_team_name: 'Zeta', home_score: '0', away_score: '0', home_expected_final: 140, away_expected_final: 120, home_players_remaining: 9, away_players_remaining: 9 }),
-    ],
-  });
+  mockApi({ matchups: glanceWeek() });
   renderPage();
 
   await screen.findByTestId('week-glance');
@@ -646,4 +648,18 @@ test('below the sm breakpoint the grid renders rows, the feed shows three and th
   });
   expect(feedRows()).toHaveLength(3);
   expect(screen.getByTestId('scoring-feed-show-all')).toHaveTextContent('Show all 4 plays');
+});
+
+// The canvas's mobile artboard (build.mjs `gameCenterMobile()`) ends at the
+// three-row feed with no Week at a glance tile; the same week renders the
+// tile at desktop width in the red-tell case above.
+test('below the sm breakpoint the Week at a glance tile is not rendered', async () => {
+  mobile = true;
+  mockApi({ matchups: glanceWeek() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 2, name: 'League matchups' });
+  expect(screen.getByTestId('matchup-grid')).toHaveAttribute('data-layout', 'rows');
+  expect(screen.queryByTestId('week-glance')).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { level: 2, name: 'Week at a glance' })).not.toBeInTheDocument();
 });

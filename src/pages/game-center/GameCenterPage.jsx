@@ -12,9 +12,10 @@ import WeekGlance from './ui/WeekGlance';
 
 /**
  * Game Center page slice (ADR 0031, #897), on the `/league/:leagueId/game-center`
- * route in place of the legacy `src/components/GameCenter` page, which is
- * deleted with its test. Transcribed from the canvas's `gameCenterDesktop()`
- * and `gameCenterMobile()` (docs/design/game-center-matchups/build.mjs):
+ * route in place of the legacy Game Center page under the components tree,
+ * which is deleted with its test. Transcribed from the canvas's
+ * `gameCenterDesktop()` and `gameCenterMobile()` (docs/design/
+ * game-center-matchups/build.mjs):
  *
  *   - the breadcrumb (Leagues / league name / Game Center), then the h1
  *     "Game Center" in the display face with the sync line beneath it
@@ -26,8 +27,9 @@ import WeekGlance from './ui/WeekGlance';
  *     column below it: the viewer's Matchup as the hero (widgets/matchup-hero)
  *     and the "League matchups" heading over the rest of the week's Matchups
  *     (widgets/matchup-grid, cards on desktop and rows on a phone) on the
- *     left; the Scoring feed (six rows, three on a phone) and the Week at a
- *     glance tile in the rail.
+ *     left; the Scoring feed (six rows, three on a phone) and, at `sm` and
+ *     up, the Week at a glance tile in the rail (the mobile artboard has no
+ *     glance tile, so the tile is not rendered below `sm`).
  *
  * Every value two slices need (the week's Matchups, the viewer's Team id,
  * the standings-derived records and ranks, the plays) is read once in the
@@ -214,7 +216,8 @@ export default function GameCenterPage() {
 
             <Box data-testid="game-center-rail" sx={{ display: 'grid', gap: '18px', minWidth: 0 }}>
               <ScoringFeedList items={items} week={weekNumber} limit={compact ? 3 : 6} />
-              <WeekGlance rows={glance} />
+              {/* The mobile artboard ends at the feed: no glance tile below sm. */}
+              {!compact && <WeekGlance rows={glance} />}
             </Box>
           </Box>
         </>
