@@ -8,6 +8,7 @@ const leagueRouter = require('../routes/league.router');
 const projectionService = require('../services/projection.service');
 const lineupService = require('../services/lineup.service');
 const decisionService = require('../services/decision.service');
+const clock = require('../modules/clock');
 
 /**
  * GET /api/league/:id/matchups/:matchupId reports each side's expected
@@ -149,4 +150,70 @@ test('starters project under the availability rule and bench players from the sa
   assert.equal(byId.get(101).points, 22.5);
   // Two reads of the weekly run: the producer's (every starter) and the bench's.
   assert.deepEqual(runCalls, [[101, 102, 201], [103]]);
+});
+
+// ---------------------------------------------------------------------------
+// matchup.status on the detail body, at a fixed instant.
+// ---------------------------------------------------------------------------
+
+const NOW = '2026-10-25T18:00:00.000Z'; // Sunday afternoon, after the 17:00Z kickoffs
+
+// One home starter (KC) and one away starter (DAL); the live rows and the
+// schedule set their game states, so a fixture can name any status.
+async function detailStatus(t, { live, schedule }) {
+  t.mock.method(clock, 'now', () => new Date(NOW));
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map([[301, { points: 10 }], [401, { points: 10 }]]) }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const homeStarters = [player(301, 'Home QB', 'QB', 'KC', null, 'QB', null)];
+  const awayStarters = [player(401, 'Away RB', 'RB', 'DAL', null, 'RB', null)];
+  const byes = [];
+  for (let w = 1; w <= 18; w++) for (const team of ['KC', 'DAL']) byes.push({ nfl_team: team, week: w });
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: byes })],
+    [/FROM "nfl_games"/, () => ({ rows: schedule })],
+    [/FROM "live_game_states"/, () => ({ rows: live })],
+    [/"lineup_entries"\."slot" = \$4/, () => ({ rows: [] })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
+      rows: params[0] === HOME ? homeStarters : awayStarters,
+    })],
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
+      rows: [
+        ...homeStarters.map((p) => ({ team_id: HOME, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...awayStarters.map((p) => ({ team_id: AWAY, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+      ],
+    })],
+  ]).install(t);
+  const res = await request(app).get(`/api/league/${LEAGUE_ID}/matchups/7`).set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+test('the detail body reports matchup.status live when a starter\'s game is in progress', async (t) => {
+  const body = await detailStatus(t, {
+    live: [{ home_team: 'KC', away_team: 'LV', game_status: 'in_progress' }],
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-27T00:20:00.000Z' },
+    ],
+  });
+  assert.equal(body.matchup.status, 'live');
+});
+
+test('the detail body reports matchup.status played when every starter\'s game is over', async (t) => {
+  const body = await detailStatus(t, {
+    live: [
+      { home_team: 'KC', away_team: 'LV', game_status: 'final' },
+      { home_team: 'DAL', away_team: 'NYG', game_status: 'final' },
+    ],
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-25T17:00:00.000Z' },
+    ],
+  });
+  assert.equal(body.matchup.status, 'played');
 });

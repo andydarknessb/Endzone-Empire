@@ -6,6 +6,7 @@ const {
   expectedFinalForStarter,
   gameStateFor,
   expectedFinalsForWeek,
+  statusForMatchup,
   attachExpectedFinals,
 } = require('../services/expectedFinal.service');
 
@@ -232,6 +233,78 @@ test('attachExpectedFinals decorates open rows and leaves final rows and untouch
   assert.equal(projectionService.getWeeklyProjections.mock.calls.length, 1);
   // The input rows are not mutated.
   assert.equal(Object.prototype.hasOwnProperty.call(rows[0], 'home_expected_final'), false);
+});
+
+// ---------------------------------------------------------------------------
+// Matchup status
+// ---------------------------------------------------------------------------
+
+test('status is a pure cascade over the per-starter game states plus the settled flag', () => {
+  const team = (...states) => ({ starters: states.map((gameState) => ({ gameState })) });
+  assert.equal(statusForMatchup({ settled: true, home: team('in_progress'), away: null }), 'final');
+  assert.equal(statusForMatchup({ settled: false, home: team('in_progress'), away: team('scheduled') }), 'live');
+  assert.equal(statusForMatchup({ settled: false, home: team('final'), away: team('final') }), 'played');
+  assert.equal(statusForMatchup({ settled: false, home: team('scheduled'), away: team('scheduled') }), 'scheduled');
+  // No lineup rows on either side: scheduled (both team results absent).
+  assert.equal(statusForMatchup({ settled: false, home: null, away: null }), 'scheduled');
+});
+
+test('status in best ball reads the optimizer\'s chosen lineup, not every candidate', async (t) => {
+  // Chosen QB (KC) is final at 30; the benched candidate (BUF) is in progress.
+  // Reading the chosen lineup gives played; reading every candidate would give live.
+  const candidates = [
+    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // 30, final
+    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: { passingYards: 125 } }, // 5, in progress
+  ];
+  const projections = new Map([[6, { points: 10 }], [7, { points: 20 }]]);
+  const league = { ...LEAGUE, best_ball: true, roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  const fake = weekPool(t, { starters: candidates, projections });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league, db: fake, now: NOW }
+  );
+  assert.equal(out[0].home_expected_final, 30, 'the chosen QB is the final one at 30');
+  assert.equal(out[0].status, 'played');
+});
+
+test('a matchup with no lineup rows on either side is scheduled', async (t) => {
+  const fake = weekPool(t, { starters: [] });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].home_expected_final, null);
+  assert.equal(out[0].status, 'scheduled');
+});
+
+test('the settled flag wins as final and never reads the database', async () => {
+  const fake = createFakePool([]);
+  const out = await attachExpectedFinals(
+    [{ id: 6, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: true }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, 'final');
+  assert.equal(fake.calls.length, 0);
+});
+
+test('the five-hour no-live-row bound yields played when every starter is past it', async (t) => {
+  const starters = [
+    { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: null },
+    { team_id: 10, player_id: 2, position: 'RB', nfl_team: 'BUF', injury_status: null, stats: null },
+  ];
+  const projections = new Map([[1, { points: 15 }], [2, { points: 12 }]]);
+  // No live rows at all; both games kicked off eight hours before now, well
+  // past the five-hour bound, so every starter is final and the matchup played.
+  const schedule = [
+    { nfl_team: 'KC', kickoff_at: '2026-10-25T10:30:00.000Z' },
+    { nfl_team: 'BUF', kickoff_at: '2026-10-25T10:30:00.000Z' },
+  ];
+  const fake = weekPool(t, { starters, live: [], schedule, projections });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, 'played');
 });
 
 test('a final-only list never touches the database', async () => {

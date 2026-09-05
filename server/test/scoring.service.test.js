@@ -62,7 +62,9 @@ test('scoreMatchups excludes IR occupants from the best-ball candidate pool', as
     awayTeamId: 20,
     homeScore: 4,
     awayScore: 2,
-    // A final week has a score, not an expected final (expectedFinal.service).
+    // A settled matchup's status is final; a final week has a score, not an
+    // expected final (expectedFinal.service).
+    status: 'final',
     homeExpectedFinal: null,
     awayExpectedFinal: null,
     homePlayersRemaining: null,

@@ -51,9 +51,11 @@ test('scores:updated carries each open side\'s expected final and players remain
     // two connections at once.
     fake.assertClean();
     producerCalls.push(args);
+    // starters carry the per-game classification the status is read from: a
+    // game in progress on the home side makes this matchup live.
     return new Map([
-      [10, { expectedFinal: 112.6, playersRemaining: 3 }],
-      [20, { expectedFinal: 88.05, playersRemaining: 1 }],
+      [10, { expectedFinal: 112.6, playersRemaining: 3, starters: [{ gameState: 'in_progress' }, { gameState: 'final' }, { gameState: 'scheduled' }] }],
+      [20, { expectedFinal: 88.05, playersRemaining: 1, starters: [{ gameState: 'final' }] }],
     ]);
   });
   const emitted = captureEmits(t);
@@ -65,21 +67,29 @@ test('scores:updated carries each open side\'s expected final and players remain
   assert.equal(open.awayExpectedFinal, 88.05);
   assert.equal(open.homePlayersRemaining, 3);
   assert.equal(open.awayPlayersRemaining, 1);
+  assert.equal(open.status, 'live');
   const done = scored.find((s) => s.matchupId === 71);
   assert.equal(done.homeExpectedFinal, null);
   assert.equal(done.awayExpectedFinal, null);
   assert.equal(done.homePlayersRemaining, null);
   assert.equal(done.awayPlayersRemaining, null);
+  // A final matchup is settled: its status is final, not a phase of open play.
+  assert.equal(done.status, 'final');
   // The producer was asked once, for the open matchup's teams only, under the league row.
   assert.equal(producerCalls.length, 1);
   assert.deepEqual(producerCalls[0].teamIds, [10, 20]);
   assert.equal(producerCalls[0].league.id, LEAGUE_ID);
   assert.equal(producerCalls[0].week, WEEK);
   // The same entries went out on the socket, now through the adapter's
-  // scoresUpdated method (the wire name is the adapter's secret).
+  // scoresUpdated method (the wire name is the adapter's secret). status rides
+  // each emitted entry, asserted by adapter METHOD, never the wire name (ADR 0025).
   assert.equal(emitted.length, 1);
   assert.equal(emitted[0].method, 'scoresUpdated');
   assert.deepEqual(emitted[0].payload.scored, scored);
+  const emittedOpen = emitted[0].payload.scored.find((s) => s.matchupId === 70);
+  const emittedDone = emitted[0].payload.scored.find((s) => s.matchupId === 71);
+  assert.equal(emittedOpen.status, 'live');
+  assert.equal(emittedDone.status, 'final');
 });
 
 test('a producer failure leaves the four fields null and the scores still go out', async (t) => {

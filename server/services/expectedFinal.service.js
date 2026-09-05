@@ -218,58 +218,155 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 }
 
 /**
- * Decorate matchup list rows with `home_expected_final`, `away_expected_final`,
- * `home_players_remaining` and `away_players_remaining` (number or null).
- * Final matchups carry null and never read projections: their result is the
- * score. Rows for a (season, week) with no lineup rows carry null too, which
- * is what an untouched future week looks like. Best-effort: a failed read
- * leaves nulls and the list still answers.
+ * A Matchup's status (#862), pure. One of four values, read from the same
+ * per-starter game classification the Expected final producer already
+ * assigns, so no second classification is written:
+ *  - `final`    the settled flag: the week's result is written and closed.
+ *  - `live`     a game is underway: any starter's game is in progress, or a
+ *               game has kicked off (some starter final) while others have
+ *               not, so the slate is running but not yet complete.
+ *  - `played`   every starter's game is over but the score of record is not
+ *               yet written (the settle pass has not run).
+ *  - `scheduled` no starter's game has kicked off, including a Matchup with
+ *               no lineup rows on either side.
+ * `home` and `away` are the per-team producer results (with `starters`) or
+ * null when a side has no lineup rows. In best ball `starters` is the
+ * optimizer's chosen lineup, the same set the Expected final sums.
+ */
+function statusForMatchup({ settled, home, away }) {
+  if (settled) return 'final';
+  const startersOf = (team) => (team && Array.isArray(team.starters) ? team.starters : []);
+  const states = [...startersOf(home), ...startersOf(away)].map((s) => s.gameState);
+  if (states.some((s) => s === 'in_progress')) return 'live';
+  if (states.length > 0 && states.every((s) => s === 'final')) return 'played';
+  // A game has kicked off (some starter final) while others have not: the
+  // slate is underway, which is not `scheduled` (a game already happened) and
+  // not `played` (not all are over).
+  if (states.some((s) => s === 'final')) return 'live';
+  return 'scheduled';
+}
+
+/**
+ * The one decorator. For a set of matchup rows it returns a parallel array of
+ * decorations
+ *   { status, homeExpectedFinal, awayExpectedFinal,
+ *     homePlayersRemaining, awayPlayersRemaining, home, away }
+ * where `home`/`away` are the per-team producer results (with `starters`) or
+ * null. The matchup list route, the matchup detail route and the live-score
+ * emit all call this and only map its result onto their own wire shape; the
+ * status is assigned here, once, so a card, the page it opens and the socket
+ * that refreshes both carry the same fact. Every caller passes its own clock
+ * (`now`), so a route can be driven at a fixed instant.
+ *
+ * Final (settled) matchups carry `status: 'final'` with null figures and
+ * never read the database: their result is the score. Rows for a (season,
+ * week) with no lineup rows carry `status: 'scheduled'` and null figures,
+ * which is what an untouched future week looks like. Best-effort: a failed
+ * read leaves a `scheduled` status and null figures and the caller still
+ * answers.
+ */
+async function decorateMatchups(matchups, { league, db = pool, now = new Date() } = {}) {
+  const teams = matchups.map(() => ({ home: null, away: null }));
+  const open = matchups
+    .map((matchup, index) => ({ matchup, index }))
+    .filter(({ matchup }) => !matchup.final);
+
+  if (open.length > 0 && league) {
+    const groups = new Map();
+    for (const entry of open) {
+      const { matchup } = entry;
+      const key = `${matchup.season}:${matchup.week}`;
+      if (!groups.has(key)) groups.set(key, { season: Number(matchup.season), week: Number(matchup.week), entries: [] });
+      groups.get(key).entries.push(entry);
+    }
+    for (const { season, week, entries } of groups.values()) {
+      const teamIds = entries.flatMap(({ matchup }) => [matchup.home_team_id, matchup.away_team_id]);
+      let byTeam;
+      try {
+        // Through the module's own export so a caller's test (the score emit's)
+        // can mock expectedFinalsForWeek at the one seam it already uses.
+        byTeam = await module.exports.expectedFinalsForWeek({ league, season, week, teamIds, db, now });
+      } catch (err) {
+        console.error('expected final: matchup decoration unavailable', err.message);
+        continue;
+      }
+      for (const { matchup, index } of entries) {
+        teams[index].home = byTeam.get(Number(matchup.home_team_id)) || null;
+        teams[index].away = byTeam.get(Number(matchup.away_team_id)) || null;
+      }
+    }
+  }
+
+  return matchups.map((matchup, index) => {
+    const { home, away } = teams[index];
+    return {
+      status: statusForMatchup({ settled: !!matchup.final, home, away }),
+      homeExpectedFinal: home ? home.expectedFinal : null,
+      awayExpectedFinal: away ? away.expectedFinal : null,
+      homePlayersRemaining: home ? home.playersRemaining : null,
+      awayPlayersRemaining: away ? away.playersRemaining : null,
+      home,
+      away,
+    };
+  });
+}
+
+/**
+ * Decorate matchup list rows with `status`, `home_expected_final`,
+ * `away_expected_final`, `home_players_remaining` and `away_players_remaining`
+ * (the figures number or null). The list route's map of the one decorator
+ * onto its snake_case wire; input rows are not mutated.
  */
 async function attachExpectedFinals(rows, { league, db = pool, now = new Date() } = {}) {
-  const out = rows.map((row) => ({
+  const decorations = await decorateMatchups(rows, { league, db, now });
+  return rows.map((row, index) => ({
     ...row,
-    home_expected_final: null,
-    away_expected_final: null,
-    home_players_remaining: null,
-    away_players_remaining: null,
+    status: decorations[index].status,
+    home_expected_final: decorations[index].homeExpectedFinal,
+    away_expected_final: decorations[index].awayExpectedFinal,
+    home_players_remaining: decorations[index].homePlayersRemaining,
+    away_players_remaining: decorations[index].awayPlayersRemaining,
   }));
-  const open = out.filter((m) => !m.final);
-  if (open.length === 0 || !league) return out;
+}
 
-  const groups = new Map();
-  for (const m of open) {
-    const key = `${m.season}:${m.week}`;
-    if (!groups.has(key)) groups.set(key, { season: Number(m.season), week: Number(m.week), matchups: [] });
-    groups.get(key).matchups.push(m);
-  }
-  for (const { season, week, matchups } of groups.values()) {
-    const teamIds = matchups.flatMap((m) => [m.home_team_id, m.away_team_id]);
-    let byTeam;
+/**
+ * Decorate the live-score pass's `scored` entries in place with `status` and
+ * camelCase `homeExpectedFinal`, `awayExpectedFinal`, `homePlayersRemaining`
+ * and `awayPlayersRemaining` (the score emit's map of the one decorator onto
+ * its wire). Only `openMatchups` are priced; a settled or final entry carries
+ * `status: 'final'` and null figures (its result is its score), and an open
+ * entry left unpriced by a producer miss carries `status: null` and null
+ * figures. Best-effort: a producer failure leaves the fields null and the
+ * scores still go out.
+ */
+async function attachScoredExpectedFinals(scored, { openMatchups = [], league, db = pool, now = new Date() } = {}) {
+  const openById = new Map(openMatchups.map((matchup) => [matchup.id, matchup]));
+  const decByMatchup = new Map();
+  if (openMatchups.length > 0 && league) {
     try {
-      byTeam = await expectedFinalsForWeek({ league, season, week, teamIds, db, now });
+      const decorations = await decorateMatchups(openMatchups, { league, db, now });
+      openMatchups.forEach((matchup, index) => decByMatchup.set(matchup.id, decorations[index]));
     } catch (err) {
-      console.error('expected final: matchup list decoration unavailable', err.message);
-      continue;
-    }
-    for (const m of matchups) {
-      const home = byTeam.get(Number(m.home_team_id));
-      const away = byTeam.get(Number(m.away_team_id));
-      if (home) {
-        m.home_expected_final = home.expectedFinal;
-        m.home_players_remaining = home.playersRemaining;
-      }
-      if (away) {
-        m.away_expected_final = away.expectedFinal;
-        m.away_players_remaining = away.playersRemaining;
-      }
+      console.error('expected finals unavailable on score pass', err.message);
     }
   }
-  return out;
+  for (const entry of scored) {
+    const decoration = decByMatchup.get(entry.matchupId) || null;
+    entry.status = decoration ? decoration.status : (openById.has(entry.matchupId) ? null : 'final');
+    entry.homeExpectedFinal = decoration ? decoration.homeExpectedFinal : null;
+    entry.awayExpectedFinal = decoration ? decoration.awayExpectedFinal : null;
+    entry.homePlayersRemaining = decoration ? decoration.homePlayersRemaining : null;
+    entry.awayPlayersRemaining = decoration ? decoration.awayPlayersRemaining : null;
+  }
+  return scored;
 }
 
 module.exports = {
   expectedFinalForStarter,
   gameStateFor,
   expectedFinalsForWeek,
+  statusForMatchup,
+  decorateMatchups,
   attachExpectedFinals,
+  attachScoredExpectedFinals,
 };

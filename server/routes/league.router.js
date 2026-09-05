@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
+const clock = require('../modules/clock');
 const { requireAuth } = require('../modules/auth');
 const { createRateLimiter } = require('../modules/rateLimit');
 const projectionService = require('../services/projection.service');
@@ -684,7 +685,7 @@ router.get('/:id/matchups', async (req, res) => {
       const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
       league = leagueResult.rows[0] || null;
     }
-    res.json(await attachExpectedFinals(result.rows, { league }));
+    res.json(await attachExpectedFinals(result.rows, { league, now: clock.now() }));
   } catch (error) {
     console.error('Error fetching matchups', error);
     res.status(500).json({ error: 'failed to fetch matchups' });
@@ -859,7 +860,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
     const { materializeLineup } = require('../services/lineup.service');
     const projectionService = require('../services/projection.service');
-    const { expectedFinalsForWeek } = require('../services/expectedFinal.service');
+    const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
     const rules = rulesForLeague(leagueRow);
 
@@ -926,15 +927,16 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // Game Center card and the Lineup page agree. Bench rows read the same
     // weekly run so a bench number is comparable to a starter's. Both are
     // best-effort: a miss leaves projections null, never an error.
-    const teamIds = [matchup.home_team_id, matchup.away_team_id];
-    let byTeam = new Map();
+    // The one decorator (expectedFinal.service): the matchup's status and each
+    // side's per-team result (expected final, players remaining, per-starter
+    // projections) from a single producer read, at this request's instant.
+    let decoration = { status: matchup.final ? 'final' : 'scheduled', home: null, away: null };
     try {
-      byTeam = await expectedFinalsForWeek({
-        league: leagueRow, season: matchup.season, week: matchup.week, teamIds,
-      });
+      [decoration] = await decorateMatchups([matchup], { league: leagueRow, now: clock.now() });
     } catch (efErr) {
       console.error('matchup expected finals unavailable', efErr.message);
     }
+    matchup.status = decoration.status;
     let benchProjections = new Map();
     const benchIds = [...homeRaw.benchRows, ...awayRaw.benchRows].map((row) => row.id);
     if (benchIds.length > 0) {
@@ -965,8 +967,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         opponent: opponentByTeam.get(normalizeNflTeam(row.nfl_team)) || null,
       };
     };
-    const buildTeam = (raw, teamId) => {
-      const team = byTeam.get(Number(teamId)) || null;
+    const buildTeam = (raw, team) => {
       const starterProjection = new Map((team ? team.starters : []).map((s) => [s.playerId, s.projection]));
       return {
         starters: raw.starterRows.map((row) => toPlayer(row, (id) => (starterProjection.has(id) ? starterProjection.get(id) : null))),
@@ -975,8 +976,8 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         playersRemaining: team ? team.playersRemaining : null,
       };
     };
-    const homeTeam = buildTeam(homeRaw, matchup.home_team_id);
-    const awayTeam = buildTeam(awayRaw, matchup.away_team_id);
+    const homeTeam = buildTeam(homeRaw, decoration.home);
+    const awayTeam = buildTeam(awayRaw, decoration.away);
 
     // Live bench what-if for the viewer, but only when they own one of the two
     // teams in this matchup. Read-only, best-effort — never fails the request.

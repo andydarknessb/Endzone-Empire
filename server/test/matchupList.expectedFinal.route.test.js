@@ -6,6 +6,7 @@ const { createFakePool, select } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
 const projectionService = require('../services/projection.service');
+const clock = require('../modules/clock');
 
 /**
  * GET /api/league/:id/matchups carries each side's expected final and
@@ -78,7 +79,13 @@ const LIVE = [{ home_team: 'DAL', away_team: 'PHI', game_status: 'final' }];
 const BYE_ROWS = [];
 for (let w = 1; w <= 18; w++) for (const team of ['KC', 'BUF', 'DAL']) BYE_ROWS.push({ nfl_team: team, week: w });
 
+// The route reads its clock through the clock module, so this suite pins a
+// fixed instant (before the fixture's 2026-09-13 kickoffs) and the numbers
+// are deterministic whenever it runs.
+const FIXED_NOW = '2026-09-13T16:00:00.000Z';
+
 async function listMatchups(t, { matchups, starters = STARTERS, projections = PROJECTIONS }) {
+  t.mock.method(clock, 'now', () => new Date(FIXED_NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projections instanceof Error) throw projections;
     return { modelVersion: 'test', projections };
@@ -105,11 +112,8 @@ test('an open matchup carries both sides; a final one carries null; the projecti
   const { body, fake } = await listMatchups(t, { matchups: [OPEN, FINAL] });
   const open = body.find((m) => m.id === 7);
   const done = body.find((m) => m.id === 6);
-  // The route's clock is real time. With no live row the schedule decides:
-  // before kickoff the two home starters are their full projection, and
-  // after it, with no points yet, they are in progress at that same figure.
-  // Either way the home side sums to 50.35, so the assertion holds whenever
-  // this suite runs relative to the fixture's 2026-09-13 kickoffs.
+  // At the pinned instant, before kickoff and with no live row, the two home
+  // starters are their full projection and the home side sums to 50.35.
   assert.equal(open.home_expected_final, 50.35);
   assert.equal(open.away_expected_final, 5);
   assert.equal(open.home_players_remaining, 2);
@@ -157,4 +161,66 @@ test('a list with only final matchups never reads the league row, lineups or pro
   assert.equal(fake.matching(/FROM "leagues"/).length, 0);
   assert.equal(fake.matching(/lineup_entries/).length, 0);
   assert.equal(projectionService.getWeeklyProjections.mock.calls.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// status on the list row, one row for each of the four values, at a fixed
+// instant driven through the route with the real producer over the fake pool.
+// ---------------------------------------------------------------------------
+
+test('each list row carries its status: scheduled, live, played and final at a fixed instant', async (t) => {
+  const NOW = '2026-09-13T18:00:00.000Z'; // Sunday afternoon
+  t.mock.method(clock, 'now', () => new Date(NOW));
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({
+    modelVersion: 'test',
+    projections: new Map([21, 22, 23, 24, 25, 26].map((tid) => [tid * 100 + 1, { points: 10 }])),
+  }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+
+  const M = (id, home, away, extra = {}) => row({ id, week: 2, home_team_id: home, away_team_id: away, ...extra });
+  const matchups = [
+    M(31, 21, 22), // both pre-kickoff, no live row -> scheduled
+    M(32, 23, 24), // a game in progress -> live
+    M(33, 25, 26), // every game over -> played
+    M(34, 27, 28, { final: true, home_score: '100', away_score: '90' }), // settled -> final
+  ];
+  const starter = (tid, team) => ({ team_id: tid, player_id: tid * 100 + 1, nfl_team: team, injury_status: null, stats: null });
+  const starters = [
+    starter(21, 'KC'), starter(22, 'BUF'),
+    starter(23, 'DAL'), starter(24, 'LAC'),
+    starter(25, 'NYG'), starter(26, 'PHI'),
+  ];
+  const live = [
+    { home_team: 'DAL', away_team: 'LAC', game_status: 'in_progress' },
+    { home_team: 'NYG', away_team: 'WSH', game_status: 'final' },
+    { home_team: 'PHI', away_team: 'NYG', game_status: 'final' },
+  ];
+  const schedule = [
+    { nfl_team: 'KC', kickoff_at: '2026-09-14T00:20:00.000Z' },
+    { nfl_team: 'BUF', kickoff_at: '2026-09-14T00:20:00.000Z' },
+    { nfl_team: 'DAL', kickoff_at: '2026-09-13T17:00:00.000Z' },
+    { nfl_team: 'LAC', kickoff_at: '2026-09-13T17:00:00.000Z' },
+    { nfl_team: 'NYG', kickoff_at: '2026-09-13T17:00:00.000Z' },
+    { nfl_team: 'PHI', kickoff_at: '2026-09-13T17:00:00.000Z' },
+  ];
+  const byes = [];
+  for (let w = 1; w <= 18; w++) for (const team of ['KC', 'BUF', 'DAL', 'LAC', 'NYG', 'PHI']) byes.push({ nfl_team: team, week: w });
+
+  const fake = createFakePool([
+    [select('matchups'), () => ({ rows: matchups.map((m) => ({ ...m })) })],
+    [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
+    [/FROM "lineup_entries"/, () => ({ rows: starters })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: byes })],
+    [/FROM "live_game_states"/, () => ({ rows: live })],
+    [/FROM "nfl_games" WHERE/, () => ({ rows: schedule })],
+  ]);
+  fake.install(t);
+
+  const res = await request(app).get(`/api/league/${LEAGUE_ID}/matchups`).set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const byId = new Map(res.body.map((m) => [m.id, m]));
+  assert.equal(byId.get(31).status, 'scheduled');
+  assert.equal(byId.get(32).status, 'live');
+  assert.equal(byId.get(33).status, 'played');
+  assert.equal(byId.get(34).status, 'final');
 });
