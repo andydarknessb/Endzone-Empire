@@ -439,6 +439,7 @@ function MatchupDetail() {
                   homeName={homeName}
                   awayName={awayName}
                   homeProb={winProb.home}
+                  isLive={isLive}
                 />
               )}
 

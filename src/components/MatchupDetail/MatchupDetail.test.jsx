@@ -216,6 +216,32 @@ test('a live matchup renders LIVE from the fetch alone, with no socket event', a
   expect(screen.queryByText('Awaiting final')).not.toBeInTheDocument();
 });
 
+// The win-probability bar is shown for any started matchup, but its "Live"
+// caption is true only while the matchup is actually live. A played or final
+// matchup shows the bar with no "Live win probability" words (that wording is
+// #872), and a live one shows them.
+test('the "Live win probability" caption shows only while live, not on played or final', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'live' } }));
+  const { unmount } = renderDetail();
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.getByText('Live win probability')).toBeInTheDocument();
+  unmount();
+
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'played', home_score: '99', away_score: '92' } }));
+  const played = renderDetail();
+  await screen.findByText('Week 3 Matchup');
+  // The bar is still there (a played matchup has started), but not the "Live" words.
+  // Both the big bar and the sticky track carry the "Win probability" role.
+  expect(screen.getAllByRole('img', { name: /Win probability:/i }).length).toBeGreaterThan(0);
+  expect(screen.queryByText('Live win probability')).not.toBeInTheDocument();
+  played.unmount();
+
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { final: true } }));
+  renderDetail();
+  await screen.findByText('Week 3 Matchup');
+  expect(screen.queryByText('Live win probability')).not.toBeInTheDocument();
+});
+
 // One render test proving a model update from the hook reaches the DOM: the
 // score, the Expected final, Players remaining and the chip label all follow a
 // scores:updated event, with no refetch. The status moves scheduled -> played,

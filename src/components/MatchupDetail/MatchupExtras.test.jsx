@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import {
-  BenchWhatIf, SlotComparisonList, RosterPreviewGrid, StickyScoreboard, LiveTicker, pairStartersBySlot,
+  BenchWhatIf, SlotComparisonList, RosterPreviewGrid, StickyScoreboard, LiveTicker, WinProbabilityBar, pairStartersBySlot,
 } from './MatchupExtras';
 
 const player = (overrides = {}) => ({
@@ -266,6 +266,23 @@ describe('SlotComparisonList', () => {
     fireEvent.click(screen.getByText('P. Mahomes'));
     expect(onOpenPlayer).toHaveBeenCalledWith(1);
     expect(onToggle).not.toHaveBeenCalled();
+  });
+});
+
+describe('WinProbabilityBar', () => {
+  test('shows the bar with the "Live" caption only while the matchup is live', () => {
+    render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} isLive />);
+    expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
+    expect(screen.getByText('Live win probability')).toBeInTheDocument();
+  });
+
+  test('shows the bar but withholds the "Live" caption when not live (played/final)', () => {
+    // The bar is rendered for any started matchup, but "Live win probability"
+    // would be false on a played or final one, so it is withheld rather than
+    // replaced (the wording for those states is #872, not a guess here).
+    render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} isLive={false} />);
+    expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
+    expect(screen.queryByText('Live win probability')).not.toBeInTheDocument();
   });
 });
 
