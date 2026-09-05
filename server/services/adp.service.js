@@ -250,15 +250,48 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
 
   // Full reset-and-set in two bulk statements (one round trip each) so it stays
   // fast over the pooler and a player who fell out of the top ~200 loses a
-  // stale ADP.
-  await pool.query(`UPDATE "players" SET "adp" = NULL WHERE "adp" IS NOT NULL`);
-  if (updates.length > 0) {
-    await pool.query(
-      `UPDATE "players" p SET "adp" = v.adp
-       FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS adp) v
-       WHERE p."id" = v.id`,
-      [updates.map((u) => u.id), updates.map((u) => u.adp)]
-    );
+  // stale ADP. The two statements run in ONE transaction on one checked-out
+  // client (#882): as two separate autocommit pool queries there was a window
+  // between the NULL wipe and the bulk set in which zero players carried an ADP,
+  // and any concurrent reader of the market count (the scheduled-draft sweep, a
+  // manual startDraft) that landed in it would see an empty market on a fully
+  // loaded system - the sweep then sends a spurious draft_no_market notification.
+  // Wrapped in a transaction, a concurrent reader sees the old count or the new
+  // one under MVCC and never 0. The transaction is opened only here, after the
+  // wipe guard has passed. recordAdpRun stays OUTSIDE it: the run record is
+  // best-effort observability and must not be rolled back with the market.
+  //
+  // KNOWN HAZARD (#904). Holding the wipe's row locks across the bulk set (which
+  // locks target rows in a different order) permits a deadlock cycle with
+  // syncInjuries (scoring.service.js), which locks near the whole players table
+  // FOR UPDATE in its own scan order and holds to commit. Postgres aborts one
+  // transaction (~1s); if this one loses, the catch below rolls back to the
+  // PREVIOUS fully-populated ADP values, records ok=false, and re-throws, so the
+  // "no reader ever sees count 0" invariant holds even in the deadlock case and
+  // the rerun is a retry of an admin job. Accepted over the bug this fixes, which
+  // fired on every sync. #904 tracks the two cleaner remedies (advisory lock, or
+  // a single-statement refresh).
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`UPDATE "players" SET "adp" = NULL WHERE "adp" IS NOT NULL`);
+    if (updates.length > 0) {
+      await client.query(
+        `UPDATE "players" p SET "adp" = v.adp
+         FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS adp) v
+         WHERE p."id" = v.id`,
+        [updates.map((u) => u.id), updates.map((u) => u.adp)]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    // Record the failed run (best-effort, outside the rolled-back transaction)
+    // so an admin sees the market write failed, then surface the error.
+    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'write_failed', message: err.message } });
+    throw err;
+  } finally {
+    client.release();
   }
 
   await recordAdpRun({ startedAt, ok: true, detail: { adpPlayers: entries.length, matched: updates.length } });
