@@ -27,9 +27,11 @@ function has(obj, key) {
 
 /**
  * From a Matchup list row (`GET /api/league/:id/matchups`, one row of the array
- * attachExpectedFinals decorates). The column names live here, on purpose and in
- * one place: this builder is the only code in the client that knows the wire
- * spells a team's Expected final `home_expected_final` (ADR 0029).
+ * attachExpectedFinals decorates). This builder is where a Matchup's wire column
+ * names belong (a team's Expected final is `home_expected_final`; ADR 0029), so
+ * a surface reading the model never names them. Game Center reads the model and
+ * no longer does (AC4); the matchup-preview widget still reads the list row
+ * directly until #864, so those columns also live in useMatchupPreview.js today.
  */
 export function matchupFromListRow(row) {
   const r = row || {};
@@ -101,12 +103,14 @@ export function matchupFromDetailBody(body) {
 
 /**
  * A live score event entry (one element of `scores:updated`'s `scored` array)
- * applied to an existing model, returning a new model. The scores are always
- * present and always applied; `status` and the four figure fields
- * (home/away Expected final and Players remaining) are applied only when the
- * entry carries them, so an entry from an older server that predates a field
- * leaves that field exactly as it was rather than nulling it. The team
- * identities (id, name, avatar) never ride a score event and are untouched.
+ * applied to an existing model, returning a new model. The scores, `status` and
+ * the four figure fields (home/away Expected final and Players remaining) are
+ * each applied only when the entry carries them, so an entry from an older
+ * server that predates a field leaves that field exactly as it was rather than
+ * nulling it. In practice a live entry always carries the scores, so they always
+ * move; the same has-it guard on the scores just means a partial entry never
+ * nulls one. The team identities (id, name, avatar) never ride a score event and
+ * are untouched.
  *
  * An entry for a different Matchup (or a missing model/entry) is a no-op.
  */
@@ -150,22 +154,30 @@ const CHIP_LABELS = {
   final: 'Final',
 };
 
+// The four server values, and the three of them that mean the Matchup has
+// started. `hasStarted` keys off these sets, so a value outside them (null, or
+// an unrecognised string from a skewed server) reads as unknown, never as a
+// false "has started" that would render the win-probability bar (F5).
+const STARTED_STATUSES = new Set(['live', 'played', 'final']);
+const KNOWN_STATUSES = new Set(['scheduled', 'live', 'played', 'final']);
+
 /**
  * The one status predicate (ADR 0030). Given a Matchup's `status`, it returns
  * the chip label to show and whether the Matchup has started:
  *
  *   - the four server values map to their chip label; every other reader that
  *     used to ask "is this live" asks `hasStarted` instead.
- *   - `hasStarted` is `status !== 'scheduled'` for the four known values.
- *   - an unknown status (`null`/absent) is not guessed: it renders NO chip
- *     (`chipLabel: null`) rather than a false "Scheduled", and `hasStarted` is
- *     `null`, never `false` - "the server could not say" is not "not started".
- *     A caller drives its not-started branch off `hasStarted === false`, so an
- *     unknown status asserts neither state.
+ *   - `hasStarted` is true for the three started values (`live`, `played`,
+ *     `final`) and false for `scheduled`.
+ *   - an unknown status - `null`, absent, or an unrecognised string - is not
+ *     guessed: it renders NO chip (`chipLabel: null`) rather than a false
+ *     "Scheduled", and `hasStarted` is `null`, never `false` - "the server could
+ *     not say" is not "not started". A caller drives its not-started branch off
+ *     `hasStarted === false`, so an unknown status asserts neither state.
  */
 export function matchupStatusView(status) {
   return {
     chipLabel: CHIP_LABELS[status] ?? null,
-    hasStarted: status == null ? null : status !== 'scheduled',
+    hasStarted: KNOWN_STATUSES.has(status) ? STARTED_STATUSES.has(status) : null,
   };
 }

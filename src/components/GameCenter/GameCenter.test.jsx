@@ -69,6 +69,7 @@ function makeFakeSocket() {
     },
     disconnect: jest.fn(),
     fire: (event, payload) => handlers[event]?.(payload),
+    reconnect: () => ioHandlers.reconnect?.(),
   };
 }
 
@@ -308,6 +309,28 @@ test('a scheduled matchup stays Scheduled after an unrelated league event arrive
 
   expect(screen.getByText('Scheduled')).toBeInTheDocument();
   expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
+});
+
+// F1: a socket reconnect re-joins the room and refetches (to recover deltas
+// missed while offline), but the refetch is silent - the live scoreboard already
+// on screen must stay up, never flip to the full-page skeleton. The refetch here
+// is left pending so the assertion catches the flash a non-silent refetch causes.
+test('a reconnect refetches without blanking the live scoreboard with the skeleton', async () => {
+  mockApi({ matchups: [matchup({ id: 5, week: 1, status: 'live', home_score: 21, away_score: 14 })] });
+
+  renderScreen();
+  await screen.findByText('Home Team (21)');
+
+  // The reconnect's refetch never resolves in this test, so any first-load
+  // loading flag it set would still be showing the skeleton when we assert.
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+  act(() => { socket.reconnect(); });
+
+  expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
+  expect(screen.getByText('Home Team (21)')).toBeInTheDocument();
+  // The room was re-joined: a second league:join emit rode the reconnect.
+  const joins = socket.emit.mock.calls.filter(([event]) => event === 'league:join');
+  expect(joins).toHaveLength(2);
 });
 
 test('every card — hero and list — links directly to its box score, no intermediate modal', async () => {

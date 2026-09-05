@@ -216,4 +216,11 @@ describe('matchupStatusView: the one status predicate', () => {
     expect(matchupStatusView(null)).toEqual({ chipLabel: null, hasStarted: null });
     expect(matchupStatusView(undefined)).toEqual({ chipLabel: null, hasStarted: null });
   });
+
+  test('an unrecognised non-null status reads as unknown, never as started (F5)', () => {
+    // A value outside the four (a skewed server's 'postponed') is not a state the
+    // client knows: no chip, and hasStarted null - never true, which would render
+    // the win-probability bar for a state the client cannot vouch for.
+    expect(matchupStatusView('postponed')).toEqual({ chipLabel: null, hasStarted: null });
+  });
 });
