@@ -328,6 +328,46 @@ test('the five-hour no-live-row bound yields played when every starter is past i
   assert.equal(out[0].status, 'played');
 });
 
+test('a failed read states no status, never a false scheduled (F1)', async (t) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: PROJECTIONS }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  // The live-game read fails - the query most likely to fail transiently and
+  // the one on the live path. The game classification cannot be produced, so
+  // the status is unknown; it must not be asserted as scheduled beside a live
+  // score (ADR 0030).
+  const fake = createFakePool([
+    [/FROM "lineup_entries"/, () => ({ rows: STARTERS })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
+    [/FROM "live_game_states"/, () => { throw new Error('live table unavailable'); }],
+    [/FROM "nfl_games" WHERE/, () => ({ rows: SCHEDULE })],
+  ]);
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, null, 'a read failure is not a scheduled matchup');
+  assert.equal(out[0].home_expected_final, null);
+  assert.equal(out[0].home_players_remaining, null);
+});
+
+test('best ball without a projection run states no status, never a false played (F2)', async (t) => {
+  // Chosen lineup needs expected finals to be ordered; without a projection run
+  // there is no chosen lineup, so points-only ordering would pick the finished
+  // player over the in-progress one and the matchup would read played mid-slate.
+  const candidates = [
+    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // final, 30 pts
+    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: null }, // in progress, 0 pts
+  ];
+  const league = { ...LEAGUE, best_ball: true, roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  const fake = weekPool(t, { starters: candidates, projections: new Error('run store down') });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, null, 'no projection run means no chosen lineup, so status is unknown');
+  assert.equal(out[0].home_expected_final, null);
+});
+
 test('a final-only list never touches the database', async () => {
   const fake = createFakePool([]);
   const out = await attachExpectedFinals(

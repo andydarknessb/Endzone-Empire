@@ -160,7 +160,7 @@ const NOW = '2026-10-25T18:00:00.000Z'; // Sunday afternoon, after the 17:00Z ki
 
 // One home starter (KC) and one away starter (DAL); the live rows and the
 // schedule set their game states, so a fixture can name any status.
-async function detailStatus(t, { live, schedule }) {
+async function detailStatus(t, { live, schedule, throwLive = false }) {
   t.mock.method(clock, 'now', () => new Date(NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map([[301, { points: 10 }], [401, { points: 10 }]]) }));
   t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
@@ -176,7 +176,7 @@ async function detailStatus(t, { live, schedule }) {
     [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: byes })],
     [/FROM "nfl_games"/, () => ({ rows: schedule })],
-    [/FROM "live_game_states"/, () => ({ rows: live })],
+    [/FROM "live_game_states"/, () => { if (throwLive) throw new Error('live table unavailable'); return { rows: live }; }],
     [/"lineup_entries"\."slot" = \$4/, () => ({ rows: [] })],
     [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
       rows: params[0] === HOME ? homeStarters : awayStarters,
@@ -216,4 +216,16 @@ test('the detail body reports matchup.status played when every starter\'s game i
     ],
   });
   assert.equal(body.matchup.status, 'played');
+});
+
+test('the detail body states matchup.status null when a read fails, never a false scheduled (F1)', async (t) => {
+  const body = await detailStatus(t, {
+    throwLive: true,
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-25T17:00:00.000Z' },
+    ],
+  });
+  assert.equal(body.matchup.status, null);
+  assert.equal(body.home.expectedFinal, null);
 });

@@ -47,3 +47,15 @@ final.
   card and the win-probability bar read the same status.
 - A future reader who wants to "just compute it on the client" reads this
   first.
+- The middle of the slate - a game already over while a later one has not
+  started, none in progress - is `live`. "Scheduled until the first kicks off"
+  is the governing clause: a game has kicked off, so the Matchup is past
+  scheduled, and not every game is over, so it is not played. (#862, amending
+  the definition above, which named the four states without this one.)
+- A status the server could not compute is stated as unknown - the field is
+  `null` - never guessed as `scheduled`. Two cases reach it: a read for the
+  Matchup's week failed, or in best ball there is no projection run, so no
+  chosen lineup exists to read a status from. Withholding the figures on such a
+  miss was always right; asserting `scheduled` for the fact was the bug (#862).
+  This adds a fifth thing the wire can carry (null, alongside the four values),
+  so it is a change to this decision and is Cory's to ratify.

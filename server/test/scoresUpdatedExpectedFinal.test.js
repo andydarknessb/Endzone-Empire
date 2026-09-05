@@ -104,7 +104,11 @@ test('a producer failure leaves the four fields null and the scores still go out
   assert.equal(scored[0].homeScore, 0);
   assert.equal(scored[0].homeExpectedFinal, null);
   assert.equal(scored[0].awayPlayersRemaining, null);
+  // The status could not be computed, so it is stated as unknown (null), never
+  // asserted as scheduled beside a fresh score (ADR 0030, F1).
+  assert.equal(scored[0].status, null);
   assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].payload.scored[0].status, null);
 });
 
 test('a settle pass never asks for expected finals: the week as played is its score', async (t) => {

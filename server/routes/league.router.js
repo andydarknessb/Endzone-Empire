@@ -930,7 +930,10 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // The one decorator (expectedFinal.service): the matchup's status and each
     // side's per-team result (expected final, players remaining, per-starter
     // projections) from a single producer read, at this request's instant.
-    let decoration = { status: matchup.final ? 'final' : 'scheduled', home: null, away: null };
+    // The one decorator is the sole source of the status; the detail route does
+    // not derive its own. If the call itself throws, the status is unknown
+    // (null), never a guessed scheduled/final (ADR 0030, F1).
+    let decoration = { status: null, home: null, away: null };
     try {
       [decoration] = await decorateMatchups([matchup], { league: leagueRow, now: clock.now() });
     } catch (efErr) {
