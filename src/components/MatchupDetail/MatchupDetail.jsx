@@ -98,11 +98,12 @@ function MatchupDetail() {
   }, []);
 
   // Matchup Detail keeps its own play-driven concerns - cutscenes, toasts, the
-  // ticker, the retro field and the optimistic per-starter point bumps - fed by
-  // the score feed's whole event through the hook's `onScores`. The scores,
-  // Expected final, Players remaining and status all move on the model inside
-  // the hook (applyScoreEvent); this handler never touches them, so there is no
-  // per-side camelCase carry here any more. It closes over the current lineups
+  // ticker and the retro field - fed by the score feed's whole event through the
+  // hook's `onScores`. The scores, Expected final, Players remaining and status
+  // all move on the model inside the hook (applyScoreEvent), and the optimistic
+  // per-starter point bumps now live in the hook too (on the paired rows it
+  // exposes), so this handler never touches any of them - it reads the lineups
+  // only to route plays to the right side. It closes over the current lineups
   // and viewer id (in its deps below), so nothing shadows a stale closure; the
   // hook reads this callback through its own `onScoresRef` and never
   // re-subscribes when a fresh one is passed.
@@ -114,26 +115,6 @@ function MatchupDetail() {
     const awayStarters = away?.starters || [];
     const homeIds = new Set(homeStarters.map((p) => p.id));
     const awayIds = new Set(awayStarters.map((p) => p.id));
-
-    // Optimistically bump the scoring players' displayed points by the reported
-    // delta so rows track the live score without a full refetch.
-    const deltaById = new Map();
-    for (const p of plays) {
-      deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
-    }
-    const applyDeltas = (team) => {
-      if (!team) return team;
-      let touched = false;
-      const starters = team.starters.map((s) => {
-        const d = deltaById.get(s.id);
-        if (!d) return s;
-        touched = true;
-        return { ...s, points: Math.round(((Number(s.points) || 0) + d) * 100) / 100 };
-      });
-      return touched ? { ...team, starters } : team;
-    };
-    setHome((prev) => applyDeltas(prev));
-    setAway((prev) => applyDeltas(prev));
 
     const iAmHome = viewerTeamId && home?.teamId === viewerTeamId;
     const myIds = viewerTeamId ? (iAmHome ? homeIds : awayIds) : new Set();
@@ -191,8 +172,9 @@ function MatchupDetail() {
   // The Matchup as a read model (entities/matchup), with the score feed and the
   // Team identity feed composed over the pure module inside the hook. The whole
   // score event is handed to `handleScores` for the play-driven concerns above.
-  const { matchup: model, detail, loading, error } = useMatchup(leagueId, matchupId, {
+  const { matchup: model, detail, starterRows, loading, error } = useMatchup(leagueId, matchupId, {
     onScores: handleScores,
+    slotOrder,
   });
 
   const whatIf = detail?.viewerWhatIf ?? null;
@@ -302,15 +284,16 @@ function MatchupDetail() {
   // never a guessed "Scheduled"/"Not started"). `hasStarted` gates the win
   // probability: true once started (live/played/final), false before kickoff,
   // and null (unknown) asserts neither - exactly as Game Center reads it.
-  const { chipLabel, hasStarted } = matchupStatusView(model?.status);
+  // The chip's whole presentation - label, colour and variant - comes from the
+  // one status predicate (G7), so a fifth status is defined once in the entity
+  // rather than in a ternary duplicated here and in Game Center.
+  const { chipLabel, color: chipColor, variant: chipVariant, hasStarted } = matchupStatusView(model?.status);
   const isFinal = !!model?.final;
   // `isLive` is the exact live status, deliberately NOT the started state: it
   // gates the live-broadcast surfaces (the real-game strip, the live scoring
   // ticker, the live bench what-if), which show only while a matchup is
   // actually live and never for a played or final one.
   const isLive = model?.status === 'live';
-  const chipColor = model?.status === 'final' ? 'success' : model?.status === 'live' ? 'error' : 'default';
-  const chipVariant = model?.status === 'live' || model?.status === 'final' ? 'filled' : 'outlined';
 
   const homeName = model?.home.name;
   const awayName = model?.away.name;
@@ -402,11 +385,9 @@ function MatchupDetail() {
                   homeName={homeName}
                   awayName={awayName}
                   homeProb={winProb.home}
-                  homeStarters={home?.starters}
-                  awayStarters={away?.starters}
+                  starterRows={starterRows}
                   homeBench={home?.bench}
                   awayBench={away?.bench}
-                  slotOrder={slotOrder}
                   activePlay={retroActivePlay}
                 />
               </Box>
@@ -486,9 +467,7 @@ function MatchupDetail() {
 
               <Paper sx={{ p: 2 }}>
                 <SlotComparisonList
-                  homeStarters={home?.starters}
-                  awayStarters={away?.starters}
-                  slotOrder={slotOrder}
+                  rows={starterRows}
                   expandedId={expandedId}
                   onToggle={toggleRow}
                   onOpenPlayer={setQuickViewId}

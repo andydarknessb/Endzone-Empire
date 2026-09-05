@@ -39,6 +39,12 @@ const starter = (overrides = {}) => ({
   ...overrides,
 });
 
+// Pre-paired starter rows as the Matchup entity hands them to the field.
+const defaultRows = [
+  { slot: 'QB', home: starter(), away: null },
+  { slot: 'RB', home: null, away: starter({ id: 11, name: 'Away Starter', slot: 'RB' }) },
+];
+
 const renderField = (props = {}) =>
   render(
     <ThemeProvider theme={createTheme()}>
@@ -46,8 +52,7 @@ const renderField = (props = {}) =>
         homeName="Team A"
         awayName="Team B"
         homeProb={0.5}
-        homeStarters={[starter()]}
-        awayStarters={[starter({ id: 11, name: 'Away Starter', slot: 'RB' })]}
+        starterRows={defaultRows}
         homeBench={[bench()]}
         awayBench={[bench({ id: 2, name: 'Visitor Reserve' })]}
         activePlay={null}

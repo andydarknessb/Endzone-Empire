@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, act, waitFor } from '@testing-library/react';
+import { screen, act, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -127,6 +127,12 @@ beforeEach(() => {
       season_status: 'regular',
       current_season: 2026,
       current_week: 3,
+      // The league's roster_slots are the pairing order the entity needs; without
+      // them the lineup views render no rows (pairing refuses an empty order).
+      roster_slots: [
+        { key: 'QB' }, { key: 'RB' }, { key: 'WR' }, { key: 'TE' },
+        { key: 'FLEX' }, { key: 'K' }, { key: 'DEF' },
+      ],
     },
     loading: false,
     error: null,
@@ -468,6 +474,60 @@ test('the Scoreboard toggle swaps the retro view in and switching back restores 
   await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
   expect(screen.getByRole('button', { name: 'P. Mahomes' })).toBeInTheDocument();
   expect(screen.queryByText('TEAM A')).not.toBeInTheDocument();
+});
+
+// AC3: the standard slot list and the retro field's roster preview are two
+// renderings of the ONE paired row list the entity produces, so under an IDP
+// slot order they show the same slots in the same order. The starters are fed in
+// a deliberately non-slot order; consuming the paired rows yields the league
+// order, while sorting a rendering by array index would yield the input order.
+// Red-tell: index-sorting either rendering breaks this test and no other.
+test('the standard list and the retro preview render the same paired rows in the same order (IDP)', async () => {
+  useLeague.mockReturnValue({
+    league: {
+      id: 1,
+      name: 'IDP League',
+      season_status: 'regular',
+      current_season: 2026,
+      current_week: 3,
+      roster_slots: [
+        { key: 'QB' }, { key: 'RB' }, { key: 'WR' }, { key: 'DL' }, { key: 'LB' }, { key: 'DB' },
+      ],
+    },
+    loading: false,
+    error: null,
+  });
+  apiClient.get.mockResolvedValue(
+    matchupResponse({
+      // Input order (DB, QB, DL, LB) is NOT the slot order - pairing must reorder.
+      homeStarters: [
+        starter({ id: 1, name: 'Derwin James', slot: 'DB', position: 'DB' }),
+        starter({ id: 2, name: 'Josh Allen', slot: 'QB', position: 'QB' }),
+        starter({ id: 3, name: 'Myles Garrett', slot: 'DL', position: 'DL' }),
+        starter({ id: 4, name: 'Fred Warner', slot: 'LB', position: 'LB' }),
+      ],
+      awayStarters: [
+        starter({ id: 5, name: 'Micah Parsons', slot: 'DL', position: 'DL' }),
+      ],
+    })
+  );
+
+  const KNOWN_SLOTS = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'D/ST', 'DL', 'LB', 'DB'];
+  const domSlotOrder = () =>
+    screen.getAllByTestId('slot-row').map((row) => KNOWN_SLOTS.find((s) => within(row).queryByText(s)));
+
+  renderDetail();
+  await screen.findByText('Week 3 Matchup');
+
+  // Standard mode: the SlotComparisonList rows.
+  const standardOrder = domSlotOrder();
+  expect(standardOrder).toEqual(['QB', 'DL', 'LB', 'DB']);
+
+  // Scoreboard mode: the retro field's RosterPreviewGrid rows.
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+  const scoreboardOrder = domSlotOrder();
+
+  expect(scoreboardOrder).toEqual(standardOrder);
 });
 
 test('Scoreboard mode\'s Show Benches reveals real bench players from the API', async () => {

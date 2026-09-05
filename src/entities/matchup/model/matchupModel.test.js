@@ -4,6 +4,7 @@ import {
   applyScoreEvent,
   applyIdentityPatch,
   matchupStatusView,
+  pairStartersBySlot,
 } from './matchupModel';
 
 // A list row exactly as GET /api/league/:id/matchups delivers it
@@ -201,26 +202,127 @@ describe('applyIdentityPatch: a Team identity update per side', () => {
 
 describe('matchupStatusView: the one status predicate', () => {
   test.each([
-    ['scheduled', 'Scheduled', false],
-    ['live', 'LIVE', true],
-    ['played', 'Awaiting final', true],
-    ['final', 'Final', true],
-  ])('status %s -> chip %s, hasStarted %s', (status, chipLabel, hasStarted) => {
-    expect(matchupStatusView(status)).toEqual({ chipLabel, hasStarted });
+    ['scheduled', 'Scheduled', false, 'default', 'outlined'],
+    ['live', 'LIVE', true, 'error', 'filled'],
+    ['played', 'Awaiting final', true, 'default', 'outlined'],
+    ['final', 'Final', true, 'success', 'filled'],
+  ])('status %s -> chip %s, hasStarted %s', (status, chipLabel, hasStarted, color, variant) => {
+    expect(matchupStatusView(status)).toEqual({ chipLabel, color, variant, hasStarted });
+  });
+
+  // G7: the chip's colour and variant are the predicate's to own, so a fifth
+  // status is a one-line edit here rather than a ternary duplicated across every
+  // scoreboard. A caller spreads these straight onto its Chip.
+  test('carries the chip colour and variant so both scoreboards spread one presentation', () => {
+    expect(matchupStatusView('final')).toMatchObject({ color: 'success', variant: 'filled' });
+    expect(matchupStatusView('live')).toMatchObject({ color: 'error', variant: 'filled' });
+    expect(matchupStatusView('played')).toMatchObject({ color: 'default', variant: 'outlined' });
+    expect(matchupStatusView('scheduled')).toMatchObject({ color: 'default', variant: 'outlined' });
   });
 
   test('an unknown status (null) renders no chip and asserts neither started nor not-started', () => {
     // ADR 0030: a status the server could not compute is stated as unknown, never
     // guessed. No chip (not a false "Scheduled"), and hasStarted is null, never
     // false, so a caller's not-started branch (hasStarted === false) stays shut.
-    expect(matchupStatusView(null)).toEqual({ chipLabel: null, hasStarted: null });
-    expect(matchupStatusView(undefined)).toEqual({ chipLabel: null, hasStarted: null });
+    // The colour/variant are inert on an unknown status (no chip is rendered), so
+    // they default to the outlined-default pair.
+    expect(matchupStatusView(null)).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
+    expect(matchupStatusView(undefined)).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
   });
 
   test('an unrecognised non-null status reads as unknown, never as started (F5)', () => {
     // A value outside the four (a skewed server's 'postponed') is not a state the
     // client knows: no chip, and hasStarted null - never true, which would render
     // the win-probability bar for a state the client cannot vouch for.
-    expect(matchupStatusView('postponed')).toEqual({ chipLabel: null, hasStarted: null });
+    expect(matchupStatusView('postponed')).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
+  });
+});
+
+describe('pairStartersBySlot: starters paired by slot, in the league order', () => {
+  const player = (overrides = {}) => ({
+    id: 1,
+    name: 'P. Mahomes',
+    slot: 'QB',
+    position: 'QB',
+    points: 24.1,
+    ...overrides,
+  });
+
+  // A standard (offense-only) league order; the pairing needs an explicit order
+  // now - there is no silent default.
+  const STANDARD = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
+
+  const shortHome = [player({ id: 1, name: "Ja'Marr Chase", slot: 'WR', position: 'WR' })];
+  const fullAway = [
+    player({ id: 2, name: 'Trevor Lawrence', slot: 'QB' }),
+    player({ id: 3, name: 'Jonathan Taylor', slot: 'RB', position: 'RB' }),
+    player({ id: 4, name: 'DJ Moore', slot: 'WR', position: 'WR' }),
+    player({ id: 5, name: 'Cam Little', slot: 'K', position: 'K' }),
+    player({ id: 6, name: 'Los Angeles Rams', slot: 'DEF', position: 'DEF' }),
+    player({ id: 7, name: 'Emmanuel Ogbah', slot: 'D LINE', position: 'DL' }),
+  ];
+
+  test('pairs by slot key, never by index, and leaves the unfilled side empty', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway, STANDARD);
+    // 'D LINE' is a slot only the starters carry, so it is appended after the
+    // league order rather than dropped.
+    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['QB', null, 'Trevor Lawrence'],
+      ['RB', null, 'Jonathan Taylor'],
+      ['WR', "Ja'Marr Chase", 'DJ Moore'],
+      ['K', null, 'Cam Little'],
+      ['DEF', null, 'Los Angeles Rams'],
+      ['D LINE', null, 'Emmanuel Ogbah'],
+    ]);
+  });
+
+  test('pairs the nth starter of a multi-count slot with the nth on the other side', () => {
+    const home = [player({ id: 1, name: 'H RB1', slot: 'RB' }), player({ id: 2, name: 'H RB2', slot: 'RB' })];
+    const away = [player({ id: 3, name: 'A RB1', slot: 'RB' })];
+    expect(pairStartersBySlot(home, away, ['RB']).map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['RB', 'H RB1', 'A RB1'],
+      ['RB', 'H RB2', null],
+    ]);
+  });
+
+  test('follows the league slotOrder when given, then appends slots only the starters know about', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway, ['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    expect(rows.map((r) => r.slot)).toEqual(['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    const extra = pairStartersBySlot([player({ id: 9, name: 'Flex Guy', slot: 'IDP FLEX' })], [], ['QB']);
+    expect(extra.map((r) => r.slot)).toEqual(['IDP FLEX']);
+  });
+
+  test('under an IDP slot order places defensive starters on their own rows, in order', () => {
+    // An IDP league carries defensive slots the fantasy-standard default never
+    // knew; they must land on their own rows in the commissioner's order, not
+    // sink to the end or share an offensive row.
+    const idpOrder = ['QB', 'RB', 'WR', 'DL', 'LB', 'DB'];
+    const home = [
+      player({ id: 1, name: 'Josh Allen', slot: 'QB' }),
+      player({ id: 2, name: 'Myles Garrett', slot: 'DL', position: 'DL' }),
+      player({ id: 3, name: 'Fred Warner', slot: 'LB', position: 'LB' }),
+      player({ id: 4, name: 'Derwin James', slot: 'DB', position: 'DB' }),
+    ];
+    const away = [
+      player({ id: 5, name: 'Micah Parsons', slot: 'DL', position: 'DL' }),
+      player({ id: 6, name: 'Roquan Smith', slot: 'LB', position: 'LB' }),
+    ];
+    const rows = pairStartersBySlot(home, away, idpOrder);
+    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['QB', 'Josh Allen', null],
+      ['DL', 'Myles Garrett', 'Micah Parsons'],
+      ['LB', 'Fred Warner', 'Roquan Smith'],
+      ['DB', 'Derwin James', null],
+    ]);
+  });
+
+  test('pairing with no slot order is refused and returns no rows', () => {
+    // Red-tell (AC1): reinstating a default order inside the pairing function
+    // turns THIS case red and no other - every other case passes an explicit
+    // order, so a default would change only the refusal.
+    expect(pairStartersBySlot(shortHome, fullAway)).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, [])).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, null)).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, [null, undefined])).toEqual([]);
   });
 });

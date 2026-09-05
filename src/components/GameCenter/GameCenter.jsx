@@ -42,10 +42,11 @@ import AbbreviationTooltip, { STAT_DEFINITIONS } from '../common/AbbreviationToo
  * score - the timer that used to light every card for ten seconds is gone.
  */
 function StatusChip({ status }) {
-  const { chipLabel } = matchupStatusView(status);
+  // The chip's whole presentation - label, colour and variant - is the entity
+  // predicate's to own (G7), so a fifth status is one edit there, not the same
+  // ternary here and in Matchup Detail.
+  const { chipLabel, color, variant } = matchupStatusView(status);
   if (!chipLabel) return null;
-  const color = status === 'final' ? 'success' : status === 'live' ? 'error' : 'default';
-  const variant = status === 'live' || status === 'final' ? 'filled' : 'outlined';
   return <Chip size="small" label={chipLabel} color={color} variant={variant} />;
 }
 

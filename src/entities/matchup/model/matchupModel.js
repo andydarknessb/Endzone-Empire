@@ -163,10 +163,17 @@ const KNOWN_STATUSES = new Set(['scheduled', 'live', 'played', 'final']);
 
 /**
  * The one status predicate (ADR 0030). Given a Matchup's `status`, it returns
- * the chip label to show and whether the Matchup has started:
+ * the whole presentation of that status - the chip's label, colour and variant -
+ * and whether the Matchup has started:
  *
  *   - the four server values map to their chip label; every other reader that
  *     used to ask "is this live" asks `hasStarted` instead.
+ *   - `color` and `variant` are the chip's MUI props, owned here so a fifth
+ *     status is defined in one place rather than in a ternary duplicated across
+ *     every scoreboard (G7): `final` is a filled success chip, `live` a filled
+ *     error chip, and every other value an outlined default one. A caller spreads
+ *     them onto its Chip; on an unknown status `chipLabel` is null and the chip is
+ *     not rendered at all, so the colour/variant are inert there.
  *   - `hasStarted` is true for the three started values (`live`, `played`,
  *     `final`) and false for `scheduled`.
  *   - an unknown status - `null`, absent, or an unrecognised string - is not
@@ -178,6 +185,63 @@ const KNOWN_STATUSES = new Set(['scheduled', 'live', 'played', 'final']);
 export function matchupStatusView(status) {
   return {
     chipLabel: CHIP_LABELS[status] ?? null,
+    color: status === 'final' ? 'success' : status === 'live' ? 'error' : 'default',
+    variant: status === 'live' || status === 'final' ? 'filled' : 'outlined',
     hasStarted: KNOWN_STATUSES.has(status) ? STARTED_STATUSES.has(status) : null,
   };
+}
+
+/**
+ * Pairs the two starter arrays into one row per slot INSTANCE, matched by slot
+ * key and never by array index. The arrays differ in length whenever one manager
+ * has left a slot empty (or set no lineup at all), and lineup_entries can hold
+ * any commissioner-defined slot key ('D LINE', 'IDP FLEX'), so an index zip
+ * labels the row with whichever side happens to sit at that index and reads a QB
+ * under a WR chip. The nth home starter in a slot pairs with the nth away starter
+ * in the same slot; the remainder renders with an empty side.
+ *
+ * `slotOrder` is the league's roster_slots keys, in commissioner order (IDP slots
+ * included). Pairing REFUSES without it: an empty or absent order returns no rows,
+ * so a lineup view renders nothing until the league row arrives rather than
+ * falling back to a fantasy-standard default order that knows no IDP slots and
+ * would silently mis-place defensive starters (ADR 0030's sibling concern - a
+ * default is a guess, and the guess this replaces put every IDP starter in the
+ * wrong row). A slot the starters carry that the order does not name is appended
+ * after the ordered slots, in the order it was first seen, so a stray slot still
+ * renders rather than vanishing.
+ */
+export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
+  const ordered = (slotOrder || []).filter((k) => k != null).map(String);
+  if (ordered.length === 0) return [];
+
+  const home = homeStarters || [];
+  const away = awayStarters || [];
+  const bySlot = (list) => list.reduce((acc, p) => {
+    const key = p.slot ?? '';
+    if (!acc.has(key)) acc.set(key, []);
+    acc.get(key).push(p);
+    return acc;
+  }, new Map());
+  const homeBySlot = bySlot(home);
+  const awayBySlot = bySlot(away);
+
+  const order = [];
+  const seen = new Set();
+  const add = (key) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    order.push(key);
+  };
+  ordered.forEach(add);
+  home.forEach((p) => add(p.slot ?? ''));
+  away.forEach((p) => add(p.slot ?? ''));
+
+  const rows = [];
+  for (const slot of order) {
+    const h = homeBySlot.get(slot) || [];
+    const a = awayBySlot.get(slot) || [];
+    const count = Math.max(h.length, a.length);
+    for (let i = 0; i < count; i++) rows.push({ slot, home: h[i] || null, away: a[i] || null });
+  }
+  return rows;
 }
