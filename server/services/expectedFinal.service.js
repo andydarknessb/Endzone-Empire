@@ -218,9 +218,10 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 }
 
 /**
- * A Matchup's status (#862), pure. One of four values, read from the same
- * per-starter game classification the Expected final producer already
- * assigns, so no second classification is written:
+ * A Matchup's status (CONTEXT.md, Matchup status; ADR 0030, a server fact
+ * read from the Expected final classification), pure. One of four values,
+ * read from the same per-starter game classification the Expected final
+ * producer already assigns, so no second classification is written:
  *  - `final`    the settled flag: the week's result is written and closed.
  *  - `live`     a game is underway: any starter's game is in progress, or a
  *               game has kicked off (some starter final) while others have
