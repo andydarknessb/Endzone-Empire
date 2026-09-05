@@ -395,15 +395,15 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   //
   // WHY THIS LIST IS EXACT RATHER THAN FILTERED, since #241 made it reach into
   // routers and a reader meeting a hardcoded list deserves the reason. There
-  // are 34 terminal middlewares in this tree and 17 of them sit at router
-  // level; every one of the 17 is a guard or a rate limiter, and a harmful
+  // are 33 terminal middlewares in this tree and 16 of them sit at router
+  // level; every one of the 16 is a guard or a rate limiter, and a harmful
   // mount would look like them in every respect a filter can read - same
   // `use(...)` call, same layer shape, and a name it chooses for itself. So
-  // there is no pattern that excludes the benign 17 and is guaranteed to keep
-  // the harmful 18th. What separates them is not a name but a POSITION: these
+  // there is no pattern that excludes the benign 16 and is guaranteed to keep
+  // the harmful 17th. What separates them is not a name but a POSITION: these
   // are the mounts that own a path.
   //
-  // That splits the 17 rather than excluding them. FIFTEEN are root-mounted
+  // That splits the 16 rather than excluding them. FOURTEEN are root-mounted
   // and drop out by the rule this assertion already used at app level -
   // root-mounted middleware runs for everything below it and owns no path of
   // its own. The other TWO own a path, so they are here, on the two lines
@@ -428,9 +428,9 @@ test('no middleware anywhere in the tree is mounted at a path without a decision
   // forces at what was added.
   const layers = terminalMiddleware(app);
   const routerLevel = layers.filter((row) => row.level === 'router');
-  assert.equal(layers.length, 34, 'terminal middlewares in the whole tree');
-  assert.equal(routerLevel.length, 17, 'of which sit inside a router');
-  assert.equal(routerLevel.filter((row) => row.rooted).length, 15, 'of which own no path');
+  assert.equal(layers.length, 33, 'terminal middlewares in the whole tree');
+  assert.equal(routerLevel.length, 16, 'of which sit inside a router');
+  assert.equal(routerLevel.filter((row) => row.rooted).length, 14, 'of which own no path');
 
   assert.deepEqual(pathMounts(app), [
     '<anonymous> /api',                       // Cache-Control: private, no-store
