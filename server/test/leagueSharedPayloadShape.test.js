@@ -255,6 +255,7 @@ function pickemFake(t, entries) {
       ],
     })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
     [/"game_recaps"/, () => ({ rows: [] })],
     ...entries,
   ]).install(t);
@@ -375,6 +376,7 @@ async function getMatchupDetail(t) {
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr' }] })],
     [/FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
   ]).install(t);
   // The viewer owns the home team, so viewerTeamId resolves from the raw row's
   // home_owner_id - the same raw-rows-vs-serialization coupling as league detail.
@@ -386,9 +388,9 @@ async function getMatchupDetail(t) {
 // GREEN root pin: viewerTeamId is read from matchup.home_owner_id / away_owner_id
 // on the raw row, so #343 must delete those two keys from the wire object AFTER
 // computing viewerTeamId, never stop selecting them.
-test('matchup detail: the response root is { viewerTeamId, viewerWhatIf, matchup, home, away } and viewerTeamId resolves from the raw owner ids', async (t) => {
+test('matchup detail: the response root is { viewerTeamId, viewerWhatIf, matchup, nflGameIds, home, away } and viewerTeamId resolves from the raw owner ids', async (t) => {
   const body = await getMatchupDetail(t);
-  assertExactKeys(body, ['away', 'home', 'matchup', 'viewerTeamId', 'viewerWhatIf']);
+  assertExactKeys(body, ['away', 'home', 'matchup', 'nflGameIds', 'viewerTeamId', 'viewerWhatIf']);
   assert.equal(body.viewerTeamId, VIEWER.teamId, 'computed from home_owner_id on the raw matchup row');
 });
 

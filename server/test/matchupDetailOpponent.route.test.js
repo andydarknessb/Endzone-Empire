@@ -76,6 +76,7 @@ async function getHomeStarter(t, { starterRow, scheduleRows }) {
     [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr' }] })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games"/, () => ({ rows: scheduleRows })],
     [/"lineup_entries"\."slot" = \$4/, () => ({ rows: [] })], // BENCH, both teams
     [/"lineup_entries"\."slot" NOT IN/, (text, params) => ({

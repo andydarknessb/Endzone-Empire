@@ -4,17 +4,11 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import MatchupDetail from './MatchupDetail';
-import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
 import { useLeague } from '../../hooks/useLeague';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
-}));
-
-jest.mock('../../hooks/useFantasyMatchupGames', () => ({
-  __esModule: true,
-  default: jest.fn(),
 }));
 
 jest.mock('../../hooks/useLeague', () => ({
@@ -60,6 +54,9 @@ const matchupResponse = (overrides = {}) => {
   const status = 'status' in m ? m.status : (final ? 'final' : 'live');
   return {
     data: {
+      // The NFL games either roster plays in this week ride the detail body
+      // (#884); the page mounts the live-game strip from them, no second fetch.
+      nflGameIds: overrides.nflGameIds || [],
       matchup: {
         id: 9,
         week: 3,
@@ -118,7 +115,6 @@ beforeEach(() => {
     socket = makeFakeSocket();
     return socket;
   };
-  useFantasyMatchupGames.mockReturnValue({ realGameIds: [], loading: false, error: null });
   useLeague.mockReturnValue({
     league: {
       id: 1,
@@ -575,28 +571,23 @@ test('re-joins the league room and refetches the matchup when the manager reconn
   await screen.findByText('Week 3 Matchup');
 });
 
-test('renders a live-game ticker strip when the matchup maps to real NFL games', async () => {
-  useFantasyMatchupGames.mockReturnValue({
-    realGameIds: ['20260910_BUF@KC', '20260913_SF@LAR'],
-    loading: false,
-    error: null,
-  });
-  apiClient.get.mockResolvedValue(matchupResponse());
+test('mounts one live-game strip entry per NFL game id on the detail body, with no second fetch for games (#884)', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({ nflGameIds: ['20260910_BUF@KC', '20260913_SF@LAR'] }));
 
   renderDetail();
 
   await screen.findByText('Week 3 Matchup');
   const games = screen.getAllByTestId('live-game-status');
   expect(games.map((g) => g.textContent)).toEqual(['20260910_BUF@KC', '20260913_SF@LAR']);
+  // The ids came off the body the page already fetched (the detail read, plus the
+  // notification prefs the page reads for its celebrations): no GET asks for games.
+  const urls = apiClient.get.mock.calls.map(([url]) => url);
+  expect(urls).toContain('/api/league/1/matchups/9');
+  expect(urls.filter((url) => /game/i.test(url))).toEqual([]);
 });
 
 test('does not render the live-game ticker once the matchup is final', async () => {
-  useFantasyMatchupGames.mockReturnValue({
-    realGameIds: ['20260910_BUF@KC'],
-    loading: false,
-    error: null,
-  });
-  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { final: true } }));
+  apiClient.get.mockResolvedValue(matchupResponse({ nflGameIds: ['20260910_BUF@KC'], matchup: { final: true } }));
 
   renderDetail();
 

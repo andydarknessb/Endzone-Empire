@@ -921,6 +921,26 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const awayRaw = await teamLineup(matchup.away_team_id);
     await client.query('COMMIT');
 
+    // The NFL games either roster plays in this week (#884). The view joins
+    // through lineup_entries, which the transaction above just materialized
+    // for both sides, so the read follows the COMMIT and never finds an
+    // empty week by accident; it reads on the pool, since it is not part of
+    // that transaction. One row per rostered player and game (two
+    // Chiefs on one roster are two rows for one game), so de-duplicate and
+    // sort for a stable body. Best-effort: a failed read is an empty array,
+    // never a failed request; a week before the live engine has written any
+    // game rows is empty too, which is what "no games to watch yet" looks like.
+    let nflGameIds = [];
+    try {
+      const gamesResult = await pool.query(
+        `SELECT "tank01_game_id" FROM "view_matchup_nfl_games" WHERE "fantasy_matchup_id" = $1`,
+        [matchupId]
+      );
+      nflGameIds = [...new Set(gamesResult.rows.map((r) => r.tank01_game_id))].sort();
+    } catch (gamesErr) {
+      console.error('matchup nfl games unavailable', gamesErr.message);
+    }
+
     // Expected final and per-starter projections come from the one shared
     // producer (expectedFinal.service): the weekly projection under this
     // league's scoring with the availability rule, so the totals here, the
@@ -1009,6 +1029,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       viewerTeamId: viewerTeamId || null,
       viewerWhatIf,
       matchup,
+      nflGameIds,
       home: {
         teamId: matchup.home_team_id,
         name: matchup.home_team_name,
