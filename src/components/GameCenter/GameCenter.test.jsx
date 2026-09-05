@@ -3,18 +3,12 @@ import { screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket, onReconnect } from '../../api/socket';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import GameCenter from './GameCenter';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn() },
-}));
-
-jest.mock('../../api/socket', () => ({
-  createDraftSocket: jest.fn(),
-  onReconnect: jest.fn(),
 }));
 
 const renderScreen = (leagueId = 1, state = {}) =>
@@ -24,59 +18,69 @@ const renderScreen = (leagueId = 1, state = {}) =>
     state,
   });
 
-const matchup = (overrides = {}) => ({
-  id: 1,
-  season: 2025,
-  week: 1,
-  home_team_id: 10,
-  away_team_id: 20,
-  home_team_name: 'Home Team',
-  away_team_name: 'Away Team',
-  home_score: 0,
-  away_score: 0,
-  final: false,
-  ...overrides,
-});
+// A matchup list row exactly as GET /api/league/:id/matchups delivers it (the
+// snake_case columns the entity's list-row builder reads). `status` is the
+// server's fact (ADR 0030); it defaults to match `final` so a fixture reads
+// truthfully without every test spelling it out.
+const matchup = (overrides = {}) => {
+  const final = overrides.final ?? false;
+  return {
+    id: 1,
+    season: 2025,
+    week: 1,
+    home_team_id: 10,
+    away_team_id: 20,
+    home_team_name: 'Home Team',
+    away_team_name: 'Away Team',
+    home_score: 0,
+    away_score: 0,
+    final: false,
+    status: final ? 'final' : 'scheduled',
+    ...overrides,
+  };
+};
 
 function mockApi({
   matchups = [],
   league = { id: 1, name: 'Sunday Ballers', owner_id: 1 },
   rosters = [],
-  detail = null,
   viewerTeamId = null,
 } = {}) {
   apiClient.get.mockImplementation((url) => {
-    if (/\/matchups\/\d+$/.test(url)) {
-      return detail ? Promise.resolve({ data: detail }) : Promise.reject(new Error('no detail mocked'));
-    }
     if (url.endsWith('/matchups')) return Promise.resolve({ data: matchups });
     if (url.endsWith('/rosters')) return Promise.resolve({ data: rosters });
     return Promise.resolve({ data: { league, viewerTeamId } });
   });
 }
 
-let mockSocket;
-let socketHandlers;
-let reconnectHandlers;
+// Drive live updates through the app's own socket factory hook
+// (window.__ENDZONE_TEST_SOCKET_FACTORY__, src/api/socket.js): the entity's
+// score feed builds its socket through createDraftSocket, so installing this
+// factory hands the feed a controllable fake — no hand-rolled socket double.
+function makeFakeSocket() {
+  const handlers = {};
+  const ioHandlers = {};
+  return {
+    emit: jest.fn(),
+    on: jest.fn((event, cb) => { handlers[event] = cb; }),
+    io: {
+      on: jest.fn((event, cb) => { ioHandlers[event] = cb; }),
+      off: jest.fn(),
+    },
+    disconnect: jest.fn(),
+    fire: (event, payload) => handlers[event]?.(payload),
+  };
+}
+
+let socket;
+
+const emitScores = (payload) => act(() => { socket.fire('scores:updated', payload); });
 
 beforeEach(() => {
-  socketHandlers = {};
-  reconnectHandlers = [];
-  mockSocket = {
-    on: jest.fn((event, cb) => {
-      socketHandlers[event] = cb;
-    }),
-    io: {
-      on: jest.fn((event, cb) => {
-        reconnectHandlers.push(cb);
-      }),
-    },
-    emit: jest.fn(),
-    disconnect: jest.fn(),
+  window.__ENDZONE_TEST_SOCKET_FACTORY__ = () => {
+    socket = makeFakeSocket();
+    return socket;
   };
-  createDraftSocket.mockReturnValue(mockSocket);
-  onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
-
   window.matchMedia = jest.fn().mockImplementation((query) => ({
     matches: false,
     media: query,
@@ -90,6 +94,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete window.__ENDZONE_TEST_SOCKET_FACTORY__;
   jest.clearAllMocks();
   clearLeagueCache();
 });
@@ -131,7 +136,7 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
   expect(screen.getByText('My Team')).toBeInTheDocument();
   expect(screen.queryByText('Rival (20)')).not.toBeInTheDocument();
   expect(screen.getByText('Other A (0)')).toBeInTheDocument();
-  // A completed matchup shows win probability; fabricated projections are gone.
+  // A final matchup shows win probability; fabricated projections are gone.
   expect(screen.getByText('Win Probability')).toBeInTheDocument();
   expect(screen.queryByText(/Projected:/)).not.toBeInTheDocument();
   expect(screen.getAllByLabelText(/PMR: Players remaining/i)).toHaveLength(2);
@@ -140,9 +145,7 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
 
 // #188: the hero card asks "which of these is me" through the per-viewer
 // viewerTeamId from league detail, never by matching an account id against an
-// `ownerId` on the league-shared rosters payload. The fixture below is the
-// post-#115 shape - rosters carry Team identity and no account field at all -
-// and a viewer whose team is in a matchup must still get their hero card.
+// `ownerId` on the league-shared rosters payload.
 test('finds the viewer matchup with no account field on the rosters payload', async () => {
   mockApi({
     matchups: [
@@ -160,9 +163,7 @@ test('finds the viewer matchup with no account field on the rosters payload', as
   expect(screen.getByText('Other A (0)')).toBeInTheDocument();
 });
 
-// The mirror of the test above: a viewer holding no Team on this league gets
-// no hero card. Without the null guard the two nulls would match and every
-// such reader would be handed someone else's matchup.
+// The mirror: a viewer holding no Team on this league gets no hero card.
 test('gives a viewer with no team on this league no hero card', async () => {
   mockApi({
     matchups: [matchup({ id: 1, week: 1, home_team_id: 10, away_team_id: 20 })],
@@ -211,14 +212,12 @@ test('attributes a live scoring play to the scoring player\'s real fantasy team'
   renderScreen();
   await screen.findByText('Home Team (0)');
 
-  act(() => {
-    socketHandlers['scores:updated']({
-      leagueId: 1,
-      season: 2025,
-      week: 1,
-      scored: [{ matchupId: 5, homeScore: 6, awayScore: 0 }],
-      plays: [{ playerId: 99, name: 'Speedy Runner', type: 'rushing', pointsDelta: 6 }],
-    });
+  emitScores({
+    leagueId: 1,
+    season: 2025,
+    week: 1,
+    scored: [{ matchupId: 5, homeScore: 6, awayScore: 0 }],
+    plays: [{ playerId: 99, name: 'Speedy Runner', type: 'rushing', pointsDelta: 6 }],
   });
 
   const ticker = await screen.findByTestId('live-action-ticker');
@@ -238,39 +237,77 @@ test('ignores a scoring play from a week other than the one on screen', async ()
   renderScreen();
   await screen.findByText('Home Team (0)');
 
-  act(() => {
-    socketHandlers['scores:updated']({
-      leagueId: 1,
-      season: 2025,
-      week: 2,
-      scored: [],
-      plays: [{ playerId: 99, name: 'Speedy Runner', type: 'rushing', pointsDelta: 6 }],
-    });
+  emitScores({
+    leagueId: 1,
+    season: 2025,
+    week: 2,
+    scored: [],
+    plays: [{ playerId: 99, name: 'Speedy Runner', type: 'rushing', pointsDelta: 6 }],
   });
 
   const ticker = screen.getByTestId('live-action-ticker');
   expect(ticker).toHaveTextContent('Live scoring plays will appear here once games kick off.');
 });
 
-test('receiving scores:updated updates a card score and shows a LIVE chip', async () => {
-  mockApi({ matchups: [matchup({ id: 5, home_score: 0, away_score: 0 })] });
+// A model update from the hook reaches the DOM: a scores:updated event carries
+// the new score, the new Expected final and the server's new status, and the
+// card follows all three without a refetch and without a per-card fetch.
+test('a live score event moves the score, Expected final and chip on a card', async () => {
+  mockApi({
+    matchups: [matchup({ id: 5, week: 1, home_score: 0, away_score: 0, home_expected_final: 100, away_expected_final: 140 })],
+  });
 
   renderScreen();
   await screen.findByText('Home Team (0)');
+  expect(screen.getByText('Scheduled')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 100.0')).toBeInTheDocument();
 
-  act(() => {
-    socketHandlers['scores:updated']({
-      leagueId: 1,
-      season: 2025,
-      week: 1,
-      scored: [{ matchupId: 5, homeScore: 21, awayScore: 14 }],
-      plays: [],
-    });
+  emitScores({
+    leagueId: 1,
+    week: 1,
+    scored: [{
+      matchupId: 5, homeScore: 21, awayScore: 14, status: 'live',
+      homeExpectedFinal: 104.6, awayExpectedFinal: 131.3,
+    }],
+    plays: [],
   });
 
   expect(await screen.findByText('Home Team (21)')).toBeInTheDocument();
   expect(screen.getByText('Away Team (14)')).toBeInTheDocument();
+  expect(screen.getByText('Proj: 104.6')).toBeInTheDocument();
   expect(screen.getByText('LIVE')).toBeInTheDocument();
+  expect(screen.queryByText('Scheduled')).not.toBeInTheDocument();
+});
+
+// The chip is the server's status fact, not a timer (ADR 0030).
+test('a played matchup renders the Awaiting final chip', async () => {
+  mockApi({ matchups: [matchup({ id: 5, week: 1, status: 'played', home_score: 88, away_score: 77 })] });
+
+  renderScreen();
+  await screen.findByText('Home Team (88)');
+  expect(screen.getByText('Awaiting final')).toBeInTheDocument();
+});
+
+// The #862 bug removed: an unrelated league score event no longer lights a
+// scheduled card LIVE. The status is a fact, so it stays Scheduled.
+test('a scheduled matchup stays Scheduled after an unrelated league event arrives', async () => {
+  mockApi({ matchups: [matchup({ id: 5, week: 1, status: 'scheduled', home_score: 0, away_score: 0 })] });
+
+  renderScreen();
+  await screen.findByText('Home Team (0)');
+  expect(screen.getByText('Scheduled')).toBeInTheDocument();
+
+  // A score event for a DIFFERENT matchup in the league: it carries no entry
+  // for matchup 5, so nothing about matchup 5's status may change.
+  emitScores({
+    leagueId: 1,
+    week: 1,
+    scored: [{ matchupId: 999, homeScore: 7, awayScore: 3, status: 'live' }],
+    plays: [],
+  });
+
+  expect(screen.getByText('Scheduled')).toBeInTheDocument();
+  expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
 });
 
 test('every card — hero and list — links directly to its box score, no intermediate modal', async () => {
@@ -310,21 +347,21 @@ test('every card — hero and list — links directly to its box score, no inter
   expect(apiClient.get).not.toHaveBeenCalledWith('/api/league/3/matchups/5');
 });
 
-// The league matchups list carries each side's expected final
-// (home_expected_final / away_expected_final, null when the team has no
-// lineup for the week or the matchup is final). Both the hero card and the
-// League Matchups cards show it, and the hero's win probability is shaped by
-// the real totals rather than a pair of zeros.
+// The league matchups list carries each side's expected final (null when the
+// team has no lineup for the week or the matchup is final). Both the hero card
+// and the League Matchups cards show it, and the hero's win probability is
+// shaped by the real totals rather than a pair of zeros.
 test('shows expected finals from the matchups payload on the hero card and league matchup cards', async () => {
   mockApi({
     matchups: [
       matchup({
         id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival',
-        home_score: 30, away_score: 20, home_expected_final: 100, away_expected_final: 140,
+        status: 'live', home_score: 30, away_score: 20, home_expected_final: 100, away_expected_final: 140,
+        home_players_remaining: 5, away_players_remaining: 4,
       }),
       matchup({
         id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B',
-        home_expected_final: 112.36, away_expected_final: null,
+        status: 'live', home_expected_final: 112.36, away_expected_final: null,
       }),
       matchup({
         id: 3, week: 1, home_team_id: 50, away_team_id: 60, home_team_name: 'Done A', away_team_name: 'Done B',
@@ -348,60 +385,4 @@ test('shows expected finals from the matchups payload on the hero card and leagu
   // matchup keeps the dash; a final matchup shows no projection line at all.
   expect(screen.getByText('Proj: 112.4')).toBeInTheDocument();
   expect(screen.getAllByText('Proj: -')).toHaveLength(1);
-});
-
-// Expected final (CONTEXT.md) moves with the games: the score sync's
-// scores:updated event carries each side's expected final and players
-// remaining alongside the scores, and the hero card, its PMR line and the
-// league cards all follow it without a refetch. An event from an older
-// server that lacks those fields leaves the loaded values in place.
-test('scores:updated moves the expected finals and players remaining on the hero and league cards', async () => {
-  mockApi({
-    matchups: [
-      matchup({
-        id: 1, week: 1, home_team_id: 10, away_team_id: 20, home_team_name: 'My Team', away_team_name: 'Rival',
-        home_score: 0, away_score: 0, home_expected_final: 100, away_expected_final: 140,
-        home_players_remaining: 9, away_players_remaining: 9,
-      }),
-      matchup({
-        id: 2, week: 1, home_team_id: 30, away_team_id: 40, home_team_name: 'Other A', away_team_name: 'Other B',
-        home_expected_final: 80, away_expected_final: 70, home_players_remaining: 9, away_players_remaining: 9,
-      }),
-    ],
-    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
-    rosters: [],
-    viewerTeamId: 10,
-  });
-
-  renderScreen(1, { user: { id: 1 } });
-  expect(await screen.findByText('Your Matchup · Week 1')).toBeInTheDocument();
-  expect(screen.getByText('Proj: 100.0')).toBeInTheDocument();
-  expect(screen.getAllByText(/PMR/)).toHaveLength(2);
-  expect(screen.getAllByText(/: 9$/)).toHaveLength(2);
-
-  act(() => {
-    socketHandlers['scores:updated']({
-      leagueId: 1,
-      week: 1,
-      scored: [
-        {
-          matchupId: 1, homeTeamId: 10, awayTeamId: 20, homeScore: 41.2, awayScore: 55.9,
-          homeExpectedFinal: 104.6, awayExpectedFinal: 131.3, homePlayersRemaining: 5, awayPlayersRemaining: 4,
-        },
-        // Older-server shape: scores only. Other A / Other B keep their loaded forecast.
-        { matchupId: 2, homeTeamId: 30, awayTeamId: 40, homeScore: 12, awayScore: 3 },
-      ],
-      plays: [],
-    });
-  });
-
-  expect(screen.getByText('Proj: 104.6')).toBeInTheDocument();
-  expect(screen.getByText('Proj: 131.3')).toBeInTheDocument();
-  expect(screen.getByText(/: 5$/)).toBeInTheDocument();
-  expect(screen.getByText(/: 4$/)).toBeInTheDocument();
-  expect(screen.getByText('Proj: 80.0')).toBeInTheDocument();
-  expect(screen.getByText('Proj: 70.0')).toBeInTheDocument();
-  expect(screen.getByText('Other A (12)')).toBeInTheDocument();
-  // Win probability follows the new expected finals: 41.2 + 63.4 vs 55.9 + 75.4 -> margin -26.7.
-  expect(screen.getByLabelText('Win probability: My Team 25%, Rival 75%')).toBeInTheDocument();
 });

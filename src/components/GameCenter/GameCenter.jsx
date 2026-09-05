@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Container,
@@ -15,6 +15,7 @@ import {
   Card,
   CardActionArea,
   CardContent,
+  Chip,
   IconButton,
   Skeleton,
   Tooltip,
@@ -26,16 +27,27 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import apiClient from '../../api/apiClient';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
-import { createDraftSocket, onReconnect } from '../../api/socket';
 import { matchupWinProbability } from '../../lib/winProbability';
 import { computeDefaultWeek } from '../../lib/matchupWeek';
 import { playLabel } from '../../lib/scoringEvents';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
-import { MatchupStatusChip } from '../MatchupDetail/MatchupExtras';
+import { useLeagueMatchups, matchupStatusView } from '../../entities/matchup';
 import TeamAvatar from '../common/TeamAvatar';
 import AbbreviationTooltip, { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
 
-const LIVE_INDICATOR_MS = 10000;
+/**
+ * The Matchup status chip, read from the entity's one status predicate (ADR
+ * 0030). The four server values map to a chip; a status the server could not
+ * compute (null) renders NO chip, never a guessed "Scheduled" beside a live
+ * score - the timer that used to light every card for ten seconds is gone.
+ */
+function StatusChip({ status }) {
+  const { chipLabel } = matchupStatusView(status);
+  if (!chipLabel) return null;
+  const color = status === 'final' ? 'success' : status === 'live' ? 'error' : 'default';
+  const variant = status === 'live' || status === 'final' ? 'filled' : 'outlined';
+  return <Chip size="small" label={chipLabel} color={color} variant={variant} />;
+}
 
 /**
  * Dual-sided win probability bar built from two adjoining determinate
@@ -99,8 +111,8 @@ function tickerLine(item) {
 }
 
 /**
- * League-wide scoring ticker. Fed by the same `scores:updated` socket
- * GameCenter already holds — `items` are real typed TD plays (see
+ * League-wide scoring ticker. Fed by the same `scores:updated` score feed the
+ * Matchup hook holds (its `onScores`) — `items` are real typed TD plays (see
  * scoring.service.js) resolved to a fantasy team name via the roster
  * lookup built in GameCenter. Renders an idle message until the first
  * real play of the week lands.
@@ -197,17 +209,16 @@ function LiveScoringFeed({ items }) {
 }
 
 /**
- * One team's expected final as the list route reports it
- * (`home_expected_final` / `away_expected_final`, number or null): its
- * projection until its starters kick off, then points so far plus what each
- * starter still in play is expected to add, until it is the score. The
+ * One team's expected final as the model reports it (`expectedFinal`, number or
+ * null): its projection until its starters kick off, then points so far plus
+ * what each starter still in play is expected to add, until it is the score. The
  * label stays "Proj" throughout, the way every fantasy app labels the moving
  * number; the tooltip term carries the definition. A number shows to one
  * decimal, matching Matchup Detail; null keeps a muted dash, since "no
  * lineup yet" is a real state and not a zero. Callers hide it once the
  * matchup is final: a settled game has a score, not a forecast.
  */
-/** Players remaining as the list route reports it (integer or null): the count, or a dash. */
+/** Players remaining as the model reports it (integer or null): the count, or a dash. */
 function playersRemainingLabel(value) {
   return value != null && Number.isFinite(Number(value)) ? String(Number(value)) : '-';
 }
@@ -237,7 +248,6 @@ function ProjectedCaption({ value, align = 'left' }) {
 
 function GameCenter() {
   const { leagueId } = useParams();
-  const [matchups, setMatchups] = useState([]);
   // viewerTeamId is the per-viewer answer to "which of these Teams is me",
   // delivered on league detail's own response (#112, contract in
   // src/lib/teamIdentity.js). It replaces a lookup through the league-shared
@@ -247,18 +257,11 @@ function GameCenter() {
   // viewer would have lost their hero card with nothing failing to say so.
   const { league, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(leagueId);
   const [rosters, setRosters] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [weekFilter, setWeekFilter] = useState(null);
-  const [weeks, setWeeks] = useState([]);
-  const [showLive, setShowLive] = useState(false);
   const [ticker, setTicker] = useState([]);
-  const socketRef = useRef(null);
-  const liveTimeoutRef = useRef(null);
   const weekFilterInitialized = useRef(false);
-  // Refs (not state) so the long-lived socket handler below — subscribed once
-  // per leagueId — always sees the latest roster map and week filter without
-  // having to tear down and rejoin the league room on every render.
+  // Refs (not state) so the score feed's onScores callback — one per leagueId —
+  // always sees the latest roster map and week filter without re-subscribing.
   const playerTeamMapRef = useRef(new Map());
   const weekFilterRef = useRef(weekFilter);
   weekFilterRef.current = weekFilter;
@@ -276,40 +279,44 @@ function GameCenter() {
     playerTeamMapRef.current = map;
   }, [rosters]);
 
+  // The league's Matchups as read models, with the score feed and the Team
+  // identity feed composed over the pure module (entities/matchup). The whole
+  // score event is handed here so the ticker can keep its own week filter;
+  // the models themselves are refreshed inside the hook, never per card.
+  const handleScores = useCallback((data) => {
+    const wf = weekFilterRef.current;
+    const matchesWeek = wf === 'All' || wf == null || Number(wf) === Number(data?.week);
+    if (!matchesWeek) return;
+    const adds = (data?.plays || [])
+      .filter((p) => p && p.playerId != null && playerTeamMapRef.current.has(p.playerId))
+      .map((p) => ({ ...p, teamName: playerTeamMapRef.current.get(p.playerId) }));
+    if (adds.length) {
+      setTicker((prev) => [...adds, ...prev].slice(0, TICKER_LIMIT));
+    }
+  }, []);
+
+  const { matchups, loading, error } = useLeagueMatchups(leagueId, { onScores: handleScores });
+
+  // Best-effort roster load: only needed to attribute ticker plays to a team,
+  // so a failure here never takes down the rest of the screen.
   useEffect(() => {
-    fetchData();
-    // fetchData closes over leagueId, which is the explicit trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    apiClient
+      .get(`/api/league/${leagueId}/rosters`)
+      .then((res) => { if (!cancelled) setRosters(res.data || []); })
+      .catch(() => { if (!cancelled) setRosters([]); });
+    return () => { cancelled = true; };
   }, [leagueId]);
 
+  // Keep the roster attribution map's team names fresh when a Team renames,
+  // so the ticker never shows a stale name. The matchup cards get their own
+  // identity patch inside the hook (entities/matchup).
   useEffect(() => subscribeToTeamProfileUpdates((update) => {
     if (Number(update.leagueId) !== Number(leagueId)) return;
     setRosters((prev) => prev.map((team) => applyTeamProfileUpdate(team, update, { name: 'teamName' })));
-    setMatchups((prev) => prev.map((matchup) => {
-      let next = matchup;
-      if (Number(matchup.home_team_id) === Number(update.teamId)) {
-        next = {
-          ...next,
-          ...(Object.prototype.hasOwnProperty.call(update, 'name') ? { home_team_name: update.name } : {}),
-          ...(Object.prototype.hasOwnProperty.call(update, 'avatarUrl') ? { home_team_avatar_url: update.avatarUrl } : {}),
-          ...(Object.prototype.hasOwnProperty.call(update, 'avatarStaticUrl')
-            ? { home_team_avatar_static_url: update.avatarStaticUrl }
-            : {}),
-        };
-      }
-      if (Number(matchup.away_team_id) === Number(update.teamId)) {
-        next = {
-          ...next,
-          ...(Object.prototype.hasOwnProperty.call(update, 'name') ? { away_team_name: update.name } : {}),
-          ...(Object.prototype.hasOwnProperty.call(update, 'avatarUrl') ? { away_team_avatar_url: update.avatarUrl } : {}),
-          ...(Object.prototype.hasOwnProperty.call(update, 'avatarStaticUrl')
-            ? { away_team_avatar_static_url: update.avatarStaticUrl }
-            : {}),
-        };
-      }
-      return next;
-    }));
   }), [leagueId]);
+
+  const weeks = Array.from(new Set(matchups.map((m) => m.week))).sort((a, b) => a - b);
 
   // Picks the default week once both the matchups fetch and the shared
   // league fetch have settled, whichever order they resolve in.
@@ -317,106 +324,10 @@ function GameCenter() {
     if (weekFilterInitialized.current || loading || leagueLoading) return;
     weekFilterInitialized.current = true;
     setWeekFilter(computeDefaultWeek(league, matchups, weeks));
-  }, [loading, leagueLoading, league, matchups, weeks]);
-
-  useEffect(() => {
-    // Socket lives for the lifetime of this view; a ref avoids stale closures
-    // in the cleanup function below.
-    const newSocket = createDraftSocket();
-    socketRef.current = newSocket;
-
-    const joinLeagueRoom = () => {
-      newSocket.emit('league:join', { leagueId: Number(leagueId) });
-    };
-
-    joinLeagueRoom();
-
-    // Re-join on reconnect so the server re-adds us to the room — otherwise
-    // a dropped connection would silently stop delivering scores:updated.
-    const offReconnect = onReconnect(newSocket, joinLeagueRoom);
-
-    newSocket.on('scores:updated', (data) => {
-      setMatchups((prevMatchups) =>
-        prevMatchups.map((m) => {
-          const scored = data.scored.find((s) => s.matchupId === m.id);
-          if (!scored) return m;
-          // The expected finals and players remaining ride the same event as
-          // the scores, so a card never shows a fresh score against a stale
-          // forecast. An event that predates those fields leaves them as
-          // they were.
-          const next = { ...m, home_score: scored.homeScore, away_score: scored.awayScore };
-          const carry = (from, to) => {
-            if (Object.prototype.hasOwnProperty.call(scored, from)) next[to] = scored[from];
-          };
-          carry('homeExpectedFinal', 'home_expected_final');
-          carry('awayExpectedFinal', 'away_expected_final');
-          carry('homePlayersRemaining', 'home_players_remaining');
-          carry('awayPlayersRemaining', 'away_players_remaining');
-          return next;
-        })
-      );
-
-      if (liveTimeoutRef.current) {
-        clearTimeout(liveTimeoutRef.current);
-      }
-      setShowLive(true);
-      liveTimeoutRef.current = setTimeout(() => {
-        setShowLive(false);
-        liveTimeoutRef.current = null;
-      }, LIVE_INDICATOR_MS);
-
-      // Only feed the ticker plays from the week currently on screen — a
-      // league-wide "All" view takes everything.
-      const wf = weekFilterRef.current;
-      const matchesWeek = wf === 'All' || wf == null || Number(wf) === Number(data.week);
-      if (matchesWeek) {
-        const adds = (data.plays || [])
-          .filter((p) => p && p.playerId != null && playerTeamMapRef.current.has(p.playerId))
-          .map((p) => ({ ...p, teamName: playerTeamMapRef.current.get(p.playerId) }));
-        if (adds.length) {
-          setTicker((prev) => [...adds, ...prev].slice(0, TICKER_LIMIT));
-        }
-      }
-    });
-
-    return () => {
-      if (liveTimeoutRef.current) {
-        clearTimeout(liveTimeoutRef.current);
-        liveTimeoutRef.current = null;
-      }
-      offReconnect?.(); // reconnect listener lives on the manager, which outlives the socket
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    };
-  }, [leagueId]);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [matchupsRes, rostersRes] = await Promise.all([
-        apiClient.get(`/api/league/${leagueId}/matchups`),
-        // Best-effort: only needed to spot the viewer's own team for the hero
-        // card, so a failure here shouldn't take down the rest of the screen.
-        apiClient.get(`/api/league/${leagueId}/rosters`).catch(() => ({ data: [] })),
-      ]);
-
-      const matchupsData = matchupsRes.data;
-      setMatchups(matchupsData);
-
-      const uniqueWeeks = Array.from(
-        new Set(matchupsData.map((m) => m.week))
-      ).sort((a, b) => a - b);
-      setWeeks(uniqueWeeks);
-
-      setRosters(rostersRes.data || []);
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // weeks/matchups are derived from the same settled fetch; leaving them off
+    // avoids re-picking the week on every later live update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, leagueLoading, league]);
 
   const filteredMatchups =
     weekFilter === 'All' || weekFilter == null
@@ -425,28 +336,30 @@ function GameCenter() {
 
   const heroMatchup = viewerTeamId
     ? filteredMatchups.find(
-        (m) => m.home_team_id === viewerTeamId || m.away_team_id === viewerTeamId
+        (m) => m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId
       )
     : null;
   const restMatchups = heroMatchup
     ? filteredMatchups.filter((m) => m.id !== heroMatchup.id)
     : filteredMatchups;
 
-  const heroHomeScore = heroMatchup ? Number(heroMatchup.home_score) : 0;
-  const heroAwayScore = heroMatchup ? Number(heroMatchup.away_score) : 0;
+  const heroHomeScore = heroMatchup ? Number(heroMatchup.home.score) : 0;
+  const heroAwayScore = heroMatchup ? Number(heroMatchup.away.score) : 0;
   const heroHomeWins = heroHomeScore > heroAwayScore;
   const heroAwayWins = heroAwayScore > heroHomeScore;
   const heroWinProb = heroMatchup
     ? matchupWinProbability({
         homeScore: heroHomeScore,
         awayScore: heroAwayScore,
-        homeExpectedFinal: heroMatchup.home_expected_final,
-        awayExpectedFinal: heroMatchup.away_expected_final,
+        homeExpectedFinal: heroMatchup.home.expectedFinal,
+        awayExpectedFinal: heroMatchup.away.expectedFinal,
       })
     : null;
-  const heroStarted = !!heroMatchup && (
-    heroMatchup.final || showLive || heroHomeScore !== 0 || heroAwayScore !== 0
-  );
+  // Whether the hero matchup has started is the server's status fact, never a
+  // score-arrived timer (ADR 0030). `true` shows the win-probability bar,
+  // `false` shows the pre-kickoff panel, and `null` (the server could not say)
+  // asserts neither.
+  const heroStarted = heroMatchup ? matchupStatusView(heroMatchup.status).hasStarted : null;
 
   const weekIndex = weekFilter === 'All' || weekFilter == null ? -1 : weeks.indexOf(weekFilter);
 
@@ -539,27 +452,27 @@ function GameCenter() {
                   <Typography variant="overline" sx={{ color: 'text.secondary' }}>
                     Your Matchup · Week {heroMatchup.week}
                   </Typography>
-                  <MatchupStatusChip matchup={heroMatchup} showLive={showLive} />
+                  <StatusChip status={heroMatchup.status} />
                 </Box>
 
-                {heroStarted && heroWinProb ? (
+                {heroStarted === true ? (
                   <WinProbabilitySplitBar
-                    homeName={heroMatchup.home_team_name}
-                    awayName={heroMatchup.away_team_name}
+                    homeName={heroMatchup.home.name}
+                    awayName={heroMatchup.away.name}
                     homeProb={heroWinProb.home}
                   />
-                ) : (
+                ) : heroStarted === false ? (
                   <Paper variant="outlined" sx={{ mt: 2, py: 1, px: 1.5, textAlign: 'center', bgcolor: 'background.default' }}>
                     <Typography variant="body2" color="text.secondary">
                       Not started · Week {heroMatchup.week}
                     </Typography>
                   </Paper>
-                )}
+                ) : null}
 
                 <Grid container spacing={2} alignItems="center" sx={{ mt: 0.5 }}>
                   <Grid xs={5}>
                     <Typography variant="h6" sx={{ fontWeight: heroHomeWins ? 700 : 400 }} noWrap>
-                      {heroMatchup.home_team_name}
+                      {heroMatchup.home.name}
                     </Typography>
                     <Typography
                       variant="stat"
@@ -567,9 +480,9 @@ function GameCenter() {
                     >
                       {heroHomeScore}
                     </Typography>
-                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.home_expected_final} />}
+                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.home.expectedFinal} />}
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      <AbbreviationTooltip term="PMR" />: {playersRemainingLabel(heroMatchup.home_players_remaining)}
+                      <AbbreviationTooltip term="PMR" />: {playersRemainingLabel(heroMatchup.home.playersRemaining)}
                     </Typography>
                   </Grid>
                   <Grid xs={2} sx={{ textAlign: 'center' }}>
@@ -579,7 +492,7 @@ function GameCenter() {
                   </Grid>
                   <Grid xs={5} sx={{ textAlign: 'right' }}>
                     <Typography variant="h6" sx={{ fontWeight: heroAwayWins ? 700 : 400 }} noWrap>
-                      {heroMatchup.away_team_name}
+                      {heroMatchup.away.name}
                     </Typography>
                     <Typography
                       variant="stat"
@@ -587,9 +500,9 @@ function GameCenter() {
                     >
                       {heroAwayScore}
                     </Typography>
-                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.away_expected_final} align="right" />}
+                    {!heroMatchup.final && <ProjectedCaption value={heroMatchup.away.expectedFinal} align="right" />}
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      <AbbreviationTooltip term="PMR" />: {playersRemainingLabel(heroMatchup.away_players_remaining)}
+                      <AbbreviationTooltip term="PMR" />: {playersRemainingLabel(heroMatchup.away.playersRemaining)}
                     </Typography>
                   </Grid>
                 </Grid>
@@ -605,9 +518,9 @@ function GameCenter() {
         </Typography>
         <Grid container spacing={2} sx={{ mb: 4 }}>
         {restMatchups.map((matchup) => {
-          // pg returns DECIMAL columns as strings — compare numerically
-          const homeScore = Number(matchup.home_score);
-          const awayScore = Number(matchup.away_score);
+          // pg returns DECIMAL scores as strings — compare numerically
+          const homeScore = Number(matchup.home.score);
+          const awayScore = Number(matchup.away.score);
           const homeWins = homeScore > awayScore;
           const awayWins = awayScore > homeScore;
 
@@ -620,14 +533,14 @@ function GameCenter() {
                       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                         Week {matchup.week}
                       </Typography>
-                      <MatchupStatusChip matchup={matchup} showLive={showLive} />
+                      <StatusChip status={matchup.status} />
                     </Box>
                     <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <TeamAvatar
-                          name={matchup.home_team_name}
-                          avatarUrl={matchup.home_team_avatar_url}
-                          avatarStaticUrl={matchup.home_team_avatar_static_url}
+                          name={matchup.home.name}
+                          avatarUrl={matchup.home.avatarUrl}
+                          avatarStaticUrl={matchup.home.avatarStaticUrl}
                           size={28}
                         />
                         <Box sx={{ minWidth: 0 }}>
@@ -636,9 +549,9 @@ function GameCenter() {
                             noWrap
                             sx={{ fontWeight: homeWins ? 'bold' : 'normal' }}
                           >
-                            {matchup.home_team_name} ({homeScore})
+                            {matchup.home.name} ({homeScore})
                           </Typography>
-                          {!matchup.final && <ProjectedCaption value={matchup.home_expected_final} />}
+                          {!matchup.final && <ProjectedCaption value={matchup.home.expectedFinal} />}
                         </Box>
                       </Box>
                       <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary' }}>
@@ -646,9 +559,9 @@ function GameCenter() {
                       </Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <TeamAvatar
-                          name={matchup.away_team_name}
-                          avatarUrl={matchup.away_team_avatar_url}
-                          avatarStaticUrl={matchup.away_team_avatar_static_url}
+                          name={matchup.away.name}
+                          avatarUrl={matchup.away.avatarUrl}
+                          avatarStaticUrl={matchup.away.avatarStaticUrl}
                           size={28}
                         />
                         <Box sx={{ minWidth: 0 }}>
@@ -657,9 +570,9 @@ function GameCenter() {
                             noWrap
                             sx={{ fontWeight: awayWins ? 'bold' : 'normal' }}
                           >
-                            {matchup.away_team_name} ({awayScore})
+                            {matchup.away.name} ({awayScore})
                           </Typography>
-                          {!matchup.final && <ProjectedCaption value={matchup.away_expected_final} />}
+                          {!matchup.final && <ProjectedCaption value={matchup.away.expectedFinal} />}
                         </Box>
                       </Box>
                     </Box>
