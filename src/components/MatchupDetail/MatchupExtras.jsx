@@ -63,8 +63,15 @@ export function WinProbabilityBar({ homeName, awayName, homeProb }) {
       </Box>
       {/* The caption carries no time claim (#872): the bar is shown for any
           started matchup (live, played and final alike), and "Win
-          probability" reads correctly in every one of those states. */}
-      <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}>
+          probability" reads correctly in every one of those states.
+          It is aria-hidden (#878): the bar's own aria-label is the sole
+          accessible name, so a screen reader does not hear the caption a
+          second time after announcing that label. */}
+      <Typography
+        variant="caption"
+        aria-hidden="true"
+        sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}
+      >
         Win probability
       </Typography>
     </Paper>

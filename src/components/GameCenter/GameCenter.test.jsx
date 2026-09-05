@@ -139,6 +139,11 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
   expect(screen.getByText('Other A (0)')).toBeInTheDocument();
   // A final matchup shows win probability; fabricated projections are gone.
   expect(screen.getByText('Win probability')).toBeInTheDocument();
+  // #878: the caption is aria-hidden so a screen reader hears the bar's own
+  // aria-label once and not the bare caption a second time. The img role
+  // assertion is the control - it must keep passing unmoved.
+  expect(screen.getByText('Win probability')).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.getByRole('img', { name: /^Win probability:/ })).toBeInTheDocument();
   expect(screen.queryByText(/Projected:/)).not.toBeInTheDocument();
   expect(screen.getAllByLabelText(/PMR: Players remaining/i)).toHaveLength(2);
   expect(screen.getByRole('region', { name: 'Live scoring feed' })).toHaveTextContent('No scoring plays yet');
