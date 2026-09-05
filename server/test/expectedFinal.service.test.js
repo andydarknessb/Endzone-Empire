@@ -202,10 +202,31 @@ test('best ball optimizes per-player expected finals rather than raw projections
   assert.equal(decorated[0].home_players_remaining, 1);
 });
 
-test('a projection outage answers no expected final rather than a forecast of zero', async (t) => {
+test('a projection outage withholds the figures but still classifies the game (no forecast of zero)', async (t) => {
   const fake = weekPool(t, { projections: new Error('run store down') });
-  const none = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
-  assert.equal(none.size, 0);
+  const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
+  // The pass still runs: teams with starters are present, but every figure is
+  // null (a dash), never a points-only forecast of zero.
+  const home = byTeam.get(10);
+  assert.equal(home.expectedFinal, null);
+  assert.equal(home.playersRemaining, null);
+  for (const s of home.starters) assert.equal(s.projection, null, 'no per-player projection either');
+  // The per-starter game state is real regardless of the projection outage,
+  // so the Matchup status stays truthful (ADR 0030): this team has a game in
+  // progress, so the matchup is live, not scheduled.
+  assert.deepEqual(home.starters.map((s) => s.gameState), ['final', 'in_progress', 'scheduled']);
+  assert.equal(statusForMatchup({ settled: false, home, away: byTeam.get(20) }), 'live');
+});
+
+test('on a projection outage the list row is null on figures but carries the true status', async (t) => {
+  const fake = weekPool(t, { projections: new Error('run store down') });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].home_expected_final, null);
+  assert.equal(out[0].home_players_remaining, null);
+  assert.equal(out[0].status, 'live');
 });
 
 test('attachExpectedFinals decorates open rows and leaves final rows and untouched weeks null', async (t) => {

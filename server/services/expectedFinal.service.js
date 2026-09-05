@@ -152,8 +152,14 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   // No projection run means no expected final: a number built from actual
   // points alone would read as a forecast of zero for every starter who has
-  // not kicked off yet, which is worse than a dash.
-  if (!projections.ok) return result;
+  // not kicked off yet, which is worse than a dash. The game-state
+  // classification (live rows, schedule, points) needs no projection, so the
+  // pass still runs and the caller still learns each starter's game state -
+  // the Matchup status is a server fact that must stay truthful even when the
+  // projection store is down (ADR 0030): a live score must never ride beside a
+  // `scheduled` status. Only the figures (expected final, players remaining,
+  // per-player projection) are withheld as null.
+  const priced = projections.ok;
 
   // Both live and schedule maps are keyed by the normalized team code and
   // looked up the same way, so a DEF unit's full team name and Tank01's raw
@@ -171,7 +177,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
     const availability = availabilityFor({ injuryStatus: row.injury_status, onBye });
     const raw = projections.map.get(row.player_id);
-    const projection = availability.available && raw && Number.isFinite(Number(raw.points))
+    const projection = priced && availability.available && raw && Number.isFinite(Number(raw.points))
       ? round2(Number(raw.points))
       : 0;
     // Points stay unrounded until the team total is rounded once, the way
@@ -188,10 +194,13 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const starter = {
       playerId: row.player_id,
       position: row.position,
-      projection,
+      // Figures are null without a projection run (no forecast of zero); the
+      // game state is real either way. rawExpectedFinal stays a number so the
+      // best-ball optimizer can still order the lineup by points on the board.
+      projection: priced ? projection : null,
       points: round2(points),
       gameState,
-      expectedFinal: expectedFinalForStarter({ projection, points, gameState }),
+      expectedFinal: priced ? expectedFinalForStarter({ projection, points, gameState }) : null,
       rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, round: false }),
     };
     if (!byTeam.has(row.team_id)) byTeam.set(row.team_id, []);
@@ -209,8 +218,8 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       })()
       : candidates;
     result.set(Number(teamId), {
-      expectedFinal: round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)),
-      playersRemaining: starters.filter((s) => s.gameState !== 'final').length,
+      expectedFinal: priced ? round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)) : null,
+      playersRemaining: priced ? starters.filter((s) => s.gameState !== 'final').length : null,
       starters: starters.map(({ rawExpectedFinal, ...starter }) => starter),
     });
   }
