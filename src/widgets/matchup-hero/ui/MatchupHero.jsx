@@ -14,13 +14,18 @@ import { matchupHeroView, formatKickoff, ordinal } from '../model/matchupHeroVie
  * right, the way SplitBar encodes the two sides; the You pill sits on the side
  * whose Team id is the viewer's, never on a fixed side (#112).
  *
- * Each side: a 64px avatar (44px on a phone) in a team-color ring, the Team
- * name in the display face with the record and rank beneath (from the
- * `records` / `ranks` lookups the page passes down, since a Team's record does
- * not join the wire - ADR 0031's ruling), the score at 56px tabular (34px on a
- * phone), then Expected final and PMR as StatTiles. The middle, once the
- * Matchup has started, is the win probability: a per-side percentage beside a
- * SplitBar and one plain sentence from the viewer's side. Before kickoff
+ * Each side: a 64px avatar (44px on a phone) in a team-color ring over a
+ * page-background halo, the Team name in the display face with the record and
+ * rank beneath (from the `records` / `ranks` lookups the page passes down,
+ * since a Team's record does not join the wire - ADR 0031's ruling), the score
+ * at 56px tabular (34px on a phone), then Expected final and PMR as StatTiles.
+ * On desktop the away side hugs the right edge with its avatar outboard, as
+ * the canvas draws it, but reads left to right like the home side (name, then
+ * the pill; Expected final, then PMR): only the avatar row mirrors. The
+ * middle, once the Matchup has started, is the win probability: a per-side
+ * percentage beside a SplitBar and one plain sentence from the viewer's side
+ * (on a phone the label sits between the two percentages, as the mobile
+ * artboard draws it; the tiles and the full sentence stay). Before kickoff
  * (`hasStarted === false`) the middle reads the kickoff time from
  * `firstKickoffAt` (#892) and there is no bar; on an unknown status the
  * middle asserts neither. The footer carries the games-in-progress and
@@ -210,8 +215,10 @@ export { MatchupHero };
 /**
  * One side of the card. A CSS grid with two templates: on `md` and up the
  * canvas's desktop column (identity row, score, tiles), below it the mobile
- * row (avatar, name and note, score at the end) with the tiles beneath. The
- * away side mirrors to the right on desktop only.
+ * row (avatar, name and note, score at the end) with the tiles beneath. On
+ * desktop the away side aligns to the right and only its avatar row reverses
+ * (avatar outboard); the name row and the tiles keep the home side's reading
+ * order, as the canvas's heroSide() draws them.
  */
 function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
   const right = sideKey === 'away';
@@ -258,7 +265,7 @@ function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
             flex: 'none',
             display: 'flex',
             borderRadius: 'var(--radius-pill)',
-            boxShadow: `0 0 0 2px var(--dash-surface), 0 0 0 4px ${ring}`,
+            boxShadow: `0 0 0 2px var(--dash-bg), 0 0 0 4px ${ring}`,
             '& .MuiAvatar-root': {
               width: { xs: 44, md: 64 },
               height: { xs: 44, md: 64 },
@@ -288,7 +295,6 @@ function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
               gap: { xs: '6px', md: '8px' },
               minWidth: 0,
               maxWidth: '100%',
-              flexDirection: { xs: 'row', md: right ? 'row-reverse' : 'row' },
             }}
           >
             <Typography
@@ -345,7 +351,6 @@ function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
           gridArea: 'tiles',
           display: 'flex',
           gap: '8px',
-          flexDirection: { xs: 'row', md: right ? 'row-reverse' : 'row' },
         }}
       >
         <StatTile
@@ -368,46 +373,84 @@ function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
 }
 
 /**
- * The started middle: the label, the two percentages beside a "vs", the
- * SplitBar and the sentence. The bar's own accessible name already carries
- * both names and both percentages, so the label and the percentage row are
- * aria-hidden (#878: a screen reader hears the numbers once, from the bar);
- * the sentence stays in the tree because it says something the bar does not.
+ * The started middle: the label, the two percentages, the SplitBar and the
+ * sentence, on one grid with two area templates. Desktop (heroCard) stacks
+ * the label above a centred percentage row with a "vs" between the figures at
+ * 22px; a phone (heroCardMobile) puts the label between the two percentages on
+ * one row at 13px, ends out, with no "vs". The bar's own accessible name
+ * already carries both names and both percentages, so the label, the
+ * percentages and the "vs" are aria-hidden (#878: a screen reader hears the
+ * numbers once, from the bar); the sentence stays in the tree because it says
+ * something the bar does not.
  */
 function WinProbability({ view, homeName, awayName }) {
   const { homeShare, homePct, awayPct } = view.winProbability;
   return (
     <Box
       data-testid="matchup-hero-win-probability"
-      sx={{ display: 'grid', gap: { xs: '6px', md: '10px' }, justifyItems: 'center' }}
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: {
+          xs: 'auto minmax(0, 1fr) auto',
+          md: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+        },
+        gridTemplateAreas: {
+          xs: '"home label away" "bar bar bar" "sentence sentence sentence"',
+          md: '"label label label" "home vs away" "bar bar bar" "sentence sentence sentence"',
+        },
+        columnGap: '12px',
+        rowGap: { xs: '6px', md: '10px' },
+      }}
     >
-      <Typography component="span" aria-hidden="true" sx={LABEL_SX}>
+      <Typography
+        component="span"
+        aria-hidden="true"
+        sx={{ ...LABEL_SX, gridArea: 'label', justifySelf: 'center', alignSelf: 'baseline' }}
+      >
         Win probability
       </Typography>
       <Box
+        component="span"
         aria-hidden="true"
+        data-testid="matchup-hero-home-pct"
         sx={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: { xs: 'space-between', md: 'center' },
-          width: '100%',
-          gap: '12px',
-          fontVariantNumeric: 'tabular-nums',
-          fontSize: { xs: '18px', md: '22px' },
-          fontWeight: 700,
+          ...PCT_SX,
+          gridArea: 'home',
+          justifySelf: { xs: 'start', md: 'end' },
+          color: 'var(--dash-home)',
         }}
       >
-        <Box component="span" data-testid="matchup-hero-home-pct" sx={{ color: 'var(--dash-home)' }}>
-          {`${homePct}%`}
-        </Box>
-        <Box component="span" sx={{ color: 'var(--dash-faint)', fontSize: '14px', fontWeight: 500 }}>
-          vs
-        </Box>
-        <Box component="span" data-testid="matchup-hero-away-pct" sx={{ color: 'var(--dash-away)' }}>
-          {`${awayPct}%`}
-        </Box>
+        {`${homePct}%`}
       </Box>
-      <Box sx={{ width: '100%' }}>
+      <Box
+        component="span"
+        aria-hidden="true"
+        sx={{
+          gridArea: 'vs',
+          display: { xs: 'none', md: 'inline' },
+          justifySelf: 'center',
+          alignSelf: 'baseline',
+          fontSize: '14px',
+          fontWeight: 500,
+          color: 'var(--dash-faint)',
+        }}
+      >
+        vs
+      </Box>
+      <Box
+        component="span"
+        aria-hidden="true"
+        data-testid="matchup-hero-away-pct"
+        sx={{
+          ...PCT_SX,
+          gridArea: 'away',
+          justifySelf: { xs: 'end', md: 'start' },
+          color: 'var(--dash-away)',
+        }}
+      >
+        {`${awayPct}%`}
+      </Box>
+      <Box sx={{ gridArea: 'bar', width: '100%' }}>
         <SplitBar
           homeName={homeName}
           awayName={awayName}
@@ -419,7 +462,7 @@ function WinProbability({ view, homeName, awayName }) {
       <Typography
         component="p"
         data-testid="matchup-hero-sentence"
-        sx={{ m: 0, fontSize: '12px', textAlign: 'center', color: 'var(--dash-faint)' }}
+        sx={{ gridArea: 'sentence', m: 0, fontSize: '12px', textAlign: 'center', color: 'var(--dash-faint)' }}
       >
         {view.sentence}
       </Typography>
@@ -539,6 +582,16 @@ const LABEL_SX = {
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
   color: 'var(--dash-faint)',
+};
+
+// The win probability percentages: 22px in the desktop row (heroCard), 13px
+// on the phone row that carries the label between them (heroCardMobile).
+const PCT_SX = {
+  fontVariantNumeric: 'tabular-nums',
+  fontSize: { xs: '13px', md: '22px' },
+  fontWeight: 700,
+  lineHeight: 1.2,
+  alignSelf: 'baseline',
 };
 
 // The canvas's `.btn`: 38px tall on desktop, stretched to the row with a 44px

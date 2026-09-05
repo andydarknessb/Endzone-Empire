@@ -83,6 +83,19 @@ test('renders Expected final and PMR as stat tiles on each side', () => {
   expect(within(awaySide()).getByTestId('matchup-hero-pmr')).toHaveTextContent('PMR6');
 });
 
+test('both sides read Expected final before PMR, the away side included', () => {
+  renderHero();
+
+  // The canvas's heroSide() mirrors only the avatar row on the away side; the
+  // tiles keep the home side's order. Nothing reverses the row in CSS, so the
+  // DOM order asserted here is the order the eye and a screen reader get.
+  for (const side of [homeSide(), awaySide()]) {
+    const ef = within(side).getByTestId('matchup-hero-expected-final');
+    const pmr = within(side).getByTestId('matchup-hero-pmr');
+    expect(ef.compareDocumentPosition(pmr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+});
+
 // Red-tell (#893): placing the You pill by home/away instead of by the
 // viewer's Team id turns this case red and no other.
 test('puts the You pill on the viewer side only, matched by Team id', () => {
