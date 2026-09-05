@@ -33,6 +33,15 @@ test('exposes the "You" pill variant with its distinct type', () => {
   expect(badge.style.letterSpacing).toBe('0.08em');
 });
 
+test('exposes the danger variant (the scoring strip Live pill, #895)', () => {
+  render(<Badge variant="danger">Live</Badge>);
+  const badge = screen.getByTestId('badge');
+  expect(badge).toHaveAttribute('data-variant', 'danger');
+  expect(badge).toHaveTextContent('Live');
+  // Base chip type, like `live`: only `you` carries the smaller pill type.
+  expect(badge.style.fontSize).toBe('');
+});
+
 test('the live variant does not carry the "You" pill type', () => {
   render(<Badge variant="live">Live</Badge>);
   expect(screen.getByTestId('badge').style.fontSize).toBe('');
