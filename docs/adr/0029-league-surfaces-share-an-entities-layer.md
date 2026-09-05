@@ -62,3 +62,32 @@ Import rules, added to 0020's:
   reaches the DOM.
 - A second entity (a League, a Team) joins the same layer under the same rules
   when a surface needs it; nothing here decides which comes next.
+
+## Amendment (2026-09-05, #874): the entity import rule is directional, not an allowlist
+
+The first import rule above reads as an allowlist ("An entity imports `shared`
+only") and the landed Matchup entity does not obey it: its model and both
+hooks import `src/api/apiClient` and `src/lib/teamProfileEvents`, neither of
+which is `shared`. ADR 0020's parallel rule for `shared/lib` is directional -
+"it depends on nothing above it" - and the code follows that shape at every
+layer, including this one. This amendment restates the rule to match, and the
+original sentence is superseded in place; it is not edited.
+
+The entity import rule now reads: an entity depends on nothing above it in the
+island (no feature, widget, page or other entity) and imports `shared` through
+its index. Below the island, an entity may import from the legacy tree only
+for plumbing with no domain meaning (a fetch client, a generic subscription or
+event helper). It never reaches below for a domain concept; a domain concept
+an entity needs is the entity's own to model, which is what this ADR's
+rejected "`src/lib`, outside the island" option was guarding against, and that
+option remains rejected.
+
+The Matchup entity's two below-island edges are the sanctioned instances of
+this rule: `src/api/apiClient` (a plain fetch, the same module
+`shared/lib/useEndpoint` reads) and `src/lib/teamProfileEvents` (the existing
+generic Team profile event helper, mandated by the entity's originating
+brief). Each is named, with its reason, in the entity's index docblock
+(`src/entities/matchup/index.js`), and that docblock is the audit surface for
+the entity's below-island edges until the boundary lint rule ADR 0020 names as
+a follow-up exists - unaudited in the sense of ADR 0010, exactly as the rest of
+this ADR's import rules are.
