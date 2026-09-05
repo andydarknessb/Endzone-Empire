@@ -128,12 +128,6 @@ function scheduleFakePool({ league, fresh, coCommissioners = [], market = 500 } 
 }
 
 test('understaffed: notifies the owner AND every co-commissioner, not the owner alone', async (t) => {
-  // #880: runAction's row-locked recheck (draftSchedule.service.js) reads the
-  // real wall clock rather than the injected `now`, so it must also see NOW
-  // here. This masks the bug #880 tracks: freezing Date here means these five
-  // calls will stay green even if a real-clock read is reintroduced into the
-  // service. REMOVE these five t.mock.timers.enable calls once #880 lands.
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const fake = scheduleFakePool({
     league: LEAGUE_ROW({ min_teams: 8, team_count: 5 }),
     fresh: FRESH_ROW({ min_teams: 8, team_count: 5 }),
@@ -156,8 +150,6 @@ test('understaffed: notifies the owner AND every co-commissioner, not the owner 
 });
 
 test('auction_unsupported: notifies the owner AND every co-commissioner', async (t) => {
-  // #880: as above.
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const fake = scheduleFakePool({
     league: LEAGUE_ROW({ draft_type: 'auction', min_teams: 8, team_count: 5 }),
     fresh: FRESH_ROW({ draft_type: 'auction', min_teams: 8, team_count: 5 }),
@@ -173,8 +165,6 @@ test('auction_unsupported: notifies the owner AND every co-commissioner', async 
 });
 
 test('a solo commissioner (no co-commissioners) still gets exactly one notification', async (t) => {
-  // #880: as above.
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const fake = scheduleFakePool({
     league: LEAGUE_ROW({ min_teams: 8, team_count: 5 }),
     fresh: FRESH_ROW({ min_teams: 8, team_count: 5 }),
@@ -189,8 +179,6 @@ test('a solo commissioner (no co-commissioners) still gets exactly one notificat
 });
 
 test('no_market: notifies commissioners with type draft_no_market and the market copy, flagging once (#747)', async (t) => {
-  // #880: as above.
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
   // Staffed and due (min_teams 2, 5 teams), but only 99 players carry an ADP.
   const league = LEAGUE_ROW({ min_teams: 2, team_count: 5 });
   const fresh = FRESH_ROW({ min_teams: 2, team_count: 5 });
@@ -218,8 +206,6 @@ test('no_market: notifies commissioners with type draft_no_market and the market
 });
 
 test('a scheduled start that fails to auto-start notifies the owner AND every co-commissioner', async (t) => {
-  // #880: as above.
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const league = LEAGUE_ROW({ min_teams: 2, team_count: 5 }); // enough teams: the action is 'start'
   const fresh = FRESH_ROW({ min_teams: 2, team_count: 5 });
   const fake = scheduleFakePool({ league, fresh, coCommissioners: [CO_COMMISSIONER] });
