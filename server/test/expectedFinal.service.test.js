@@ -6,6 +6,7 @@ const {
   expectedFinalForStarter,
   gameStateFor,
   expectedFinalsForWeek,
+  statusForMatchup,
   attachExpectedFinals,
 } = require('../services/expectedFinal.service');
 
@@ -201,10 +202,31 @@ test('best ball optimizes per-player expected finals rather than raw projections
   assert.equal(decorated[0].home_players_remaining, 1);
 });
 
-test('a projection outage answers no expected final rather than a forecast of zero', async (t) => {
+test('a projection outage withholds the figures but still classifies the game (no forecast of zero)', async (t) => {
   const fake = weekPool(t, { projections: new Error('run store down') });
-  const none = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
-  assert.equal(none.size, 0);
+  const byTeam = await expectedFinalsForWeek({ league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW });
+  // The pass still runs: teams with starters are present, but every figure is
+  // null (a dash), never a points-only forecast of zero.
+  const home = byTeam.get(10);
+  assert.equal(home.expectedFinal, null);
+  assert.equal(home.playersRemaining, null);
+  for (const s of home.starters) assert.equal(s.projection, null, 'no per-player projection either');
+  // The per-starter game state is real regardless of the projection outage,
+  // so the Matchup status stays truthful (ADR 0030): this team has a game in
+  // progress, so the matchup is live, not scheduled.
+  assert.deepEqual(home.starters.map((s) => s.gameState), ['final', 'in_progress', 'scheduled']);
+  assert.equal(statusForMatchup({ settled: false, home, away: byTeam.get(20) }), 'live');
+});
+
+test('on a projection outage the list row is null on figures but carries the true status', async (t) => {
+  const fake = weekPool(t, { projections: new Error('run store down') });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].home_expected_final, null);
+  assert.equal(out[0].home_players_remaining, null);
+  assert.equal(out[0].status, 'live');
 });
 
 test('attachExpectedFinals decorates open rows and leaves final rows and untouched weeks null', async (t) => {
@@ -232,6 +254,118 @@ test('attachExpectedFinals decorates open rows and leaves final rows and untouch
   assert.equal(projectionService.getWeeklyProjections.mock.calls.length, 1);
   // The input rows are not mutated.
   assert.equal(Object.prototype.hasOwnProperty.call(rows[0], 'home_expected_final'), false);
+});
+
+// ---------------------------------------------------------------------------
+// Matchup status
+// ---------------------------------------------------------------------------
+
+test('status is a pure cascade over the per-starter game states plus the settled flag', () => {
+  const team = (...states) => ({ starters: states.map((gameState) => ({ gameState })) });
+  assert.equal(statusForMatchup({ settled: true, home: team('in_progress'), away: null }), 'final');
+  assert.equal(statusForMatchup({ settled: false, home: team('in_progress'), away: team('scheduled') }), 'live');
+  assert.equal(statusForMatchup({ settled: false, home: team('final'), away: team('final') }), 'played');
+  assert.equal(statusForMatchup({ settled: false, home: team('scheduled'), away: team('scheduled') }), 'scheduled');
+  // No lineup rows on either side: scheduled (both team results absent).
+  assert.equal(statusForMatchup({ settled: false, home: null, away: null }), 'scheduled');
+});
+
+test('status in best ball reads the optimizer\'s chosen lineup, not every candidate', async (t) => {
+  // Chosen QB (KC) is final at 30; the benched candidate (BUF) is in progress.
+  // Reading the chosen lineup gives played; reading every candidate would give live.
+  const candidates = [
+    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // 30, final
+    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: { passingYards: 125 } }, // 5, in progress
+  ];
+  const projections = new Map([[6, { points: 10 }], [7, { points: 20 }]]);
+  const league = { ...LEAGUE, best_ball: true, roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  const fake = weekPool(t, { starters: candidates, projections });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league, db: fake, now: NOW }
+  );
+  assert.equal(out[0].home_expected_final, 30, 'the chosen QB is the final one at 30');
+  assert.equal(out[0].status, 'played');
+});
+
+test('a matchup with no lineup rows on either side is scheduled', async (t) => {
+  const fake = weekPool(t, { starters: [] });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].home_expected_final, null);
+  assert.equal(out[0].status, 'scheduled');
+});
+
+test('the settled flag wins as final and never reads the database', async () => {
+  const fake = createFakePool([]);
+  const out = await attachExpectedFinals(
+    [{ id: 6, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: true }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, 'final');
+  assert.equal(fake.calls.length, 0);
+});
+
+test('the five-hour no-live-row bound yields played when every starter is past it', async (t) => {
+  const starters = [
+    { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: null },
+    { team_id: 10, player_id: 2, position: 'RB', nfl_team: 'BUF', injury_status: null, stats: null },
+  ];
+  const projections = new Map([[1, { points: 15 }], [2, { points: 12 }]]);
+  // No live rows at all; both games kicked off eight hours before now, well
+  // past the five-hour bound, so every starter is final and the matchup played.
+  const schedule = [
+    { nfl_team: 'KC', kickoff_at: '2026-10-25T10:30:00.000Z' },
+    { nfl_team: 'BUF', kickoff_at: '2026-10-25T10:30:00.000Z' },
+  ];
+  const fake = weekPool(t, { starters, live: [], schedule, projections });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, 'played');
+});
+
+test('a failed read states no status, never a false scheduled (F1)', async (t) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: PROJECTIONS }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  // The live-game read fails - the query most likely to fail transiently and
+  // the one on the live path. The game classification cannot be produced, so
+  // the status is unknown; it must not be asserted as scheduled beside a live
+  // score (ADR 0030).
+  const fake = createFakePool([
+    [/FROM "lineup_entries"/, () => ({ rows: STARTERS })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
+    [/FROM "live_game_states"/, () => { throw new Error('live table unavailable'); }],
+    [/FROM "nfl_games" WHERE/, () => ({ rows: SCHEDULE })],
+  ]);
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, null, 'a read failure is not a scheduled matchup');
+  assert.equal(out[0].home_expected_final, null);
+  assert.equal(out[0].home_players_remaining, null);
+});
+
+test('best ball without a projection run states no status, never a false played (F2)', async (t) => {
+  // Chosen lineup needs expected finals to be ordered; without a projection run
+  // there is no chosen lineup, so points-only ordering would pick the finished
+  // player over the in-progress one and the matchup would read played mid-slate.
+  const candidates = [
+    { team_id: 10, player_id: 6, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 750 } }, // final, 30 pts
+    { team_id: 10, player_id: 7, position: 'QB', nfl_team: 'BUF', injury_status: null, stats: null }, // in progress, 0 pts
+  ];
+  const league = { ...LEAGUE, best_ball: true, roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  const fake = weekPool(t, { starters: candidates, projections: new Error('run store down') });
+  const out = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league, db: fake, now: NOW }
+  );
+  assert.equal(out[0].status, null, 'no projection run means no chosen lineup, so status is unknown');
+  assert.equal(out[0].home_expected_final, null);
 });
 
 test('a final-only list never touches the database', async () => {

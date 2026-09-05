@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const clock = require('../modules/clock');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { tank01Get } = require('../modules/tank01Client');
 const {
@@ -1903,36 +1904,18 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
     client.release();
   }
 
-  // Each side's expected final and players remaining ride the same emit as
-  // the fresh scores, so a card can never show a new score against a stale
-  // forecast. Computed once the pass has committed AND its connection is
-  // back in the pool (the producer reads on the pool; holding a second
-  // connection per pass would let concurrent re-scores starve it), from the
-  // stats this pass just wrote, only for matchups still open (a final one's
-  // result is its score), and best-effort: a miss leaves the four fields
-  // null. Required lazily: expectedFinal.service reads this module's rules.
-  let expectedByTeam = new Map();
-  if (openMatchups.length > 0) {
-    try {
-      const { expectedFinalsForWeek } = require('./expectedFinal.service');
-      expectedByTeam = await expectedFinalsForWeek({
-        league,
-        season,
-        week,
-        teamIds: openMatchups.flatMap((m) => [m.home_team_id, m.away_team_id]),
-      });
-    } catch (efErr) {
-      console.error('expected finals unavailable on score pass', efErr.message);
-    }
-  }
-  for (const entry of scored) {
-    const home = expectedByTeam.get(Number(entry.homeTeamId)) || null;
-    const away = expectedByTeam.get(Number(entry.awayTeamId)) || null;
-    entry.homeExpectedFinal = home ? home.expectedFinal : null;
-    entry.awayExpectedFinal = away ? away.expectedFinal : null;
-    entry.homePlayersRemaining = home ? home.playersRemaining : null;
-    entry.awayPlayersRemaining = away ? away.playersRemaining : null;
-  }
+  // Each side's status, expected final and players remaining ride the same
+  // emit as the fresh scores, so a card can never show a new score against a
+  // stale forecast or phase. The one decorator (expectedFinal.service) maps
+  // them onto each `scored` entry, computed once the pass has committed AND
+  // its connection is back in the pool (the producer reads on the pool;
+  // holding a second connection per pass would let concurrent re-scores
+  // starve it), from the stats this pass just wrote, only for matchups still
+  // open (a final one's result is its score), and best-effort: a miss leaves
+  // the fields null. Required lazily: expectedFinal.service reads this
+  // module's rules.
+  const { attachScoredExpectedFinals } = require('./expectedFinal.service');
+  await attachScoredExpectedFinals(scored, { openMatchups, league, now: clock.now() });
   // Live scoring: push fresh scores to anyone watching this league, through the
   // one Draft room broadcast adapter (#765). In the API it rides `io`; in the
   // worker it rides the Redis emitter to every API instance, so the scheduled

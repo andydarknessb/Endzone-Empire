@@ -772,11 +772,16 @@ _Avoid_: PMR (in prose), players left, yet to play
 
 **Matchup status**:
 Where a Matchup sits in its week, read from its starters' NFL games: scheduled
-until the first of them kicks off, live while any is in progress, played once
-every one is over, and final once the score of record is written. It is a fact
-the server states beside a team's Expected final, never inferred from when a
-score last arrived. A Matchup with no lineup rows on either side is scheduled
-until it is final.
+until the first of them kicks off, live while any is in progress or has kicked
+off but not all are over, played once every one is over, and final once the
+score of record is written. (The middle case - a game already played while a
+later one has not started, none in progress - is live: a game has kicked off,
+so it is past scheduled, and not every game is over, so it is not played.) It
+is a fact the server states beside a team's Expected final, never inferred from
+when a score last arrived. A Matchup with no lineup rows on either side is
+scheduled until it is final. A status the server could not compute - a read
+failed, or in best ball there is no projection run so no chosen lineup to read
+- is stated as unknown (null), never guessed as scheduled.
 _Avoid_: live (unqualified, as a state name), in progress (that is one NFL
 game), started
 
