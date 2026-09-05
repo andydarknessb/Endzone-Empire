@@ -18,9 +18,10 @@ function gamesInOrder(ids, byId) {
  * The live state of every NFL game a Matchup spans (its detail body's
  * `nflGameIds`, #884), through ONE realtime subscription instead of one channel
  * per game (#885): an initial read of every listed game's row, then one channel
- * filtered on the whole id set, opened only while a listed game is in progress
- * and closed once every listed game is final. A game already final at the
- * initial read is never subscribed to. Nothing else on the client reads
+ * filtered on the whole id set, opened over every listed game not yet final
+ * (so a page opened before kickoff is subscribed when the games begin) and
+ * closed once every listed game is final. A game already final at the initial
+ * read is never subscribed to. Nothing else on the client reads
  * live_game_states (ADR 0009 keeps it the anon-readable surface; this is its
  * one reader). Returns the games' rows in id order; empty when there is no
  * client (realtime disabled), no ids, or the read failed.
@@ -44,12 +45,12 @@ function useLiveGames(matchupId, gameIds) {
       }
     };
 
-    // Open the one channel over the games not yet final, and keep it only
-    // while one of them is in progress; every listed game final closes it.
+    // Open the one channel over the games not yet final (scheduled ones
+    // included, so a page opened before kickoff hears the first update);
+    // every listed game final closes it.
     const subscribe = (rows) => {
       const open = rows.filter((r) => r.game_status !== 'final').map((r) => String(r.tank01_game_id));
-      const anyLive = rows.some((r) => r.game_status === 'in_progress');
-      if (!anyLive || open.length === 0 || channel) return;
+      if (open.length === 0 || channel) return;
       channel = supabase
         .channel(`live-games-${matchupId}`)
         .on(
@@ -79,7 +80,14 @@ function useLiveGames(matchupId, gameIds) {
         .from(LIVE_GAMES_TABLE)
         .select('*')
         .in('tank01_game_id', ids);
-      if (cancelled || error || !Array.isArray(data)) return;
+      if (cancelled) return;
+      if (error || !Array.isArray(data)) {
+        // The strip stays hidden, but the cause is on the console: a policy
+        // regression on live_game_states (ADR 0009) must not look like a quiet
+        // week with no games.
+        console.warn('useMatchup: live game states unavailable; the game strip stays hidden', error);
+        return;
+      }
       setById(new Map(data.map((r) => [String(r.tank01_game_id), r])));
       subscribe(data);
     })();

@@ -220,9 +220,11 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, round: false }),
     };
     // A BENCH row is priced like any other but never summed. In a redraft
-    // league it is only a bench row; in best ball every non-IR row is also a
-    // candidate for the optimizer, so it sits in both lists.
-    if (row.slot === 'BENCH') {
+    // league it is only a bench row. In best ball there is no set lineup (ADR
+    // 0023): every non-IR row is a candidate for the optimizer AND rides in
+    // `bench` whatever slot key it carries, so a candidate the optimizer does
+    // not choose is still a priced row the detail route can read.
+    if (row.slot === 'BENCH' || league.best_ball) {
       if (!benchByTeam.has(row.team_id)) benchByTeam.set(row.team_id, []);
       benchByTeam.get(row.team_id).push(starter);
       if (!league.best_ball) continue;

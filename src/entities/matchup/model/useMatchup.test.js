@@ -264,20 +264,44 @@ test('a game already final at the initial read is never subscribed to', async ()
   );
 });
 
-test('no channel opens when every listed game is final, and none when no game is in progress yet', async () => {
+test('no channel opens when every listed game is final', async () => {
   apiClient.get.mockResolvedValue(detailWithGames(['a', 'b']));
   installLiveGames([game('a', 'final'), game('b', 'final')]);
-  const { result, unmount } = renderHook(() => useMatchup(1, 9));
+  const { result } = renderHook(() => useMatchup(1, 9));
   await waitFor(() => expect(result.current.matchup?.games).toHaveLength(2));
   expect(supabase.channel).not.toHaveBeenCalled();
-  unmount();
+});
 
-  jest.clearAllMocks();
-  apiClient.get.mockResolvedValue(detailWithGames(['c']));
-  installLiveGames([game('c', 'scheduled')]);
-  const { result: second } = renderHook(() => useMatchup(1, 9));
-  await waitFor(() => expect(second.current.matchup?.games).toHaveLength(1));
+// A page opened before kickoff: every listed game is still scheduled, and the
+// one channel opens over them so the first in-progress update reaches the
+// strip without a reload. Red-tell: gating the channel on an in-progress row
+// turns this red and no other.
+test('a scheduled-only set opens the one channel over every listed game, and an update moves it to in progress', async () => {
+  apiClient.get.mockResolvedValue(detailWithGames(['c', 'd']));
+  const { channelObj, push } = installLiveGames([game('c', 'scheduled'), game('d', 'scheduled')]);
+  const { result } = renderHook(() => useMatchup(1, 9));
+  await waitFor(() => expect(result.current.matchup?.games).toHaveLength(2));
+  expect(supabase.channel).toHaveBeenCalledTimes(1);
+  expect(channelObj.on).toHaveBeenCalledWith(
+    'postgres_changes',
+    expect.objectContaining({ filter: 'tank01_game_id=in.(c,d)' }),
+    expect.any(Function)
+  );
+  push({ new: game('c', 'in_progress', { quarter: 'Q1', time_remaining: '14:52' }) });
+  expect(result.current.matchup.games[0].game_status).toBe('in_progress');
+});
+
+test('a failed initial read leaves the games empty and logs a warning, never throws', async () => {
+  apiClient.get.mockResolvedValue(detailWithGames(['x']));
+  const inFn = jest.fn().mockResolvedValue({ data: null, error: { message: 'permission denied' } });
+  supabase.from.mockReturnValue({ select: jest.fn().mockReturnValue({ in: inFn }) });
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const { result } = renderHook(() => useMatchup(1, 9));
+  await waitFor(() => expect(result.current.matchup).not.toBeNull());
+  await waitFor(() => expect(warn).toHaveBeenCalled());
+  expect(result.current.matchup.games).toEqual([]);
   expect(supabase.channel).not.toHaveBeenCalled();
+  warn.mockRestore();
 });
 
 test('the channel is closed on unmount', async () => {

@@ -13,9 +13,9 @@ const clock = require('../modules/clock');
 /**
  * GET /api/league/:id/matchups/:matchupId reports each side's expected
  * final and players remaining (`home.expectedFinal`, `home.playersRemaining`)
- * from the shared producer, and its per-player `projected` figures read the
- * same weekly run: a starter's carries the availability rule (bye/Out/IR
- * count zero), a bench player's is the run's raw number. The old
+ * from the shared producer, and every player row, starter or bench, is priced
+ * by that producer's one read under the availability rule (bye/Out/IR count
+ * zero) and carries `availability: { available, reason }` (#883). The old
  * `projectedTotal` is gone.
  */
 
@@ -122,12 +122,16 @@ async function getDetail(t, { gameRows = [], throwGames = false } = {}) {
     })],
     // The producer's one read across both teams: every non-IR lineup row,
     // bench included, each carrying its slot.
-    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
-      rows: [
+    // Answers the read's slot predicate the way the table would (a statement
+    // that still excludes BENCH rows gets none), so the #883 WHERE clause
+    // change is bound: restoring NOT IN ('BENCH', 'IR') turns the bench cases red.
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, (text) => {
+      const rows = [
         ...[...HOME_STARTERS, ...HOME_BENCH].map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
         ...AWAY_STARTERS.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
-      ],
-    })],
+      ];
+      return { rows: /NOT IN \('BENCH'/.test(text) ? rows.filter((r) => r.slot !== 'BENCH') : rows };
+    }],
   ]).install(t);
 
   const res = await request(app)
@@ -223,7 +227,9 @@ async function detailStatus(t, { live, schedule, throwLive = false }) {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   const homeStarters = [player(301, 'Home QB', 'QB', 'KC', null, 'QB', null)];
-  const awayStarters = [player(401, 'Away RB', 'RB', 'DAL', null, 'RB', null)];
+  // The away RB is ruled Out, so the no-priced-row fallback (F1) has a
+  // designation to speak from.
+  const awayStarters = [player(401, 'Away RB', 'RB', 'DAL', 'O', 'RB', null)];
   const byes = [];
   for (let w = 1; w <= 18; w++) for (const team of ['KC', 'DAL']) byes.push({ nfl_team: team, week: w });
   createFakePool([
@@ -285,4 +291,10 @@ test('the detail body states matchup.status null when a read fails, never a fals
   });
   assert.equal(body.matchup.status, null);
   assert.equal(body.home.expectedFinal, null);
+  // With no priced row the availability rule still speaks from the injury
+  // designation alone: the Out RB says so, the healthy QB carries no reason.
+  // Red-tell: returning null availability from the fallback turns this red.
+  assert.deepEqual(body.away.starters[0].availability, { available: false, reason: 'out' });
+  assert.deepEqual(body.home.starters[0].availability, { available: true, reason: null });
+  assert.equal(body.away.starters[0].projected, null);
 });

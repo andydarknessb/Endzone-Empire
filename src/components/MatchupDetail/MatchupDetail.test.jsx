@@ -662,3 +662,29 @@ test('an unavailable bench row renders its reason and no pace bar; an available 
   expect(screen.getByText('· Proj 6.5')).toBeInTheDocument();
   expect(screen.queryByText('· Proj 0.0')).not.toBeInTheDocument();
 });
+
+// #883: the one live pace bar is the expanded starter row; an Unavailable
+// starter shows his reason there and no pace bar, and the Scoreboard preview
+// prints the reason instead of a projection. Red-tell: rendering the pace bar
+// unconditionally in the expanded row turns the first half red; printing
+// "Proj" for an unavailable preview row turns the second half red.
+test('an unavailable starter, expanded, shows its reason and no pace bar; the Scoreboard preview prints the reason instead of Proj', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({
+    homeStarters: [
+      starter({ projected: 21.4, availability: { available: true, reason: null } }),
+      starter({ id: 7, name: 'B. Bye', slot: 'WR', position: 'WR', points: 0, projected: 0, availability: { available: false, reason: 'bye' } }),
+    ],
+  }));
+
+  renderDetail();
+  await screen.findByText('B. Bye');
+
+  await userEvent.click(screen.getByRole('button', { name: /B\. Bye/, expanded: false }));
+  expect(screen.getByTestId('unavailable-reason')).toHaveTextContent('Projection: on bye');
+  expect(screen.queryByText('Pace')).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
+  expect(screen.getByText(/0\.0 pts · on bye/)).toBeInTheDocument();
+  expect(screen.queryByText(/0\.0 pts · Proj/)).not.toBeInTheDocument();
+  expect(screen.getByText(/24\.1 pts · Proj 21\.4/)).toBeInTheDocument();
+});
