@@ -924,14 +924,15 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // The NFL games either roster plays in this week (#884). The view joins
     // through lineup_entries, which the transaction above just materialized
     // for both sides, so the read follows the COMMIT and never finds an
-    // empty week by accident. One row per rostered player and game (two
+    // empty week by accident; it reads on the pool, since it is not part of
+    // that transaction. One row per rostered player and game (two
     // Chiefs on one roster are two rows for one game), so de-duplicate and
     // sort for a stable body. Best-effort: a failed read is an empty array,
     // never a failed request; a week before the live engine has written any
     // game rows is empty too, which is what "no games to watch yet" looks like.
     let nflGameIds = [];
     try {
-      const gamesResult = await client.query(
+      const gamesResult = await pool.query(
         `SELECT "tank01_game_id" FROM "view_matchup_nfl_games" WHERE "fantasy_matchup_id" = $1`,
         [matchupId]
       );

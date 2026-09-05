@@ -47,7 +47,8 @@ function applyStarterDeltas(lineup, deltaById) {
  *
  * The raw detail body is returned alongside the model as `detail`: it carries
  * what the model deliberately does not (the two lineups' benches, the viewer's
- * own Team id, the viewer what-if, and the matchup's `is_playoff` flag), which a
+ * own Team id, the viewer what-if, the matchup's `is_playoff` flag, and the
+ * `nflGameIds` the live-game strip mounts from, #884), which a
  * box-score surface still needs. The model is the one spelling of the scoreboard
  * (totals, status, `final`, Expected final, Players remaining); `detail` is the
  * lineup payload beneath it.
