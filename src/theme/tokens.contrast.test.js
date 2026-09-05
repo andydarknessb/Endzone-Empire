@@ -140,11 +140,13 @@ const PAIRINGS = [
   // `surface` (already covered by the two rows above) or has no text on it.
   // Five do not:
   //
-  // GameCenter's LiveActionTicker (GameCenter.jsx) paints `accent-soft`
-  // directly as its own Paper's background, and that Paper sits straight on
-  // the page - its backdrop is `bg-page`, not `surface`. The ticker text is
-  // MUI body2 at 14px even when bold, under the 14pt/18.66px bold threshold
-  // for "large text", so AA_TEXT applies.
+  // The legacy Game Center's LiveActionTicker painted `accent-soft` directly
+  // as its own Paper's background, and that Paper sat straight on the page -
+  // its backdrop was `bg-page`, not `surface`. The ticker text was MUI body2
+  // at 14px even when bold, under the 14pt/18.66px bold threshold for "large
+  // text", so AA_TEXT applies. That page left with #897 (the island's
+  // scoring-feed widget paints `dash-*` tokens instead, guarded below); the
+  // row stays so a later banner on the page composes a certified pairing.
   pairing(
     'text-primary',
     'accent-soft',

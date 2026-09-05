@@ -41,7 +41,8 @@ const game = (id, game_status, extra = {}) => ({ tank01_game_id: id, game_status
 // Drive the live feed through the app's own socket factory hook
 // (window.__ENDZONE_TEST_SOCKET_FACTORY__, src/api/socket.js): the entity's
 // score feed builds its socket through createDraftSocket, so installing this
-// factory hands the feed a controllable fake, exactly as GameCenter's test does.
+// factory hands the feed a controllable fake, exactly as the Game Center page
+// test does (src/pages/game-center).
 function makeFakeSocket() {
   const handlers = {};
   const ioHandlers = {};
