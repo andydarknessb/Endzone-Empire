@@ -17,3 +17,4 @@ export {
   matchupStatusView,
 } from './model/matchupModel';
 export { useLeagueMatchups } from './model/useLeagueMatchups';
+export { useMatchup } from './model/useMatchup';

@@ -3,7 +3,6 @@ import { screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket, onReconnect } from '../../api/socket';
 import MatchupDetail from './MatchupDetail';
 import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
 import { useLeague } from '../../hooks/useLeague';
@@ -11,11 +10,6 @@ import { useLeague } from '../../hooks/useLeague';
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
-}));
-
-jest.mock('../../api/socket', () => ({
-  createDraftSocket: jest.fn(),
-  onReconnect: jest.fn(),
 }));
 
 jest.mock('../../hooks/useFantasyMatchupGames', () => ({
@@ -51,42 +45,76 @@ const starter = (overrides = {}) => ({
   ...overrides,
 });
 
-const matchupResponse = (overrides = {}) => ({
-  data: {
-    matchup: {
-      id: 9,
-      week: 3,
-      season: 2026,
-      home_score: '101.5',
-      away_score: '88',
-      final: false,
-      is_playoff: false,
-      home_team_name: 'Team A',
-      away_team_name: 'Team B',
-      ...(overrides.matchup || {}),
+// The detail body GET /api/league/:id/matchups/:matchupId delivers: { matchup,
+// home, away }, the score on the matchup and each side's identity/figures on
+// the per-side object (the shape the entity's matchupFromDetailBody reads).
+// `status` is the server's status fact (ADR 0030): it defaults to 'live' (an
+// in-progress matchup) and to 'final' when `final` is overridden true, so a
+// fixture reads truthfully without every test spelling it out.
+const matchupResponse = (overrides = {}) => {
+  const m = overrides.matchup || {};
+  const final = m.final ?? false;
+  const status = m.status ?? (final ? 'final' : 'live');
+  return {
+    data: {
+      matchup: {
+        id: 9,
+        week: 3,
+        season: 2026,
+        home_score: '101.5',
+        away_score: '88',
+        is_playoff: false,
+        home_team_name: 'Team A',
+        away_team_name: 'Team B',
+        ...m,
+        final,
+        status,
+      },
+      home: {
+        teamId: 1,
+        name: 'Team A',
+        starters: overrides.homeStarters || [starter()],
+        bench: overrides.homeBench || [],
+      },
+      away: {
+        teamId: 2,
+        name: 'Team B',
+        starters: overrides.awayStarters || [starter({ id: 6, name: 'D. Adams', slot: 'WR', position: 'WR', points: 15.4 })],
+        bench: overrides.awayBench || [],
+      },
     },
-    home: {
-      teamId: 1,
-      name: 'Team A',
-      starters: overrides.homeStarters || [starter()],
-      bench: overrides.homeBench || [],
-    },
-    away: {
-      teamId: 2,
-      name: 'Team B',
-      starters: overrides.awayStarters || [starter({ id: 6, name: 'D. Adams', slot: 'WR', position: 'WR', points: 15.4 })],
-      bench: overrides.awayBench || [],
-    },
-  },
-});
+  };
+};
 
-let mockSocket;
-let socketHandlers;
-let reconnectHandlers;
+// Drive live updates through the app's own socket factory hook
+// (window.__ENDZONE_TEST_SOCKET_FACTORY__, src/api/socket.js): the entity hook's
+// score feed builds its socket through createDraftSocket, so installing this
+// factory hands the feed a controllable fake — no hand-rolled socket double.
+function makeFakeSocket() {
+  const handlers = {};
+  const ioHandlers = {};
+  return {
+    emit: jest.fn(),
+    on: jest.fn((event, cb) => { handlers[event] = cb; }),
+    io: {
+      on: jest.fn((event, cb) => { ioHandlers[event] = cb; }),
+      off: jest.fn(),
+    },
+    disconnect: jest.fn(),
+    fire: (event, payload) => handlers[event]?.(payload),
+    reconnect: () => ioHandlers.reconnect?.(),
+  };
+}
+
+let socket;
+
+const emitScores = (payload) => act(() => { socket.fire('scores:updated', payload); });
 
 beforeEach(() => {
-  socketHandlers = {};
-  reconnectHandlers = [];
+  window.__ENDZONE_TEST_SOCKET_FACTORY__ = () => {
+    socket = makeFakeSocket();
+    return socket;
+  };
   useFantasyMatchupGames.mockReturnValue({ realGameIds: [], loading: false, error: null });
   useLeague.mockReturnValue({
     league: {
@@ -100,23 +128,10 @@ beforeEach(() => {
     loading: false,
     error: null,
   });
-  mockSocket = {
-    on: jest.fn((event, cb) => {
-      socketHandlers[event] = cb;
-    }),
-    io: {
-      on: jest.fn((event, cb) => {
-        reconnectHandlers.push(cb);
-      }),
-    },
-    emit: jest.fn(),
-    disconnect: jest.fn(),
-  };
-  createDraftSocket.mockReturnValue(mockSocket);
-  onReconnect.mockImplementation((socket, handler) => socket.io.on('reconnect', handler));
 });
 
 afterEach(() => {
+  delete window.__ENDZONE_TEST_SOCKET_FACTORY__;
   jest.clearAllMocks();
 });
 
@@ -142,37 +157,87 @@ test('renders both teams starters with points and coerced scores', async () => {
   expect(screen.getByText('15.4')).toBeInTheDocument();
 });
 
-test('renders a pre-draft matchup as Not started and never LIVE', async () => {
-  useLeague.mockReturnValue({
-    league: {
-      id: 1,
-      name: 'Sunday Ballers',
-      draft_status: 'pending',
-      season_status: 'regular',
-      current_season: 2026,
-      current_week: 1,
-    },
-    loading: false,
-    error: null,
-  });
-  apiClient.get.mockResolvedValue(
-    matchupResponse({ matchup: { week: 1, home_score: '0', away_score: '0' } })
-  );
+// The status chip and the live UI are the server's status fact (ADR 0030),
+// read through the entity's predicate — never a score-arrived timer.
+test('a scheduled matchup shows no LIVE chip and no win-probability bar', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'scheduled', home_score: '0', away_score: '0' } }));
 
   renderDetail();
 
-  expect((await screen.findAllByText('Not started')).length).toBeGreaterThan(0);
+  expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('Scheduled');
   expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
   expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
 });
 
-test('renders LIVE for a genuinely in-progress current-week matchup', async () => {
-  apiClient.get.mockResolvedValue(matchupResponse());
+// ADR 0030: a played (games done, not finalised) matchup reads "Awaiting final",
+// never a guessed LIVE.
+test('a played matchup renders the Awaiting final chip and no LIVE', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'played', home_score: '99', away_score: '92' } }));
 
   renderDetail();
 
-  expect((await screen.findAllByText('LIVE')).length).toBeGreaterThan(0);
-  expect(screen.queryByText('Not started')).not.toBeInTheDocument();
+  expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('Awaiting final');
+  expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
+});
+
+// The LIVE chip comes from the fetched status alone: no socket event is fired
+// here. Red-tell (AC1): forcing the predicate to return Scheduled for `live`
+// turns this test red and no other.
+test('a live matchup renders LIVE from the fetch alone, with no socket event', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'live' } }));
+
+  renderDetail();
+
+  expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('LIVE');
+  expect(screen.queryByText('Awaiting final')).not.toBeInTheDocument();
+});
+
+// One render test proving a model update from the hook reaches the DOM: the
+// score, the Expected final, Players remaining and the chip label all follow a
+// scores:updated event, with no refetch. The status moves scheduled -> played,
+// so the chip label is driven by the model, not a timer.
+test('a scores:updated event moves the score, Expected final, players remaining and chip', async () => {
+  const response = matchupResponse({ matchup: { status: 'scheduled' } });
+  response.data.home.expectedFinal = 120.5;
+  response.data.home.playersRemaining = 4;
+  response.data.away.expectedFinal = 97.25;
+  response.data.away.playersRemaining = 2;
+  apiClient.get.mockResolvedValue(response);
+
+  renderDetail(1, 9);
+  await screen.findByText('101.5');
+  expect(screen.getByTestId('matchup-status-chip')).toHaveTextContent('Scheduled');
+  expect(screen.getByText('Projected 120.5')).toBeInTheDocument();
+  expect(screen.getByText('Projected 97.3')).toBeInTheDocument();
+  expect(screen.getByText('Players remaining 4')).toBeInTheDocument();
+  expect(screen.getByText('Players remaining 2')).toBeInTheDocument();
+
+  emitScores({
+    scored: [{
+      matchupId: 9, homeScore: 110, awayScore: 90, status: 'played',
+      homeExpectedFinal: 130.2, awayExpectedFinal: 96.4, homePlayersRemaining: 3, awayPlayersRemaining: 1,
+    }],
+  });
+
+  expect(await screen.findByText('110')).toBeInTheDocument();
+  expect(screen.getByText('90')).toBeInTheDocument();
+  expect(screen.getByText('Projected 130.2')).toBeInTheDocument();
+  expect(screen.getByText('Projected 96.4')).toBeInTheDocument();
+  expect(screen.getByText('Players remaining 3')).toBeInTheDocument();
+  expect(screen.getByText('Players remaining 1')).toBeInTheDocument();
+  expect(screen.getByTestId('matchup-status-chip')).toHaveTextContent('Awaiting final');
+});
+
+test('a scores:updated for a different matchupId leaves the displayed scores unchanged', async () => {
+  apiClient.get.mockResolvedValue(matchupResponse());
+
+  renderDetail(1, 9);
+  await screen.findByText('101.5');
+
+  emitScores({ scored: [{ matchupId: 999, homeScore: 200, awayScore: 200 }] });
+
+  expect(screen.getByText('101.5')).toBeInTheDocument();
+  expect(screen.getByText('88')).toBeInTheDocument();
 });
 
 test('does not render dangling bench what-if copy when the viewer has no roster', async () => {
@@ -199,38 +264,6 @@ test('renders an injury badge for a flagged starter', async () => {
   expect(screen.getByText('Q')).toBeInTheDocument();
 });
 
-test('scores:updated for this matchup updates the displayed scores', async () => {
-  apiClient.get.mockResolvedValue(matchupResponse());
-
-  renderDetail(1, 9);
-  await screen.findByText('101.5');
-
-  act(() => {
-    socketHandlers['scores:updated']({
-      scored: [{ matchupId: 9, homeScore: 110, awayScore: 90 }],
-    });
-  });
-
-  expect(await screen.findByText('110')).toBeInTheDocument();
-  expect(screen.getByText('90')).toBeInTheDocument();
-});
-
-test('scores:updated for a different matchupId leaves the displayed scores unchanged', async () => {
-  apiClient.get.mockResolvedValue(matchupResponse());
-
-  renderDetail(1, 9);
-  await screen.findByText('101.5');
-
-  act(() => {
-    socketHandlers['scores:updated']({
-      scored: [{ matchupId: 999, homeScore: 200, awayScore: 200 }],
-    });
-  });
-
-  expect(screen.getByText('101.5')).toBeInTheDocument();
-  expect(screen.getByText('88')).toBeInTheDocument();
-});
-
 test('a non-touchdown moment play (e.g. a sack) flashes a retro banner in Scoreboard mode, not a cutscene/toast', async () => {
   apiClient.get.mockResolvedValue(matchupResponse());
 
@@ -238,14 +271,12 @@ test('a non-touchdown moment play (e.g. a sack) flashes a retro banner in Scoreb
   await screen.findByText('P. Mahomes');
   await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
 
-  act(() => {
-    socketHandlers['scores:updated']({
-      scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88 }],
-      plays: [{
-        playerId: 5, name: 'P. Mahomes', position: 'QB', nflTeam: 'KC', opponent: 'BUF',
-        type: 'sack', isTouchdown: false, pointsDelta: 0,
-      }],
-    });
+  emitScores({
+    scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88 }],
+    plays: [{
+      playerId: 5, name: 'P. Mahomes', position: 'QB', nflTeam: 'KC', opponent: 'BUF',
+      type: 'sack', isTouchdown: false, pointsDelta: 0,
+    }],
   });
 
   expect(await screen.findByRole('status')).toHaveTextContent('KC · SACK');
@@ -274,7 +305,7 @@ test('shows points left on bench for each team when the matchup is final', async
         data: { teamId: 2, week: 3, actualPoints: 88, optimalPoints: 90.2, pointsLeftOnBench: 2.2 },
       });
     }
-    return Promise.reject(new Error(`unexpected url ${url}`));
+    return Promise.resolve(matchupResponse());
   });
 
   renderDetail();
@@ -298,7 +329,10 @@ test('silently skips bench points on a 404/error from the hindsight endpoint', a
     if (url === '/api/league/1/matchups/9') {
       return Promise.resolve(matchupResponse({ matchup: { final: true } }));
     }
-    return Promise.reject({ response: { status: 404 } });
+    if (url.includes('/api/team/hindsight')) {
+      return Promise.reject({ response: { status: 404 } });
+    }
+    return Promise.resolve(matchupResponse());
   });
 
   renderDetail();
@@ -313,11 +347,6 @@ test('a final best-ball matchup shows no bench line: nothing is ever left on a b
     loading: false,
     error: null,
   });
-  // Hindsight answers as the server does for best ball: actual = optimal,
-  // zero left. A zero is a number, so without a best-ball gate the page
-  // would print "Left 0 on the bench". The two answers are held back and
-  // released inside act, so the absence below is asserted AFTER they landed
-  // rather than before they could have.
   const releases = [];
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/league/1/matchups/9') {
@@ -330,7 +359,7 @@ test('a final best-ball matchup shows no bench line: nothing is ever left on a b
         }));
       });
     }
-    return Promise.reject(new Error(`unexpected url ${url}`));
+    return Promise.resolve(matchupResponse());
   });
 
   renderDetail();
@@ -355,7 +384,7 @@ test('the bench line waits for the league to be known, so a best-ball zero never
         }));
       });
     }
-    return Promise.reject(new Error(`unexpected url ${url}`));
+    return Promise.resolve(matchupResponse());
   });
 
   renderDetail();
@@ -377,10 +406,9 @@ test('the Scoreboard toggle swaps the retro view in and switching back restores 
 
   await userEvent.click(screen.getByRole('button', { name: 'Scoreboard' }));
 
-  // Retro view: team names render in both the dot-matrix header and the
-  // field's endzones, the full starting lineup shows (plain text, not the
-  // standard mode's interactive quick-view links), and benches stay hidden
-  // until toggled.
+  // Retro view: team names render in both the dot-matrix header and the field's
+  // endzones, the full starting lineup shows (plain text, not the standard
+  // mode's interactive quick-view links), and benches stay hidden until toggled.
   expect(screen.getAllByText('TEAM A').length).toBeGreaterThanOrEqual(2);
   expect(screen.getAllByText('TEAM B').length).toBeGreaterThanOrEqual(2);
   expect(screen.getByText('P. Mahomes')).toBeInTheDocument();
@@ -412,11 +440,10 @@ test('joins the league room on mount and disconnects on unmount', async () => {
   const { unmount } = renderDetail(42, 9);
   await screen.findByText('Week 3 Matchup');
 
-  expect(createDraftSocket).toHaveBeenCalled();
-  expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
+  expect(socket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
 
   unmount();
-  expect(mockSocket.disconnect).toHaveBeenCalled();
+  expect(socket.disconnect).toHaveBeenCalled();
 });
 
 test('re-joins the league room and refetches the matchup when the manager reconnects', async () => {
@@ -424,14 +451,12 @@ test('re-joins the league room and refetches the matchup when the manager reconn
 
   renderDetail(42, 9);
   await screen.findByText('Week 3 Matchup');
-  mockSocket.emit.mockClear();
+  socket.emit.mockClear();
   const callsBeforeReconnect = apiClient.get.mock.calls.length;
 
-  act(() => {
-    reconnectHandlers.forEach((cb) => cb());
-  });
+  act(() => { socket.reconnect(); });
 
-  expect(mockSocket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
+  expect(socket.emit).toHaveBeenCalledWith('league:join', { leagueId: 42 });
   // A dropped connection means missed play deltas never reached the client, so
   // rows can drift from the authoritative total — reconnect should refetch.
   await waitFor(() =>
@@ -468,41 +493,4 @@ test('does not render the live-game ticker once the matchup is final', async () 
 
   await screen.findByText('Week 3 Matchup');
   expect(screen.queryByTestId('live-game-status')).not.toBeInTheDocument();
-});
-
-// The team totals shown while live are each side's expected final
-// (CONTEXT.md), read off the detail response and then moved by the score
-// sync's scores:updated event, which carries the new expected finals with
-// the new scores. An event without those fields leaves the loaded totals.
-test('the live team totals show the expected final and follow scores:updated', async () => {
-  const response = matchupResponse();
-  response.data.home.expectedFinal = 120.5;
-  response.data.home.playersRemaining = 4;
-  response.data.away.expectedFinal = 97.25;
-  response.data.away.playersRemaining = 2;
-  apiClient.get.mockResolvedValue(response);
-
-  renderDetail(1, 9);
-  await screen.findByText('101.5');
-  expect(screen.getByText('Projected 120.5')).toBeInTheDocument();
-  expect(screen.getByText('Projected 97.3')).toBeInTheDocument();
-
-  act(() => {
-    socketHandlers['scores:updated']({
-      scored: [{
-        matchupId: 9, homeScore: 110, awayScore: 90,
-        homeExpectedFinal: 130.2, awayExpectedFinal: 96.4, homePlayersRemaining: 3, awayPlayersRemaining: 1,
-      }],
-    });
-  });
-  expect(await screen.findByText('Projected 130.2')).toBeInTheDocument();
-  expect(screen.getByText('Projected 96.4')).toBeInTheDocument();
-
-  act(() => {
-    socketHandlers['scores:updated']({
-      scored: [{ matchupId: 9, homeScore: 111, awayScore: 90 }],
-    });
-  });
-  expect(await screen.findByText('111')).toBeInTheDocument();
-  expect(screen.getByText('Projected 130.2')).toBeInTheDocument();
 });

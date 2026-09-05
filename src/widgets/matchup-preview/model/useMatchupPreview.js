@@ -1,6 +1,7 @@
 import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { teamNameLabel } from '../../../lib/teamIdentity';
+import { matchupFromListRow, matchupFromDetailBody } from '../../../entities/matchup';
 
 /**
  * Data model for the matchup-preview widget (League Dashboard hero-right,
@@ -18,15 +19,16 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *     compact error, so a failed matchup never touches the rest of the page. The
  *     viewer's matchup is the row whose home or away Team id equals
  *     `viewerTeamId` (#112, contract in src/lib/teamIdentity.js: match on Team
- *     id, never an account identifier). That row already carries
- *     `home_expected_final` / `away_expected_final` (attachExpectedFinals
- *     decorates every row), and the widget renders those directly whenever
- *     BOTH sides are non-null there. The check is a null check, never a
- *     truthiness check: a legitimate `0` is a value the list already has, and
- *     must render (and must not fall back) exactly like any other number.
- *   - The detail read is the FALLBACK, fired only when either side is null on
- *     the list row for the viewer's matchup AND the league is not best-ball
- *     (#688: see below, neither read can ever answer for a best-ball league).
+ *     id, never an account identifier). That row already carries each side's
+ *     Expected final (attachExpectedFinals decorates every row), read off the
+ *     row's one Matchup shape (entities/matchup) rather than a database column
+ *     name (#864), and the widget renders those directly whenever BOTH sides are
+ *     non-null there. The check is a null check, never a truthiness check: a
+ *     legitimate `0` is a value the list already has, and must render (and must
+ *     not fall back) exactly like any other number.
+ *   - The detail read is the FALLBACK, fired only when either side's Expected
+ *     final is null on the list row for the viewer's matchup AND the league is
+ *     not best-ball (#688: see below, the fallback read cannot help best ball).
  *     Its URL depends on three things together, the selected matchup id, that
  *     null check, and the league's best-ball flag, so it stays null (and never
  *     fetches, the same null-URL-never-fetches convention the list read
@@ -41,8 +43,10 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *     The list carries null on either side for more than one reason
  *     (expectedFinal.service.js, and see server/routes/league.router.js:664-668
  *     for the same enumeration from the route's side): a final matchup (the
- *     score is the result, nothing is projected), a best-ball league
- *     (attachExpectedFinals never projects one, by design, permanently), no
+ *     score is the result, nothing is projected), a best-ball league whose week
+ *     has no projection run yet (best ball IS projected once a run has priced
+ *     the week - #730 - but the producer marks its status unreliable until then
+ *     rather than choosing a lineup, so it reads null in the meantime), no
  *     league context for the read, or a team with no starter rows yet for the
  *     week ("a list GET must not write a dozen teams' rows" - the early-week
  *     case: a team created mid-week, or a league whose week has never
@@ -55,15 +59,17 @@ import { teamNameLabel } from '../../../lib/teamIdentity';
  *
  *     A best-ball league is the one cause the fallback cannot help with:
  *     the matchup detail route computes its totals through the very same
- *     producer, `expectedFinalsForWeek` (expectedFinal.service.js), which
- *     short-circuits on `league.best_ball` exactly like the list's
- *     `attachExpectedFinals` does. So for a best-ball league NEITHER read
- *     ever answers `expectedFinal`; firing the detail read there only pays
- *     for a transaction that materializes both lineups and a `liveWhatIf`,
- *     for the same null values on the one field (`expectedFinal`) this widget
- *     reads from it. (The detail response also carries starters, bench and
- *     `viewerWhatIf`, which this widget never reads; only `expectedFinal` is
- *     at stake here.) The widget skips the fallback for that case (#688):
+ *     producer, `expectedFinalsForWeek` (expectedFinal.service.js), and best
+ *     ball chooses no lineup at all, so the detail route's lineup
+ *     materialization - the very thing that rescues the standard no-starter-rows
+ *     case above - buys nothing here. When the list reads null for a best-ball
+ *     league (no priced projection run yet), the detail read, running that same
+ *     producer over the same absent run, reads null too; firing it only pays for
+ *     a transaction that materializes both lineups and a `liveWhatIf` for the
+ *     same null on the one field (`expectedFinal`) this widget reads. (The
+ *     detail response also carries starters, bench and `viewerWhatIf`, which
+ *     this widget never reads; only `expectedFinal` is at stake here.) The
+ *     widget skips the fallback for that case (#688):
  *     the best-ball decision is made the same place and the same way as the
  *     `listHasBothFinals` check below, before `detail.status` is ever
  *     consulted.
@@ -106,19 +112,21 @@ export function useMatchupPreview(leagueId) {
     leagueId != null && week != null ? `/api/league/${leagueId}/matchups?week=${week}` : null;
   const list = useEndpoint(listUrl);
 
-  // Pick the viewer's matchup by Team id (#112). The list is a bare array.
-  const rows = Array.isArray(list.data) ? list.data : [];
+  // Pick the viewer's matchup by Team id (#112). The list is a bare array of the
+  // wire's snake_case rows; each is read as the one Matchup shape (entities/
+  // matchup) so this widget never names a database column again (#864).
+  const rows = Array.isArray(list.data) ? list.data.map(matchupFromListRow) : [];
   const myMatchup =
     viewerTeamId != null
       ? rows.find(
-          (m) => m && (m.home_team_id === viewerTeamId || m.away_team_id === viewerTeamId)
+          (m) => m && (m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId)
         ) || null
       : null;
   const matchupId = myMatchup ? myMatchup.id : null;
   const opponentId = myMatchup
-    ? myMatchup.home_team_id === viewerTeamId
-      ? myMatchup.away_team_id
-      : myMatchup.home_team_id
+    ? myMatchup.home.teamId === viewerTeamId
+      ? myMatchup.away.teamId
+      : myMatchup.home.teamId
     : null;
 
   // #670: does the list row already answer BOTH sides? A null check, not a
@@ -127,8 +135,8 @@ export function useMatchupPreview(leagueId) {
   // without excluding 0 or any other falsy number.
   const listHasBothFinals =
     myMatchup != null &&
-    myMatchup.home_expected_final != null &&
-    myMatchup.away_expected_final != null;
+    myMatchup.home.expectedFinal != null &&
+    myMatchup.away.expectedFinal != null;
 
   // #688: a best-ball league's detail read can never answer either (same
   // producer, same short-circuit as the list, see the docblock above), so the
@@ -182,17 +190,22 @@ export function useMatchupPreview(leagueId) {
   // checked next, for the same reason (#688): detailUrl is null there too, so
   // reaching detail.status would skeleton the number forever instead of
   // resolving straight to the placeholder.
+  // The chained detail read, read as the one Matchup shape too (#864), so the
+  // fallback names `expectedFinal` on a per-side object and never the detail
+  // body's raw fields. Built only when the read is ready.
+  const detailModel =
+    detail.status === 'ready' && detail.data ? matchupFromDetailBody(detail.data) : null;
   const projectedFor = (teamId) => {
     if (listHasBothFinals) {
       const raw =
-        myMatchup.home_team_id === teamId
-          ? Number(myMatchup.home_expected_final)
-          : Number(myMatchup.away_expected_final);
+        myMatchup.home.teamId === teamId
+          ? Number(myMatchup.home.expectedFinal)
+          : Number(myMatchup.away.expectedFinal);
       return { loading: false, value: Number.isFinite(raw) ? raw.toFixed(1) : null };
     }
     if (isBestBall) return { loading: false, value: null };
     if (detail.status === 'loading') return { loading: true, value: null };
-    const sides = detail.status === 'ready' && detail.data ? [detail.data.home, detail.data.away] : [];
+    const sides = detailModel ? [detailModel.home, detailModel.away] : [];
     const side = sides.find((s) => s && s.teamId === teamId) || null;
     const raw = side ? Number(side.expectedFinal) : NaN;
     return { loading: false, value: Number.isFinite(raw) ? raw.toFixed(1) : null };

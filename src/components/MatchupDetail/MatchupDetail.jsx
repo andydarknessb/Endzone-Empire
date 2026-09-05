@@ -13,12 +13,11 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
-import { createDraftSocket, onReconnect } from '../../api/socket';
 import { useLeague } from '../../hooks/useLeague';
+import { useMatchup, matchupStatusView } from '../../entities/matchup';
 import useFantasyMatchupGames from '../../hooks/useFantasyMatchupGames';
 import { classifyPlays } from '../../lib/scoringEvents';
 import { matchupWinProbability } from '../../lib/winProbability';
-import { isSeasonLive } from '../../lib/leaguePhase';
 import TecmoCutscene from './TecmoCutscene';
 import RetroScoreboard from './RetroScoreboard';
 import RetroField from './RetroField';
@@ -38,6 +37,11 @@ const RETRO_MOMENT_MS = 1800;
 
 const TICKER_LIMIT = 12;
 
+/** Players remaining as the model reports it (integer or null): the count, or a dash. */
+function playersRemainingLabel(value) {
+  return value != null && Number.isFinite(Number(value)) ? String(Number(value)) : '-';
+}
+
 function MatchupDetail() {
   const { leagueId, matchupId } = useParams();
   const { league } = useLeague(leagueId);
@@ -50,14 +54,14 @@ function MatchupDetail() {
     [league]
   );
   const { realGameIds } = useFantasyMatchupGames(matchupId);
-  const [matchup, setMatchup] = useState(null);
+
+  // The two lineups (starters/bench) are the box score's own state: the model
+  // (entities/matchup) is the scoreboard - totals, status, Expected final,
+  // Players remaining - and `detail` is the lineup payload beneath it. Live
+  // per-starter point bumps are applied here on the plays, so the lineups are
+  // local state seeded from each fetch of the detail body.
   const [home, setHome] = useState(null);
   const [away, setAway] = useState(null);
-  const [viewerTeamId, setViewerTeamId] = useState(null);
-  const [whatIf, setWhatIf] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [receivedLiveScore, setReceivedLiveScore] = useState(false);
 
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
@@ -70,44 +74,154 @@ function MatchupDetail() {
   const [viewMode, setViewMode] = useState('standard');
   const [retroActivePlay, setRetroActivePlay] = useState(null);
 
-  const socketRef = useRef(null);
   const toastSeq = useRef(0);
   const cutsceneSeq = useRef(0);
   const retroDashTimeoutRef = useRef(null);
-  // Refs so the socket handler always sees current lineups/prefs, not stale closures.
-  const homeRef = useRef(null);
-  const awayRef = useRef(null);
-  const viewerTeamRef = useRef(null);
+  // Touchdown-celebration preference (opt-out: default on). A ref, not state:
+  // it configures the play handler without driving a re-render on load.
   const celebrationsRef = useRef(true);
+  // The viewer id is read inside handleScores through a ref so a fresh lineup
+  // never re-subscribes the feed, yet the handler always sees the current id.
+  // It is assigned from the detail body once that has loaded (below).
+  const viewerTeamRef = useRef(null);
 
-  homeRef.current = home;
-  awayRef.current = away;
-  viewerTeamRef.current = viewerTeamId;
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      setReceivedLiveScore(false);
-      const res = await apiClient.get(`/api/league/${leagueId}/matchups/${matchupId}`);
-      setMatchup(res.data.matchup);
-      setHome(res.data.home);
-      setAway(res.data.away);
-      setViewerTeamId(res.data.viewerTeamId || null);
-      setWhatIf(res.data.viewerWhatIf || null);
-      if (res.data.matchup?.final) {
-        fetchBenchLeft(res.data.matchup, res.data.home, res.data.away);
-      }
-    } catch (err) {
-      setError(err.response?.data?.error || err.message);
-    } finally {
-      setLoading(false);
+  const pushToasts = useCallback((items) => {
+    if (!items.length) return;
+    setToasts((prev) => [
+      ...prev,
+      ...items.map((t) => ({ ...t, id: (toastSeq.current += 1) })),
+    ]);
+  }, []);
+
+  // Matchup Detail keeps its own play-driven concerns - cutscenes, toasts, the
+  // ticker, the retro field and the optimistic per-starter point bumps - fed by
+  // the score feed's whole event through the hook's `onScores`. The scores,
+  // Expected final, Players remaining and status all move on the model inside
+  // the hook (applyScoreEvent); this handler never touches them, so there is no
+  // per-side camelCase carry here any more. It reads the current lineups and
+  // viewer directly (a fresh callback each render), so no ref shadows a stale
+  // closure: the hook reads it through its own ref and never re-subscribes.
+  const handleScores = useCallback((event) => {
+    const plays = (event && event.plays) || [];
+    if (!plays.length) return;
+
+    const homeStarters = home?.starters || [];
+    const awayStarters = away?.starters || [];
+    const homeIds = new Set(homeStarters.map((p) => p.id));
+    const awayIds = new Set(awayStarters.map((p) => p.id));
+
+    // Optimistically bump the scoring players' displayed points by the reported
+    // delta so rows track the live score without a full refetch.
+    const deltaById = new Map();
+    for (const p of plays) {
+      deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
     }
-  };
+    const applyDeltas = (team) => {
+      if (!team) return team;
+      let touched = false;
+      const starters = team.starters.map((s) => {
+        const d = deltaById.get(s.id);
+        if (!d) return s;
+        touched = true;
+        return { ...s, points: Math.round(((Number(s.points) || 0) + d) * 100) / 100 };
+      });
+      return touched ? { ...team, starters } : team;
+    };
+    setHome((prev) => applyDeltas(prev));
+    setAway((prev) => applyDeltas(prev));
+
+    const viewer = viewerTeamRef.current;
+    const iAmHome = viewer && home?.teamId === viewer;
+    const myIds = viewer ? (iAmHome ? homeIds : awayIds) : new Set();
+    const oppIds = viewer ? (iAmHome ? awayIds : homeIds) : new Set();
+
+    // Cutscenes/toasts/ticker are touchdown-only; non-TD "moment" plays
+    // (sack/FG/INT/fumble/punt return) never reach this gate.
+    const tdPlays = plays.filter((p) => p.isTouchdown !== false);
+
+    const { cutscenes, summaryToast, toasts: oppToasts } = classifyPlays(tdPlays, {
+      myStarterIds: myIds,
+      oppStarterIds: oppIds,
+      celebrationsEnabled: celebrationsRef.current,
+    });
+    if (cutscenes.length) {
+      setCutsceneQueue((q) => [
+        ...q,
+        ...cutscenes.map((c) => ({ ...c, _cid: (cutsceneSeq.current += 1) })),
+      ]);
+    }
+    const toastBatch = [...oppToasts];
+    if (summaryToast) toastBatch.push(summaryToast);
+    pushToasts(toastBatch);
+
+    // Ticker: every TD by either team in this matchup, colored by side.
+    const tickerAdds = tdPlays
+      .filter((p) => homeIds.has(p.playerId) || awayIds.has(p.playerId))
+      .map((p) => ({ ...p, side: homeIds.has(p.playerId) ? 'home' : 'away' }));
+    if (tickerAdds.length) {
+      setTicker((prev) => [...prev, ...tickerAdds].slice(-TICKER_LIMIT));
+    }
+
+    // Retro field animation: EVERY play type by either team in this matchup,
+    // not just touchdowns - a touchdown gets the sprite dash, anything else a
+    // quick flash banner (see RetroField).
+    const retroAdds = plays.filter((p) => homeIds.has(p.playerId) || awayIds.has(p.playerId));
+    if (retroAdds.length) {
+      const latest = retroAdds[retroAdds.length - 1];
+      const side = homeIds.has(latest.playerId) ? 'home' : 'away';
+      if (retroDashTimeoutRef.current) clearTimeout(retroDashTimeoutRef.current);
+      setRetroActivePlay({
+        side,
+        type: latest.type,
+        isTouchdown: latest.isTouchdown !== false,
+        nflTeam: latest.nflTeam,
+        opponent: latest.opponent,
+      });
+      retroDashTimeoutRef.current = setTimeout(() => {
+        setRetroActivePlay(null);
+        retroDashTimeoutRef.current = null;
+      }, latest.isTouchdown === false ? RETRO_MOMENT_MS : RETRO_DASH_MS);
+    }
+  // `home`/`away`/the viewer are read fresh each render; pushToasts is stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [home, away, pushToasts]);
+
+  // The Matchup as a read model (entities/matchup), with the score feed and the
+  // Team identity feed composed over the pure module inside the hook. The whole
+  // score event is handed to `handleScores` for the play-driven concerns above.
+  const { matchup: model, detail, loading, error } = useMatchup(leagueId, matchupId, {
+    onScores: handleScores,
+  });
+
+  const detailViewerTeamId = detail?.viewerTeamId ?? null;
+  const whatIf = detail?.viewerWhatIf ?? null;
+  viewerTeamRef.current = detailViewerTeamId;
+
+  // Seed the local lineups from each fetch of the detail body. A resync inside
+  // the hook replaces `detail`, which re-seeds here and drops any optimistic
+  // per-starter deltas in favour of the authoritative totals.
+  useEffect(() => {
+    setHome(detail?.home ?? null);
+    setAway(detail?.away ?? null);
+  }, [detail]);
+
+  // Touchdown-celebration preference (opt-out: default on).
+  useEffect(() => {
+    apiClient
+      .get('/api/notifications/prefs')
+      .then((res) => {
+        celebrationsRef.current = res.data?.touchdownCelebrations !== false;
+      })
+      .catch(() => { celebrationsRef.current = true; });
+  }, []);
 
   // Points left on the bench: only meaningful once a week is final. Per-team
   // from the hindsight endpoint; skipped silently on error (supplementary stat).
-  const fetchBenchLeft = async (matchupData, homeData, awayData) => {
+  const fetchBenchLeft = useCallback(async (matchupData, homeData, awayData) => {
     const [homeResult, awayResult] = await Promise.allSettled([
       apiClient.get(
         `/api/team/hindsight?leagueId=${leagueId}&teamId=${homeData.teamId}&season=${matchupData.season}&week=${matchupData.week}`
@@ -126,171 +240,25 @@ function MatchupDetail() {
         ? awayResult.value.data.pointsLeftOnBench
         : null
     );
-  };
+  }, [leagueId]);
 
   useEffect(() => {
-    fetchData();
-    // fetchData closes over both route identifiers listed below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leagueId, matchupId]);
+    if (detail?.matchup?.final && detail.home && detail.away) {
+      fetchBenchLeft(detail.matchup, detail.home, detail.away);
+    } else {
+      setHomeBenchLeft(null);
+      setAwayBenchLeft(null);
+    }
+  }, [detail, fetchBenchLeft]);
 
-  // Touchdown-celebration preference (opt-out: default on).
-  useEffect(() => {
-    apiClient
-      .get('/api/notifications/prefs')
-      .then((res) => {
-        celebrationsRef.current = res.data?.touchdownCelebrations !== false;
-      })
-      .catch(() => { celebrationsRef.current = true; });
+  // Clear the retro dash timer on unmount so a late timeout never fires after
+  // the page is gone.
+  useEffect(() => () => {
+    if (retroDashTimeoutRef.current) {
+      clearTimeout(retroDashTimeoutRef.current);
+      retroDashTimeoutRef.current = null;
+    }
   }, []);
-
-  const dismissToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
-  const pushToasts = useCallback((items) => {
-    if (!items.length) return;
-    setToasts((prev) => [
-      ...prev,
-      ...items.map((t) => ({ ...t, id: (toastSeq.current += 1) })),
-    ]);
-  }, []);
-
-  useEffect(() => {
-    const socket = createDraftSocket();
-    socketRef.current = socket;
-
-    const joinLeagueRoom = () => socket.emit('league:join', { leagueId: Number(leagueId) });
-    joinLeagueRoom();
-    // Missed play deltas never reach the client while disconnected, so a bare
-    // room re-join can leave starter rows drifted from the authoritative total —
-    // resync with a full refetch alongside it.
-    const onSocketReconnect = () => {
-      joinLeagueRoom();
-      fetchData();
-    };
-    const offReconnect = onReconnect(socket, onSocketReconnect);
-
-    socket.on('scores:updated', (data) => {
-      const scored = (data.scored || []).find((s) => s.matchupId === Number(matchupId));
-      if (scored) {
-        setReceivedLiveScore(true);
-        setMatchup((prev) =>
-          prev ? { ...prev, home_score: scored.homeScore, away_score: scored.awayScore } : prev
-        );
-        // The expected finals ride the same event as the scores, so the
-        // team totals never show a fresh score against a stale forecast.
-        // An event without those fields (an older server) leaves them be.
-        const withExpected = (prev, side) => {
-          if (!prev) return prev;
-          const next = { ...prev };
-          if (Object.prototype.hasOwnProperty.call(scored, `${side}ExpectedFinal`)) {
-            next.expectedFinal = scored[`${side}ExpectedFinal`];
-          }
-          if (Object.prototype.hasOwnProperty.call(scored, `${side}PlayersRemaining`)) {
-            next.playersRemaining = scored[`${side}PlayersRemaining`];
-          }
-          return next;
-        };
-        setHome((prev) => withExpected(prev, 'home'));
-        setAway((prev) => withExpected(prev, 'away'));
-      }
-
-      const plays = data.plays || [];
-      if (plays.length) {
-        const homeStarters = homeRef.current?.starters || [];
-        const awayStarters = awayRef.current?.starters || [];
-        const homeIds = new Set(homeStarters.map((p) => p.id));
-        const awayIds = new Set(awayStarters.map((p) => p.id));
-
-        // Optimistically bump the scoring players' displayed points by the
-        // reported delta so rows track the live score without a full refetch.
-        const deltaById = new Map();
-        for (const p of plays) {
-          deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
-        }
-        const applyDeltas = (team) => {
-          if (!team) return team;
-          let touched = false;
-          const starters = team.starters.map((s) => {
-            const d = deltaById.get(s.id);
-            if (!d) return s;
-            touched = true;
-            return { ...s, points: Math.round(((Number(s.points) || 0) + d) * 100) / 100 };
-          });
-          return touched ? { ...team, starters } : team;
-        };
-        setHome((prev) => applyDeltas(prev));
-        setAway((prev) => applyDeltas(prev));
-
-        const viewer = viewerTeamRef.current;
-        const iAmHome = viewer && homeRef.current?.teamId === viewer;
-        const myIds = viewer ? (iAmHome ? homeIds : awayIds) : new Set();
-        const oppIds = viewer ? (iAmHome ? awayIds : homeIds) : new Set();
-
-        // Cutscenes/toasts/ticker are touchdown-only, same as before this
-        // session's non-TD "moment" plays (sack/FG/INT/fumble/punt return)
-        // were added to the feed — those never reach this gate.
-        const tdPlays = plays.filter((p) => p.isTouchdown !== false);
-
-        const { cutscenes, summaryToast, toasts: oppToasts } = classifyPlays(tdPlays, {
-          myStarterIds: myIds,
-          oppStarterIds: oppIds,
-          celebrationsEnabled: celebrationsRef.current,
-        });
-        if (cutscenes.length) {
-          setCutsceneQueue((q) => [
-            ...q,
-            ...cutscenes.map((c) => ({ ...c, _cid: (cutsceneSeq.current += 1) })),
-          ]);
-        }
-        const toastBatch = [...oppToasts];
-        if (summaryToast) toastBatch.push(summaryToast);
-        pushToasts(toastBatch);
-
-        // Ticker: every TD by either team in this matchup, colored by side.
-        const tickerAdds = tdPlays
-          .filter((p) => homeIds.has(p.playerId) || awayIds.has(p.playerId))
-          .map((p) => ({ ...p, side: homeIds.has(p.playerId) ? 'home' : 'away' }));
-        if (tickerAdds.length) {
-          setTicker((prev) => [...prev, ...tickerAdds].slice(-TICKER_LIMIT));
-        }
-
-        // Retro field animation: EVERY play type by either team in this
-        // matchup, not just touchdowns — a touchdown gets the sprite dash,
-        // anything else gets a quick flash banner (see RetroField).
-        const retroAdds = plays.filter((p) => homeIds.has(p.playerId) || awayIds.has(p.playerId));
-        if (retroAdds.length) {
-          const latest = retroAdds[retroAdds.length - 1];
-          const side = homeIds.has(latest.playerId) ? 'home' : 'away';
-          if (retroDashTimeoutRef.current) clearTimeout(retroDashTimeoutRef.current);
-          setRetroActivePlay({
-            side,
-            type: latest.type,
-            isTouchdown: latest.isTouchdown !== false,
-            nflTeam: latest.nflTeam,
-            opponent: latest.opponent,
-          });
-          retroDashTimeoutRef.current = setTimeout(() => {
-            setRetroActivePlay(null);
-            retroDashTimeoutRef.current = null;
-          }, latest.isTouchdown === false ? RETRO_MOMENT_MS : RETRO_DASH_MS);
-        }
-      }
-    });
-
-    return () => {
-      offReconnect?.();
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-      if (retroDashTimeoutRef.current) {
-        clearTimeout(retroDashTimeoutRef.current);
-        retroDashTimeoutRef.current = null;
-      }
-    };
-    // Socket lifecycle is route-bound; pushToasts is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leagueId, matchupId, pushToasts]);
 
   const dismissCutscene = useCallback(() => {
     setCutsceneQueue((q) => q.slice(1));
@@ -320,33 +288,36 @@ function MatchupDetail() {
     );
   }
 
-  const homeScore = matchup ? Number(matchup.home_score) : 0;
-  const awayScore = matchup ? Number(matchup.away_score) : 0;
+  const homeScore = model ? Number(model.home.score) : 0;
+  const awayScore = model ? Number(model.away.score) : 0;
   const winProb = matchupWinProbability({
     homeScore,
     awayScore,
-    homeExpectedFinal: home?.expectedFinal,
-    awayExpectedFinal: away?.expectedFinal,
+    homeExpectedFinal: model?.home.expectedFinal,
+    awayExpectedFinal: model?.away.expectedFinal,
   });
-  const isCurrentSeason = Number(matchup?.season) === Number(league?.current_season);
-  const isCurrentWeek = Number(matchup?.week) === Number(league?.current_week);
-  const hasRecordedScore = homeScore !== 0 || awayScore !== 0;
-  // Live scoring only while the season is being played (in season or in the
-  // playoffs), never pre-draft, drafting or after the season completes.
-  // Best ball sets no lineup, so nothing is ever left on the bench and the
-  // line is hidden rather than printed as a zero (ADR 0023). Until the league
-  // is known the line stays hidden too: a standard league's number waits one
-  // fetch, a best-ball league's zero never flashes.
+
+  // The status chip and the started/live state are the server's status fact
+  // (ADR 0030), read through the entity's one predicate - never inferred from a
+  // score-arrived timer or a five-conjunct liveness rule. `chipLabel` is null
+  // for a status the server could not compute (no chip, not a guessed one), and
+  // the live-only UI keys off the exact `live` status.
+  const { chipLabel } = matchupStatusView(model?.status);
+  const isFinal = !!model?.final;
+  const isLive = model?.status === 'live';
+  const chipColor = model?.status === 'final' ? 'success' : model?.status === 'live' ? 'error' : 'default';
+  const chipVariant = model?.status === 'live' || model?.status === 'final' ? 'filled' : 'outlined';
+
+  const homeName = model?.home.name;
+  const awayName = model?.away.name;
+
+  // Best ball sets no lineup, so nothing is ever left on the bench and the line
+  // is hidden rather than printed as a zero (ADR 0023). Until the league is
+  // known the line stays hidden too, so a best-ball zero never flashes.
   const showBenchLeft = !!league && !league.best_ball;
-  const showLive = !!matchup
-    && !matchup.final
-    && isSeasonLive(league)
-    && isCurrentSeason
-    && isCurrentWeek
-    && (receivedLiveScore || hasRecordedScore);
-  const viewerTeam = viewerTeamId === home?.teamId
+  const viewerTeam = detailViewerTeamId === home?.teamId
     ? home
-    : viewerTeamId === away?.teamId
+    : detailViewerTeamId === away?.teamId
       ? away
       : null;
   const viewerHasRoster = !!viewerTeam
@@ -361,17 +332,21 @@ function MatchupDetail() {
         </Alert>
       )}
 
-      {matchup && (
+      {model && (
         <>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="h4">Week {matchup.week} Matchup</Typography>
-              {matchup.is_playoff && <Chip label="Playoff" />}
-              {matchup.final
-                ? <Chip label="Final" color="success" />
-                : showLive
-                  ? <Chip label="LIVE" color="error" />
-                  : <Chip label="Not started" variant="outlined" />}
+              <Typography variant="h4">Week {model.week} Matchup</Typography>
+              {detail?.matchup?.is_playoff && <Chip label="Playoff" />}
+              {chipLabel && (
+                <Chip
+                  data-testid="matchup-status-chip"
+                  size="small"
+                  label={chipLabel}
+                  color={chipColor}
+                  variant={chipVariant}
+                />
+              )}
             </Box>
             <ToggleButtonGroup
               size="small"
@@ -385,7 +360,7 @@ function MatchupDetail() {
             </ToggleButtonGroup>
           </Box>
 
-          {showLive && realGameIds.length > 0 && (
+          {isLive && realGameIds.length > 0 && (
             <Box
               sx={{
                 display: 'flex',
@@ -412,17 +387,17 @@ function MatchupDetail() {
             <>
               <RetroScoreboard
                 leagueName={league?.name}
-                homeName={matchup.home_team_name}
-                awayName={matchup.away_team_name}
+                homeName={homeName}
+                awayName={awayName}
                 homeScore={homeScore}
                 awayScore={awayScore}
-                isFinal={matchup.final}
-                isLive={showLive}
+                isFinal={isFinal}
+                isLive={isLive}
               />
               <Box sx={{ mt: 2, mb: 2 }}>
                 <RetroField
-                  homeName={matchup.home_team_name}
-                  awayName={matchup.away_team_name}
+                  homeName={homeName}
+                  awayName={awayName}
                   homeProb={winProb.home}
                   homeStarters={home?.starters}
                   awayStarters={away?.starters}
@@ -432,8 +407,8 @@ function MatchupDetail() {
                   activePlay={retroActivePlay}
                 />
               </Box>
-              {showLive && <LiveTicker items={ticker} />}
-              {showLive && (
+              {isLive && <LiveTicker items={ticker} />}
+              {isLive && (
                 <BenchWhatIf
                   whatIf={whatIf}
                   hasRoster={viewerHasRoster}
@@ -445,26 +420,26 @@ function MatchupDetail() {
           ) : (
             <>
               <StickyScoreboard
-                homeName={matchup.home_team_name}
-                awayName={matchup.away_team_name}
+                homeName={homeName}
+                awayName={awayName}
                 homeScore={homeScore}
                 awayScore={awayScore}
                 homeProb={winProb.home}
-                final={matchup.final}
-                isLive={showLive}
+                final={isFinal}
+                isLive={isLive}
               />
 
-              {showLive && (
+              {isLive && (
                 <WinProbabilityBar
-                  homeName={matchup.home_team_name}
-                  awayName={matchup.away_team_name}
+                  homeName={homeName}
+                  awayName={awayName}
                   homeProb={winProb.home}
                 />
               )}
 
-              {showLive && <LiveTicker items={ticker} />}
+              {isLive && <LiveTicker items={ticker} />}
 
-              {showLive && (
+              {isLive && (
                 <BenchWhatIf
                   whatIf={whatIf}
                   hasRoster={viewerHasRoster}
@@ -474,21 +449,26 @@ function MatchupDetail() {
               )}
 
               <Grid container spacing={2} sx={{ mb: 2 }}>
-                {[{ team: home, name: matchup.home_team_name, score: homeScore, benchLeft: homeBenchLeft },
-                  { team: away, name: matchup.away_team_name, score: awayScore, benchLeft: awayBenchLeft }].map((col, i) => (
+                {[{ side: model.home, name: homeName, score: homeScore, benchLeft: homeBenchLeft },
+                  { side: model.away, name: awayName, score: awayScore, benchLeft: awayBenchLeft }].map((col, i) => (
                   <Grid xs={6} key={i}>
                     <Typography variant="h6" noWrap>{col.name}</Typography>
                     <Typography variant="stat" sx={{ mb: 0.5, fontSize: '1.125rem' }}>
                       {col.score}
                     </Typography>
-                    {matchup.final && showBenchLeft && col.benchLeft != null && (
+                    {isFinal && showBenchLeft && col.benchLeft != null && (
                       <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
                         Left {col.benchLeft} on the bench
                       </Typography>
                     )}
-                    {showLive && col.team?.expectedFinal != null && (
+                    {!isFinal && col.side.expectedFinal != null && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                        Projected {Number(col.side.expectedFinal).toFixed(1)}
+                      </Typography>
+                    )}
+                    {!isFinal && (
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
-                        Projected {Number(col.team.expectedFinal).toFixed(1)}
+                        Players remaining {playersRemainingLabel(col.side.playersRemaining)}
                       </Typography>
                     )}
                   </Grid>

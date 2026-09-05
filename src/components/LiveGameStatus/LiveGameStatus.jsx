@@ -5,9 +5,10 @@ import useLiveGameRealtime from '../../hooks/useLiveGameRealtime';
 
 /**
  * Standalone real-NFL-game status strip (score, quarter, clock) driven by
- * Supabase Realtime. Not wired into MatchupDetail/GameCenter yet — a fantasy
- * matchup can span many real games, and mapping one to the other is deferred
- * to a later phase.
+ * Supabase Realtime. Matchup Detail renders one of these per real NFL game a
+ * live fantasy matchup maps to (useFantasyMatchupGames resolves the mapping);
+ * a fantasy matchup can span many real games, so the caller lays them out in a
+ * horizontal strip.
  */
 export default function LiveGameStatus({ gameId }) {
   const { state, loading, error } = useLiveGameRealtime(gameId);

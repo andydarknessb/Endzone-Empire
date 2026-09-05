@@ -688,20 +688,3 @@ export function MatchupToasts({ toasts, onDismiss }) {
 }
 
 MatchupToasts.propTypes = { toasts: PropTypes.array, onDismiss: PropTypes.func.isRequired };
-
-// --- Status chip -------------------------------------------------------
-
-export function MatchupStatusChip({ matchup, showLive }) {
-  if (matchup.final) {
-    return <Chip size="small" label="Final" color="success" />;
-  }
-  if (showLive) {
-    return <Chip size="small" label="LIVE" color="error" />;
-  }
-  return <Chip size="small" label="Scheduled" variant="outlined" />;
-}
-
-MatchupStatusChip.propTypes = {
-  matchup: PropTypes.shape({ final: PropTypes.bool }).isRequired,
-  showLive: PropTypes.bool,
-};
