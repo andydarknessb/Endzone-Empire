@@ -103,7 +103,7 @@ test('an in-progress game shows the live dot, both scores and the clock', () => 
 // The canvas (build.mjs nflStrip(), and the Scoreboard view's Games tile)
 // prints the team code then its score on BOTH sides. Bound on the model
 // through the slice's index, so mirroring the home side back to the legacy
-// LiveGameStatus form ("20 TB") turns this case red, not only the DOM ones.
+// strip's form ("20 TB") turns this case red, not only the DOM ones.
 test('gameTileView prints code then score on both sides, away first, as the canvas does', () => {
   expect(gameTileView(liveRow())).toMatchObject({
     state: 'live',

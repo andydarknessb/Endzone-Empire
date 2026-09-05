@@ -56,7 +56,7 @@ open the component nearest the brief and its `.css` or `sx` styles, and
 reproduce its anatomy (app bar height, panel padding, table density)
 rather than a generic layout. Frequent targets: `Nav` (app bar),
 `LeagueDashboard`, `LineupScreen`, `DraftBoard` and `DraftCentral`,
-`pages/game-center` and `MatchupDetail`, `WaiverWire`, `TradeCenter`,
+`pages/game-center` and `pages/matchup`, `WaiverWire`, `TradeCenter`,
 `PlayerQuickView`, `LandingPage` and `public/` (the SEO layer). Say in one
 line which screen and tokens you matched.
 

@@ -187,11 +187,13 @@ const PAIRINGS = [
     'draft pick name during the landed-pick flash on a hovered row',
     'row-hover'
   ),
-  // MatchupExtras' `scoreFlash` keyframe (MatchupDetail.jsx wraps
-  // SlotComparisonList in a Paper, so its backdrop is `surface`) is the same
-  // flash-over-a-row pattern, but its foreground is `accent`, not
-  // `text-primary`: PlayerNameLink colors the player name `primary.main`
-  // (`accent`). That fg/bg/backdrop triple is new too.
+  // The legacy Matchup Detail's `scoreFlash` keyframe (its slot list sat in
+  // a Paper, so its backdrop was `surface`) was the same flash-over-a-row
+  // pattern, but its foreground was `accent`, not `text-primary`:
+  // PlayerNameLink colors a player name `primary.main` (`accent`). That page
+  // left the tree with #903 (ADR 0031); the row stays because PlayerNameLink
+  // still paints accent names on legacy surfaces, and the guard certifies
+  // exactly the pairings it lists (ADR 0010).
   pairing(
     'accent',
     'accent-soft',

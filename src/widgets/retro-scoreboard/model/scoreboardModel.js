@@ -134,8 +134,9 @@ export function gameState(game) {
 
 /**
  * The score line for one game row: "DEN 10 - 17 KC" once it has started (away
- * first, the order LiveGameStatus and the wire both use; a hyphen scores, house
- * style), "DEN @ KC" before kickoff, when a score would be a false zero.
+ * first, the order the wire and the nfl-game-strip widget both use; a hyphen
+ * scores, house style), "DEN @ KC" before kickoff, when a score would be a
+ * false zero.
  */
 export function gameLine(game) {
   const away = game.away_team || '';

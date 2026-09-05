@@ -36,9 +36,9 @@ import { matchupFromListRow, matchupFromDetailBody } from '../../../entities/mat
  *     whenever the league is best-ball, or until the list has resolved and a
  *     matchup for the viewer exists. When it does fire, it supplies each
  *     side's projected total, `expectedFinal` (the per-side projected total
- *     the matchup detail computes; MatchupDetail.jsx surfaces it as
- *     "Projected N.N" while a game is live, and this card shows it as the
- *     pre-kickoff projection).
+ *     the matchup detail computes; the Matchup page's scoreboard strip
+ *     surfaces it as "Projected N.N" while a game is live, and this card
+ *     shows it as the pre-kickoff projection).
  *
  *     The list carries null on either side for more than one reason
  *     (expectedFinal.service.js, and see server/routes/league.router.js:664-668

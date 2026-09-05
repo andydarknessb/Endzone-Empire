@@ -1,9 +1,9 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import {
-  BODY, LEGS_A, LEGS_B, REF_UP_A, REF_UP_B, GOAL_POST,
-  RefereeSprite, GoalPostSprite, Sprite, rowsToRects,
+  BODY, LEGS_A, LEGS_B, REF_UP_A, REF_UP_B, GOAL_POST, rowsToRects,
 } from './TecmoSprite';
+import { RefereeSprite, GoalPostSprite, Sprite } from './index';
 
 const LEGAL_ROW = /^[.HJPASFBWY]{16}$/;
 

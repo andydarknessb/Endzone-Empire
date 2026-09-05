@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { getSpriteColors, getNameColors } from '../../lib/nflTeamColors';
-import { playLabel } from '../../lib/scoringEvents';
-import { Sprite, RefereeSprite, GoalPostSprite } from './TecmoSprite';
+import { getSpriteColors, getNameColors } from '../../../lib/nflTeamColors';
+import { playLabel } from '../../../lib/scoringEvents';
+import { Sprite, RefereeSprite, GoalPostSprite } from '../../../shared/ui';
 import './TecmoCutscene.css';
 
 // Timing ledger — these move together (see also tecmo-run in TecmoCutscene.css,

@@ -23,8 +23,9 @@
  * A score label is the team code THEN its score on BOTH sides ("GB 17 - TB
  * 20"), the away side first: that is the canvas's shape (build.mjs nflStrip()
  * prints `${g.a} ${g.as}` - `${g.b} ${g.bs}`, and the Scoreboard view's Games
- * tile the same). The legacy LiveGameStatus mirrored the home side
- * ("GB 17 - 20 TB"); that form is not the kit's and is not rendered here.
+ * tile the same). The legacy per-game status strip this widget replaced
+ * mirrored the home side ("GB 17 - 20 TB"); that form is not the kit's and
+ * is not rendered here.
  *
  * Kickoff: the row's `kickoff_at` when present, else the table's own
  * `start_time` column (the name the migration gives it; the entity reads the
