@@ -730,9 +730,11 @@ test('the Scoreboard view lists the last touchdown plays by either side, newest 
   expect(precedes(tickerCard, screen.getByTestId('lineups-card'))).toBe(true);
 });
 
-// The mobile artboard (matchupScoreboardMobile()): the Games tile, then the
-// Lineups card, then the bench what-if AFTER the Lineups.
-test('below the sm breakpoint the Scoreboard view stacks the Games tile, the Lineups card, then the bench what-if', async () => {
+// The mobile artboard (matchupScoreboardMobile()): the bench what-if rides in
+// the widget's aside slot, whose CSS order below md (Games, Lineups, then the
+// aside) the retro-scoreboard widget's own test binds; the page's part is to
+// put the what-if in that slot.
+test('below the sm breakpoint the Scoreboard view carries the bench what-if in the aside slot beside the Games and Lineups', async () => {
   mobile = true;
   reducedMotion = true;
   mockApi({ matchup: matchupResponse({ viewerWhatIf: { delta: 3.2, swaps: [] } }) });
@@ -740,11 +742,9 @@ test('below the sm breakpoint the Scoreboard view stacks the Games tile, the Lin
   await screen.findByTestId('slot-comparison');
   await toScoreboard();
 
-  const games = screen.getByTestId('games-tile');
-  const lineups = screen.getByTestId('lineups-card');
-  const whatIf = screen.getByTestId('bench-what-if');
-  expect(precedes(games, lineups)).toBe(true);
-  expect(precedes(lineups, whatIf)).toBe(true);
+  expect(screen.getByTestId('games-tile')).toBeInTheDocument();
+  expect(screen.getByTestId('lineups-card')).toBeInTheDocument();
+  expect(within(screen.getByTestId('aside-slot')).getByTestId('bench-what-if')).toBeInTheDocument();
 });
 
 // --- the NFL game strip: the entity's rows, no second fetch ------------------

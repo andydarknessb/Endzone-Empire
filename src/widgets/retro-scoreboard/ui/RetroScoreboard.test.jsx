@@ -494,9 +494,11 @@ test('on desktop the ticker slot renders full width under the field, before the 
   expect(precedes(aside, games)).toBe(true);
 });
 
-// The mobile artboard (matchupScoreboardMobile()): the ticker under the field,
-// then the games, the Lineups card, and the aside AFTER the Lineups.
-test('stacked below md, the ticker precedes the Games tile, then the Lineups card, then the aside', () => {
+// The canvas (liveTicker()): the ticker sits under the field and above the
+// cards at every width. It is a slot the page fills; the cards' own stacking
+// below md is CSS order (the case above), so the DOM keeps the desktop reading
+// order and nothing remounts at the breakpoint.
+test('the ticker slot renders under the field and before every card, at every width', () => {
   stacked = true;
   renderBoard({
     ticker: <div data-testid="page-ticker">Last plays</div>,
@@ -504,13 +506,13 @@ test('stacked below md, the ticker precedes the Games tile, then the Lineups car
   });
 
   const ticker = screen.getByTestId('page-ticker');
-  const games = screen.getByTestId('games-tile');
-  const lineups = screen.getByTestId('lineups-card');
-  const aside = screen.getByTestId('page-aside');
   expect(precedes(screen.getByTestId('retro-field'), ticker)).toBe(true);
-  expect(precedes(ticker, games)).toBe(true);
-  expect(precedes(games, lineups)).toBe(true);
-  expect(precedes(lineups, aside)).toBe(true);
+  expect(precedes(ticker, screen.getByTestId('lineups-card'))).toBe(true);
+  expect(precedes(ticker, screen.getByTestId('games-tile'))).toBe(true);
+  expect(precedes(ticker, screen.getByTestId('page-aside'))).toBe(true);
+  // The aside lands in the widget's aside slot, so the CSS order rules above
+  // apply to it.
+  expect(within(screen.getByTestId('aside-slot')).getByTestId('page-aside')).toBeInTheDocument();
 });
 
 test('without a ticker or an aside the widget renders only its own pieces', () => {
