@@ -226,3 +226,31 @@ test('a scheduled start that fails to auto-start notifies the owner AND every co
     assert.match(call.params[3], /couldn't auto-start: keepers are stale, resave them first/);
   }
 });
+
+test('the row-locked recheck bails when the locked row changed under it (concurrent sweep already sent the 1h reminder)', async (t) => {
+  // The tick decides remind_1h from the unlocked read (draft is 30 min out,
+  // stage 0). While runAction waits on the lock, a concurrent sweep commits
+  // draft_reminder_stage = 2. The FOR UPDATE re-read returns that fresh stage,
+  // scheduledDraftAction recomputes to null against the SAME injected `now`
+  // (not the clock), so the recheck bails. The bail is proven by the absence of
+  // side effects - no reminder UPDATE, no notification - not by the returned
+  // actions array (that push is unconditional on runAction not throwing, and a
+  // bail returns without throwing). This is the guard the #880 clock change
+  // leaves intact: the re-read of the row, not the wall clock, stops the
+  // double-send. Were the guard reading `league` (stage 0) instead of the
+  // re-read `fresh` (stage 2), it would proceed and issue a second reminder,
+  // which scheduleFakePool has no matcher for and would throw on.
+  const inWindow = at(30 * 60 * 1000); // 30 min out: remind_1h at tick
+  const league = LEAGUE_ROW({ draft_date: inWindow, draft_reminder_stage: 0, min_teams: 2, team_count: 5 });
+  const fresh = FRESH_ROW({ draft_date: inWindow, draft_reminder_stage: 2, min_teams: 2, team_count: 5 });
+  const fake = scheduleFakePool({ league, fresh, coCommissioners: [CO_COMMISSIONER] });
+  fake.install(t);
+
+  await processScheduledDrafts({ now: NOW });
+  assert.equal(fake.matching(/^INSERT INTO "notifications"/).length, 0, 'no notification on a bail');
+  // The discriminating assertion: a bail issues no reminder-stage UPDATE. Were
+  // the guard broken and the reminder to proceed, that UPDATE (which no matcher
+  // answers) would still land in the call log as an attempted query.
+  assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
+  assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read exactly once');
+});
