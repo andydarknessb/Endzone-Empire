@@ -121,6 +121,17 @@ export const colorTokens = {
     'dash-home-soft': 'rgba(30, 91, 184, 0.10)',
     'dash-away': '#1b7d4f',
     'dash-away-soft': 'rgba(27, 125, 79, 0.12)',
+    // The Game Center canvas's danger tone (build.mjs :root, lifted verbatim;
+    // the same hex as the app's `danger`), for the scoring strip's Live pill
+    // (the canvas's `.chip.live`: danger text and border on the danger tint)
+    // and the strip's own border (the tint) (#895). The pill clears AA_TEXT on
+    // its tint over a CARD only: 4.81 light / 5.16 dark over `dash-surface`,
+    // but 4.47 light over `dash-surface2`, 4.29 light over `dash-bg` and
+    // 4.05 / 4.09 over `dash-surface3`. So the rule, registered in
+    // tokens.contrast, is that the danger pill sits on `dash-surface` and
+    // nowhere else.
+    'dash-danger': '#c62828',
+    'dash-danger-soft': 'rgba(198, 40, 40, 0.10)',
     'dash-led': '#ffb547',
     'dash-led-dim': 'rgba(255, 181, 71, 0.28)',
     'dash-board': '#0b1015',
@@ -235,6 +246,10 @@ export const colorTokens = {
     'dash-home-soft': 'rgba(126, 170, 255, 0.16)',
     'dash-away': '#7ee2a8',
     'dash-away-soft': 'rgba(126, 226, 168, 0.16)',
+    // Danger tone for the scoring strip's Live pill (see the light note): the
+    // canvas's dark :root values, verbatim.
+    'dash-danger': '#ff6b6b',
+    'dash-danger-soft': 'rgba(255, 107, 107, 0.14)',
     'dash-led': '#ffb547',
     'dash-led-dim': 'rgba(255, 181, 71, 0.28)',
     'dash-board': '#07090c',

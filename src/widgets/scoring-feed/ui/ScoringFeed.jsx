@@ -22,19 +22,21 @@ import {
  * (docs/design/game-center-matchups/build.mjs, `tickerStrip()` and
  * `feedCard()`), which the Game Center page composes in place of its legacy
  * LiveActionTicker and LiveScoringFeed. Both surfaces are presenters over the
- * one item shape described in ../model/scoringFeedModel.js; the page keeps its
- * own plays filter and hands the widget the items, newest first.
+ * one item shape described in ../model/scoringFeedModel.js (which also says
+ * what the page must add to the server's play before handing it over); the
+ * page keeps its own plays filter and hands the widget the items, newest
+ * first.
  *
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Every
- * ink-on-surface pairing here is already registered in
- * tokens.contrast.test.js: ink / dim / faint on the card surface, the Live
- * pill's accent on the accent tint over a card, and the points figure's
- * `dash-away` on the card surface ("away side percentage on a card"). The
- * canvas paints the points in its `--success` and the strip border in
- * `--danger-soft`; `--success` is the same hex as `dash-away` in both modes,
- * so the points read `dash-away`, and there is no `dash-*` danger tint, so the
- * strip's border reads `dash-accent-line`, the Live pill's own line token. No
- * new pairing is composed here.
+ * ink-on-surface pairing here is registered in tokens.contrast.test.js: ink /
+ * dim / faint on the card surface, the Live pill's danger on the danger tint
+ * over a card (the strip is a card, and that is the only backdrop the pill is
+ * guarded on), and the points figure's `dash-away` on the card surface ("away
+ * side percentage on a card"). The canvas paints the points in its
+ * `--success`, which is the same hex as `dash-away` in both modes, so the
+ * points read `dash-away`; its Live pill and the strip's border are its
+ * `--danger` / `--danger-soft`, which are `dash-danger` / `dash-danger-soft`
+ * (Badge `danger`, the canvas's `.chip.live`).
  *
  * Copy is house style: middot separators, hyphens in scores, no em dashes and
  * no emoji (the legacy ticker's football emoji is gone; the strip's test
@@ -154,8 +156,9 @@ function StripGroup({ items, ...rest }) {
 }
 
 /**
- * The live ticker strip: one line with the Live pill (Badge `live`), the
- * latest plays, and on desktop a plays-this-hour count with the list icon.
+ * The live ticker strip: one line with the Live pill (Badge `danger`, the
+ * canvas's red `.chip.live`), the latest plays, and on desktop a
+ * plays-this-hour count with the list icon.
  * Mobile (below the `sm` breakpoint) shows one play and no count. The line
  * marquees only when motion is allowed, on desktop, and there is more than
  * one play to cycle; under `prefers-reduced-motion: reduce` it is a static
@@ -183,7 +186,7 @@ export function ScoringStrip({ items, now, desktopLimit = 4, sx, ...rest }) {
     px: '12px',
     py: '8px',
     overflow: 'hidden',
-    borderColor: 'var(--dash-accent-line)',
+    borderColor: 'var(--dash-danger-soft)',
     ...sx,
   };
 
@@ -208,7 +211,7 @@ export function ScoringStrip({ items, now, desktopLimit = 4, sx, ...rest }) {
       sx={stripSx}
       {...rest}
     >
-      <Badge variant="live" data-testid="scoring-strip-live" sx={{ flex: 'none' }}>
+      <Badge variant="danger" data-testid="scoring-strip-live" sx={{ flex: 'none' }}>
         <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <Box component="span" aria-hidden="true" sx={DOT_SX} />
           Live

@@ -53,7 +53,9 @@ describe('ScoringStrip', () => {
     render(<ScoringStrip items={FEED} now={NOW} />);
     const strip = screen.getByRole('region', { name: 'Recent league scoring plays' });
     const pill = within(strip).getByTestId('scoring-strip-live');
-    expect(pill).toHaveAttribute('data-variant', 'live');
+    // The canvas's `.chip.live` is the danger (red) chip, not the dashboard's
+    // accent `live` variant; this is the red-tell for that tone.
+    expect(pill).toHaveAttribute('data-variant', 'danger');
     expect(pill).toHaveTextContent('Live');
 
     const plays = within(strip).getAllByTestId('scoring-strip-play');
@@ -105,6 +107,11 @@ describe('ScoringStrip', () => {
     render(<ScoringStrip items={FEED} now={NOW} />);
     const track = screen.getByTestId('scoring-strip-track');
     expect(track).toHaveAttribute('data-motion', 'marquee');
+    // The animation itself, read from the cascade (jsdom applies emotion's
+    // stylesheet), not just the flag beside it.
+    expect(window.getComputedStyle(track).getPropertyValue('animation')).toMatch(
+      /^animation-\w+ 24s linear infinite$/
+    );
     const clone = screen.getByTestId('scoring-strip-clone');
     expect(clone).toHaveAttribute('aria-hidden', 'true');
     // Eight play nodes in the DOM, four of them hidden from assistive tech.
@@ -117,6 +124,12 @@ describe('ScoringStrip', () => {
     render(<ScoringStrip items={FEED} now={NOW} />);
     const track = screen.getByTestId('scoring-strip-track');
     expect(track).toHaveAttribute('data-motion', 'static');
+    // Binds the animation, not only the flag: jsdom resolves the cascaded
+    // `animation` from emotion's stylesheet and skips `@media` rules that do
+    // not name `screen`, so this reads the ternary's own value. Making the
+    // animation unconditional turns this red even with the flag intact.
+    expect(track).toHaveStyle({ animation: 'none' });
+    expect(window.getComputedStyle(track).getPropertyValue('animation')).toBe('none');
     expect(screen.queryByTestId('scoring-strip-clone')).toBeNull();
     expect(screen.getAllByTestId('scoring-strip-play')).toHaveLength(4);
     // The Live pill and the latest play still render; only the motion is gone.

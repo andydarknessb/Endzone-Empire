@@ -3,7 +3,7 @@ import { Chip } from '@mui/material';
 
 /**
  * League Dashboard badge: a token-themed MUI Chip in three variants from the
- * mockup:
+ * mockup, plus one from the Game Center canvas:
  *   - `neutral` (default): the plain `.chip` (surface2 fill, dim text).
  *   - `live`: the `.chip.live` accent state (accent text on the accent tint).
  *   - `you`: the small `.you` pill that is the viewer-row marker for the League
@@ -17,6 +17,12 @@ import { Chip } from '@mui/material';
  *     `data-viewer-team` attribute, identifiable to tooling, which is
  *     invisible to assistive tech and carries no accessibility guarantee of
  *     its own.
+ *   - `danger`: the Game Center canvas's `.chip.live` (ADR 0031, #895): danger
+ *     text and border on the danger tint, the broadcast-red "Live" of the
+ *     scoring strip. Distinct from `live` above, which is the League Dashboard
+ *     mockup's accent-toned season chip: the two canvases paint "live"
+ *     differently and each keeps its own variant. Its tint is guarded only
+ *     over a card (tokens.contrast.test.js), so it belongs on `dash-surface`.
  *
  * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
  * The label text is whatever `children` holds; the variant is also exposed as
@@ -41,6 +47,13 @@ const VARIANT_SX = {
     backgroundColor: 'var(--dash-accent-soft)',
     color: 'var(--dash-accent)',
     border: '1px solid var(--dash-accent-line)',
+  },
+  // The canvas's `.chip.live` border is the solid danger color, not a line
+  // tint (there is no `dash-danger-line`).
+  danger: {
+    backgroundColor: 'var(--dash-danger-soft)',
+    color: 'var(--dash-danger)',
+    border: '1px solid var(--dash-danger)',
   },
 };
 

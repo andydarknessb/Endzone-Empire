@@ -258,6 +258,14 @@ const PAIRINGS = [
   pairing('dash-away', 'dash-surface', AA_TEXT, 'away side percentage on a card'),
   pairing('dash-away', 'dash-surface2', AA_TEXT, 'away side percentage on a stat tile'),
   pairing('dash-led', 'dash-board', AA_TEXT, 'LED digits on the scoreboard face'),
+  // The scoring strip's Live pill (widgets/scoring-feed, #895): the canvas's
+  // `.chip.live` is danger text on the danger tint, and the strip it sits in
+  // is a card, so the pairing is registered over `dash-surface` ONLY. That is
+  // a real boundary, not an omission: measured 4.81 light / 5.16 dark over a
+  // card, but 4.47 light over a stat tile, 4.29 light over the page and
+  // 4.05 / 4.09 over the raised tile. A danger pill on any other surface is
+  // not guarded here.
+  pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over a card (the only guarded danger backdrop)', 'dash-surface'),
   pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
   pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
   pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),

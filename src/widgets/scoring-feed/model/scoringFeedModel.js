@@ -4,14 +4,26 @@
  * turns a field of that shape into display text lives here, with no React and
  * no DOM, so it is table-testable.
  *
- * The item shape both surfaces read (the page builds it from the score feed's
- * typed plays and its roster lookup, exactly as the legacy ticker did):
+ * The item shape both surfaces read:
  *
  *   { playerId, name, nflTeam, teamName, pointsDelta, type, isTouchdown,
  *     at (ISO string, epoch ms or Date; optional), side ('home' | 'away' | null) }
  *
- * `side` says which side of the viewer's matchup scored, or null for a play in
- * another matchup; the feed paints it as the home / away / neutral dot.
+ * Where it comes from (the handoff for the page ticket, #897): the score
+ * feed's play (server/services/scoring.service.js) carries playerId, name,
+ * position, nflTeam, opponent, type, tdDelta, pointsDelta and isTouchdown, and
+ * NO clock and NO side. The legacy ticker's handleScores added only `teamName`
+ * from its roster lookup. The two fields this widget adds are the page's to
+ * build; passing the server's play through unchanged renders, but blandly:
+ *
+ *   - `at`: stamp it at receipt (Date.now()) as the play lands, since the
+ *     server sends none. Without it the feed's time cell is blank on every row,
+ *     and playsThisHour counts every held play as just received, so the
+ *     strip's count equals the ticker total.
+ *   - `side`: which side of the viewer's matchup scored ('home' or 'away' when
+ *     the play's fantasy team is one of its two sides), or null for a play in
+ *     another matchup. The feed paints it as the home / away / neutral dot;
+ *     without it every dot is neutral.
  */
 
 /** The idle line both surfaces render before the first play of the week lands. */
