@@ -256,6 +256,10 @@ describe('WinProbabilityBar', () => {
     render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} />);
     expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
     expect(screen.getByText('Win probability')).toBeInTheDocument();
+    // #878: the caption is aria-hidden so a screen reader hears the bar's
+    // own aria-label once and not the bare caption a second time. The img
+    // role assertion above is the control - it must keep passing unmoved.
+    expect(screen.getByText('Win probability')).toHaveAttribute('aria-hidden', 'true');
   });
 });
 

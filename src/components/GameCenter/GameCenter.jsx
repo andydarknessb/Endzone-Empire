@@ -64,7 +64,10 @@ function WinProbabilitySplitBar({ homeName, awayName, homeProb }) {
         <Typography variant="caption" sx={{ fontWeight: 600 }}>
           {Math.round(home * 100)}%
         </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        {/* aria-hidden (#878): the bar's own aria-label is the sole
+            accessible name, so a screen reader does not hear this caption a
+            second time after announcing that label. */}
+        <Typography variant="caption" aria-hidden="true" sx={{ color: 'text.secondary' }}>
           Win probability
         </Typography>
         <Typography variant="caption" sx={{ fontWeight: 600 }}>
