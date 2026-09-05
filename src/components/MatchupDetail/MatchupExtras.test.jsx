@@ -280,7 +280,10 @@ describe('StickyScoreboard', () => {
     );
     expect(screen.getByText('Team A 78.4 - 65.2 Team B')).toBeInTheDocument();
     expect(screen.getByText('LIVE')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
+    // #887: the sticky track still paints once started, but it is decorative -
+    // WinProbabilityBar is the page's one accessible name for win probability.
+    expect(screen.getByTestId('sticky-win-probability-track')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
   });
 
   test('renders whatever chip label the predicate gives, e.g. Awaiting final', () => {

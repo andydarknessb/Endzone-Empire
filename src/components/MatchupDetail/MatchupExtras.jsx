@@ -122,9 +122,11 @@ export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, hom
         {chipLabel && <Chip label={chipLabel} color={chipColor} variant={chipVariant} size="small" />}
       </Box>
       {started === true && (
+        // Decorative (#887): the full WinProbabilityBar below is the page's one
+        // accessible name for win probability. This track carries no role and
+        // no aria-label so assistive tech does not announce it a second time.
         <Box
-          role="img"
-          aria-label={`Win probability: ${homeName} ${Math.round(home * 100)}%, ${awayName} ${Math.round((1 - home) * 100)}%`}
+          data-testid="sticky-win-probability-track"
           sx={{
             display: 'flex',
             height: 4,
