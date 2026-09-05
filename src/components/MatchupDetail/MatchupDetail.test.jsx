@@ -228,13 +228,13 @@ test('the "Live win probability" caption shows only while live, not on played or
   unmount();
 
   apiClient.get.mockResolvedValue(matchupResponse({ matchup: { status: 'played', home_score: '99', away_score: '92' } }));
-  const played = renderDetail();
+  const { unmount: unmountPlayed } = renderDetail();
   await screen.findByText('Week 3 Matchup');
   // The bar is still there (a played matchup has started), but not the "Live" words.
   // Both the big bar and the sticky track carry the "Win probability" role.
   expect(screen.getAllByRole('img', { name: /Win probability:/i }).length).toBeGreaterThan(0);
   expect(screen.queryByText('Live win probability')).not.toBeInTheDocument();
-  played.unmount();
+  unmountPlayed();
 
   apiClient.get.mockResolvedValue(matchupResponse({ matchup: { final: true } }));
   renderDetail();
