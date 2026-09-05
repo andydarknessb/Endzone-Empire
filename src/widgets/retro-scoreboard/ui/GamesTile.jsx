@@ -14,13 +14,17 @@ import Icon from './icons';
  * rows the entity hands down as `model.games` (#885); it opens no channel of
  * its own.
  *
- * The live dot is `dash-accent`: the canvas paints it in the app's danger
- * red, but the island has no `dash-danger` token and the kit's own live
- * vocabulary (Badge's `live` variant, the sibling strip's dot) is the accent.
- * The state never rides on colour alone: a live row carries a visually-hidden
- * "Live" beside the dot, and the clock cell says FINAL or the kickoff time in
- * plain text otherwise. Composes `shared/ui` (ADR 0020) and paints only
- * registered pairings: ink and faint on the card surface.
+ * The live dot is `--danger`, as the canvas paints it (build.mjs, the Games
+ * card's `.dot`) and as the slot-comparison widget on the same page paints
+ * its own live marker: the dashboard group has no dash-danger, and `danger`
+ * is an app token defined in both themes (tokens.js), reached the way
+ * `--radius-pill` is here. `data-tone` declares that paint where a test can
+ * read it (jsdom drops a var() color from computed style). The state never
+ * rides on colour alone: a live row carries a visually-hidden "Live" beside
+ * the dot, and the clock cell says FINAL or the kickoff time in plain text
+ * otherwise. Composes `shared/ui` (ADR 0020) and paints only registered
+ * pairings: ink and faint on the card surface; the dot is a graphic beside
+ * text, not a text pairing.
  */
 function Glyph({ state }) {
   if (state === 'live') {
@@ -28,8 +32,9 @@ function Glyph({ state }) {
       <>
         <Box
           data-testid="live-dot"
+          data-tone="danger"
           aria-hidden="true"
-          sx={{ width: 8, height: 8, borderRadius: 'var(--radius-pill)', backgroundColor: 'var(--dash-accent)', flex: 'none' }}
+          sx={{ width: 8, height: 8, borderRadius: 'var(--radius-pill)', backgroundColor: 'var(--danger)', flex: 'none' }}
         />
         <Box component="span" sx={visuallyHidden}>Live</Box>
       </>

@@ -79,6 +79,24 @@ export function unavailableLabel(availability) {
   return UNAVAILABLE_LABELS[availability.reason] || 'out';
 }
 
+// Position -> `pos-*` palette key for the headshot ring (design canvas
+// headshot(): every 28px headshot wears a 2px ring in its position's color),
+// the same map the app's PositionChip uses for its fills, so the ring and the
+// avatar's own initials fill always agree. Unknown reads as the neutral DEF
+// gray, exactly as PlayerAvatar's fallback fill does; the slot-comparison
+// widget rings its headshots by the same table.
+const POSITION_KEYS = {
+  QB: 'qb', RB: 'rb', WR: 'wr', TE: 'te', K: 'k', DEF: 'def', 'D/ST': 'def', DST: 'def',
+  DL: 'idp', DE: 'idp', DT: 'idp', NT: 'idp',
+  LB: 'idp', ILB: 'idp', OLB: 'idp',
+  DB: 'idp', CB: 'idp', S: 'idp', FS: 'idp', SS: 'idp',
+};
+
+/** The `pos-*` palette key for a lineup headshot's ring. */
+export function positionRingKey(position) {
+  return POSITION_KEYS[String(position || '').toUpperCase()] || 'def';
+}
+
 /**
  * The parts of a lineup row's second line: the player's points to one
  * decimal, then EITHER his projection ("proj 19.2") or, for an Unavailable

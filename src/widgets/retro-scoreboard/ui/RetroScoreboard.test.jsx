@@ -103,6 +103,30 @@ const renderBoard = (props = {}) =>
 // places it with (`translate(Xpx, Ypx)`, in the field's own user units).
 const spriteX = (el) => Number(el.style.transform.match(/translate\(([-\d.]+)px/)[1]);
 
+// The responsive layout is CSS only (sx breakpoint objects), which jsdom can
+// neither lay out nor evaluate a media query for. Emotion still inserts every
+// rule into its stylesheet (through insertRule, so the <style> text is empty
+// but `document.styleSheets` carries them), and MUI emits a breakpoint value
+// as a rule under `@media (min-width:<breakpoint>)`. This reads a slot's
+// rules back by its generated class name: `base` gathers the declarations
+// that apply below md (a plain rule or one under min-width:0px), `md` the
+// ones under `@media (min-width:900px)`.
+const rulesFor = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = { base: '', md: '' };
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      const media = rule.media ? rule.media.mediaText : '';
+      const inner = rule.cssRules ? Array.from(rule.cssRules) : [rule];
+      inner.forEach((r) => {
+        if (r.selectorText !== `.${cls}`) return;
+        found[/min-width:\s*900px/.test(media) ? 'md' : 'base'] += `${r.style.cssText};`;
+      });
+    });
+  });
+  return found;
+};
+
 // --- LED board ---------------------------------------------------------------
 
 test('the LED board renders both one-decimal scores, both win percentages, and Expected final and to-play per side', () => {
@@ -172,6 +196,37 @@ test('the field announces the live win probability and carries each side\'s name
   // The LED board and the end zone both carry the uppercased name.
   expect(screen.getAllByText('DULUTH DOCKWORKERS').length).toBeGreaterThan(1);
   expect(screen.getAllByText('FARGO FROSTBITE').length).toBeGreaterThan(1);
+});
+
+test('the field does not announce a guessed 50% when the win probability is unknown', () => {
+  renderBoard({ homeProb: null });
+  const field = screen.getByRole('img', { name: /Field position/ });
+  expect(field).toHaveAccessibleName('Field position: win probability not yet available');
+  expect(field).not.toHaveAccessibleName(/50%/);
+  // The board's WIN row blanks for the same unknown, so the two agree.
+  expect(within(screen.getByTestId('led-board')).getByTestId('led-win-home')).toHaveTextContent('-');
+});
+
+test('the field caption carries the sentence and, on its right, whatever the page slots in as the tail', () => {
+  const { rerender } = renderBoard();
+  const caption = screen.getByTestId('field-caption');
+  expect(caption).toHaveTextContent('Sprites move with win probability. Plays flash on the field as they land.');
+  expect(within(caption).queryByRole('button')).not.toBeInTheDocument();
+
+  rerender(
+    <RetroScoreboard
+      matchup={matchup()}
+      leagueName="Northwoods League"
+      rows={rows}
+      games={games}
+      activePlay={null}
+      homeProb={0.36}
+      fieldTail={<button type="button">Celebrations on</button>}
+    />
+  );
+  const withTail = within(screen.getByTestId('retro-field'));
+  expect(withTail.getByRole('button', { name: 'Celebrations on' })).toBeInTheDocument();
+  expect(screen.getByTestId('field-caption')).toContainElement(withTail.getByRole('button', { name: 'Celebrations on' }));
 });
 
 test('a non-touchdown moment play flashes the LED callout on the field as a status', () => {
@@ -270,6 +325,21 @@ test('the Lineups card renders the paired rows in the given order with a headsho
   expect(card.getAllByTestId('unavailable-reason')).toHaveLength(1);
 });
 
+test('every Lineups headshot wears its position\'s pos-* ring, the treatment the slot comparison shares', () => {
+  renderBoard();
+  const slotRows = within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row');
+  const ringOf = (row, side) => within(row).getByTestId(`headshot-${side}`).getAttribute('data-ring');
+  expect(ringOf(slotRows[0], 'home')).toBe('qb');
+  expect(ringOf(slotRows[0], 'away')).toBe('qb');
+  expect(ringOf(slotRows[1], 'home')).toBe('rb');
+  expect(ringOf(slotRows[2], 'home')).toBe('def');
+  expect(ringOf(slotRows[2], 'away')).toBe('def');
+  // The ring is painted as a box-shadow in the position's token (jsdom keeps
+  // the var() in a box-shadow, unlike a color), rounded to the pill.
+  expect(within(slotRows[0]).getByTestId('headshot-home')).toHaveStyle({ boxShadow: '0 0 0 2px var(--pos-qb)' });
+  expect(within(slotRows[1]).getByTestId('headshot-home')).toHaveStyle({ boxShadow: '0 0 0 2px var(--pos-rb)' });
+});
+
 test('the Lineups card shows an empty line until the paired rows arrive', () => {
   renderBoard({ rows: [] });
   const card = within(screen.getByTestId('lineups-card'));
@@ -312,6 +382,9 @@ test('the Games tile lists every game row with a live dot or a clock glyph and i
   // colour alone), both scores (away first) and the quarter and clock.
   const live = within(gameRows[0]);
   expect(live.getByTestId('live-dot')).toBeInTheDocument();
+  // The dot is the design's danger red, as the slot comparison paints its
+  // own live marker; the tone is declared where jsdom can read it.
+  expect(live.getByTestId('live-dot')).toHaveAttribute('data-tone', 'danger');
   expect(live.getByText('Live')).toBeInTheDocument();
   expect(live.queryByTestId('clock-glyph')).not.toBeInTheDocument();
   expect(live.getByText('DEN 10 - 17 KC')).toBeInTheDocument();
@@ -349,10 +422,37 @@ test('renders nothing without a Matchup', () => {
   expect(screen.queryByTestId('retro-scoreboard')).not.toBeInTheDocument();
 });
 
-test('the cards take the heading level the page gives and the aside slot sits in the right column', () => {
+test('the cards take the heading level the page gives and the aside slot sits in the right column above the Games tile', () => {
   renderBoard({ headingLevel: 3, aside: <div data-testid="page-aside">Bench what-if</div> });
 
   expect(screen.getByRole('heading', { level: 3, name: 'Lineups' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 3, name: 'Games' })).toBeInTheDocument();
-  expect(screen.getByTestId('page-aside')).toBeInTheDocument();
+  const column = screen.getByTestId('right-column');
+  expect(column).toContainElement(screen.getByTestId('page-aside'));
+  expect(column).toContainElement(screen.getByTestId('games-tile'));
+  // Desktop reading order in the DOM: Lineups, then the aside, then Games.
+  expect(screen.getByTestId('lineups-slot').compareDocumentPosition(screen.getByTestId('aside-slot')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByTestId('aside-slot').compareDocumentPosition(screen.getByTestId('games-slot')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('below md the columns stack in the mobile artboard\'s order: Games, then Lineups, then the aside last', () => {
+  renderBoard({ aside: <div data-testid="page-aside">Bench what-if</div> });
+
+  // The right column dissolves into the grid below md and is a flex column
+  // from md up, so its two slots order themselves against the Lineups slot.
+  const column = rulesFor(screen.getByTestId('right-column'));
+  expect(column.base).toMatch(/display:\s*contents/);
+  expect(column.md).toMatch(/display:\s*flex/);
+
+  const lineups = rulesFor(screen.getByTestId('lineups-slot'));
+  const aside = rulesFor(screen.getByTestId('aside-slot'));
+  const gamesSlot = rulesFor(screen.getByTestId('games-slot'));
+  // Stacked: Games (1), Lineups (2), aside (3).
+  expect(gamesSlot.base).toMatch(/\border:\s*1;/);
+  expect(lineups.base).toMatch(/\border:\s*2;/);
+  expect(aside.base).toMatch(/\border:\s*3;/);
+  // Columns: Lineups first, then the right column's aside over its Games.
+  expect(lineups.md).toMatch(/\border:\s*1;/);
+  expect(aside.md).toMatch(/\border:\s*1;/);
+  expect(gamesSlot.md).toMatch(/\border:\s*2;/);
 });

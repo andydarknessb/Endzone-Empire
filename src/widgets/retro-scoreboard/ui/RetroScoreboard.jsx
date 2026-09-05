@@ -16,9 +16,14 @@ import GamesTile from './GamesTile';
  * it, whatever the page slots in as `aside`: the bench what-if feature lives
  * there on the canvas and is the page's to compose; a widget imports no
  * feature, so it is a slot, not an import). Below the `md` breakpoint the
- * columns stack with the Games tile before the Lineups card, the mobile
- * artboard's order; below `sm` the board, field and cards take their mobile
- * geometry.
+ * columns stack in the mobile artboard's order (matchupScoreboardMobile()):
+ * the Games tile (standing where the artboard's NFL strip sits), then the
+ * Lineups card, then the aside, which the artboard puts last. The stacking
+ * is CSS only (the right column dissolves into the grid with
+ * `display: contents` and the three slots take `order`), so the DOM keeps
+ * the desktop reading order and nothing remounts at the breakpoint, which
+ * matters for an aside that holds state. Below `sm` the board, field and
+ * cards take their mobile geometry.
  *
  * Props:
  *   - `matchup`: the Matchup entity model (entities/matchup): the LED board
@@ -36,6 +41,9 @@ import GamesTile from './GamesTile';
  *   - `onFullComparison`: optional; when given the Lineups card grows a "Full
  *     comparison" action that calls it (the page swaps to the standard view).
  *   - `aside`: optional content for the right column above the Games tile.
+ *   - `fieldTail`: optional content for the right of the field's caption row
+ *     (the canvas draws the "Celebrations on" affordance there; it is the
+ *     celebrate-touchdown feature's, so the page slots it in).
  *
  * The widget renders nothing without a Matchup. It reads no data of its own:
  * the page owns the entity hook, the score feed, the cutscene queue and the
@@ -51,6 +59,7 @@ export default function RetroScoreboard({
   headingLevel = 2,
   onFullComparison,
   aside,
+  fieldTail,
 }) {
   // `useTheme` falls back to the default theme outside a provider (a widget
   // test renders bare), so the breakpoint resolves the same way the sibling
@@ -71,6 +80,7 @@ export default function RetroScoreboard({
         homeProb={homeProb}
         activePlay={activePlay}
         mobile={mobile}
+        tail={fieldTail}
       />
       <Box
         sx={{
@@ -80,12 +90,27 @@ export default function RetroScoreboard({
           alignItems: 'start',
         }}
       >
-        <Box sx={{ order: { xs: 2, md: 1 }, minWidth: 0 }}>
+        <Box data-testid="lineups-slot" sx={{ order: { xs: 2, md: 1 }, minWidth: 0 }}>
           <LineupsCard rows={rows} headingLevel={headingLevel} onFullComparison={onFullComparison} mobile={mobile} />
         </Box>
-        <Box sx={{ order: { xs: 1, md: 2 }, minWidth: 0, display: 'flex', flexDirection: 'column', gap: mobile ? '12px' : '16px' }}>
-          {aside}
-          <GamesTile games={games} headingLevel={headingLevel} mobile={mobile} />
+        <Box
+          data-testid="right-column"
+          sx={{
+            display: { xs: 'contents', md: 'flex' },
+            order: { md: 2 },
+            minWidth: 0,
+            flexDirection: 'column',
+            gap: mobile ? '12px' : '16px',
+          }}
+        >
+          {aside ? (
+            <Box data-testid="aside-slot" sx={{ order: { xs: 3, md: 1 }, minWidth: 0 }}>
+              {aside}
+            </Box>
+          ) : null}
+          <Box data-testid="games-slot" sx={{ order: { xs: 1, md: 2 }, minWidth: 0 }}>
+            <GamesTile games={games} headingLevel={headingLevel} mobile={mobile} />
+          </Box>
         </Box>
       </Box>
     </Box>

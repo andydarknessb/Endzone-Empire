@@ -257,6 +257,12 @@ const PAIRINGS = [
   pairing('dash-home', 'dash-surface2', AA_TEXT, 'home side percentage on a stat tile'),
   pairing('dash-away', 'dash-surface', AA_TEXT, 'away side percentage on a card'),
   pairing('dash-away', 'dash-surface2', AA_TEXT, 'away side percentage on a stat tile'),
+  // The retro field's end zones (#902) carry the Team name in `text-inverse`
+  // on the side's own fill, the pairing the position chips already carry:
+  // both fills are chip-strength colors (light `dash-home` is `pos-wr`, dark
+  // `dash-away` is `pos-rb`) and the label is small text, so AA_TEXT.
+  pairing('text-inverse', 'dash-home', AA_TEXT, 'home end-zone label on the home fill'),
+  pairing('text-inverse', 'dash-away', AA_TEXT, 'away end-zone label on the away fill'),
   pairing('dash-led', 'dash-board', AA_TEXT, 'LED digits on the scoreboard face'),
   // The scoring strip's Live pill (widgets/scoring-feed, #895): the canvas's
   // `.chip.live` is danger text on the danger tint, and the strip it sits in

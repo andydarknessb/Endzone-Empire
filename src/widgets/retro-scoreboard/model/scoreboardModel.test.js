@@ -5,6 +5,7 @@ import {
   ledPercents,
   ledStatus,
   unavailableLabel,
+  positionRingKey,
   lineupNoteParts,
   lineupNote,
   gameState,
@@ -51,6 +52,20 @@ test('ledStatus uppercases the entity label and is blank for an unknown status',
   expect(ledStatus('final')).toBe('FINAL');
   expect(ledStatus('scheduled')).toBe('SCHEDULED');
   expect(ledStatus(null)).toBe('');
+});
+
+test('positionRingKey maps a position onto the pos-* palette and falls back to def', () => {
+  expect(positionRingKey('QB')).toBe('qb');
+  expect(positionRingKey('rb')).toBe('rb');
+  expect(positionRingKey('WR')).toBe('wr');
+  expect(positionRingKey('TE')).toBe('te');
+  expect(positionRingKey('K')).toBe('k');
+  expect(positionRingKey('DEF')).toBe('def');
+  expect(positionRingKey('D/ST')).toBe('def');
+  expect(positionRingKey('LB')).toBe('idp');
+  expect(positionRingKey('CB')).toBe('idp');
+  expect(positionRingKey('FLEX')).toBe('def');
+  expect(positionRingKey(null)).toBe('def');
 });
 
 test('a lineup note is points and projection, or the Unavailable reason in its place', () => {

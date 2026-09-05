@@ -2,7 +2,7 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { Card, PosChip } from '../../../shared/ui';
 import PlayerAvatar from '../../../components/PlayerQuickView/PlayerAvatar';
-import { lineupNoteParts } from '../model/scoreboardModel';
+import { lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
 
 /**
@@ -10,7 +10,10 @@ import Icon from './icons';
  * a compact, non-interactive slot-by-slot preview of the paired rows the
  * entity hands down, home on the left, the PosChip in the middle, away
  * mirrored on the right. Each filled side is a 28px PlayerAvatar headshot
- * (the ESPN photo, position-colored initials when there is none), the name,
+ * (the ESPN photo, position-colored initials when there is none) in a 2px
+ * ring of its position's `pos-*` color, as the canvas's headshot() draws it
+ * and the slot-comparison widget rings its own (so the two lineup renderings
+ * share one avatar treatment), the name,
  * and a note line of points and projection ("18.6 · proj 19.2") or, for an
  * Unavailable starter, the reason ("0.0 · on bye"), the reason carrying the
  * `unavailable-reason` test id the Matchup Detail page tests read.
@@ -22,9 +25,12 @@ import Icon from './icons';
  * to prove the two lineup renderings agree slot for slot.
  *
  * Composes `shared/ui` (ADR 0020) and paints only registered pairings: ink,
- * dim and faint on the card surface, and PosChip's own position fills. The
- * one control, the optional "Full comparison" action the page wires to its
- * view toggle, meets the 44px target on mobile.
+ * dim and faint on the card surface, and PosChip's own position fills; the
+ * headshot ring is a `pos-*` graphic beside text, not a text pairing, and its
+ * key is declared as `data-ring` where a test can read it (jsdom drops a
+ * var() color from computed style). The one control, the optional "Full
+ * comparison" action the page wires to its view toggle, meets the 44px target
+ * on mobile.
  */
 function Note({ player }) {
   const { points, reason, projected } = lineupNoteParts(player);
@@ -63,7 +69,16 @@ function Side({ player, side }) {
         textAlign: mirrored ? 'right' : 'left',
       }}
     >
-      <Box data-testid={`headshot-${side}`} sx={{ flex: 'none', display: 'flex' }}>
+      <Box
+        data-testid={`headshot-${side}`}
+        data-ring={positionRingKey(player.position)}
+        sx={{
+          flex: 'none',
+          display: 'flex',
+          borderRadius: 'var(--radius-pill)',
+          boxShadow: `0 0 0 2px var(--pos-${positionRingKey(player.position)})`,
+        }}
+      >
         <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photo_url} size={28} />
       </Box>
       <Box

@@ -25,6 +25,19 @@ import { LED_FONT } from './LedBoard';
  * field goal) has no field position to dramatize, so it flashes a short LED
  * callout over the field instead, as a `role="status"` so it is announced.
  *
+ * The image's accessible name states the home side's win probability only
+ * when the page handed one; an unknown probability parks the sprites at
+ * midfield (scoreboardModel.js) and the name says it is not yet available
+ * rather than announcing a guessed 50%, the same rule the board's WIN row
+ * follows when it prints a hyphen.
+ *
+ * Below the image, on desktop, the canvas's caption row: the sentence on the
+ * left and, on the right, whatever the page slots in as `tail` (the canvas
+ * draws the celebrate-touchdown feature's "Celebrations on" affordance there;
+ * a widget imports no feature, so it is a slot). The mobile artboard has no
+ * caption row, so on mobile the row renders only when there is a tail, and
+ * then carries the tail alone.
+ *
  * The callout reveals AND dismisses itself through `flashIn`, which ends at
  * opacity 0 held by `forwards`. Under reduced motion the global policy
  * (src/theme/base.css) collapses that animation to 0s, which with `forwards`
@@ -117,7 +130,7 @@ function FieldSprite({ side, x, y, size, kit, frame, label, dashDistance, labelS
   );
 }
 
-export default function RetroField({ homeName, awayName, homeProb, activePlay, mobile }) {
+export default function RetroField({ homeName, awayName, homeProb, activePlay, mobile, tail }) {
   const g = mobile ? MOBILE : DESKTOP;
   const inner = g.w - g.ez * 2;
   const yard = (i) => g.ez + (inner / 10) * i;
@@ -131,7 +144,7 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
     return () => clearInterval(id);
   }, [prefersReducedMotion]);
 
-  const { value: prob } = homeProbability(homeProb);
+  const { value: prob, known: probKnown } = homeProbability(homeProb);
   const pos = spritePositions(prob);
   const homeX = g.ez + inner * pos.home;
   const awayX = g.ez + inner * pos.away;
@@ -175,7 +188,11 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
       <Box sx={{ position: 'relative' }}>
         <svg
           role="img"
-          aria-label={`Field position: ${homeName} ${Math.round(prob * 100)}% likely to win`}
+          aria-label={
+            probKnown
+              ? `Field position: ${homeName} ${Math.round(prob * 100)}% likely to win`
+              : 'Field position: win probability not yet available'
+          }
           viewBox={`0 0 ${g.w} ${g.h}`}
           width="100%"
           style={{ display: 'block', height: 'auto' }}
@@ -287,9 +304,21 @@ export default function RetroField({ homeName, awayName, homeProb, activePlay, m
         )}
       </Box>
 
-      {!mobile && (
-        <Box sx={{ mt: '10px', fontSize: '12px', color: 'var(--dash-faint)' }}>
-          Sprites move with win probability. Plays flash on the field as they land.
+      {(!mobile || tail) && (
+        <Box
+          data-testid="field-caption"
+          sx={{
+            mt: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            fontSize: '12px',
+            color: 'var(--dash-faint)',
+          }}
+        >
+          {!mobile && <span>Sprites move with win probability. Plays flash on the field as they land.</span>}
+          {tail ? <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>{tail}</Box> : null}
         </Box>
       )}
     </Box>
