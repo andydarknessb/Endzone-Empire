@@ -22,7 +22,7 @@ function slotLabel(slot) {
 
 // --- Win probability bar ---------------------------------------------------
 
-export function WinProbabilityBar({ homeName, awayName, homeProb, isLive }) {
+export function WinProbabilityBar({ homeName, awayName, homeProb }) {
   const home = Math.max(0, Math.min(1, Number(homeProb) || 0));
   const pct = (v) => `${Math.round(v * 100)}%`;
   return (
@@ -61,16 +61,12 @@ export function WinProbabilityBar({ homeName, awayName, homeProb, isLive }) {
           }}
         />
       </Box>
-      {/* The "Live" caption is only true while the matchup is actually live.
-          The bar itself is shown for any started matchup (played and final
-          included), but on those states the word "Live" would be false, so the
-          caption is withheld rather than replaced - the wording for a played or
-          final matchup is Cory's call (#872), not one to guess here. */}
-      {isLive && (
-        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}>
-          Live win probability
-        </Typography>
-      )}
+      {/* The caption carries no time claim (#872): the bar is shown for any
+          started matchup (live, played and final alike), and "Win
+          probability" reads correctly in every one of those states. */}
+      <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}>
+        Win probability
+      </Typography>
     </Paper>
   );
 }
@@ -79,7 +75,6 @@ WinProbabilityBar.propTypes = {
   homeName: PropTypes.string,
   awayName: PropTypes.string,
   homeProb: PropTypes.number,
-  isLive: PropTypes.bool,
 };
 
 // --- Sticky compact scoreboard ----------------------------------------------

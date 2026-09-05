@@ -138,7 +138,7 @@ test('renders the viewer matchup as a hero card, out of the grid', async () => {
   expect(screen.queryByText('Rival (20)')).not.toBeInTheDocument();
   expect(screen.getByText('Other A (0)')).toBeInTheDocument();
   // A final matchup shows win probability; fabricated projections are gone.
-  expect(screen.getByText('Win Probability')).toBeInTheDocument();
+  expect(screen.getByText('Win probability')).toBeInTheDocument();
   expect(screen.queryByText(/Projected:/)).not.toBeInTheDocument();
   expect(screen.getAllByLabelText(/PMR: Players remaining/i)).toHaveLength(2);
   expect(screen.getByRole('region', { name: 'Live scoring feed' })).toHaveTextContent('No scoring plays yet');
@@ -189,7 +189,7 @@ test('shows not started instead of a 50/50 probability before kickoff', async ()
   renderScreen(1, { user: { id: 1 } });
 
   expect(await screen.findByText('Not started · Week 1')).toBeInTheDocument();
-  expect(screen.queryByText('Win Probability')).not.toBeInTheDocument();
+  expect(screen.queryByText('Win probability')).not.toBeInTheDocument();
 });
 
 test('shows an idle message in the live-action ticker before any plays arrive', async () => {

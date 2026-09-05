@@ -250,19 +250,12 @@ describe('SlotComparisonList', () => {
 });
 
 describe('WinProbabilityBar', () => {
-  test('shows the bar with the "Live" caption only while the matchup is live', () => {
-    render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} isLive />);
+  test('shows the bar with the "Win probability" caption', () => {
+    // The caption carries no time claim (#872): it shows whenever the bar
+    // does, regardless of matchup status.
+    render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} />);
     expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
-    expect(screen.getByText('Live win probability')).toBeInTheDocument();
-  });
-
-  test('shows the bar but withholds the "Live" caption when not live (played/final)', () => {
-    // The bar is rendered for any started matchup, but "Live win probability"
-    // would be false on a played or final one, so it is withheld rather than
-    // replaced (the wording for those states is #872, not a guess here).
-    render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} isLive={false} />);
-    expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
-    expect(screen.queryByText('Live win probability')).not.toBeInTheDocument();
+    expect(screen.getByText('Win probability')).toBeInTheDocument();
   });
 });
 
