@@ -15,66 +15,6 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { playLabel } from '../../lib/scoringEvents';
 
-// Fantasy-standard starting order — the API returns starters sorted
-// alphabetically by slot (a SQL ORDER BY convenience), which reads QB last.
-const SLOT_DISPLAY_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
-
-/** Stable-sorts starters into fantasy-standard slot order (unknown slots sink to the end). */
-function sortBySlotOrder(starters) {
-  return [...(starters || [])].sort((a, b) => {
-    const ai = SLOT_DISPLAY_ORDER.indexOf(a.slot);
-    const bi = SLOT_DISPLAY_ORDER.indexOf(b.slot);
-    return (ai === -1 ? SLOT_DISPLAY_ORDER.length : ai) - (bi === -1 ? SLOT_DISPLAY_ORDER.length : bi);
-  });
-}
-
-/**
- * Pairs the two starters arrays into one row per slot INSTANCE, matched by slot
- * key and never by array index. The arrays differ in length whenever one
- * manager has left a slot empty (or set no lineup at all), and lineup_entries
- * can hold any commissioner-defined slot key ('D LINE', 'IDP FLEX'), so an
- * index zip labels the row with whichever side happens to sit at that index
- * and reads a QB under a WR chip. The nth home starter in a slot pairs with the
- * nth away starter in the same slot; the remainder renders with an empty side.
- *
- * Row order: `slotOrder` (the league's roster_slots keys) when given, then the
- * fantasy-standard order, then any slot only the starters know about, in the
- * order it was first seen.
- */
-export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
-  const home = sortBySlotOrder(homeStarters);
-  const away = sortBySlotOrder(awayStarters);
-  const bySlot = (list) => list.reduce((acc, p) => {
-    const key = p.slot ?? '';
-    if (!acc.has(key)) acc.set(key, []);
-    acc.get(key).push(p);
-    return acc;
-  }, new Map());
-  const homeBySlot = bySlot(home);
-  const awayBySlot = bySlot(away);
-
-  const order = [];
-  const seen = new Set();
-  const add = (key) => {
-    if (seen.has(key)) return;
-    seen.add(key);
-    order.push(key);
-  };
-  (slotOrder || []).forEach(add);
-  SLOT_DISPLAY_ORDER.forEach(add);
-  home.forEach((p) => add(p.slot ?? ''));
-  away.forEach((p) => add(p.slot ?? ''));
-
-  const rows = [];
-  for (const slot of order) {
-    const h = homeBySlot.get(slot) || [];
-    const a = awayBySlot.get(slot) || [];
-    const count = Math.max(h.length, a.length);
-    for (let i = 0; i < count; i++) rows.push({ slot, home: h[i] || null, away: a[i] || null });
-  }
-  return rows;
-}
-
 /** DEF is stored/scored as the "DEF" slot but reads as D/ST everywhere it's displayed. */
 function slotLabel(slot) {
   return slot === 'DEF' ? 'D/ST' : slot;
@@ -404,16 +344,17 @@ SlotSide.propTypes = {
 };
 
 /**
- * One row per lineup slot instance, pairing home and away starters by slot key
- * (see pairStartersBySlot). A slot only one side has filled renders with an
+ * One row per lineup slot instance from the pre-paired `rows` the Matchup entity
+ * hands down (home paired with away by slot key, in the league's slot order).
+ * This is one of the two renderings of that one row list - the roster
+ * preview grid is the other - so both show the same slots in the same order and
+ * neither pairs or re-sorts here. A slot only one side has filled arrives with an
  * empty opposite side rather than dropping data or shifting labels.
  */
-export function SlotComparisonList({ homeStarters, awayStarters, slotOrder, expandedId, onToggle, onOpenPlayer }) {
-  const rows = pairStartersBySlot(homeStarters, awayStarters, slotOrder);
-
+export function SlotComparisonList({ rows, expandedId, onToggle, onOpenPlayer }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-      {rows.map((row, i) => {
+      {(rows || []).map((row, i) => {
         const rowSlot = slotLabel(row.slot);
         const homeOpen = !!(row.home && expandedId === row.home.id);
         const awayOpen = !!(row.away && expandedId === row.away.id);
@@ -445,15 +386,19 @@ export function SlotComparisonList({ homeStarters, awayStarters, slotOrder, expa
 }
 
 SlotComparisonList.propTypes = {
-  homeStarters: PropTypes.array,
-  awayStarters: PropTypes.array,
-  slotOrder: PropTypes.arrayOf(PropTypes.string),
+  // Pre-paired rows from the Matchup entity: [{ slot, home, away }], home paired
+  // with away by slot key, in the league's slot order.
+  rows: PropTypes.arrayOf(PropTypes.shape({
+    slot: PropTypes.string,
+    home: PropTypes.object,
+    away: PropTypes.object,
+  })),
   expandedId: PropTypes.number,
   onToggle: PropTypes.func.isRequired,
   onOpenPlayer: PropTypes.func.isRequired,
 };
 
-// --- Compact roster preview (Matchups list page) ----------------------------
+// --- Compact roster preview (retro field) -----------------------------------
 
 function playerInitials(name) {
   if (!name) return '?';
@@ -505,13 +450,13 @@ RosterPreviewSide.propTypes = {
 };
 
 /**
- * Compact, non-interactive slot-by-slot roster comparison for the Matchups
- * list page — a preview of the full SlotComparisonList shown on the matchup
- * detail page, driven by the same real starters/points/projected data.
+ * Compact, non-interactive slot-by-slot roster comparison shown inside the retro
+ * field — a preview of the full SlotComparisonList, and the second rendering of
+ * the same pre-paired `rows` the entity hands down, so the two agree slot for
+ * slot. It neither pairs nor re-sorts: it renders the rows as given.
  */
-export function RosterPreviewGrid({ homeStarters, awayStarters, slotOrder }) {
-  const rows = pairStartersBySlot(homeStarters, awayStarters, slotOrder);
-  if (rows.length === 0) return null;
+export function RosterPreviewGrid({ rows }) {
+  if (!rows || rows.length === 0) return null;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -534,9 +479,13 @@ export function RosterPreviewGrid({ homeStarters, awayStarters, slotOrder }) {
 }
 
 RosterPreviewGrid.propTypes = {
-  homeStarters: PropTypes.array,
-  awayStarters: PropTypes.array,
-  slotOrder: PropTypes.arrayOf(PropTypes.string),
+  // Pre-paired rows from the Matchup entity, the same shape SlotComparisonList
+  // renders: [{ slot, home, away }].
+  rows: PropTypes.arrayOf(PropTypes.shape({
+    slot: PropTypes.string,
+    home: PropTypes.object,
+    away: PropTypes.object,
+  })),
 };
 
 // --- Live play ticker ------------------------------------------------------

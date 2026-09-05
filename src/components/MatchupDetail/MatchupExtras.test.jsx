@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import {
-  BenchWhatIf, SlotComparisonList, RosterPreviewGrid, StickyScoreboard, LiveTicker, WinProbabilityBar, pairStartersBySlot,
+  BenchWhatIf, SlotComparisonList, RosterPreviewGrid, StickyScoreboard, LiveTicker, WinProbabilityBar,
 } from './MatchupExtras';
 
 const player = (overrides = {}) => ({
@@ -24,52 +24,26 @@ const rowOfChip = (label) => {
   return rows[0];
 };
 
-// Regression: one side has set a single WR, the other a full lineup with IDP
-// slots. Rows used to be zipped by index, so the away QB rendered under the
-// home side's WR chip and the K/DEF/DL rows all drifted one slot.
-const shortHome = [player({ id: 1, name: "Ja'Marr Chase", slot: 'WR', position: 'WR' })];
-const fullAway = [
-  player({ id: 2, name: 'Trevor Lawrence', slot: 'QB' }),
-  player({ id: 3, name: 'Jonathan Taylor', slot: 'RB', position: 'RB' }),
-  player({ id: 4, name: 'DJ Moore', slot: 'WR', position: 'WR' }),
-  player({ id: 5, name: 'Cam Little', slot: 'K', position: 'K' }),
-  player({ id: 6, name: 'Los Angeles Rams', slot: 'DEF', position: 'DEF' }),
-  player({ id: 7, name: 'Emmanuel Ogbah', slot: 'D LINE', position: 'DL' }),
+// A paired row as the Matchup entity hands it down: { slot, home, away }. The
+// pairing itself (by slot key, IDP order, refusal without an order) is the
+// entity's to test; these are the two renderings of an already-paired list, so
+// they take rows literally and prove only that each renders them faithfully.
+const slotRow = (slot, home = null, away = null) => ({ slot, home, away });
+
+// The regression rows #850 fixed: one side a single WR, the other a full lineup
+// with an IDP slot, paired by slot so nothing drifts under the wrong chip.
+const mismatchedRows = [
+  slotRow('QB', null, player({ id: 2, name: 'Trevor Lawrence', slot: 'QB' })),
+  slotRow('RB', null, player({ id: 3, name: 'Jonathan Taylor', slot: 'RB', position: 'RB' })),
+  slotRow('WR', player({ id: 1, name: "Ja'Marr Chase", slot: 'WR', position: 'WR' }), player({ id: 4, name: 'DJ Moore', slot: 'WR', position: 'WR' })),
+  slotRow('K', null, player({ id: 5, name: 'Cam Little', slot: 'K', position: 'K' })),
+  slotRow('DEF', null, player({ id: 6, name: 'Los Angeles Rams', slot: 'DEF', position: 'DEF' })),
+  slotRow('D LINE', null, player({ id: 7, name: 'Emmanuel Ogbah', slot: 'D LINE', position: 'DL' })),
 ];
 
-describe('pairStartersBySlot', () => {
-  test('pairs by slot key, never by index, and leaves the unfilled side empty', () => {
-    const rows = pairStartersBySlot(shortHome, fullAway);
-    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
-      ['QB', null, 'Trevor Lawrence'],
-      ['RB', null, 'Jonathan Taylor'],
-      ['WR', "Ja'Marr Chase", 'DJ Moore'],
-      ['K', null, 'Cam Little'],
-      ['DEF', null, 'Los Angeles Rams'],
-      ['D LINE', null, 'Emmanuel Ogbah'],
-    ]);
-  });
-
-  test('pairs the nth starter of a multi-count slot with the nth on the other side', () => {
-    const home = [player({ id: 1, name: 'H RB1', slot: 'RB' }), player({ id: 2, name: 'H RB2', slot: 'RB' })];
-    const away = [player({ id: 3, name: 'A RB1', slot: 'RB' })];
-    expect(pairStartersBySlot(home, away).map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
-      ['RB', 'H RB1', 'A RB1'],
-      ['RB', 'H RB2', null],
-    ]);
-  });
-
-  test('follows the league slotOrder when given, then appends slots only the starters know about', () => {
-    const rows = pairStartersBySlot(shortHome, fullAway, ['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
-    expect(rows.map((r) => r.slot)).toEqual(['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
-    const extra = pairStartersBySlot([player({ id: 9, name: 'Flex Guy', slot: 'IDP FLEX' })], [], ['QB']);
-    expect(extra.map((r) => r.slot)).toEqual(['IDP FLEX']);
-  });
-});
-
 describe('RosterPreviewGrid', () => {
-  test('keeps each player beside their own slot label when the lineups differ in length', () => {
-    render(<RosterPreviewGrid homeStarters={shortHome} awayStarters={fullAway} />);
+  test('renders each player beside their own slot label from the paired rows', () => {
+    render(<RosterPreviewGrid rows={mismatchedRows} />);
     expect(rowOfChip('QB')).toHaveTextContent('Trevor Lawrence');
     expect(rowOfChip('QB')).not.toHaveTextContent("Ja'Marr Chase");
     expect(rowOfChip('WR')).toHaveTextContent("Ja'Marr Chase");
@@ -79,18 +53,19 @@ describe('RosterPreviewGrid', () => {
     expect(rowOfChip('D LINE')).toHaveTextContent('Emmanuel Ogbah');
   });
 
-  test('renders nothing when neither side has starters', () => {
-    const { container } = render(<RosterPreviewGrid homeStarters={[]} awayStarters={[]} />);
+  test('renders nothing when there are no rows (no league order yet, or empty lineups)', () => {
+    const { container } = render(<RosterPreviewGrid rows={[]} />);
     expect(container).toBeEmptyDOMElement();
+    const { container: noProp } = render(<RosterPreviewGrid />);
+    expect(noProp).toBeEmptyDOMElement();
   });
 });
 
 describe('SlotComparisonList', () => {
-  test('keeps each player beside their own slot label when the lineups differ in length', () => {
+  test('renders each player beside their own slot label from the paired rows', () => {
     render(
       <SlotComparisonList
-        homeStarters={shortHome}
-        awayStarters={fullAway}
+        rows={mismatchedRows}
         expandedId={null}
         onToggle={jest.fn()}
         onOpenPlayer={jest.fn()}
@@ -105,14 +80,15 @@ describe('SlotComparisonList', () => {
     expect(rowOfChip('D LINE')).toHaveTextContent('Emmanuel Ogbah');
   });
 
-  test('pairs home and away starters by slot into one row per slot', () => {
-    const home = [player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 2, name: 'C. McCaffrey', slot: 'RB' })];
-    const away = [player({ id: 3, name: 'J. Allen', slot: 'QB' }), player({ id: 4, name: 'D. Henry', slot: 'RB' })];
+  test('renders one row per paired slot with both sides', () => {
+    const rows = [
+      slotRow('QB', player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 3, name: 'J. Allen', slot: 'QB' })),
+      slotRow('RB', player({ id: 2, name: 'C. McCaffrey', slot: 'RB' }), player({ id: 4, name: 'D. Henry', slot: 'RB' })),
+    ];
 
     render(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={away}
+        rows={rows}
         expandedId={null}
         onToggle={jest.fn()}
         onOpenPlayer={jest.fn()}
@@ -127,21 +103,22 @@ describe('SlotComparisonList', () => {
     expect(screen.getByText('D. Henry')).toBeInTheDocument();
   });
 
-  test('sorts starters into fantasy-standard slot order regardless of input order, and shows DEF as D/ST', () => {
-    const home = [
-      player({ id: 1, name: 'Def Guy', slot: 'DEF' }),
-      player({ id: 2, name: 'Flex Guy', slot: 'FLEX' }),
-      player({ id: 3, name: 'Kick Guy', slot: 'K' }),
-      player({ id: 4, name: 'QB Guy', slot: 'QB' }),
-      player({ id: 5, name: 'RB Guy', slot: 'RB' }),
-      player({ id: 6, name: 'TE Guy', slot: 'TE' }),
-      player({ id: 7, name: 'WR Guy', slot: 'WR' }),
+  test('renders the rows in the order given, and shows DEF as D/ST', () => {
+    // The order is the entity's (the league's slot order); the list renders it
+    // as given and never re-sorts.
+    const rows = [
+      slotRow('QB', player({ id: 4, name: 'QB Guy', slot: 'QB' })),
+      slotRow('RB', player({ id: 5, name: 'RB Guy', slot: 'RB' })),
+      slotRow('WR', player({ id: 7, name: 'WR Guy', slot: 'WR' })),
+      slotRow('TE', player({ id: 6, name: 'TE Guy', slot: 'TE' })),
+      slotRow('FLEX', player({ id: 2, name: 'Flex Guy', slot: 'FLEX' })),
+      slotRow('K', player({ id: 3, name: 'Kick Guy', slot: 'K' })),
+      slotRow('DEF', player({ id: 1, name: 'Def Guy', slot: 'DEF' })),
     ];
 
     render(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={[]}
+        rows={rows}
         expandedId={null}
         onToggle={jest.fn()}
         onOpenPlayer={jest.fn()}
@@ -154,14 +131,15 @@ describe('SlotComparisonList', () => {
     expect(screen.queryByText('DEF')).not.toBeInTheDocument();
   });
 
-  test('renders unpaired remainder rows with an empty opposite side when lengths differ', () => {
-    const home = [player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 2, name: 'Bench Extra', slot: 'FLEX' })];
-    const away = [player({ id: 3, name: 'J. Allen', slot: 'QB' })];
+  test('renders a remainder row with an empty opposite side', () => {
+    const rows = [
+      slotRow('QB', player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 3, name: 'J. Allen', slot: 'QB' })),
+      slotRow('FLEX', player({ id: 2, name: 'Bench Extra', slot: 'FLEX' }), null),
+    ];
 
     render(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={away}
+        rows={rows}
         expandedId={null}
         onToggle={jest.fn()}
         onOpenPlayer={jest.fn()}
@@ -178,14 +156,18 @@ describe('SlotComparisonList', () => {
   });
 
   test('tapping either side of a row expands that player stat line + pace bar independently', () => {
-    const home = [player({ id: 1, name: 'P. Mahomes', slot: 'QB', stats: { passingYards: 300, passingTDs: 3 } })];
-    const away = [player({ id: 2, name: 'J. Allen', slot: 'QB', stats: { rushingYards: 40, rushingTDs: 1 } })];
+    const rows = [
+      slotRow(
+        'QB',
+        player({ id: 1, name: 'P. Mahomes', slot: 'QB', stats: { passingYards: 300, passingTDs: 3 } }),
+        player({ id: 2, name: 'J. Allen', slot: 'QB', stats: { rushingYards: 40, rushingTDs: 1 } }),
+      ),
+    ];
     const onToggle = jest.fn();
 
     const { rerender } = render(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={away}
+        rows={rows}
         expandedId={null}
         onToggle={onToggle}
         onOpenPlayer={jest.fn()}
@@ -203,8 +185,7 @@ describe('SlotComparisonList', () => {
 
     rerender(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={away}
+        rows={rows}
         expandedId={1}
         onToggle={onToggle}
         onOpenPlayer={jest.fn()}
@@ -215,8 +196,7 @@ describe('SlotComparisonList', () => {
 
     rerender(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={away}
+        rows={rows}
         expandedId={2}
         onToggle={onToggle}
         onOpenPlayer={jest.fn()}
@@ -227,14 +207,14 @@ describe('SlotComparisonList', () => {
   });
 
   test('is keyboard-operable via Enter/Space with aria-expanded', () => {
-    const home = [player({ id: 1, name: 'P. Mahomes', slot: 'QB' })];
-    const away = [player({ id: 2, name: 'J. Allen', slot: 'QB' })];
+    const rows = [
+      slotRow('QB', player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 2, name: 'J. Allen', slot: 'QB' })),
+    ];
     const onToggle = jest.fn();
 
     render(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={away}
+        rows={rows}
         expandedId={null}
         onToggle={onToggle}
         onOpenPlayer={jest.fn()}
@@ -248,15 +228,15 @@ describe('SlotComparisonList', () => {
   });
 
   test('opening a player via PlayerNameLink calls onOpenPlayer without toggling the row', () => {
-    const home = [player({ id: 1, name: 'P. Mahomes', slot: 'QB' })];
-    const away = [player({ id: 2, name: 'J. Allen', slot: 'QB' })];
+    const rows = [
+      slotRow('QB', player({ id: 1, name: 'P. Mahomes', slot: 'QB' }), player({ id: 2, name: 'J. Allen', slot: 'QB' })),
+    ];
     const onToggle = jest.fn();
     const onOpenPlayer = jest.fn();
 
     render(
       <SlotComparisonList
-        homeStarters={home}
-        awayStarters={away}
+        rows={rows}
         expandedId={null}
         onToggle={onToggle}
         onOpenPlayer={onOpenPlayer}

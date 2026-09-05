@@ -128,11 +128,9 @@ function RetroField({
   homeName,
   awayName,
   homeProb,
-  homeStarters,
-  awayStarters,
+  starterRows,
   homeBench,
   awayBench,
-  slotOrder,
   activePlay,
 }) {
   const theme = useTheme();
@@ -324,7 +322,7 @@ function RetroField({
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
           Starting Lineups
         </Typography>
-        <RosterPreviewGrid homeStarters={homeStarters} awayStarters={awayStarters} slotOrder={slotOrder} />
+        <RosterPreviewGrid rows={starterRows} />
       </Box>
 
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.5 }}>
@@ -371,11 +369,14 @@ RetroField.propTypes = {
   homeName: PropTypes.string,
   awayName: PropTypes.string,
   homeProb: PropTypes.number,
-  homeStarters: PropTypes.array,
-  awayStarters: PropTypes.array,
+  // Pre-paired starter rows from the Matchup entity, rendered by the preview grid.
+  starterRows: PropTypes.arrayOf(PropTypes.shape({
+    slot: PropTypes.string,
+    home: PropTypes.object,
+    away: PropTypes.object,
+  })),
   homeBench: PropTypes.array,
   awayBench: PropTypes.array,
-  slotOrder: PropTypes.arrayOf(PropTypes.string),
   activePlay: PropTypes.shape({
     side: PropTypes.oneOf(['home', 'away']),
     type: PropTypes.string,

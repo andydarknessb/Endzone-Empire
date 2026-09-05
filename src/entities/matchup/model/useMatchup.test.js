@@ -82,6 +82,72 @@ test('a reconnect resync refetches the detail body', async () => {
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/1/matchups/9');
 });
 
+// A detail body carrying real starters, so the paired-row behaviour has
+// something to pair.
+const detailWithStarters = () => ({
+  data: {
+    viewerTeamId: 10,
+    matchup: { id: 9, season: 2026, week: 3, final: false, status: 'live', home_score: 41.2, away_score: 55.9 },
+    home: {
+      teamId: 10, name: 'Home Town', expectedFinal: 104.6, playersRemaining: 5,
+      starters: [
+        { id: 1, name: 'Josh Allen', slot: 'QB', points: 20 },
+        { id: 2, name: 'Myles Garrett', slot: 'DL', points: 8 },
+      ],
+      bench: [],
+    },
+    away: {
+      teamId: 20, name: 'Away Days', expectedFinal: 131.3, playersRemaining: 4,
+      starters: [
+        { id: 3, name: 'Jalen Hurts', slot: 'QB', points: 18 },
+      ],
+      bench: [],
+    },
+  },
+});
+
+test('exposes paired starter rows in the league slot order once the order is known', async () => {
+  apiClient.get.mockResolvedValue(detailWithStarters());
+
+  const { result } = renderHook(() => useMatchup(1, 9, { slotOrder: ['QB', 'DL'] }));
+
+  await waitFor(() => expect(result.current.matchup).not.toBeNull());
+  expect(result.current.starterRows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+    ['QB', 'Josh Allen', 'Jalen Hurts'],
+    ['DL', 'Myles Garrett', null],
+  ]);
+});
+
+test('refuses to pair without the league slot order, so no render pairs against a default', async () => {
+  apiClient.get.mockResolvedValue(detailWithStarters());
+
+  const { result } = renderHook(() => useMatchup(1, 9));
+
+  await waitFor(() => expect(result.current.matchup).not.toBeNull());
+  // The starters loaded, but with no slot order there are no rows - the lineup
+  // view renders nothing until the league arrives.
+  expect(result.current.starterRows).toEqual([]);
+});
+
+test('an optimistic per-starter bump reaches the paired rows without a refetch', async () => {
+  apiClient.get.mockResolvedValue(detailWithStarters());
+
+  const { result } = renderHook(() => useMatchup(1, 9, { slotOrder: ['QB', 'DL'] }));
+  await waitFor(() => expect(result.current.matchup).not.toBeNull());
+  const before = apiClient.get.mock.calls.length;
+
+  act(() => {
+    socket.fire('scores:updated', {
+      scored: [{ matchupId: 9, homeScore: 47.2, awayScore: 55.9 }],
+      plays: [{ playerId: 1, pointsDelta: 6 }],
+    });
+  });
+
+  const qbRow = result.current.starterRows.find((r) => r.slot === 'QB');
+  expect(qbRow.home.points).toBe(26);
+  expect(apiClient.get.mock.calls.length).toBe(before);
+});
+
 test('a live score event for this matchup moves the model without a refetch', async () => {
   apiClient.get.mockResolvedValue(detailBody());
 

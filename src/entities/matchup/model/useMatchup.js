@@ -1,8 +1,29 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import apiClient from '../../../api/apiClient';
 import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
-import { matchupFromDetailBody, applyScoreEvent, applyIdentityPatch } from './matchupModel';
+import {
+  matchupFromDetailBody, applyScoreEvent, applyIdentityPatch, pairStartersBySlot,
+} from './matchupModel';
+
+/**
+ * Applies the score event's per-play point deltas to a side's starters,
+ * returning a new lineup only when a delta actually lands (so an unaffected side
+ * keeps its identity and never re-renders). This is the optimistic per-starter
+ * bump that tracks the live score without a full refetch; a resync (reconnect)
+ * re-seeds the lineups from the authoritative body and drops these deltas.
+ */
+function applyStarterDeltas(lineup, deltaById) {
+  if (!lineup || !lineup.starters) return lineup;
+  let touched = false;
+  const starters = lineup.starters.map((s) => {
+    const d = deltaById.get(s.id);
+    if (!d) return s;
+    touched = true;
+    return { ...s, points: Math.round(((Number(s.points) || 0) + d) * 100) / 100 };
+  });
+  return touched ? { ...lineup, starters } : lineup;
+}
 
 /**
  * A single Matchup as a read model (ADR 0029: the thin hook on the entity's
@@ -25,20 +46,38 @@ import { matchupFromDetailBody, applyScoreEvent, applyIdentityPatch } from './ma
  * through a ref so passing a fresh one never re-subscribes the feed.
  *
  * The raw detail body is returned alongside the model as `detail`: it carries
- * what the model deliberately does not (the two lineups' starters and benches,
- * the viewer's own Team id, the viewer what-if, and the matchup's `is_playoff`
- * flag), which a box-score surface still needs. The model is the one spelling of
- * the scoreboard (totals, status, `final`, Expected final, Players remaining);
- * `detail` is the lineup payload beneath it.
+ * what the model deliberately does not (the two lineups' benches, the viewer's
+ * own Team id, the viewer what-if, and the matchup's `is_playoff` flag), which a
+ * box-score surface still needs. The model is the one spelling of the scoreboard
+ * (totals, status, `final`, Expected final, Players remaining); `detail` is the
+ * lineup payload beneath it.
+ *
+ * The two lineups' STARTERS, however, arrive already paired: given the league's
+ * `slotOrder` (its roster_slots keys), the hook returns `starterRows` - one row
+ * per slot instance, home paired with away by slot key - so no render pairs
+ * starters itself, and none can pair without the league's order (pairing refuses
+ * an empty order and returns no rows, exactly as Matchup Detail waits on the
+ * league for its bench line). The optimistic per-starter point bumps live here
+ * too now, applied to the paired lineups on each score event, so the rows track
+ * the live score without a refetch; the whole score event (including its `plays`)
+ * is still handed to an optional `onScores` callback so a reader can keep its own
+ * play-driven concerns - cutscenes, toasts, ticker, the retro field - without a
+ * second socket. The callback is read through a ref so passing a fresh one never
+ * re-subscribes the feed.
  *
  * @param {number|string} leagueId
  * @param {number|string} matchupId
- * @param {{ onScores?: (event: object) => void }} [options]
- * @returns {{ matchup: object|null, detail: object|null, loading: boolean, error: string|null, refetch: () => void }}
+ * @param {{ onScores?: (event: object) => void, slotOrder?: string[] }} [options]
+ * @returns {{ matchup: object|null, detail: object|null, starterRows: object[], loading: boolean, error: string|null, refetch: () => void }}
  */
-export function useMatchup(leagueId, matchupId, { onScores } = {}) {
+export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
   const [matchup, setMatchup] = useState(null);
   const [detail, setDetail] = useState(null);
+  // The two lineups (starters/bench per side) as the hook's own live state,
+  // seeded from each fetch of the detail body and bumped optimistically on the
+  // score feed's plays. `starterRows` below pairs their starters by slot.
+  const [home, setHome] = useState(null);
+  const [away, setAway] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const onScoresRef = useRef(onScores);
@@ -47,7 +86,9 @@ export function useMatchup(leagueId, matchupId, { onScores } = {}) {
   // `silent` separates the first load from a background refresh, exactly as the
   // league hook does: the first load drives `loading` (the page skeleton); a
   // resync (a reconnect refetch) must NOT, or every reconnect would blank the
-  // live box score until the fetch resolves.
+  // live box score until the fetch resolves. A fetch also re-seeds the lineups
+  // from the authoritative body, dropping any optimistic per-starter deltas in
+  // favour of the real totals.
   const loadMatchup = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
@@ -55,6 +96,8 @@ export function useMatchup(leagueId, matchupId, { onScores } = {}) {
       const res = await apiClient.get(`/api/league/${leagueId}/matchups/${matchupId}`);
       setDetail(res.data);
       setMatchup(matchupFromDetailBody(res.data));
+      setHome(res.data?.home ?? null);
+      setAway(res.data?.away ?? null);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -77,6 +120,19 @@ export function useMatchup(leagueId, matchupId, { onScores } = {}) {
             return entry ? applyScoreEvent(prev, entry) : prev;
           });
         }
+        // Optimistically bump the scoring players' displayed points by the
+        // reported delta so the paired rows track the live score without a
+        // refetch. Kept on the lineup state here (not the reader) so the rows the
+        // hook exposes already carry the bump.
+        const plays = (event && event.plays) || [];
+        if (plays.length) {
+          const deltaById = new Map();
+          for (const p of plays) {
+            deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
+          }
+          setHome((prev) => applyStarterDeltas(prev, deltaById));
+          setAway((prev) => applyStarterDeltas(prev, deltaById));
+        }
         onScoresRef.current?.(event);
       },
       // A reconnect refetches to recover the deltas missed while offline, but
@@ -91,7 +147,17 @@ export function useMatchup(leagueId, matchupId, { onScores } = {}) {
     setMatchup((prev) => (prev ? applyIdentityPatch(prev, update) : prev));
   }), [leagueId]);
 
-  return { matchup, detail, loading, error, refetch: loadMatchup };
+  // Starters arrive already paired (ADR 0029/0030): the hook owns the pairing so
+  // no render does, and it refuses without the league's slot order - until the
+  // order arrives `starterRows` is empty and the lineup views render nothing,
+  // rather than pairing against a fantasy-standard default that mis-places IDP
+  // starters.
+  const starterRows = useMemo(
+    () => pairStartersBySlot(home?.starters, away?.starters, slotOrder),
+    [home, away, slotOrder]
+  );
+
+  return { matchup, detail, starterRows, loading, error, refetch: loadMatchup };
 }
 
 export default useMatchup;

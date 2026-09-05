@@ -55,18 +55,12 @@ function MatchupDetail() {
   );
   const { realGameIds } = useFantasyMatchupGames(matchupId);
 
-  // The two lineups (starters/bench) are the box score's own state: the model
-  // (entities/matchup) is the scoreboard - totals, status, Expected final,
-  // Players remaining - and `detail` is the lineup payload beneath it. Live
-  // per-starter point bumps are applied here on the plays, so the lineups are
-  // local state seeded from each fetch of the detail body.
-  const [home, setHome] = useState(null);
-  const [away, setAway] = useState(null);
-  // The viewer's own Team id, seeded from the detail body (below) alongside the
-  // lineups. State, not a ref: the play handler reads it directly in its deps,
-  // so nothing shadows a stale closure.
-  const [viewerTeamId, setViewerTeamId] = useState(null);
-
+  // The lineups (starters/bench per side) and the viewer's Team id live on the
+  // hook's `detail` now: the model (entities/matchup) is the scoreboard, the
+  // hook's `starterRows` are the paired starters with their optimistic bumps, and
+  // `detail` carries the raw lineups this page still reads for bench arrays, id
+  // sets and the viewer roster check - all of which the score feed never mutates,
+  // so there is no second lineup copy to keep here.
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
@@ -84,6 +78,10 @@ function MatchupDetail() {
   // Touchdown-celebration preference (opt-out: default on). A ref, not state:
   // it configures the play handler without driving a re-render on load.
   const celebrationsRef = useRef(true);
+  // The latest detail body, so the async play handler reads the current lineups
+  // and viewer id without closing over them (and without re-subscribing the feed
+  // when they change). Updated in an effect below from the hook's `detail`.
+  const detailRef = useRef(null);
 
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -98,44 +96,27 @@ function MatchupDetail() {
   }, []);
 
   // Matchup Detail keeps its own play-driven concerns - cutscenes, toasts, the
-  // ticker, the retro field and the optimistic per-starter point bumps - fed by
-  // the score feed's whole event through the hook's `onScores`. The scores,
-  // Expected final, Players remaining and status all move on the model inside
-  // the hook (applyScoreEvent); this handler never touches them, so there is no
-  // per-side camelCase carry here any more. It closes over the current lineups
-  // and viewer id (in its deps below), so nothing shadows a stale closure; the
-  // hook reads this callback through its own `onScoresRef` and never
-  // re-subscribes when a fresh one is passed.
+  // ticker and the retro field - fed by the score feed's whole event through the
+  // hook's `onScores`. The scores, Expected final, Players remaining and status
+  // all move on the model inside the hook (applyScoreEvent), and the optimistic
+  // per-starter point bumps now live in the hook too (on the paired rows it
+  // exposes), so this handler never touches any of them - it reads the lineups
+  // only to route plays to the right side. It reads them from `detailRef` (the
+  // latest detail body) rather than closing over state, so it stays stable and
+  // the hook, which reads this callback through its own `onScoresRef`, never
+  // re-subscribes the feed.
   const handleScores = useCallback((event) => {
     const plays = (event && event.plays) || [];
     if (!plays.length) return;
 
-    const homeStarters = home?.starters || [];
-    const awayStarters = away?.starters || [];
+    const detailNow = detailRef.current;
+    const viewerTeamId = detailNow?.viewerTeamId ?? null;
+    const homeStarters = detailNow?.home?.starters || [];
+    const awayStarters = detailNow?.away?.starters || [];
     const homeIds = new Set(homeStarters.map((p) => p.id));
     const awayIds = new Set(awayStarters.map((p) => p.id));
 
-    // Optimistically bump the scoring players' displayed points by the reported
-    // delta so rows track the live score without a full refetch.
-    const deltaById = new Map();
-    for (const p of plays) {
-      deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
-    }
-    const applyDeltas = (team) => {
-      if (!team) return team;
-      let touched = false;
-      const starters = team.starters.map((s) => {
-        const d = deltaById.get(s.id);
-        if (!d) return s;
-        touched = true;
-        return { ...s, points: Math.round(((Number(s.points) || 0) + d) * 100) / 100 };
-      });
-      return touched ? { ...team, starters } : team;
-    };
-    setHome((prev) => applyDeltas(prev));
-    setAway((prev) => applyDeltas(prev));
-
-    const iAmHome = viewerTeamId && home?.teamId === viewerTeamId;
+    const iAmHome = viewerTeamId && detailNow?.home?.teamId === viewerTeamId;
     const myIds = viewerTeamId ? (iAmHome ? homeIds : awayIds) : new Set();
     const oppIds = viewerTeamId ? (iAmHome ? awayIds : homeIds) : new Set();
 
@@ -186,24 +167,23 @@ function MatchupDetail() {
         retroDashTimeoutRef.current = null;
       }, latest.isTouchdown === false ? RETRO_MOMENT_MS : RETRO_DASH_MS);
     }
-  }, [home, away, viewerTeamId, pushToasts]);
+  }, [pushToasts]);
 
   // The Matchup as a read model (entities/matchup), with the score feed and the
   // Team identity feed composed over the pure module inside the hook. The whole
   // score event is handed to `handleScores` for the play-driven concerns above.
-  const { matchup: model, detail, loading, error } = useMatchup(leagueId, matchupId, {
+  const { matchup: model, detail, starterRows, loading, error } = useMatchup(leagueId, matchupId, {
     onScores: handleScores,
+    slotOrder,
   });
 
   const whatIf = detail?.viewerWhatIf ?? null;
 
-  // Seed the local lineups and the viewer id from each fetch of the detail body.
-  // A resync inside the hook replaces `detail`, which re-seeds here and drops any
-  // optimistic per-starter deltas in favour of the authoritative totals.
+  // Keep the play handler's view of the lineups current: it reads `detailRef`
+  // rather than closing over `detail`, so it never re-subscribes the feed when a
+  // resync replaces the body.
   useEffect(() => {
-    setHome(detail?.home ?? null);
-    setAway(detail?.away ?? null);
-    setViewerTeamId(detail?.viewerTeamId ?? null);
+    detailRef.current = detail;
   }, [detail]);
 
   // Touchdown-celebration preference (opt-out: default on).
@@ -302,15 +282,16 @@ function MatchupDetail() {
   // never a guessed "Scheduled"/"Not started"). `hasStarted` gates the win
   // probability: true once started (live/played/final), false before kickoff,
   // and null (unknown) asserts neither - exactly as Game Center reads it.
-  const { chipLabel, hasStarted } = matchupStatusView(model?.status);
+  // The chip's whole presentation - label, colour and variant - comes from the
+  // one status predicate (G7), so a fifth status is defined once in the entity
+  // rather than in a ternary duplicated here and in Game Center.
+  const { chipLabel, color: chipColor, variant: chipVariant, hasStarted } = matchupStatusView(model?.status);
   const isFinal = !!model?.final;
   // `isLive` is the exact live status, deliberately NOT the started state: it
   // gates the live-broadcast surfaces (the real-game strip, the live scoring
   // ticker, the live bench what-if), which show only while a matchup is
   // actually live and never for a played or final one.
   const isLive = model?.status === 'live';
-  const chipColor = model?.status === 'final' ? 'success' : model?.status === 'live' ? 'error' : 'default';
-  const chipVariant = model?.status === 'live' || model?.status === 'final' ? 'filled' : 'outlined';
 
   const homeName = model?.home.name;
   const awayName = model?.away.name;
@@ -319,10 +300,11 @@ function MatchupDetail() {
   // is hidden rather than printed as a zero (ADR 0023). Until the league is
   // known the line stays hidden too, so a best-ball zero never flashes.
   const showBenchLeft = !!league && !league.best_ball;
-  const viewerTeam = viewerTeamId === home?.teamId
-    ? home
-    : viewerTeamId === away?.teamId
-      ? away
+  const viewerTeamId = detail?.viewerTeamId ?? null;
+  const viewerTeam = viewerTeamId === detail?.home?.teamId
+    ? detail?.home
+    : viewerTeamId === detail?.away?.teamId
+      ? detail?.away
       : null;
   const viewerHasRoster = !!viewerTeam
     && ((viewerTeam.starters || []).length > 0 || (viewerTeam.bench || []).length > 0);
@@ -402,11 +384,9 @@ function MatchupDetail() {
                   homeName={homeName}
                   awayName={awayName}
                   homeProb={winProb.home}
-                  homeStarters={home?.starters}
-                  awayStarters={away?.starters}
-                  homeBench={home?.bench}
-                  awayBench={away?.bench}
-                  slotOrder={slotOrder}
+                  starterRows={starterRows}
+                  homeBench={detail?.home?.bench}
+                  awayBench={detail?.away?.bench}
                   activePlay={retroActivePlay}
                 />
               </Box>
@@ -486,9 +466,7 @@ function MatchupDetail() {
 
               <Paper sx={{ p: 2 }}>
                 <SlotComparisonList
-                  homeStarters={home?.starters}
-                  awayStarters={away?.starters}
-                  slotOrder={slotOrder}
+                  rows={starterRows}
                   expandedId={expandedId}
                   onToggle={toggleRow}
                   onOpenPlayer={setQuickViewId}
