@@ -12,13 +12,19 @@
  * asserts nothing about a score.
  *
  * The three states, as the strip shows them:
- *   - live:      a live dot, "AWAY score - score HOME", then the quarter and
+ *   - live:      a live dot, "AWAY score - HOME score", then the quarter and
  *                clock as Tank01 reports them ("Q3 6:42"), or LIVE when the row
  *                has no clock yet.
  *   - scheduled: a clock glyph, "AWAY @ HOME" with NO scores (a scheduled
  *                game's 0 - 0 is a column default, not a result), then the
  *                kickoff time when the row carries one.
  *   - final:     no glyph, the final score, then FINAL.
+ *
+ * A score label is the team code THEN its score on BOTH sides ("GB 17 - TB
+ * 20"), the away side first: that is the canvas's shape (build.mjs nflStrip()
+ * prints `${g.a} ${g.as}` - `${g.b} ${g.bs}`, and the Scoreboard view's Games
+ * tile the same). The legacy LiveGameStatus mirrored the home side
+ * ("GB 17 - 20 TB"); that form is not the kit's and is not rendered here.
  *
  * Kickoff: the row's `kickoff_at` when present, else the table's own
  * `start_time` column (the name the migration gives it; the entity reads the
@@ -92,7 +98,7 @@ export function gameTileView(row, { timeZone } = {}) {
     away,
     home,
     awayLabel: showScores && awayScore != null ? `${away} ${awayScore}` : away,
-    homeLabel: showScores && homeScore != null ? `${homeScore} ${home}` : home,
+    homeLabel: showScores && homeScore != null ? `${home} ${homeScore}` : home,
     separator: showScores ? '-' : '@',
     trailing,
     kickoffAt,

@@ -1,6 +1,9 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import NflGameStrip from './NflGameStrip';
+// The model through the slice's public surface, so the export a page test
+// would use is the one exercised here.
+import { gameTileView } from '..';
 
 // The strip is a pure render of live_game_states rows handed in by the page
 // (#885, #901): no hook, no Supabase client, nothing mocked. Red-tell: the
@@ -54,8 +57,10 @@ const finalRow = (overrides = {}) => ({
 const expectedKickoff = (iso) =>
   new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
 
-// The pattern a score label takes ("GB 17", "20 TB"): a code with a number on
-// either side. A scheduled tile must contain none.
+// The pattern a score label takes ("GB 17", "TB 20"): a code with a number
+// beside it. Both orders are matched on purpose so a scheduled tile that
+// leaked a score in EITHER shape (the kit's "TB 20" or the legacy "20 TB")
+// would be caught; a scheduled tile must contain none.
 const SCORE_LABEL = /^(\d+ [A-Z]+|[A-Z]+ \d+)$/;
 
 test('renders nothing for an empty array, and for no list at all', () => {
@@ -83,13 +88,43 @@ test('an in-progress game shows the live dot, both scores and the clock', () => 
 
   expect(within(tile).getByTestId('nfl-game-live-dot')).toBeInTheDocument();
   expect(within(tile).queryByTestId('nfl-game-clock-icon')).toBeNull();
-  // "AWAY score - score HOME": the away code leads its score, the home score
-  // leads its code, a hyphen between them (house style, never an en dash).
+  // "AWAY score - HOME score": each code leads its own score (the canvas's
+  // nflStrip shape, not the legacy "20 TB"), a hyphen between them (house
+  // style, never an en dash), the away side first.
   expect(within(tile).getByText('GB 17')).toBeInTheDocument();
   expect(within(tile).getByText('-')).toBeInTheDocument();
-  expect(within(tile).getByText('20 TB')).toBeInTheDocument();
+  expect(within(tile).getByText('TB 20')).toBeInTheDocument();
+  expect(within(tile).queryByText('20 TB')).toBeNull();
+  expect(within(tile).getAllByText(SCORE_LABEL).map((n) => n.textContent)).toEqual(['GB 17', 'TB 20']);
   expect(within(tile).getByText('Q3 6:42')).toBeInTheDocument();
   expect(within(tile).queryByText('FINAL')).toBeNull();
+});
+
+// The canvas (build.mjs nflStrip(), and the Scoreboard view's Games tile)
+// prints the team code then its score on BOTH sides. Bound on the model
+// through the slice's index, so mirroring the home side back to the legacy
+// LiveGameStatus form ("20 TB") turns this case red, not only the DOM ones.
+test('gameTileView prints code then score on both sides, away first, as the canvas does', () => {
+  expect(gameTileView(liveRow())).toMatchObject({
+    state: 'live',
+    awayLabel: 'GB 17',
+    separator: '-',
+    homeLabel: 'TB 20',
+    trailing: 'Q3 6:42',
+  });
+  expect(gameTileView(finalRow())).toMatchObject({
+    state: 'final',
+    awayLabel: 'DEN 20',
+    separator: '-',
+    homeLabel: 'KC 24',
+    trailing: 'FINAL',
+  });
+  expect(gameTileView(scheduledRow())).toMatchObject({
+    state: 'scheduled',
+    awayLabel: 'CIN',
+    separator: '@',
+    homeLabel: 'NYJ',
+  });
 });
 
 test('a live tile announces Live so the dot is never the only signal', () => {
@@ -155,7 +190,7 @@ test('a final game shows FINAL and the final score, with no dot and no clock ico
   expect(within(tile).queryByTestId('nfl-game-clock-icon')).toBeNull();
   expect(within(tile).getByText('DEN 20')).toBeInTheDocument();
   expect(within(tile).getByText('-')).toBeInTheDocument();
-  expect(within(tile).getByText('24 KC')).toBeInTheDocument();
+  expect(within(tile).getByText('KC 24')).toBeInTheDocument();
   expect(within(tile).getByText('FINAL')).toBeInTheDocument();
   expect(within(tile).queryByText('Live')).toBeNull();
 });

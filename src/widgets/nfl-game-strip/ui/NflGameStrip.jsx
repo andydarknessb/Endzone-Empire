@@ -1,5 +1,4 @@
 import React from 'react';
-import PropTypes from 'prop-types';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { gameTileView } from '../model/gameTileView';
@@ -10,7 +9,8 @@ import { gameTileView } from '../model/gameTileView';
  * `live_game_states` rows the Matchup entity hands down as `model.games`
  * (#885): it reads nothing itself and opens no channel, the entity hook owns
  * the one realtime subscription. Each tile is a live dot (in progress), a
- * clock glyph (scheduled) or nothing (final); then "AWAY score - score HOME"
+ * clock glyph (scheduled) or nothing (final); then "AWAY score - HOME score",
+ * the code before its score on both sides as the canvas prints it
  * (scheduled: "AWAY @ HOME", no scores); then the quarter and clock, FINAL,
  * or the kickoff time when known. An empty list renders nothing at all.
  *
@@ -24,17 +24,43 @@ import { gameTileView } from '../model/gameTileView';
  * (tabIndex 0, the kit's focus ring).
  *
  * Paints only `dash-*` tokens (plus the app's radius and focus-ring tokens
- * the kit already uses). The ink, dim and faint tiers on `dash-surface2` are
- * registered pairings (tokens.contrast.test.js). The live dot is
- * `dash-accent`: the canvas paints it in the app's danger red, but the island
- * has no `dash-danger` token and the kit's own live vocabulary (Badge's
- * `live` variant) is the accent, so the dot follows the kit; `dash-accent`
- * was tuned to clear every dashboard surface (tokens.js) and is registered
- * over the accent tint on `dash-surface2`, a stricter composite than the
- * plain tile. The state never rides on colour alone: a live tile carries a
- * visually-hidden "Live", a scheduled one "Scheduled", and a final one shows
- * FINAL in plain text. Copy is house style: middots would separate, hyphens
- * score, no em dashes; the icon is an inline stroke SVG.
+ * the kit already uses: SegmentedControl paints the same ring). The ink and
+ * faint tiers on `dash-surface2` are registered pairings
+ * (tokens.contrast.test.js).
+ *
+ * The live dot is LIVE_DOT_COLOR, `dash-accent`, and that is a recorded
+ * deviation from the canvas, whose `.dot` is the app's danger red (nflStrip(),
+ * the Starters legend, the hero's "games in progress" line). The island's
+ * other two 8px dots (slot-comparison's LiveDot, retro-scoreboard's Games
+ * tile) paint `dash-accent` on the same reasoning, the kit's own live
+ * vocabulary being the accent (Badge's `live` variant); the scoring-feed
+ * slice's Live PILL is the one danger element, and it brings its own
+ * `dash-danger` tokens and Badge variant with it. Whether the dots follow the
+ * pill is an island-wide ruling, not this slice's: if it lands on red, the
+ * change here is LIVE_DOT_COLOR alone, to `var(--dash-danger)` once that
+ * token is on integration, with a `dash-danger` on `dash-surface2` row
+ * registered in the guard (a graphical object, so WCAG 1.4.11's 3:1 bar, not
+ * the text rows' 4.5). The state never rides on colour alone either way: a
+ * live tile carries a visually-hidden "Live", a scheduled one "Scheduled",
+ * and a final one shows FINAL in plain text. Copy is house style: middots
+ * would separate, hyphens score, no em dashes; the icon is an inline stroke
+ * SVG.
+ *
+ * @typedef {object} GameRow  one live_game_states row, as the entity hands it down
+ * @property {string|number} [tank01_game_id]  the tile key (falls back to "AWAY@HOME")
+ * @property {'scheduled'|'in_progress'|'final'} [game_status]  anything else reads as scheduled
+ * @property {string|null} [quarter]  Tank01's quarter label ("Q3")
+ * @property {string|null} [time_remaining]  Tank01's clock ("6:42")
+ * @property {string} home_team  team code
+ * @property {string} away_team  team code
+ * @property {number|string} [current_score_home]  shown unless scheduled
+ * @property {number|string} [current_score_away]  shown unless scheduled
+ * @property {string|Date|null} [kickoff_at]  preferred over start_time when both are present
+ * @property {string|Date|null} [start_time]  the table's own column name
+ *
+ * @param {object} props
+ * @param {GameRow[]} [props.games]  an empty or absent list renders nothing
+ * @param {string} [props.data-testid]  defaults to "nfl-game-strip"
  */
 export default function NflGameStrip({ games, 'data-testid': testId = 'nfl-game-strip' }) {
   const rows = Array.isArray(games) ? games.filter(Boolean) : [];
@@ -68,26 +94,10 @@ export default function NflGameStrip({ games, 'data-testid': testId = 'nfl-game-
   );
 }
 
-NflGameStrip.propTypes = {
-  // live_game_states rows: game_status, quarter, time_remaining, the two team
-  // codes, the two current scores, and a kickoff (`kickoff_at`, or the
-  // table's own `start_time`). An empty or absent list renders nothing.
-  games: PropTypes.arrayOf(
-    PropTypes.shape({
-      tank01_game_id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-      game_status: PropTypes.string,
-      quarter: PropTypes.string,
-      time_remaining: PropTypes.string,
-      home_team: PropTypes.string,
-      away_team: PropTypes.string,
-      current_score_home: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-      current_score_away: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-      kickoff_at: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
-      start_time: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
-    })
-  ),
-  'data-testid': PropTypes.string,
-};
+// The live dot's fill: the one line the island-wide dot ruling changes (see
+// the doc block above). Accent today, the kit's live vocabulary; the canvas's
+// `.dot` is the danger red.
+const LIVE_DOT_COLOR = 'var(--dash-accent)';
 
 // The canvas's `.num` with the 600 weight: a tabular figure label.
 const LABEL_SX = {
@@ -134,7 +144,7 @@ function GameTile({ row }) {
               height: 8,
               flex: 'none',
               borderRadius: 'var(--radius-pill)',
-              backgroundColor: 'var(--dash-accent)',
+              backgroundColor: LIVE_DOT_COLOR,
             }}
           />
           <Box component="span" sx={visuallyHidden}>Live</Box>
