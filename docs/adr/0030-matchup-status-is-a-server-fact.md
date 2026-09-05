@@ -57,5 +57,5 @@ final.
   Matchup's week failed, or in best ball there is no projection run, so no
   chosen lineup exists to read a status from. Withholding the figures on such a
   miss was always right; asserting `scheduled` for the fact was the bug (#862).
-  This adds a fifth thing the wire can carry (null, alongside the four values),
-  so it is a change to this decision and is Cory's to ratify.
+  This adds a fifth thing the wire can carry (null, alongside the four values).
+  Ratified 2026-09-05 (#862).
