@@ -1,0 +1,155 @@
+{
+  "pages": [
+    {
+      "id": "game-center",
+      "name": "Game Center"
+    },
+    {
+      "id": "matchup-standard",
+      "name": "Matchup · Standard"
+    },
+    {
+      "id": "matchup-scoreboard",
+      "name": "Matchup · Scoreboard"
+    },
+    {
+      "id": "fsd",
+      "name": "FSD plan"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Game Center · Desktop",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "page": "game-center"
+    },
+    {
+      "file": "GameCenterMobile.dc.html",
+      "title": "Game Center · Mobile",
+      "x": 1540,
+      "y": 0,
+      "w": 390,
+      "h": 1560,
+      "page": "game-center"
+    },
+    {
+      "file": "MatchupStandard.dc.html",
+      "title": "Matchup Standard · Desktop",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1620,
+      "page": "matchup-standard"
+    },
+    {
+      "file": "MatchupStandardMobile.dc.html",
+      "title": "Matchup Standard · Mobile",
+      "x": 1540,
+      "y": 0,
+      "w": 390,
+      "h": 1540,
+      "page": "matchup-standard"
+    },
+    {
+      "file": "MatchupScoreboard.dc.html",
+      "title": "Matchup Scoreboard · Desktop",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1300,
+      "page": "matchup-scoreboard"
+    },
+    {
+      "file": "MatchupScoreboardMobile.dc.html",
+      "title": "Matchup Scoreboard · Mobile",
+      "x": 1540,
+      "y": 0,
+      "w": 390,
+      "h": 1440,
+      "page": "matchup-scoreboard"
+    },
+    {
+      "file": "FsdSliceMap.dc.html",
+      "title": "FSD slice map",
+      "x": 0,
+      "y": 0,
+      "w": 1200,
+      "h": 820,
+      "page": "fsd"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "gc-audit",
+      "x": 0,
+      "y": -480,
+      "w": 460,
+      "text": "AUDIT · Game Center today\n1. Hero card carries no avatars, no record, and the score sits under the name in body type; nothing reads as the headline.\n2. Win probability bar has no percentages next to the teams it belongs to and the caption says only \"Win Probability\".\n3. Ticker and feed both render the emoji football and the same line twice on screen (strip and list).\n4. Matchup cards print \"Team (82.2)\" in one string, so the score never aligns and a winner is bold weight only.\n5. Week filter is a native select plus two icon buttons; on mobile it collapses under the title.\n6. The page uses Inter and plain MUI Cards while the League Dashboard uses the Barlow/Archivo kit (ADR 0020); the two league surfaces look like different apps.",
+      "page": "game-center"
+    },
+    {
+      "id": "gc-changes",
+      "x": 480,
+      "y": -480,
+      "w": 460,
+      "text": "CHANGES · Game Center\n1. Dashboard kit: Card, Badge and the dash-* tokens, Barlow Condensed for names and scores.\n2. Hero: 64px avatars, You pill, 56px tabular score, Expected final and PMR as stat tiles, win probability with per-side percentages and one plain sentence.\n3. Grid cards align score right at 26px, carry record and a 5px win-probability bar; scheduled cards show projected totals and the first kickoff.\n4. Feed moves to a right rail (desktop) with time, side dot and team; the strip is one line with a Live pill and no emoji.\n5. Week at a glance is derived from the list read (top score, closest, biggest lead).\n6. Mobile: full-width week segmented control, stacked hero, matchup rows instead of cards, feed collapsed to three.",
+      "page": "game-center"
+    },
+    {
+      "id": "gc-wire",
+      "x": 960,
+      "y": -480,
+      "w": 460,
+      "text": "WIRE ADDITIONS needed for this page\n1. First kickoff per Matchup (nfl_games.kickoff_at, already read by the Expected final producer) for \"Kicks off Sun 7:20 PM\".\n2. Team record on the list row (or the page passes standings down).\n3. Last sync time on the list response for \"Scores synced 3:42 PM\".\nEverything else on these boards is on the wire today (ADR 0029/0030 shapes).",
+      "page": "game-center"
+    },
+    {
+      "id": "ms-audit",
+      "x": 0,
+      "y": -480,
+      "w": 460,
+      "text": "AUDIT · Matchup Standard today\n1. Sticky scoreboard is one text line \"Team 82.2 - 77.0 Team\" with a 4px bar; no avatars, no EF, no PMR, so the sticky state loses the two numbers a manager scrolls back for.\n2. Score, Projected and Players remaining are printed a second time below the win probability card in body type.\n3. Slot rows show name and points only; pace and stat line hide behind a click, and nothing says which players are done, live or yet to play.\n4. Bench what-if is a paper with a Show button and an arrow glyph, not an action.\n5. NFL game strip is unstyled outlined papers.\n6. Status is a server fact (ADR 0030) but the page still has no per-starter state to show.",
+      "page": "matchup-standard"
+    },
+    {
+      "id": "ms-changes",
+      "x": 480,
+      "y": -480,
+      "w": 460,
+      "text": "CHANGES · Matchup Standard\n1. Scoreboard card: avatars with team-color rings, 60px scores, EF and PMR under each side, percentages beside the bar. It is the sticky element; nothing below repeats it.\n2. Starters table: NFL player headshot beside each name (PlayerAvatar, position-colored ring, initials fallback for D/ST), position chip in the slot column, per-player state (live dot, final check, clock), NFL game clock on the second line, inline pace bar with the projection; expand row keeps the stat line.\n3. Totals footer sums the columns so the table and scoreboard agree.\n4. Bench what-if becomes a warning-bordered card with the swap and a real action.\n5. NFL games are tiles with a live dot or a kickoff clock.\n6. Mobile drops the inline pace bar, shows projection under the points, keeps the state icon.\n\nWIRE: the detail starter rows need photo_url (players table has it; the ESPN headshot resolver fills it) and a per-starter game state plus clock from the Expected final classification.",
+      "page": "matchup-standard"
+    },
+    {
+      "id": "sb-audit",
+      "x": 0,
+      "y": -420,
+      "w": 460,
+      "text": "AUDIT · Scoreboard view today\n1. LED board is Courier New with a green glow on pure black, integer scores only, no EF or PMR, and the status word floats between the teams.\n2. Retro field and roster preview use MUI initials avatars; the preview repeats the standard list with less information.\n3. The view toggle is a bare MUI ToggleButtonGroup, easy to miss.\n4. Nothing on this view says which NFL games are on.",
+      "page": "matchup-scoreboard"
+    },
+    {
+      "id": "sb-changes",
+      "x": 480,
+      "y": -420,
+      "w": 460,
+      "text": "CHANGES · Scoreboard view\n1. Board uses Press Start 2P (already self-hosted for the Tecmo cutscene), amber LED on the board token, one-decimal scores, win percentages in the middle, EF and TO PLAY on a second LED row.\n2. Field is inline SVG: team-color end zones, yard numbers, sprites placed by win probability, last play flashed on the field.\n3. Lineups preview keeps the slot chip and adds the projection; Games tile lists every NFL game with clock.\n4. Toggle is a segmented control with icons in both views.",
+      "page": "matchup-scoreboard"
+    },
+    {
+      "id": "fsd-note",
+      "x": 1240,
+      "y": 0,
+      "w": 420,
+      "text": "HOW TO BUILD IT\nOne ticket per widget slice, page slices last (ADR 0020 pattern). Each widget reads entities/matchup only and takes leagueId or the model as props; the page owns the week and view state.\nContrast: every new ink-on-surface pairing (LED amber on board, home/away on surface2, pos chips) gets a row in tokens.contrast.test.js before the widget merges.\nCopy: middots, hyphen scores, no em dashes (ADR 0016).\nThe theme tweak on each artboard flips the same token names the app resolves.",
+      "page": "fsd"
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "game-center"
+  }
+}

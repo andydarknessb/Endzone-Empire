@@ -37,6 +37,13 @@ decisions — what to read first (`CONTEXT.md` / `CONTEXT-MAP.md` /
 contradiction with an existing ADR.
 See `docs/agents/domain.md`.
 
+### Design canvases
+Read before drafting any mockup, wireframe, screen flow or marketing
+artboard with the `/design` skill: where the design tokens and MUI theme
+live, which screen to match first, the house-style copy rules that carry
+into artboard text, and where a canvas's working files are kept.
+See `docs/agents/design.md`.
+
 ### Production data state
 Read before treating a query against the shared production Supabase
 database as confirmation of anything — what tables are populated as of the
