@@ -88,7 +88,7 @@ for (let w = 1; w <= 18; w++) {
   if (w !== WEEK) BYE_ROWS.push({ nfl_team: 'Ghosts', week: w });
 }
 
-async function getDetail(t, { gameRows = [] } = {}) {
+async function getDetail(t, { gameRows = [], throwGames = false } = {}) {
   const runCalls = [];
   t.mock.method(projectionService, 'getWeeklyProjections', async (args) => {
     runCalls.push([...args.playerIds].sort());
@@ -107,7 +107,7 @@ async function getDetail(t, { gameRows = [] } = {}) {
     [/FROM "live_game_states"/, () => ({ rows: LIVE })],
     // The NFL games either roster plays in this week (one row per rostered
     // player and game, so a game repeats once per player from that team).
-    [/FROM "view_matchup_nfl_games"/, () => ({ rows: gameRows })],
+    [/FROM "view_matchup_nfl_games"/, () => { if (throwGames) throw new Error('view unavailable'); return { rows: gameRows }; }],
     // The route's own per-team reads (bench by slot, starters by NOT IN).
     [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
       rows: params[0] === HOME ? HOME_BENCH : [],
@@ -175,6 +175,12 @@ test('nflGameIds lists each NFL game once, sorted, however many rostered players
 test('nflGameIds is an empty array, not an error, for a week with no live game rows yet (#884)', async (t) => {
   const { body } = await getDetail(t, { gameRows: [] });
   assert.deepEqual(body.nflGameIds, []);
+});
+
+test('a failed games read leaves nflGameIds empty and the detail body still answers (#884)', async (t) => {
+  const { body } = await getDetail(t, { throwGames: true });
+  assert.deepEqual(body.nflGameIds, []);
+  assert.equal(body.home.expectedFinal, 22.5, 'the rest of the body is unaffected');
 });
 
 // ---------------------------------------------------------------------------
