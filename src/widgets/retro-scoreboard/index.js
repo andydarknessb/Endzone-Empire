@@ -1,8 +1,10 @@
 /**
  * Public surface of the retro-scoreboard widget (ADR 0031, #902): the
  * Scoreboard view of a Matchup, composing an LED board, an SVG field, a
- * Lineups card and a Games tile. The Matchup page composes it from here;
- * everything else in this folder is the widget's own internal slice.
+ * Lineups card and a Games tile, with two slots the page fills (`ticker`
+ * full width under the field, `aside` in the right column). The Matchup page
+ * composes it from here; everything else in this folder is the widget's own
+ * internal slice.
  *
  * Import edges, for the boundary audit ADR 0020 names as its follow-up:
  * `shared/ui` (the kit, and since #903 the Tecmo pixel sprite and its fixed

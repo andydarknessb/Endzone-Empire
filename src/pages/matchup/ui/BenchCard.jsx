@@ -1,6 +1,6 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
-import { Card, PosChip } from '../../../shared/ui';
+import { Card, InjuryTag, PosChip } from '../../../shared/ui';
 import { unavailableLabel } from '../../../widgets/slot-comparison';
 
 /**
@@ -10,9 +10,11 @@ import { unavailableLabel } from '../../../widgets/slot-comparison';
  * and a Show / Hide action with the chevron, collapsed by default. Open, it
  * lists both benches side by side, home on the left and away on the right:
  * each row is the player's position chip, his name (a button that opens the
- * player quick view), the points, and beneath the name either his projection
- * or, for an Unavailable player, the reason in place of it ("on bye", "out",
- * "on IR"), the one rule the slot-comparison widget exports.
+ * player quick view) with his injury designation beside it when flagged (the
+ * kit's InjuryTag, the same tag the Starters table shows), the points, and
+ * beneath the name either his projection or, for an Unavailable player, the
+ * reason in place of it ("on bye", "out", "on IR"), the one rule the
+ * slot-comparison widget exports.
  *
  * Once a Matchup is final in a league that sets a lineup, the points each
  * side left on its bench (the page's hindsight read) print under the header
@@ -193,30 +195,41 @@ function BenchRow({ player, mirrored, first, onOpenPlayer, mobile }) {
         }}
       >
         <Box
-          component="button"
-          type="button"
-          onClick={() => onOpenPlayer?.(player.id)}
           sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
             minWidth: 0,
             maxWidth: '100%',
-            minHeight: mobile ? 44 : undefined,
-            border: 0,
-            p: 0,
-            m: 0,
-            background: 'transparent',
-            font: 'inherit',
-            fontSize: '13px',
-            fontWeight: 600,
-            lineHeight: 1.45,
-            textAlign: 'inherit',
-            color: 'var(--dash-ink)',
-            cursor: 'pointer',
-            ...ELLIPSIS,
-            '&:hover': { textDecoration: 'underline' },
-            '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2, borderRadius: '4px' },
+            flexDirection: mirrored ? 'row-reverse' : 'row',
           }}
         >
-          {player.name}
+          <Box
+            component="button"
+            type="button"
+            onClick={() => onOpenPlayer?.(player.id)}
+            sx={{
+              minWidth: 0,
+              minHeight: mobile ? 44 : undefined,
+              border: 0,
+              p: 0,
+              m: 0,
+              background: 'transparent',
+              font: 'inherit',
+              fontSize: '13px',
+              fontWeight: 600,
+              lineHeight: 1.45,
+              textAlign: 'inherit',
+              color: 'var(--dash-ink)',
+              cursor: 'pointer',
+              ...ELLIPSIS,
+              '&:hover': { textDecoration: 'underline' },
+              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2, borderRadius: '4px' },
+            }}
+          >
+            {player.name}
+          </Box>
+          <InjuryTag status={player.injury_status} />
         </Box>
         {reason ? (
           <Box component="span" data-testid="unavailable-reason" sx={NOTE}>{reason}</Box>

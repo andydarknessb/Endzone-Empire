@@ -23,6 +23,10 @@ import { Chip } from '@mui/material';
  *     mockup's accent-toned season chip: the two canvases paint "live"
  *     differently and each keeps its own variant. Its tint is guarded only
  *     over a card (tokens.contrast.test.js), so it belongs on `dash-surface`.
+ *   - `warning`: the canvas's `.chip.warn` (ADR 0031, #903): warning text and
+ *     border on the warning tint, the "may not play" tone of the injury tag
+ *     (InjuryTag). Its tint is guarded over a card and a stat tile
+ *     (`dash-surface`, `dash-surface2`, tokens.contrast.test.js), nowhere else.
  *
  * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
  * The label text is whatever `children` holds; the variant is also exposed as
@@ -54,6 +58,12 @@ const VARIANT_SX = {
     backgroundColor: 'var(--dash-danger-soft)',
     color: 'var(--dash-danger)',
     border: '1px solid var(--dash-danger)',
+  },
+  // Like `danger`, the border is the solid warning color (no `dash-warning-line`).
+  warning: {
+    backgroundColor: 'var(--dash-warning-soft)',
+    color: 'var(--dash-warning)',
+    border: '1px solid var(--dash-warning)',
   },
 };
 

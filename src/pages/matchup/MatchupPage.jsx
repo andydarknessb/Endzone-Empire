@@ -37,9 +37,13 @@ import LastPlays from './ui/LastPlays';
  *     and the collapsed Bench card (./ui/BenchCard) with the bench-left line
  *     for a final Matchup;
  *   - the Scoreboard view: the retro scoreboard (widgets/retro-scoreboard),
- *     its aside slot holding the last-plays ticker (./ui/LastPlays) and the
- *     bench what-if while live, and its "Full comparison" action switching
- *     back to Standard.
+ *     its ticker slot holding the last-plays ticker (./ui/LastPlays) full
+ *     width under the field while live (the canvas's liveTicker() row), its
+ *     aside slot the bench what-if while live (the right column on desktop,
+ *     after the Lineups card stacked), and its "Full comparison" action
+ *     switching back to Standard. The canvas draws no bench section in this
+ *     view: the legacy Scoreboard mode's "Show Benches" is retired, and the
+ *     Standard view's Bench card carries the benches.
  *
  * Both views render the SAME `starterRows` the entity hook pairs (ADR 0029),
  * so the two agree slot for slot under any league slot order. The status chip
@@ -136,12 +140,8 @@ export default function MatchupPage() {
               homeProb={homeProb}
               headingLevel={2}
               onFullComparison={showStandard}
-              aside={(
-                <>
-                  {isLive && <LastPlays items={ticker} mobile={compact} />}
-                  {whatIfCard}
-                </>
-              )}
+              ticker={isLive ? <LastPlays items={ticker} mobile={compact} /> : null}
+              aside={whatIfCard}
             />
           ) : (
             <>

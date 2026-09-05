@@ -8,7 +8,9 @@
  * `unavailableLabel` is the one rule for what an Unavailable player shows in
  * place of his projection ("on bye", "out", "on IR"); the Matchup page's
  * bench card reads it from here (#903) so the Starters table and the benches
- * beneath it speak the same words.
+ * beneath it speak the same words. The injury designation beside a name is
+ * the kit's InjuryTag (`shared/ui`), the same piece the bench card and the
+ * retro Lineups card compose.
  */
 export { default as SlotComparison } from './ui/SlotComparison';
 export { default } from './ui/SlotComparison';

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
-import { Card, PosChip } from '../../../shared/ui';
+import { Card, InjuryTag, PosChip } from '../../../shared/ui';
 import PlayerAvatar from '../../../components/PlayerQuickView/PlayerAvatar';
 import { lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
@@ -13,8 +13,10 @@ import Icon from './icons';
  * (the ESPN photo, position-colored initials when there is none) in a 2px
  * ring of its position's `pos-*` color, as the canvas's headshot() draws it
  * and the slot-comparison widget rings its own (so the two lineup renderings
- * share one avatar treatment), the name,
- * and a note line of points and projection ("18.6 · proj 19.2") or, for an
+ * share one avatar treatment), the name with his injury designation beside
+ * it when flagged (the kit's InjuryTag, the same tag the Starters table
+ * shows, #903), and a note line of points and projection ("18.6 · proj 19.2")
+ * or, for an
  * Unavailable starter, the reason ("0.0 · on bye"), the reason carrying the
  * `unavailable-reason` test id the Matchup Detail page tests read.
  *
@@ -91,18 +93,30 @@ function Side({ player, side }) {
         }}
       >
         <Box
-          component="span"
           sx={{
             maxWidth: '100%',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            fontSize: '13px',
-            fontWeight: 600,
-            color: 'var(--dash-ink)',
+            minWidth: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            flexDirection: mirrored ? 'row-reverse' : 'row',
           }}
         >
-          {player.name}
+          <Box
+            component="span"
+            sx={{
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--dash-ink)',
+            }}
+          >
+            {player.name}
+          </Box>
+          <InjuryTag status={player.injury_status} />
         </Box>
         <Note player={player} />
       </Box>

@@ -3,16 +3,19 @@ import { render, screen, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RetroScoreboard } from '..';
 
-// prefers-reduced-motion (and the widget's own mobile breakpoint) are read
-// through MUI's useMediaQuery; mock matchMedia the way RetroField.test.jsx
-// does, but answer per query so reduced motion can be switched on without the
-// widget also reading as mobile. Default: no preference, so the ordinary
+// prefers-reduced-motion (and the widget's own breakpoints) are read through
+// MUI's useMediaQuery; mock matchMedia the way RetroField.test.jsx does, but
+// answer per query so reduced motion can be switched on without the widget
+// also reading as mobile, and the stacked (max-width) layout switched on by
+// itself. Default: no preference and the desktop layout, so the ordinary
 // (animated) path runs.
 let reducedMotion = false;
+let stacked = false;
 beforeEach(() => {
   reducedMotion = false;
+  stacked = false;
   window.matchMedia = jest.fn().mockImplementation((query) => ({
-    matches: /reduced-motion/.test(query) ? reducedMotion : false,
+    matches: /reduced-motion/.test(query) ? reducedMotion : /max-width/.test(query) ? stacked : false,
     media: query,
     onchange: null,
     addListener: jest.fn(),
@@ -62,7 +65,10 @@ const rows = [
   {
     slot: 'QB',
     home: starter(),
-    away: starter({ id: 11, name: 'J. Allen', nfl_team: 'BUF', points: 24.1, projected: 22.5, photo_url: 'https://cdn.example/allen.png' }),
+    away: starter({
+      id: 11, name: 'J. Allen', nfl_team: 'BUF', points: 24.1, projected: 22.5,
+      photo_url: 'https://cdn.example/allen.png', injury_status: 'Q',
+    }),
   },
   {
     slot: 'RB',
@@ -306,6 +312,14 @@ test('the Lineups card renders the paired rows in the given order with a headsho
   expect(qb.getByText('J. Goff')).toBeInTheDocument();
   expect(qb.getByText('J. Allen')).toBeInTheDocument();
   expect(qb.getAllByTestId('lineup-note').map((el) => el.textContent)).toEqual(['18.6 · proj 19.2', '24.1 · proj 22.5']);
+  // The flagged starter carries his injury designation beside his name (the
+  // legacy page's badge, #903); the healthy one carries none.
+  const allen = within(qb.getByTestId('lineup-side-away'));
+  expect(allen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(allen.getByText('Q')).toBeInTheDocument();
+  expect(allen.getByText('Injury status: Questionable')).toBeInTheDocument();
+  expect(within(qb.getByTestId('lineup-side-home')).queryByTestId('injury-tag')).not.toBeInTheDocument();
+  expect(card.getAllByTestId('injury-tag')).toHaveLength(1);
 
   // Row two: only the home side is filled; the row keeps its empty away side.
   const rb = within(slotRows[1]);
@@ -455,4 +469,54 @@ test('below md the columns stack in the mobile artboard\'s order: Games, then Li
   expect(lineups.md).toMatch(/\border:\s*1;/);
   expect(aside.md).toMatch(/\border:\s*1;/);
   expect(gamesSlot.md).toMatch(/\border:\s*2;/);
+});
+
+// Document order, the one layout fact jsdom can read.
+const precedes = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+// The canvas (matchupScoreboardDesktop()) draws the ticker full width between
+// the field and the Lineups/aside grid, never inside the 340px column where a
+// four-play row would clip; the aside sits above the Games tile in that column.
+test('on desktop the ticker slot renders full width under the field, before the Lineups card, and the aside sits above the Games tile', () => {
+  renderBoard({
+    ticker: <div data-testid="page-ticker">Last plays</div>,
+    aside: <div data-testid="page-aside">Bench what-if</div>,
+  });
+
+  const field = screen.getByTestId('retro-field');
+  const ticker = screen.getByTestId('page-ticker');
+  const lineups = screen.getByTestId('lineups-card');
+  const aside = screen.getByTestId('page-aside');
+  const games = screen.getByTestId('games-tile');
+  expect(precedes(field, ticker)).toBe(true);
+  expect(precedes(ticker, lineups)).toBe(true);
+  expect(precedes(lineups, aside)).toBe(true);
+  expect(precedes(aside, games)).toBe(true);
+});
+
+// The mobile artboard (matchupScoreboardMobile()): the ticker under the field,
+// then the games, the Lineups card, and the aside AFTER the Lineups.
+test('stacked below md, the ticker precedes the Games tile, then the Lineups card, then the aside', () => {
+  stacked = true;
+  renderBoard({
+    ticker: <div data-testid="page-ticker">Last plays</div>,
+    aside: <div data-testid="page-aside">Bench what-if</div>,
+  });
+
+  const ticker = screen.getByTestId('page-ticker');
+  const games = screen.getByTestId('games-tile');
+  const lineups = screen.getByTestId('lineups-card');
+  const aside = screen.getByTestId('page-aside');
+  expect(precedes(screen.getByTestId('retro-field'), ticker)).toBe(true);
+  expect(precedes(ticker, games)).toBe(true);
+  expect(precedes(games, lineups)).toBe(true);
+  expect(precedes(lineups, aside)).toBe(true);
+});
+
+test('without a ticker or an aside the widget renders only its own pieces', () => {
+  renderBoard();
+  expect(screen.queryByTestId('page-ticker')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('page-aside')).not.toBeInTheDocument();
+  expect(screen.getByTestId('lineups-card')).toBeInTheDocument();
+  expect(screen.getByTestId('games-tile')).toBeInTheDocument();
 });

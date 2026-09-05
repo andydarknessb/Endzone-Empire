@@ -212,6 +212,8 @@ const toScoreboard = () => userEvent.click(screen.getByRole('radio', { name: 'Sc
 const toStandard = () => userEvent.click(screen.getByRole('radio', { name: 'Standard' }));
 const matchupFetches = () => apiClient.get.mock.calls.filter(([url]) => url === MATCHUP_URL);
 const hindsightFetches = () => apiClient.get.mock.calls.filter(([url]) => url.includes('/api/team/hindsight'));
+// Document order, the one layout fact jsdom can read.
+const precedes = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 // --- loading, error, structure ---------------------------------------------
 
@@ -300,6 +302,22 @@ test('a live matchup reads LIVE from the fetch alone, with no socket event', asy
   expect(statusChip()).toHaveAttribute('data-variant', 'live');
   expect(screen.queryByText('Awaiting final')).not.toBeInTheDocument();
   expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
+  expect(screen.getByText('Win probability')).toBeInTheDocument();
+  expect(screen.queryByText(/Live win probability/)).not.toBeInTheDocument();
+});
+
+// Triage #872/#887's page-level promise: on the composed page ONE announced
+// Win probability image and the plain "Win probability" caption (never "Live
+// win probability") for every started status, not only live. The retro
+// field's image is named "Field position: ...", so nothing else can double it.
+test.each(['played', 'final'])('a %s matchup exposes exactly one Win probability image and the plain caption on the composed page', async (status) => {
+  mockApi({ matchup: matchupResponse({ matchup: { status, final: status === 'final', home_score: '99', away_score: '92' } }) });
+  renderPage();
+
+  await screen.findByTestId('matchup-status-chip');
+  expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
+  expect(screen.getByText('Win probability')).toBeInTheDocument();
+  expect(screen.queryByText(/Live win probability/)).not.toBeInTheDocument();
 });
 
 // A played (games done, not finalised) matchup reads "Awaiting final", never a
@@ -447,8 +465,11 @@ test('the toggle swaps the views: Scoreboard mounts the retro board, Standard re
 
 // The choice is remembered per VIEWER: a second manager on the same browser
 // starts on Standard, and the first finds Scoreboard again on remount.
-// Red-tell: keying the remembered view without the viewer turns this case red
-// (the second manager would inherit Scoreboard) and no other.
+// Red-tell (the ticket's): READING the remembered view from a key other than
+// the viewer's turns this case red (the second manager would inherit
+// Scoreboard) and no other. The broader mutation that drops the viewer from
+// the key on the write too also turns the user-keyed case below red, since it
+// derives its expected keys through the same exported helper.
 test('the toggle\'s choice survives a remount for the same viewer and never leaks to another', async () => {
   const { unmount } = renderPage();
   await screen.findByTestId('slot-comparison');
@@ -530,6 +551,79 @@ test('the Starters table and the retro Lineups card render the same paired rows 
   await toScoreboard();
   await screen.findByTestId('lineups-card');
   expect(slotOrder()).toEqual(standardOrder);
+});
+
+// --- injury designations and row expansion -----------------------------------
+
+// The legacy suite's "renders an injury badge for a flagged starter": the code
+// beside the name in the Starters table, the retro Lineups card and the Bench
+// card, with the designation as its spoken text; a healthy player shows none.
+test('a flagged starter carries his injury designation in both views, and a flagged bench player on the bench', async () => {
+  reducedMotion = true;
+  mockApi({
+    matchup: matchupResponse({
+      homeStarters: [starter({ injury_status: 'Q' })],
+      homeBench: [{ id: 20, name: 'Bench Runner', position: 'RB', points: 0, projected: 4.1, injury_status: 'IR' }],
+    }),
+  });
+  renderPage();
+
+  const table = await screen.findByTestId('slot-comparison');
+  expect(within(table).getByText('Q')).toBeInTheDocument();
+  expect(within(table).getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(within(table).getByText('Injury status: Questionable')).toBeInTheDocument();
+  // The healthy away starter carries none.
+  expect(within(table).getAllByTestId('injury-tag')).toHaveLength(1);
+
+  await toScoreboard();
+  const lineups = await screen.findByTestId('lineups-card');
+  expect(within(lineups).getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(within(lineups).getByText('Q')).toBeInTheDocument();
+  await toStandard();
+
+  await userEvent.click(within(screen.getByTestId('bench-card')).getByRole('button', { name: 'Show' }));
+  const bench = within(screen.getByTestId('bench-home'));
+  expect(bench.getByTestId('injury-tag')).toHaveAttribute('data-status', 'IR');
+  expect(bench.getByText('IR')).toBeInTheDocument();
+  expect(bench.getByText('Injury status: Injured reserve')).toBeInTheDocument();
+});
+
+// The page owns the expanded row (#883's page-level cases): a starter's
+// control opens his stat line with the pace bar and projection, an
+// Unavailable starter's shows his reason and no bar, and the same control
+// closes it again.
+test('expanding a starter row shows his stat line and pace, an Unavailable one his reason without a bar, and expanding again collapses', async () => {
+  mockApi({
+    matchup: matchupResponse({
+      homeStarters: [starter({ projected: 21.4, stats: { passingYards: 289, passingTDs: 2 } })],
+      awayStarters: [starter({
+        id: 6, name: 'D. Adams', slot: 'WR', position: 'WR', points: 0, projected: 12.2,
+        availability: { available: false, reason: 'bye' },
+      })],
+    }),
+  });
+  renderPage();
+
+  const table = await screen.findByTestId('slot-comparison');
+  expect(screen.queryByTestId('slot-expanded')).not.toBeInTheDocument();
+
+  await userEvent.click(within(table).getByRole('button', { name: 'Stats for P. Mahomes' }));
+  const strip = screen.getByTestId('slot-expanded');
+  expect(strip).toHaveTextContent('289 pass yds · 2 pass TD');
+  expect(strip).toHaveTextContent('24.1 / 21.4 proj');
+  expect(within(strip).getByTestId('pace-bar')).toBeInTheDocument();
+  expect(within(table).getByRole('button', { name: 'Stats for P. Mahomes' })).toHaveAttribute('aria-expanded', 'true');
+
+  // The other starter's control opens his row and closes the first.
+  await userEvent.click(within(table).getByRole('button', { name: 'Stats for D. Adams' }));
+  expect(screen.getAllByTestId('slot-expanded')).toHaveLength(1);
+  const byeStrip = screen.getByTestId('slot-expanded');
+  expect(within(byeStrip).getByTestId('unavailable-reason')).toHaveTextContent('on bye');
+  expect(within(byeStrip).queryByTestId('pace-bar')).not.toBeInTheDocument();
+  expect(within(table).getByRole('button', { name: 'Stats for P. Mahomes' })).toHaveAttribute('aria-expanded', 'false');
+
+  await userEvent.click(within(table).getByRole('button', { name: 'Stats for D. Adams' }));
+  expect(screen.queryByTestId('slot-expanded')).not.toBeInTheDocument();
 });
 
 // --- touchdowns: the celebrate-touchdown feature -----------------------------
@@ -627,6 +721,30 @@ test('the Scoreboard view lists the last touchdown plays by either side, newest 
   expect(plays[0]).toHaveTextContent('+4');
   expect(plays[1]).toHaveTextContent('D. Adams');
   expect(screen.getByTestId('last-plays')).not.toHaveTextContent('Stranger');
+
+  // The ticker sits full width between the field and the Lineups card, as the
+  // canvas draws it (matchupScoreboardDesktop()), never inside the 340px
+  // column where its four-play row would clip.
+  const tickerCard = screen.getByTestId('last-plays');
+  expect(precedes(screen.getByTestId('retro-field'), tickerCard)).toBe(true);
+  expect(precedes(tickerCard, screen.getByTestId('lineups-card'))).toBe(true);
+});
+
+// The mobile artboard (matchupScoreboardMobile()): the Games tile, then the
+// Lineups card, then the bench what-if AFTER the Lineups.
+test('below the sm breakpoint the Scoreboard view stacks the Games tile, the Lineups card, then the bench what-if', async () => {
+  mobile = true;
+  reducedMotion = true;
+  mockApi({ matchup: matchupResponse({ viewerWhatIf: { delta: 3.2, swaps: [] } }) });
+  renderPage();
+  await screen.findByTestId('slot-comparison');
+  await toScoreboard();
+
+  const games = screen.getByTestId('games-tile');
+  const lineups = screen.getByTestId('lineups-card');
+  const whatIf = screen.getByTestId('bench-what-if');
+  expect(precedes(games, lineups)).toBe(true);
+  expect(precedes(lineups, whatIf)).toBe(true);
 });
 
 // --- the NFL game strip: the entity's rows, no second fetch ------------------

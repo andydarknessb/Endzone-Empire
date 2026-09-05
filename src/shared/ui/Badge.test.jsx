@@ -42,6 +42,14 @@ test('exposes the danger variant (the scoring strip Live pill, #895)', () => {
   expect(badge.style.fontSize).toBe('');
 });
 
+test('exposes the warning variant (the injury tag\'s may-not-play tone, #903)', () => {
+  render(<Badge variant="warning">Q</Badge>);
+  const badge = screen.getByTestId('badge');
+  expect(badge).toHaveAttribute('data-variant', 'warning');
+  expect(badge).toHaveTextContent('Q');
+  expect(badge.style.fontSize).toBe('');
+});
+
 test('the live variant does not carry the "You" pill type', () => {
   render(<Badge variant="live">Live</Badge>);
   expect(screen.getByTestId('badge').style.fontSize).toBe('');
