@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import {
-  BenchWhatIf, SlotComparisonList, RosterPreviewGrid, StickyScoreboard, LiveTicker, pairStartersBySlot,
+  BenchWhatIf, SlotComparisonList, RosterPreviewGrid, StickyScoreboard, LiveTicker, WinProbabilityBar, pairStartersBySlot,
 } from './MatchupExtras';
 
 const player = (overrides = {}) => ({
@@ -269,8 +269,25 @@ describe('SlotComparisonList', () => {
   });
 });
 
+describe('WinProbabilityBar', () => {
+  test('shows the bar with the "Live" caption only while the matchup is live', () => {
+    render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} isLive />);
+    expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
+    expect(screen.getByText('Live win probability')).toBeInTheDocument();
+  });
+
+  test('shows the bar but withholds the "Live" caption when not live (played/final)', () => {
+    // The bar is rendered for any started matchup, but "Live win probability"
+    // would be false on a played or final one, so it is withheld rather than
+    // replaced (the wording for those states is #872, not a guess here).
+    render(<WinProbabilityBar homeName="Team A" awayName="Team B" homeProb={0.6} isLive={false} />);
+    expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
+    expect(screen.queryByText('Live win probability')).not.toBeInTheDocument();
+  });
+});
+
 describe('StickyScoreboard', () => {
-  test('shows the combined score line and the LIVE/Final chip', () => {
+  test('shows the combined score line and the predicate chip, with a win bar once started', () => {
     render(
       <StickyScoreboard
         homeName="Team A"
@@ -278,29 +295,38 @@ describe('StickyScoreboard', () => {
         homeScore={78.4}
         awayScore={65.2}
         homeProb={0.6}
-        final={false}
-        isLive
+        chipLabel="LIVE"
+        chipColor="error"
+        chipVariant="filled"
+        started
       />
     );
     expect(screen.getByText('Team A 78.4 - 65.2 Team B')).toBeInTheDocument();
     expect(screen.getByText('LIVE')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Win probability:/i })).toBeInTheDocument();
   });
 
-  test('shows a Final chip when the matchup is complete', () => {
+  test('renders whatever chip label the predicate gives, e.g. Awaiting final', () => {
     render(
       <StickyScoreboard
         homeName="Team A"
         awayName="Team B"
-        homeScore={110}
-        awayScore={90}
-        homeProb={0.8}
-        final
+        homeScore={99}
+        awayScore={92}
+        homeProb={0.5}
+        chipLabel="Awaiting final"
+        chipColor="default"
+        chipVariant="outlined"
+        started
       />
     );
-    expect(screen.getByText('Final')).toBeInTheDocument();
+    // The sticky bar speaks the same label as the header chip, never a
+    // contradictory "Not started" for a played matchup.
+    expect(screen.getByText('Awaiting final')).toBeInTheDocument();
+    expect(screen.queryByText('Not started')).not.toBeInTheDocument();
   });
 
-  test('shows Not started without a win-probability bar before kickoff', () => {
+  test('a not-started matchup shows its chip but no win bar', () => {
     render(
       <StickyScoreboard
         homeName="Team A"
@@ -308,11 +334,32 @@ describe('StickyScoreboard', () => {
         homeScore={0}
         awayScore={0}
         homeProb={0.5}
-        final={false}
-        isLive={false}
+        chipLabel="Scheduled"
+        chipColor="default"
+        chipVariant="outlined"
+        started={false}
       />
     );
-    expect(screen.getByText('Not started')).toBeInTheDocument();
+    expect(screen.getByText('Scheduled')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
+  });
+
+  test('an unknown status (null chipLabel/started) shows no chip and no win bar', () => {
+    render(
+      <StickyScoreboard
+        homeName="Team A"
+        awayName="Team B"
+        homeScore={0}
+        awayScore={0}
+        homeProb={0.5}
+        chipLabel={null}
+        started={null}
+      />
+    );
+    // ADR 0030: the server could not compute the status - no guessed chip, and
+    // never a false "Not started".
+    expect(screen.queryByText('Not started')).not.toBeInTheDocument();
+    expect(screen.queryByText('Scheduled')).not.toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /Win probability:/i })).not.toBeInTheDocument();
   });
 });

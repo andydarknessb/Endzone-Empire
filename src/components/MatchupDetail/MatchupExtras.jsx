@@ -82,7 +82,7 @@ function slotLabel(slot) {
 
 // --- Win probability bar ---------------------------------------------------
 
-export function WinProbabilityBar({ homeName, awayName, homeProb }) {
+export function WinProbabilityBar({ homeName, awayName, homeProb, isLive }) {
   const home = Math.max(0, Math.min(1, Number(homeProb) || 0));
   const pct = (v) => `${Math.round(v * 100)}%`;
   return (
@@ -121,9 +121,16 @@ export function WinProbabilityBar({ homeName, awayName, homeProb }) {
           }}
         />
       </Box>
-      <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}>
-        Live win probability
-      </Typography>
+      {/* The "Live" caption is only true while the matchup is actually live.
+          The bar itself is shown for any started matchup (played and final
+          included), but on those states the word "Live" would be false, so the
+          caption is withheld rather than replaced - the wording for a played or
+          final matchup is Cory's call (#872), not one to guess here. */}
+      {isLive && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}>
+          Live win probability
+        </Typography>
+      )}
     </Paper>
   );
 }
@@ -132,12 +139,22 @@ WinProbabilityBar.propTypes = {
   homeName: PropTypes.string,
   awayName: PropTypes.string,
   homeProb: PropTypes.number,
+  isLive: PropTypes.bool,
 };
 
 // --- Sticky compact scoreboard ----------------------------------------------
 
-/** Stays pinned to the top of the viewport so the score is visible while scrolling the roster. */
-export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, homeProb, final: isFinal, isLive }) {
+/**
+ * Stays pinned to the top of the viewport so the score is visible while
+ * scrolling the roster. The status chip is the entity's one status label (ADR
+ * 0030): `chipLabel` is passed in from `matchupStatusView`, identical to the
+ * page header's chip, so the two never disagree - and a status the server could
+ * not compute (null `chipLabel`) shows no chip rather than a guessed "Not
+ * started". The win-probability track shows once the matchup has `started`
+ * (true), stays hidden before kickoff (false) and asserts neither for an
+ * unknown status (null).
+ */
+export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, homeProb, chipLabel, chipColor, chipVariant, started }) {
   const home = Math.max(0, Math.min(1, Number(homeProb) || 0));
   return (
     <Box
@@ -160,13 +177,9 @@ export function StickyScoreboard({ homeName, awayName, homeScore, awayScore, hom
         >
           {homeName} {Number(homeScore || 0).toFixed(1)} - {Number(awayScore || 0).toFixed(1)} {awayName}
         </Typography>
-        {isFinal
-          ? <Chip label="Final" color="success" size="small" />
-          : isLive
-            ? <Chip label="LIVE" color="error" size="small" />
-            : <Chip label="Not started" variant="outlined" size="small" />}
+        {chipLabel && <Chip label={chipLabel} color={chipColor} variant={chipVariant} size="small" />}
       </Box>
-      {(isLive || isFinal) && (
+      {started === true && (
         <Box
           role="img"
           aria-label={`Win probability: ${homeName} ${Math.round(home * 100)}%, ${awayName} ${Math.round((1 - home) * 100)}%`}
@@ -193,8 +206,11 @@ StickyScoreboard.propTypes = {
   homeScore: PropTypes.number,
   awayScore: PropTypes.number,
   homeProb: PropTypes.number,
-  final: PropTypes.bool,
-  isLive: PropTypes.bool,
+  chipLabel: PropTypes.string,
+  chipColor: PropTypes.string,
+  chipVariant: PropTypes.string,
+  // true = started, false = not started, null = unknown (ADR 0030).
+  started: PropTypes.bool,
 };
 
 // --- Expandable starter list with pace bars --------------------------------
@@ -688,20 +704,3 @@ export function MatchupToasts({ toasts, onDismiss }) {
 }
 
 MatchupToasts.propTypes = { toasts: PropTypes.array, onDismiss: PropTypes.func.isRequired };
-
-// --- Status chip -------------------------------------------------------
-
-export function MatchupStatusChip({ matchup, showLive }) {
-  if (matchup.final) {
-    return <Chip size="small" label="Final" color="success" />;
-  }
-  if (showLive) {
-    return <Chip size="small" label="LIVE" color="error" />;
-  }
-  return <Chip size="small" label="Scheduled" variant="outlined" />;
-}
-
-MatchupStatusChip.propTypes = {
-  matchup: PropTypes.shape({ final: PropTypes.bool }).isRequired,
-  showLive: PropTypes.bool,
-};

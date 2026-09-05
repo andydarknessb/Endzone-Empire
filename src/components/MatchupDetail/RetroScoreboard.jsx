@@ -7,7 +7,7 @@ import { useTheme } from '@mui/material/styles';
  * Dot-matrix-style scoreboard header. A CSS approximation (monospace, wide
  * letter-spacing, a soft glow) rather than a pixel-accurate LED font/asset.
  */
-function RetroScoreboard({ leagueName, homeName, awayName, homeScore, awayScore, isFinal, isLive }) {
+function RetroScoreboard({ leagueName, homeName, awayName, homeScore, awayScore, chipLabel }) {
   const theme = useTheme();
   const led = theme.palette.success.light;
   const glow = alpha(led, 0.65);
@@ -37,7 +37,10 @@ function RetroScoreboard({ leagueName, homeName, awayName, homeScore, awayScore,
           </Typography>
         </Box>
         <Typography sx={{ ...textStyle('0.85rem', 0.7), px: 1 }}>
-          {isFinal ? 'FINAL' : isLive ? 'LIVE' : 'NOT STARTED'}
+          {/* The entity's one status label (ADR 0030), uppercased for the LED
+              face; an unknown status the server could not compute shows blank
+              rather than a guessed "NOT STARTED". */}
+          {(chipLabel || '').toUpperCase()}
         </Typography>
         <Box sx={{ minWidth: 0, textAlign: 'right' }}>
           <Typography noWrap sx={{ ...textStyle({ xs: '0.85rem', sm: '1.25rem' }) }}>
@@ -58,8 +61,7 @@ RetroScoreboard.propTypes = {
   awayName: PropTypes.string,
   homeScore: PropTypes.number,
   awayScore: PropTypes.number,
-  isFinal: PropTypes.bool,
-  isLive: PropTypes.bool,
+  chipLabel: PropTypes.string,
 };
 
 export default RetroScoreboard;

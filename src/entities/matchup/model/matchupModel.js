@@ -29,9 +29,9 @@ function has(obj, key) {
  * From a Matchup list row (`GET /api/league/:id/matchups`, one row of the array
  * attachExpectedFinals decorates). This builder is where a Matchup's wire column
  * names belong (a team's Expected final is `home_expected_final`; ADR 0029), so
- * a surface reading the model never names them. Game Center reads the model and
- * no longer does (AC4); the matchup-preview widget still reads the list row
- * directly until #864, so those columns also live in useMatchupPreview.js today.
+ * a surface reading the model never names them. Both Game Center and the
+ * matchup-preview widget read the model now (the widget migrated in #864), so a
+ * Matchup's wire column names live only here.
  */
 export function matchupFromListRow(row) {
   const r = row || {};
