@@ -19,9 +19,11 @@ import { VIEW_SCOREBOARD, VIEW_STANDARD } from '../model/useMatchupView';
  *     pick-week feature sizes its own segments).
  *
  * The control is the kit's radio group ("Matchup view"), so the selected view
- * is a checked radio and arrow keys move between the two. A `ref` reaches the
- * group element (the kit forwards it), so the page can move focus onto the
- * checked option when another control swaps the view. Paints nothing of its
+ * is a checked radio and an arrow key walks from the focused option, carrying
+ * DOM focus onto the neighbour, so the checked view and the group's single tab
+ * stop stay the same button (#933). A `ref` reaches the group element (the kit
+ * forwards it), so the page can move focus onto the checked option when another
+ * control swaps the view. Paints nothing of its
  * own: the kit paints the segments, and the icons are inline stroke SVG on
  * the canvas's 20px grid, aria-hidden beside their words.
  */
