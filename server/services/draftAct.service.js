@@ -46,10 +46,13 @@ const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged', 'draftCompleted', 
  * router and the opposite order from pickClock.service.js). It emits the
  * narration first - every activity entry through `activityAppended` - and then
  * the board facts the body named, in their listed order. pickClock.service.js's
- * escalation (536-537) already emits this exact pair narration-first, and
- * pick.service.js:344-346 leads its completion group with the narration too; the
- * router's pause/resume was the lone site emitting stateChanged before the
- * activity, and adopting narration-first makes all three agree.
+ * autoPick escalation branch (the activityAppended-then-stateChanged emit right
+ * after escalateNothingDraftable) already emits this exact pair narration-first,
+ * and pick.service.js's landPick leads its completion group with the narration
+ * too (activityAppended ahead of rosterChanged/draftCompleted); the router's
+ * pause/resume was the lone site emitting stateChanged before the activity, and
+ * adopting narration-first makes all three agree. (Cited by function, not line,
+ * so a later edit to those files cannot silently misdirect the reference.)
  *
  * NO "ALREADY INSIDE AN ACT" MODE (load-bearing for the followers, #938). This
  * module always opens its own connection and takes its own lock; it offers no

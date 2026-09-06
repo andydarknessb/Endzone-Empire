@@ -120,8 +120,9 @@ test('property 3: the fan-out runs only after commit, narration ahead of the boa
   // NAMED (red-tell 3: moving the fan-out before commit reddens this).
   assert.ok(rec.calls.every((c) => c.committedAtEmit === true), 'every fan-out emit ran after COMMIT');
   // The one order: narration first, then the board fact. Primary evidence is
-  // pickClock.service.js:536-537, which emits this exact pair (activityAppended
-  // then stateChanged) for the escalation; pick.service.js:344-346 corroborates
+  // pickClock.service.js's autoPick escalation branch (the emit right after
+  // escalateNothingDraftable), which emits this exact pair (activityAppended then
+  // stateChanged); pick.service.js's landPick completion group corroborates
   // (activityAppended ahead of the board facts, though its pickLanded precedes
   // the narration). The router was the lone outlier this flip removes.
   assert.deepEqual(

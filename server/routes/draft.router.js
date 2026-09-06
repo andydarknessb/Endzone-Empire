@@ -290,7 +290,8 @@ router.post('/league/:id/pause', async (req, res) => {
       // The response still carries the re-armed (or cleared) deadline the clients
       // read, sourced from the Pick clock module rather than the flip's own UPDATE.
       // The module emits activityAppended before stateChanged, the one
-      // narration-first order (pickClock.service.js:536-537).
+      // narration-first order (matching pickClock.service.js's autoPick
+      // escalation emit, after escalateNothingDraftable).
       return {
         response: { ...result.rows[0], pick_deadline_at: pickDeadlineAt },
         activity: [entry],
