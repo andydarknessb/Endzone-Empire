@@ -13,9 +13,11 @@ import Badge from './Badge';
  * The visible text is the code alone (the legacy InjuryBadge's label, which
  * the Matchup Detail suite read as the badge); the full designation is the
  * accessible text ("Injury status: Questionable"), so a screen reader hears
- * the word and not a letter, and the `title` repeats it on hover. The code is
- * exposed as a stable `data-status` so a test can assert which designation
- * rendered without reading styles.
+ * the word and not a letter, and it is announced ONCE: the tag carries no
+ * `title`, since a title doubles as the element's accessible description and
+ * would repeat the designation (#903 review). The code is exposed as a stable
+ * `data-status` so a test can assert which designation rendered without
+ * reading styles.
  *
  * Part of `shared/ui` (ADR 0020): the slot-comparison widget's starter cell,
  * the retro-scoreboard widget's Lineups card and the Matchup page's Bench card
@@ -53,7 +55,6 @@ export default function InjuryTag({
       variant={view.variant}
       data-testid={testId}
       data-status={view.code}
-      title={view.name}
       sx={{
         fontSize: '10px',
         lineHeight: 1.2,

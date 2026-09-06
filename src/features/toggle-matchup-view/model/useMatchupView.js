@@ -5,16 +5,21 @@ import { useCallback, useMemo, useState } from 'react';
  * Matchup views a manager is looking at, remembered per viewer in
  * localStorage so the choice survives a reload and a return to the page.
  *
- * The storage key carries the viewer (`viewerKey`, the page's own spelling of
- * "who is looking": the viewer's Team id, or the user id for a viewer with no
- * Team), so two managers on one browser never share a choice: what one picks
- * is read back for that one alone. Until the viewer is known (`viewerKey`
- * null) nothing is read or written and the view is the default. Every
+ * The storage key carries the viewer, and ONE stable spelling of the viewer
+ * per browser session (#903 review): the signed-in user's id (`user:<id>`),
+ * the one fact the page can read before its own data lands, so the key never
+ * flips after first paint. A viewer with no user id (the page mounted before
+ * sign-in state exists) falls back to a per-browser `anon` key. The viewer's
+ * Team id is deliberately NOT part of the key: it arrives with the Matchup
+ * detail body, after first paint, and a key that lands later would re-read
+ * the memory under a different name and flip the view the viewer was already
+ * looking at. Two managers on one browser still never share a choice: what
+ * one signed-in user picks is read back for that user alone. Every
  * localStorage access is wrapped: a private window, cleared site data or a
  * browser set to block storage throws on the accessor, and the page must
  * render with the default rather than crash.
  *
- * @param {string|number|null} viewerKey  who is looking; null while unknown
+ * @param {string|number|null} userId  the signed-in user's id; null for the anon key
  * @param {{ defaultView?: 'standard'|'scoreboard' }} [options]
  * @returns {['standard'|'scoreboard', (view: string) => void]}
  */
@@ -23,14 +28,19 @@ export const VIEW_SCOREBOARD = 'scoreboard';
 export const VIEWS = [VIEW_STANDARD, VIEW_SCOREBOARD];
 
 const STORAGE_PREFIX = 'endzone.matchupView.';
+export const ANON_VIEWER = 'anon';
 
-/** The localStorage key for a viewer's remembered view; null while the viewer is unknown. */
-export function matchupViewStorageKey(viewerKey) {
-  return viewerKey == null || viewerKey === '' ? null : `${STORAGE_PREFIX}${viewerKey}`;
+/** The viewer half of the key: `user:<id>` for a signed-in user, else the per-browser `anon`. */
+export function viewerKeyFor(userId) {
+  return userId == null || userId === '' ? ANON_VIEWER : `user:${userId}`;
+}
+
+/** The localStorage key for a viewer's remembered view (never null: an unknown user keys `anon`). */
+export function matchupViewStorageKey(userId) {
+  return `${STORAGE_PREFIX}${viewerKeyFor(userId)}`;
 }
 
 function readStored(storageKey) {
-  if (!storageKey) return null;
   try {
     const value = window.localStorage.getItem(storageKey);
     return VIEWS.includes(value) ? value : null;
@@ -40,7 +50,6 @@ function readStored(storageKey) {
 }
 
 function writeStored(storageKey, view) {
-  if (!storageKey) return;
   try {
     window.localStorage.setItem(storageKey, view);
   } catch {
@@ -48,10 +57,11 @@ function writeStored(storageKey, view) {
   }
 }
 
-export function useMatchupView(viewerKey, { defaultView = VIEW_STANDARD } = {}) {
-  const storageKey = matchupViewStorageKey(viewerKey);
-  // The remembered choice for THIS viewer, re-read whenever the viewer changes
-  // (a page mounted before the viewer was known reads it once the key lands).
+export function useMatchupView(userId, { defaultView = VIEW_STANDARD } = {}) {
+  const storageKey = matchupViewStorageKey(userId);
+  // The remembered choice for THIS viewer, read once per key: the key is the
+  // user id (or anon), known at first paint, so it does not change under a
+  // mounted page.
   const stored = useMemo(() => readStored(storageKey), [storageKey]);
   // A pick made on this mount, kept with the key it was made under so a pick
   // never leaks onto another viewer's key.

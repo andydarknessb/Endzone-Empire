@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { Badge } from './index';
 
 test('renders its label text', () => {
@@ -84,4 +84,24 @@ test('exposes the success variant (the Final status chip, #897)', () => {
 test('the live variant does not carry the "You" pill type', () => {
   render(<Badge variant="live">Live</Badge>);
   expect(screen.getByTestId('badge').style.fontSize).toBe('');
+});
+
+// Red-tell (#903): rendering `children` alone regardless of `dot` (dropping
+// the `dot` branch of the label) turns the first half red; rendering the dot
+// unconditionally turns the second half red.
+test('renders the decorative status dot before the label only when asked (#903)', () => {
+  // The label is wrapped so the ordering check below compares two siblings
+  // (the dot and the label element), not the dot and its parent.
+  const { rerender } = render(<Badge variant="danger" dot><span>LIVE</span></Badge>);
+  const badge = screen.getByTestId('badge');
+  expect(badge).toHaveAttribute('data-dot', 'true');
+  const dot = within(badge).getByTestId('badge-dot');
+  expect(dot).toHaveAttribute('aria-hidden', 'true');
+  // The disc precedes the label in reading order.
+  expect(dot.compareDocumentPosition(within(badge).getByText('LIVE')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(badge).toHaveTextContent('LIVE');
+
+  rerender(<Badge variant="danger">LIVE</Badge>);
+  expect(screen.getByTestId('badge')).not.toHaveAttribute('data-dot');
+  expect(screen.queryByTestId('badge-dot')).not.toBeInTheDocument();
 });

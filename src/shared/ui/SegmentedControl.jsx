@@ -12,9 +12,11 @@ import { Box } from '@mui/material';
  * screen reader hears the group and its selection and arrow keys move between
  * options the way a radio group does. `options` are `{ value, label, icon? }`;
  * `onChange` receives the clicked option's value. `fill` stretches the
- * segments to the container (the mobile week picker).
+ * segments to the container (the mobile week picker). A `ref` reaches the
+ * group element, so a composer can move focus to the checked option (the
+ * Matchup page does, when another control swaps the view, #903).
  */
-export default function SegmentedControl({
+const SegmentedControl = React.forwardRef(function SegmentedControl({
   options,
   value,
   onChange,
@@ -23,7 +25,7 @@ export default function SegmentedControl({
   sx,
   'data-testid': testId = 'segmented-control',
   ...rest
-}) {
+}, ref) {
   const groupId = useId();
   const items = options || [];
   const selectedIndex = Math.max(0, items.findIndex((o) => o.value === value));
@@ -36,6 +38,7 @@ export default function SegmentedControl({
 
   return (
     <Box
+      ref={ref}
       role="radiogroup"
       aria-label={ariaLabel}
       data-testid={testId}
@@ -96,4 +99,6 @@ export default function SegmentedControl({
       })}
     </Box>
   );
-}
+});
+
+export default SegmentedControl;

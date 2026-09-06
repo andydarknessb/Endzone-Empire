@@ -8,14 +8,22 @@ import { playLabel } from '../../../lib/scoringEvents';
  * from the canvas's `liveTicker()` (docs/design/game-center-matchups/
  * build.mjs): a card row with the "Last plays" label and the most recent
  * touchdowns by either side of this Matchup, newest first, each a side dot,
- * the scorer's name, the play label and the points, in the side's colour
- * (four on desktop, one on a phone). Renders nothing until a play has landed.
+ * the scorer's name, the play label and the points to one decimal ("+6.0",
+ * the toasts' format too), in the side's colour (four on desktop, one on a
+ * phone). Renders nothing until a play has landed. The three spans of a row
+ * are separated by whitespace text nodes, so copied or announced text reads
+ * "P. Mahomes passing TD +6.0" and never runs the words together (#903
+ * review); the flex gap alone leaves none.
  *
  * Paints only `dash-*` tokens: the home and away hues on the card surface
  * are registered pairings (the scoreboard strip's percentages), dim and faint
  * on the surface too. The dot carries no meaning of its own: the side is
  * exposed as `data-side` and the row's text names the scorer.
  */
+function formatPoints(delta) {
+  return `+${(Number(delta) || 0).toFixed(1)}`;
+}
+
 export default function LastPlays({ items, mobile = false }) {
   const list = Array.isArray(items) ? items : [];
   if (list.length === 0) return null;
@@ -61,9 +69,11 @@ export default function LastPlays({ items, mobile = false }) {
                 sx={{ width: 8, height: 8, borderRadius: 'var(--radius-pill)', backgroundColor: color, flex: 'none' }}
               />
               <Box component="strong">{item.name}</Box>
+              {' '}
               <Box component="span" sx={{ color: 'var(--dash-dim)' }}>{playLabel(item)}</Box>
+              {' '}
               <Box component="span" sx={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                {`+${Math.round((Number(item.pointsDelta) || 0) * 10) / 10}`}
+                {formatPoints(item.pointsDelta)}
               </Box>
             </Box>
           );

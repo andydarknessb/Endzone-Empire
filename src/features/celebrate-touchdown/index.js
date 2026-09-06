@@ -11,6 +11,9 @@
  *     cutscene from what the hook returns.
  *   - `TecmoCutscene` and `MatchupToasts` are the two pieces themselves, for
  *     a surface that wants only one of them.
+ *   - `CelebrationsCaption` (#903 review): the read-only "Celebrations on /
+ *     off" line, fed from the hook's `celebrationsEnabled` state; the page
+ *     slots it into the retro field's caption row.
  *
  * Import edges, for the boundary audit ADR 0020 names: `shared/ui` (the
  * Tecmo sprite) through its index, and the sanctioned reaches below the
@@ -21,4 +24,5 @@
 export { default, default as CelebrateTouchdown } from './ui/CelebrateTouchdown';
 export { default as TecmoCutscene } from './ui/TecmoCutscene';
 export { default as MatchupToasts, TOAST_MS } from './ui/MatchupToasts';
+export { default as CelebrationsCaption } from './ui/CelebrationsCaption';
 export { useCelebrateTouchdown } from './model/useCelebrateTouchdown';

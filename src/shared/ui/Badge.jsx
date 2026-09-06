@@ -1,5 +1,5 @@
 import React from 'react';
-import { Chip } from '@mui/material';
+import { Box, Chip } from '@mui/material';
 
 /**
  * League Dashboard badge: a token-themed MUI Chip in three variants from the
@@ -38,6 +38,13 @@ import { Chip } from '@mui/material';
  * The label text is whatever `children` holds; the variant is also exposed as
  * a stable `data-variant` attribute so a composing widget (and this kit's own
  * tests) can assert which variant rendered without reaching into class names.
+ *
+ * `dot` (#903): the canvas's `.chip.live` carries an 8px disc before its
+ * label (`statusChip('live')` in build.mjs), the LIVE status chip's dot on
+ * the Matchup page header and the scoreboard strip. The disc is painted in
+ * the chip's own text colour through `currentColor`, so it takes whatever
+ * variant it sits in, and it is aria-hidden: the label carries the meaning
+ * and the dot is exposed as `data-dot` for a test to read.
  */
 const VARIANT_SX = {
   neutral: {
@@ -86,8 +93,30 @@ const VARIANT_SX = {
 // not just so it renders.
 const YOU_TYPE = { fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.08em' };
 
+// The canvas's `.dot`: an 8px disc in the chip's text colour, decorative.
+function Dot() {
+  return (
+    <Box
+      component="span"
+      aria-hidden="true"
+      data-testid="badge-dot"
+      sx={{
+        display: 'inline-block',
+        width: 8,
+        height: 8,
+        mr: '6px',
+        borderRadius: 'var(--radius-pill)',
+        backgroundColor: 'currentColor',
+        flex: 'none',
+        verticalAlign: 'middle',
+      }}
+    />
+  );
+}
+
 export default function Badge({
   variant = 'neutral',
+  dot = false,
   children,
   sx,
   style,
@@ -98,9 +127,10 @@ export default function Badge({
 
   return (
     <Chip
-      label={children}
+      label={dot ? <><Dot />{children}</> : children}
       size="small"
       data-variant={variant}
+      data-dot={dot || undefined}
       data-testid={testId}
       style={{ ...(variant === 'you' ? YOU_TYPE : {}), ...style }}
       sx={{

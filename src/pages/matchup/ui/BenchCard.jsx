@@ -24,8 +24,14 @@ import { unavailableLabel } from '../../../widgets/slot-comparison';
  * Composes `shared/ui` (Card, PosChip) and paints only `dash-*` tokens plus
  * the app's radius and focus-ring tokens; ink, dim and faint on the card
  * surface are registered pairings. The count and the Show / Hide control sit
- * in the card header's `tail` slot, as the Lineups card's action does.
+ * in the card header's `tail` slot, as the Lineups card's action does; its
+ * visible label is the canvas's word and its accessible name says what it
+ * shows ("Show benches" / "Hide benches", #903 review). Collapsed with
+ * nothing beneath the header, the card clears the header's bottom hairline
+ * (the Card's own) through `sx`, so the card's edge is one line and not a
+ * doubled one; the hairline returns as soon as a body follows the header.
  */
+const HEADER_ONLY_SX = { '& > :first-of-type': { borderBottom: 0 } };
 export default function BenchCard({
   homeName,
   awayName,
@@ -44,16 +50,21 @@ export default function BenchCard({
   const count = `${home.length} · ${away.length} players`;
   const leftHome = showBenchLeft && benchLeft?.home != null ? benchLeft.home : null;
   const leftAway = showBenchLeft && benchLeft?.away != null ? benchLeft.away : null;
+  // Collapsed with no bench-left line: the header is the whole card.
+  const headerOnly = !open && leftHome == null && leftAway == null;
 
   return (
     <Card
       data-testid="bench-card"
+      data-header-only={headerOnly || undefined}
       title="Bench"
       count={count}
+      sx={headerOnly ? HEADER_ONLY_SX : undefined}
       tail={(
         <Box
           component="button"
           type="button"
+          aria-label={open ? 'Hide benches' : 'Show benches'}
           aria-expanded={open}
           aria-controls={open ? panelId : undefined}
           onClick={onToggle}

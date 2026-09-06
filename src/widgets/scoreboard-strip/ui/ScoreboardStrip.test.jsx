@@ -117,13 +117,24 @@ test('a null status shows no chip and no bar', () => {
   expect(screen.getByText('77.0')).toBeInTheDocument();
 });
 
-test('the status chip is the live variant for a live matchup and neutral for a final one', () => {
+// The chip wears the canvas's statusChip() variants (#903 review): LIVE on the
+// danger tint with the dot, Final success, Awaiting final warning (the
+// Scheduled case above stays neutral). Red-tell: mapping every non-live status
+// to neutral turns the Final and Awaiting final assertions red; a dot on every
+// chip turns the Final dot assertion red.
+test('the status chip is danger with the dot while live, success once final and warning while awaiting final', () => {
   const { rerender } = render(<ScoreboardStrip matchup={detail()} />);
-  expect(screen.getByTestId('scoreboard-status')).toHaveTextContent('LIVE');
-  expect(screen.getByTestId('scoreboard-status')).toHaveAttribute('data-variant', 'live');
+  const chip = () => screen.getByTestId('scoreboard-status');
+  expect(chip()).toHaveTextContent('LIVE');
+  expect(chip()).toHaveAttribute('data-variant', 'danger');
+  expect(within(chip()).getByTestId('badge-dot')).toHaveAttribute('aria-hidden', 'true');
   rerender(<ScoreboardStrip matchup={detail({ matchup: { status: 'final' } })} />);
-  expect(screen.getByTestId('scoreboard-status')).toHaveTextContent('Final');
-  expect(screen.getByTestId('scoreboard-status')).toHaveAttribute('data-variant', 'neutral');
+  expect(chip()).toHaveTextContent('Final');
+  expect(chip()).toHaveAttribute('data-variant', 'success');
+  expect(within(chip()).queryByTestId('badge-dot')).not.toBeInTheDocument();
+  rerender(<ScoreboardStrip matchup={detail({ matchup: { status: 'played' } })} />);
+  expect(chip()).toHaveTextContent('Awaiting final');
+  expect(chip()).toHaveAttribute('data-variant', 'warning');
 });
 
 test('the You pill marks the viewer\'s side only, and neither side for a spectator', () => {

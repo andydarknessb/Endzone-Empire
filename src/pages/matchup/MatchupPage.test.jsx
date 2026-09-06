@@ -215,6 +215,26 @@ const hindsightFetches = () => apiClient.get.mock.calls.filter(([url]) => url.in
 // Document order, the one layout fact jsdom can read.
 const precedes = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
+// An sx rule is neither laid out nor computed by jsdom, but emotion inserts
+// every rule into `document.styleSheets` under the element's generated class
+// (the retro-scoreboard widget's test reads its breakpoint rules the same
+// way). This gathers the declarations of every rule whose selector starts
+// with that class, keyed by the selector's tail with its whitespace removed
+// ('' for the element's own rule, '[role="radio"]' or '>:first-of-type' for
+// a descendant rule).
+const rulesUnder = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = {};
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      const tail = rule.selectorText.slice(`.${cls}`.length).replace(/\s+/g, '');
+      found[tail] = `${found[tail] || ''}${rule.style.cssText};`;
+    });
+  });
+  return found;
+};
+
 // --- loading, error, structure ---------------------------------------------
 
 test('shows an aria-busy loading region before data arrives', () => {
@@ -242,6 +262,16 @@ test('renders the header, both teams\' starters with points, and the strip\'s sc
   const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
   expect(within(nav).getByRole('link', { name: 'Sunday Ballers' })).toHaveAttribute('href', '/league/1');
   expect(within(nav).getByRole('link', { name: 'Game Center' })).toHaveAttribute('href', '/league/1/game-center');
+  // The current page ends the trail, as the Game Center breadcrumb ends on
+  // its own page (#903 review). Red-tell: dropping the crumb, or its
+  // aria-current, turns this red.
+  expect(within(nav).getByText('Matchup')).toHaveAttribute('aria-current', 'page');
+  expect(within(nav).queryByRole('link', { name: 'Matchup' })).not.toBeInTheDocument();
+
+  // The column is the artboard's 1120px (matchupStandardDesktop()), not the
+  // Game Center's 1200px. Red-tell: `maxWidth="lg"` on the Container turns
+  // this red (its rule reads 1200px under the lg media query, and no 1120px).
+  expect(rulesUnder(screen.getByTestId('matchup-column'))['']).toMatch(/max-width:\s*1120px/);
 
   expect(stripScores()).toEqual(['101.5', '88.0']);
   expect(within(strip()).getByTestId('scoreboard-side-home')).toHaveTextContent('Team A');
@@ -283,13 +313,23 @@ test('a playoff matchup carries the Playoff chip, and the record comes from the 
 
 // --- the status chip: the server's fact, from the fetch alone (ADR 0030) -----
 
-test('a scheduled matchup reads Scheduled with no win-probability bar', async () => {
+test('a scheduled matchup reads Scheduled with no win-probability bar, and the Scoreboard view shows no WIN digits either', async () => {
   mockApi({ matchup: matchupResponse({ matchup: { status: 'scheduled', home_score: '0', away_score: '0' } }) });
   renderPage();
 
   expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('Scheduled');
+  expect(statusChip()).toHaveAttribute('data-variant', 'neutral');
   expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
   expect(screen.queryByRole('img', { name: /^Win probability:/ })).not.toBeInTheDocument();
+
+  // The Scoreboard view follows the same started state (#903 review): no WIN
+  // row on the board, and the field's image says the probability is not yet
+  // available. Red-tell: feeding the board the page's probability regardless
+  // of status turns this red.
+  await toScoreboard();
+  expect(screen.queryByTestId('led-win')).not.toBeInTheDocument();
+  expect(within(screen.getByTestId('led-board')).queryByText('WIN')).not.toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /^Field position/ })).toHaveAccessibleName('Field position: win probability not yet available');
 });
 
 // The LIVE chip comes from the fetched status alone: no socket event is fired
@@ -299,7 +339,12 @@ test('a live matchup reads LIVE from the fetch alone, with no socket event', asy
   renderPage();
 
   expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('LIVE');
-  expect(statusChip()).toHaveAttribute('data-variant', 'live');
+  // The canvas's `.chip.live`: the danger tint with the dot, on the header
+  // chip and the strip's alike (#903 review).
+  expect(statusChip()).toHaveAttribute('data-variant', 'danger');
+  expect(within(statusChip()).getByTestId('badge-dot')).toHaveAttribute('aria-hidden', 'true');
+  expect(within(strip()).getByTestId('scoreboard-status')).toHaveAttribute('data-variant', 'danger');
+  expect(within(within(strip()).getByTestId('scoreboard-status')).getByTestId('badge-dot')).toBeInTheDocument();
   expect(screen.queryByText('Awaiting final')).not.toBeInTheDocument();
   expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
   expect(screen.getByText('Win probability')).toBeInTheDocument();
@@ -329,6 +374,10 @@ test('a played matchup reads Awaiting final in both the header and the strip, ne
   expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('Awaiting final');
   expect(screen.getAllByText('Awaiting final')).toHaveLength(2);
   expect(within(strip()).getByTestId('scoreboard-status')).toHaveTextContent('Awaiting final');
+  // The canvas's `.chip.warn` on both chips, no dot (#903 review).
+  expect(statusChip()).toHaveAttribute('data-variant', 'warning');
+  expect(within(statusChip()).queryByTestId('badge-dot')).not.toBeInTheDocument();
+  expect(within(strip()).getByTestId('scoreboard-status')).toHaveAttribute('data-variant', 'warning');
   expect(screen.queryByText('Not started')).not.toBeInTheDocument();
   expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
 });
@@ -338,8 +387,11 @@ test('a final matchup reads Final', async () => {
   renderPage();
 
   expect(await screen.findByTestId('matchup-status-chip')).toHaveTextContent('Final');
-  expect(statusChip()).toHaveAttribute('data-variant', 'neutral');
+  // The canvas's `.chip.final`: the success tint on both chips (#903 review).
+  // Red-tell: mapping every non-live status to neutral turns this red.
+  expect(statusChip()).toHaveAttribute('data-variant', 'success');
   expect(within(strip()).getByTestId('scoreboard-status')).toHaveTextContent('Final');
+  expect(within(strip()).getByTestId('scoreboard-status')).toHaveAttribute('data-variant', 'success');
   expect(screen.queryByText('LIVE')).not.toBeInTheDocument();
 });
 
@@ -451,11 +503,23 @@ test('the toggle swaps the views: Scoreboard mounts the retro board, Standard re
   expect(screen.getAllByText('TEAM B').length).toBeGreaterThanOrEqual(2);
   expect(screen.getByText('P. Mahomes')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'P. Mahomes' })).not.toBeInTheDocument();
+  // The home win probability reaches the accessibility tree once in this view
+  // (#903 review): the field image names it, and the board's WIN row is its
+  // aria-hidden visible duplicate.
+  expect(screen.getByTestId('led-win')).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.getAllByRole('img', { name: /likely to win|Win probability/ })).toHaveLength(1);
+  // The field's caption tail carries the celebrate-touchdown feature's
+  // read-only line, on by default.
+  expect(within(screen.getByTestId('field-caption')).getByTestId('celebrations-caption')).toHaveTextContent('Celebrations on');
 
-  // The Lineups card's Full comparison action switches back too.
+  // The Lineups card's Full comparison action switches back too, and moves
+  // keyboard focus onto the toggle's checked Standard option: its own button
+  // unmounts with the view. Red-tell: dropping the focus move leaves
+  // document.activeElement on the body and turns this red.
   await userEvent.click(screen.getByRole('button', { name: 'Full comparison' }));
   expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
   expect(screen.getByTestId('slot-comparison')).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Standard' })).toHaveFocus();
 
   await toScoreboard();
   await toStandard();
@@ -463,25 +527,24 @@ test('the toggle swaps the views: Scoreboard mounts the retro board, Standard re
   expect(screen.queryByTestId('retro-scoreboard')).not.toBeInTheDocument();
 });
 
-// The choice is remembered per VIEWER: a second manager on the same browser
-// starts on Standard, and the first finds Scoreboard again on remount.
-// Red-tell (the ticket's): READING the remembered view from a key other than
-// the viewer's turns this case red (the second manager would inherit
-// Scoreboard) and no other. The broader mutation that drops the viewer from
-// the key on the write too also turns the user-keyed case below red, since it
-// derives its expected keys through the same exported helper.
-test('the toggle\'s choice survives a remount for the same viewer and never leaks to another', async () => {
-  const { unmount } = renderPage();
+// The choice is remembered per VIEWER under the signed-in user's id: a second
+// signed-in manager on the same browser starts on Standard, and the first
+// finds Scoreboard again on remount. Red-tell: READING the remembered view
+// from a key other than the user's turns this case red (the second manager
+// would inherit Scoreboard, or the first would lose it) and no other.
+test('the toggle\'s choice survives a remount for the same signed-in viewer and never leaks to another', async () => {
+  const first = { state: { user: { id: 77, username: 'first' } } };
+  const { unmount } = renderPage(1, 9, first);
   await screen.findByTestId('slot-comparison');
   await toScoreboard();
   expect(screen.getByTestId('retro-scoreboard')).toBeInTheDocument();
-  expect(window.localStorage.getItem(matchupViewStorageKey('team:1'))).toBe('scoreboard');
+  expect(window.localStorage.getItem(matchupViewStorageKey(77))).toBe('scoreboard');
   unmount();
 
-  // Another manager (Team 2) on the same browser.
+  // Another signed-in manager (Team 2, user 88) on the same browser.
   mockApi({ matchup: matchupResponse({ viewerTeamId: 2 }) });
   useLeague.mockReturnValue({ league: LEAGUE, viewerTeamId: 2, loading: false, error: null });
-  const { unmount: unmountSecond } = renderPage();
+  const { unmount: unmountSecond } = renderPage(1, 9, { state: { user: { id: 88, username: 'second' } } });
   await screen.findByTestId('scoreboard-strip');
   expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
   expect(screen.getByTestId('slot-comparison')).toBeInTheDocument();
@@ -491,19 +554,48 @@ test('the toggle\'s choice survives a remount for the same viewer and never leak
   // The first manager again.
   mockApi();
   useLeague.mockReturnValue({ league: LEAGUE, viewerTeamId: 1, loading: false, error: null });
-  renderPage();
+  renderPage(1, 9, first);
   expect(await screen.findByTestId('retro-scoreboard')).toBeInTheDocument();
   expect(screen.getByRole('radio', { name: 'Scoreboard' })).toBeChecked();
 });
 
-test('a viewer with no Team in the league keys the remembered view by the signed-in user', async () => {
+// The cold-load case (#903 review): the key is the user id, on hand at first
+// paint, so a remembered Scoreboard view is read on the first paint and holds
+// once the detail body (and with it the viewer's Team id) lands. Red-tell:
+// keying off the Team id (the detail body's viewerTeamId, or the league
+// read's) turns this red: the choice stored under the user key is never
+// read, so the page starts on Standard, and a key that lands later flips the
+// view after first paint. The Team id never names a storage entry.
+test('a remembered Scoreboard view is read on the first paint under the user key and never flips once the Team id lands', async () => {
+  window.localStorage.setItem(matchupViewStorageKey(77), 'scoreboard');
+  renderPage(1, 9, { state: { user: { id: 77, username: 'viewer' } } });
+
+  expect(await screen.findByTestId('retro-scoreboard')).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Scoreboard' })).toBeChecked();
+  // The detail body has landed (the viewer is Team 1, the home side) and the
+  // view has not flipped.
+  await screen.findByTestId('lineups-card');
+  expect(screen.getByTestId('retro-scoreboard')).toBeInTheDocument();
+  expect(screen.queryByTestId('slot-comparison')).not.toBeInTheDocument();
+  expect(Object.keys(window.localStorage).filter((k) => /team/.test(k))).toEqual([]);
+});
+
+test('a viewer with no Team in the league keys the remembered view by the signed-in user too', async () => {
   mockApi({ matchup: matchupResponse({ viewerTeamId: null }) });
   useLeague.mockReturnValue({ league: LEAGUE, viewerTeamId: null, loading: false, error: null });
   renderPage(1, 9, { state: { user: { id: 77, username: 'viewer' } } });
   await screen.findByTestId('slot-comparison');
   await toScoreboard();
-  expect(window.localStorage.getItem(matchupViewStorageKey('user:77'))).toBe('scoreboard');
-  expect(window.localStorage.getItem(matchupViewStorageKey('team:1'))).toBeNull();
+  expect(window.localStorage.getItem(matchupViewStorageKey(77))).toBe('scoreboard');
+  expect(Object.keys(window.localStorage)).toEqual([matchupViewStorageKey(77)]);
+});
+
+test('with no signed-in user id the choice is remembered under the per-browser anon key, never the Team id', async () => {
+  renderPage();
+  await screen.findByTestId('slot-comparison');
+  await toScoreboard();
+  expect(window.localStorage.getItem(matchupViewStorageKey(null))).toBe('scoreboard');
+  expect(Object.keys(window.localStorage)).toEqual(['endzone.matchupView.anon']);
 });
 
 // --- the same paired rows in both views (IDP) ------------------------------
@@ -581,7 +673,7 @@ test('a flagged starter carries his injury designation in both views, and a flag
   expect(within(lineups).getByText('Q')).toBeInTheDocument();
   await toStandard();
 
-  await userEvent.click(within(screen.getByTestId('bench-card')).getByRole('button', { name: 'Show' }));
+  await userEvent.click(within(screen.getByTestId('bench-card')).getByRole('button', { name: 'Show benches' }));
   const bench = within(screen.getByTestId('bench-home'));
   expect(bench.getByTestId('injury-tag')).toHaveAttribute('data-status', 'IR');
   expect(bench.getByText('IR')).toBeInTheDocument();
@@ -679,6 +771,23 @@ test("with celebrations off, the viewer's touchdown fires no cutscene while the 
   expect(screen.getByRole('status')).toHaveTextContent('D. Adams');
 });
 
+// The retro field's caption tail reflects the preference the feature read
+// (#903 review): a read-only line, never a control. Red-tell: feeding the
+// caption a constant (or the ref instead of the state) leaves it "on" after
+// an "off" read and turns this red.
+test('the Scoreboard view\'s field caption reads Celebrations off once the preference read says off', async () => {
+  reducedMotion = true;
+  mockApi({ prefs: { touchdownCelebrations: false } });
+  renderPage();
+  await screen.findByTestId('slot-comparison');
+  await toScoreboard();
+
+  const caption = within(screen.getByTestId('field-caption'));
+  await waitFor(() => expect(caption.getByTestId('celebrations-caption')).toHaveTextContent('Celebrations off'));
+  expect(caption.getByTestId('celebrations-caption')).toHaveAttribute('data-enabled', 'false');
+  expect(caption.queryByRole('button')).not.toBeInTheDocument();
+});
+
 test('a non-touchdown moment play (a sack) flashes the retro callout in Scoreboard view, not a cutscene or toast', async () => {
   reducedMotion = true;
   renderPage();
@@ -716,10 +825,14 @@ test('the Scoreboard view lists the last touchdown plays by either side, newest 
 
   const plays = screen.getAllByTestId('last-play');
   expect(plays.map((el) => el.getAttribute('data-side'))).toEqual(['home', 'away']);
-  expect(plays[0]).toHaveTextContent('P. Mahomes');
-  expect(plays[0]).toHaveTextContent('passing TD');
-  expect(plays[0]).toHaveTextContent('+4');
-  expect(plays[1]).toHaveTextContent('D. Adams');
+  // The row's three spans are separated by whitespace, so copied or announced
+  // text does not run together, and the points print to one decimal ("+4.0",
+  // #903 review). Red-tell: dropping the whitespace nodes reads
+  // "P. Mahomespassing TD+4.0" and turns the first assertion red; rounding to
+  // a tenth without fixing the decimal prints "+4" and turns the second red.
+  expect(plays[0]).toHaveTextContent('P. Mahomes passing TD +4.0');
+  expect(plays[0]).not.toHaveTextContent(/\+4(?!\.)/);
+  expect(plays[1]).toHaveTextContent('D. Adams receiving TD +6.4');
   expect(screen.getByTestId('last-plays')).not.toHaveTextContent('Stranger');
 
   // The ticker sits full width between the field and the Lineups card, as the
@@ -842,10 +955,23 @@ test('the Bench card is collapsed by default and Show reveals both benches with 
   const card = await screen.findByTestId('bench-card');
   expect(within(card).getByText('3 · 1 players')).toBeInTheDocument();
   expect(screen.queryByText('Bench Runner')).not.toBeInTheDocument();
-  expect(within(card).getByRole('button', { name: 'Show' })).toHaveAttribute('aria-expanded', 'false');
+  // The control's accessible name says what it shows ("Show benches"); its
+  // visible word stays the canvas's "Show". Red-tell: dropping the aria-label
+  // leaves the name "Show" and turns this red.
+  expect(within(card).getByRole('button', { name: 'Show benches' })).toHaveAttribute('aria-expanded', 'false');
+  expect(within(card).getByRole('button', { name: 'Show benches' })).toHaveTextContent('Show');
+  // Collapsed with nothing beneath the header, the card clears the header's
+  // bottom hairline so its edge is not a doubled line (#903 review). Red-tell:
+  // dropping the collapsed `sx` (or the header-only gate) turns this red.
+  expect(card).toHaveAttribute('data-header-only', 'true');
+  // (jsdom serializes the `0` as "0px solid".)
+  expect(rulesUnder(card)['>:first-of-type']).toMatch(/border-bottom:\s*0(px)?\b/);
 
-  await userEvent.click(within(card).getByRole('button', { name: 'Show' }));
-  expect(within(card).getByRole('button', { name: 'Hide' })).toHaveAttribute('aria-expanded', 'true');
+  await userEvent.click(within(card).getByRole('button', { name: 'Show benches' }));
+  expect(within(card).getByRole('button', { name: 'Hide benches' })).toHaveAttribute('aria-expanded', 'true');
+  // Open, the header's hairline returns above the panel.
+  expect(screen.getByTestId('bench-card')).not.toHaveAttribute('data-header-only');
+  expect(rulesUnder(screen.getByTestId('bench-card'))['>:first-of-type']).toBeUndefined();
 
   const home = within(screen.getByTestId('bench-home'));
   expect(home.getAllByTestId('bench-row')).toHaveLength(3);
@@ -860,7 +986,7 @@ test('the Bench card is collapsed by default and Show reveals both benches with 
   expect(away.getByRole('button', { name: 'Away Backup' })).toBeInTheDocument();
   expect(away.getByText('proj 15.0')).toBeInTheDocument();
 
-  await userEvent.click(within(card).getByRole('button', { name: 'Hide' }));
+  await userEvent.click(within(card).getByRole('button', { name: 'Hide benches' }));
   expect(screen.queryByText('Bench Runner')).not.toBeInTheDocument();
 });
 
@@ -966,4 +1092,9 @@ test('below the sm breakpoint the toggle fills its row and Set lineup sits at th
   // The bench card precedes the action in document order.
   const bench = screen.getByTestId('bench-card');
   expect(bench.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // The toggle's segments grow to the 44px touch target below sm (#903
+  // review). Red-tell: rendering the toggle without `fill` on the phone
+  // layout (or dropping the feature's fill rule) turns this red.
+  const toggle = screen.getByRole('radiogroup', { name: 'Matchup view' });
+  expect(rulesUnder(toggle)['[role="radio"]']).toMatch(/min-height:\s*44px/);
 });

@@ -53,10 +53,18 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
  *     read happens so a best-ball zero never flashes. A failed read is
  *     skipped silently (a supplementary stat).
  *   - The view (Standard or Scoreboard), remembered per viewer by the
- *     toggle-matchup-view feature under a key that names the viewer: the
- *     viewer's Team id from the detail body (the league read's as a
- *     fallback), else the signed-in user's id, so two managers on one browser
- *     never share the choice.
+ *     toggle-matchup-view feature under ONE stable key: the signed-in user's
+ *     id from the redux user slice (`state.user.id`, on hand at first paint),
+ *     the feature's own `anon` fallback when there is none. The viewer's Team
+ *     id is never part of the key (#903 review): it lands with the detail
+ *     body, after first paint, and a key that flips would re-read the memory
+ *     under a new name and flip the view. Two signed-in managers on one
+ *     browser still never share the choice.
+ *   - The header's status chip (`statusChip`): the entity's label with the
+ *     canvas's statusChip() variant per status, LIVE on the danger tint with
+ *     the dot, Final success, Awaiting final warning, Scheduled neutral; the
+ *     same map the scoreboard strip's view model carries, so the two chips
+ *     agree (#903 review).
  */
 
 const RETRO_DASH_MS = 1000;
@@ -70,15 +78,19 @@ export function slotOrderFor(league) {
     .filter(Boolean);
 }
 
+// The status chip's Badge variant per server status, the canvas's statusChip()
+// (the hero's, the matchup cards' and the scoreboard strip's map).
+const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
+
 /**
- * The key the remembered view is stored under: the viewer's Team id first (a
- * manager is a Team in this league), else the user id (a viewer without a
- * Team here), else null (unknown: nothing is remembered).
+ * The header's status chip: the entity predicate's label (ADR 0030), the
+ * canvas's variant per status and the dot on LIVE alone; null when the server
+ * could not compute a status (no chip, never a guessed one).
  */
-export function viewerKeyFor({ teamId, userId }) {
-  if (teamId != null) return `team:${teamId}`;
-  if (userId != null) return `user:${userId}`;
-  return null;
+export function statusChipFor(status) {
+  const label = matchupStatusView(status).chipLabel;
+  if (label == null) return null;
+  return { label, variant: CHIP_VARIANTS[status] || 'neutral', dot: status === 'live' };
 }
 
 export function useMatchupPage(leagueId, matchupId) {
@@ -197,8 +209,8 @@ export function useMatchupPage(leagueId, matchupId) {
   }, [standings.data]);
 
   const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;
-  const viewerKey = viewerKeyFor({ teamId: viewerTeamId, userId });
-  const [view, setView] = useMatchupView(viewerKey);
+  // Keyed by the user alone (never the Team id): one key, known at first paint.
+  const [view, setView] = useMatchupView(userId);
 
   const status = matchupStatusView(matchup?.status);
   const isLive = matchup?.status === 'live';
@@ -231,6 +243,7 @@ export function useMatchupPage(leagueId, matchupId) {
     error,
     records,
     status,
+    statusChip: statusChipFor(matchup?.status),
     isLive,
     isFinal,
     isPlayoff: !!detail?.matchup?.is_playoff,

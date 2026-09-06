@@ -67,6 +67,19 @@ export function ledStatus(status) {
   return (matchupStatusView(status).chipLabel || '').toUpperCase();
 }
 
+/**
+ * Whether the Matchup has started, read through the entity's one predicate
+ * (ADR 0030) and gated on `hasStarted === true` exactly as the Standard view's
+ * scoreboard strip gates its bar (#903 review): a scheduled Matchup (false)
+ * and a status the server could not compute (null) both read as not started,
+ * so the board prints no WIN digits and the field parks the sprites at the
+ * neutral midpoint rather than painting a probability the page cannot stand
+ * behind.
+ */
+export function matchupHasStarted(status) {
+  return matchupStatusView(status).hasStarted === true;
+}
+
 // The reason an Unavailable player (CONTEXT.md, Roster and lineup) shows in
 // place of his projection, in the Lineup page's words; null for an available
 // row (or a row that carries no verdict), which shows its projection as ever.

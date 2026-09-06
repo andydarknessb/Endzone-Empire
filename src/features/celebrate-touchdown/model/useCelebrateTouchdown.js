@@ -15,8 +15,11 @@ import { classifyPlays } from '../../../lib/scoringEvents';
  *     cutscene, and the summary toast above rides the same stack;
  *   - the celebration preference, read once from
  *     `GET /api/notifications/prefs` (`touchdownCelebrations`, opt-out: the
- *     default is on, and a failed read leaves it on). A ref, not state: it
- *     configures the play handler without driving a re-render.
+ *     default is on, and a failed read leaves it on). Held twice: in a ref
+ *     the play handler reads (so the handler stays stable), and as state
+ *     (`celebrationsEnabled`) so a surface can SHOW it, the read-only
+ *     "Celebrations on / off" caption the Matchup page slots into the retro
+ *     field (#903 review; `CelebrationsCaption` renders it).
  *
  * The page calls `handlePlays(plays, { myStarterIds, oppStarterIds })` from
  * the entity hook's `onScores` with the event's whole `plays` array; only
@@ -38,25 +41,28 @@ import { classifyPlays } from '../../../lib/scoringEvents';
  *   toasts: object[],             the visible toasts, each with an `id`
  *   dismissToast: (id) => void,
  *   handlePlays: (plays: object[], sides: { myStarterIds?: Set, oppStarterIds?: Set }) => void,
+ *   celebrationsEnabled: boolean,  the preference as state (true until the read says otherwise)
  * }}
  */
 export function useCelebrateTouchdown() {
   const [cutsceneQueue, setCutsceneQueue] = useState([]);
   const [toasts, setToasts] = useState([]);
+  const [celebrationsEnabled, setCelebrationsEnabled] = useState(true);
   const toastSeq = useRef(0);
   const cutsceneSeq = useRef(0);
   const celebrationsRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
+    const settle = (enabled) => {
+      if (cancelled) return;
+      celebrationsRef.current = enabled;
+      setCelebrationsEnabled(enabled);
+    };
     apiClient
       .get('/api/notifications/prefs')
-      .then((res) => {
-        if (!cancelled) celebrationsRef.current = res.data?.touchdownCelebrations !== false;
-      })
-      .catch(() => {
-        if (!cancelled) celebrationsRef.current = true;
-      });
+      .then((res) => settle(res.data?.touchdownCelebrations !== false))
+      .catch(() => settle(true));
     return () => { cancelled = true; };
   }, []);
 
@@ -101,6 +107,7 @@ export function useCelebrateTouchdown() {
     toasts,
     dismissToast,
     handlePlays,
+    celebrationsEnabled,
   };
 }
 

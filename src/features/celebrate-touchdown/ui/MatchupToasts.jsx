@@ -8,7 +8,8 @@ import { playLabel } from '../../../lib/scoringEvents';
  * and the summary toast for cutscenes beyond the cap each land here for
  * TOAST_MS, or until tapped. Every toast is a `role="status"` so it is
  * announced once without stealing focus. The message is the toast's own when
- * it carries one (the summary), else "<name> · <play label> (+<points>)".
+ * it carries one (the summary), else "<name> · <play label> (+<points>)", the
+ * points always to one decimal ("+6.0", the ticker's format too).
  *
  * Paints only `dash-*` tokens plus the app's radius and shadow tokens: ink on
  * the card surface (a registered pairing), with the tone carried by the left
@@ -18,8 +19,9 @@ import { playLabel } from '../../../lib/scoringEvents';
  */
 export const TOAST_MS = 2400;
 
-function round1(n) {
-  return Math.round((Number(n) || 0) * 10) / 10;
+/** Points to one decimal always: "+6.0", never "+6". */
+function points1(n) {
+  return (Number(n) || 0).toFixed(1);
 }
 
 function Toast({ toast, onDismiss }) {
@@ -28,7 +30,7 @@ function Toast({ toast, onDismiss }) {
     return () => clearTimeout(id);
   }, [toast.id, onDismiss]);
   const positive = toast.tone === 'positive';
-  const message = toast.message || `${toast.name} · ${playLabel(toast)} (+${round1(toast.pointsDelta)})`;
+  const message = toast.message || `${toast.name} · ${playLabel(toast)} (+${points1(toast.pointsDelta)})`;
   return (
     <Box
       role="status"

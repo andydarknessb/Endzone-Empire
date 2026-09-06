@@ -109,6 +109,18 @@ test('a failed preference read leaves celebrations on', async () => {
 
   act(() => { result.current.handlePlays([td(1)], sides); });
   expect(result.current.cutscene).not.toBeNull();
+  expect(result.current.celebrationsEnabled).toBe(true);
+});
+
+// The preference as STATE (#903 review), so a surface can show it: on until
+// the read says otherwise, then whatever the read said. Red-tell: keeping the
+// preference in the ref alone (never calling the state setter) leaves
+// `celebrationsEnabled` true after an "off" read and turns this red.
+test('exposes the preference as state: on by default, off once the read says off', async () => {
+  apiClient.get.mockResolvedValue({ data: { touchdownCelebrations: false } });
+  const { result } = renderHook(() => useCelebrateTouchdown());
+  expect(result.current.celebrationsEnabled).toBe(true);
+  await waitFor(() => expect(result.current.celebrationsEnabled).toBe(false));
 });
 
 test('handlePlays keeps one identity across renders, so a feed callback never re-subscribes', async () => {

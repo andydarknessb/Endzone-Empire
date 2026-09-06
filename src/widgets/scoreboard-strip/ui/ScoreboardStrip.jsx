@@ -387,9 +387,12 @@ function Score({ value, size }) {
   );
 }
 
+// The canvas's statusChip(): the variant per status from the view model (LIVE
+// on the danger tint with the dot, Final success, Awaiting final warning,
+// Scheduled neutral), the same chip the page header wears (#903 review).
 function StatusChip({ chip }) {
   return (
-    <Badge variant={chip.variant} data-testid="scoreboard-status">
+    <Badge variant={chip.variant} dot={chip.dot} data-testid="scoreboard-status">
       {chip.label}
     </Badge>
   );

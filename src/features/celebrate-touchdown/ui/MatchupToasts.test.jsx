@@ -24,6 +24,14 @@ test('each toast is a status with the play line or its own message, toned by sid
   expect(statuses[1]).toHaveAttribute('data-tone', 'positive');
 });
 
+// Points print to one decimal always (#903 review): a whole-number delta reads
+// "+6.0", never "+6". Red-tell: rounding to a tenth without fixing the decimal
+// (`Math.round(n * 10) / 10`) prints "+6" and turns this red.
+test('a whole-number points delta still prints one decimal', () => {
+  render(<MatchupToasts toasts={[{ ...opponentToast, pointsDelta: 6 }]} onDismiss={jest.fn()} />);
+  expect(screen.getByRole('status')).toHaveTextContent('D. Adams · receiving TD (+6.0)');
+});
+
 test('a toast dismisses on tap and on its own after TOAST_MS', () => {
   jest.useFakeTimers();
   try {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SegmentedControl } from './index';
 
@@ -45,4 +45,13 @@ test('renders an option icon as decoration beside its label', () => {
   );
   expect(screen.getByTestId('icon')).toBeInTheDocument();
   expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
+});
+
+// Red-tell (#903): dropping the forwardRef (a plain function component) leaves
+// `ref.current` null and turns this red.
+test('forwards a ref to the radio group element, so a composer can reach the checked option', () => {
+  const ref = React.createRef();
+  render(<SegmentedControl ref={ref} aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />);
+  expect(ref.current).toBe(screen.getByRole('radiogroup', { name: 'Week' }));
+  expect(within(ref.current).getByRole('radio', { checked: true })).toBe(screen.getByRole('radio', { name: 'Wk 2' }));
 });

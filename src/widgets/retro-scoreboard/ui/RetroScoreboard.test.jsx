@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { RetroScoreboard } from '..';
 
 // prefers-reduced-motion (and the widget's own breakpoints) are read through
-// MUI's useMediaQuery; mock matchMedia the way RetroField.test.jsx does, but
-// answer per query so reduced motion can be switched on without the widget
-// also reading as mobile, and the stacked (max-width) layout switched on by
-// itself. Default: no preference and the desktop layout, so the ordinary
-// (animated) path runs.
+// MUI's useMediaQuery; mock matchMedia per query (this file's Field cases
+// below are the widget's own field tests and read the same mock), so reduced
+// motion can be switched on without the widget also reading as mobile, and
+// the stacked (max-width) layout switched on by itself. Default: no
+// preference and the desktop layout, so the ordinary (animated) path runs.
 let reducedMotion = false;
 let stacked = false;
 beforeEach(() => {
@@ -213,6 +213,52 @@ test('the field does not announce a guessed 50% when the win probability is unkn
   expect(within(screen.getByTestId('led-board')).getByTestId('led-win-home')).toHaveTextContent('-');
 });
 
+// The Scoreboard view follows the started state exactly as the Standard
+// view's strip does (#903 review): before kickoff, and under a status the
+// server could not compute, there are no WIN digits and the sprites rest at
+// the neutral midpoint, whatever probability the page computed. Red-tell:
+// showing the WIN row for a scheduled Matchup turns the scheduled case red;
+// gating on `hasStarted !== false` (which lets null through) turns the null
+// case red and no other.
+test.each(['scheduled', null])('a %s matchup shows no WIN digits and parks the sprites at midfield even with a probability on hand', (status) => {
+  // The neutral midpoint: where an unknown probability parks the sprites.
+  const { unmount: unmountNeutral } = renderBoard({ matchup: matchup({ status: 'live' }), homeProb: null });
+  const midHome = spriteX(screen.getByTestId('sprite-home'));
+  const midAway = spriteX(screen.getByTestId('sprite-away'));
+  unmountNeutral();
+  // Where 0.8 puts the home runner once started: further right than midfield.
+  const { unmount: unmountStarted } = renderBoard({ matchup: matchup({ status: 'live' }), homeProb: 0.8 });
+  expect(spriteX(screen.getByTestId('sprite-home'))).toBeGreaterThan(midHome);
+  unmountStarted();
+
+  renderBoard({ matchup: matchup({ status }), homeProb: 0.8 });
+  const board = within(screen.getByTestId('led-board'));
+  expect(board.queryByTestId('led-win')).not.toBeInTheDocument();
+  expect(board.queryByText('WIN')).not.toBeInTheDocument();
+  expect(board.queryByText('80%')).not.toBeInTheDocument();
+  expect(board.queryByText('20%')).not.toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /Field position/ })).toHaveAccessibleName('Field position: win probability not yet available');
+  expect(spriteX(screen.getByTestId('sprite-home'))).toBe(midHome);
+  expect(spriteX(screen.getByTestId('sprite-away'))).toBe(midAway);
+});
+
+// The home win probability reaches the accessibility tree once (#903 review):
+// the field image's name carries it, and the board's WIN row is its visible,
+// decorative duplicate, hidden from the tree. Red-tell: dropping the
+// aria-hidden from the WIN row turns the attribute assertion red.
+test('the WIN row is aria-hidden, so the probability is announced once, on the field image', () => {
+  renderBoard({ homeProb: 0.73 });
+  const win = within(screen.getByTestId('led-board')).getByTestId('led-win');
+  expect(win).toHaveAttribute('aria-hidden', 'true');
+  expect(win).toHaveTextContent('WIN');
+  expect(win).toHaveTextContent('73%');
+  expect(win).toHaveTextContent('27%');
+  expect(screen.getAllByRole('img', { name: /73% likely to win/ })).toHaveLength(1);
+  // Every "73%" text node sits under the hidden row: nothing outside the
+  // image exposes the figure.
+  screen.getAllByText('73%').forEach((el) => expect(win).toContainElement(el));
+});
+
 test('the field caption carries the sentence and, on its right, whatever the page slots in as the tail', () => {
   const { rerender } = renderBoard();
   const caption = screen.getByTestId('field-caption');
@@ -272,8 +318,9 @@ test('no callout renders without an active play, and a touchdown dashes the spri
 
 test('under reduced motion the moment callout is still rendered (not gated out by the preference)', () => {
   // The visible/invisible distinction is a computed-opacity one jsdom cannot
-  // resolve (see RetroField.test.jsx); what this guards is that the reduced
-  // path keeps the callout in the DOM and announced.
+  // resolve (see this file's Field cases above, the widget's own field
+  // tests); what this guards is that the reduced path keeps the callout in
+  // the DOM and announced.
   reducedMotion = true;
   renderBoard({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
   expect(screen.getByRole('status')).toHaveTextContent('BUF · SACK');

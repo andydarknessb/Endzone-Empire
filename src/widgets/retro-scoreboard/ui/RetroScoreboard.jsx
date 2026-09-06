@@ -2,6 +2,7 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
+import { matchupHasStarted } from '../model/scoreboardModel';
 import LedBoard from './LedBoard';
 import RetroField from './RetroField';
 import LineupsCard from './LineupsCard';
@@ -35,7 +36,12 @@ import GamesTile from './GamesTile';
  *   - `games`: the live_game_states rows on `model.games`.
  *   - `activePlay`: `{ side, type, isTouchdown, nflTeam, opponent }` or null;
  *     a touchdown dashes that side's sprite, a moment play flashes the callout.
- *   - `homeProb`: the home win probability, 0..1 (null when unpriced).
+ *   - `homeProb`: the home win probability, 0..1 (null when unpriced). It is
+ *     shown only once the Matchup has started, read through the entity's one
+ *     predicate exactly as the Standard view's strip gates its bar (#903
+ *     review, scoreboardModel.matchupHasStarted): before kickoff, or under a
+ *     status the server could not compute, the board prints no WIN row and
+ *     the field parks both sprites at the neutral midpoint.
  *   - `headingLevel`: the level of the two cards' headings (default 2), so a
  *     page slots the widget under its own heading without skipping a level.
  *   - `onFullComparison`: optional; when given the Lineups card grows a "Full
@@ -74,17 +80,22 @@ export default function RetroScoreboard({
   if (!matchup) return null;
 
   const gap = mobile ? '12px' : '16px';
+  // The probability is shown only once the Matchup has started (the strip's
+  // rule): before kickoff, or under an unknown status, the board prints no
+  // WIN row and the field reads an unknown probability (sprites at midfield).
+  const started = matchupHasStarted(matchup.status);
+  const shownProb = started ? homeProb : null;
 
   return (
     <Box
       data-testid="retro-scoreboard"
       sx={{ display: 'flex', flexDirection: 'column', gap, fontFamily: 'var(--dash-font-body)' }}
     >
-      <LedBoard matchup={matchup} leagueName={leagueName} homeProb={homeProb} mobile={mobile} />
+      <LedBoard matchup={matchup} leagueName={leagueName} homeProb={shownProb} showWin={started} mobile={mobile} />
       <RetroField
         homeName={matchup.home?.name}
         awayName={matchup.away?.name}
-        homeProb={homeProb}
+        homeProb={shownProb}
         activePlay={activePlay}
         mobile={mobile}
         tail={fieldTail}

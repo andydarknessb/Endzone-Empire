@@ -4,6 +4,7 @@ import {
   ledFigure,
   ledPercents,
   ledStatus,
+  matchupHasStarted,
   unavailableLabel,
   positionRingKey,
   lineupNoteParts,
@@ -52,6 +53,20 @@ test('ledStatus uppercases the entity label and is blank for an unknown status',
   expect(ledStatus('final')).toBe('FINAL');
   expect(ledStatus('scheduled')).toBe('SCHEDULED');
   expect(ledStatus(null)).toBe('');
+});
+
+// The started gate is `hasStarted === true` and nothing looser, the strip's
+// rule (#903 review). Red-tell: gating on `hasStarted !== false` turns the
+// null and bogus cases red and no other.
+test.each([
+  ['live', true],
+  ['played', true],
+  ['final', true],
+  ['scheduled', false],
+  [null, false],
+  ['bogus', false],
+])('matchupHasStarted(%p) is %p', (status, expected) => {
+  expect(matchupHasStarted(status)).toBe(expected);
 });
 
 test('positionRingKey maps a position onto the pos-* palette and falls back to def', () => {

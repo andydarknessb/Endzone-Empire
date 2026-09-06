@@ -14,31 +14,42 @@ import { VIEW_SCOREBOARD, VIEW_STANDARD } from '../model/useMatchupView';
  *   - `value`: 'standard' or 'scoreboard'.
  *   - `onChange`: called with the picked view.
  *   - `fill`: the mobile layout, where the control stretches to its row and
- *     the two segments share its width.
+ *     the two segments share its width, each grown to the 44px touch target
+ *     (the kit's segment is 30px; the rule is passed as `sx`, the way the
+ *     pick-week feature sizes its own segments).
  *
  * The control is the kit's radio group ("Matchup view"), so the selected view
- * is a checked radio and arrow keys move between the two. Paints nothing of
- * its own: the kit paints the segments, and the icons are inline stroke SVG
- * on the canvas's 20px grid, aria-hidden beside their words.
+ * is a checked radio and arrow keys move between the two. A `ref` reaches the
+ * group element (the kit forwards it), so the page can move focus onto the
+ * checked option when another control swaps the view. Paints nothing of its
+ * own: the kit paints the segments, and the icons are inline stroke SVG on
+ * the canvas's 20px grid, aria-hidden beside their words.
  */
 const OPTIONS = [
   { value: VIEW_STANDARD, label: 'Standard', icon: <Icon name="list" /> },
   { value: VIEW_SCOREBOARD, label: 'Scoreboard', icon: <Icon name="field" /> },
 ];
 
-export default function ToggleMatchupView({ value, onChange, fill = false, ...rest }) {
+// Below sm every segment is at least the 44px touch target.
+const FILL_SX = { '& [role="radio"]': { minHeight: 44 } };
+
+const ToggleMatchupView = React.forwardRef(function ToggleMatchupView({ value, onChange, fill = false, sx, ...rest }, ref) {
   return (
     <SegmentedControl
+      ref={ref}
       aria-label="Matchup view"
       data-testid="toggle-matchup-view"
       options={OPTIONS}
       value={value}
       onChange={onChange}
       fill={fill}
+      sx={fill ? { ...FILL_SX, ...sx } : sx}
       {...rest}
     />
   );
-}
+});
+
+export default ToggleMatchupView;
 
 const ICON_PATHS = {
   list: <path d="M4 6h12M4 10h12M4 14h12" />,
