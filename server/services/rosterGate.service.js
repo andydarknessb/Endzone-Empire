@@ -1,26 +1,7 @@
 const { isOnWaivers } = require('./waiver.service');
 const { rosterCapacity } = require('./irPolicy.service');
 const { POSITION_GROUPS } = require('./lineup.service');
-
-// A scoped copy of draft.service.js's DraftError (same shape: statusCode,
-// message, optional SCREAMING_SNAKE code, ADR 0008), kept private to this
-// module rather than imported from draft.service.js. draft.service.js needs
-// to require this module (to re-export assertRosterAcquisitionAllowed and to
-// keep calling assertPositionCapNotReached from undoDrop), so importing
-// DraftError back from draft.service.js would make the two modules require
-// each other - and since draft.service.js exports one big object literal at
-// the bottom of the file rather than assigning module.exports incrementally,
-// a circular require would hand this module the empty pre-export object
-// instead of the real DraftError. Nothing branches on `instanceof DraftError`
-// (grepped: only isDraftRefusal's `error.statusCode` check matters), so a
-// second class with the same shape is behaviourally identical.
-class DraftError extends Error {
-  constructor(statusCode, message, code = null) {
-    super(message);
-    this.statusCode = statusCode;
-    this.code = code;
-  }
-}
+const { DraftError } = require('./draftError');
 
 /**
  * Position caps are keyed at the same granularity as positionCapsFeasible's
@@ -53,7 +34,7 @@ async function assertPositionCapNotReached(client, { teamId, positionCaps, posit
 
 /**
  * The roster-acquisition checks shared by a Pick (pick.service.commitPick) and a
- * post-draft free-agent add (addFreeAgent below), #782 ruling 2: roster capacity,
+ * post-draft free-agent add (draft.service.js's addFreeAgent), #782 ruling 2: roster capacity,
  * the per-position cap, and - for a completed draft only - the on-waivers gate.
  * The order matches what the single pre-#782 commit ran before it was split into
  * pick.service.commitPick and addFreeAgent, so both callers refuse for the same

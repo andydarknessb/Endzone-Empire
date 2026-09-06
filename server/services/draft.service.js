@@ -22,16 +22,7 @@ const sentry = require('../modules/sentry');
 // assertRosterAcquisitionAllowed below for pick.service.js and its own tests,
 // and still calls assertPositionCapNotReached directly from undoDrop.
 const { assertRosterAcquisitionAllowed, assertPositionCapNotReached } = require('./rosterGate.service');
-
-class DraftError extends Error {
-  constructor(statusCode, message, code = null) {
-    super(message);
-    this.statusCode = statusCode;
-    // A stable SCREAMING_SNAKE code (ADR 0008) a client branches on, distinct
-    // from the human message. Optional so existing throws keep their behaviour.
-    this.code = code;
-  }
-}
+const { DraftError } = require('./draftError');
 
 /**
  * Whether a caught error is a draft REFUSAL rather than an internal fault. A
@@ -87,7 +78,8 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
 /**
  * A post-draft free-agent add: the caller adds a free player to their OWN roster
  * once the draft is complete. This is NOT a Pick (#782 ruling 2, CONTEXT.md) - it
- * takes the Pick path's roster-acquisition checks through the shared helper above,
+ * takes the Pick path's roster-acquisition checks through the shared helper
+ * (assertRosterAcquisitionAllowed, re-exported from rosterGate.service.js),
  * but it commits no draft_pick, appends no Draft activity, arms no clock, and
  * fans out only `rosterChanged` (the availability read model changed). It refuses
  * unless the draft is complete; a Pick, conversely, refuses unless it is active.
