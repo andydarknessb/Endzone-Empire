@@ -277,10 +277,13 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   // lock-wait time, so a lock blocked past the limit is CANCELLED with SQLSTATE
   // 57014, not parked. 57014 is not in dbRetry's TRANSIENT_CODES, so that sync
   // fails (rolls back to the previous ADP values, records ok=false) rather than
-  // retrying - whether to act on that cancellation is the open question in #929.
-  // Either way the xact scope releases the lock, so there is no explicit unlock
-  // that could strand it behind Supavisor's transaction pooling the way a session
-  // lock did in #839.
+  // retrying. Both sides of this lock now hold it for a small, fixed number of
+  // statements - syncAdp's wipe plus one bulk set, and syncInjuries' scan plus
+  // one bulk set (#929, which collapsed its former ~3,000-row per-player loop) -
+  // so a wait long enough to reach the timeout is unlikely to arise. Either way
+  // the xact scope releases the lock, so there is no explicit unlock that could
+  // strand it behind Supavisor's transaction pooling the way a session lock did
+  // in #839.
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

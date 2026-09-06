@@ -1114,7 +1114,7 @@ async function syncInjuries({ api = tank01Get } = {}) {
 
   const client = await pool.connect();
   let irFlags;
-  let updated = 0;
+  let matchedCount = 0;
   try {
     await client.query('BEGIN');
     // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
@@ -1127,32 +1127,59 @@ async function syncInjuries({ api = tank01Get } = {}) {
     // transaction finishes (no network I/O inside either transaction, so it is
     // short) OR when statement_timeout fires (pool.js sets it on every pooled
     // connection, 15s web / 30s worker, and it counts lock-wait time), whichever
-    // comes first. A wait cancelled by the timeout raises SQLSTATE 57014, which
-    // dbRetry does not treat as transient, so that sync fails and rolls back
-    // rather than retrying (open question #929). The lock releases with the
-    // transaction either way, so there is no explicit unlock and nothing strands
-    // behind the pooler (#839).
+    // comes first. The designation write below is a SINGLE bulk statement (#929),
+    // so the lock is held for the scan plus one round trip, not the ~3,000
+    // sequential single-row writes the per-player loop once took: a 57014
+    // cancellation of a blocked wait is far less likely to be reached in the
+    // first place. The lock releases with the transaction either way, so there
+    // is no explicit unlock and nothing strands behind the pooler (#839).
     await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
     const playersResult = await client.query(
       `SELECT "id", "external_id", "injury_status"
          FROM "players" WHERE "external_id" IS NOT NULL
          FOR UPDATE`
     );
+    // Build three parallel arrays (ids int[], statuses/details text[]) over
+    // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
+    // designation writes null into both text columns, and nulls survive into the
+    // text[] as SQL NULL. transitions is built over the SAME matches and drives
+    // both playersUpdated and the IR flag pass, independent of which rows the
+    // statement actually writes.
     const transitions = [];
+    const ids = [];
+    const statuses = [];
+    const details = [];
     for (const player of playersResult.rows) {
       const injury = injuryByExternal.get(String(player.external_id));
       if (!injury) continue; // not in the feed — leave untouched
-      await client.query(
-        `UPDATE "players" SET "injury_status" = $1, "injury_detail" = $2 WHERE "id" = $3`,
-        [injury.status, injury.detail, player.id]
-      );
+      ids.push(player.id);
+      statuses.push(injury.status);
+      details.push(injury.detail);
       transitions.push({
         playerId: player.id,
         previousDesignation: player.injury_status,
         currentDesignation: injury.status,
       });
-      updated += 1;
     }
+    // One bulk UPDATE replaces the per-player loop. The two-column
+    // IS DISTINCT FROM predicate against the target row p skips no-op rows (both
+    // columns unchanged), so an unchanged row costs no write and the FOR UPDATE
+    // scan does not need widening to compare injury_detail in JS. Guarded on a
+    // non-empty id list the way syncAdp guards its own bulk set.
+    if (ids.length > 0) {
+      await client.query(
+        `UPDATE "players" p
+            SET "injury_status" = v."status", "injury_detail" = v."detail"
+           FROM (SELECT unnest($1::int[]) AS "id",
+                        unnest($2::text[]) AS "status",
+                        unnest($3::text[]) AS "detail") v
+          WHERE p."id" = v."id"
+            AND (p."injury_status" IS DISTINCT FROM v."status"
+                 OR p."injury_detail" IS DISTINCT FROM v."detail")`,
+        [ids, statuses, details]
+      );
+    }
+    matchedCount = transitions.length;
     const { flagRecoveredIrStashes } = require('./irPolicy.service');
     irFlags = await flagRecoveredIrStashes(client, transitions);
     await client.query('COMMIT');
@@ -1169,7 +1196,11 @@ async function syncInjuries({ api = tank01Get } = {}) {
   } catch (error) {
     console.error('IR flag push failed:', error.message);
   }
-  return { playersUpdated: updated, irFlags: irFlags.length };
+  // playersUpdated counts feed matches (the length of transitions), not the
+  // statement's rowCount: under the no-op predicate the two legitimately
+  // differ, and the count an admin reads must not silently shrink to the
+  // handful of rows that changed.
+  return { playersUpdated: matchedCount, irFlags: irFlags.length };
 }
 
 /**
