@@ -200,11 +200,13 @@ test('claimFailureReason: a team over capacity (stash occupant recovered) is rej
 
 test('processWaivers: the winning claim benches the acquired player', async (t) => {
   const league = {
-    id: 1, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
+    id: 1, transactions_locked: false, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
     current_season: 2026, current_week: 6, waiver_period_hours: 24,
   };
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [league] })],
+    // Shape matcher (blind to the select list) so it answers both processWaivers'
+    // own SELECT * and the roster gate's explicit-column read (#944).
+    [select('leagues'), () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
@@ -229,6 +231,36 @@ test('processWaivers: the winning claim benches the acquired player', async (t) 
 
   assert.deepEqual(result.results, [{ claimId: 9, playerId: 500, status: 'won', teamId: 31 }]);
   assert.deepEqual(benched, [{ league, teamId: 31, playerId: 500, afterRosterWrite: true }]);
+  fake.assertClean();
+});
+
+test('processWaivers: a frozen league awards nothing; the claims stay pending (#944)', async (t) => {
+  // A claim submitted before a freeze must not land during it (#940 story 4).
+  // The gate reads the freeze off the League row and throws; the whole batch
+  // rolls back, so no roster write lands AND no claim is finished - the claims
+  // are simply left pending for a tick after the freeze lifts, never awarded or
+  // permanently invalidated.
+  const league = {
+    id: 1, transactions_locked: true, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
+    current_season: 2026, current_week: 6, waiver_period_hours: 24,
+  };
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('waiver_claims'), () => ({ rows: [
+      { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
+    ] })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1, locked: false }] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    processWaivers({ leagueId: 1 }),
+    { statusCode: 409, code: 'TRANSACTIONS_LOCKED', message: 'transactions are locked by the commissioner' }
+  );
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'no award landed');
+  assert.equal(fake.matching(update('waiver_claims')).length, 0, 'no claim was finished');
   fake.assertClean();
 });
 
@@ -266,12 +298,12 @@ test('processWaivers clears an expired empty waiver window and refreshes league 
 
 test('processWaivers: the claim drop records no undo, unlike the two undoable drops', async (t) => {
   const league = {
-    id: 1, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
+    id: 1, transactions_locked: false, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
     current_season: 2026, current_week: 6, waiver_period_hours: 24,
   };
   let holdParams;
   const fake = createFakePool([
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [league] })],
+    [select('leagues'), () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
     [select('waiver_claims'), () => ({ rows: [
       { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: 77, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },

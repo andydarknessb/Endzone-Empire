@@ -98,6 +98,7 @@ test('teamIndexForPick: 12 teams snake draft', () => {
 
 const freeAgencyLeague = {
   id: 1,
+  transactions_locked: false,
   draft_status: 'complete',
   draft_type: 'snake',
   draft_rotation: 'snake',
@@ -216,13 +217,90 @@ test('addFreeAgent: an eligible IR stash grants the extra spot', async (t) => {
   fake.assertClean();
 });
 
+// --- addFreeAgent: the #944 freeze gate --------------------------------------
+
+test('addFreeAgent: a frozen league is refused before any roster write (#944)', async (t) => {
+  // (a) freeze column present and true: the wired path refuses. Seeding this
+  // into the free-agent-add fixture is exactly the red-tell criterion 3 names.
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [{ ...freeAgencyLeague, transactions_locked: true }] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, name: 'Team Eleven', owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
+  ]).install(t);
+  const recorder = installRecordingBroadcast(t);
+
+  await assert.rejects(
+    addFreeAgent({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, code: 'TRANSACTIONS_LOCKED', message: 'transactions are locked by the commissioner' }
+  );
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not rostered');
+  assert.deepEqual(recorder.calls, [], 'a refusal emits nothing');
+  fake.assertClean();
+});
+
+test('addFreeAgent: a league row that cannot answer the freeze fails closed (#944 rule 2)', async (t) => {
+  // (b) delete the freeze column: the fake matcher is blind to the select list,
+  // so this is the row an existing handler hands the gate. A gate that read the
+  // column from a caller-supplied object would see undefined -> falsy -> pass;
+  // this one refuses, with a DISTINCT fail-closed error (500, not the 409 freeze).
+  const { transactions_locked, ...leagueWithoutFreeze } = freeAgencyLeague;
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [leagueWithoutFreeze] })],
+    [select('teams'), () => ({ rows: [
+      { id: 11, name: 'Team Eleven', owner_id: 7, draft_position: 1, autodraft: false, locked: false },
+    ] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB', nfl_team: 'KC' }] })],
+  ]).install(t);
+  const recorder = installRecordingBroadcast(t);
+
+  await assert.rejects(
+    addFreeAgent({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 500, code: 'ROSTER_GATE_INDETERMINATE' }
+  );
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not rostered');
+  assert.deepEqual(recorder.calls, [], 'a refusal emits nothing');
+  fake.assertClean();
+});
+
 // --- undoDrop ----------------------------------------------------------------
+
+test('undoDrop: a frozen league is refused before the hold is read or deleted (#944)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [{ ...undoLeague, transactions_locked: true }] })],
+    [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, code: 'TRANSACTIONS_LOCKED', message: 'transactions are locked by the commissioner' }
+  );
+  assert.equal(fake.matching(remove('waiver_players')).length, 0, 'the waiver hold survived');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not re-rostered');
+  fake.assertClean();
+});
+
+test('undoDrop: a locked team is refused, the lock this path used to skip (#944)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [undoLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: true }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    undoDrop({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, code: 'TEAM_LOCKED', message: 'your team is locked by the commissioner' }
+  );
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not re-rostered');
+  fake.assertClean();
+});
+
 
 test('undoDrop: consults roster capacity, not the static roster limit', async (t) => {
   const fake = createFakePool([
     [select('leagues'), (text) => {
       assert.match(text, /"ir_slots"/);
-      return { rows: [{ roster_limit: 3, ir_slots: 1, position_caps: {} }] };
+      return { rows: [{ id: 1, transactions_locked: false, roster_limit: 3, ir_slots: 1, position_caps: {} }] };
     }],
     [select('teams'), () => ({ rows: [{ id: 11, owner_id: 7, locked: false }] })],
     [select('waiver_players'), () => ({ rows: [{ 1: 1 }] })],
@@ -240,7 +318,8 @@ test('undoDrop: consults roster capacity, not the static roster limit', async (t
 });
 
 const undoLeague = {
-  id: 1, roster_limit: 3, ir_slots: 1, position_caps: {}, current_season: 2026, current_week: 4,
+  id: 1, transactions_locked: false, roster_limit: 3, ir_slots: 1, position_caps: {},
+  current_season: 2026, current_week: 4,
 };
 
 /**
