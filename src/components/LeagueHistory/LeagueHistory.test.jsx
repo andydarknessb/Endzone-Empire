@@ -77,6 +77,21 @@ test('caps the season section titles at h6 under the h6 season summary', async (
   expect(within(panel).queryAllByRole('heading', { level: 5 })).toHaveLength(0);
 });
 
+// The trophy glyphs are exported by TrophyCase and painted on this route too,
+// so a change on that side has to stay visible from here.
+test('paints the trophy glyphs from the shared trophy icon, not emoji', async () => {
+  apiClient.get.mockResolvedValue(historyResponse());
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  expect(within(panel).getByText('League Champion · Sunday Ballers')).toBeInTheDocument();
+  // The champion banner and the trophy chip both carry the cup.
+  // eslint-disable-next-line testing-library/no-node-access -- the glyphs are aria-hidden by design, so no Testing Library query can reach them
+  expect(panel.querySelectorAll('svg[data-icon="trophy"]')).toHaveLength(2);
+  expect(panel.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+});
+
 test('renders a champion banner with team name and record inside the expanded panel', async () => {
   apiClient.get.mockResolvedValue(historyResponse());
 
@@ -113,9 +128,14 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
   renderHistory();
 
   const panel = await screen.findByTestId('season-panel-2026');
-  expect(panel).toHaveTextContent('🥇');
-  expect(panel).toHaveTextContent('🥈');
-  expect(panel).toHaveTextContent('🥉');
+  // The medals are inline stroke glyphs, not emoji (no emoji in product UI),
+  // and stay decorative: each is aria-hidden, so the rank number beside it is
+  // the only thing in the accessibility tree.
+  // eslint-disable-next-line testing-library/no-node-access -- the medals are aria-hidden by design, so no Testing Library query can reach them
+  const medals = panel.querySelectorAll('svg[data-medal]');
+  expect(Array.from(medals).map((el) => el.getAttribute('data-medal'))).toEqual(['1', '2', '3']);
+  medals.forEach((el) => expect(el).toHaveAttribute('aria-hidden', 'true'));
+  expect(panel.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   // Rank numbers remain present for screen readers alongside the decorative medals.
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('4')).toBeInTheDocument();

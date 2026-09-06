@@ -70,6 +70,29 @@ const HERO_TINT_BY_THEME = {
   dark: 'rgba(79, 140, 255, 0.14)',
 };
 
+// The League Dashboard's viewer row, now that it actually paints. Standings and
+// Draft Grades both mark the viewer's own row with `dash-accent-soft`, and the
+// "You" pill sitting in that row is ITSELF `dash-accent-soft`, so the pill's
+// accent label lands on a DOUBLE composite: tint over tint over the card. No
+// single `backdrop` token spells that - the same problem HERO_TINT_BY_THEME
+// solves - so the inner layer is pre-composited here per mode and registered
+// below as an ordinary backdrop.
+//
+// Derived, not eyeballed: `dash-accent-soft` (12% accent) over `dash-surface`.
+// Light rgba(15, 106, 65, .12) over #ffffff is rgb(226.2, 237.1, 232.2); dark
+// rgba(47, 217, 123, .12) over #141b23 is rgb(23.2, 49.8, 45.6). Recompute both
+// if either token moves; the row below is what fails if you do not.
+//
+// The composite is new because the tint is new ON SCREEN, not new in the code:
+// Draft Grades declared it from the start, but the MuiTableBody override
+// outranked the widget's own rule (0,2,0) to (0,1,0), so the app's zebra
+// painted instead and this pairing never appeared. Rebuilding that table off
+// MUI is what made it real.
+const VIEWER_ROW_TINT_BY_THEME = {
+  light: '#e2ede8',
+  dark: '#17322e',
+};
+
 const PAIRINGS = [
   pairing('text-primary', 'bg-page', AA_TEXT, 'body text on the page'),
   pairing('text-primary', 'surface', AA_TEXT, 'body text on cards'),
@@ -345,6 +368,13 @@ const PAIRINGS = [
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a stat tile', 'dash-surface2'),
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the raised tile', 'dash-surface3'),
   pairing('dash-faint', 'dash-accent-soft', AA_TEXT, 'the me-row rank cell on the accent tint over a card (the only guarded tinted-faint backdrop)', 'dash-surface'),
+  // The "You" pill inside the viewer's own row (standings-table and
+  // draft-grades): an accent-tinted pill on an accent-tinted row on a card, so
+  // the pill's own tint composites over an already-tinted backdrop rather than
+  // over the bare surface. 4.68 light, 5.74 dark - light clears AA_TEXT by 0.18,
+  // the thinnest margin in this group, so retuning `dash-accent` or the tint's
+  // alpha breaks this row before it breaks any other.
+  pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'the You pill on the viewer row tint over a card', 'viewer-row-tint'),
   // draft-grades widget (#642): the roster-value number in the viewer's own
   // (tinted) row. First dim-on-tint consumer in this group; the guidance
   // above warns dim fails the tint on the raised tile (dash-surface3), but
@@ -433,6 +463,9 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
     // per mode, so the `tokens[bg]` lookup every PAIRINGS row already uses
     // resolves it exactly like any other key.
     'landing-hero-tint': HERO_TINT_BY_THEME[mode],
+    // Likewise not a real token: `dash-accent-soft` already composited once
+    // over `dash-surface`, so a pairing can name the viewer row as its backdrop.
+    'viewer-row-tint': VIEWER_ROW_TINT_BY_THEME[mode],
   };
 
   test.each(PAIRINGS)(

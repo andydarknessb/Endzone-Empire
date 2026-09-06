@@ -84,6 +84,13 @@ export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
           sx={{
             textTransform: 'none',
             color: 'var(--dash-ink)',
+            // The 44px touch floor, phone widths only. Breakpoint-scoped
+            // rather than the flat MIN_TOUCH_TARGET_SX because this is a
+            // size="small" outlined control: an unconditional 44 would grow it
+            // by 13px on desktop, where a pointer needs no floor. It measured
+            // 30.75px at every width before this, and it is the control that
+            // advances a whole league's week.
+            minHeight: { xs: 44, md: 'auto' },
             borderColor: 'var(--dash-line-strong)',
             borderRadius: 'var(--dash-radius-sm)',
             fontFamily: 'var(--dash-font-body)',

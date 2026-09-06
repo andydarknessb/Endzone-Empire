@@ -32,9 +32,12 @@ import { ordinal } from '../lib/ordinal';
  *   - Draft grade and roster value come from the league draft-grades read. When
  *     it 404s (grades not generated yet) both tiles degrade to a placeholder
  *     with no number, rather than erroring the card.
- *   - Projected finish is a plain read of the power-rankings endpoint (see the
- *     one-mount trigger above). It 404s until first computed; until then the
- *     tile is simply absent, not a placeholder.
+ *   - Projected finish, playoff odds and rank movement are all one plain read of
+ *     the power-rankings endpoint (see the one-mount trigger above). It 404s
+ *     until first computed; until then those tiles are simply absent, not
+ *     placeholders.
+ *   - The waiver/roster tile reads the league row and the viewer's own `teams[]`
+ *     entry, both already in the league cache above, so it costs no request.
  */
 
 // Both plain reads below use the shared useEndpoint (src/shared/lib, #669) and
@@ -57,6 +60,37 @@ const formatRecord = (row) => {
 
 const gamesPlayed = (row) =>
   (Number(row.wins) || 0) + (Number(row.losses) || 0) + (Number(row.ties) || 0);
+
+// A finite number, or null when the field is absent. Every optional numeric
+// below goes through this for the same reason `rawRosterValue` does: an absent
+// column coerces to 0, and a 0 in one of these tiles ("0/100 FAAB", "held its
+// place") reads as a fact rather than as a gap.
+const numberOrNull = (raw) => {
+  if (raw == null) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+};
+
+/**
+ * The fourth tile's fact: the league's waiver currency when it runs FAAB, and
+ * otherwise how full the roster is. Both pairs are already on the league-detail
+ * payload (league.router.js: `leagues.*` carries waiver_type/faab_budget/
+ * roster_limit, the teams[] select carries faab_remaining and a COUNTed
+ * roster_count), so this is a reshape of cached data, not a read.
+ *
+ * Null when either half of the pair is missing, because "24 of nothing" is not
+ * a fact worth a tile; the tile is then simply absent, the way the projection
+ * tile is.
+ */
+function capacityFact(league, team) {
+  if (!league || !team) return null;
+  const [label, have, cap] =
+    league.waiver_type === 'faab'
+      ? ['FAAB left', numberOrNull(team.faab_remaining), numberOrNull(league.faab_budget)]
+      : ['Roster', numberOrNull(team.roster_count), numberOrNull(league.roster_limit)];
+  if (have == null || cap == null) return null;
+  return { label, text: `${have}/${cap}` };
+}
 
 export function useMyTeamSummary(leagueId) {
   const { league, teams, viewerTeamId } = useLeague(leagueId);
@@ -122,13 +156,27 @@ export function useMyTeamSummary(leagueId) {
     text: Number.isFinite(rawRosterValue) ? rawRosterValue.toLocaleString('en-US') : null,
   };
 
-  // Projected finish: absent until the power-rankings run exists and carries a
-  // rank for the viewer. 404 / error / loading all render no tile.
+  // Projected finish, its movement, and playoff odds: all absent until the
+  // power-rankings run exists and carries a row for the viewer. 404 / error /
+  // loading all render no tile.
   let proj = null;
+  let playoffOdds = null;
   if (rankings.status === 'ready') {
     const row = findById(rankings.data?.data?.rankings, viewerTeamId);
     const rank = row ? ordinal(Number(row.rank)) : null;
-    if (rank) proj = { ordinal: rank };
+    if (rank) {
+      // `change` is prevRank - rank (montecarlo.service.js withRankChange), so
+      // positive means the Team moved UP the table. It is null when there is no
+      // prior stored run, and null must stay null all the way to the UI: 0 is a
+      // real value here ("held its place"), so a coercion would turn the first
+      // run of a season into every Team claiming it held.
+      proj = { ordinal: rank, change: numberOrNull(row.change) };
+    }
+    // The simulation stores odds as a 0-1 fraction rounded to three places
+    // (montecarlo.service.js runSimulation), so the percentage is made here and
+    // nowhere else.
+    const odds = row ? numberOrNull(row.playoffOdds) : null;
+    if (odds != null) playoffOdds = { percent: Math.round(odds * 100) };
   }
 
   return {
@@ -140,6 +188,8 @@ export function useMyTeamSummary(leagueId) {
     draftGrade,
     rosterValue,
     proj,
+    playoffOdds,
+    capacity: capacityFact(league, viewerTeam),
   };
 }
 

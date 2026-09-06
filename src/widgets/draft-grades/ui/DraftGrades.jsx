@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Table, TableBody, TableCell, TableRow, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, GradeChip, Skeleton } from '../../../shared/ui';
 import useDraftGrades from '../model/useDraftGrades';
@@ -16,6 +16,19 @@ import useDraftGrades from '../model/useDraftGrades';
  * Composes `shared/ui` (ADR 0020): `Card` for the labelled region and header
  * (title + the "Net vs ADP" tail), `GradeChip` for the per-row letter chip.
  * Colors come only from `--dash-*` tokens.
+ *
+ * The table is plain `table`/`tbody`/`tr`/`th`/`td` elements, NOT MUI's Table
+ * primitives, and that is load-bearing rather than a style preference. The app
+ * theme's `MuiTableBody` override (AppThemeProvider.jsx) emits
+ * `.<tbody> .MuiTableRow-root { background-color: ... }` at specificity
+ * (0,2,0), which beats any row-level `sx` at (0,1,0): under MUI this card's
+ * viewer tint never painted (the app's zebra stripe won) while its inset accent
+ * bar, a property the override does not set, did. `MuiTableCell` separately
+ * spreads the `body2` typography, so every cell rendered in the app's Inter
+ * instead of the island's inherited Archivo. Raising this widget's specificity
+ * would be a war with the theme; leaving MUI's table is the fix, and it is the
+ * same markup standings-table uses, so the two tables in this island share one
+ * language.
  *
  * Table semantics follow standings-table: the Team cell is the row header
  * (`th scope="row"`), so a screen reader reading the number cell hears the
@@ -74,9 +87,46 @@ const NotAvailable = () => (
   </>
 );
 
+// The two cells' shared box: padding, the hairline under the row, and the
+// normal body weight (a `th` defaults to bold, and the name span sets its own).
+const CELL_SX = {
+  px: 1.5,
+  py: 1.25,
+  borderBottom: '1px solid var(--dash-line)',
+  fontWeight: 400,
+};
+
+// The table wrapper is the one box on this card allowed a zero minimum without
+// a clip of its own: it scrolls (`overflowX`), so an over-wide table pans here
+// instead of widening the rail.
+function TableShell({ children, ...rest }) {
+  return (
+    <Box data-testid="draft-grades-scroll" sx={{ overflowX: 'auto' }}>
+      <Box
+        component="table"
+        sx={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          fontFamily: 'var(--dash-font-body)',
+        }}
+        {...rest}
+      >
+        <Box component="tbody">{children}</Box>
+      </Box>
+    </Box>
+  );
+}
+
 export default function DraftGrades({ leagueId }) {
-  const { phase, rows, viewerTeamId } = useDraftGrades(leagueId);
+  const { phase, rows, viewerTeamId, teamCount } = useDraftGrades(leagueId);
   const explainerId = `draft-grades-explainer-${leagueId}`;
+
+  // The placeholder holds the shape the real table will take: one skeleton row
+  // per Team in the league, read from the membership this widget already has,
+  // so the rail does not jump from a three-line block to twelve two-line rows
+  // when the grades land. The floor of 1 covers the window where the league
+  // read itself has not resolved and the count is still unknown.
+  const skeletonRows = Math.max(teamCount, 1);
 
   return (
     <Card
@@ -87,11 +137,14 @@ export default function DraftGrades({ leagueId }) {
       sx={{ p: 0 }}
     >
       {phase === 'loading' && (
-        <Box sx={{ p: 2.25, display: 'grid', gap: 1.25 }}>
-          <Skeleton data-testid="draft-grades-skeleton" variant="text" width="100%" height={18} />
-          <Skeleton data-testid="draft-grades-skeleton" variant="text" width="100%" height={18} />
-          <Skeleton data-testid="draft-grades-skeleton" variant="text" width="100%" height={18} />
-        </Box>
+        // Every shape inside is decorative and the owning Card already reports
+        // `aria-busy`, so the placeholder table is hidden whole rather than
+        // announced as a table of empty rows.
+        <TableShell aria-hidden="true">
+          {Array.from({ length: skeletonRows }, (_, i) => (
+            <SkeletonRow key={`skeleton-${i}`} />
+          ))}
+        </TableShell>
       )}
 
       {phase === 'pending' && (
@@ -115,77 +168,122 @@ export default function DraftGrades({ leagueId }) {
 
       {phase === 'ready' && (
         <>
-          <Table size="small" aria-label="Draft grades by Team" aria-describedby={explainerId}>
-            <TableBody>
-              {rows.map((row) => {
-                const isViewer = row.teamId === viewerTeamId;
-                // A malformed net (a legacy/partial computed row) renders as
-                // not available rather than "NaN".
-                const hasNet = Number.isFinite(row.adpNet);
-                return (
-                  <TableRow
-                    key={row.teamId}
-                    data-testid={`draft-grades-row-${row.teamId}`}
-                    data-viewer-team={isViewer || undefined}
-                    sx={
-                      isViewer
-                        ? {
-                            backgroundColor: 'var(--dash-accent-soft)',
-                            boxShadow: 'inset 3px 0 0 var(--dash-accent)',
-                          }
-                        : undefined
-                    }
-                  >
-                    <TableCell
-                      component="th"
-                      scope="row"
-                      sx={{ borderBottom: '1px solid var(--dash-line)', fontWeight: 'inherit' }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+          <TableShell aria-label="Draft grades by Team" aria-describedby={explainerId}>
+            {rows.map((row) => {
+              const isViewer = row.teamId === viewerTeamId;
+              // A malformed net (a legacy/partial computed row) renders as
+              // not available rather than "NaN".
+              const hasNet = Number.isFinite(row.adpNet);
+              return (
+                <Box
+                  component="tr"
+                  key={row.teamId}
+                  data-testid={`draft-grades-row-${row.teamId}`}
+                  data-viewer-team={isViewer || undefined}
+                  sx={{
+                    transition: 'background-color var(--transition-fast) ease',
+                    ...(isViewer
+                      ? {
+                          backgroundColor: 'var(--dash-accent-soft)',
+                          boxShadow: 'inset 3px 0 0 var(--dash-accent)',
+                        }
+                      : {
+                          // `surface3`, not `surface2`: surface2 is a resting
+                          // fill elsewhere on this island (stat tiles, the
+                          // commissioner disclosure), so hovering to it would
+                          // read as a state the row settled into rather than a
+                          // pointer response. Both tables now mark the viewer
+                          // with the accent tint above, so the old reason for
+                          // avoiding surface2 (standings used it as the viewer
+                          // marker) no longer applies; the choice does. Guarded
+                          // on a real pointer so a tap does not leave a phantom
+                          // hover behind on a touch screen.
+                          '@media (hover: hover)': {
+                            '&:hover': { backgroundColor: 'var(--dash-surface3)' },
+                          },
+                        }),
+                  }}
+                >
+                  <Box component="th" scope="row" sx={{ ...CELL_SX, textAlign: 'left' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                      <Box sx={{ flex: 'none', display: 'flex' }}>
                         <GradeChip grade={row.grade} />
-                        <Box sx={{ display: 'grid', gap: 0.25, minWidth: 0 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Box component="span" sx={{ fontSize: '13.5px', color: 'var(--dash-ink)' }}>
-                              {row.teamName}
-                            </Box>
-                            {isViewer && <Badge variant="you">You</Badge>}
-                          </Box>
+                      </Box>
+                      {/* The zero minimum lets this column shrink below its
+                          longest word; both lines inside clip, so it shrinks
+                          rather than pushing the number cell off the card. */}
+                      <Box sx={{ display: 'grid', gap: 0.25, minWidth: 0, overflow: 'hidden' }}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            minWidth: 0,
+                            overflow: 'hidden',
+                          }}
+                        >
                           <Box
                             component="span"
-                            data-testid="draft-grades-picks"
-                            sx={{ fontSize: '11.5px', color: 'var(--dash-dim)', fontWeight: 400 }}
+                            sx={{
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontSize: '13.5px',
+                              color: 'var(--dash-ink)',
+                            }}
                           >
-                            {pickLine(row)}
+                            {row.teamName}
                           </Box>
+                          {isViewer && <Badge variant="you" sx={{ flex: 'none' }}>You</Badge>}
+                        </Box>
+                        {/* Two lines, then ellipsis: a steal and a reach with
+                            long player names is the common case and used to run
+                            this rail card to twice the height of the standings
+                            beside it. */}
+                        <Box
+                          component="span"
+                          data-testid="draft-grades-picks"
+                          sx={{
+                            fontSize: '11.5px',
+                            color: 'var(--dash-dim)',
+                            fontWeight: 400,
+                            display: '-webkit-box',
+                            WebkitBoxOrient: 'vertical',
+                            WebkitLineClamp: 2,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {pickLine(row)}
                         </Box>
                       </Box>
-                    </TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ borderBottom: '1px solid var(--dash-line)', verticalAlign: 'top' }}
+                    </Box>
+                  </Box>
+                  <Box
+                    component="td"
+                    sx={{ ...CELL_SX, textAlign: 'right', verticalAlign: 'top' }}
+                  >
+                    <Box
+                      component="span"
+                      data-testid="draft-grades-net"
+                      sx={{
+                        fontVariantNumeric: 'tabular-nums',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: 'var(--dash-ink)',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
-                      <Box
-                        component="span"
-                        data-testid="draft-grades-net"
-                        sx={{
-                          fontVariantNumeric: 'tabular-nums',
-                          fontSize: '13px',
-                          fontWeight: 600,
-                          color: 'var(--dash-ink)',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <Box component="span" sx={visuallyHidden}>
-                          Net vs ADP{' '}
-                        </Box>
-                        {hasNet ? formatNet(row.adpNet) : <NotAvailable />}
+                      <Box component="span" sx={visuallyHidden}>
+                        Net vs ADP{' '}
                       </Box>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                      {hasNet ? formatNet(row.adpNet) : <NotAvailable />}
+                    </Box>
+                  </Box>
+                </Box>
+              );
+            })}
+          </TableShell>
           <Typography
             id={explainerId}
             data-testid="draft-grades-explainer"
@@ -196,5 +294,32 @@ export default function DraftGrades({ leagueId }) {
         </>
       )}
     </Card>
+  );
+}
+
+// One skeleton row holds the two-line shape of a real row (chip, name, pick
+// line) so the placeholder and the loaded table are the same height.
+function SkeletonRow() {
+  return (
+    <Box component="tr">
+      <Box component="th" scope="row" sx={{ ...CELL_SX, textAlign: 'left' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+          <Skeleton data-testid="draft-grades-skeleton" variant="circular" width={26} height={26} />
+          <Box sx={{ display: 'grid', gap: 0.25, flex: 1, minWidth: 0, overflow: 'hidden' }}>
+            <Skeleton data-testid="draft-grades-skeleton" variant="text" width="60%" height={14} />
+            <Skeleton data-testid="draft-grades-skeleton" variant="text" width="90%" height={12} />
+          </Box>
+        </Box>
+      </Box>
+      <Box component="td" sx={{ ...CELL_SX, textAlign: 'right' }}>
+        <Skeleton
+          data-testid="draft-grades-skeleton"
+          variant="text"
+          width={44}
+          height={14}
+          sx={{ ml: 'auto' }}
+        />
+      </Box>
+    </Box>
   );
 }

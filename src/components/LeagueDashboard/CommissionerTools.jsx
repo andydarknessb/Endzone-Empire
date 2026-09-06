@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useId } from 'react';
 import {
   Paper,
   Box,
@@ -52,6 +52,8 @@ import {
 } from '../../lib/leaguePhase';
 import { teamNameLabel } from '../../lib/teamIdentity';
 import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { Badge, SegmentedControl } from '../../shared/ui';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
 const PLAYOFF_START_WEEK_OPTIONS = [14, 15, 16, 17, 18];
@@ -62,11 +64,112 @@ const WAIVER_PERIOD_OPTIONS = [
   { hours: 72, label: '72 hours after a drop' },
 ];
 
+// A field that is the whole row on a phone and its designed width from sm up.
+// Every fixed `minWidth` in this tree used to be unconditional, which on a
+// 390px phone pushed a 260px select past the card it sits in.
+const fieldWidth = (width) => ({ minWidth: { xs: '100%', sm: width } });
+
+/**
+ * The 44px touch floor (WCAG 2.5.5) for the whole tools tree, stated once here
+ * rather than as a per-control `sx` on the sixty-odd controls below - a floor
+ * the next control added to this file would have to remember. Every interactive
+ * thing in here is either an MUI class or the segmented control's `role=radio`
+ * segment, so the descendant selectors reach all of them; emotion emits these
+ * at (0,2,0), which beats MUI's own `sizeSmall` rules at (0,1,0).
+ *
+ * The Switch is the one control whose geometry has to be rebuilt rather than
+ * floored: its hit area is the switch base, so the base's padding is what grows
+ * it to 44, and the root's padding and width grow with it to keep the thumb
+ * centred on the track exactly as MUI's defaults do.
+ */
+const TOUCH_FLOOR_SX = {
+  '& .MuiButton-root': { minHeight: MIN_TOUCH_TARGET_SX.minHeight },
+  '& .MuiIconButton-root': MIN_TOUCH_TARGET_SX,
+  '& .MuiInputBase-root': { minHeight: MIN_TOUCH_TARGET_SX.minHeight },
+  '& .MuiRadio-root': { p: 1.25 },
+  '& [role="radio"]': { minHeight: MIN_TOUCH_TARGET_SX.minHeight },
+  '& .MuiSwitch-root': {
+    width: 64,
+    height: MIN_TOUCH_TARGET_SX.minHeight,
+    p: '15px',
+    '& .MuiSwitch-switchBase': { p: '12px' },
+  },
+};
+
 const fail = (notify) => (err) => notify(err.response?.data?.error || err.message, { severity: 'error' });
+
+/**
+ * Unsaved commissioner edits, kept in ONE object owned by CommissionerTools so
+ * that neither a tab change nor a collapse of the disclosure above throws them
+ * away. Both used to: `CommissionerPanel` renders `{adminOpen && <Tools/>}` and
+ * this file renders `{tab === 'roster' && <RosterSettingsPanel/>}`, so each
+ * panel's `useState` sat below an unmounting boundary and a commissioner who
+ * hand-tuned forty scoring leaves and then checked a roster slot lost all of
+ * it, silently and with no dirty flag anywhere.
+ *
+ * A draft is `{ values, baseline }`: `values` is what the form shows, and
+ * `baseline` is a stable serialisation of the values it was seeded with, which
+ * is what makes "dirty" a comparison against the saved settings rather than a
+ * flag someone has to remember to clear. Discarding is `JSON.parse(baseline)`,
+ * so it needs no second copy of the seed.
+ */
+const stableKey = (values) => JSON.stringify(values);
+
+// Seeds are pure functions of the league row, so a panel that has never been
+// edited needs no stored draft at all - it reads its seed at render, and the
+// first edit is what installs a draft. Scoring has no seed here: its rules are
+// built from a `/api/scoring/rules` read, so that panel installs its own.
+const DRAFT_SEEDS = {
+  general: (league) => ({ sizeMin: league.min_teams ?? '', sizeMax: league.max_teams ?? '' }),
+  roster: (league) => {
+    const slots = (league.roster_slots || []).map((s, i) => ({ ...s, _id: i }));
+    return {
+      slots,
+      nextId: slots.length,
+      benchSlots: league.bench_slots ?? 5,
+      irSlots: league.ir_slots ?? 1,
+      dpEnabled: !!league.dp_enabled,
+    };
+  },
+  scoring: () => ({ defaults: null, rules: null }),
+  playoffs: (league) => ({
+    playoffTeams: league.playoff_teams ?? 4,
+    startWeek: (league.regular_season_weeks ?? 14) + 1,
+    consolation: !!league.playoff_consolation,
+    tradeDeadlineWeek: league.trade_deadline_week ?? '',
+  }),
+  waivers: (league) => ({
+    waiverType: league.waiver_type || 'priority',
+    continuous: (league.waiver_period_hours ?? 24) === 0,
+    waiverPeriodHours:
+      league.waiver_period_hours && league.waiver_period_hours > 0 ? league.waiver_period_hours : 24,
+    reviewMode: league.trade_review_hours === 0
+      ? 'instant'
+      : (league.trade_veto_votes ?? 0) === 0 ? 'commissioner' : 'vote',
+    voteThreshold: league.trade_veto_votes > 0 ? league.trade_veto_votes : 3,
+  }),
+};
+
+/**
+ * The drafts of the league currently open, handed across a single unmount.
+ *
+ * React state cannot survive an unmount it does not own, and collapsing the
+ * disclosure in `CommissionerPanel` unmounts this whole tree with no warning,
+ * so the drafts are mirrored here on every change and taken back on the next
+ * mount of the SAME league. It holds one league's drafts and nothing else: a
+ * handoff, not a cache. Exported so a test can clear it between cases.
+ */
+let draftStash = null;
+
+export function clearCommissionerDrafts() {
+  draftStash = null;
+}
+
+const takeStash = (leagueId) => (draftStash && draftStash.leagueId === leagueId ? draftStash.drafts : {});
 
 function TeamSelect({ label, teams, value, onChange, disabled }) {
   return (
-    <FormControl size="small" disabled={disabled} sx={{ minWidth: 200 }}>
+    <FormControl size="small" disabled={disabled} sx={fieldWidth(200)}>
       <InputLabel id={`${label}-label`}>{label}</InputLabel>
       <Select labelId={`${label}-label`} label={label} value={value} onChange={(e) => onChange(e.target.value)}>
         {teams.map((t) => (
@@ -127,7 +230,7 @@ function PlayerSearchField({ label, helperText, disabled, onSelect }) {
         setValue(v);
         onSelect(v);
       }}
-      sx={{ minWidth: 260 }}
+      sx={fieldWidth(260)}
       renderInput={(params) => (
         <TextField {...params} label={label} helperText={helperText} />
       )}
@@ -235,7 +338,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
         and managing this list.
       </Typography>
       {coCommissioners.length > 0 ? (
-        <List dense sx={{ bgcolor: 'background.default', borderRadius: 1, mb: 1 }}>
+        <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1, mb: 1 }}>
           {coCommissioners.map((c, index) => (
             <ListItem
               key={c.user_id}
@@ -264,7 +367,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
         </Typography>
       )}
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        <FormControl size="small" sx={{ minWidth: 220 }} disabled={eligible.length === 0}>
+        <FormControl size="small" sx={fieldWidth(220)} disabled={eligible.length === 0}>
           <InputLabel id="promote-co-commissioner-label">Add a co-commissioner</InputLabel>
           <Select
             labelId="promote-co-commissioner-label"
@@ -316,9 +419,138 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
   );
 }
 
-function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, onRefresh, notify }) {
-  const [sizeMin, setSizeMin] = useState(league.min_teams ?? '');
-  const [sizeMax, setSizeMax] = useState(league.max_teams ?? '');
+/**
+ * The region that holds a tab's irreversible action, always rendered last.
+ *
+ * Its chrome uses only registered pairings (ADR 0010): the danger signal is
+ * `Badge variant="danger"`, whose danger-on-danger-tint over a card IS a
+ * certified row, rather than danger ink on `dash-surface`, which is not. The
+ * border is a hairline in `--dash-line`, a non-text graphic.
+ */
+function DangerZone({ children }) {
+  const headingId = useId();
+  return (
+    <Box
+      component="section"
+      aria-labelledby={headingId}
+      data-testid="commissioner-danger-zone"
+      sx={{
+        display: 'grid',
+        gap: 1,
+        p: 1.5,
+        border: '1px solid var(--dash-line)',
+        borderRadius: 'var(--dash-radius-sm)',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+        <Badge variant="danger">Danger zone</Badge>
+        <Typography id={headingId} variant="subtitle2" component="h4">
+          Start a new season
+        </Typography>
+      </Box>
+      {children}
+    </Box>
+  );
+}
+
+/**
+ * Season rollover, behind a confirmation that states what the server actually
+ * does rather than what the old one-click button implied.
+ *
+ * `rolloverSeason` (server/services/commissioner.service.js) archives the
+ * season's standings, rosters and awards into league_history and then, for a
+ * fantasy league, DELETEs every `team_players` row, every `draft_picks` row and
+ * the whole `waiver_players` wire, cancels pending waiver claims and pending or
+ * accepted trades, resets every team's `faab_remaining` to the league budget,
+ * and moves the league to the next season at week 1 with the draft reopened.
+ * A pick'em-only league has none of the roster half (ADR 0002), so it gets its
+ * own sentence rather than a list of things that do not exist in it.
+ *
+ * `aria-describedby` names the consequence sentence and not only the title:
+ * MUI moves focus to the first action on open, so without it a screen reader
+ * announces the dialog's name and the focused button but never the list of what
+ * is about to be deleted. This is the same pairing AdvanceWeek carries, for the
+ * same reason.
+ */
+function StartNewSeason({ leagueId, league, onRefresh, notify, caption }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const report = fail(notify);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  const pickemOnly = isPickemOnly(league);
+  const season = league.current_season;
+  const seasonLabel = season != null ? `the ${season} season` : 'this season';
+  const nextLabel = season != null ? String(Number(season) + 1) : 'the next season';
+
+  const consequence = pickemOnly
+    ? `This archives ${seasonLabel} standings to League History and opens ${nextLabel} for picks at week 1. `
+      + 'This cannot be undone.'
+    : `This archives ${seasonLabel} to League History, then clears every team's roster, deletes all draft `
+      + "picks, empties the waiver wire, cancels pending waiver claims and trades, and resets every team's "
+      + `FAAB budget. The league moves to ${nextLabel} at week 1 with the draft reopened. This cannot be undone.`;
+
+  const handleConfirm = async () => {
+    setBusy(true);
+    try {
+      await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
+      setOpen(false);
+      notify('New season started!');
+      onRefresh();
+    } catch (err) {
+      setOpen(false);
+      report(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        {consequence}
+      </Typography>
+      {/* Outlined error, not the filled `color="secondary"` it used to be:
+          secondary and success resolve to the same hex (tokens.js), so the
+          irreversible button was indistinguishable in hue from Approve on the
+          same tab. It stays on the app palette deliberately - repainting it
+          onto the island would compose dash-on-accent over dash-danger, which
+          is not a registered pairing. */}
+      <Button variant="outlined" color="error" disabled={busy} onClick={() => setOpen(true)}>
+        Start New Season
+      </Button>
+      {caption && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          {caption}
+        </Typography>
+      )}
+
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
+        <DialogTitle id={titleId}>Start a new season?</DialogTitle>
+        <DialogContent>
+          <DialogContentText id={descriptionId}>{consequence}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+          <Button color="error" variant="contained" disabled={busy} onClick={handleConfirm}>
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+}
+
+function GeneralSettingsPanel({
+  leagueId, league, teams, viewerTeamId, isOwner, draft, setDraft, markSaved, onRefresh, notify,
+}) {
+  const { sizeMin, sizeMax } = draft;
   const [removeTarget, setRemoveTarget] = useState(null);
   const [joinRequests, setJoinRequests] = useState([]);
   const report = fail(notify);
@@ -353,6 +585,7 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
         : { minTeams: Number(sizeMin), maxTeams: Number(sizeMax) };
       await apiClient.put(`/api/league/${leagueId}`, limits);
       notify('Team limits updated');
+      markSaved();
       onRefresh();
     } catch (err) {
       report(err);
@@ -376,16 +609,6 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
       await apiClient.post(`/api/league/${leagueId}/join-requests/${requestId}/decide`, { approve });
       setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
       notify(approve ? 'Join request approved' : 'Join request denied');
-    } catch (err) {
-      report(err);
-    }
-  };
-
-  const handleRollover = async () => {
-    try {
-      await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
-      notify('New season started!');
-      onRefresh();
     } catch (err) {
       report(err);
     }
@@ -457,14 +680,6 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
         />
       )}
 
-      {!pickemOnly && seasonComplete && (
-        <Box>
-          <Button variant="contained" color="secondary" onClick={handleRollover}>
-            Start New Season
-          </Button>
-        </Box>
-      )}
-
       {limitsEditable && (
         <Box>
           <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>
@@ -474,12 +689,12 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
             {!pickemOnly && (
               <TextField
                 label="Min teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
-                value={sizeMin} onChange={(e) => setSizeMin(e.target.value)} sx={{ width: 130 }}
+                value={sizeMin} onChange={(e) => setDraft({ sizeMin: e.target.value })} sx={{ width: 130 }}
               />
             )}
             <TextField
               label="Max teams" type="number" size="small" inputProps={{ min: MIN_TEAMS, max: maxTeamsCap }}
-              value={sizeMax} onChange={(e) => setSizeMax(e.target.value)} sx={{ width: 130 }}
+              value={sizeMax} onChange={(e) => setDraft({ sizeMax: e.target.value })} sx={{ width: 130 }}
             />
             <Button variant="outlined" size="small" onClick={handleSaveLimits}>Save Limits</Button>
           </Box>
@@ -506,22 +721,27 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
               Your own team and the league creator&apos;s team can&apos;t be removed.
             </Typography>
-            <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+            {/* The trigger is a labelled Button, not the bare 36px trash glyph
+                it used to be: this is the one control on the page that deletes
+                a team permanently, and an unlabelled icon is the weakest
+                affordance in the file for the strongest action in it. The row
+                lays the button out as a flex child rather than through
+                `secondaryAction`, whose absolutely-positioned slot reserves a
+                fixed 48px inset that a text button overruns. */}
+            <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1 }}>
               {removableTeams.map((team) => (
-                <ListItem
-                  key={team.teamId}
-                  secondaryAction={
-                    <IconButton
-                      edge="end"
-                      aria-label={`Remove ${team.name}`}
-                      color="error"
-                      onClick={() => setRemoveTarget(team)}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  }
-                >
-                  <ListItemText primary={team.name} />
+                <ListItem key={team.teamId} sx={{ gap: 1, flexWrap: 'wrap' }}>
+                  <ListItemText primary={team.name} sx={{ my: 0 }} />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    aria-label={`Remove ${team.name}`}
+                    onClick={() => setRemoveTarget(team)}
+                    sx={{ flex: 'none' }}
+                  >
+                    Remove
+                  </Button>
                 </ListItem>
               ))}
             </List>
@@ -604,6 +824,19 @@ function GeneralSettingsPanel({ leagueId, league, teams, viewerTeamId, isOwner, 
           )}
         </Box>
       )}
+
+      {/* Always last, and its own region: rollover is the only irreversible
+          write on this tab that acts on the WHOLE league, and it used to sit
+          third from the top in a green contained button that is pixel-identical
+          in hue to the Approve button on this same tab. It is deliberately NOT
+          nested in the Destructive-actions Paper above: that one is titled
+          "Remove a team" and at season-complete its body is already the
+          phase-refusal branch. */}
+      {!pickemOnly && seasonComplete && (
+        <DangerZone>
+          <StartNewSeason leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
+        </DangerZone>
+      )}
     </Stack>
   );
 }
@@ -638,14 +871,17 @@ const LINEUP_TEMPLATES = [
   },
 ];
 
-function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
-  const [slots, setSlots] = useState(
-    (league.roster_slots || []).map((s, i) => ({ ...s, _id: i }))
-  );
-  const [nextId, setNextId] = useState(slots.length);
-  const [benchSlots, setBenchSlots] = useState(league.bench_slots ?? 5);
-  const [irSlots, setIrSlots] = useState(league.ir_slots ?? 1);
-  const [dpEnabled, setDpEnabled] = useState(!!league.dp_enabled);
+// Which template the lineup on screen matches, so the segmented control below
+// can show a real selection rather than remembering the last click: edit one
+// row after stamping Standard and this is a hand-built lineup again, and no
+// segment is checked. Order is part of the shape because a template stamps its
+// rows in order.
+const slotShapeKey = (slots) => (slots || [])
+  .map((s) => `${String(s.key).trim().toUpperCase()}:${Number(s.count) || 0}:${(s.eligiblePositions || []).join('/')}`)
+  .join('|');
+
+function RosterSettingsPanel({ leagueId, league, draft, setDraft, markSaved, onRefresh, notify }) {
+  const { slots, benchSlots, irSlots, dpEnabled } = draft;
   const report = fail(notify);
 
   const frozen = draftSettingsFrozen(league);
@@ -659,26 +895,27 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
   const irCount = Number(irSlots) || 0;
   const draftSpots = starters + (Number(benchSlots) || 0);
 
-  const updateSlot = (id, patch) => setSlots((prev) => prev.map((s) => (s._id === id ? { ...s, ...patch } : s)));
-  const removeSlot = (id) => setSlots((prev) => prev.filter((s) => s._id !== id));
-  const addSlot = () => {
-    setSlots((prev) => [...prev, { _id: nextId, key: '', count: 1, eligiblePositions: [] }]);
-    setNextId((n) => n + 1);
-  };
-  const addIdpFlexSlot = () => {
-    setSlots((prev) => {
-      // A second identical flex spot is the same slot with a higher count —
-      // slot names are identifiers and must stay unique, so clicking again
-      // bumps the existing row instead of duplicating it.
-      const existing = prev.find((s) => String(s.key).trim().toUpperCase() === 'IDP FLEX');
-      if (existing) {
-        return prev.map((s) => (s === existing ? { ...s, count: (Number(s.count) || 0) + 1 } : s));
-      }
-      return [...prev, { _id: nextId, key: 'IDP FLEX', count: 1, eligiblePositions: [...DP_GROUP_KEYS] }];
-    });
-    setNextId((n) => n + 1);
-    setDpEnabled(true);
-  };
+  const updateSlot = (id, patch) => setDraft((d) => ({
+    slots: d.slots.map((s) => (s._id === id ? { ...s, ...patch } : s)),
+  }));
+  const removeSlot = (id) => setDraft((d) => ({ slots: d.slots.filter((s) => s._id !== id) }));
+  const addSlot = () => setDraft((d) => ({
+    slots: [...d.slots, { _id: d.nextId, key: '', count: 1, eligiblePositions: [] }],
+    nextId: d.nextId + 1,
+  }));
+  const addIdpFlexSlot = () => setDraft((d) => {
+    // A second identical flex spot is the same slot with a higher count —
+    // slot names are identifiers and must stay unique, so clicking again
+    // bumps the existing row instead of duplicating it.
+    const existing = d.slots.find((s) => String(s.key).trim().toUpperCase() === 'IDP FLEX');
+    return {
+      slots: existing
+        ? d.slots.map((s) => (s === existing ? { ...s, count: (Number(s.count) || 0) + 1 } : s))
+        : [...d.slots, { _id: d.nextId, key: 'IDP FLEX', count: 1, eligiblePositions: [...DP_GROUP_KEYS] }],
+      nextId: d.nextId + 1,
+      dpEnabled: true,
+    };
+  });
 
   // Mirror of the server's slot rules so a typo gets a specific message
   // before the request instead of a generic 400 after it.
@@ -716,6 +953,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
         dpEnabled,
       });
       notify('Roster settings saved');
+      markSaved();
       onRefresh();
     } catch (err) {
       report(err);
@@ -733,22 +971,31 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
 
       <Box>
         <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Starting Lineup Slots</Typography>
-        <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
-            Templates:
-          </Typography>
-          {LINEUP_TEMPLATES.map((template) => (
-            <Chip
-              key={template.name} label={template.name} size="small" variant="outlined"
-              disabled={frozen}
-              onClick={() => {
-                setSlots(template.slots.map((s, i) => ({ ...s, _id: nextId + i })));
-                setNextId((n) => n + template.slots.length);
-                if (template.dpEnabled) setDpEnabled(true);
+        {/* Not rendered at all once the draft has started, rather than rendered
+            disabled: SegmentedControl has no disabled state, and a radiogroup
+            that looks interactive and answers nothing is worse than an absent
+            shortcut. The freeze Alert above already says why, and every field
+            the templates would write is disabled and still on screen. */}
+        {!frozen && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
+            <Typography variant="caption" color="text.secondary">Templates:</Typography>
+            <SegmentedControl
+              aria-label="Starting lineup template"
+              data-testid="lineup-template-control"
+              options={LINEUP_TEMPLATES.map((t) => ({ value: t.name, label: t.name }))}
+              value={LINEUP_TEMPLATES.find((t) => slotShapeKey(t.slots) === slotShapeKey(slots))?.name ?? ''}
+              onChange={(name) => {
+                const template = LINEUP_TEMPLATES.find((t) => t.name === name);
+                setDraft((d) => ({
+                  slots: template.slots.map((s, i) => ({ ...s, _id: d.nextId + i })),
+                  nextId: d.nextId + template.slots.length,
+                  dpEnabled: template.dpEnabled ? true : d.dpEnabled,
+                }));
               }}
+              scrollable
             />
-          ))}
-        </Stack>
+          </Box>
+        )}
         <Stack spacing={1.5}>
           {slots.map((slot) => (
             <Box key={slot._id} sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -763,7 +1010,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
                 value={slot.count} onChange={(e) => updateSlot(slot._id, { count: e.target.value })}
                 sx={{ width: 90 }}
               />
-              <FormControl size="small" disabled={frozen} sx={{ minWidth: 260 }}>
+              <FormControl size="small" disabled={frozen} sx={fieldWidth(260)}>
                 <InputLabel id={`elig-${slot._id}`}>Eligible Positions</InputLabel>
                 <Select
                   labelId={`elig-${slot._id}`} label="Eligible Positions" multiple
@@ -797,7 +1044,7 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
 
       <Box>
         <FormControlLabel
-          control={<Switch checked={dpEnabled} disabled={frozen} onChange={(e) => setDpEnabled(e.target.checked)} />}
+          control={<Switch checked={dpEnabled} disabled={frozen} onChange={(e) => setDraft({ dpEnabled: e.target.checked })} />}
           label="Enable Defensive Players (IDP)"
         />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4.5 }}>
@@ -813,13 +1060,13 @@ function RosterSettingsPanel({ leagueId, league, onRefresh, notify }) {
         <TextField
           label="Bench Slots" type="number" size="small" disabled={frozen}
           inputProps={{ min: 0, max: 8 }}
-          value={benchSlots} onChange={(e) => setBenchSlots(e.target.value)}
+          value={benchSlots} onChange={(e) => setDraft({ benchSlots: e.target.value })}
           sx={{ width: 130 }}
         />
         <TextField
           label="IR Slots" type="number" size="small" disabled={frozen}
           inputProps={{ min: 0, max: 5 }}
-          value={irSlots} onChange={(e) => setIrSlots(e.target.value)}
+          value={irSlots} onChange={(e) => setDraft({ irSlots: e.target.value })}
           sx={{ width: 130 }}
         />
         <Typography variant="body2" color="text.secondary">
@@ -852,22 +1099,29 @@ const RECEPTION_PRESETS = [
   { name: 'Full PPR', reception: 1 },
 ];
 
-function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
-  const [defaults, setDefaults] = useState(null);
-  const [rules, setRules] = useState(null);
+function ScoringSettingsPanel({ leagueId, league, draft, setDraft, installDraft, markSaved, onRefresh, notify }) {
+  const { defaults, rules } = draft;
   // Two-step reset guard: first click arms, second click actually resets.
   const [confirmReset, setConfirmReset] = useState(false);
   const report = fail(notify);
   const frozen = draftSettingsFrozen(league);
 
   useEffect(() => {
+    // Already fetched: the lifted draft survived this panel's unmount, so a hop
+    // to Roster Settings and back must not re-read the defaults and rebuild the
+    // rules over the commissioner's edits. That rebuild WAS the data loss.
+    if (rules) return undefined;
     let active = true;
     apiClient
       .get('/api/scoring/rules')
       .then((res) => {
         if (!active) return;
-        setDefaults(res.data.defaults);
-        setRules(buildInitialRules(res.data.defaults, league.scoring_rules));
+        // Installed, not patched: this is the seed, so it sets the baseline the
+        // dirty marker compares against rather than counting as an edit.
+        installDraft({
+          defaults: res.data.defaults,
+          rules: buildInitialRules(res.data.defaults, league.scoring_rules),
+        });
       })
       .catch(() => active && notify('Failed to load scoring defaults', { severity: 'error' }));
     return () => {
@@ -877,6 +1131,8 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
   }, [leagueId]);
 
   if (!rules) return <CircularProgress size={24} />;
+
+  const setRules = (updater) => setDraft((d) => ({ rules: updater(d.rules) }));
 
   const setLeaf = (category, key, value) =>
     setRules((prev) => ({ ...prev, [category]: { ...prev[category], [key]: value } }));
@@ -921,7 +1177,9 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
   const applyReceptionPreset = (rate) =>
     setRules((prev) => ({ ...prev, receiving: { ...prev.receiving, reception: rate } }));
 
-  const handleReset = () => setRules(buildInitialRules(defaults, null));
+  // A patch, not an install: the reset is itself an unsaved edit, so the
+  // baseline stays where it was and the tab keeps its unsaved marker.
+  const handleReset = () => setDraft({ rules: buildInitialRules(defaults, null) });
 
   const handleSave = async () => {
     const payload = {};
@@ -943,6 +1201,7 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
     try {
       await apiClient.put(`/api/league/${leagueId}`, { scoringRules: payload });
       notify('Scoring settings saved');
+      markSaved();
       onRefresh();
     } catch (err) {
       report(err);
@@ -963,20 +1222,27 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
         </Alert>
       )}
 
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <Typography variant="caption" color="text.secondary">Quick preset:</Typography>
-        {RECEPTION_PRESETS.map(({ name, reception }) => (
-          <Chip
-            key={name} label={name} size="small" disabled={frozen}
-            color={activeReception === reception ? 'primary' : 'default'}
-            variant={activeReception === reception ? 'filled' : 'outlined'}
-            onClick={() => applyReceptionPreset(reception)}
+      {/* A real selection, so it is a radio group and not three chips: the
+          three presets differ only in the reception rate, and exactly one of
+          them (or none, for a custom rate) describes the rules on screen.
+          Hidden rather than disabled once frozen, for the reason the lineup
+          templates above are. */}
+      {!frozen && (
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          <Typography variant="caption" color="text.secondary">Quick preset:</Typography>
+          <SegmentedControl
+            aria-label="Reception scoring preset"
+            data-testid="reception-preset-control"
+            options={RECEPTION_PRESETS.map(({ name, reception }) => ({ value: reception, label: name }))}
+            value={activeReception}
+            onChange={applyReceptionPreset}
+            scrollable
           />
-        ))}
-        <Typography variant="caption" color="text.secondary">
-          Sets the reception rate; every other rule stays as configured.
-        </Typography>
-      </Stack>
+          <Typography variant="caption" color="text.secondary">
+            Sets the reception rate; every other rule stays as configured.
+          </Typography>
+        </Stack>
+      )}
 
       {categories.map((category) => {
         const idpLocked = category === 'idp' && !league.dp_enabled;
@@ -1057,7 +1323,7 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
         );
       })}
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <Button variant="outlined" size="small" disabled={frozen} onClick={handleSave}>
           Save Scoring Settings
         </Button>
@@ -1079,11 +1345,8 @@ function ScoringSettingsPanel({ leagueId, league, onRefresh, notify }) {
   );
 }
 
-function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
-  const [playoffTeams, setPlayoffTeams] = useState(league.playoff_teams ?? 4);
-  const [startWeek, setStartWeek] = useState((league.regular_season_weeks ?? 14) + 1);
-  const [consolation, setConsolation] = useState(!!league.playoff_consolation);
-  const [tradeDeadlineWeek, setTradeDeadlineWeek] = useState(league.trade_deadline_week ?? '');
+function PlayoffSchedulePanel({ leagueId, league, draft, setDraft, markSaved, onRefresh, notify }) {
+  const { playoffTeams, startWeek, consolation, tradeDeadlineWeek } = draft;
   const report = fail(notify);
 
   const frozen = draftSettingsFrozen(league);
@@ -1096,6 +1359,7 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
         playoffConsolation: consolation,
       });
       notify('Playoff settings saved');
+      markSaved();
       onRefresh();
     } catch (err) {
       report(err);
@@ -1108,6 +1372,7 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
         tradeDeadlineWeek: tradeDeadlineWeek === '' ? null : Number(tradeDeadlineWeek),
       });
       notify('Trade deadline saved');
+      markSaved();
       onRefresh();
     } catch (err) {
       report(err);
@@ -1125,20 +1390,20 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
           </Alert>
         )}
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
-          <FormControl size="small" disabled={frozen} sx={{ minWidth: 160 }}>
+          <FormControl size="small" disabled={frozen} sx={fieldWidth(160)}>
             <InputLabel id="playoff-teams-label">Playoff Teams</InputLabel>
             <Select
               labelId="playoff-teams-label" label="Playoff Teams"
-              value={playoffTeams} onChange={(e) => setPlayoffTeams(e.target.value)}
+              value={playoffTeams} onChange={(e) => setDraft({ playoffTeams: e.target.value })}
             >
               {PLAYOFF_TEAM_OPTIONS.map((n) => <MenuItem key={n} value={n}>{n} teams</MenuItem>)}
             </Select>
           </FormControl>
-          <FormControl size="small" disabled={frozen} sx={{ minWidth: 180 }}>
+          <FormControl size="small" disabled={frozen} sx={fieldWidth(180)}>
             <InputLabel id="playoff-start-label">Playoff Start Week</InputLabel>
             <Select
               labelId="playoff-start-label" label="Playoff Start Week"
-              value={startWeek} onChange={(e) => setStartWeek(e.target.value)}
+              value={startWeek} onChange={(e) => setDraft({ startWeek: e.target.value })}
             >
               {PLAYOFF_START_WEEK_OPTIONS.map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
             </Select>
@@ -1146,7 +1411,7 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
         </Box>
         <FormControlLabel
           disabled={frozen}
-          control={<Switch checked={consolation} onChange={(e) => setConsolation(e.target.checked)} />}
+          control={<Switch checked={consolation} onChange={(e) => setDraft({ consolation: e.target.checked })} />}
           label="Consolation bracket (a loser's bracket for non-playoff teams)"
         />
         <Box sx={{ mt: 1 }}>
@@ -1161,11 +1426,11 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
       <Box>
         <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Trade Deadline</Typography>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-          <FormControl size="small" sx={{ minWidth: 180 }}>
+          <FormControl size="small" sx={fieldWidth(180)}>
             <InputLabel id="trade-deadline-label">Trade Deadline</InputLabel>
             <Select
               labelId="trade-deadline-label" label="Trade Deadline"
-              value={tradeDeadlineWeek} onChange={(e) => setTradeDeadlineWeek(e.target.value)}
+              value={tradeDeadlineWeek} onChange={(e) => setDraft({ tradeDeadlineWeek: e.target.value })}
             >
               <MenuItem value="">No deadline</MenuItem>
               {WEEK_OPTIONS.map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
@@ -1178,17 +1443,8 @@ function PlayoffSchedulePanel({ leagueId, league, onRefresh, notify }) {
   );
 }
 
-function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
-  const [waiverType, setWaiverType] = useState(league.waiver_type || 'priority');
-  const [continuous, setContinuous] = useState((league.waiver_period_hours ?? 24) === 0);
-  const [waiverPeriodHours, setWaiverPeriodHours] = useState(
-    league.waiver_period_hours && league.waiver_period_hours > 0 ? league.waiver_period_hours : 24
-  );
-  const initialReviewMode = league.trade_review_hours === 0
-    ? 'instant'
-    : (league.trade_veto_votes ?? 0) === 0 ? 'commissioner' : 'vote';
-  const [reviewMode, setReviewMode] = useState(initialReviewMode);
-  const [voteThreshold, setVoteThreshold] = useState(league.trade_veto_votes > 0 ? league.trade_veto_votes : 3);
+function WaiverTradePanel({ leagueId, draft, setDraft, markSaved, onRefresh, notify }) {
+  const { waiverType, continuous, waiverPeriodHours, reviewMode, voteThreshold } = draft;
   const report = fail(notify);
 
   const handleSave = async () => {
@@ -1209,6 +1465,7 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
     try {
       await apiClient.put(`/api/league/${leagueId}`, payload);
       notify('Waiver rules saved');
+      markSaved();
       onRefresh();
     } catch (err) {
       report(err);
@@ -1219,7 +1476,7 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
     <Stack spacing={3}>
       <Box>
         <Typography variant="subtitle2" component="p" id="waiver-system-type-label" sx={{ mb: 1 }}>Waiver System Type</Typography>
-        <RadioGroup row aria-labelledby="waiver-system-type-label" value={waiverType} onChange={(e) => setWaiverType(e.target.value)}>
+        <RadioGroup row aria-labelledby="waiver-system-type-label" value={waiverType} onChange={(e) => setDraft({ waiverType: e.target.value })}>
           <FormControlLabel value="faab" control={<Radio />} label="FAAB (Bidding)" />
           <FormControlLabel value="priority" control={<Radio />} label="Rolling Priority" />
         </RadioGroup>
@@ -1227,15 +1484,15 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
 
       <Box>
         <FormControlLabel
-          control={<Switch checked={continuous} onChange={(e) => setContinuous(e.target.checked)} />}
+          control={<Switch checked={continuous} onChange={(e) => setDraft({ continuous: e.target.checked })} />}
           label="Continuous waivers (players clear immediately, no waiting period)"
         />
         {!continuous && (
-          <FormControl size="small" sx={{ mt: 1, ml: 4.5, minWidth: 240, display: 'block' }}>
+          <FormControl size="small" sx={{ mt: 1, ml: { xs: 0, sm: 4.5 }, ...fieldWidth(240), display: 'block' }}>
             <InputLabel id="waiver-period-label">Waiver Clear Period</InputLabel>
             <Select
               labelId="waiver-period-label" label="Waiver Clear Period"
-              value={waiverPeriodHours} onChange={(e) => setWaiverPeriodHours(e.target.value)}
+              value={waiverPeriodHours} onChange={(e) => setDraft({ waiverPeriodHours: e.target.value })}
             >
               {WAIVER_PERIOD_OPTIONS.map((o) => <MenuItem key={o.hours} value={o.hours}>{o.label}</MenuItem>)}
             </Select>
@@ -1247,7 +1504,7 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
 
       <Box>
         <Typography variant="subtitle2" component="p" id="trade-review-system-label" sx={{ mb: 1 }}>Trade Review System</Typography>
-        <RadioGroup aria-labelledby="trade-review-system-label" value={reviewMode} onChange={(e) => setReviewMode(e.target.value)}>
+        <RadioGroup aria-labelledby="trade-review-system-label" value={reviewMode} onChange={(e) => setDraft({ reviewMode: e.target.value })}>
           <FormControlLabel value="commissioner" control={<Radio />} label="Commissioner Veto" />
           <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mb: 1 }}>
             Trades sit in a 24-hour review window; only you can step in and veto one.
@@ -1265,8 +1522,8 @@ function WaiverTradePanel({ leagueId, league, onRefresh, notify }) {
           <TextField
             label="Votes needed to veto" type="number" size="small"
             inputProps={{ min: 1, max: 20 }}
-            value={voteThreshold} onChange={(e) => setVoteThreshold(e.target.value)}
-            sx={{ mt: 1, width: 200 }}
+            value={voteThreshold} onChange={(e) => setDraft({ voteThreshold: e.target.value })}
+            sx={{ mt: 1, width: { xs: '100%', sm: 200 } }}
           />
         )}
       </Box>
@@ -1311,7 +1568,7 @@ function ForceRosterMoveCard({ leagueId, teams, notify, onRefresh }) {
       </Typography>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <TeamSelect label="Team" teams={teams} value={teamId} onChange={setTeamId} />
-        <FormControl size="small" sx={{ minWidth: 130 }}>
+        <FormControl size="small" sx={fieldWidth(130)}>
           <InputLabel id="force-action-label">Action</InputLabel>
           <Select labelId="force-action-label" label="Action" value={action} onChange={(e) => setAction(e.target.value)}>
             <MenuItem value="add">Add</MenuItem>
@@ -1480,7 +1737,7 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
       <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Manual Score Correction</Typography>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
         <TeamSelect label="Team" teams={teams} value={teamId} onChange={setTeamId} />
-        <FormControl size="small" sx={{ minWidth: 120 }}>
+        <FormControl size="small" sx={fieldWidth(120)}>
           <InputLabel id="score-week-label">Week</InputLabel>
           <Select labelId="score-week-label" label="Week" value={week} onChange={(e) => setWeek(e.target.value)}>
             {WEEK_OPTIONS.map((w) => <MenuItem key={w} value={w}>Week {w}</MenuItem>)}
@@ -1538,19 +1795,20 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
         Freezes one manager's adds, drops, waiver claims, and trades without locking the league.
       </Typography>
-      <List dense sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+      {/* The switch is a flex child, not a `secondaryAction`: that slot is
+          absolutely positioned against a fixed 48px row inset, and the switch
+          is 64px wide once it carries a 44px touch target. As a child the row's
+          own padding does the insetting and the two stay aligned. */}
+      <List dense sx={{ bgcolor: 'var(--dash-surface2)', borderRadius: 1 }}>
         {teams.map((team) => (
-          <ListItem
-            key={team.id}
-            secondaryAction={
-              <Switch
-                checked={!!team.locked}
-                onChange={(e) => handleToggle(team, e.target.checked)}
-                inputProps={{ 'aria-label': `Lock ${team.name}` }}
-              />
-            }
-          >
-            <ListItemText primary={team.name} />
+          <ListItem key={team.id} sx={{ gap: 1 }}>
+            <ListItemText primary={team.name} sx={{ my: 0 }} />
+            <Switch
+              checked={!!team.locked}
+              onChange={(e) => handleToggle(team, e.target.checked)}
+              inputProps={{ 'aria-label': `Lock ${team.name}` }}
+              sx={{ flex: 'none' }}
+            />
           </ListItem>
         ))}
       </List>
@@ -1561,22 +1819,34 @@ function TeamLockList({ leagueId, teams, notify, onRefresh }) {
 // Manual matchup scheduling/scoring, moved here from the retired standalone
 // Matchups page. These are low-level commissioner controls: (re)generate a
 // week's schedule and force-score a week for a given season.
-function MatchupOpsCard({ leagueId, notify, onRefresh }) {
-  const [season, setSeason] = useState('2025');
-  const [week, setWeek] = useState('1');
+function MatchupOpsCard({ leagueId, league, notify, onRefresh }) {
+  // Seeded from the league row, never from a literal. These fields used to be
+  // useState('2025')/useState('1') with no `league` prop reaching this card at
+  // all, so a 2026 commissioner who pressed Generate Matchups without editing
+  // them inserted a 2025 week-1 schedule that no screen in the product can
+  // delete. An empty seed (a league row with no current season) leaves the
+  // buttons disabled rather than guessing a year.
+  const [season, setSeason] = useState(league.current_season != null ? String(league.current_season) : '');
+  const [week, setWeek] = useState(league.current_week != null ? String(league.current_week) : '');
   const [busy, setBusy] = useState(false);
   const report = fail(notify);
 
-  const run = async (path, successMsg) => {
+  const run = async (path, describe) => {
     if (busy) return;
     setBusy(true);
     try {
-      await apiClient.post(`/api/scoring/league/${leagueId}/${path}`, {
+      const res = await apiClient.post(`/api/scoring/league/${leagueId}/${path}`, {
         season: parseInt(season, 10),
         week: parseInt(week, 10),
       });
-      notify(successMsg);
-      onRefresh();
+      // The outcome, not an unconditional "success!". generateMatchups answers
+      // 201 with `{ created: 0, reason }` when the week already has a schedule
+      // or the league has fewer than two teams, and scoreMatchups answers 200
+      // with an empty `scored` for a season/week that has no matchups - both of
+      // which this card used to report as a job well done.
+      const outcome = describe(res.data || {});
+      notify(outcome.message, outcome.done ? undefined : { severity: 'warning' });
+      if (outcome.done) onRefresh();
     } catch (err) {
       report(err);
     } finally {
@@ -1586,15 +1856,27 @@ function MatchupOpsCard({ leagueId, notify, onRefresh }) {
 
   const invalid = !season || !week;
 
+  const describeGenerate = ({ created = 0, reason }) => (created > 0
+    ? { done: true, message: `Generated ${created} matchup${created === 1 ? '' : 's'} for week ${week}` }
+    : { done: false, message: reason ? `No matchups generated · ${reason}` : 'No matchups generated' });
+
+  const describeScore = ({ scored }) => {
+    const count = Array.isArray(scored) ? scored.length : 0;
+    return count > 0
+      ? { done: true, message: `Scored ${count} matchup${count === 1 ? '' : 's'} in week ${week}` }
+      : { done: false, message: `No matchups found for ${season} week ${week}` };
+  };
+
   return (
     <Box>
       <Typography variant="subtitle2" component="h4" sx={{ mb: 1 }}>Matchup Scheduling &amp; Scoring</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-        Generate a week&apos;s matchups or force-score a completed week.
+        Generate a week&apos;s matchups or force-score a completed week. Both default to this
+        league&apos;s current season and week.
       </Typography>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <TextField
-          label="Season" type="number" size="small" sx={{ width: 100 }}
+          label="Season" type="number" size="small" sx={{ width: 110 }}
           value={season} onChange={(e) => setSeason(e.target.value)}
         />
         <TextField
@@ -1603,13 +1885,13 @@ function MatchupOpsCard({ leagueId, notify, onRefresh }) {
         />
         <Button
           variant="outlined" size="small" disabled={invalid || busy}
-          onClick={() => run('matchups', 'Matchups generated successfully!')}
+          onClick={() => run('matchups', describeGenerate)}
         >
           Generate Matchups
         </Button>
         <Button
           variant="outlined" size="small" disabled={invalid || busy}
-          onClick={() => run('score', 'Week scored successfully!')}
+          onClick={() => run('score', describeScore)}
         >
           Score Week
         </Button>
@@ -1618,13 +1900,13 @@ function MatchupOpsCard({ leagueId, notify, onRefresh }) {
   );
 }
 
-function SystemOverridesPanel({ leagueId, teams, notify, onRefresh }) {
+function SystemOverridesPanel({ leagueId, league, teams, notify, onRefresh }) {
   return (
     <Stack spacing={3} divider={<Divider />}>
       <ForceRosterMoveCard leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
       <FaabEditorCard leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
       <ScoreCorrectionCard leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
-      <MatchupOpsCard leagueId={leagueId} notify={notify} onRefresh={onRefresh} />
+      <MatchupOpsCard leagueId={leagueId} league={league} notify={notify} onRefresh={onRefresh} />
       <TeamLockList leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
     </Stack>
   );
@@ -1634,18 +1916,7 @@ function SystemOverridesPanel({ leagueId, teams, notify, onRefresh }) {
 // calendar, completion after week 18 finalizes, champion awarded on
 // completion), so the one commissioner action here is starting the next one.
 function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
-  const report = fail(notify);
   const complete = deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE;
-
-  const handleRollover = async () => {
-    try {
-      await apiClient.post(`/api/commissioner/league/${leagueId}/rollover`, {});
-      notify('New season started!');
-      onRefresh();
-    } catch (err) {
-      report(err);
-    }
-  };
 
   return (
     <Stack spacing={2}>
@@ -1661,14 +1932,15 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
         </Typography>
       </Box>
       {complete ? (
-        <Box>
-          <Button variant="contained" color="secondary" onClick={handleRollover}>
-            Start New Season
-          </Button>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            Archives this season&apos;s standings to League History and opens next season&apos;s picks.
-          </Typography>
-        </Box>
+        <DangerZone>
+          <StartNewSeason
+            leagueId={leagueId}
+            league={league}
+            onRefresh={onRefresh}
+            notify={notify}
+            caption="Archives this season's standings to League History and opens next season's picks."
+          />
+        </DangerZone>
       ) : (
         <Typography variant="body2" color="text.secondary">
           Rollover to next season becomes available once this season is complete.
@@ -1680,6 +1952,49 @@ function PickemSeasonPanel({ leagueId, league, onRefresh, notify }) {
 
 const FANTASY_TABS = ['general', 'roster', 'scoring', 'playoffs', 'waivers', 'overrides'];
 const PICKEM_TABS = ['general', 'season'];
+const TAB_LABELS = {
+  general: 'General Settings',
+  season: 'Season',
+  roster: 'Roster Settings',
+  scoring: 'Scoring Settings',
+  playoffs: 'Playoffs & Schedule',
+  waivers: 'Waivers & Trades',
+  overrides: 'System Overrides',
+};
+
+/**
+ * A tab's label, plus its unsaved-edit marker when it has one.
+ *
+ * The marker is a dot AND the word "Unsaved" (WCAG 1.4.1): the dot alone would
+ * carry the whole meaning in colour. The dot is `aria-hidden` and the word is
+ * what the tab's accessible name gains, so a screen reader hears
+ * "Scoring Settings, unsaved" rather than a decorative disc. The word inherits
+ * the tab's own colour and composes no new pairing; the dot is a non-text
+ * graphic in `--dash-warning`, which is a registered non-text pair over a card.
+ */
+function TabLabel({ label, dirty }) {
+  if (!dirty) return label;
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+      {label}
+      <Box
+        component="span"
+        aria-hidden="true"
+        data-testid="tab-dirty-dot"
+        sx={{
+          width: 8,
+          height: 8,
+          borderRadius: 'var(--radius-pill)',
+          backgroundColor: 'var(--dash-warning)',
+          flex: 'none',
+        }}
+      />
+      <Box component="span" sx={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.04em' }}>
+        Unsaved
+      </Box>
+    </Box>
+  );
+}
 
 // `isOwner` defaults to FALSE, not true (#188). It gates the two powers the
 // creator cannot delegate - deleting the league, and managing this league's
@@ -1688,6 +2003,10 @@ const PICKEM_TABS = ['general', 'season'];
 function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = false, onRefresh }) {
   const notify = useSnackbar();
   const [selectedTab, setTab] = useState('general');
+  const [drafts, setDrafts] = useState(() => takeStash(leagueId));
+  const [discardTarget, setDiscardTarget] = useState(null);
+  const discardTitleId = useId();
+  const discardDescriptionId = useId();
   // A pick'em-only league has no roster, scoring, schedule, waiver or matchup
   // settings to expose: only General plus its own Season tab. The active tab
   // is derived from the league's own tab set rather than trusted from state:
@@ -1698,9 +2017,84 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
   const tabs = pickemOnly ? PICKEM_TABS : FANTASY_TABS;
   const tab = tabs.includes(selectedTab) ? selectedTab : 'general';
 
+  // The same hash-only hop the tab derivation above answers: this component
+  // stays mounted across it, and one league's unsaved edits must never be
+  // offered as another league's. Reset during render rather than in an effect,
+  // because the panels below read `drafts` in THIS render.
+  const [stashedLeagueId, setStashedLeagueId] = useState(leagueId);
+  if (stashedLeagueId !== leagueId) {
+    setStashedLeagueId(leagueId);
+    setDrafts(takeStash(leagueId));
+  }
+
+  // Mirrored on every change rather than on unmount: collapsing the disclosure
+  // above unmounts this tree without warning, so there is no teardown hook that
+  // could be trusted to run first.
+  //
+  // Only the DIRTY drafts are stashed. A clean one has nothing to preserve, and
+  // keeping it would shadow the league row on the next mount - so a setting a
+  // co-commissioner changed while this panel was closed would come back showing
+  // the value this browser last had rather than the one that is saved.
+  useEffect(() => {
+    const unsaved = Object.entries(drafts).filter(([, d]) => stableKey(d.values) !== d.baseline);
+    draftStash = unsaved.length ? { leagueId, drafts: Object.fromEntries(unsaved) } : null;
+  }, [leagueId, drafts]);
+
+  const seedOf = useCallback((key) => {
+    const values = DRAFT_SEEDS[key](league);
+    return { values, baseline: stableKey(values) };
+  }, [league]);
+
+  const draftOf = (key) => (drafts[key] ?? seedOf(key)).values;
+
+  // A patch, optionally derived from the values on screen. The baseline the
+  // dirty marker compares against is installed with the seed and never moves
+  // here, so an edit that puts a field back the way it was reads as clean.
+  const patchDraft = useCallback((key, patch) => setDrafts((prev) => {
+    const current = prev[key] ?? seedOf(key);
+    const applied = typeof patch === 'function' ? patch(current.values) : patch;
+    return { ...prev, [key]: { ...current, values: { ...current.values, ...applied } } };
+  }), [seedOf]);
+
+  // The seed itself, for a panel whose values are not a function of the league
+  // row (Scoring builds its rules from a `/api/scoring/rules` read).
+  const installDraft = useCallback((key, values) => setDrafts((prev) => ({
+    ...prev,
+    [key]: { values, baseline: stableKey(values) },
+  })), []);
+
+  // What was just saved IS the settings now, so the baseline moves to it. The
+  // draft is kept rather than dropped: dropping it would re-seed the form from
+  // the league row this component still holds, flashing the pre-save values
+  // until the refetch behind `onRefresh` lands.
+  const markSaved = useCallback((key) => setDrafts((prev) => (prev[key]
+    ? { ...prev, [key]: { ...prev[key], baseline: stableKey(prev[key].values) } }
+    : prev)), []);
+
+  const isDirty = (key) => {
+    const draft = drafts[key];
+    return !!draft && stableKey(draft.values) !== draft.baseline;
+  };
+
+  const handleDiscard = () => {
+    const key = discardTarget;
+    setDiscardTarget(null);
+    // The baseline is a serialisation of the seed, so it is also the way back
+    // to it - no second copy of the seed has to be kept for this.
+    setDrafts((prev) => (prev[key]
+      ? { ...prev, [key]: { ...prev[key], values: JSON.parse(prev[key].baseline) } }
+      : prev));
+  };
+
+  const panelProps = (key) => ({
+    draft: draftOf(key),
+    setDraft: (patch) => patchDraft(key, patch),
+    markSaved: () => markSaved(key),
+  });
+
   return (
-    <Paper sx={{ mt: 3 }}>
-      <Box sx={{ p: 2, pb: 0 }}>
+    <Box sx={{ mt: 1.5, ...TOUCH_FLOOR_SX }}>
+      <Box sx={{ p: { xs: 1.5, sm: 2 }, pb: 0 }}>
         {/* #682: this title sits directly under the commissioner-panel Card's
             <h2>. `component="h3"` sets its level explicitly while `variant="h6"`
             keeps its visual style unchanged. Per ADR 0021 (#695 ticket 1) the
@@ -1713,53 +2107,113 @@ function CommissionerTools({ leagueId, league, teams, viewerTeamId, isOwner = fa
             h2, h3, h4 with no level skipped. */}
         <Typography variant="h6" component="h3">Commissioner Tools</Typography>
       </Box>
+      {/* `allowScrollButtonsMobile`, because MUI 5.16 defaults it to false and
+          `scrollButtons="auto"` then resolves to `display: none` below sm: six
+          tabs in a 288px strip showed one and a half of them with no affordance
+          at all that the rest existed. The arrows also carry the tree's touch
+          floor, which MUI's 40px default scroll button does not reach. */}
       <Tabs
         value={tab}
         onChange={(e, v) => setTab(v)}
         variant="scrollable"
         scrollButtons="auto"
-        sx={{ px: 2, mt: 1, borderBottom: 1, borderColor: 'divider' }}
+        allowScrollButtonsMobile
+        aria-label="Commissioner tools sections"
+        data-testid="commissioner-tabs"
+        sx={{
+          px: { xs: 1.5, sm: 2 },
+          mt: 1,
+          borderBottom: 1,
+          borderColor: 'divider',
+          '& .MuiTabs-scrollButtons': { width: MIN_TOUCH_TARGET_SX.minWidth },
+        }}
       >
-        <Tab label="General Settings" value="general" />
-        {pickemOnly ? (
-          <Tab label="Season" value="season" />
-        ) : (
-          [
-            <Tab key="roster" label="Roster Settings" value="roster" />,
-            <Tab key="scoring" label="Scoring Settings" value="scoring" />,
-            <Tab key="playoffs" label="Playoffs & Schedule" value="playoffs" />,
-            <Tab key="waivers" label="Waivers & Trades" value="waivers" />,
-            <Tab key="overrides" label="System Overrides" value="overrides" />,
-          ]
-        )}
+        {tabs.map((key) => (
+          <Tab key={key} value={key} label={<TabLabel label={TAB_LABELS[key]} dirty={isDirty(key)} />} />
+        ))}
       </Tabs>
-      <Box sx={{ p: 2 }}>
+
+      {/* The unsaved edits are kept, so this is not a warning: it is the offer
+          to throw them away, which is the only way to lose them now and is
+          therefore the one thing that has to be confirmed. */}
+      {isDirty(tab) && (
+        <Box
+          data-testid="commissioner-unsaved-bar"
+          sx={{
+            px: { xs: 1.5, sm: 2 },
+            pt: 1.5,
+            display: 'flex',
+            gap: 1,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            Unsaved changes on this tab. They are kept if you switch tabs or close this panel.
+          </Typography>
+          <Button size="small" color="error" onClick={() => setDiscardTarget(tab)}>
+            Discard changes
+          </Button>
+        </Box>
+      )}
+
+      <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
         {tab === 'general' && (
           <GeneralSettingsPanel
             leagueId={leagueId} league={league} teams={teams} viewerTeamId={viewerTeamId} isOwner={isOwner}
-            onRefresh={onRefresh} notify={notify}
+            onRefresh={onRefresh} notify={notify} {...panelProps('general')}
           />
         )}
         {tab === 'season' && pickemOnly && (
           <PickemSeasonPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
         )}
         {tab === 'roster' && (
-          <RosterSettingsPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
+          <RosterSettingsPanel
+            leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} {...panelProps('roster')}
+          />
         )}
         {tab === 'scoring' && (
-          <ScoringSettingsPanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
+          <ScoringSettingsPanel
+            leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify}
+            installDraft={(values) => installDraft('scoring', values)} {...panelProps('scoring')}
+          />
         )}
         {tab === 'playoffs' && (
-          <PlayoffSchedulePanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
+          <PlayoffSchedulePanel
+            leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} {...panelProps('playoffs')}
+          />
         )}
         {tab === 'waivers' && (
-          <WaiverTradePanel leagueId={leagueId} league={league} onRefresh={onRefresh} notify={notify} />
+          <WaiverTradePanel
+            leagueId={leagueId} onRefresh={onRefresh} notify={notify} {...panelProps('waivers')}
+          />
         )}
         {tab === 'overrides' && (
-          <SystemOverridesPanel leagueId={leagueId} teams={teams} notify={notify} onRefresh={onRefresh} />
+          <SystemOverridesPanel
+            leagueId={leagueId} league={league} teams={teams} notify={notify} onRefresh={onRefresh}
+          />
         )}
       </Box>
-    </Paper>
+
+      <Dialog
+        open={!!discardTarget}
+        onClose={() => setDiscardTarget(null)}
+        aria-labelledby={discardTitleId}
+        aria-describedby={discardDescriptionId}
+      >
+        <DialogTitle id={discardTitleId}>Discard unsaved changes?</DialogTitle>
+        <DialogContent>
+          <DialogContentText id={discardDescriptionId}>
+            {`The ${TAB_LABELS[discardTarget] || 'current'} tab goes back to the settings saved for this `
+              + 'league. Nothing that is already saved changes.'}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDiscardTarget(null)}>Keep editing</Button>
+          <Button color="error" variant="contained" onClick={handleDiscard}>Discard</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 }
 
