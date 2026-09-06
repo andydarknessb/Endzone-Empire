@@ -146,6 +146,29 @@ test('property 4: a fan-out failure does not turn a committed act into a 500', a
   fake.assertClean();
 });
 
+test('a typo in a requested board-fact name throws before commit, rolls back, and emits nothing', async (t) => {
+  const fake = baseWorld(t);
+  const rec = installActBroadcast(t, fake);
+
+  await assert.rejects(
+    runDraftAct({ leagueId: LEAGUE_ID, userId: USER_ID }, async ({ client }) => {
+      await client.query(
+        `UPDATE "leagues" SET "draft_paused" = $1 WHERE "id" = $2 RETURNING "id"`,
+        [true, LEAGUE_ID]
+      );
+      // 'stateChangd' is a typo. Without pre-commit validation it would be a
+      // silent no-op swallowed by runFanout; here it must fail loudly.
+      return { response: {}, activity: [{ id: 'e1' }], broadcasts: ['stateChangd'] };
+    }),
+    /is not a board-fact broadcast/
+  );
+
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a bad broadcast name never commits');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'it rolls back');
+  assert.equal(rec.calls.length, 0, 'and emits nothing to the room');
+  fake.assertClean();
+});
+
 test('the act body receives the locked client, the League row, the Teams and the acting Team', async (t) => {
   const fake = baseWorld(t);
   installActBroadcast(t, fake);

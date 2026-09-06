@@ -4,13 +4,23 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
 const sentry = require('../modules/sentry');
 
+// The board-fact methods an act body may name in its `broadcasts` set. Mirrors
+// the draftRoomBroadcast adapter's board-fact surface; narration is not here (it
+// travels through the act body's `activity` and is emitted via activityAppended).
+// runDraftAct validates requested names against this set before COMMIT so a typo
+// fails loudly rather than silently in the contained fan-out. Adding a new board
+// fact means adding it here, deliberately.
+const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged', 'draftCompleted', 'pickLanded', 'scoresUpdated']);
+
 /**
- * The Draft act module (#947, part of #938). It owns the ordering constraint
- * that ten hand-rolled sites in draft.router.js re-spell today: serialize on the
- * League row, run the caller's mutations on that same locked client, COMMIT, and
- * only THEN fan out to the room, in one order. A caller supplies an act body and
- * never opens a connection, never takes the lock, and never chooses the fan-out
- * order.
+ * The Draft act module (#947, part of #938). It owns an ordering constraint
+ * re-spelled across the repo - per the ticket, ten sites, five of them Express
+ * handlers in draft.router.js that hand-roll their own transaction (measured:
+ * draft.router.js had 7 pool.connect/BEGIN/COMMIT at 682fe470, 6 after this
+ * conversion). The constraint: serialize on the League row, run the caller's
+ * mutations on that same locked client, COMMIT, and only THEN fan out to the
+ * room, in one order. A caller supplies an act body and never opens a
+ * connection, never takes the lock, and never chooses the fan-out order.
  *
  * The shape it enforces, and the four properties draftAct.service.test.js pins
  * at this interface:
@@ -81,6 +91,23 @@ async function runDraftAct({ leagueId, userId }, actBody) {
     // 4. The caller's mutations, against the locked client.
     const outcome = (await actBody({ client, league, teams, actingTeam })) || {};
     const { response, activity = [], broadcasts = [] } = outcome;
+    // Validate the requested board-fact names BEFORE commit, so a typo throws onto
+    // the rollback path (visible) instead of vanishing into runFanout's deliberate
+    // swallow, where a bad name would be a silent no-op the room never hears (F3).
+    // Checked against a static allowlist rather than the live adapter on purpose:
+    // resolving getDraftRoomBroadcast() here would move the "no transport
+    // registered" throw (#765) onto the rollback path too, which contradicts the
+    // post-commit containment pick.service.landPick deliberately chose so a
+    // committed act is never misreported as failed. The typo - a wrong name - is
+    // caught here; the missing transport stays the post-commit swallow.
+    for (const method of broadcasts) {
+      if (!BOARD_FACTS.has(method)) {
+        throw new Error(
+          `draftAct: '${method}' is not a board-fact broadcast (expected one of ${[...BOARD_FACTS].join(', ')}); ` +
+            'narration goes through `activity`, not `broadcasts`'
+        );
+      }
+    }
     // 5. Commit. From here the act is durable.
     await client.query('COMMIT');
     // 6. Fan out, after commit, in the one order, contained.

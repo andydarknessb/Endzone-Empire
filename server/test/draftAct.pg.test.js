@@ -158,7 +158,10 @@ if (!ENABLED) {
 
     const settled = await actResult;
     assert.equal(settled.status, 'fulfilled', settled.reason && settled.reason.stack);
-    assert.deepEqual(settled.value.response, { id: leagueId, draft_paused: true });
+    // runDraftAct resolves to the act body's `response` itself (the router does
+    // `const response = await runDraftAct(...); res.json(response)`), so the
+    // resolved value IS { id, draft_paused } - not a wrapper with a `.response`.
+    assert.deepEqual(settled.value, { id: leagueId, draft_paused: true });
     assert.equal(await pausedNow(), true, 'draft_paused flipped once the lock was free');
   });
 }
