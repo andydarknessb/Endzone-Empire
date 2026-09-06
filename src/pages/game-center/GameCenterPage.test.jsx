@@ -736,9 +736,30 @@ test('below the sm breakpoint the header row can shrink below the week strip it 
   await screen.findByRole('radio', { name: 'Wk 1' });
   const header = screen.getByTestId('game-center-header');
   expect(header).toContainElement(screen.getByTestId('pick-week'));
+  // Zero below `sm` (the phone, where the strip scrolls) and back to the
+  // content minimum above it: a row that may shrink under a strip that does
+  // NOT scroll lets the strip overflow and paint under the "All weeks" button
+  // beside it, the desktop overlap the #916 review caught in Chromium.
+  // Red-tell: dropping the `sm` half, so the rule reads a bare `min-width: 0`,
+  // turns this case red and no other.
   expect(rulesUnder(header)['']).toMatch(/min-width:\s*0/);
   // The strip itself is the scroll container inside that row.
   expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Week' }))['']).toMatch(/overflow-x:\s*auto/);
+});
+
+// The other half of the same rule: the zero minimum is the MOBILE half. Above
+// `sm` the strip is not a scroll container and its segments are `flex: none`,
+// so a header row that may shrink under it lets the strip overflow and paint
+// under the "All weeks" button beside it, the desktop overlap the #916 review
+// caught in Chromium. Red-tell: making the header row's `minWidth`
+// unconditional turns this case red and no other.
+test('above the sm breakpoint the header row keeps its content minimum', async () => {
+  mobile = false;
+  mockApi({ matchups: [row({ id: 5, week: 1, status: 'live' })] });
+  renderPage();
+
+  await screen.findByRole('radio', { name: 'Wk 1' });
+  expect(rulesUnder(screen.getByTestId('game-center-header'))['']).not.toMatch(/min-width/);
 });
 
 // The canvas's mobile artboard (build.mjs `gameCenterMobile()`) ends at the

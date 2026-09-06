@@ -133,6 +133,22 @@ test('below sm the week strip scrolls inside its row instead of widening it', ()
   expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Week' }))['']).not.toMatch(/overflow-x/);
 });
 
+// The zero minimum is the mobile half of the fix and belongs ONLY there. Above
+// `sm` the strip is not a scroll container and its segments are `flex: none`,
+// so a box that may shrink under the strip lets the strip overflow it and paint
+// under the "All weeks" button beside it: the desktop overlap the #916 review
+// caught in Chromium. Red-tell: making either box's `minWidth` unconditional
+// (`minWidth: 0`) turns this case red and no other.
+test('the picker only lets its boxes shrink under the strip on the mobile path', () => {
+  const { rerender } = render(<PickWeek weeks={WEEKS} value={9} onChange={() => {}} fill />);
+  expect(rulesUnder(screen.getByTestId('pick-week'))['']).toMatch(/min-width: 0/);
+  expect(rulesUnder(screen.getByTestId('pick-week-stepper'))['']).toMatch(/min-width: 0/);
+
+  rerender(<PickWeek weeks={WEEKS} value={9} onChange={() => {}} />);
+  expect(rulesUnder(screen.getByTestId('pick-week'))['']).not.toMatch(/min-width/);
+  expect(rulesUnder(screen.getByTestId('pick-week-stepper'))['']).not.toMatch(/min-width/);
+});
+
 // Red-tell (#916): putting "All weeks" back on its own row (out of the
 // stepper row, the layout that cost a phone a second row of chrome) turns
 // this case red and no other.
