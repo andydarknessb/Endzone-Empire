@@ -133,6 +133,36 @@ test('below sm the week strip scrolls inside its row instead of widening it', ()
   expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Week' }))['']).not.toMatch(/overflow-x/);
 });
 
+// The zero minimum is the mobile half of the fix and belongs ONLY there. Above
+// `sm` the strip is not a scroll container and its segments are `flex: none`,
+// so a box that may shrink under the strip lets the strip overflow it and paint
+// under the "All weeks" button beside it: the desktop overlap the #916 review
+// caught in Chromium. Red-tell: making either box's `minWidth` unconditional
+// (`minWidth: 0`) turns this case red and no other.
+test('the picker only lets its boxes shrink under the strip on the mobile path', () => {
+  const emotionClass = (el) => Array.from(el.classList).find((c) => c.startsWith('css-'));
+
+  const { unmount } = render(<PickWeek weeks={WEEKS} value={9} onChange={() => {}} fill />);
+  const mobileRoot = emotionClass(screen.getByTestId('pick-week'));
+  const mobileStepper = emotionClass(screen.getByTestId('pick-week-stepper'));
+  expect(rulesUnder(screen.getByTestId('pick-week'))['']).toMatch(/min-width: 0/);
+  expect(rulesUnder(screen.getByTestId('pick-week-stepper'))['']).toMatch(/min-width: 0/);
+  unmount();
+
+  // The desktop path gets its own class, so it is not carrying the mobile
+  // box's declarations. Reading that second class's rule BACK is what this
+  // harness cannot do reliably: emotion's cache is module state that jest
+  // shares across the files in a worker while each file gets a fresh document,
+  // so under `--maxWorkers` the lookup can return the first render's rule.
+  // The desktop half of this rule is therefore asserted in Chromium, not here:
+  // the #916 review measured "All weeks" overlapping the last segments by
+  // 125px at 1440px with an unconditional minimum, and 56px clear without it.
+  // See #920 for the layout guard that belongs at that level.
+  render(<PickWeek weeks={WEEKS} value={9} onChange={() => {}} />);
+  expect(emotionClass(screen.getByTestId('pick-week'))).not.toBe(mobileRoot);
+  expect(emotionClass(screen.getByTestId('pick-week-stepper'))).not.toBe(mobileStepper);
+});
+
 // Red-tell (#916): putting "All weeks" back on its own row (out of the
 // stepper row, the layout that cost a phone a second row of chrome) turns
 // this case red and no other.
