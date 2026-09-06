@@ -40,7 +40,17 @@ async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
   );
   const trade = tradeResult.rows[0];
   if (!trade) throw new TradeError(404, 'trade not found');
-  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [trade.league_id]);
+  // Lock the League row, not just the trades row (#946). executeTrade's roster
+  // capacity check reads team_players counts and must be serialized on the same
+  // row every other capacity path serializes on. Two trades on DIFFERENT trade
+  // rows sending a player to the SAME team lock two different trades rows (no
+  // contention) and would otherwise both read the same sub-capacity count and
+  // both commit, putting the team over its limit. Locking the League row FOR
+  // UPDATE here serializes every trade in the league behind it. The order is
+  // League-first, matching forceTransaction (League row via requireCommissioner,
+  // then the Team row) and the #944 write gate (League then Team), so no AB/BA
+  // lock-order pair is introduced.
+  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [trade.league_id]);
   const itemsResult = await client.query(`SELECT * FROM "trade_items" WHERE "trade_id" = $1`, [tradeId]);
   const teamsResult = await client.query(
     `SELECT * FROM "teams" WHERE "id" IN ($1, $2)`,
