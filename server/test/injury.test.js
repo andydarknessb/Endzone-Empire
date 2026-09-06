@@ -31,6 +31,7 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
         { id: 21, external_id: 'tank-21', injury_status: 'O' },
@@ -80,6 +81,21 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
   assert.deepEqual(result, { playersUpdated: 2, irFlags: 1 });
   assert.match(fake.matching(select('players'))[0].text, /FOR UPDATE$/);
   assert.equal(fake.matching(update('players')).length, 2);
+  // #904: syncInjuries serializes with syncAdp on the same transaction-scoped
+  // advisory lock (id 23004, players-bulk-write). The lock is the FIRST statement
+  // inside the transaction - after BEGIN, before the FOR UPDATE scan takes any
+  // row locks - so it cannot form the deadlock cycle it exists to prevent. It
+  // runs on the transaction client and is the blocking xact form (released by
+  // COMMIT/ROLLBACK, never an explicit unlock). Red-tell: deleting the lock
+  // statement, or moving it after the FOR UPDATE, turns this red.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const forUpdateIdx = fake.calls.findIndex((c) => /FOR UPDATE$/.test(c.text));
+  assert.ok(lockIdx >= 0, 'the advisory lock is acquired');
+  assert.equal(fake.calls[lockIdx].via, 'client', 'the lock sits inside the transaction client');
+  assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.ok(lockIdx < forUpdateIdx, 'the lock is taken before the FOR UPDATE scan takes any row locks');
   assert.deepEqual(notifications, [{
     type: 'ir_flag',
     message: 'Test Runner is no longer IR-eligible (questionable). Move him out of IR before saving your lineup.',
@@ -145,6 +161,7 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
       return { rows: [] };
     }],
     [/^UPDATE "lineup_entries" SET "ir_attested"/, () => ({ rows: [] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), async () => {
       signalSyncAttempted();
       if (lineupReadHasLock) await lineupMoved;
