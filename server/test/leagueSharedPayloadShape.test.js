@@ -255,6 +255,7 @@ function pickemFake(t, entries) {
       ],
     })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
     [/"game_recaps"/, () => ({ rows: [] })],
     ...entries,
   ]).install(t);
@@ -375,6 +376,7 @@ async function getMatchupDetail(t) {
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr' }] })],
     [/FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
   ]).install(t);
   // The viewer owns the home team, so viewerTeamId resolves from the raw row's
   // home_owner_id - the same raw-rows-vs-serialization coupling as league detail.
@@ -386,16 +388,19 @@ async function getMatchupDetail(t) {
 // GREEN root pin: viewerTeamId is read from matchup.home_owner_id / away_owner_id
 // on the raw row, so #343 must delete those two keys from the wire object AFTER
 // computing viewerTeamId, never stop selecting them.
-test('matchup detail: the response root is { viewerTeamId, viewerWhatIf, matchup, home, away } and viewerTeamId resolves from the raw owner ids', async (t) => {
+test('matchup detail: the response root is { viewerTeamId, viewerWhatIf, matchup, nflGameIds, home, away } and viewerTeamId resolves from the raw owner ids', async (t) => {
   const body = await getMatchupDetail(t);
-  assertExactKeys(body, ['away', 'home', 'matchup', 'viewerTeamId', 'viewerWhatIf']);
+  assertExactKeys(body, ['away', 'home', 'matchup', 'nflGameIds', 'viewerTeamId', 'viewerWhatIf']);
   assert.equal(body.viewerTeamId, VIEWER.teamId, 'computed from home_owner_id on the raw matchup row');
 });
 
+// `first_kickoff_at` and `synced_at` (#892) are NFL schedule and sync facts,
+// never account fields.
 const MATCHUP_OBJECT_CLEAN = [
   'away_score', 'away_team_avatar_static_url', 'away_team_avatar_url', 'away_team_id', 'away_team_name',
+  'first_kickoff_at',
   'home_score', 'home_team_avatar_static_url', 'home_team_avatar_url', 'home_team_id', 'home_team_name',
-  'id', 'league_id', 'season', 'status', 'week',
+  'id', 'league_id', 'season', 'status', 'synced_at', 'week',
 ];
 // home_owner_id / away_owner_id stay in the SELECT (viewerTeamId reads them off
 // the raw row) and are stripped from the serialized matchup object (#343, #115).

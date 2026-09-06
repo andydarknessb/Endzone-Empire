@@ -1,0 +1,281 @@
+/* Tecmo scoring cutscene. Deliberately theme-independent - beat 1 is a night
+   game and beat 2 the daytime referee frame in both light and dark app themes -
+   so colors are fixed here, not tokenized. Every animated property is transform
+   or opacity (compositor-friendly).
+
+   Timing: beat-1 lengths are coupled to BEAT1_MS in TecmoCutscene.jsx (the run
+   must finish before the cut). Beat-2 delays below are relative to the beat-2
+   mount - intentionally decoupled from the absolute timeline. */
+
+.tecmo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20000; /* above the nav and everything else */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05070d;
+  cursor: pointer;
+  overflow: hidden;
+  animation: tecmo-fade-in 160ms ease-out;
+  font-family: 'Press Start 2P', 'Courier New', ui-monospace, monospace;
+}
+
+.tecmo-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* Night sky with a faint pixel "crowd" band via repeating gradients. */
+.tecmo-sky {
+  position: absolute;
+  inset: 0 0 42% 0;
+  background:
+    repeating-linear-gradient(90deg, #10131c 0 6px, #141826 6px 12px),
+    linear-gradient(#0a0d16, #10131c);
+  box-shadow: inset 0 -8px 0 #05070d;
+}
+.tecmo-sky::after {
+  /* sprinkled crowd/stadium-light pixels */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 12% 30%, #cfd4e0 99%, transparent),
+    radial-gradient(1px 1px at 34% 60%, #aeb4c4 99%, transparent),
+    radial-gradient(1px 1px at 58% 22%, #e8ecf5 99%, transparent),
+    radial-gradient(1px 1px at 76% 50%, #aeb4c4 99%, transparent),
+    radial-gradient(1px 1px at 90% 34%, #cfd4e0 99%, transparent);
+  opacity: 0.7;
+}
+
+/* Striped green field filling the lower portion. */
+.tecmo-field {
+  position: absolute;
+  inset: 58% 0 0 0;
+  background: repeating-linear-gradient(90deg, #1f7a3d 0 40px, #1b6d37 40px 80px);
+  box-shadow: inset 0 6px 0 #ffffff33;
+  overflow: hidden;
+}
+
+/* Red end zone at the right edge. */
+.tecmo-endzone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 16%;
+  background: repeating-linear-gradient(90deg, #b3251f 0 40px, #a11f1a 40px 80px);
+  box-shadow: inset 6px 0 0 #ffffff55;
+}
+
+/* Runner + defender group sprints left -> right, then holds in the end zone.
+   Duration must stay under BEAT1_MS (TecmoCutscene.jsx) so the runner is in
+   the end zone before the cut to the referee frame. */
+.tecmo-runner {
+  position: absolute;
+  bottom: 14%;
+  left: 0;
+  width: 72px;
+  height: 72px;
+  transform: translateX(-80px);
+  animation: tecmo-run 2s steps(20) forwards;
+}
+
+.tecmo-sprite {
+  position: absolute;
+  bottom: 0;
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.tecmo-sprite--runner { left: 8px; filter: drop-shadow(0 3px 0 #00000055); }
+/* Defender chases a step behind and slightly smaller. */
+.tecmo-sprite--defender {
+  left: -20px;
+  width: 58px;
+  height: 58px;
+  opacity: 0.92;
+}
+
+/* ---- Beat 2: the referee BOOM! frame (matches the NES touchdown cutscene) ---- */
+
+/* Column layout: the stage takes the space the BOOM band doesn't need, so the
+   referee and goal post always rest exactly on the band no matter how tall the
+   caption grows (long names wrap to two lines on narrow screens). */
+.tecmo-refscene {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tecmo-refstage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Daytime NES-blue sky with chunky cloud pixels. */
+.tecmo-daysky {
+  position: absolute;
+  inset: 0 0 42% 0;
+  background: #3cbcfc;
+}
+.tecmo-daysky::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(14px 8px at 16% 40%, #ffffff 99%, transparent),
+    radial-gradient(10px 6px at 24% 30%, #ffffff 99%, transparent),
+    radial-gradient(16px 8px at 52% 55%, #f2f4f8 99%, transparent),
+    radial-gradient(12px 7px at 60% 42%, #ffffff 99%, transparent),
+    radial-gradient(14px 8px at 86% 35%, #ffffff 99%, transparent);
+  opacity: 0.9;
+}
+
+/* Pixel-noise crowd band between the sky and the black BOOM band. */
+.tecmo-crowd {
+  position: absolute;
+  inset: 58% 0 0 0;
+  background:
+    repeating-linear-gradient(90deg, #d4a373cc 0 3px, transparent 3px 7px),
+    repeating-linear-gradient(90deg, #7a5c9ecc 2px 5px, transparent 5px 11px),
+    repeating-linear-gradient(0deg, #2f3550 0 4px, #3d4468 4px 8px);
+  box-shadow: inset 0 4px 0 #00000044;
+}
+
+.tecmo-goalpost {
+  position: absolute;
+  right: 6%;
+  bottom: 0;
+  width: clamp(70px, 20vw, 130px);
+  height: clamp(70px, 20vw, 130px);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(2px 2px 0 #00000055);
+}
+
+/* Referee stands on the band's top edge, front and center-left. */
+.tecmo-ref {
+  position: absolute;
+  left: 30%;
+  bottom: 0;
+  width: clamp(90px, 26vw, 160px);
+  height: clamp(90px, 26vw, 160px);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 3px 0 #00000055);
+  animation: tecmo-fade-in 100ms ease-out;
+}
+
+/* Solid black lower band, topped by a team-color stripe (set inline). Grows
+   past its 40% floor rather than clipping when a long name wraps. */
+.tecmo-boomband {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 40%;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  background: #000000;
+  border-top: 4px solid #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* "BOOM!" slams in with the same hard stepped scale as the old title. */
+.tecmo-boom {
+  color: #ffffff;
+  font-size: clamp(36px, 14vw, 96px);
+  letter-spacing: 2px;
+  text-shadow: 4px 4px 0 #00000099;
+  transform: scale(0);
+  opacity: 0;
+  animation: tecmo-slam 420ms steps(6) 300ms forwards;
+}
+
+.tecmo-boom-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  text-align: center;
+  color: #f2f4f8;
+  opacity: 0;
+  animation: tecmo-fade-in 300ms ease-out 900ms forwards;
+}
+.tecmo-name {
+  font-size: clamp(12px, 4.5vw, 22px);
+  color: #ffffff;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.tecmo-play { font-size: clamp(8px, 2.6vw, 12px); color: #9fe6bb; text-transform: uppercase; }
+.tecmo-points { font-size: clamp(14px, 5vw, 26px); color: #ffd23f; }
+
+/* CRT scanlines + vignette overlays. */
+.tecmo-scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0 1px,
+    rgba(0, 0, 0, 0) 1px 3px
+  );
+  mix-blend-mode: multiply;
+}
+.tecmo-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 45%, transparent 45%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* Reduced-motion: the BOOM frame renders as a still, everything visible. */
+.tecmo-overlay--static { background: #05070d; }
+.tecmo-refscene--static .tecmo-ref,
+.tecmo-refscene--static .tecmo-boom,
+.tecmo-refscene--static .tecmo-boom-caption {
+  animation: none;
+  transform: none;
+  opacity: 1;
+}
+
+@keyframes tecmo-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes tecmo-run {
+  from { transform: translateX(-80px); }
+  to { transform: translateX(min(560px, 78vw)); }
+}
+@keyframes tecmo-slam {
+  0% { transform: scale(3.2); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Safety net: if the OS asks for reduced motion, neutralize every animation even
+   on elements the component still renders. */
+@media (prefers-reduced-motion: reduce) {
+  .tecmo-overlay,
+  .tecmo-runner,
+  .tecmo-ref,
+  .tecmo-boom,
+  .tecmo-boom-caption {
+    animation: none !important;
+  }
+  .tecmo-boom { transform: none; opacity: 1; }
+  .tecmo-boom-caption { opacity: 1; }
+}

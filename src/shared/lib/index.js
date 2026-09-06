@@ -5,3 +5,4 @@
  * island, a sibling of `shared/ui`, and depends on nothing above it.
  */
 export { useEndpoint } from './useEndpoint';
+export { subscribeToScoreFeed } from './scoreFeed';

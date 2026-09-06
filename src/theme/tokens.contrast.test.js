@@ -140,11 +140,13 @@ const PAIRINGS = [
   // `surface` (already covered by the two rows above) or has no text on it.
   // Five do not:
   //
-  // GameCenter's LiveActionTicker (GameCenter.jsx) paints `accent-soft`
-  // directly as its own Paper's background, and that Paper sits straight on
-  // the page - its backdrop is `bg-page`, not `surface`. The ticker text is
-  // MUI body2 at 14px even when bold, under the 14pt/18.66px bold threshold
-  // for "large text", so AA_TEXT applies.
+  // The legacy Game Center's LiveActionTicker painted `accent-soft` directly
+  // as its own Paper's background, and that Paper sat straight on the page -
+  // its backdrop was `bg-page`, not `surface`. The ticker text was MUI body2
+  // at 14px even when bold, under the 14pt/18.66px bold threshold for "large
+  // text", so AA_TEXT applies. That page left with #897 (the island's
+  // scoring-feed widget paints `dash-*` tokens instead, guarded below); the
+  // row stays so a later banner on the page composes a certified pairing.
   pairing(
     'text-primary',
     'accent-soft',
@@ -185,11 +187,13 @@ const PAIRINGS = [
     'draft pick name during the landed-pick flash on a hovered row',
     'row-hover'
   ),
-  // MatchupExtras' `scoreFlash` keyframe (MatchupDetail.jsx wraps
-  // SlotComparisonList in a Paper, so its backdrop is `surface`) is the same
-  // flash-over-a-row pattern, but its foreground is `accent`, not
-  // `text-primary`: PlayerNameLink colors the player name `primary.main`
-  // (`accent`). That fg/bg/backdrop triple is new too.
+  // The legacy Matchup Detail's `scoreFlash` keyframe (its slot list sat in
+  // a Paper, so its backdrop was `surface`) was the same flash-over-a-row
+  // pattern, but its foreground was `accent`, not `text-primary`:
+  // PlayerNameLink colors a player name `primary.main` (`accent`). That page
+  // left the tree with #903 (ADR 0031); the row stays because PlayerNameLink
+  // still paints accent names on legacy surfaces, and the guard certifies
+  // exactly the pairings it lists (ADR 0010).
   pairing(
     'accent',
     'accent-soft',
@@ -248,6 +252,53 @@ const PAIRINGS = [
   //     held to AA_TEXT (4.5). `dash-faint` was lightened from the mockup value
   //     so it clears 4.5 on every plain surface (tokens.js). On the accent tint
   //     it clears only over a card; see the tint rows below.
+  // ---- Game Center / Matchup Detail island (ADR 0031, #891). The home and
+  // away colors carry per-side percentages and small labels on a card and on
+  // a stat tile (AA_TEXT); they are NOT registered on the raised tile, so a
+  // widget paints them on `dash-surface`/`-surface2` only. The LED digits are
+  // amber on the board token, which stays dark in both themes.
+  pairing('dash-home', 'dash-surface', AA_TEXT, 'home side percentage on a card'),
+  pairing('dash-home', 'dash-surface2', AA_TEXT, 'home side percentage on a stat tile'),
+  pairing('dash-away', 'dash-surface', AA_TEXT, 'away side percentage on a card'),
+  pairing('dash-away', 'dash-surface2', AA_TEXT, 'away side percentage on a stat tile'),
+  // The retro field's end zones (#902) carry the Team name in `text-inverse`
+  // on the side's own fill, the pairing the position chips already carry:
+  // both fills are chip-strength colors (light `dash-home` is `pos-wr`, dark
+  // `dash-away` is `pos-rb`) and the label is small text, so AA_TEXT.
+  pairing('text-inverse', 'dash-home', AA_TEXT, 'home end-zone label on the home fill'),
+  pairing('text-inverse', 'dash-away', AA_TEXT, 'away end-zone label on the away fill'),
+  pairing('dash-led', 'dash-board', AA_TEXT, 'LED digits on the scoreboard face'),
+  // The scoring strip's Live pill (widgets/scoring-feed, #895): the canvas's
+  // `.chip.live` is danger text on the danger tint, and the strip it sits in
+  // is a card, so the pairing is registered over `dash-surface` ONLY. That is
+  // a real boundary, not an omission: measured 4.81 light / 5.16 dark over a
+  // card, but 4.47 light over a stat tile, 4.29 light over the page and
+  // 4.05 / 4.09 over the raised tile. A danger pill on any other surface is
+  // not guarded here.
+  pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over a card (the only guarded danger backdrop)', 'dash-surface'),
+  // The Final status chip on the hero and the matchup cards (#897): the
+  // canvas's `.chip.final` is success text on the success tint, and the
+  // island's success pair is `dash-away` / `dash-away-soft` (tokens.js). The
+  // chip is 11.5px/600, normal text, so AA_TEXT. The tint's light alpha was
+  // dropped from the canvas's 12% to 8% for exactly this row (4.36 failed;
+  // 4.63 over a card now, while 4.30 over a stat tile, 3.90 over the raised
+  // tile and 4.13 over the page all still FAIL in light), so the tinted chip
+  // is registered over `dash-surface` ONLY and a slice paints it nowhere else.
+  pairing('dash-away', 'dash-away-soft', AA_TEXT, 'the Final chip on the success tint over a card (the only guarded success backdrop)', 'dash-surface'),
+  // bench-what-if (#900): the card's warning border and bolt icon are non-text
+  // UI on `dash-surface` (AA_LARGE), and the gain chip (the canvas's
+  // `.chip.warn`) is warning TEXT on the warning tint, painted on the swap row
+  // (`dash-surface2`), with its own warning border on that row. The chip is
+  // 11px/700 uppercase, normal text by WCAG, so AA_TEXT. Thin in light (4.66
+  // over surface2; 5.00 over a card); the tint over the raised tile (4.23) and
+  // the page (4.48) FAILS in light, so the tinted chip is registered on a card
+  // and a stat tile only and a slice paints it nowhere else (tokens.js). The
+  // Awaiting final status chip on the hero and the matchup cards (#897) is
+  // the same warning text on the same tint over a card: the card row below.
+  pairing('dash-warning', 'dash-surface', AA_LARGE, 'bench what-if card border and bolt on a card'),
+  pairing('dash-warning', 'dash-surface2', AA_LARGE, 'bench what-if gain chip border on the swap row'),
+  pairing('dash-warning', 'dash-warning-soft', AA_TEXT, 'warning chip text on the warning tint over a card', 'dash-surface'),
+  pairing('dash-warning', 'dash-warning-soft', AA_TEXT, 'bench what-if gain chip text on the warning tint over the swap row', 'dash-surface2'),
   pairing('dash-ink', 'dash-bg', AA_TEXT, 'dashboard body text on the page'),
   pairing('dash-ink', 'dash-surface', AA_TEXT, 'dashboard body text on a card'),
   pairing('dash-ink', 'dash-surface2', AA_TEXT, 'dashboard body text on a stat tile'),

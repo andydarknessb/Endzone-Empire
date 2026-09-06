@@ -8,13 +8,14 @@ const leagueRouter = require('../routes/league.router');
 const projectionService = require('../services/projection.service');
 const lineupService = require('../services/lineup.service');
 const decisionService = require('../services/decision.service');
+const clock = require('../modules/clock');
 
 /**
  * GET /api/league/:id/matchups/:matchupId reports each side's expected
  * final and players remaining (`home.expectedFinal`, `home.playersRemaining`)
- * from the shared producer, and its per-player `projected` figures read the
- * same weekly run: a starter's carries the availability rule (bye/Out/IR
- * count zero), a bench player's is the run's raw number. The old
+ * from the shared producer, and every player row, starter or bench, is priced
+ * by that producer's one read under the availability rule (bye/Out/IR count
+ * zero) and carries `availability: { available, reason }` (#883). The old
  * `projectedTotal` is gone.
  */
 
@@ -58,7 +59,8 @@ const MATCHUP_ROW = {
 
 // Home starters: a QB whose game is final at 22.5 (562.5 passing yards at
 // 0.04), a WR ruled Out (projection 11.3 counts 0) not yet kicked off. Home
-// bench: an RB with a raw projection of 7.7. Away: one starter, a bye.
+// bench: an available RB with a weekly projection of 7.7, and a TE ruled Out
+// (projection 5.5 counts 0). Away: one starter, a bye.
 const player = (id, name, position, nfl_team, injury_status, slot, stats) => ({
   id, name, position, nfl_team, injury_status, slot, stats,
 });
@@ -66,13 +68,17 @@ const HOME_STARTERS = [
   player(101, 'Some Passer', 'QB', 'KC', null, 'QB', { passingYards: 562.5 }),
   player(102, 'Some Wideout', 'WR', 'PHI', 'O', 'WR', null),
 ];
-const HOME_BENCH = [player(103, 'Some Runner', 'RB', 'DAL', null, 'BENCH', null)];
+const HOME_BENCH = [
+  { ...player(103, 'Some Runner', 'RB', 'DAL', null, 'BENCH', null), photo_url: 'https://a.espncdn.com/i/headshots/nfl/players/full/103.png' },
+  player(104, 'Hurt Tight End', 'TE', 'DAL', 'O', 'BENCH', null),
+];
 const AWAY_STARTERS = [player(201, 'Resting Back', 'RB', 'Ghosts', null, 'RB', null)];
 
 const PROJECTIONS = new Map([
   [101, { points: 19 }],
   [102, { points: 11.3 }],
   [103, { points: 7.7 }],
+  [104, { points: 5.5 }],
   [201, { points: 9 }],
 ]);
 const LIVE = [{ home_team: 'KC', away_team: 'LV', game_status: 'final' }];
@@ -87,7 +93,7 @@ for (let w = 1; w <= 18; w++) {
   if (w !== WEEK) BYE_ROWS.push({ nfl_team: 'Ghosts', week: w });
 }
 
-async function getDetail(t) {
+async function getDetail(t, { gameRows = [], throwGames = false } = {}) {
   const runCalls = [];
   t.mock.method(projectionService, 'getWeeklyProjections', async (args) => {
     runCalls.push([...args.playerIds].sort());
@@ -104,6 +110,9 @@ async function getDetail(t) {
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
     [/FROM "nfl_games"/, () => ({ rows: SCHEDULE })],
     [/FROM "live_game_states"/, () => ({ rows: LIVE })],
+    // The NFL games either roster plays in this week (one row per rostered
+    // player and game, so a game repeats once per player from that team).
+    [/FROM "view_matchup_nfl_games"/, () => { if (throwGames) throw new Error('view unavailable'); return { rows: gameRows }; }],
     // The route's own per-team reads (bench by slot, starters by NOT IN).
     [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
       rows: params[0] === HOME ? HOME_BENCH : [],
@@ -111,13 +120,18 @@ async function getDetail(t) {
     [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
       rows: params[0] === HOME ? HOME_STARTERS : AWAY_STARTERS,
     })],
-    // The producer's one read across both teams.
-    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
-      rows: [
-        ...HOME_STARTERS.map((p) => ({ team_id: HOME, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
-        ...AWAY_STARTERS.map((p) => ({ team_id: AWAY, player_id: p.id, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
-      ],
-    })],
+    // The producer's one read across both teams: every non-IR lineup row,
+    // bench included, each carrying its slot.
+    // Answers the read's slot predicate the way the table would (a statement
+    // that still excludes BENCH rows gets none), so the #883 WHERE clause
+    // change is bound: restoring NOT IN ('BENCH', 'IR') turns the bench cases red.
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, (text) => {
+      const rows = [
+        ...[...HOME_STARTERS, ...HOME_BENCH].map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...AWAY_STARTERS.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+      ];
+      return { rows: /NOT IN \('BENCH'/.test(text) ? rows.filter((r) => r.slot !== 'BENCH') : rows };
+    }],
   ]).install(t);
 
   const res = await request(app)
@@ -139,14 +153,187 @@ test('each side carries its expected final and players remaining, and projectedT
   assert.equal('projectedTotal' in body.away, false);
 });
 
-test('starters project under the availability rule and bench players from the same run raw', async (t) => {
-  const { body, runCalls } = await getDetail(t);
-  const byId = new Map([...body.home.starters, ...body.home.bench, ...body.away.starters].map((p) => [p.id, p]));
-  assert.equal(byId.get(101).projected, 19);
-  assert.equal(byId.get(102).projected, 0, 'a starter ruled Out projects zero');
-  assert.equal(byId.get(201).projected, 0, 'a starter on bye projects zero');
-  assert.equal(byId.get(103).projected, 7.7, 'a bench player shows the run\'s raw number');
-  assert.equal(byId.get(101).points, 22.5);
-  // Two reads of the weekly run: the producer's (every starter) and the bench's.
-  assert.deepEqual(runCalls, [[101, 102, 201], [103]]);
+// #883: every row, starter or bench, is priced by the one rule, and an
+// unavailable row says why. Red-tell: removing the availability zeroing for
+// bench rows in the decorator turns the Out-bench case red and no other.
+test('an Out bench player projects zero with the reason, an available bench player carries the weekly figure', async (t) => {
+  const { body } = await getDetail(t);
+  const byId = new Map(body.home.bench.map((p) => [p.id, p]));
+  assert.equal(byId.get(104).projected, 0, 'an Out bench player projects zero');
+  assert.deepEqual(byId.get(104).availability, { available: false, reason: 'out' });
+  assert.equal(byId.get(103).projected, 7.7, 'an available bench player carries the weekly figure');
+  assert.deepEqual(byId.get(103).availability, { available: true, reason: null });
+});
+
+test('a starter on bye projects zero with the reason and is excluded from the expected final', async (t) => {
+  const { body } = await getDetail(t);
+  const [resting] = body.away.starters;
+  assert.equal(resting.id, 201);
+  assert.equal(resting.projected, 0);
+  assert.deepEqual(resting.availability, { available: false, reason: 'bye' });
+  assert.equal(body.away.expectedFinal, 0, 'the bye contributes nothing to the team');
+  // A starter ruled Out reads the same way; an available starter carries no reason.
+  const home = new Map(body.home.starters.map((p) => [p.id, p]));
+  assert.deepEqual(home.get(102).availability, { available: false, reason: 'out' });
+  assert.deepEqual(home.get(101).availability, { available: true, reason: null });
+  assert.equal(home.get(101).projected, 19);
+});
+
+test('the detail route makes one projection read per matchup, bench rows included', async (t) => {
+  const { runCalls } = await getDetail(t);
+  assert.deepEqual(runCalls, [[101, 102, 103, 104, 201]]);
+});
+
+// ---------------------------------------------------------------------------
+// nflGameIds on the detail body (#884): the NFL games either roster plays in
+// this week, read from view_matchup_nfl_games inside the same request that
+// materializes both lineups, replacing the separate games route it used to need.
+// ---------------------------------------------------------------------------
+
+test('nflGameIds lists each NFL game once, sorted, however many rostered players share it (#884)', async (t) => {
+  const { body } = await getDetail(t, {
+    gameRows: [
+      { tank01_game_id: '20260913_SF@LAR' },
+      { tank01_game_id: '20260910_BUF@KC' },
+      { tank01_game_id: '20260910_BUF@KC' }, // two Chiefs on one roster: one game
+    ],
+  });
+  assert.deepEqual(body.nflGameIds, ['20260910_BUF@KC', '20260913_SF@LAR']);
+});
+
+test('nflGameIds is an empty array, not an error, for a week with no live game rows yet (#884)', async (t) => {
+  const { body } = await getDetail(t, { gameRows: [] });
+  assert.deepEqual(body.nflGameIds, []);
+});
+
+test('a failed games read leaves nflGameIds empty and the detail body still answers (#884)', async (t) => {
+  const { body } = await getDetail(t, { throwGames: true });
+  assert.deepEqual(body.nflGameIds, []);
+  assert.equal(body.home.expectedFinal, 22.5, 'the rest of the body is unaffected');
+});
+
+// ---------------------------------------------------------------------------
+// matchup.status on the detail body, at a fixed instant.
+// ---------------------------------------------------------------------------
+
+const NOW = '2026-10-25T18:00:00.000Z'; // Sunday afternoon, after the 17:00Z kickoffs
+
+// One home starter (KC) and one away starter (DAL); the live rows and the
+// schedule set their game states, so a fixture can name any status.
+async function detailStatus(t, { live, schedule, throwLive = false }) {
+  t.mock.method(clock, 'now', () => new Date(NOW));
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map([[301, { points: 10 }], [401, { points: 10 }]]) }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const homeStarters = [player(301, 'Home QB', 'QB', 'KC', null, 'QB', null)];
+  // The away RB is ruled Out, so the no-priced-row fallback (F1) has a
+  // designation to speak from.
+  const awayStarters = [player(401, 'Away RB', 'RB', 'DAL', 'O', 'RB', null)];
+  const byes = [];
+  for (let w = 1; w <= 18; w++) for (const team of ['KC', 'DAL']) byes.push({ nfl_team: team, week: w });
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: byes })],
+    [/FROM "nfl_games"/, () => ({ rows: schedule })],
+    [/FROM "live_game_states"/, () => { if (throwLive) throw new Error('live table unavailable'); return { rows: live }; }],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, () => ({ rows: [] })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
+      rows: params[0] === HOME ? homeStarters : awayStarters,
+    })],
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
+      rows: [
+        ...homeStarters.map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...awayStarters.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+      ],
+    })],
+  ]).install(t);
+  const res = await request(app).get(`/api/league/${LEAGUE_ID}/matchups/7`).set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+test('the detail body reports matchup.status live when a starter\'s game is in progress', async (t) => {
+  const body = await detailStatus(t, {
+    live: [{ home_team: 'KC', away_team: 'LV', game_status: 'in_progress' }],
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-27T00:20:00.000Z' },
+    ],
+  });
+  assert.equal(body.matchup.status, 'live');
+});
+
+test('the detail body reports matchup.status played when every starter\'s game is over', async (t) => {
+  const body = await detailStatus(t, {
+    live: [
+      { home_team: 'KC', away_team: 'LV', game_status: 'final' },
+      { home_team: 'DAL', away_team: 'NYG', game_status: 'final' },
+    ],
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-25T17:00:00.000Z' },
+    ],
+  });
+  assert.equal(body.matchup.status, 'played');
+});
+
+test('the detail body states matchup.status null when a read fails, never a false scheduled (F1)', async (t) => {
+  const body = await detailStatus(t, {
+    throwLive: true,
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-25T17:00:00.000Z' },
+    ],
+  });
+  assert.equal(body.matchup.status, null);
+  assert.equal(body.home.expectedFinal, null);
+  // With no priced row the availability rule still speaks from the injury
+  // designation alone: the Out RB says so, the healthy QB carries no reason.
+  // Red-tell: returning null availability from the fallback turns this red.
+  assert.deepEqual(body.away.starters[0].availability, { available: false, reason: 'out' });
+  assert.deepEqual(body.home.starters[0].availability, { available: true, reason: null });
+  assert.equal(body.away.starters[0].projected, null);
+});
+
+// ---------------------------------------------------------------------------
+// #892: per-row game state, clock and headshot; the two week facts on the
+// matchup object.
+// ---------------------------------------------------------------------------
+
+test('a final starter carries game_state final and no clock; a bench row carries its headshot; the matchup its week facts', async (t) => {
+  const { body } = await getDetail(t);
+  const passer = body.home.starters.find((p) => p.id === 101);
+  assert.equal(passer.game_state, 'final');
+  assert.equal(passer.game_clock, null);
+  const wideout = body.home.starters.find((p) => p.id === 102);
+  assert.equal(wideout.game_state, 'scheduled');
+  const runner = body.home.bench.find((p) => p.id === 103);
+  assert.equal(runner.photo_url, 'https://a.espncdn.com/i/headshots/nfl/players/full/103.png');
+  assert.equal(body.home.starters.find((p) => p.id === 102).photo_url, null);
+  // The earliest kickoff among either side's starters (KC at 17:00Z, PHI at
+  // 20:25Z; the bye has none), and no live update time on a final-only row set.
+  assert.equal(body.matchup.first_kickoff_at, '2099-10-25T17:00:00.000Z');
+  assert.equal(body.matchup.synced_at, null);
+});
+
+test('an in-progress starter carries the live clock as one string', async (t) => {
+  const body = await detailStatus(t, {
+    live: [{ home_team: 'KC', away_team: 'LV', game_status: 'in_progress', quarter: 'Q3', time_remaining: '6:42', updated_at: '2026-10-25T17:58:00.000Z' }],
+    schedule: [
+      { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' },
+      { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2026-10-27T00:20:00.000Z' },
+    ],
+  });
+  const [homeQb] = body.home.starters;
+  assert.equal(homeQb.game_state, 'in_progress');
+  assert.equal(homeQb.game_clock, 'Q3 6:42');
+  const [awayRb] = body.away.starters;
+  assert.equal(awayRb.game_state, 'scheduled');
+  assert.equal(awayRb.game_clock, null);
+  assert.equal(body.matchup.synced_at, '2026-10-25T17:58:00.000Z');
+  assert.equal(body.matchup.first_kickoff_at, '2026-10-25T17:00:00.000Z');
 });

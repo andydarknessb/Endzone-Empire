@@ -93,13 +93,33 @@ function gameStateFor({ liveStatus, kickoffAt, onBye, points, now }) {
   return actual > 0 ? 'in_progress' : 'scheduled';
 }
 
+/** The earliest of the starters' kickoffs as an ISO string, or null. */
+function earliestKickoff(starters) {
+  let earliest = null;
+  for (const s of starters) {
+    if (!s.kickoffAt) continue;
+    const at = new Date(s.kickoffAt);
+    if (!Number.isFinite(at.getTime())) continue;
+    if (earliest == null || at < earliest) earliest = at;
+  }
+  return earliest ? earliest.toISOString() : null;
+}
+
 /**
  * Expected finals for the given teams in one (season, week) of one league.
- * Returns a Map<teamId, { expectedFinal, playersRemaining, starters }> with
- * an entry only for teams that have at least one starter row; `starters` is
- * an array of { playerId, projection, points, gameState, expectedFinal }
- * for callers that show per-player figures. Best-ball entries contain the
- * optimizer's chosen lineup. `db` may be a pool or a checked-out client.
+ * Returns a Map<teamId, { expectedFinal, playersRemaining, starters, bench }>
+ * with an entry only for teams that have at least one lineup row; `starters`
+ * and `bench` are arrays of
+ *   { playerId, position, projection, points, gameState, expectedFinal,
+ *     availability: { available, reason } }
+ * for callers that show per-player figures. Every lineup row, starter or
+ * bench, is priced by the one rule (the weekly projection under the
+ * availability rule: bye, Out and IR count zero, and the row says why); only
+ * the starters are summed into the team's Expected final and counted as
+ * Players remaining. Bench rows ride along so the detail route never runs a
+ * second, differently-ruled projection read for them (#883). Best-ball
+ * entries' `starters` are the optimizer's chosen lineup; which rows it chose
+ * is not marked. `db` may be a pool or a checked-out client.
  */
 async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool, now = new Date() }) {
   const result = new Map();
@@ -112,7 +132,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   const rules = rulesForLeague(league);
 
   const candidateRows = await db.query(
-    `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id",
+    `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
             "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -122,7 +142,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
        AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
      WHERE "lineup_entries"."team_id" = ANY($1)
        AND "lineup_entries"."season" = $2 AND "lineup_entries"."week" = $3
-       AND "lineup_entries"."slot" ${league.best_ball ? "!= 'IR'" : "NOT IN ('BENCH', 'IR')"}`,
+       AND "lineup_entries"."slot" != 'IR'`,
     [ids, season, week]
   );
   if (candidateRows.rows.length === 0) return result;
@@ -140,7 +160,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       }),
     computeByeWeeks(nflTeams, season, { client: db }),
     db.query(
-      `SELECT "home_team", "away_team", "game_status"
+      `SELECT "home_team", "away_team", "game_status", "quarter", "time_remaining", "updated_at"
        FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
       [season, week]
     ),
@@ -152,26 +172,50 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   // No projection run means no expected final: a number built from actual
   // points alone would read as a forecast of zero for every starter who has
-  // not kicked off yet, which is worse than a dash.
-  if (!projections.ok) return result;
+  // not kicked off yet, which is worse than a dash. The game-state
+  // classification (live rows, schedule, points) needs no projection, so the
+  // pass still runs and the caller still learns each starter's game state -
+  // the Matchup status is a server fact that must stay truthful even when the
+  // projection store is down (ADR 0030): a live score must never ride beside a
+  // `scheduled` status. Only the figures (expected final, players remaining,
+  // per-player projection) are withheld as null.
+  const priced = projections.ok;
 
   // Both live and schedule maps are keyed by the normalized team code and
   // looked up the same way, so a DEF unit's full team name and Tank01's raw
   // abbreviation agree (the #423 / #425 pattern).
   const liveByTeam = new Map();
+  const clockByTeam = new Map();
+  // When the live score pass last touched this week: the newest live row
+  // update, or null when the week has no live rows yet (#892). One value for
+  // the (season, week), carried on every team entry so a caller need not
+  // re-derive it.
+  let syncedAt = null;
   for (const row of liveRows.rows) {
-    liveByTeam.set(normalizeNflTeam(row.home_team), row.game_status);
-    liveByTeam.set(normalizeNflTeam(row.away_team), row.game_status);
+    // The game clock as one string ("Q3 6:42"), only while in progress; Tank01's
+    // own quarter and clock vocabulary, joined, never parsed.
+    const clock = row.game_status === 'in_progress'
+      ? `${row.quarter || ''} ${row.time_remaining || ''}`.trim() || null
+      : null;
+    for (const team of [row.home_team, row.away_team]) {
+      liveByTeam.set(normalizeNflTeam(team), row.game_status);
+      clockByTeam.set(normalizeNflTeam(team), clock);
+    }
+    if (row.updated_at) {
+      const at = new Date(row.updated_at);
+      if (Number.isFinite(at.getTime()) && (syncedAt == null || at > syncedAt)) syncedAt = at;
+    }
   }
   const kickoffByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.kickoff_at]));
 
   const byTeam = new Map();
+  const benchByTeam = new Map();
   for (const row of candidateRows.rows) {
     const team = normalizeNflTeam(row.nfl_team);
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
     const availability = availabilityFor({ injuryStatus: row.injury_status, onBye });
     const raw = projections.map.get(row.player_id);
-    const projection = availability.available && raw && Number.isFinite(Number(raw.points))
+    const projection = priced && availability.available && raw && Number.isFinite(Number(raw.points))
       ? round2(Number(raw.points))
       : 0;
     // Points stay unrounded until the team total is rounded once, the way
@@ -188,18 +232,56 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const starter = {
       playerId: row.player_id,
       position: row.position,
-      projection,
+      // The availability rule's verdict, so a surface can say WHY a row prices
+      // at zero (on bye, out, on IR) instead of printing the number.
+      // Questionable and Doubtful are available; their reason is not carried.
+      availability: {
+        available: availability.available,
+        reason: availability.available ? null : availability.reason,
+      },
+      // Figures are null without a projection run (no forecast of zero); the
+      // game state is real either way. rawExpectedFinal stays a number so the
+      // best-ball optimizer can still order the lineup by points on the board.
+      projection: priced ? projection : null,
       points: round2(points),
       gameState,
-      expectedFinal: expectedFinalForStarter({ projection, points, gameState }),
+      // The live clock while his game is in progress, else null (#892).
+      gameClock: gameState === 'in_progress' ? (clockByTeam.get(team) || null) : null,
+      // His team's scheduled kickoff this week (null on a bye or with no
+      // schedule row), so a team's first kickoff is the earliest of these.
+      kickoffAt: onBye ? null : (kickoffByTeam.get(team) || null),
+      expectedFinal: priced ? expectedFinalForStarter({ projection, points, gameState }) : null,
       rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, round: false }),
     };
+    // A BENCH row is priced like any other but never summed. In a redraft
+    // league it is only a bench row. In best ball there is no set lineup (ADR
+    // 0023): every non-IR row is a candidate for the optimizer AND rides in
+    // `bench` whatever slot key it carries, so a candidate the optimizer does
+    // not choose is still a priced row the detail route can read.
+    if (row.slot === 'BENCH' || league.best_ball) {
+      if (!benchByTeam.has(row.team_id)) benchByTeam.set(row.team_id, []);
+      benchByTeam.get(row.team_id).push(starter);
+      if (!league.best_ball) continue;
+    }
     if (!byTeam.has(row.team_id)) byTeam.set(row.team_id, []);
     byTeam.get(row.team_id).push(starter);
   }
 
+  const stripRaw = ({ rawExpectedFinal, ...priced }) => priced;
+  // A team with bench rows and no starter rows still gets an entry (its bench
+  // is priced); its figures are null, as they were when the team was absent.
+  for (const teamId of benchByTeam.keys()) {
+    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+  }
+
   for (const [teamId, candidates] of byTeam) {
-    const starters = league.best_ball
+    // Best ball chooses the optimal lineup on per-player expected finals, so it
+    // needs the projection run: without it, ordering by points alone would rank
+    // a finished player over an in-progress one and skew the chosen set toward
+    // final, which would then misreport the status. So on a projection outage
+    // best ball does not choose a lineup at all and marks its status unreliable
+    // (below); a redraft league's lineup is fixed, so its status stays reliable.
+    const starters = (league.best_ball && priced)
       ? (() => {
         const { rosterSlots } = parseLineupSettings(league);
         const pointsFor = new Map(candidates.map((candidate) => [candidate.playerId, candidate.rawExpectedFinal]));
@@ -208,68 +290,207 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
         return chosen.map(({ playerId }) => byPlayerId.get(playerId));
       })()
       : candidates;
+    // No starters (a team whose only rows are bench) has no figures, exactly as
+    // when it was absent: a bench is never summed into an Expected final.
+    const figures = priced && starters.length > 0;
     result.set(Number(teamId), {
-      expectedFinal: round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)),
-      playersRemaining: starters.filter((s) => s.gameState !== 'final').length,
-      starters: starters.map(({ rawExpectedFinal, ...starter }) => starter),
+      expectedFinal: figures ? round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)) : null,
+      playersRemaining: figures ? starters.filter((s) => s.gameState !== 'final').length : null,
+      // The status is read from these starters' game states. That reading is
+      // trustworthy for a redraft league even without projections (the lineup
+      // is fixed), but not for best ball without a chosen lineup.
+      statusReliable: !league.best_ball || priced,
+      // The earliest scheduled kickoff among the starters' NFL teams (ISO), or
+      // null when none is scheduled (#892); the matchup's is the earlier side.
+      firstKickoffAt: earliestKickoff(starters),
+      syncedAt: syncedAt ? syncedAt.toISOString() : null,
+      starters: starters.map(stripRaw),
+      bench: (benchByTeam.get(teamId) || []).map(stripRaw),
     });
   }
   return result;
 }
 
 /**
- * Decorate matchup list rows with `home_expected_final`, `away_expected_final`,
- * `home_players_remaining` and `away_players_remaining` (number or null).
- * Final matchups carry null and never read projections: their result is the
- * score. Rows for a (season, week) with no lineup rows carry null too, which
- * is what an untouched future week looks like. Best-effort: a failed read
- * leaves nulls and the list still answers.
+ * A Matchup's status (CONTEXT.md, Matchup status; ADR 0030, a server fact
+ * read from the Expected final classification), pure. One of four values,
+ * read from the same per-starter game classification the Expected final
+ * producer already assigns, so no second classification is written:
+ *  - `final`    the settled flag: the week's result is written and closed.
+ *  - `live`     a game is underway: any starter's game is in progress, or a
+ *               game has kicked off (some starter final) while others have
+ *               not, so the slate is running but not yet complete.
+ *  - `played`   every starter's game is over but the score of record is not
+ *               yet written (the settle pass has not run).
+ *  - `scheduled` no starter's game has kicked off, including a Matchup with
+ *               no lineup rows on either side.
+ * `home` and `away` are the per-team producer results (with `starters`) or
+ * null when a side has no lineup rows. In best ball `starters` is the
+ * optimizer's chosen lineup, the same set the Expected final sums.
+ */
+function statusForMatchup({ settled, home, away, computed = true, unreliable = false }) {
+  if (settled) return 'final';
+  // A status the server could not compute (a failed read: computed=false) or
+  // could not trust (best ball with no chosen lineup: unreliable=true) is not a
+  // status - it is stated as unknown (null), never guessed as scheduled.
+  if (!computed || unreliable) return null;
+  const startersOf = (team) => (team && Array.isArray(team.starters) ? team.starters : []);
+  const states = [...startersOf(home), ...startersOf(away)].map((s) => s.gameState);
+  if (states.some((s) => s === 'in_progress')) return 'live';
+  if (states.length > 0 && states.every((s) => s === 'final')) return 'played';
+  // A game has kicked off (some starter final) while others have not: the
+  // slate is underway, which is not `scheduled` (a game already happened) and
+  // not `played` (not all are over).
+  if (states.some((s) => s === 'final')) return 'live';
+  return 'scheduled';
+}
+
+/**
+ * The one decorator. For a set of matchup rows it returns a parallel array of
+ * decorations
+ *   { status, homeExpectedFinal, awayExpectedFinal,
+ *     homePlayersRemaining, awayPlayersRemaining, home, away }
+ * where `home`/`away` are the per-team producer results (with `starters`) or
+ * null. The matchup list route, the matchup detail route and the live-score
+ * emit all call this and only map its result onto their own wire shape; the
+ * status is assigned here, once, so a card, the page it opens and the socket
+ * that refreshes both carry the same fact. Every caller passes its own clock
+ * (`now`), so a route can be driven at a fixed instant.
+ *
+ * Final (settled) matchups carry `status: 'final'` with null figures and
+ * never read the database: their result is the score. An open matchup whose
+ * (season, week) read succeeds carries a computed status (`scheduled` when no
+ * side has lineup rows, which is what an untouched future week looks like).
+ *
+ * A status the server could not compute is not a status: when the read for an
+ * open matchup fails, or when the classification is not trustworthy (best ball
+ * with no projection run, so no chosen lineup), the decoration carries
+ * `status: null` - a distinguishable "unknown", never a false `scheduled`
+ * beside a live score (ADR 0030). Figures are null in the same cases. The
+ * caller still answers.
+ */
+async function decorateMatchups(matchups, { league, db = pool, now = new Date() } = {}) {
+  // `computed` is false until the matchup's own (season, week) read succeeds:
+  // it separates "the server has not classified this matchup" (unknown) from a
+  // successful read that found no lineup rows (genuinely scheduled).
+  const teams = matchups.map(() => ({ home: null, away: null, computed: false }));
+  const open = matchups
+    .map((matchup, index) => ({ matchup, index }))
+    .filter(({ matchup }) => !matchup.final);
+
+  if (open.length > 0 && league) {
+    const groups = new Map();
+    for (const entry of open) {
+      const { matchup } = entry;
+      const key = `${matchup.season}:${matchup.week}`;
+      if (!groups.has(key)) groups.set(key, { season: Number(matchup.season), week: Number(matchup.week), entries: [] });
+      groups.get(key).entries.push(entry);
+    }
+    for (const { season, week, entries } of groups.values()) {
+      const teamIds = entries.flatMap(({ matchup }) => [matchup.home_team_id, matchup.away_team_id]);
+      let byTeam;
+      try {
+        // Through the module's own export so a caller's test (the score emit's)
+        // can mock expectedFinalsForWeek at the one seam it already uses.
+        byTeam = await module.exports.expectedFinalsForWeek({ league, season, week, teamIds, db, now });
+      } catch (err) {
+        // The read failed for this group: leave every one of its matchups
+        // uncomputed, so its status is stated as unknown rather than scheduled.
+        console.error('expected final: matchup decoration unavailable', err.message);
+        continue;
+      }
+      for (const { matchup, index } of entries) {
+        teams[index].home = byTeam.get(Number(matchup.home_team_id)) || null;
+        teams[index].away = byTeam.get(Number(matchup.away_team_id)) || null;
+        teams[index].computed = true;
+      }
+    }
+  }
+
+  return matchups.map((matchup, index) => {
+    const { home, away, computed } = teams[index];
+    // The classification is not trustworthy if a present side reports it so
+    // (best ball with no projection run).
+    const unreliable = (home && home.statusReliable === false) || (away && away.statusReliable === false);
+    // The matchup's first kickoff is the earlier of its two sides' (#892).
+    const kickoffs = [home && home.firstKickoffAt, away && away.firstKickoffAt].filter(Boolean).map((k) => new Date(k));
+    const firstKickoffAt = kickoffs.length ? new Date(Math.min(...kickoffs.map((k) => k.getTime()))).toISOString() : null;
+    return {
+      status: statusForMatchup({ settled: !!matchup.final, home, away, computed, unreliable }),
+      homeExpectedFinal: home ? home.expectedFinal : null,
+      awayExpectedFinal: away ? away.expectedFinal : null,
+      homePlayersRemaining: home ? home.playersRemaining : null,
+      awayPlayersRemaining: away ? away.playersRemaining : null,
+      firstKickoffAt,
+      syncedAt: (home && home.syncedAt) || (away && away.syncedAt) || null,
+      home,
+      away,
+    };
+  });
+}
+
+/**
+ * Decorate matchup list rows with `status`, `home_expected_final`,
+ * `away_expected_final`, `home_players_remaining` and `away_players_remaining`
+ * (the figures number or null). The list route's map of the one decorator
+ * onto its snake_case wire; input rows are not mutated.
  */
 async function attachExpectedFinals(rows, { league, db = pool, now = new Date() } = {}) {
-  const out = rows.map((row) => ({
+  const decorations = await decorateMatchups(rows, { league, db, now });
+  return rows.map((row, index) => ({
     ...row,
-    home_expected_final: null,
-    away_expected_final: null,
-    home_players_remaining: null,
-    away_players_remaining: null,
+    status: decorations[index].status,
+    home_expected_final: decorations[index].homeExpectedFinal,
+    away_expected_final: decorations[index].awayExpectedFinal,
+    home_players_remaining: decorations[index].homePlayersRemaining,
+    away_players_remaining: decorations[index].awayPlayersRemaining,
+    // The earliest kickoff among either side's starters and when the live
+    // score pass last touched the week (#892); both ISO or null.
+    first_kickoff_at: decorations[index].firstKickoffAt,
+    synced_at: decorations[index].syncedAt,
   }));
-  const open = out.filter((m) => !m.final);
-  if (open.length === 0 || !league) return out;
+}
 
-  const groups = new Map();
-  for (const m of open) {
-    const key = `${m.season}:${m.week}`;
-    if (!groups.has(key)) groups.set(key, { season: Number(m.season), week: Number(m.week), matchups: [] });
-    groups.get(key).matchups.push(m);
-  }
-  for (const { season, week, matchups } of groups.values()) {
-    const teamIds = matchups.flatMap((m) => [m.home_team_id, m.away_team_id]);
-    let byTeam;
+/**
+ * Decorate the live-score pass's `scored` entries in place with `status` and
+ * camelCase `homeExpectedFinal`, `awayExpectedFinal`, `homePlayersRemaining`
+ * and `awayPlayersRemaining` (the score emit's map of the one decorator onto
+ * its wire). Only `openMatchups` are decorated; a settled or final entry (not
+ * among them) carries `status: 'final'` and null figures (its result is its
+ * score). An open entry whose status the decorator could not compute carries
+ * `status: null` and null figures. Best-effort: a producer failure leaves the
+ * fields null and the scores still go out.
+ */
+async function attachScoredExpectedFinals(scored, { openMatchups = [], league, db = pool, now = new Date() } = {}) {
+  const openById = new Map(openMatchups.map((matchup) => [matchup.id, matchup]));
+  const decByMatchup = new Map();
+  if (openMatchups.length > 0 && league) {
     try {
-      byTeam = await expectedFinalsForWeek({ league, season, week, teamIds, db, now });
+      const decorations = await decorateMatchups(openMatchups, { league, db, now });
+      openMatchups.forEach((matchup, index) => decByMatchup.set(matchup.id, decorations[index]));
     } catch (err) {
-      console.error('expected final: matchup list decoration unavailable', err.message);
-      continue;
-    }
-    for (const m of matchups) {
-      const home = byTeam.get(Number(m.home_team_id));
-      const away = byTeam.get(Number(m.away_team_id));
-      if (home) {
-        m.home_expected_final = home.expectedFinal;
-        m.home_players_remaining = home.playersRemaining;
-      }
-      if (away) {
-        m.away_expected_final = away.expectedFinal;
-        m.away_players_remaining = away.playersRemaining;
-      }
+      console.error('expected finals unavailable on score pass', err.message);
     }
   }
-  return out;
+  for (const entry of scored) {
+    const decoration = decByMatchup.get(entry.matchupId) || null;
+    entry.status = decoration ? decoration.status : (openById.has(entry.matchupId) ? null : 'final');
+    entry.homeExpectedFinal = decoration ? decoration.homeExpectedFinal : null;
+    entry.awayExpectedFinal = decoration ? decoration.awayExpectedFinal : null;
+    entry.homePlayersRemaining = decoration ? decoration.homePlayersRemaining : null;
+    entry.awayPlayersRemaining = decoration ? decoration.awayPlayersRemaining : null;
+    entry.firstKickoffAt = decoration ? decoration.firstKickoffAt : null;
+    entry.syncedAt = decoration ? decoration.syncedAt : null;
+  }
+  return scored;
 }
 
 module.exports = {
   expectedFinalForStarter,
   gameStateFor,
   expectedFinalsForWeek,
+  statusForMatchup,
+  decorateMatchups,
   attachExpectedFinals,
+  attachScoredExpectedFinals,
 };

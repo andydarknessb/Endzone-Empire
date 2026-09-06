@@ -577,6 +577,13 @@ _Avoid_: lineup
 The subset of a roster a team starts in one week, one player per starting slot.
 _Avoid_: roster, starting roster
 
+**Unavailable**:
+A player who cannot play this week: on bye, Out, or on IR. His projection
+counts as zero wherever a total is summed, and every surface shows the reason
+("on bye", "out", "on IR") instead of a number. Questionable and Doubtful are
+not unavailable.
+_Avoid_: inactive, injured
+
 **Roster Management presentation**:
 The single row presentation every occupied Lineup row uses, whether
 Starter, Bench, or IR: profile image, position, Bye, status, and
@@ -769,6 +776,21 @@ _Avoid_: live projection, pace, projected total (once games have started)
 The count of a team's starters whose NFL games have not finished this week. A
 starter whose game has not kicked off counts.
 _Avoid_: PMR (in prose), players left, yet to play
+
+**Matchup status**:
+Where a Matchup sits in its week, read from its starters' NFL games: scheduled
+until the first of them kicks off, live while any is in progress or has kicked
+off but not all are over, played once every one is over, and final once the
+score of record is written. (The middle case - a game already played while a
+later one has not started, none in progress - is live: a game has kicked off,
+so it is past scheduled, and not every game is over, so it is not played.) It
+is a fact the server states beside a team's Expected final, never inferred from
+when a score last arrived. A Matchup with no lineup rows on either side is
+scheduled until it is final. A status the server could not compute - a read
+failed, or in best ball there is no projection run so no chosen lineup to read
+- is stated as unknown (null), never guessed as scheduled.
+_Avoid_: live (unqualified, as a state name), in progress (that is one NFL
+game), started
 
 **Hindsight**:
 A settled week re-read against the best legal lineup its team could have

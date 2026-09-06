@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=Press+Start+2P&amp;display=swap">
+  <style>
+
+[data-theme="dark"]{
+  --bg:#0b1015; --surface:#141b23; --surface2:#1b242f; --surface3:#222e3b;
+  --line:rgba(154,183,211,.12); --line-strong:rgba(154,183,211,.22);
+  --ink:#e8eef4; --dim:#93a4b5; --faint:#8a9bad;
+  --accent:#2fd97b; --accent-soft:rgba(47,217,123,.12); --accent-line:rgba(47,217,123,.35); --on-accent:#0b1015;
+  --home:#7eaaff; --home-soft:rgba(126,170,255,.16); --away:#7ee2a8; --away-soft:rgba(126,226,168,.16);
+  --danger:#ff6b6b; --danger-soft:rgba(255,107,107,.14); --warning:#f0b34e; --warning-soft:rgba(240,179,78,.14);
+  --success:#7ee2a8; --success-soft:rgba(126,226,168,.14);
+  --pos-qb:#ff8a80; --pos-rb:#7ee2a8; --pos-wr:#7fb0ff; --pos-te:#f0b34e; --pos-k:#c4a2f5; --pos-def:#b0bec5; --pos-flex:#93a4b5; --on-pos:#0f1419;
+  --led:#ffb547; --led-dim:rgba(255,181,71,.28); --board:#07090c;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45); --shadow-2:0 6px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg:#eef2f6; --surface:#ffffff; --surface2:#f4f7fa; --surface3:#e6ecf2;
+  --line:rgba(31,45,58,.12); --line-strong:rgba(31,45,58,.22);
+  --ink:#141b23; --dim:#55636f; --faint:#5e6a74;
+  --accent:#0f6a41; --accent-soft:rgba(15,106,65,.12); --accent-line:rgba(15,106,65,.32); --on-accent:#ffffff;
+  --home:#1e5bb8; --home-soft:rgba(30,91,184,.10); --away:#1b7d4f; --away-soft:rgba(27,125,79,.12);
+  --danger:#c62828; --danger-soft:rgba(198,40,40,.10); --warning:#8a5a00; --warning-soft:rgba(138,90,0,.12);
+  --success:#1b7d4f; --success-soft:rgba(27,125,79,.12);
+  --pos-qb:#c62828; --pos-rb:#15663f; --pos-wr:#1e5bb8; --pos-te:#9a5100; --pos-k:#6d28d9; --pos-def:#4b5c66; --pos-flex:#586472; --on-pos:#ffffff;
+  --led:#ffb547; --led-dim:rgba(255,181,71,.28); --board:#0b1015;
+  --shadow-1:0 1px 2px rgba(16,24,32,.08); --shadow-2:0 4px 12px rgba(16,24,32,.10);
+}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent);text-decoration:underline}
+.root{width:1200px;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.display{font-family:"Barlow Condensed",Impact,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.led{font-family:"Press Start 2P","Courier New",monospace}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.tile{background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);background:var(--surface2);color:var(--dim);white-space:nowrap}
+.chip.live{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.final{background:var(--success-soft);color:var(--success);border-color:var(--success)}
+.chip.you{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);font-size:10.5px;letter-spacing:.08em}
+.chip.warn{background:var(--warning-soft);color:var(--warning);border-color:var(--warning)}
+.dot{width:8px;height:8px;border-radius:999px;background:currentColor;flex:none}
+.pos{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:20px;padding:0 6px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--on-pos)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid var(--line-strong);color:var(--dim);background:transparent;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.icon{width:38px;padding:0}
+.seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg > div{height:30px;padding:0 14px;border-radius:7px;display:flex;align-items:center;font-size:13px;font-weight:600;color:var(--dim)}
+.seg > div.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.hair{height:1px;background:var(--line)}
+.avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--surface3);color:var(--ink);font-weight:700;flex:none}
+.pace{height:5px;border-radius:3px;background:var(--surface3);overflow:hidden}
+.pace > div{height:100%;border-radius:3px}
+.split{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--surface3)}
+.row{display:flex;align-items:center}
+.stack{display:flex;flex-direction:column}
+.grow{flex:1 1 0;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12px;color:var(--faint)}
+svg{display:block}
+  </style>
+</helmet>
+<div class="root" data-theme="{{theme}}" style="width: 1200px; min-height: 820px; background: var(--bg); color: var(--ink);">
+
+<div style="padding: 28px 32px;">
+  <div class="row" style="justify-content: space-between; margin-bottom: 6px;">
+    <h1 class="display" style="margin: 0; font-size: 30px; font-weight: 700; text-transform: uppercase;">FSD slice map</h1>
+    <div class="row" style="gap: 14px; font-size: 12px; color: var(--faint);"><span class="row" style="gap: 6px;"><span style="width: 12px; height: 12px; border-radius: 3px; background: var(--accent-soft); border: 1px solid var(--accent-line);"></span>New slice</span><span class="row" style="gap: 6px;"><span style="width: 12px; height: 12px; border-radius: 3px; background: var(--surface2); border: 1px solid var(--line);"></span>Exists</span><span class="row" style="gap: 6px;"><span style="width: 12px; height: 12px; border-radius: 3px; border: 1px dashed var(--line-strong);"></span>Changed</span></div>
+  </div>
+  <p class="note" style="margin: 0 0 12px; max-width: 760px;">Game Center and Matchup Detail move from src/components into the island as two page slices. Imports point down only. A widget never imports another widget; the page passes shared values down (ADR 0020). Entities import shared only (ADR 0029).</p>
+  
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; padding: 14px 0; border-top: 1px solid var(--line);">
+    <div class="stack"><span class="display" style="font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">pages</span><span class="note">Compose widgets and features</span></div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;"><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">pages/game-center</span><span class="note">Replaces components/GameCenter</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">pages/matchup</span><span class="note">Replaces components/MatchupDetail, owns view mode</span></div><div></div><div></div></div>
+  </div>
+  
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; padding: 14px 0; border-top: 1px solid var(--line);">
+    <div class="stack"><span class="display" style="font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">widgets</span><span class="note">One region each, read the entity</span></div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;"><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/matchup-hero</span><span class="note">Your matchup card</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/matchup-grid</span><span class="note">League matchup cards and rows</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/scoring-feed</span><span class="note">Ticker strip and feed list</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/week-glance</span><span class="note">Derived from the list read</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/scoreboard-strip</span><span class="note">Sticky score, EF, PMR, win prob</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/slot-comparison</span><span class="note">Starters paired by slot, pace, expand</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-style: dashed;"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/retro-scoreboard</span><span class="note">LED board and field, moved from components</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">widgets/nfl-game-strip</span><span class="note">Wraps LiveGameStatus</span></div></div>
+  </div>
+  
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; padding: 14px 0; border-top: 1px solid var(--line);">
+    <div class="stack"><span class="display" style="font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">features</span><span class="note">One user action each</span></div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;"><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">features/pick-week</span><span class="note">Stepper plus segmented weeks</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">features/toggle-matchup-view</span><span class="note">Standard or Scoreboard, remembered</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-style: dashed;"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">features/bench-what-if</span><span class="note">Swap suggestion with a lineup action</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-style: dashed;"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">features/celebrate-touchdown</span><span class="note">Cutscene queue and toasts</span></div></div>
+  </div>
+  
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; padding: 14px 0; border-top: 1px solid var(--line);">
+    <div class="stack"><span class="display" style="font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">entities</span><span class="note">Domain read models, shared only</span></div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;"><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; "><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">entities/matchup</span><span class="note">Read model, status view, pairing</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-style: dashed;"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">entities/matchup + starter.gameState</span><span class="note">Adds per-starter game state and next kickoff to the detail row</span></div><div></div><div></div></div>
+  </div>
+  
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; padding: 14px 0; border-top: 1px solid var(--line);">
+    <div class="stack"><span class="display" style="font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">shared</span><span class="note">No imports from above</span></div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;"><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; "><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">shared/ui Card, Badge, Skeleton</span><span class="note">Exists</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">shared/ui StatTile, SplitBar, PosChip</span><span class="note">New kit pieces</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; border-color: var(--accent-line); background: var(--accent-soft);"><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">shared/ui SegmentedControl</span><span class="note">Week and view pickers</span></div><div class="tile stack" style="padding: 10px 12px; gap: 2px; min-width: 0; "><span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace;">shared/lib scoreFeed, useEndpoint</span><span class="note">Exists</span></div></div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},"$preview":{"width":1200,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme === 'light' ? 'light' : 'dark' };
+  }
+}
+</script>
+</body>
+</html>

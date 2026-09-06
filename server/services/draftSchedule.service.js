@@ -93,7 +93,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
     const action = scheduledDraftAction(league, league.team_count, now, marketCount);
     if (!action) continue;
     try {
-      await runAction(league, action, marketCount);
+      await runAction(league, action, marketCount, now);
       actions.push({ leagueId: league.id, action });
     } catch (err) {
       console.error('scheduled draft %s failed for league %s:', action, league.id, err.message);
@@ -102,7 +102,7 @@ async function processScheduledDrafts({ now = new Date() } = {}) {
   return actions;
 }
 
-async function runAction(league, action, marketCount = Infinity) {
+async function runAction(league, action, marketCount = Infinity, now = new Date()) {
   // 'start' delegates entirely to draftStart.service's startDraft(), which
   // does its own fresh SELECT ... FOR UPDATE + re-validation — running that
   // under this function's own lock too would have the two connections
@@ -121,10 +121,29 @@ async function runAction(league, action, marketCount = Infinity) {
       [league.id]
     );
     const row = fresh.rows[0];
-    // Recompute against the locked row; bail if the situation changed. The
-    // market count is global (#747), so the same value the tick read is carried
-    // into the recompute rather than re-queried under the lock.
-    if (!row || scheduledDraftAction({ ...row, draft_status: row.draft_status }, row.team_count, new Date(), marketCount) !== action) {
+    // The market count is global (#747), so the tick reads it once and carries
+    // that value into every league's decision - the default that stays. The one
+    // exception is 'no_market' (#882): its value is about to be shown to a human
+    // as the reason the draft did not start, and an ADP sync landing during the
+    // FOR UPDATE lock wait can have loaded the market since the tick read. So for
+    // that action only, re-read the count on the locked client before the
+    // recheck; every other action carries the tick's value and issues no extra
+    // query. The recheck and the notification copy below both use this value.
+    let effectiveMarketCount = marketCount;
+    if (action === 'no_market' && row) {
+      const freshMarket = await client.query(
+        `SELECT COUNT(*)::int AS n FROM "players" WHERE "adp" IS NOT NULL`
+      );
+      effectiveMarketCount = freshMarket.rows[0].n;
+    }
+    // Recompute against the locked row; bail if the situation changed. The clock
+    // is the tick's own `now`, not a fresh read: the FOR UPDATE re-read of the row
+    // (status, date, type, staffing, reminder stage, autostart flag) is what
+    // catches a concurrent join/start/reschedule; time elapsed during the lock
+    // wait must not flip the action across a bucket edge (#880). If the re-read
+    // above cleared MARKET_FLOOR, the recompute returns 'start', disagrees with
+    // the carried 'no_market', and bails here: no flag, no notification.
+    if (!row || scheduledDraftAction({ ...row, draft_status: row.draft_status }, row.team_count, now, effectiveMarketCount) !== action) {
       await client.query('ROLLBACK');
       return;
     }
@@ -142,7 +161,7 @@ async function runAction(league, action, marketCount = Infinity) {
         ownerId: league.owner_id,
         type: 'draft_no_market',
         message: `${league.name} couldn't auto-start: the player market has not loaded `
-          + `(${marketCount} of ${MARKET_FLOOR} players carry an ADP). `
+          + `(${effectiveMarketCount} of ${MARKET_FLOOR} players carry an ADP). `
           + 'Ask your admin to run the ADP sync, then start the draft manually or reschedule.',
         data: { url: `/#/league/${league.id}` },
       });

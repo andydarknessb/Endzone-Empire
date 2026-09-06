@@ -517,6 +517,7 @@ function pickemFake(t, entries) {
       ],
     })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
     [/"game_recaps"/, () => ({ rows: [] })],
     ...entries,
   ]).install(t);

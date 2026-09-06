@@ -23,9 +23,9 @@ const ALLOWLIST = [
   'src/lib/nflTeamColors.js', // real NFL team colors (external data)
   'src/components/DraftGradesCard/', // A–F grade scale (data encoding)
   'src/components/LandingPage/LandingPage.css', // accent-tint gradient w/ both themes
-  'src/components/MatchupDetail/TecmoCutscene.css', // retro CRT scanline/gradient FX (not themeable)
-  'src/components/MatchupDetail/TecmoCutscene.jsx', // fixed pixel-art sprite palette (data encoding)
-  'src/components/MatchupDetail/TecmoSprite.jsx', // fixed pixel-art sprite palette (data encoding)
+  'src/features/celebrate-touchdown/ui/TecmoCutscene.css', // retro CRT scanline/gradient FX (not themeable)
+  'src/features/celebrate-touchdown/ui/TecmoCutscene.jsx', // fixed pixel-art sprite palette (data encoding)
+  'src/shared/ui/TecmoSprite.jsx', // fixed pixel-art sprite palette (data encoding)
   'src/content/articles/', // inline SVG illustrations in article hero banners (not themeable)
 ];
 

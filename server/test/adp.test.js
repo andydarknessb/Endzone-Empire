@@ -213,11 +213,67 @@ test('syncAdp on a full Success body refreshes players and records ok=true with 
   // The reset-and-set: one NULL wipe and one bulk set, both after the guard.
   assert.equal(fake.matching(/^UPDATE "players" SET "adp" = NULL/).length, 1);
   assert.equal(fake.matching(/^UPDATE "players" p SET "adp"/).length, 1);
+  // #882: the reset-and-set runs in ONE transaction on ONE checked-out client so
+  // a concurrent reader never sees the momentary empty market between the wipe
+  // and the set. Both UPDATEs land via the client, wrapped by BEGIN ... COMMIT in
+  // call order. Removing the BEGIN/COMMIT (running the two UPDATEs on the pool)
+  // turns this ordering assertion red. assertClean proves the client was released
+  // and no transaction was left open.
+  const nullIdx = fake.calls.findIndex((c) => /^UPDATE "players" SET "adp" = NULL/.test(c.text));
+  const setIdx = fake.calls.findIndex((c) => /^UPDATE "players" p SET "adp"/.test(c.text));
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  assert.equal(fake.calls[nullIdx].via, 'client', 'the wipe runs on the transaction client');
+  assert.equal(fake.calls[setIdx].via, 'client', 'the bulk set runs on the transaction client');
+  assert.ok(beginIdx >= 0 && beginIdx < nullIdx, 'BEGIN precedes the wipe');
+  assert.ok(commitIdx > setIdx, 'COMMIT follows the bulk set');
+  fake.assertClean();
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1);
   assert.equal(runOk(runs[0]), true);
   assert.equal(runDetail(runs[0]).matched, 2, 'the matched count is recorded');
   assert.equal(runDetail(runs[0]).adpPlayers, 200);
+});
+
+test('syncAdp rolls back and records ok=false when the bulk set throws, leaving the client released (#882)', async (t) => {
+  // The reset-and-set is now transactional (#882). If the bulk set throws mid
+  // transaction, the NULL wipe must not stand: a ROLLBACK is issued, the client
+  // is released, syncAdp rejects, and - because recordAdpRun stays OUTSIDE the
+  // transaction and is best-effort - a data_sync_runs row is still recorded
+  // ok=false so the failed run is observable.
+  stubFfc(t, ffcBody(200));
+  const boom = new Error('bulk set failed mid-transaction');
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    // The wipe succeeds; only the bulk set throws, so the wipe is what must be
+    // undone by the ROLLBACK.
+    [/^UPDATE "players" SET "adp" = NULL/, () => ({ rows: [], rowCount: 1 })],
+    [/^UPDATE "players" p SET "adp"/, () => { throw boom; }],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  await assert.rejects(syncAdp(), /bulk set failed mid-transaction/);
+
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction was rolled back');
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'no COMMIT on a thrown bulk set');
+  fake.assertClean();
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1, 'the failed run is still recorded');
+  assert.equal(runOk(runs[0]), false, 'recorded ok=false');
+});
+
+test('syncAdp wipe guard issues no BEGIN when the market is refused (#882)', async (t) => {
+  // The transaction is opened only AFTER the guard passes. A refused thin body
+  // never starts one.
+  stubFfc(t, ffcBody(MARKET_FLOOR - 50));
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const result = await syncAdp();
+
+  assert.equal(result.ok, false);
+  assert.equal(fake.matching(/^BEGIN$/).length, 0, 'no transaction is opened on a refused run');
 });
 
 test('a failed data_sync_runs record never masks a correctly refreshed market', async (t) => {

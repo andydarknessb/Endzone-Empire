@@ -66,7 +66,8 @@ const MATCHUP_ROW = {
 async function getHomeStarter(t, { starterRow, scheduleRows }) {
   t.mock.method(scoringService, 'rulesForLeague', () => ({}));
   // The route reads the weekly (league-aware) run through expectedFinal.service
-  // and for bench rows; neither matters to the opponent question.
+  // (every row, starter and bench, since #883); it does not matter to the
+  // opponent question.
   t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
   t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
@@ -76,11 +77,15 @@ async function getHomeStarter(t, { starterRow, scheduleRows }) {
     [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr' }] })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games"/, () => ({ rows: scheduleRows })],
     [/"lineup_entries"\."slot" = \$4/, () => ({ rows: [] })], // BENCH, both teams
     [/"lineup_entries"\."slot" NOT IN/, (text, params) => ({
       rows: params[0] === VIEWER.teamId ? [starterRow] : [], // starters; only the home team has one
     })],
+    // The producer's own read (every non-IR row for both teams); it does not
+    // matter to the opponent question.
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({ rows: [] })],
   ]).install(t);
 
   const res = await request(app)

@@ -1,6 +1,6 @@
 # Grow the FSD island to cover the League Dashboard
 
-Status: accepted (2026-09-01)
+Status: accepted (2026-09-01); scope superseded by ADR 0029 (2026-09-04)
 
 ADR 0017 established a local Feature-Sliced Design island for the Draft order
 controls (`src/widgets/draft-order`, `src/features/autodraft-toggle`) rather
