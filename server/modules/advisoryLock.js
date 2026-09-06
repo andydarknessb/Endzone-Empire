@@ -3,22 +3,35 @@ const { logger } = require('./logger');
 const sentry = require('./sentry');
 
 /**
- * The advisory-lock id space, kept in one place so a new lock does not silently
- * collide with an existing one. Every id here is a transaction-scoped lock
- * (pg_advisory_xact_lock / pg_try_advisory_xact_lock); none is session-scoped
- * (#839).
+ * The FIXED single-key advisory-lock ids, kept in one place so a new fixed id
+ * does not silently collide with an existing one. Every id here is a
+ * transaction-scoped lock (pg_advisory_xact_lock / pg_try_advisory_xact_lock);
+ * none is session-scoped (#839).
  *
  *   23001 league-scheduler  (modules/scheduler.js, via withAdvisoryLock)
  *   23002 draft-clock       (modules/scheduler.js, via withAdvisoryLock)
- *   23003 live-game-engine  (modules/liveGameEngine.js)
+ *   23003 live-game-engine  (modules/liveGameEngine.js, direct call)
  *   23004 players-bulk-write - serializes the two whole-players-table writers,
  *         syncAdp (services/adp.service.js) and syncInjuries
  *         (services/scoring.service.js), so their opposite row-lock orders cannot
- *         deadlock (#904). Unlike the ids above it is NOT taken through
- *         withAdvisoryLock: that helper is try-and-skip on its own client, but
- *         these two syncs must WAIT and then run, and the lock must live inside
- *         each sync's own transaction. Each sync issues a blocking
- *         pg_advisory_xact_lock(23004) as the first statement after its BEGIN.
+ *         deadlock (#904). Each sync issues a blocking pg_advisory_xact_lock(23004)
+ *         as the first statement after its own BEGIN.
+ *
+ * Only 23001 and 23002 are taken through withAdvisoryLock; 23003 and 23004 call
+ * pg_advisory_xact_lock / pg_try_advisory_xact_lock directly. 23004 deliberately
+ * does NOT use the helper: withAdvisoryLock is try-and-skip on its own client,
+ * but the two syncs must WAIT and then run, and the lock must live inside each
+ * sync's own transaction.
+ *
+ * SHARED KEYSPACE. The single-key form is one flat bigint namespace, so any
+ * OTHER single-key advisory lock shares it with the ids above. The one other
+ * single-key call site is holdout.service.js (pg_advisory_xact_lock(hashtext(id))),
+ * whose key is a hash of the capture identity, not a small fixed integer - it
+ * will not collide with 23001-23004 in practice, but a new FIXED id must still be
+ * chosen from this block. The weekly-trophy-engine SQL
+ * (server/db/sql/2026-07-20-weekly-trophy-engine.sql) uses the TWO-key
+ * (int4, int4) form, which Postgres keeps in a separate keyspace from the
+ * single-key form, so it cannot collide with anything here.
  */
 const PLAYERS_BULK_WRITE_LOCK = 23004;
 

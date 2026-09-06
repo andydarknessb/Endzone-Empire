@@ -270,9 +270,11 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   // (PLAYERS_BULK_WRITE_LOCK) as the FIRST statement inside their transaction,
   // before any row lock, so the two runs cannot interleave and cannot form the
   // cycle. It is the BLOCKING xact form (pg_advisory_xact_lock): the second sync
-  // waits a few seconds and then runs, it does not skip - and the xact scope is
-  // what releases it, so there is no explicit unlock and it cannot strand behind
-  // Supavisor's transaction pooling the way a session lock did in #839.
+  // waits and then runs, it does not skip. The wait is bounded by the other
+  // sync's own database work (no network I/O runs inside either transaction),
+  // and the xact scope is what releases the lock, so there is no explicit unlock
+  // that could strand it behind Supavisor's transaction pooling the way a session
+  // lock did in #839.
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

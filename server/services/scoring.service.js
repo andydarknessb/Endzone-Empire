@@ -1123,8 +1123,10 @@ async function syncInjuries({ api = tank01Get } = {}) {
     // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK) as the FIRST
     // statement after BEGIN, before any row lock, so they cannot interleave into
     // a deadlock cycle. Blocking xact form (pg_advisory_xact_lock): the second
-    // sync waits and then runs, and the lock releases with the transaction, so
-    // there is no explicit unlock and nothing strands behind the pooler (#839).
+    // sync waits and then runs, never skips; the wait is bounded by the other
+    // sync's own database work (no network I/O runs inside either transaction).
+    // The lock releases with the transaction, so there is no explicit unlock and
+    // nothing strands behind the pooler (#839).
     await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
     const playersResult = await client.query(
       `SELECT "id", "external_id", "injury_status"
