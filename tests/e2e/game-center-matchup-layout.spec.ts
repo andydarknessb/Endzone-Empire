@@ -30,7 +30,10 @@
  *
  * What this guard does NOT cover, and its green must NOT be read as covering:
  *   - the NFL game strip (needs Supabase, unreachable in CI without env vars),
- *   - the last-plays ticker (needs a socket play this harness never fires),
+ *   - the last-plays ticker (Scoreboard view, rendered only while the matchup is
+ *     live; this fixture is `played`, not `live`, so the ticker never mounts -
+ *     the one score pass the harness does fire feeds the Game Center feed, and
+ *     carries no play for a rendered ticker),
  *   - the bench what-if (live-only; this fixture is `played`, not `live`),
  *   - the bench panel (collapsed by default).
  * It also routes AROUND #927 (the app nav overflows between 900 and 1024, its
@@ -202,7 +205,15 @@ function probeOcclusion(args: { headerSelector: string; controls: Control[]; ins
 function probeRegionOverlap(args: { headerSelector: string; regions: Array<{ key: string; selector: string; text?: string }>; tol: number }) {
   const { headerSelector, regions, tol } = args;
   window.scrollTo(0, 0);
-  const result = { headerFound: false, overlaps: [] as Array<{ a: string; b: string; x: number; y: number }> };
+  const result = {
+    headerFound: false,
+    overlaps: [] as Array<{ a: string; b: string; x: number; y: number }>,
+    // A region whose selector stopped matching. The caller asserts this is empty
+    // so a dropped region fails LOUDLY instead of quietly shrinking the compared
+    // set to nothing (which for Game Center - only two regions - would make this
+    // whole check, the sole catcher of #921, a silent no-op).
+    missing: [] as string[],
+  };
   const header = document.querySelector(headerSelector);
   if (!header) return result;
   result.headerFound = true;
@@ -211,7 +222,7 @@ function probeRegionOverlap(args: { headerSelector: string; regions: Array<{ key
     let matches = Array.from(header.querySelectorAll(rg.selector));
     if (rg.text != null) matches = matches.filter((el) => (el.textContent || '').trim() === rg.text);
     const el = matches[0];
-    if (!el) continue;
+    if (!el) { result.missing.push(rg.key); continue; }
     resolved.push({ key: rg.key, rect: el.getBoundingClientRect() });
   }
   for (let i = 0; i < resolved.length; i++) {
@@ -243,15 +254,12 @@ function occlusionMessage(shapeName: string, width: number, r: OcclusionResult):
   if (r.failures.length === 0) return `${shapeName} @ ${width}: no occlusion`;
   return `${shapeName} @ ${width}: ` + r.failures
     .map((f) => {
-      const o = f.occluder
-        ? `<${o_tag(f)}${f.occluder.testid ? ` data-testid="${f.occluder.testid}"` : ''}> "${f.occluder.name ?? ''}"`
+      const occ = f.occluder
+        ? `<${f.occluder.tag}${f.occluder.testid ? ` data-testid="${f.occluder.testid}"` : ''}> "${f.occluder.name ?? ''}"`
         : '(off-viewport / null)';
-      return `"${f.controlName}" ${f.reason} at ${f.point} by ${o}`;
+      return `"${f.controlName}" ${f.reason} at ${f.point} by ${occ}`;
     })
     .join('; ');
-}
-function o_tag(f: OcclusionResult['failures'][number]): string {
-  return f.occluder ? f.occluder.tag : '';
 }
 
 type OverlapResult = ReturnType<typeof probeRegionOverlap>;
@@ -278,18 +286,26 @@ const GAME_CENTER_CONTROLS: Control[] = [
   { key: 'all-weeks', selector: '[data-testid="pick-week"] button[aria-pressed]', self: 'button[aria-pressed]' },
 ];
 
-// Non-nested header regions for the bounding-box overlap check. The h1 is not a
-// control (it is not hit-tested), but it is the element the title-column (#921)
-// and header-wrap defects push onto the picker/toggle, so it is compared here.
+// Non-nested header regions for the bounding-box overlap check. The heading is
+// not a control (it is not hit-tested), but it is the element the title-column
+// (#921) and header-wrap defects push onto the picker/toggle, so it is compared
+// here. It is selected as the HEADING (not the stable title-column box) because
+// the box is not what overflows: under #921 the title column shrinks and the
+// heading escapes it, so comparing the box would miss the defect. The selector
+// matches any heading level (h1..h6) scoped to a stable test id, so the four
+// heading-level churns this repo has seen (#702/#704/#705/#726) do not silently
+// drop the region - and `probeRegionOverlap` fails on a missing region anyway.
+const HEADING = ':is(h1,h2,h3,h4,h5,h6)';
+
 const GAME_CENTER_REGIONS = [
-  { key: 'h1', selector: 'h1' },
+  { key: 'title-heading', selector: `[data-testid="game-center-title"] ${HEADING}` },
   { key: 'week-picker', selector: '[data-testid="pick-week"]' },
 ];
 
 function matchupRegions(width: number) {
   const regions = [
     { key: 'breadcrumb', selector: '[data-testid="matchup-breadcrumb"]' },
-    { key: 'h1', selector: 'h1' },
+    { key: 'title-heading', selector: `[data-testid="matchup-header"] ${HEADING}` },
     { key: 'view-toggle', selector: '[data-testid="toggle-matchup-view"]' },
   ];
   if (width >= SM_BREAKPOINT) regions.push({ key: 'set-lineup', selector: '[data-testid="set-lineup"][data-placement="header"]' });
@@ -389,13 +405,23 @@ const SHAPES: Shape[] = [
   },
 ];
 
+const GAME_CENTER = SHAPES[0];
+const MATCHUP_STANDARD = SHAPES[1];
+
+// Install the harness, size the viewport, open the shape and wait for it ready.
+// Shared by the width/occlusion tests and the negative controls, so the latter
+// read the shape's own selectors and stay in step if a selector ever changes.
+async function gotoShape(page: Page, shape: Shape, width: number, height: number) {
+  await setupLayoutGuard(page, { view: shape.view });
+  await page.setViewportSize({ width, height });
+  await page.goto(shape.url);
+  await shape.ready(page);
+}
+
 for (const shape of SHAPES) {
   for (const { w, h } of WIDTHS) {
     test(`${shape.name} @ ${w}x${h}: page never wider than its column or the viewport, no header control occluded`, async ({ page }) => {
-      await setupLayoutGuard(page, { view: shape.view });
-      await page.setViewportSize({ width: w, height: h });
-      await page.goto(shape.url);
-      await shape.ready(page);
+      await gotoShape(page, shape, w, h);
 
       // Assertion 1a: the page's own column never overflows itself. This is the
       // one that bites: the columns cap at 1120/1200px, so at a wide viewport a
@@ -441,6 +467,7 @@ for (const shape of SHAPES) {
         tol: 1,
       });
       expect(overlap.headerFound, `${shape.headerSelector} must exist`).toBe(true);
+      expect(overlap.missing, `header regions whose selector stopped matching (would make the overlap check vacuous): ${overlap.missing.join(', ') || '(none)'}`).toEqual([]);
       expect(overlap.overlaps, overlapMessage(shape.name, w, overlap)).toEqual([]);
     });
   }
@@ -482,118 +509,97 @@ for (const shape of SHAPES) {
 // exactly like. They run on Game Center at 1440, loaded.
 
 test('negative control: the width predicate reports a forced column overflow', async ({ page }) => {
-  await setupLayoutGuard(page);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(GAME_CENTER_URL);
-  await SHAPES[0].ready(page);
+  await gotoShape(page, GAME_CENTER, 1440, 900);
+  const col = GAME_CENTER.columnSelector;
 
-  const before = await page.evaluate(probeWidth, '[data-testid="game-center-column"]');
+  const before = await page.evaluate(probeWidth, col);
   expect(before.scrollWidth, 'baseline column must not overflow').toBeLessThanOrEqual(before.clientWidth + 1);
 
-  await page.evaluate(() => {
-    const col = document.querySelector('[data-testid="game-center-column"]');
+  await page.evaluate((selector) => {
     const spacer = document.createElement('div');
     spacer.id = '__forced_overflow__';
     spacer.setAttribute('data-testid', 'forced-overflow');
     spacer.style.width = '4000px';
     spacer.style.height = '1px';
-    col?.appendChild(spacer);
-  });
-  const during = await page.evaluate(probeWidth, '[data-testid="game-center-column"]');
+    document.querySelector(selector)?.appendChild(spacer);
+  }, col);
+  const during = await page.evaluate(probeWidth, col);
   expect(during.scrollWidth, 'a forced 4000px child must overflow the column').toBeGreaterThan(during.clientWidth + 1);
   expect(during.worst, 'the overflowing child must be reported').not.toBeNull();
 
   await page.evaluate(() => document.getElementById('__forced_overflow__')?.remove());
-  const after = await page.evaluate(probeWidth, '[data-testid="game-center-column"]');
+  const after = await page.evaluate(probeWidth, col);
   expect(after.scrollWidth, 'removing the spacer must restore the column').toBeLessThanOrEqual(after.clientWidth + 1);
 });
 
 test('negative control: the occlusion predicate reports a forced overlay', async ({ page }) => {
-  await setupLayoutGuard(page);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(GAME_CENTER_URL);
-  await SHAPES[0].ready(page);
+  await gotoShape(page, GAME_CENTER, 1440, 900);
+  const probe = { headerSelector: GAME_CENTER.headerSelector, controls: GAME_CENTER.controls(1440), inset: INSET };
 
-  const clean = await page.evaluate(probeOcclusion, {
-    headerSelector: '[data-testid="game-center-header"]',
-    controls: GAME_CENTER_CONTROLS,
-    inset: INSET,
-  });
-  expect(clean.failures, occlusionMessage('Game Center', 1440, clean)).toEqual([]);
+  const clean = await page.evaluate(probeOcclusion, probe);
+  expect(clean.failures, occlusionMessage(GAME_CENTER.name, 1440, clean)).toEqual([]);
 
-  await page.evaluate(() => {
-    const btn = document.querySelector('[data-testid="game-center-header"] [data-testid="pick-week"] button[aria-pressed]');
+  // Cover the "All weeks" button with a top-layer overlay.
+  await page.evaluate((headerSelector) => {
+    const btn = document.querySelector(`${headerSelector} [data-testid="pick-week"] button[aria-pressed]`);
     if (!btn) return;
     const r = btn.getBoundingClientRect();
     const overlay = document.createElement('div');
     overlay.id = '__forced_overlay__';
     overlay.setAttribute('data-testid', 'forced-overlay');
     Object.assign(overlay.style, {
-      position: 'fixed',
-      left: `${r.left}px`,
-      top: `${r.top}px`,
-      width: `${r.width}px`,
-      height: `${r.height}px`,
-      zIndex: '99999',
-      background: 'rgba(255,0,0,0.5)',
+      position: 'fixed', left: `${r.left}px`, top: `${r.top}px`,
+      width: `${r.width}px`, height: `${r.height}px`, zIndex: '99999', background: 'rgba(255,0,0,0.5)',
     });
     document.body.appendChild(overlay);
-  });
-  const covered = await page.evaluate(probeOcclusion, {
-    headerSelector: '[data-testid="game-center-header"]',
-    controls: GAME_CENTER_CONTROLS,
-    inset: INSET,
-  });
+  }, GAME_CENTER.headerSelector);
+  const covered = await page.evaluate(probeOcclusion, probe);
   const hit = covered.failures.find((f) => f.control === 'all-weeks');
   expect(hit, 'an overlay over All weeks must be reported as occlusion').toBeTruthy();
   expect(hit?.occluder?.testid, 'the reported occluder must be the overlay').toBe('forced-overlay');
 
   await page.evaluate(() => document.getElementById('__forced_overlay__')?.remove());
-  const restored = await page.evaluate(probeOcclusion, {
-    headerSelector: '[data-testid="game-center-header"]',
-    controls: GAME_CENTER_CONTROLS,
-    inset: INSET,
-  });
-  expect(restored.failures, occlusionMessage('Game Center', 1440, restored)).toEqual([]);
+  const restored = await page.evaluate(probeOcclusion, probe);
+  expect(restored.failures, occlusionMessage(GAME_CENTER.name, 1440, restored)).toEqual([]);
 });
 
-test('negative control: the region-overlap predicate reports a forced h1 shift onto the picker', async ({ page }) => {
-  await setupLayoutGuard(page);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(GAME_CENTER_URL);
-  await SHAPES[0].ready(page);
+// The region-overlap predicate is exercised on BOTH a Game Center and a Matchup
+// shape, because it is the only form that catches the #921 title-column and the
+// Matchup header-wrap defects, and no one-time Matchup mutation ever made this
+// spec red (all three were dropped) - so a Matchup negative control is what keeps
+// this predicate proven on that page.
+for (const nc of [
+  { shape: GAME_CENTER, headingRegion: 'title-heading', otherRegion: 'week-picker', otherSelector: '[data-testid="pick-week"]' },
+  { shape: MATCHUP_STANDARD, headingRegion: 'title-heading', otherRegion: 'view-toggle', otherSelector: '[data-testid="toggle-matchup-view"]' },
+]) {
+  test(`negative control: the region-overlap predicate reports a forced heading shift on ${nc.shape.name}`, async ({ page }) => {
+    await gotoShape(page, nc.shape, 1440, 900);
+    const probe = { headerSelector: nc.shape.headerSelector, regions: nc.shape.regions(1440), tol: 1 };
 
-  const clean = await page.evaluate(probeRegionOverlap, {
-    headerSelector: '[data-testid="game-center-header"]',
-    regions: GAME_CENTER_REGIONS,
-    tol: 1,
-  });
-  expect(clean.overlaps, overlapMessage('Game Center', 1440, clean)).toEqual([]);
+    const clean = await page.evaluate(probeRegionOverlap, probe);
+    expect(clean.missing, `regions that did not resolve: ${clean.missing.join(', ') || '(none)'}`).toEqual([]);
+    expect(clean.overlaps, overlapMessage(nc.shape.name, 1440, clean)).toEqual([]);
 
-  // Slide the h1 to the right so its box overlaps the picker, the shape the
-  // #921 title-column defect takes (the h1 overflowing onto the picker).
-  await page.evaluate(() => {
-    const h1 = document.querySelector('[data-testid="game-center-header"] h1') as HTMLElement | null;
-    const picker = document.querySelector('[data-testid="game-center-header"] [data-testid="pick-week"]');
-    if (!h1 || !picker) return;
-    const shift = picker.getBoundingClientRect().left - h1.getBoundingClientRect().left + 20;
-    h1.style.transform = `translateX(${shift}px)`;
-  });
-  const shifted = await page.evaluate(probeRegionOverlap, {
-    headerSelector: '[data-testid="game-center-header"]',
-    regions: GAME_CENTER_REGIONS,
-    tol: 1,
-  });
-  expect(shifted.overlaps.some((o) => (o.a === 'h1' && o.b === 'week-picker') || (o.a === 'week-picker' && o.b === 'h1')), 'the shifted h1 must be reported as overlapping the picker').toBe(true);
+    // Slide the heading over the neighbouring region, the shape the title-column /
+    // header-wrap defects take (the heading overflowing onto the picker/toggle).
+    await page.evaluate(({ headerSelector, otherSelector }) => {
+      const heading = document.querySelector(`${headerSelector} :is(h1,h2,h3,h4,h5,h6)`) as HTMLElement | null;
+      const other = document.querySelector(`${headerSelector} ${otherSelector}`);
+      if (!heading || !other) return;
+      const shift = other.getBoundingClientRect().left - heading.getBoundingClientRect().left + 20;
+      heading.style.transform = `translateX(${shift}px)`;
+    }, { headerSelector: nc.shape.headerSelector, otherSelector: nc.otherSelector });
+    const shifted = await page.evaluate(probeRegionOverlap, probe);
+    expect(
+      shifted.overlaps.some((o) => (o.a === nc.headingRegion && o.b === nc.otherRegion) || (o.a === nc.otherRegion && o.b === nc.headingRegion)),
+      `the shifted heading must be reported as overlapping ${nc.otherRegion}`,
+    ).toBe(true);
 
-  await page.evaluate(() => {
-    const h1 = document.querySelector('[data-testid="game-center-header"] h1') as HTMLElement | null;
-    if (h1) h1.style.transform = '';
+    await page.evaluate((headerSelector) => {
+      const heading = document.querySelector(`${headerSelector} :is(h1,h2,h3,h4,h5,h6)`) as HTMLElement | null;
+      if (heading) heading.style.transform = '';
+    }, nc.shape.headerSelector);
+    const back = await page.evaluate(probeRegionOverlap, probe);
+    expect(back.overlaps, overlapMessage(nc.shape.name, 1440, back)).toEqual([]);
   });
-  const back = await page.evaluate(probeRegionOverlap, {
-    headerSelector: '[data-testid="game-center-header"]',
-    regions: GAME_CENTER_REGIONS,
-    tol: 1,
-  });
-  expect(back.overlaps, overlapMessage('Game Center', 1440, back)).toEqual([]);
-});
+}

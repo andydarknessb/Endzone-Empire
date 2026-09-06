@@ -18,16 +18,16 @@ import type { Page, Route } from '@playwright/test';
 import { json } from './jsonRoute';
 
 export const LEAGUE_ID = 4200;
-export const MATCHUP_ID = 918;
-export const USER_ID = 41;
-export const VIEWER_TEAM_ID = 101;
+const MATCHUP_ID = 918;
+const USER_ID = 41;
+const VIEWER_TEAM_ID = 101;
 const OPP_TEAM_ID = 102;
 
 export const GAME_CENTER_URL = `/#/league/${LEAGUE_ID}/game-center`;
 export const MATCHUP_URL = `/#/league/${LEAGUE_ID}/matchups/${MATCHUP_ID}`;
 
 // The widest the h1, the LED board week cell and the season strip ever get.
-export const CURRENT_WEEK = 18;
+const CURRENT_WEEK = 18;
 
 // Required fixture values, not niceties (#920): the strongest overflow
 // candidates on Matchup Detail are team-name text guarded by `overflow: hidden`
@@ -40,14 +40,20 @@ const HOME_TEAM_NAME = 'Chattahoochee Valley Riverhogs'; // 30 chars (Matchup De
 const AWAY_TEAM_NAME = 'Sasquatch of the Cascade Range'; // 30 chars (Matchup Detail only)
 const LEAGUE_NAME = 'Greater Metropolitan Dynasty Fantasy League'; // 43 chars
 
-// Game Center uses representative team names, NOT the 22+ char Matchup Detail
-// ones. The 22+ char names are a Matchup Detail requirement (they make the LED
-// board and scoreboard-strip clip red-tells reachable). Game Center threads a
-// team name through the Scoring feed row's `nflTeam · teamName` line, whose
-// NON-WRAPPING max-content inflates the rail's auto grid track; a 30-char name
-// there overflows the 340px rail on a wide viewport, which is not a real-league
-// state. The long LEAGUE name (breadcrumb) is what the Game Center title-column
-// red-tell needs, and it is kept.
+// Game Center uses SHORT team names to route around a real, out-of-scope Game
+// Center defect: #932. A rostered team's name threads through the Scoring feed
+// row's `nflTeam · teamName` line (white-space: nowrap), whose max-content
+// inflates the rail's `auto` grid track past the rail's 340px width, so a long
+// (but valid - team_name is varchar(100) with no client maximum) name overflows
+// the page column at the md+ two-column widths (measured 1328px inside a 1200px
+// column at 1440, 1028px inside 900 at 900). That is an assertion-1a container
+// overflow - exactly this guard's class - so a realistic name here would make
+// the Game Center width case red for a real reason that this guard is not
+// allowed to fix (a product change, out of scope). Short names keep the guard
+// green and exercising its other invariants until #932 lands; lift this the way
+// WIDTH_927_NAV_OVERFLOW is lifted. Matchup Detail keeps its 22+ char names
+// (criterion 6, for the clip red-tells); the long LEAGUE name (breadcrumb) that
+// the Game Center title-column red-tell needs is also kept.
 const GC_HOME_NAME = 'Riverhogs';
 const GC_AWAY_NAME = 'Cascades';
 
