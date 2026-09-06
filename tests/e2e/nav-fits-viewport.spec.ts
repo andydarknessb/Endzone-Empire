@@ -186,38 +186,84 @@ test.describe('Nav fits the viewport (#927)', () => {
     expect(restored.overlaps, 'overlap persisted after removing the injected margin').toEqual([]);
   });
 
-  // The "/" shortcut is no longer swallowed below the desktop breakpoint (#927;
-  // its narrow-window behaviour is #934). This can only be proven in a browser:
-  // jsdom renders the inline search focusable regardless of width, so it can
-  // neither see the swallow nor the fix.
-  test('below `lg`, pressing "/" is not consumed by the (hidden) inline search', async ({ page }) => {
-    await page.setViewportSize({ width: 900, height: 900 });
+  // #934 inverts #927's interim below-`lg` `/` assertions. #937 shipped a guard
+  // so `/` at a narrow width merely typed (not consumed, no focus moved); this
+  // ticket supersedes that: `/` on a window with no inline search now OPENS the
+  // drawer and focuses the search rendered inside it, so the shortcut works at
+  // every width for the first time.
+  //
+  // What each assertion pinned before -> pins now (the one site that inverts):
+  //   preventDefault:   false (left to type)      -> true  (consumed, handled)
+  //   drawer search:    not focused (none opened)  -> focused (drawer opened)
+  //
+  // This can only be proven in a browser: jsdom renders the inline search
+  // focusable regardless of width, so it can tell neither the swallow, #937's
+  // guard, nor this handoff apart. Run at 360 and 899 - both below `lg`, where
+  // the app-bar search is CSS-hidden and cannot take focus, and 899 is the exact
+  // width the defect was first measured at.
+  for (const width of [360, 899]) {
+    test(`below \`lg\` (${width}px), pressing "/" opens the drawer and focuses its search (#934)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openAuthedHost(page);
+
+      // Record whether the app's window handler called preventDefault. This
+      // listener is registered AFTER the app's (which mounts with the nav), so
+      // on a shared window in bubble phase it runs second and reads the outcome.
+      await page.evaluate(() => {
+        (window as unknown as { __slashDefaultPrevented?: boolean }).__slashDefaultPrevented = undefined;
+        window.addEventListener('keydown', (e) => {
+          if (e.key === '/') {
+            (window as unknown as { __slashDefaultPrevented?: boolean }).__slashDefaultPrevented = e.defaultPrevented;
+          }
+        });
+        (document.activeElement as HTMLElement | null)?.blur();
+      });
+
+      // The temporary drawer is unmounted while closed, so it is absent before
+      // the shortcut fires - that absence is the "no inline target" starting
+      // state this ticket is about.
+      const drawer = page.locator('.MuiDrawer-paper');
+      await expect(drawer).toHaveCount(0);
+
+      await page.keyboard.press('/');
+
+      // The drawer opened and its own search took focus. The locator is scoped
+      // to the drawer paper: the app-bar instance carries the same aria-label,
+      // so an unscoped label locator resolves to two elements once the drawer is
+      // open and throws a strict-mode violation.
+      await expect(drawer).toBeVisible();
+      await expect(drawer.getByRole('combobox', { name: 'Search players' })).toBeFocused();
+
+      // The key was consumed now, not left to type: the inversion of #937's
+      // interim below-`lg` assertion.
+      const prevented = await page.evaluate(
+        () => (window as unknown as { __slashDefaultPrevented?: boolean }).__slashDefaultPrevented
+      );
+      expect(prevented, 'the "/" key should now be consumed below the desktop breakpoint (#934)').toBe(true);
+    });
+  }
+
+  // Regression for a swallow edge (#934 risk review): "/" while the drawer is
+  // ALREADY open (opened by the hamburger) must still land focus in the drawer
+  // search. The drawer instance is already mounted, so mount-time autoFocus
+  // cannot carry it; the key would otherwise be consumed yet move no focus.
+  test('below `lg`, "/" focuses the drawer search even when the drawer is already open (#934)', async ({ page }) => {
+    await page.setViewportSize({ width: 899, height: 900 });
     await openAuthedHost(page);
 
-    // Record whether the app's window handler called preventDefault. This
-    // listener is registered AFTER the app's (which mounts with the nav), so on
-    // a shared window in bubble phase it runs second and reads the outcome.
-    await page.evaluate(() => {
-      (window as unknown as { __slashDefaultPrevented?: boolean }).__slashDefaultPrevented = undefined;
-      window.addEventListener('keydown', (e) => {
-        if (e.key === '/') {
-          (window as unknown as { __slashDefaultPrevented?: boolean }).__slashDefaultPrevented = e.defaultPrevented;
-        }
-      });
-      (document.activeElement as HTMLElement | null)?.blur();
-    });
+    await page.getByRole('button', { name: 'open navigation menu' }).click();
+    const drawer = page.locator('.MuiDrawer-paper');
+    await expect(drawer).toBeVisible();
+    const drawerSearch = drawer.getByRole('combobox', { name: 'Search players' });
+    // Opened by the hamburger, so the search is NOT focused yet.
+    await expect(drawerSearch).not.toBeFocused();
 
     await page.keyboard.press('/');
 
-    const prevented = await page.evaluate(
-      () => (window as unknown as { __slashDefaultPrevented?: boolean }).__slashDefaultPrevented
-    );
-    expect(prevented, 'the "/" key was consumed (preventDefault) below the desktop breakpoint').toBe(false);
-    // The hidden inline search did not steal focus.
-    await expect(page.getByLabel('Search players')).not.toBeFocused();
+    await expect(drawerSearch).toBeFocused();
   });
 
-  test('at `lg` and above, pressing "/" focuses the inline search', async ({ page }) => {
+  test('at `lg` and above, pressing "/" focuses the inline search and the drawer stays closed (#934)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     await openAuthedHost(page);
 
@@ -225,6 +271,9 @@ test.describe('Nav fits the viewport (#927)', () => {
     await page.keyboard.press('/');
 
     await expect(page.getByLabel('Search players')).toBeFocused();
+    // Existing desktop behaviour is unchanged: the shortcut focuses the app-bar
+    // field in place and never reaches for the drawer.
+    await expect(page.locator('.MuiDrawer-paper')).toHaveCount(0);
   });
 
   // The brand link keeps its accessible name at every width, including the

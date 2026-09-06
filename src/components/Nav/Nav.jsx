@@ -52,6 +52,12 @@ function Nav() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profileAnchor, setProfileAnchor] = useState(null);
   const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
+  // Why the drawer opened. The "/" shortcut opens it to reach the search inside
+  // it on windows too narrow for the inline app-bar search (#934); a hamburger
+  // tap opens it to navigate and must NOT steal focus into the search. This
+  // records that intent so only the shortcut autofocuses the drawer's search.
+  // Reset on every close so a later hamburger open starts clean.
+  const [focusDrawerSearch, setFocusDrawerSearch] = useState(false);
 
   const loggedIn = !!user.id;
   const links = MAIN_LINKS;
@@ -59,9 +65,21 @@ function Nav() {
 
   const isActive = (to) => location.pathname === to || location.pathname.startsWith(`${to}/`);
 
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setFocusDrawerSearch(false);
+  };
+
+  // "/" on a window with no inline search: open the drawer and mark it as
+  // opened-for-search so the drawer's field autofocuses on mount (#934).
+  const openDrawerForSearch = () => {
+    setFocusDrawerSearch(true);
+    setDrawerOpen(true);
+  };
+
   const closeAll = () => {
     setProfileAnchor(null);
-    setDrawerOpen(false);
+    closeDrawer();
   };
 
   const handleLogout = () => {
@@ -202,7 +220,10 @@ function Nav() {
 
           {loggedIn && (
             <Box sx={{ display: { xs: 'none', lg: 'block' }, mr: 1 }}>
-              <GlobalPlayerSearch enableShortcut />
+              {/* Below `lg` this instance is CSS-hidden, so "/" cannot focus it;
+                  onShortcutMiss then opens the drawer and focuses its search
+                  instead, so the shortcut works at every width (#934). */}
+              <GlobalPlayerSearch enableShortcut onShortcutMiss={openDrawerForSearch} />
             </Box>
           )}
           {loggedIn && <NotificationBell />}
@@ -264,7 +285,7 @@ function Nav() {
       </Toolbar>
 
       {/* Mobile navigation drawer */}
-      <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+      <Drawer anchor="left" open={drawerOpen} onClose={closeDrawer}>
         {/* role="presentation": this Box is layout only. Its "Navigation
             menu" nav landmark below (#322) is distinctly named from the top
             bar's, so tests reach it by that role+name now instead of a
@@ -276,7 +297,12 @@ function Nav() {
           <Divider />
           {loggedIn && (
             <Box sx={{ p: 2 }} onClick={(e) => e.stopPropagation()}>
-              <GlobalPlayerSearch inDrawer />
+              {/* autoFocus only when the drawer was opened by "/" (#934); a
+                  hamburger open leaves focusDrawerSearch false so it does not
+                  steal focus. The drawer is a temporary MUI Drawer with no
+                  keepMounted, so this instance mounts fresh on each open and
+                  autoFocus fires against the current intent. */}
+              <GlobalPlayerSearch inDrawer autoFocus={focusDrawerSearch} />
             </Box>
           )}
           {loggedIn ? (
@@ -296,7 +322,7 @@ function Nav() {
                       component={RouterLink}
                       to={l.to}
                       selected={isActive(l.to)}
-                      onClick={() => setDrawerOpen(false)}
+                      onClick={closeDrawer}
                       sx={MIN_TOUCH_TARGET_SX}
                     >
                       <ListItemText primary={l.label} />
@@ -309,7 +335,7 @@ function Nav() {
                 <ListItemButton
                   component={RouterLink}
                   to="/settings/notifications"
-                  onClick={() => setDrawerOpen(false)}
+                  onClick={closeDrawer}
                   sx={MIN_TOUCH_TARGET_SX}
                 >
                   <ListItemText primary="Notification Settings" />
@@ -318,7 +344,7 @@ function Nav() {
                   <ListItemButton
                     component={RouterLink}
                     to="/admin"
-                    onClick={() => setDrawerOpen(false)}
+                    onClick={closeDrawer}
                     sx={MIN_TOUCH_TARGET_SX}
                   >
                     <ListItemIcon>
@@ -334,10 +360,10 @@ function Nav() {
             </>
           ) : (
             <List>
-              <ListItemButton component={RouterLink} to="/login" onClick={() => setDrawerOpen(false)}>
+              <ListItemButton component={RouterLink} to="/login" onClick={closeDrawer}>
                 <ListItemText primary="Log In" />
               </ListItemButton>
-              <ListItemButton component={RouterLink} to="/registration" onClick={() => setDrawerOpen(false)}>
+              <ListItemButton component={RouterLink} to="/registration" onClick={closeDrawer}>
                 <ListItemText primary="Register" />
               </ListItemButton>
             </List>
