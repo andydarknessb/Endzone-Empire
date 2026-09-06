@@ -15,9 +15,16 @@ import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
  *   - `value`: the selected week, or the string "All" for every week.
  *   - `onChange`: called with the picked week (a number) or "All".
  *   - `fill`: the mobile layout (below the `sm` breakpoint): the stepper row
- *     stretches to the container, the segments share its width, "All weeks"
- *     drops onto its own full-width line, and every control grows to the
- *     44px minimum touch target.
+ *     stretches to the container and carries every control on one line, the
+ *     weeks scroll sideways inside the room left between the chevrons and
+ *     "All weeks", and every control grows to the 44px minimum touch target.
+ *
+ * A season is 14 to 18 weeks, which no phone row can hold as stretched
+ * segments (#916): a flex item's default `min-width: auto` refuses to shrink
+ * below its own label, so a stretched strip widened the document past the
+ * viewport and left a dead strip beside every card. Below `sm` the strip is
+ * the kit's `scrollable` group instead, and "All weeks" rides in the same row
+ * rather than costing a second one.
  *
  * Previous and next step through `weeks` by index, the same rule the legacy
  * Game Center picker used: disabled at either end, and both disabled while
@@ -43,6 +50,20 @@ export default function PickWeek({ weeks, value, onChange, fill = false }) {
 
   const options = list.map((week) => ({ value: week, label: `Wk ${week}` }));
 
+  // Below sm this rides in the stepper row beside the strip, so the picker
+  // costs one row of a phone and not two (#916).
+  const allWeeks = (
+    <Button
+      type="button"
+      disableElevation
+      aria-pressed={isAll}
+      onClick={() => onChange?.('All')}
+      sx={allWeeksSx(fill, isAll)}
+    >
+      All weeks
+    </Button>
+  );
+
   return (
     <Box
       role="group"
@@ -50,18 +71,18 @@ export default function PickWeek({ weeks, value, onChange, fill = false }) {
       data-testid="pick-week"
       sx={{
         display: 'flex',
-        flexDirection: fill ? 'column' : 'row',
-        alignItems: fill ? 'stretch' : 'center',
-        gap: fill ? '10px' : '12px',
+        alignItems: 'center',
+        gap: '12px',
         width: fill ? '100%' : undefined,
+        minWidth: 0,
       }}
     >
       <Box
         data-testid="pick-week-stepper"
         sx={{
           display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
+          alignItems: fill ? 'stretch' : 'center',
+          gap: fill ? '8px' : '6px',
           width: fill ? '100%' : undefined,
           minWidth: 0,
         }}
@@ -82,11 +103,12 @@ export default function PickWeek({ weeks, value, onChange, fill = false }) {
           options={options}
           value={isAll ? undefined : value}
           onChange={(week) => onChange?.(week)}
-          fill={fill}
-          // On mobile the group takes the width between the two chevrons
-          // (the canvas's `flex: 1 1 0`) and each segment grows to the 44px
-          // touch target with the group's own 3px padding and hairline border.
-          sx={fill ? { flex: '1 1 0', minWidth: 0, '& [role="radio"]': { height: 38 } } : undefined}
+          scrollable={fill}
+          // On mobile the group takes the room left in the row (the canvas's
+          // `flex: 1 1 0`) and scrolls its weeks inside it rather than
+          // stretching them, so the strip never widens the page (#916). Each
+          // segment still grows to the 44px touch target.
+          sx={fill ? { flex: '1 1 0', minWidth: 0, '& [role="radio"]': { minHeight: 44 } } : undefined}
         />
 
         <IconButton
@@ -98,17 +120,11 @@ export default function PickWeek({ weeks, value, onChange, fill = false }) {
         >
           <Chevron direction="right" />
         </IconButton>
+
+        {fill ? allWeeks : null}
       </Box>
 
-      <Button
-        type="button"
-        disableElevation
-        aria-pressed={isAll}
-        onClick={() => onChange?.('All')}
-        sx={allWeeksSx(fill, isAll)}
-      >
-        All weeks
-      </Button>
+      {fill ? null : allWeeks}
     </Box>
   );
 }
@@ -141,13 +157,13 @@ function iconButtonSx(fill) {
 
 // The canvas's `.btn`: 38px tall, 16px side padding, 13px/600 label, hairline
 // border, dim text on no fill. Pressed (All selected) sits the ink label on
-// the accent tint behind the accent line, a registered pairing.
+// the accent tint behind the accent line, a registered pairing. Mobile keeps
+// the label but tightens the side padding, since it now shares the stepper
+// row with the strip, and grows the button to the 44px touch target.
 function allWeeksSx(fill, pressed) {
   return {
-    ...(fill ? { minHeight: 44, width: '100%' } : { height: 38 }),
+    ...(fill ? { ...MIN_TOUCH_TARGET_SX, px: '12px' } : { height: 38, minWidth: 0, px: '16px' }),
     flex: 'none',
-    minWidth: 0,
-    px: '16px',
     py: 0,
     borderRadius: '9px',
     border: '1px solid',
