@@ -70,12 +70,25 @@ if (!ENABLED) {
   let playerOne = null;
   let playerKeeper = null;
 
+  // Every row this file creates, tracked so test.after can DELETE all of it. A
+  // *.pg.test.js runs SERIALLY against ONE shared migration-smoke database
+  // (run-pg-tests.js), so a leaked draft_activity row is an AUTHORITATIVE live
+  // event that makes a LATER file's rollback down() correctly refuse (ADR 0012) -
+  // exactly what a leak here did to legacyFeedBackfill.pg.test.js. Leagues cascade
+  // (draft_activity/picks/teams go with them via ON DELETE CASCADE on league_id),
+  // but the global users and players rows carry no league_id, so the cascade
+  // cannot reach them and they are deleted by id here (the #992 leak this week).
+  const createdLeagues = [];
+  const createdUsers = [];
+  const createdPlayers = [];
+
   async function seedUser(username) {
     const res = await pool.query(
       `INSERT INTO "users" ("username", "email", "password")
        VALUES ($1, $2, 'x') RETURNING "id"`,
       [username, `${username}@example.invalid`]
     );
+    createdUsers.push(res.rows[0].id);
     return res.rows[0].id;
   }
   async function seedPlayer(name, position, nflTeam) {
@@ -84,6 +97,7 @@ if (!ENABLED) {
        VALUES ($1, $2, $3) RETURNING "id"`,
       [name, position, nflTeam]
     );
+    createdPlayers.push(res.rows[0].id);
     return res.rows[0].id;
   }
 
@@ -99,6 +113,7 @@ if (!ENABLED) {
       ['Draft Room Snapshot PG', owner, 'drsnap949a']
     );
     leagueId = league.rows[0].id;
+    createdLeagues.push(leagueId);
     // Active and unpaused so onTheClock derives, and roster columns set so nothing
     // downstream trips on a null. current_pick is irrelevant to readPicks.
     await pool.query(
@@ -145,8 +160,15 @@ if (!ENABLED) {
   });
 
   test.after(async () => {
-    await pool.end();
+    // Delete in dependency order: leagues first so their ON DELETE CASCADE takes
+    // the draft_activity / picks / teams with them, then the now-unreferenced
+    // global players and users. Leaving the DB exactly as this file found it is
+    // what keeps the serial pg run's later files (legacyFeedBackfill) green.
+    for (const id of createdLeagues) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [id]);
+    for (const id of createdPlayers) await pool.query('DELETE FROM "players" WHERE "id" = $1', [id]);
+    for (const id of createdUsers) await pool.query('DELETE FROM "users" WHERE "id" = $1', [id]);
     await knex.destroy();
+    await pool.end();
   });
 
   test('a slot with two pick-kind activity rows yields exactly one pick, reading the latest autopick fact (#949)', async () => {
@@ -182,6 +204,7 @@ if (!ENABLED) {
       ['Draft Room Snapshot PG 2', owner, 'drsnap949b']
     );
     const otherLeague = league.rows[0].id;
+    createdLeagues.push(otherLeague);
     await pool.query(
       `UPDATE "leagues" SET "draft_status" = 'active', "roster_limit" = 10, "ir_slots" = 0 WHERE "id" = $1`,
       [otherLeague]
