@@ -325,9 +325,9 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
     await client.query('BEGIN');
     const leagueResult = await client.query(
       // Locked FOR UPDATE for the whole transaction. The Pick clock policy
-      // columns (draft_type, pick_time_seconds, autodraft_delay_seconds) are no
-      // longer selected here: onAutodraftToggled re-reads them from this same
-      // locked row (#948), so they cannot drift out of this SELECT's column list.
+      // columns this SELECT used to carry (draft_type and autodraft_delay_seconds)
+      // are no longer selected here: onAutodraftToggled re-reads the policy from
+      // this same locked row (#948), so they cannot drift out of this column list.
       // The columns below are the ones this handler itself uses to authorize the
       // toggle and resolve the on-clock team.
       `SELECT "owner_id", "draft_status", "current_pick", "draft_paused",

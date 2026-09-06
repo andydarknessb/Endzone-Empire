@@ -461,10 +461,21 @@ const undoRouteLeague = {
 function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // Shape matcher (blind to the select list), like #944's waiverWorld above, so
-    // it answers both the undo route's SELECT * ... FOR UPDATE and onPickUndone's
-    // own policy SELECT (#948), which the event now issues before it re-arms.
-    [select('leagues'), () => ({ rows: [undoRouteLeague] })],
+    // The undo route now issues TWO SELECTs against "leagues": its own locked read
+    // and, since #948, onPickUndone's policy read. Two matchers, tried in
+    // registration order (helpers/fakePool.js:53), answer them separately rather
+    // than one shape-blind select() answering both. The FOR UPDATE-bearing pattern
+    // comes first and stays FOR UPDATE-bearing on purpose: it is the only thing in
+    // the repo binding that POST /league/:id/undo takes the League lock FOR UPDATE
+    // (the handler stays hand-rolled behind that lock per #967, deleting
+    // draft_picks/team_players/lineup rows). Drop FOR UPDATE from the route SELECT
+    // and this stops matching, so the route read hits the unregistered-query throw
+    // and both undo tests redden.
+    [/FROM "leagues" WHERE "id" = \$1 AND .* FOR UPDATE/, () => ({ rows: [undoRouteLeague] })],
+    // onPickUndone's policy read (#948): a second SELECT ... FROM "leagues", no
+    // FOR UPDATE, that the event issues before it re-arms. Disjoint from the
+    // locked read above (no "AND", no FOR UPDATE), so order between them is safe.
+    [/^SELECT "current_pick", "draft_type".* FROM "leagues"/, () => ({ rows: [undoRouteLeague] })],
     [/^SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"/, () => ({
       rows: [
         { pick_number: 1, team_id: 10, player_id: 20, is_keeper: false },
