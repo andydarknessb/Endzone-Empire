@@ -5,7 +5,7 @@ import { playLabel } from '../../../lib/scoringEvents';
 import { Sprite, RefereeSprite, GoalPostSprite } from '../../../shared/ui';
 import './TecmoCutscene.css';
 
-// Timing ledger — these move together (see also tecmo-run in TecmoCutscene.css,
+// Timing ledger - these move together (see also tecmo-run in TecmoCutscene.css,
 // which must finish before BEAT1_MS, and the test advance values):
 const BEAT1_MS = 2200; // runner beat, then hard cut to the referee frame
 const FULL_DURATION_MS = 6000;
@@ -19,7 +19,7 @@ function prefersReducedMotion() {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-/** The referee "BOOM!" frame — beat 2 of the cutscene and the reduced-motion card. */
+/** The referee "BOOM!" frame - beat 2 of the cutscene and the reduced-motion card. */
 function BoomFrame({ play, refFrame, ptsLabel, isStatic }) {
   const nameColors = getNameColors(play.nflTeam);
   return (
@@ -62,7 +62,7 @@ BoomFrame.propTypes = {
  * the runner sprints to the end zone, then a hard cut to the referee BOOM!
  * frame with the scorer's name in team colors. Auto-dismisses (~6s, or a 1.8s
  * static BOOM frame under reduced-motion); tapping anywhere dismisses early.
- * All motion is CSS transform/opacity — no layout thrash, no canvas.
+ * All motion is CSS transform/opacity - no layout thrash, no canvas.
  */
 function TecmoCutscene({ play, onDone }) {
   const reduced = prefersReducedMotion();

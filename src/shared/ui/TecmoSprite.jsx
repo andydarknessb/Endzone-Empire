@@ -49,7 +49,7 @@ export const FIXED = {
   '.': null,
 };
 
-// 16x16 referee signaling touchdown — striped shirt, white knickers, both arms
+// 16x16 referee signaling touchdown - striped shirt, white knickers, both arms
 // up. Two full frames (the arms are what animate, so no body/legs split): B is
 // arms fully extended and A drops them 1px lower/wider for a bounce cycle.
 export const REF_UP_A = [
@@ -81,7 +81,7 @@ export const REF_UP_B = [
   ...REF_UP_A.slice(7),
 ];
 
-// 16x16 chunky goal post — uprights, crossbar, center pole, base.
+// 16x16 chunky goal post - uprights, crossbar, center pole, base.
 export const GOAL_POST = [
   'YY............YY',
   'YY............YY',
@@ -141,7 +141,7 @@ Sprite.propTypes = {
   className: PropTypes.string,
 };
 
-// The referee and goal post use only FIXED colors — no team kit letters — so
+// The referee and goal post use only FIXED colors - no team kit letters - so
 // rowsToRects gets an empty kit and the H/J/P/A branches never match.
 const EMPTY_KIT = {};
 

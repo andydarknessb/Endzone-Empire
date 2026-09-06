@@ -1,11 +1,11 @@
-/* Tecmo scoring cutscene. Deliberately theme-independent — beat 1 is a night
-   game and beat 2 the daytime referee frame in both light and dark app themes —
+/* Tecmo scoring cutscene. Deliberately theme-independent - beat 1 is a night
+   game and beat 2 the daytime referee frame in both light and dark app themes -
    so colors are fixed here, not tokenized. Every animated property is transform
    or opacity (compositor-friendly).
 
    Timing: beat-1 lengths are coupled to BEAT1_MS in TecmoCutscene.jsx (the run
    must finish before the cut). Beat-2 delays below are relative to the beat-2
-   mount — intentionally decoupled from the absolute timeline. */
+   mount - intentionally decoupled from the absolute timeline. */
 
 .tecmo-overlay {
   position: fixed;

@@ -297,7 +297,7 @@ const myTeamLeague = (overrides = {}) =>
     ...overrides,
   });
 
-// GET /api/scoring/league/:id/standings — the widget's spine. Each row carries
+// GET /api/scoring/league/:id/standings - the widget's spine. Each row carries
 // the record fields and a rank; `viewerRow` overrides the teamId-1 row.
 const standingsResponse = (viewerRow = {}) => ({
   data: {
@@ -308,7 +308,7 @@ const standingsResponse = (viewerRow = {}) => ({
   },
 });
 
-// GET /api/league/:id/draft-grades — the viewer's grade + roster value.
+// GET /api/league/:id/draft-grades - the viewer's grade + roster value.
 const draftGradesResponse = (viewerRow = {}) => ({
   data: {
     computedAt: '2026-09-01T00:00:00.000Z',
@@ -319,7 +319,7 @@ const draftGradesResponse = (viewerRow = {}) => ({
   },
 });
 
-// GET /api/scoring/league/:id/power-rankings — the viewer's projected finish.
+// GET /api/scoring/league/:id/power-rankings - the viewer's projected finish.
 const powerRankingsResponse = (viewerRank = 6) => ({
   data: {
     season: 2026,

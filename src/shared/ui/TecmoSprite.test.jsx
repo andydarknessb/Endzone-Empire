@@ -7,8 +7,8 @@ import { RefereeSprite, GoalPostSprite, Sprite } from './index';
 
 const LEGAL_ROW = /^[.HJPASFBWY]{16}$/;
 
-// Plain string matching over container.innerHTML — not DOM node access/traversal
-// (no querySelector, no .closest, no .children) — so this stays lint-clean while
+// Plain string matching over container.innerHTML - not DOM node access/traversal
+// (no querySelector, no .closest, no .children) - so this stays lint-clean while
 // still reading what actually landed on screen.
 const fillsFromHtml = (html) =>
   Array.from(html.matchAll(/<rect\b[^>]*\bfill="([^"]*)"/g)).map(([, fill]) => fill);
@@ -50,7 +50,7 @@ describe('sprite pixel grids', () => {
 describe('kit-free sprites', () => {
   // Each of these tests keeps two things true, matching #326's hard constraint:
   // the builder (rowsToRects) is asserted on directly via its own React-element
-  // props (`.props` access is exempt from no-node-access — it's plain object
+  // props (`.props` access is exempt from no-node-access - it's plain object
   // access, not DOM traversal), AND a render assertion survives proving the
   // component actually puts that builder output on screen, not just that the
   // builder itself is correct.
