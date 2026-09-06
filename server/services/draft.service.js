@@ -21,7 +21,12 @@ const sentry = require('../modules/sentry');
 // hold) now lives in rosterGate.service.js; this re-exports
 // assertRosterAcquisitionAllowed below for pick.service.js and its own tests,
 // and still calls assertPositionCapNotReached directly from undoDrop.
-const { assertRosterAcquisitionAllowed, assertPositionCapNotReached } = require('./rosterGate.service');
+const {
+  assertRosterAcquisitionAllowed,
+  assertPositionCapNotReached,
+  assertRosterWriteAllowed,
+  ROSTER_GATE,
+} = require('./rosterGate.service');
 const { DraftError } = require('./draftError');
 
 /**
@@ -124,8 +129,20 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
     );
     if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
-    await assertRosterAcquisitionAllowed(client, {
-      league, teamId: myTeam.id, playerId, position: playerResult.rows[0].position,
+    // The write-time roster gate (#944): it reads the freeze off the League row
+    // it re-locks FOR UPDATE (the League is already held from line 98, so this
+    // is a no-op re-lock in League-first order), and runs the acquire bundle -
+    // capacity, the position cap and the on-waivers gate - that used to live in
+    // assertRosterAcquisitionAllowed here. Team lock is bypassed because this
+    // path already refused a locked team above (myTeam.locked), which fails
+    // earlier and keeps that refusal's ordering unchanged.
+    await assertRosterWriteAllowed(client, {
+      leagueId,
+      teamId: myTeam.id,
+      direction: 'acquire',
+      playerId,
+      position: playerResult.rows[0].position,
+      bypass: [ROSTER_GATE.TEAM_LOCK],
     });
 
     await client.query(
@@ -262,6 +279,23 @@ async function undoDrop({ leagueId, userId, playerId }) {
     if (!league) throw new DraftError(404, 'league not found');
 
     const team = await requireMember(client, { leagueId, userId });
+
+    // The write-time roster gate (#944) for the freeze and the Team lock: the
+    // undo was "the one path that checks neither lock" (#940), and now inherits
+    // both. It reads the freeze off the League row it re-locks FOR UPDATE (the
+    // League is already held from line 258, League-first order), and refuses a
+    // frozen League or a locked Team before any hold is read or deleted.
+    // Capacity, the position cap and the waiver hold are bypassed: undoDrop owns
+    // its own restored-stash capacity (the interrupted stash grants a spot the
+    // generic gate would not credit), its own assertPositionCapNotReached below,
+    // and its own waiver-hold read above (the hold is what AUTHORIZES an undo).
+    await assertRosterWriteAllowed(client, {
+      leagueId,
+      teamId: team.id,
+      direction: 'acquire',
+      playerId,
+      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+    });
 
     const holdResult = await client.query(
       `SELECT 1 FROM "waiver_players"

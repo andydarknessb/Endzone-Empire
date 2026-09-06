@@ -25,7 +25,7 @@ const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 registerRecordingBroadcast();
 const express = require('express');
 const request = require('supertest');
-const { createFakePool } = require('./helpers/fakePool');
+const { createFakePool, select } = require('./helpers/fakePool');
 const { tenureHandlers } = require('./helpers/tenureFakes');
 
 const CURRENT_SEASON = 2026;
@@ -214,6 +214,7 @@ test('manager drop: a best-ball bench entry is a lineup entry and goes like any 
 
 const waiverLeague = {
   id: 5,
+  transactions_locked: false,
   roster_limit: 16,
   ir_slots: 1,
   waiver_type: 'priority',
@@ -224,11 +225,13 @@ const waiverLeague = {
 
 function waiverWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
-    [/^SELECT \* FROM "leagues"/, () => ({ rows: [waiverLeague] })],
+    // Shape matcher (blind to the select list) so it answers both processWaivers'
+    // SELECT * and the #944 roster gate's explicit-column read.
+    [select('leagues'), () => ({ rows: [waiverLeague] })],
     [/^SELECT "waiver_claims"\.\*/, () => ({
       rows: [{ id: 71, league_id: 5, team_id: 10, player_id: 30, drop_player_id: 21, bid: 0 }],
     })],
-    [/^SELECT "teams"\.\*/, () => ({
+    [select('teams'), () => ({
       rows: [{ id: 10, league_id: 5, owner_id: 7, user_id: 7, waiver_priority: 1, faab_remaining: 100 }],
     })],
     [/^SELECT 1 FROM "team_players"/, (text, params) => (

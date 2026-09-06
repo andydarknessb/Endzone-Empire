@@ -6,6 +6,11 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { rosterCapacity } = require('./irPolicy.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
+// isOnWaivers lives in its own leaf so the roster gate can share it without a
+// circular require back into this module (#944; see waiverStatus.js). Kept in
+// this module's exports below so existing importers are untouched.
+const { isOnWaivers } = require('./waiverStatus');
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message) {
@@ -107,26 +112,6 @@ async function placeOnWaiversUndoable(client, { league, teamId, playerId }) {
     droppedByTeamId: teamId,
     ...lineupService.interruptedStashFields(interrupted),
   });
-}
-
-/**
- * Is this player currently on waivers in the league (not yet a free agent)?
- * True when he has an unexpired waiver_players row, or the league's post-draft
- * blanket window is still open and he is unrostered.
- */
-async function isOnWaivers(client, { league, playerId }) {
-  const row = await client.query(
-    `SELECT 1 FROM "waiver_players"
-     WHERE "league_id" = $1 AND "player_id" = $2 AND "available_at" > now()`,
-    [league.id, playerId]
-  );
-  if (row.rows[0]) return true;
-  if (!league.waivers_clear_at || new Date(league.waivers_clear_at) <= new Date()) return false;
-  const rostered = await client.query(
-    `SELECT 1 FROM "team_players" WHERE "league_id" = $1 AND "player_id" = $2`,
-    [league.id, playerId]
-  );
-  return !rostered.rows[0];
 }
 
 /**
@@ -367,6 +352,26 @@ async function processWaivers({ leagueId }) {
           results.push({ claimId: claim.id, playerId, status: 'invalid', reason: failure });
           continue;
         }
+
+        // The write-time roster gate (#944), once per player immediately before
+        // this player's write: a claim submitted before a freeze must not land
+        // during it (#940 story 4). The gate reads the freeze off the League row
+        // it re-locks FOR UPDATE (the League is already held from the top of
+        // processWaivers, League-first order); a frozen League throws, the
+        // transaction rolls back, and every due claim stays pending for the next
+        // tick rather than being awarded or permanently invalidated. The team
+        // lock and the acquire bundle are bypassed: this batch path enforces its
+        // net capacity through claimFailureReason above and does not enforce the
+        // position cap or the on-waivers gate (a waiver award IS a waiver), and
+        // per-team-lock handling on the batch path is a later ticket - so this
+        // slice changes only the freeze here (#944 criterion 5).
+        await assertRosterWriteAllowed(client, {
+          leagueId,
+          teamId: team.id,
+          direction: 'acquire',
+          playerId,
+          bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+        });
 
         // Execute: optional drop (dropped player goes on waivers), then add
         if (claim.drop_player_id) {
