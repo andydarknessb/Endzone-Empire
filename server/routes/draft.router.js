@@ -6,7 +6,12 @@ const { requireAuth } = require('../modules/auth');
 // route no longer imports anything from the Socket.IO attach module.
 const { presenterSnapshot } = require('../services/draftRoomSnapshot');
 const { teamForPick } = require('../services/draftOrder.service');
-const { correctLatestPick, isDraftRefusal } = require('../services/draft.service');
+const { correctLatestPick, isDraftRefusal, DraftError } = require('../services/draft.service');
+// The Draft act module (#947, part of #938) owns the transaction, the
+// serializing League-row lock and the post-commit fan-out order for a lifecycle
+// act. pause/resume is the first handler lifted onto it; the other three
+// (autodraft, undo, reset) are the follower's.
+const { runDraftAct } = require('../services/draftAct.service');
 // A Pick lands in one place (#782): the offline bulk route commits AND fans out
 // each Pick through the one seam, landPick, exactly like a live one.
 const { landPick } = require('../services/pick.service');
@@ -241,52 +246,63 @@ router.post('/league/:id/pause', async (req, res) => {
   if (typeof paused !== 'boolean') {
     return res.status(400).json({ error: 'paused (boolean) is required' });
   }
-  // A transaction now, not a bare UPDATE: the pause/resume must append its
-  // Draft-activity entry from the SAME transaction that flips draft_paused
-  // (#437 AC2), so a rolled-back toggle leaves no orphan activity and a
-  // committed one always has its entry. The clock is armed through the Pick
-  // clock module (ADR 0018): resuming grants the on-the-clock team the policy
-  // clock, never the time remaining at pause, so an autodrafting team resumes on
-  // the short delay instead of a full clock (timed) or a frozen NULL (untimed).
-  const client = await pool.connect();
+  // Both refusals decidable without the database - the leagueId parse above and
+  // the paused-boolean check here - stay AHEAD of the act module, so the League
+  // row is never locked for malformed input; the module's lock delta then falls
+  // only on authorization failures (the act body's refusal below).
   try {
-    await client.query('BEGIN');
-    const result = await client.query(
-      `UPDATE "leagues" SET "draft_paused" = $1, "updated_at" = now()
-       WHERE "id" = $2 AND ${commissionerPredicate(3)} AND "draft_status" = 'active'
-       RETURNING "id", "draft_paused"`,
-      [paused, leagueId, req.user.id]
-    );
-    if (!result.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
-    }
-    // Clear the clock on pause, arm the policy clock on resume - the module is
-    // the only writer of the deadline.
-    const pickDeadlineAt = paused
-      ? await pickClock.onPaused(client, { leagueId })
-      : await pickClock.onResumed(client, { leagueId });
-    // The acting commissioner's Team, or null when they hold none - recorded as
-    // null, never fabricated (#437 AC5). Team identity only, no account field.
-    const actorTeam = await lookupTeam(client, { leagueId, userId: req.user.id });
-    const entry = await appendLifecycleActivity(client, {
-      leagueId,
-      kind: paused ? PAUSE : RESUME,
-      team: actorTeam,
+    // The act module (#947) owns the transaction, the serializing League-row
+    // lock and the post-commit fan-out order. pause/resume must still append its
+    // Draft-activity entry from the SAME transaction that flips draft_paused
+    // (#437 AC2), so a rolled-back toggle leaves no orphan activity and a
+    // committed one always has its entry; the clock is armed through the Pick
+    // clock module (ADR 0018), resuming granting the on-the-clock team the policy
+    // clock rather than the time remaining at pause.
+    const response = await runDraftAct({ leagueId, userId: req.user.id }, async ({ client, league, actingTeam }) => {
+      // Authorization + precondition, reproducing the refusal set the old guarded
+      // UPDATE fused into one empty result: league absent, caller not a
+      // commissioner, or draft not active all return the IDENTICAL 403 and body.
+      // The check sits immediately after the lock with nothing between it and the
+      // rollback runDraftAct performs on the throw. commissionerPredicate(3)'s
+      // WHERE-clause form is reproduced here by isLeagueCommissioner, its JS twin.
+      if (!league || league.draft_status !== 'active' ||
+          !(await isLeagueCommissioner(client, leagueId, req.user.id))) {
+        throw new DraftError(403, 'league not found, not commissioner, or draft not active');
+      }
+      const result = await client.query(
+        `UPDATE "leagues" SET "draft_paused" = $1, "updated_at" = now()
+         WHERE "id" = $2 RETURNING "id", "draft_paused"`,
+        [paused, leagueId]
+      );
+      // Clear the clock on pause, arm the policy clock on resume - the module is
+      // the only writer of the deadline.
+      const pickDeadlineAt = paused
+        ? await pickClock.onPaused(client, { leagueId })
+        : await pickClock.onResumed(client, { leagueId });
+      // The acting commissioner's Team, or null when they hold none - recorded as
+      // null, never fabricated (#437 AC5). Resolved by the act module (actingTeam)
+      // rather than a second lookupTeam. Team identity only, no account field.
+      const entry = await appendLifecycleActivity(client, {
+        leagueId,
+        kind: paused ? PAUSE : RESUME,
+        team: actingTeam,
+      });
+      // The response still carries the re-armed (or cleared) deadline the clients
+      // read, sourced from the Pick clock module rather than the flip's own UPDATE.
+      // The module emits activityAppended before stateChanged, the one
+      // narration-first order (matching pickClock.service.js's autoPick
+      // escalation emit, after escalateNothingDraftable).
+      return {
+        response: { ...result.rows[0], pick_deadline_at: pickDeadlineAt },
+        activity: [entry],
+        broadcasts: ['stateChanged'],
+      };
     });
-    await client.query('COMMIT');
-    const broadcast = getDraftRoomBroadcast();
-    await broadcast.stateChanged(leagueId);
-    await broadcast.activityAppended(leagueId, entry);
-    // The response still carries the re-armed (or cleared) deadline the clients
-    // read, now sourced from the Pick clock module rather than the flip's own UPDATE.
-    res.json({ ...result.rows[0], pick_deadline_at: pickDeadlineAt });
+    res.json(response);
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error pausing draft', error);
     res.status(500).json({ error: 'failed to pause draft' });
-  } finally {
-    client.release();
   }
 });
 
