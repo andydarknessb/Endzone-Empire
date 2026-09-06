@@ -757,8 +757,11 @@ player with no game that week is never excluded. The same predicate governs a
 re-score of a final week. In best ball a candidate must also have been held at
 the week's last kickoff: a player dropped after his own game but before the
 week's last kickoff does not score (ADR 0022). Hindsight reads the same
-population (ADR 0023). Distinct from live scoring (the current roster, every
-few minutes).
+population (ADR 0023). So does every other reading of a settled week,
+including one that only displays it: a surface that lists a settled week's
+lineup reads it as played, never through the current roster, or its list and
+the score beside it describe different teams. Distinct from live scoring (the
+current roster, every few minutes).
 _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:
