@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');
-const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const { createFakePool, insert, update } = require('./helpers/fakePool');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const { appendLifecycleActivity, activityEntryOf, STALLED } = require('../services/draftActivity');
 
@@ -36,29 +36,46 @@ const app = express();
 app.use(express.json());
 app.use('/api/draft', require('../routes/draft.router'));
 
-// A world where the acting commissioner owns ACTOR_TEAM, the pause UPDATE
-// matches (commissioner + active), and the lifecycle append lands at feed_seq 12.
-// The clock is now armed/cleared through the Pick clock module (ADR 0018): the
-// guarded UPDATE flips draft_paused, then the module's own leagues UPDATE writes
-// the deadline (both match update('leagues')). On resume the module first reads
-// the league and teams to resolve the on-clock team and arm the policy clock.
-function pausePool({ paused }) {
+// A world for the pause/resume route now that it runs on the Draft act module
+// (#947). The act module opens the transaction, takes the serializing League-row
+// lock, loads Teams in rotation order, then resolves the acting Team; the act
+// body authorizes (isLeagueCommissioner + draft_status), flips draft_paused, and
+// arms/clears the deadline through the Pick clock module (ADR 0018) - the
+// draft_paused flip and the module's deadline UPDATE both match update('leagues')
+// and are told apart by text. `active`/`commissioner`/`hasActorTeam` shape the
+// three refusal reasons the old guarded UPDATE fused into one empty result.
+function pausePool({ paused, active = true, commissioner = true, hasActorTeam = true }) {
   const handlers = [
     // requireFantasyLeague() middleware on /league/:id.
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // The guarded draft_paused flip AND the module's clock write both match here.
-    [update('leagues'), () => ({ rows: [{ id: LEAGUE_ID, draft_paused: paused, pick_deadline_at: paused ? null : '2026-09-01T00:01:00.000Z' }] })],
+    // The act module's serializing lock on the League row. `active: null` models
+    // a missing league (empty lock result).
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: active === null ? [] : [{ id: LEAGUE_ID, draft_status: active ? 'active' : 'pending' }],
+    })],
+    // The act module loads Teams in rotation order (draft_position seed order).
+    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({
+      rows: [{ id: ACTOR_TEAM.id, owner_id: COMMISSIONER, autodraft: false, draft_position: 1 }],
+    })],
+    // lookupTeam: the acting commissioner's Team in this league, or none.
+    [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: hasActorTeam ? [ACTOR_TEAM] : [] })],
+    // isLeagueCommissioner probe, reproducing commissionerPredicate(3) in the body.
+    [/^SELECT 1 FROM "leagues"/, () => ({ rows: commissioner ? [{ '?column?': 1 }] : [] })],
   ];
   if (!paused) {
     // onResumed resolves the on-clock team, then arms the policy clock.
-    handlers.push([/SELECT "current_pick", "draft_type"/, () => ({ rows: [{
+    handlers.push([/^SELECT "current_pick", "draft_type"/, () => ({ rows: [{
       current_pick: 0, draft_type: 'snake', draft_rotation: 'snake', draft_order_overrides: null,
       pick_time_seconds: 60, autodraft_delay_seconds: 10,
     }] })]);
-    handlers.push([/SELECT "id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: [{ id: 30, autodraft: false, draft_position: 1 }] })]);
+    handlers.push([/^SELECT "id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: [{ id: ACTOR_TEAM.id, autodraft: false, draft_position: 1 }] })]);
   }
-  // lookupTeam: the acting commissioner's Team in this league.
-  handlers.push([/SELECT "id", "name" FROM "teams"/, () => ({ rows: [ACTOR_TEAM] })]);
+  // The draft_paused flip and the Pick clock module's deadline write both match
+  // update('leagues'); tell them apart by which column each sets.
+  handlers.push([update('leagues'), (text) => {
+    if (/"draft_paused"/.test(text)) return { rows: [{ id: LEAGUE_ID, draft_paused: paused }], rowCount: 1 };
+    return { rows: [{ pick_deadline_at: paused ? null : '2026-09-01T00:01:00.000Z' }], rowCount: 1 };
+  }]);
   handlers.push([insert('draft_activity'), () => ({ rows: [{ id: 3, feed_seq: '12', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })]);
   return createFakePool(handlers);
 }
@@ -108,21 +125,30 @@ test('POST pause paused:false appends a resume activity and re-arms the clock', 
   fake.assertClean();
 });
 
-test('POST pause: not commissioner / not active refuses 403 and appends nothing', async (t) => {
-  const fake = createFakePool([
-    [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // The guarded UPDATE matches no row: not commissioner, or not active.
-    [update('leagues'), () => ({ rows: [] })],
-  ]).install(t);
+// The old guarded UPDATE collapsed three refusal reasons into one empty result
+// and one 403 body. The act-module split (lock, then check, then update) must
+// keep that exact shape: each reason returns the IDENTICAL status and body, rolls
+// back, and appends nothing. Pin all three so a split that leaks a 404 or a
+// distinct body (the refusal set "changing shape") turns this red.
+const REFUSAL_BODY = 'league not found, not commissioner, or draft not active';
+for (const { reason, opts } of [
+  { reason: 'league not found', opts: { active: null } },
+  { reason: 'not commissioner', opts: { commissioner: false } },
+  { reason: 'draft not active', opts: { active: false } },
+]) {
+  test(`POST pause: ${reason} refuses 403 with the one fused body and appends nothing`, async (t) => {
+    const fake = pausePool({ paused: true, ...opts }).install(t);
 
-  const res = await doPause(true);
+    const res = await doPause(true);
 
-  assert.equal(res.status, 403);
-  assert.equal(fake.matching(insert('draft_activity')).length, 0, 'no activity when the state change did not happen');
-  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction rolled back');
-  assert.equal(fake.matching(/^COMMIT$/).length, 0);
-  fake.assertClean();
-});
+    assert.equal(res.status, 403, reason);
+    assert.equal(res.body.error, REFUSAL_BODY, 'the same fused refusal body for every reason');
+    assert.equal(fake.matching(insert('draft_activity')).length, 0, 'no activity when the state change did not happen');
+    assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction rolled back');
+    assert.equal(fake.matching(/^COMMIT$/).length, 0);
+    fake.assertClean();
+  });
+}
 
 test('the nothing-draftable escalation entry (#602) is a readable lifecycle entry naming the stuck team', async (t) => {
   // The escalation (#602) is not driven by this route - it fires from the Pick
@@ -170,12 +196,7 @@ test('the nothing-draftable escalation entry (#602) is a readable lifecycle entr
 });
 
 test('POST pause: a commissioner with no team in the league records a null actor, not a fabricated one', async (t) => {
-  const fake = createFakePool([
-    [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [update('leagues'), () => ({ rows: [{ id: LEAGUE_ID, draft_paused: true, pick_deadline_at: null }] })],
-    [select('teams'), () => ({ rows: [] })], // lookupTeam finds no team
-    [insert('draft_activity'), () => ({ rows: [{ id: 4, feed_seq: '13', created_at: 'now' }], rowCount: 1 })],
-  ]).install(t);
+  const fake = pausePool({ paused: true, hasActorTeam: false }).install(t);
 
   const res = await doPause(true);
 
