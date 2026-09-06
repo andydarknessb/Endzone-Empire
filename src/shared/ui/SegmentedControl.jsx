@@ -1,4 +1,4 @@
-import React, { useId } from 'react';
+import React, { useCallback, useEffect, useId, useRef } from 'react';
 import { Box } from '@mui/material';
 
 /**
@@ -12,9 +12,16 @@ import { Box } from '@mui/material';
  * screen reader hears the group and its selection and arrow keys move between
  * options the way a radio group does. `options` are `{ value, label, icon? }`;
  * `onChange` receives the clicked option's value. `fill` stretches the
- * segments to the container (the mobile week picker). A `ref` reaches the
- * group element, so a composer can move focus to the checked option (the
- * Matchup page does, when another control swaps the view, #903).
+ * segments to the container (the Standard / Scoreboard view toggle). A `ref`
+ * reaches the group element, so a composer can move focus to the checked
+ * option (the Matchup page does, when another control swaps the view, #903).
+ *
+ * `scrollable` is the other answer to a narrow row (#916): the segments keep
+ * their own width, the group scrolls sideways inside whatever width it is
+ * given, and the checked segment is scrolled into view on mount and whenever
+ * `value` changes. A season of weeks cannot be stretched into a phone (a flex
+ * item's default `min-width: auto` refuses to shrink below its label), so the
+ * week picker scrolls its strip instead of widening the page.
  */
 const SegmentedControl = React.forwardRef(function SegmentedControl({
   options,
@@ -22,13 +29,36 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
   onChange,
   'aria-label': ariaLabel,
   fill = false,
+  scrollable = false,
   sx,
   'data-testid': testId = 'segmented-control',
   ...rest
 }, ref) {
   const groupId = useId();
+  const groupRef = useRef(null);
   const items = options || [];
   const selectedIndex = Math.max(0, items.findIndex((o) => o.value === value));
+
+  // The group element is kept here and handed on to whatever ref the composer
+  // passed, so scrolling the checked segment into view never costs the
+  // composer its ref (#903 forwards it; #916 reads it).
+  const setGroupRef = useCallback((node) => {
+    groupRef.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) ref.current = node;
+  }, [ref]);
+
+  // Scrollable: the strip is wider than its row, so the checked segment is
+  // brought into view on mount and on every change of `value`. jsdom does not
+  // implement `scrollIntoView` at all (a test stubs it), so the guard is what
+  // keeps the picker rendering under the suite and in any browser without it.
+  useEffect(() => {
+    if (!scrollable) return;
+    const checked = groupRef.current?.querySelector('[role="radio"][aria-checked="true"]');
+    if (checked && typeof checked.scrollIntoView === 'function') {
+      checked.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+  }, [scrollable, value]);
 
   const move = (delta) => {
     if (!items.length) return;
@@ -38,13 +68,24 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
 
   return (
     <Box
-      ref={ref}
+      ref={setGroupRef}
       role="radiogroup"
       aria-label={ariaLabel}
       data-testid={testId}
       sx={{
-        display: fill ? 'flex' : 'inline-flex',
+        display: fill || scrollable ? 'flex' : 'inline-flex',
         width: fill ? '100%' : undefined,
+        // Scrollable: the group takes the width its row gives it and scrolls
+        // its own overflow, so nothing here can widen the page. The scrollbar
+        // is hidden (the strip is swiped, and the checked segment is scrolled
+        // into view) and `overscroll-behavior-x` keeps that swipe off the page
+        // behind it.
+        minWidth: scrollable ? 0 : undefined,
+        maxWidth: scrollable ? '100%' : undefined,
+        overflowX: scrollable ? 'auto' : undefined,
+        overscrollBehaviorX: scrollable ? 'contain' : undefined,
+        scrollbarWidth: scrollable ? 'none' : undefined,
+        ...(scrollable ? { '&::-webkit-scrollbar': { display: 'none' } } : null),
         gap: '2px',
         p: '3px',
         backgroundColor: 'var(--dash-surface2)',
@@ -71,13 +112,13 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
               if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
             }}
             sx={{
-              flex: fill ? '1 1 0' : 'none',
+              flex: scrollable ? '0 0 auto' : (fill ? '1 1 0' : 'none'),
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
               height: 30,
-              px: fill ? 0 : '14px',
+              px: fill && !scrollable ? 0 : '14px',
               border: 0,
               borderRadius: '7px',
               cursor: 'pointer',
