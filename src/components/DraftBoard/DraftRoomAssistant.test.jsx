@@ -77,7 +77,7 @@ beforeEach(() => {
 });
 
 describe('DraftRoomAssistant (#787)', () => {
-  it('renders no panel while the toggle is off, but keeps the toggle and the silent region', () => {
+  it('renders no panel while the toggle is off, and reveals it when the toggle is clicked on', () => {
     render(ui());
     // The commentary panel declines to render entirely (ruling item 1 / AC5):
     // no heading, no list, no Misery Meter.
@@ -88,14 +88,15 @@ describe('DraftRoomAssistant (#787)', () => {
     // empty (a live region must be mounted to be observed).
     expect(screen.getByRole('button', { name: 'Draft assistant commentary' })).toBeInTheDocument();
     expect(region().textContent).toBe('');
-  });
 
-  it('turning the toggle on shows the panel and persists the choice per device', () => {
-    render(ui());
+    // Clicking the toggle reveals the panel: this is the room's own display
+    // binding (assistantOn -> panel visibility) and its wiring of the toggle
+    // button to the shared hook's toggleAssistant. The toggle's PERSISTENCE is
+    // machinery, covered once in src/hooks/useDraftAssistant.test.jsx (#950); it
+    // is deliberately not re-asserted here.
     fireEvent.click(screen.getByRole('button', { name: 'Draft assistant commentary' }));
     expect(screen.getByRole('heading', { name: 'Draft assistant' })).toBeInTheDocument();
     expect(screen.getByText('Misery Meter')).toBeInTheDocument();
-    expect(window.localStorage.getItem(DRAFT_ASSISTANT_KEY)).toBe('1');
   });
 
   it("announces the viewer's own pick with a line from its trigger's pool", () => {

@@ -1,5 +1,5 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
+  createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef,
 } from 'react';
 import {
   Box, List, ListItem, Paper, Stack, Typography, Tooltip, IconButton,
@@ -7,10 +7,9 @@ import {
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import VoiceOverOffIcon from '@mui/icons-material/VoiceOverOff';
 import PoliteRegion from './PoliteRegion';
-import { useAnnouncement } from './useAnnouncement';
+import { useDraftAssistant } from '../../hooks/useDraftAssistant';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
-import { createLineGenerator, miseryStage, SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
-import { readDraftAssistantOn, writeDraftAssistantOn } from '../../lib/draftAssistantPreference';
+import { miseryStage, SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
 import {
   factsForOwnPick, factsForQueueSnipe, factsForPoolBrowse,
   factsForTurnStart, factsForClockUrgent, netVsAdpFor, roundForPick,
@@ -76,8 +75,6 @@ import {
  * only the urgent edge is wired.
  */
 
-const SCROLLBACK_LIMIT = 20;
-
 const DEFAULT_STATE = {
   assistantOn: false,
   scrollback: [],
@@ -139,18 +136,14 @@ export function DraftRoomAssistantProvider({
   rng = Math.random,
   children,
 }) {
-  const [assistantOn, setAssistantOn] = useState(readDraftAssistantOn);
-  const [scrollback, setScrollback] = useState([]);
-  const [announcement, announce] = useAnnouncement();
+  // The shared machinery: the toggle and its persistence, the scrollback and
+  // its cap, the one per-draft line generator, pushLine, the announcement and
+  // its clear-on-toggle-off (src/hooks/useDraftAssistant.js, #950). Everything
+  // below this line is the room's own trigger gates and facts.
+  const {
+    assistantOn, toggleAssistant, scrollback, announcement, pushLine,
+  } = useDraftAssistant({ rng });
 
-  // The one per-draft line generator (#784 ruling 2's "no repeat until the pool
-  // is exhausted" tracking). A lazy useState initializer rather than a ref
-  // written during render, so no ref is mutated in the render body (issue #818
-  // AC3, a different ruling 2):
-  // the value is created once and stays stable, and StrictMode's double render
-  // never re-runs a render-phase side effect here.
-  const [lineGen] = useState(() => createLineGenerator());
-  const nextIdRef = useRef(0);
   const seenPickRef = useRef(null);
   const seenSelectionRef = useRef(null);
   const lastSelectionAtRef = useRef(null);
@@ -207,30 +200,6 @@ export function DraftRoomAssistantProvider({
       active, isMyTurn, assistantOn, teamCount, draftRounds, currentPickNumber, netVsAdp,
     };
   });
-
-  const pushLine = useCallback((facts, { spoken }) => {
-    const line = facts ? lineGen(facts, rng) : null;
-    if (!line) return;
-    nextIdRef.current += 1;
-    const id = nextIdRef.current;
-    setScrollback((prev) => [{ id, trigger: line.trigger, text: line.text }, ...prev].slice(0, SCROLLBACK_LIMIT));
-    if (spoken) announce(line.text);
-  }, [lineGen, rng, announce]);
-
-  // Clears the permanently-mounted region the moment the toggle goes off, so a
-  // later toggle-on never re-shows a stale line before the next real trigger
-  // (the SimAssistantPanel #786 idiom). A no-op on an already-empty region.
-  useEffect(() => {
-    if (!assistantOn) announce('');
-  }, [assistantOn, announce]);
-
-  const toggleAssistant = useCallback(() => {
-    setAssistantOn((prev) => {
-      const next = !prev;
-      writeDraftAssistantOn(next);
-      return next;
-    });
-  }, []);
 
   // The urgent clock edge, forwarded once per turn from PickClock's onUrgent
   // (ruling item 2: reuse the edge it already computes, no new ticking leaf).

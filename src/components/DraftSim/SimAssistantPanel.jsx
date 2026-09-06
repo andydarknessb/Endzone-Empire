@@ -1,25 +1,21 @@
 import React, {
-  useCallback, useEffect, useMemo, useRef, useState,
+  useEffect, useMemo, useRef,
 } from 'react';
 import {
   Box, List, ListItem, Paper, Stack, Switch, Typography,
 } from '@mui/material';
 import PoliteRegion from '../DraftBoard/PoliteRegion';
-import { useAnnouncement } from '../DraftBoard/useAnnouncement';
-import { createLineGenerator, miseryStage } from '../../lib/draftAssistant';
+import { useDraftAssistant } from '../../hooks/useDraftAssistant';
+import { miseryStage, SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
 import { templateFor } from '../../lib/draftSim/templates';
 // The one shared urgency threshold (#754): SimStatusBar.jsx reads `myTurn &&
 // isUrgent(secondsLeft)` off this same module, so the assistant's "is this
 // urgent" question can never drift from the status bar's.
 import { isUrgent } from '../../lib/onTheClock';
-import { readDraftAssistantOn, writeDraftAssistantOn } from '../../lib/draftAssistantPreference';
 import {
   netVsAdpFor, factsForUserPick, factsForPoolTaken,
   factsForTurnStart, factsForClockUrgent, userTeamId,
 } from './simAssistantFacts';
-import { SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
-
-const SCROLLBACK_LIMIT = 20;
 
 /**
  * The Draft assistant's Sim-venue presenter (issue #786, part of the #784
@@ -59,10 +55,13 @@ const SCROLLBACK_LIMIT = 20;
  * scrollback) - mirroring the Draft room's own PickAnnouncer, whose initial
  * pick history likewise never reaches its announcer.
  *
- * The generator (src/lib/draftAssistant's createLineGenerator) is created
- * ONCE per mounted panel via a ref, so its per-draft "no repeat until the pool
- * is exhausted" tracking (ruling 2) survives across every render of one draft
- * and starts fresh for the next.
+ * The shared machinery - the toggle and its persistence, the scrollback and
+ * its cap, the one per-draft line generator (whose "no repeat until the pool
+ * is exhausted" tracking, ruling 2, survives every render of one mounted draft
+ * and starts fresh for the next), pushLine, the announcement and its
+ * clear-on-toggle-off - lives in src/hooks/useDraftAssistant.js (#950), shared
+ * verbatim with the Draft room. This panel keeps only its own trigger gates and
+ * facts below.
  *
  * THE POLITE REGION IS PERMANENTLY MOUNTED, never gated behind `assistantOn`
  * (pre-PR-ready accessibility review, #786): PickAnnouncer.jsx's own docblock
@@ -73,19 +72,18 @@ const SCROLLBACK_LIMIT = 20;
  * FIRST inserted into the DOM (a region mounted "on" already showing a stale
  * line from before it was toggled off is silently mis-read as new), and a
  * region that unmounts on toggle-off loses whatever the reader was tracking.
- * Because it is always present, the panel also explicitly clears it
- * (`announce('')`) whenever the toggle goes off, the same clear-on-exit idiom
- * StallAnnouncer.jsx uses - otherwise a later toggle-on would flash the old
- * line at mount before the next real trigger ever fires.
+ * Because it is always present, the shared hook explicitly clears it whenever
+ * the toggle goes off, the same clear-on-exit idiom StallAnnouncer.jsx uses -
+ * otherwise a later toggle-on would flash the old line at mount before the next
+ * real trigger ever fires.
  */
 function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
-  const [assistantOn, setAssistantOn] = useState(readDraftAssistantOn);
-  const [scrollback, setScrollback] = useState([]);
-  const [announcement, announce] = useAnnouncement();
+  // The shared machinery (src/hooks/useDraftAssistant.js, #950). Everything
+  // below this line is the Sim's own trigger gates and facts.
+  const {
+    assistantOn, toggleAssistant, scrollback, announcement, pushLine,
+  } = useDraftAssistant({ rng });
 
-  const lineGenRef = useRef(null);
-  if (!lineGenRef.current) lineGenRef.current = createLineGenerator();
-  const nextIdRef = useRef(0);
   const seenPickCountRef = useRef(null);
   const prevMyTurnRef = useRef(myTurn);
   const urgentFiredRef = useRef(false);
@@ -98,31 +96,6 @@ function SimAssistantPanel({ sim, myTurn, secondsLeft, rng = Math.random }) {
   const myTeamId = useMemo(() => userTeamId(sim), [sim]);
   const netVsAdp = useMemo(() => netVsAdpFor(sim), [sim]);
   const stage = miseryStage(netVsAdp);
-
-  const toggleAssistant = useCallback(() => {
-    setAssistantOn((prev) => {
-      const next = !prev;
-      writeDraftAssistantOn(next);
-      return next;
-    });
-  }, []);
-
-  // Clears the permanently-mounted region the moment the toggle goes off, so
-  // a later toggle-on never mounts-then-shows a stale line from before (see
-  // the docblock above). A no-op while already off/empty - announce('') on an
-  // already-empty region always lands plain (useAnnouncement.js).
-  useEffect(() => {
-    if (!assistantOn) announce('');
-  }, [assistantOn, announce]);
-
-  const pushLine = useCallback((facts, { spoken }) => {
-    const line = facts ? lineGenRef.current(facts, rng) : null;
-    if (!line) return;
-    nextIdRef.current += 1;
-    const id = nextIdRef.current;
-    setScrollback((prev) => [{ id, trigger: line.trigger, text: line.text }, ...prev].slice(0, SCROLLBACK_LIMIT));
-    if (spoken) announce(line.text);
-  }, [rng, announce]);
 
   // Turn start, and the once-per-turn urgent clock edge inside a turn that is
   // still the user's. Both reset together: a fresh turn clears the "already
