@@ -147,7 +147,37 @@ describe('Countdown', () => {
     test('the primary line matches the short-weekday, no-seconds, zone-abbreviated format', () => {
       const date = '2026-09-03T18:00:00.000Z';
       render(<Countdown date={date} />);
+      expect(screen.getByText(draftTimeFormat.formatViewerLocalSchedule(date))).toBeInTheDocument();
+      // The full variant puts this line on its own row under the ticker, so it
+      // starts the line: a pre-draft league's first screen used to open with a
+      // separator that had nothing to its left.
+      expect(screen.queryByText(/^·/)).not.toBeInTheDocument();
+    });
+
+    // The separator assertion moved here rather than being deleted: in the
+    // inline variant (DraftBoard) the schedule follows the ticker on one row,
+    // so the middot is separating two things and still belongs.
+    test('the inline variant keeps the leading separator, since the schedule follows the ticker', () => {
+      const date = '2026-09-03T18:00:00.000Z';
+      render(<Countdown variant="inline" date={date} />);
       expect(screen.getByText(`· ${draftTimeFormat.formatViewerLocalSchedule(date)}`)).toBeInTheDocument();
+    });
+
+    test('"Add to calendar" clears the 44px touch floor without changing its small-size padding', () => {
+      render(<Countdown date="2026-09-03T18:00:00.000Z" leagueId={1} leagueName="Harness League" />);
+
+      const button = screen.getByRole('button', { name: 'Add to calendar' });
+      expect(button).toHaveClass('MuiButton-sizeSmall');
+      // jsdom lays nothing out, but emotion inserts the sx rule into
+      // document.styleSheets under the element's generated class.
+      const cls = Array.from(button.classList).find((c) => c.startsWith('css-'));
+      const declarations = Array.from(document.styleSheets)
+        .flatMap((sheet) => Array.from(sheet.cssRules))
+        .filter((rule) => rule.selectorText === `.${cls}`)
+        .map((rule) => rule.style.cssText)
+        .join(';');
+      expect(declarations).toMatch(/min-height: 44px/);
+      expect(declarations).toMatch(/min-width: 44px/);
     });
 
     test('hover/tap detail names the league Draft time zone for the same instant', () => {

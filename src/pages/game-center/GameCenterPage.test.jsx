@@ -727,7 +727,11 @@ test('below the sm breakpoint the grid renders rows, the feed shows three and th
 // own DOM and rules: 1366px of document without it, exactly 390 with.
 //
 // Red-tell (#916 review): deleting `minWidth: 0` from the header row's sx in
-// GameCenterPage.jsx turns this case red and no other.
+// GameCenterPage.jsx turns this jsdom case red AND the layout guard's
+// "Game Center @ 390x844" width case (tests/e2e/game-center-matchup-layout.spec.ts,
+// #920), which measured the document at 1347px inside a 390px viewport with the
+// zero removed, and 390px with it. This rule binds the CSS; that e2e case binds
+// the rendered geometry.
 test('below the sm breakpoint the header row can shrink below the week strip it holds', async () => {
   mobile = true;
   mockApi({ matchups: [row({ id: 5, week: 1, status: 'live' })] });
@@ -759,7 +763,14 @@ test('below the sm breakpoint the header row can shrink below the week strip it 
 // the binding.
 //
 // Red-tell (#921): putting `minWidth: 0` back on the title column's sx in
-// GameCenterPage.jsx turns this case red and no other.
+// GameCenterPage.jsx turns this jsdom case red AND the layout guard's
+// "Game Center @ 640x900" header-region overlap case
+// (tests/e2e/game-center-matchup-layout.spec.ts, #920), which measured the h1
+// overlapping the week picker by 11x38px with the zero added (its fixture serves
+// no sync line, the condition this case measured). The e2e case compares
+// bounding boxes because the h1 overflows UNDER the picker's chevron, which is
+// painted on top, so an elementFromPoint hit test cannot see it; this rule binds
+// the CSS, that e2e case binds the rendered geometry.
 test('the title column keeps its content minimum, so the h1 cannot overflow onto the picker', async () => {
   mockApi({ matchups: [row({ id: 5, week: 1, status: 'live' })] });
   renderPage();

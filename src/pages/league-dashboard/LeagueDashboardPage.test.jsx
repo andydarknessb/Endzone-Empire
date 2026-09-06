@@ -69,6 +69,13 @@ jest.mock('../../components/LeaguePickem/PickemStandings', () => {
   };
 });
 
+// The emulated viewport width, in px, that every useMediaQuery on this page
+// resolves against (the chat drawer's `sm` switch and the commissioner panel's
+// `md` placement). Desktop by default, so a test that says nothing about width
+// gets the layout the page has always been tested at; a test that cares sets it
+// before rendering.
+let viewport = 1440;
+
 beforeEach(() => {
   // Clear ALL shared resource caches (ADR 0004), not the league alone: the
   // dashboard widgets read cached resources that are module state and outlive a
@@ -77,6 +84,29 @@ beforeEach(() => {
   // row. A whole-store invalidate covers every cached read a widget adds without
   // this setup needing to name each one.
   invalidate(undefined, { reload: false });
+  viewport = 1440;
+  // jsdom's own matchMedia answers false to everything, which silently pins the
+  // page to its desktop branches. This answers the theme's breakpoint queries
+  // against `viewport` instead, so `down('sm')` and `down('md')` can disagree
+  // (a tablet is compact for the commissioner panel and not for the chat
+  // drawer); anything that is neither a min- nor a max-width query stays false.
+  window.matchMedia = jest.fn().mockImplementation((query) => {
+    const max = /max-width:\s*([\d.]+)px/.exec(query);
+    const min = /min-width:\s*([\d.]+)px/.exec(query);
+    let matches = false;
+    if (max) matches = viewport <= Number(max[1]);
+    else if (min) matches = viewport >= Number(min[1]);
+    return {
+      matches,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    };
+  });
   // The copy-invite feature writes to the clipboard; jsdom has none by default.
   Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue() } });
   // The chat stand-in reports no unread by default; the badge test opts in.
@@ -163,6 +193,51 @@ const renderPage = (leagueId = 1) =>
     route: `/league/${leagueId}`,
   });
 
+// An sx rule is neither laid out nor computed by jsdom, but emotion inserts
+// every rule into `document.styleSheets` under the element's generated class.
+// This gathers the declarations of every rule whose selector starts with that
+// class, keyed by the selector's tail ('' for the element's own), exactly as
+// GameCenterPage.test.jsx:168 does.
+const rulesUnder = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = {};
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      const tail = rule.selectorText.slice(`.${cls}`.length).replace(/\s+/g, '');
+      found[tail] = `${found[tail] || ''}${rule.style.cssText};`;
+    });
+  });
+  return found;
+};
+
+// The same class, but flattened across breakpoints: a responsive sx value lands
+// inside an `@media` rule, and a CSSMediaRule carries no selectorText of its
+// own, so `rulesUnder` above never sees it. This page's grid tracks are
+// breakpoint-scoped, so their assertions read this instead. It deliberately
+// loses which breakpoint a declaration came from: use it to prove a value is
+// emitted at all, not to prove where.
+const cssFor = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  let css = '';
+  const visit = (rules) => {
+    Array.from(rules).forEach((rule) => {
+      if (rule.cssRules) { visit(rule.cssRules); return; }
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      css += `${rule.style.cssText};`;
+    });
+  };
+  Array.from(document.styleSheets).forEach((sheet) => visit(sheet.cssRules));
+  return css;
+};
+
+// True when `a` comes before `b` in the document. The commissioner panel's
+// placement is a DOM-order claim (WCAG 1.3.2/2.4.3), and DOM order is the one
+// thing jsdom can answer about layout, so it is asserted directly.
+const precedes = (a, b) =>
+  // eslint-disable-next-line no-bitwise, testing-library/no-node-access
+  Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
 // --- loading + error ------------------------------------------------------
 
 test('shows a loading placeholder until the league arrives', () => {
@@ -175,12 +250,127 @@ test('shows a loading placeholder until the league arrives', () => {
   expect(loading).toHaveAttribute('aria-busy', 'true');
 });
 
-test('shows an error message when the league fails to load', async () => {
+test('a failed league read renders a titled dead end, one alert, and a control that re-fires it', async () => {
   mockGetByUrl({
     '/api/league/1': { reject: { response: { data: { error: 'league not found' } } } },
   });
   renderPage();
-  expect(await screen.findByText('league not found')).toBeInTheDocument();
+
+  // The route still has an h1: a page whose only content was a line of error
+  // text had no heading at all, so nothing named the screen a reader landed on.
+  expect(
+    await screen.findByRole('heading', { level: 1, name: 'League unavailable' })
+  ).toBeInTheDocument();
+
+  // One alerted sentence, and it is the page's own. The server's string is
+  // deliberately NOT on screen: useResource collapses the server's `error`
+  // field and the transport's `err.message` into one value, so rendering it
+  // would put an axios internal in front of a manager on a network failure.
+  const alert = screen.getByRole('alert');
+  expect(alert).toHaveTextContent('We could not load this league right now.');
+  expect(screen.queryByText('league not found')).not.toBeInTheDocument();
+
+  // Try again re-fires the read (refetch invalidates the shared league key, so
+  // this is a real second GET, not a re-render).
+  const before = apiClient.get.mock.calls.filter(([url]) => url === '/api/league/1').length;
+  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await waitFor(() =>
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === '/api/league/1').length
+    ).toBeGreaterThan(before)
+  );
+});
+
+// --- page shell geometry ---------------------------------------------------
+
+test("page shell: pick'em standings do not widen the document", async () => {
+  // 360px: the width at which the pick'em body used to lay itself out 560px
+  // wide inside a 328px Container, leaving the right of every card on the app
+  // background and the whole document panning sideways.
+  viewport = 360;
+  mockGetByUrl({ '/api/league/1': pickemOnlyLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  // The shell is a column flex container, NOT a grid. That is the whole fix:
+  // the grid it replaced had one implicit `auto` track, so the widest
+  // min-content anywhere inside set the document's width. In a column flex
+  // container the automatic minimum applies to the block axis, so every child
+  // resolves to a zero inline minimum with no per-child `minWidth: 0`.
+  // Red-tell: putting `display: grid` back on the Container turns this case red.
+  const shell = rulesUnder(screen.getByTestId('dashboard-shell'))[''];
+  expect(shell).toMatch(/display:\s*flex/);
+  expect(shell).toMatch(/flex-direction:\s*column/);
+  // The stacking rhythm the grid used to own rides on the flex container now.
+  expect(shell).toMatch(/gap:\s*22px/);
+  // The fixed chat Fab (56px tall, at bottom: 24) was landing on the last card
+  // because the empty rows below it were the only thing keeping it clear. This
+  // is the clearance that replaces them, and it has to survive the `py` above
+  // it in the same sx object. Read through cssFor: MUI emits an xs breakpoint
+  // value as `@media (min-width: 0px)`, not as a base declaration.
+  expect(cssFor(screen.getByTestId('dashboard-shell'))).toMatch(/padding-bottom:\s*96px/);
+
+  // The pool standings are the primary content of this league type, so they are
+  // a named region with a real heading rather than a bare section.
+  expect(
+    screen.getByRole('heading', { level: 2, name: "Pick'em Standings" })
+  ).toBeInTheDocument();
+});
+
+test('page shell: the standings track has a zero minimum and the rail track keeps its own', async () => {
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const main = cssFor(screen.getByTestId('dashboard-main'));
+  // The standings track alone is floored at zero. `1fr` still floors at the
+  // item's min-content width, which is what let a wide table push the document.
+  expect(main).toMatch(/minmax\(0,\s*8fr\)\s+4fr/);
+  expect(main).toMatch(/minmax\(0,\s*1fr\)/);
+  // The rail track is deliberately NOT zeroed: it holds the legacy
+  // commissioner selects, whose fixed widths would overflow a zeroed track
+  // rather than clip inside it (#916/#917/#919/#921).
+  expect(main).not.toMatch(/minmax\(0,\s*4fr\)/);
+
+  // The grid item needs its own zero minimum too, and it is paired with a clip
+  // on the same box. `clip` and not `hidden`/`auto`: those would make this box a
+  // scroll container and capture the standings table's sticky header.
+  const standings = rulesUnder(screen.getByTestId('slot-standings'))[''];
+  expect(standings).toMatch(/min-width:\s*0/);
+  expect(standings).toMatch(/overflow-x:\s*clip/);
+});
+
+test('page shell: a member\'s null-rendering wrappers collapse instead of buying a gap', async () => {
+  // A member's commissioner slot renders an empty wrapper (the widget returns
+  // null for a non-commissioner by #644's design). In the shell's 22px stack an
+  // empty wrapper still takes a turn, which is where the blank bands came from.
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const slot = screen.getByTestId('slot-commissioner-panel');
+  expect(slot).toBeEmptyDOMElement();
+  expect(rulesUnder(slot)[':empty']).toMatch(/display:\s*none/);
+});
+
+test('page shell: a viewer with no team of their own loses the hero column, not just the card', async () => {
+  // A viewer who owns no Team (a commissioner who never joined): viewerTeamId
+  // is the per-viewer field that answers it (#112), not a scan of teams[].
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(12),
+      viewerTeamId: null,
+    }),
+  });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  // The slot is gone, not merely empty: leaving it in place kept 5/12 of the
+  // hero as bare page beside a lone matchup card.
+  expect(screen.queryByTestId('slot-my-team')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-matchup-preview')).toBeInTheDocument();
+  expect(cssFor(screen.getByTestId('dashboard-hero'))).not.toMatch(/5fr\s+7fr/);
 });
 
 // --- header chips (derived from the League-phase helper) -------------------
@@ -1603,7 +1793,11 @@ test('commissioner-panel: a member sees no panel, no chip, no advance button, an
   // The panel's card title is the only rendered "Commissioner" text on the
   // page; a member never sees it (verified absence, release review).
   expect(screen.queryByText('Commissioner')).not.toBeInTheDocument();
-  expect(screen.queryByText('Only you see this')).not.toBeInTheDocument();
+  // The panel's pill, whatever its count. It reads "Commissioners only · N"
+  // (N = co-commissioners + 1) since "Only you see this" stopped being true the
+  // moment a league could have a second commissioner; the count itself is the
+  // widget's own assertion, this one is about a member never seeing the pill.
+  expect(screen.queryByText(/Commissioners only/)).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
   // A legacy commissioner-tools heading (mounted only behind the disclosure,
   // and only in a commissioner panel) is absent entirely.
@@ -1615,7 +1809,7 @@ test('commissioner-panel: week 1 renders the chip, the consequence sentence, and
   renderPage();
 
   const card = await screen.findByTestId('commissioner-panel');
-  expect(within(card).getByText('Only you see this')).toBeInTheDocument();
+  expect(within(card).getByText(/Commissioners only/)).toBeInTheDocument();
   // The sentence names the current week and the next one (scoped to the card;
   // the dialog restates the same consequence, portaled out of the card).
   expect(
@@ -1697,9 +1891,55 @@ test("commissioner-panel: a pick'em-only commissioner sees the panel but no adva
   renderPage();
 
   const card = await screen.findByTestId('commissioner-panel');
-  expect(within(card).getByText('Only you see this')).toBeInTheDocument();
+  expect(within(card).getByText(/Commissioners only/)).toBeInTheDocument();
   // Week advancement in a pick'em-only league is the scheduler's job.
   expect(within(card).queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
+});
+
+test('commissioner-panel: below md it is the first section under the header, mounted exactly once', async () => {
+  // Below md the rail stacks under the standings, which put the commissioner's
+  // own console roughly three screens down, under a 12-row standings card and a
+  // 12-row draft-grades card.
+  viewport = 390;
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  // Exactly one mount, so DOM order IS visual order: no CSS `order`, and no
+  // second disclosure to drift out of sync with the first.
+  expect(screen.getAllByTestId('commissioner-panel')).toHaveLength(1);
+  expect(screen.getAllByTestId('slot-commissioner-panel')).toHaveLength(1);
+
+  expect(precedes(card, screen.getByTestId('slot-standings'))).toBe(true);
+  expect(precedes(screen.getByTestId('dashboard-hero'), card)).toBe(false);
+  // Directly under the header means ahead of the recap band too.
+  expect(precedes(card, screen.getByTestId('slot-recap'))).toBe(true);
+});
+
+test('commissioner-panel: at md and up it is back in the rail, still mounted exactly once', async () => {
+  // 1024px: past the md flip, where the rail is a real column beside the
+  // standings and the panel belongs at its foot.
+  viewport = 1024;
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  expect(screen.getAllByTestId('commissioner-panel')).toHaveLength(1);
+  expect(screen.getByTestId('dashboard-rail')).toContainElement(card);
+  expect(precedes(screen.getByTestId('slot-standings'), card)).toBe(true);
+});
+
+test("commissioner-panel: a pick'em commissioner below md gets the same single top-level mount", async () => {
+  // A pick'em league has no rail at all, so its panel normally sits at the
+  // bottom of the page; below md it moves to the same place a fantasy league's
+  // does, and the bottom branch stands down so there is still one mount.
+  viewport = 390;
+  mockGetByUrl({ '/api/league/1': commissionerPanelPickemLeague() });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  expect(screen.getAllByTestId('commissioner-panel')).toHaveLength(1);
+  expect(precedes(card, screen.getByTestId('dashboard-quick-actions'))).toBe(true);
 });
 
 test('commissioner-panel: expanding League administration mounts the legacy commissioner tools', async () => {
@@ -1835,6 +2075,83 @@ test('cutover: the chat launcher carries the unread count the chat panel reports
   expect(within(launcher).getByText('3')).toBeInTheDocument();
 });
 
+test('chat drawer: modal below sm', async () => {
+  // At 390px the paper is the whole viewport, so it has to behave like a
+  // dialog. `temporary` is the only MUI variant that renders a Modal, and the
+  // Modal is what brings the backdrop, the focus trap, Escape and focus
+  // restore; the role and aria-modal are the page's own, because the Modal
+  // supplies none. Red-tell: hard-coding the variant back to 'persistent'
+  // turns this case red (the dialog semantics are derived from it).
+  viewport = 390;
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  const launcher = await screen.findByRole('button', { name: 'Open league chat' });
+  expect(launcher).toHaveAttribute('aria-expanded', 'false');
+  // keepMounted means the paper is in the DOM before the first open, so the
+  // launcher's aria-controls names something from the first render rather than
+  // dangling while the drawer is closed (the #694 wiring rule).
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(document.getElementById(launcher.getAttribute('aria-controls'))).toBeInTheDocument();
+
+  await userEvent.click(launcher);
+  expect(launcher).toHaveAttribute('aria-expanded', 'true');
+
+  // Reached by the id the launcher points at, so a drifting id fails here
+  // rather than leaving aria-controls dangling.
+  // eslint-disable-next-line testing-library/no-node-access
+  const paper = document.getElementById(launcher.getAttribute('aria-controls'));
+  expect(paper).toHaveAttribute('role', 'dialog');
+  expect(paper).toHaveAttribute('aria-modal', 'true');
+  expect(paper).toHaveAttribute('aria-label', 'League chat');
+
+  // The Modal's Escape handling reaches the page's onClose, and its focus
+  // restore puts the caret back on the launcher rather than at the top of the
+  // document.
+  await userEvent.keyboard('{Escape}');
+  await waitFor(() => expect(launcher).toHaveAttribute('aria-expanded', 'false'));
+  await waitFor(() => expect(launcher).toHaveFocus());
+});
+
+test('chat drawer: at sm and up it stays the docked panel, with no dialog claim', async () => {
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  const launcher = await screen.findByRole('button', { name: 'Open league chat' });
+  await userEvent.click(launcher);
+
+  // A docked panel traps nothing and leaves the page live, so claiming
+  // aria-modal here would tell a screen reader the dashboard is inert when it
+  // is not. The paper is still mounted and still named by aria-controls.
+  // eslint-disable-next-line testing-library/no-node-access
+  const paper = document.getElementById('league-chat-drawer');
+  expect(paper).toBeInTheDocument();
+  expect(paper).not.toHaveAttribute('role');
+  expect(paper).not.toHaveAttribute('aria-modal');
+});
+
+test('chat drawer: the unread count survives an open and a close', async () => {
+  // keepMounted is what makes this true below sm: without it the temporary
+  // variant tears ChatPanel down on close, and the socket-owned unread count
+  // restarts from zero on the next open.
+  viewport = 390;
+  mockChatUnread = 3;
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  const launcher = await screen.findByRole('button', {
+    name: 'Open league chat, 3 unread messages',
+  });
+  await userEvent.click(launcher);
+  await userEvent.click(screen.getByRole('button', { name: 'Close chat' }));
+
+  await waitFor(() => expect(launcher).toHaveAttribute('aria-expanded', 'false'));
+  expect(screen.getAllByTestId('mock-chat-panel')).toHaveLength(1);
+  expect(
+    screen.getByRole('button', { name: 'Open league chat, 3 unread messages' })
+  ).toBeInTheDocument();
+});
+
 test("cutover: a pick'em-only member shows pick'em standings and the Pick'em action, omits every fantasy slice, and fires no fantasy read", async () => {
   // pickemOnlyLeague() is a member, pickem_only, in season at week 6.
   mockGetByUrl({ '/api/league/1': pickemOnlyLeague() });
@@ -1963,6 +2280,12 @@ test('cutover: a pre-draft fantasy league with a draft_date renders the draft co
   // It is the real Countdown in its full variant, not an empty box: the
   // add-to-calendar control renders because leagueId and leagueName are passed.
   expect(within(countdown).getByRole('button', { name: 'Add to calendar' })).toBeInTheDocument();
+  // On a pre-draft league this is the first block under the h1, so it is a
+  // named region: unwrapped it was an unlabelled section whose only text was a
+  // ticker.
+  expect(
+    within(countdown).getByRole('heading', { level: 2, name: 'Draft Day' })
+  ).toBeInTheDocument();
 });
 
 test('cutover: no draft countdown once the draft_date is absent, past pre-draft, or pick\'em-only', async () => {

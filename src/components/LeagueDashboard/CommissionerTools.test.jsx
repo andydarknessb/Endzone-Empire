@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
-import CommissionerTools from './CommissionerTools';
+import CommissionerTools, { clearCommissionerDrafts } from './CommissionerTools';
 // Imported the way templates.parity.test.js reads the server leaf: rosterSlots
 // is a pure value module with no load-time require, so jsdom can pull it in
 // without dragging the pg pool into the bundle. This is the authority the
@@ -98,6 +98,12 @@ const renderTools = (props = {}) =>
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetByUrl();
+  // The unsaved-edit drafts are handed across an unmount through a module-level
+  // stash (that is the whole point of them: collapsing the disclosure above
+  // unmounts this tree), so they outlive a test the way they outlive a
+  // collapse. Cleared here, or a case that edits a form leaves the next case's
+  // tabs marked "Unsaved" and changes their accessible names.
+  clearCommissionerDrafts();
 });
 
 // #682: the title used to render <h6>, directly under the commissioner-panel
@@ -480,7 +486,7 @@ test('stamping the Standard template renders the server leaf standard slots, in 
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+  await userEvent.click(screen.getByRole('radio', { name: 'Standard' }));
 
   const renderedKeys = screen.getAllByLabelText('Slot Name').map((input) => input.value);
   const renderedCounts = screen.getAllByLabelText('Count').map((input) => Number(input.value));
@@ -498,7 +504,7 @@ test('saving after stamping the Standard template posts slots with no label key'
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
 
-  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+  await userEvent.click(screen.getByRole('radio', { name: 'Standard' }));
   await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
 
   await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
@@ -555,7 +561,7 @@ test('Scoring Settings unlocks the IDP fields when the league has DP enabled', a
   expect(screen.getByLabelText('Solo Tackle')).toBeEnabled();
 });
 
-test('the PPR preset chips set only the reception rate', async () => {
+test('the PPR presets set only the reception rate, as one radio group', async () => {
   mockGetByUrl({
     '/api/scoring/rules': { data: { defaults: {
       ...SCORING_DEFAULTS_FIXTURE,
@@ -566,10 +572,17 @@ test('the PPR preset chips set only the reception rate', async () => {
   await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
 
   expect(await screen.findByLabelText('Reception')).toHaveValue(0.5);
-  await userEvent.click(screen.getByRole('button', { name: 'Full PPR' }));
+  // The selected preset is derived from the reception rate on screen, so the
+  // group reports the league's own rate before anything is clicked.
+  expect(screen.getByRole('radio', { name: 'Half PPR' })).toHaveAttribute('aria-checked', 'true');
+
+  await userEvent.click(screen.getByRole('radio', { name: 'Full PPR' }));
   expect(screen.getByLabelText('Reception')).toHaveValue(1);
   expect(screen.getAllByLabelText('Per Yard')[1]).toHaveValue(0.1); // receiving yards untouched
-  await userEvent.click(screen.getByRole('button', { name: 'Standard' }));
+  expect(screen.getByRole('radio', { name: 'Full PPR' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByRole('radio', { name: 'Half PPR' })).toHaveAttribute('aria-checked', 'false');
+
+  await userEvent.click(screen.getByRole('radio', { name: 'Standard' }));
   expect(screen.getByLabelText('Reception')).toHaveValue(0);
 });
 
@@ -687,16 +700,24 @@ test('an invalid slot name is rejected client-side with a specific message, no r
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
-test('a lineup template chip stamps in its slots and enables DP for the IDP template', async () => {
+test('a lineup template stamps in its slots and enables DP for the IDP template', async () => {
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
 
   expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
-  await userEvent.click(screen.getByRole('button', { name: 'IDP starter' }));
+  // The league fixture's two-slot lineup matches no template, so the group
+  // starts with nothing checked rather than defaulting to Standard.
+  const templates = within(screen.getByTestId('lineup-template-control')).getAllByRole('radio');
+  expect(templates.every((option) => option.getAttribute('aria-checked') === 'false')).toBe(true);
+
+  await userEvent.click(screen.getByRole('radio', { name: 'IDP starter' }));
 
   const slotNames = screen.getAllByLabelText('Slot Name').map((el) => el.value);
   expect(slotNames).toEqual(['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'DL', 'LB', 'DB']);
   expect(screen.getByLabelText('Enable Defensive Players (IDP)')).toBeChecked();
+  // And the stamped shape is now the checked segment, because the selection is
+  // derived from the slots on screen rather than remembered from the click.
+  expect(screen.getByRole('radio', { name: 'IDP starter' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('a league\'s existing custom scoring_rules seed the editor over the defaults', async () => {
@@ -913,34 +934,79 @@ test('Manual Score Correction fetches the matchup and applies a point adjustment
   );
 });
 
-test('Matchup Scheduling & Scoring can generate matchups and score a week', async () => {
-  apiClient.post.mockResolvedValue({ data: {} });
+// The season and week these two ops post are the LEAGUE'S, seeded from
+// current_season/current_week. They used to be the literals useState('2025')
+// and useState('1') with no league prop reaching the card at all, so a 2026
+// commissioner who pressed Generate Matchups without editing them inserted a
+// 2025 week-1 schedule that no screen in the product can delete.
+const seasonLeague = (overrides = {}) => league({ current_season: 2026, current_week: 3, ...overrides });
+
+test('Matchup Scheduling & Scoring posts the league\'s own season and week', async () => {
+  apiClient.post.mockResolvedValue({ data: { created: 5 } });
   const onRefresh = jest.fn();
-  renderTools({ onRefresh });
+  renderTools({ league: seasonLeague(), onRefresh });
   await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
 
-  // Defaults (season 2025, week 1) are used as-is.
+  expect(screen.getByLabelText('Season')).toHaveValue(2026);
+  expect(screen.getByLabelText('Week Number')).toHaveValue(3);
+
   await userEvent.click(screen.getByRole('button', { name: 'Generate Matchups' }));
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2025, week: 1 })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2026, week: 3 })
   );
+  expect(await screen.findByText('Generated 5 matchups for week 3')).toBeInTheDocument();
 
+  apiClient.post.mockResolvedValue({ data: { scored: [{ id: 1 }, { id: 2 }] } });
   await userEvent.click(screen.getByRole('button', { name: 'Score Week' }));
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2025, week: 1 })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2026, week: 3 })
   );
+  expect(await screen.findByText('Scored 2 matchups in week 3')).toBeInTheDocument();
   expect(onRefresh).toHaveBeenCalled();
+});
+
+// generateMatchups answers 201 with `{ created: 0, reason }` when the week
+// already has a schedule or the league has fewer than two teams, and
+// scoreMatchups answers 200 with an empty `scored` for a season/week that has
+// no matchups. Both used to be reported as "successfully!" and both used to
+// fire the league refetch behind that lie.
+test('Matchup Scheduling & Scoring reports the server\'s own reason when it created nothing', async () => {
+  apiClient.post.mockResolvedValue({ data: { created: 0, reason: 'matchups already exist for this week' } });
+  const onRefresh = jest.fn();
+  renderTools({ league: seasonLeague(), onRefresh });
+  await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
+
+  await userEvent.click(screen.getByRole('button', { name: 'Generate Matchups' }));
+  expect(await screen.findByText('No matchups generated · matchups already exist for this week'))
+    .toBeInTheDocument();
+  expect(onRefresh).not.toHaveBeenCalled();
+
+  apiClient.post.mockResolvedValue({ data: { scored: [] } });
+  await userEvent.click(screen.getByRole('button', { name: 'Score Week' }));
+  expect(await screen.findByText('No matchups found for 2026 week 3')).toBeInTheDocument();
+  expect(onRefresh).not.toHaveBeenCalled();
+});
+
+// A league row with no season at all leaves the fields empty rather than
+// guessing a year, and an empty field disables both ops.
+test('Matchup Scheduling & Scoring guesses no season when the league row carries none', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
+
+  expect(screen.getByLabelText('Season')).toHaveValue(null);
+  expect(screen.getByRole('button', { name: 'Generate Matchups' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Score Week' })).toBeDisabled();
 });
 
 test('Matchup Scheduling & Scoring surfaces a toast and skips refresh when an op fails', async () => {
   apiClient.post.mockRejectedValue({ response: { data: { error: 'No teams to schedule' } } });
   const onRefresh = jest.fn();
-  renderTools({ onRefresh });
+  renderTools({ league: seasonLeague(), onRefresh });
   await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
 
   await userEvent.click(screen.getByRole('button', { name: 'Generate Matchups' }));
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2025, week: 1 })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/matchups', { season: 2026, week: 3 })
   );
   expect(await screen.findByText('No teams to schedule')).toBeInTheDocument();
   expect(onRefresh).not.toHaveBeenCalled();
@@ -948,7 +1014,7 @@ test('Matchup Scheduling & Scoring surfaces a toast and skips refresh when an op
   // Score Week fails independently and likewise reports rather than refreshing.
   await userEvent.click(screen.getByRole('button', { name: 'Score Week' }));
   await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2025, week: 1 })
+    expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/score', { season: 2026, week: 3 })
   );
   expect(onRefresh).not.toHaveBeenCalled();
 });
@@ -1283,9 +1349,12 @@ test("the pick'em Season tab explains the automatic season and offers rollover o
 
   const onRefresh = jest.fn();
   apiClient.post.mockResolvedValue({ data: {} });
-  renderTools({ league: pickemLeague({ season_status: 'complete' }), onRefresh });
+  renderTools({ league: pickemLeague({ season_status: 'complete', current_season: 2026 }), onRefresh });
   await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
   await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+  // The POST is behind a confirmation now, so the trigger alone sends nothing.
+  expect(apiClient.post).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
   );
@@ -1293,11 +1362,95 @@ test("the pick'em Season tab explains the automatic season and offers rollover o
   expect(onRefresh).toHaveBeenCalled();
 });
 
+// A pick'em-only league has no rosters, draft or waivers (ADR 0002), so its
+// confirmation must not recite the fantasy list of things being deleted.
+test("the pick'em rollover confirmation names archiving and picks, not rosters and drafts", async () => {
+  renderTools({ league: pickemLeague({ season_status: 'complete', current_season: 2026 }) });
+  await userEvent.click(screen.getByRole('tab', { name: 'Season' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+
+  const dialog = screen.getByRole('dialog');
+  expect(dialog).toHaveTextContent('archives the 2026 season standings to League History');
+  expect(dialog).toHaveTextContent('opens 2027 for picks');
+  expect(dialog).not.toHaveTextContent(/roster/i);
+  expect(dialog).not.toHaveTextContent(/draft/i);
+});
+
 test('a fantasy league keeps the General Settings rollover and shows no Season tab', () => {
   // Season completion is read from the league row (phase), not a standings row.
   renderTools({ league: league({ draft_status: 'complete', season_status: 'complete', current_week: 17 }) });
   expect(screen.queryByRole('tab', { name: 'Season' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Start New Season' })).toBeInTheDocument();
+});
+
+// The whole point of the guard: rolloverSeason DELETEs team_players,
+// draft_picks and waiver_players, cancels pending claims and trades, resets
+// FAAB and increments the season, and none of it can be undone. The old button
+// fired all of that on one click and toasted "New season started!" before the
+// commissioner could have read anything. `aria-describedby` is what makes the
+// consequence sentence part of what a screen reader announces on open: MUI
+// moves focus to Cancel, so the title and that button are all it would say.
+test('Start New Season is guarded by a dialog that names what rollover deletes', async () => {
+  apiClient.post.mockResolvedValue({ data: {} });
+  const onRefresh = jest.fn();
+  const completeLeague = league({
+    draft_status: 'complete', season_status: 'complete', current_week: 17, current_season: 2026,
+  });
+  renderTools({ league: completeLeague, onRefresh });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+  expect(apiClient.post).not.toHaveBeenCalled();
+
+  const dialog = screen.getByRole('dialog');
+  // The described element is asserted by identity, not by proximity: the same
+  // sentence is also rendered above the trigger, and only the one the dialog
+  // POINTS at is announced on open.
+  const described = within(dialog).getByText(/clears every team's roster/);
+  expect(dialog).toHaveAttribute('aria-labelledby');
+  expect(dialog).toHaveAttribute('aria-describedby', described.id);
+  expect(described).toHaveTextContent('deletes all draft picks');
+  expect(described).toHaveTextContent('cancels pending waiver claims and trades');
+  expect(described).toHaveTextContent("resets every team's FAAB budget");
+  expect(described).toHaveTextContent('This cannot be undone.');
+  expect(described).toHaveTextContent('moves to 2027 at week 1');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
+  );
+  expect(onRefresh).toHaveBeenCalled();
+});
+
+test('cancelling the rollover dialog sends nothing', async () => {
+  renderTools({
+    league: league({ draft_status: 'complete', season_status: 'complete', current_season: 2026 }),
+  });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  expect(apiClient.post).not.toHaveBeenCalled();
+});
+
+// It is the last thing on the tab, not the third thing: the only irreversible
+// league-wide write on General used to sit above Team limits in a filled green
+// button whose hue is identical to Approve on the same tab. It is deliberately
+// NOT inside the "Remove a team" Paper, whose body at season-complete is
+// already the phase-refusal branch.
+test('the rollover lives in a Danger zone region that is the last thing on the tab', () => {
+  renderTools({
+    league: league({ draft_status: 'complete', season_status: 'complete', current_season: 2026 }),
+    teams: usernameDistinctTeams,
+    viewerTeamId: 99,
+  });
+
+  const dangerZone = screen.getByTestId('commissioner-danger-zone');
+  expect(within(dangerZone).getByRole('button', { name: 'Start New Season' })).toBeInTheDocument();
+  expect(within(dangerZone).getByTestId('badge')).toHaveAttribute('data-variant', 'danger');
+  // Not nested in the destructive Paper above it, and after it in DOM order.
+  const removeSection = screen.getByTestId('remove-team-refused');
+  expect(dangerZone.contains(removeSection)).toBe(false);
+  expect(removeSection.compareDocumentPosition(dangerZone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 // Hash-only navigation between two leagues keeps the league dashboard page
@@ -1391,4 +1544,200 @@ test("a pick'em-only league's team limit stays editable whatever its draft or se
   renderTools({ league: pickemLeague({ draft_status: 'complete', season_status: 'complete', max_teams: 20 }) });
   expect(screen.getByLabelText('Max teams')).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Save Limits' })).toBeEnabled();
+});
+
+// --- Unsaved edits survive a tab change and a collapse (T10) ---
+//
+// Every panel used to hold its edits in local `useState` below TWO unmounting
+// boundaries: `{tab === 'roster' && <RosterSettingsPanel/>}` here, and
+// `{adminOpen && <CommissionerTools/>}` in CommissionerPanel. So a commissioner
+// hand-tuning forty scoring leaves who checked one roster slot lost all of it,
+// silently, with no dirty flag anywhere in either directory. The edits now live
+// in one `drafts` object owned by CommissionerTools, handed across the collapse
+// through a module stash.
+
+test('scoring edits survive a tab change', async () => {
+  mockScoringRules();
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Scoring Settings' }));
+
+  const touchdownField = await screen.findByLabelText('Touchdown');
+  await userEvent.clear(touchdownField);
+  await userEvent.type(touchdownField, '9');
+  expect(touchdownField).toHaveValue(9);
+
+  await userEvent.click(screen.getByRole('tab', { name: /^Roster Settings/ }));
+  expect(screen.queryByLabelText('Touchdown')).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('tab', { name: /^Scoring Settings/ }));
+  expect(await screen.findByLabelText('Touchdown')).toHaveValue(9);
+  // And the defaults are NOT re-read on the way back: that refetch, which
+  // rebuilt the rules from scratch, was the mechanism of the data loss.
+  expect(apiClient.get.mock.calls.filter(([url]) => url === '/api/scoring/rules')).toHaveLength(1);
+});
+
+test('roster edits survive a tab change', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
+  const nameFields = screen.getAllByLabelText('Slot Name');
+  await userEvent.type(nameFields[nameFields.length - 1], 'SFLX');
+
+  await userEvent.click(screen.getByRole('tab', { name: /^General Settings/ }));
+  await userEvent.click(screen.getByRole('tab', { name: /^Roster Settings/ }));
+
+  expect(screen.getAllByLabelText('Slot Name').map((el) => el.value)).toEqual(['QB', 'FLEX', 'SFLX']);
+});
+
+test('unsaved edits survive a collapse and re-expand of the disclosure above', async () => {
+  const { unmount } = renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Playoffs & Schedule' }));
+  await userEvent.click(screen.getByLabelText('Playoff Teams'));
+  await userEvent.click(await screen.findByRole('option', { name: '8 teams' }));
+
+  // CommissionerPanel renders `{adminOpen && <CommissionerTools/>}`, so
+  // collapsing it is exactly this unmount.
+  unmount();
+  renderTools();
+
+  await userEvent.click(screen.getByRole('tab', { name: /^Playoffs & Schedule/ }));
+  expect(screen.getByLabelText('Playoff Teams')).toHaveTextContent('8 teams');
+});
+
+// One league's unsaved edits are never offered as another league's. A hash-only
+// hop between leagues keeps this component mounted, which is the same case the
+// tab derivation answers.
+test('unsaved edits do not cross a league change', async () => {
+  const { rerender } = render(
+    <StableShell>
+      <CommissionerTools leagueId={1} league={league()} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
+    </StableShell>
+  );
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(3);
+
+  rerender(
+    <StableShell>
+      <CommissionerTools leagueId={2} league={league({ id: 2 })} teams={teams} viewerTeamId={1} onRefresh={jest.fn()} />
+    </StableShell>
+  );
+  // The rerender swaps the whole tab set, so this clean tab name (no "Unsaved"
+  // marker carried over from league 1) is the claim to await.
+  await userEvent.click(await screen.findByRole('tab', { name: 'Roster Settings' }));
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
+});
+
+// WCAG 1.4.1: the marker is a dot AND the word, never the dot alone. The word
+// is what the tab's accessible name gains, so the state is in the accessibility
+// tree and not only in a colour.
+test('a tab with unsaved edits is marked by a dot and by the word Unsaved', async () => {
+  renderTools();
+  expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
+
+  const dirtyTab = screen.getByRole('tab', { name: 'Roster Settings Unsaved' });
+  expect(within(dirtyTab).getByTestId('tab-dirty-dot')).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'General Settings' })).toBeInTheDocument();
+});
+
+// Saving is what clears the marker: the values just posted ARE the settings
+// now, so the baseline moves to them rather than the draft being dropped (which
+// would flash the pre-save values until the refetch lands).
+test('saving clears the unsaved marker without discarding the values on screen', async () => {
+  apiClient.put.mockResolvedValue({});
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  const bench = screen.getByLabelText('Bench Slots');
+  await userEvent.clear(bench);
+  await userEvent.type(bench, '6');
+  expect(screen.getByRole('tab', { name: 'Roster Settings Unsaved' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Save Roster Settings' }));
+  expect(await screen.findByText('Roster settings saved')).toBeInTheDocument();
+
+  expect(screen.getByRole('tab', { name: 'Roster Settings' })).toBeInTheDocument();
+  expect(screen.queryByTestId('tab-dirty-dot')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Bench Slots')).toHaveValue(6);
+});
+
+// Discarding is now the only way to lose an edit, so it is the one thing that
+// has to be confirmed.
+test('discarding unsaved edits is confirmed first, and restores the saved settings', async () => {
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'Roster Settings' }));
+  await userEvent.click(screen.getByRole('button', { name: '+ Add Slot' }));
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(3);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(3);
+
+  // MUI keeps the dialog mounted through its exit transition, with the rest of
+  // the tree still aria-hidden behind it, so the trigger is awaited by role
+  // rather than queried the instant the click resolves.
+  await userEvent.click(await screen.findByRole('button', { name: 'Discard changes' }));
+  const dialog = screen.getByRole('dialog');
+  const described = within(dialog)
+    .getByText('The Roster Settings tab goes back to the settings saved for this league. Nothing that is already saved changes.');
+  expect(dialog).toHaveAttribute('aria-labelledby');
+  expect(dialog).toHaveAttribute('aria-describedby', described.id);
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Discard' }));
+
+  expect(screen.getAllByLabelText('Slot Name')).toHaveLength(2);
+  expect(screen.queryByTestId('commissioner-unsaved-bar')).not.toBeInTheDocument();
+});
+
+// --- Targets, labels and the tab strip (T10) ---
+
+// An `sx`/styled rule is neither laid out nor computed by jsdom, but emotion
+// inserts it into `document.styleSheets` under the element's generated class
+// (PickWeek.test.jsx and GameCenterPage.test.jsx read layout rules the same
+// way). This gathers the declarations of every rule whose selector names both
+// that class and `fragment`, descending into `@media` blocks, which is where
+// MUI puts the responsive halves.
+const declarationsFor = (el, fragment) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = [];
+  const walk = (rules) => Array.from(rules || []).forEach((rule) => {
+    if (rule.cssRules) walk(rule.cssRules);
+    if (rule.selectorText && rule.selectorText.includes(`.${cls}`) && rule.selectorText.includes(fragment)) {
+      found.push(rule.style.cssText);
+    }
+  });
+  Array.from(document.styleSheets).forEach((sheet) => walk(sheet.cssRules));
+  return found;
+};
+
+// The strongest action in the file had the weakest affordance: a bare 36px
+// trash glyph in a `secondaryAction` slot. It is a labelled control now, and
+// the accessible name still carries the Team name, which is what tells two
+// rows apart.
+test('removing a team is a labelled control, not a bare glyph', () => {
+  renderTools({ viewerTeamId: 99, teams: usernameDistinctTeams });
+
+  const remove = screen.getByRole('button', { name: 'Remove Gridiron Gurus' });
+  expect(remove).toHaveTextContent('Remove');
+  expect(remove.tagName).toBe('BUTTON');
+});
+
+// MUI 5.16 defaults `allowScrollButtonsMobile` to false, so `scrollButtons="auto"`
+// resolved to `display: none` below sm and a 288px strip showed one and a half
+// of six tabs with no affordance that the rest existed. The mobile-hiding rule
+// is emitted only when the flag is off, so its absence is what pins the flag.
+test('the tab strip keeps its scroll buttons at phone widths', () => {
+  renderTools();
+  expect(screen.getByRole('tablist', { name: 'Commissioner tools sections' })).toBeInTheDocument();
+
+  // The buttons themselves are not in the DOM under jsdom (`scrollButtons="auto"`
+  // renders them only when there is real overflow, and jsdom measures every
+  // width as 0), so the flag is read off the rule MUI emits for them: the Tabs
+  // root carries `& .MuiTabs-scrollButtons { @media down(sm) { display: none } }`
+  // exactly when `allowScrollButtonsMobile` is off (Tabs.js keys it on
+  // `scrollButtonsHideMobile: !allowScrollButtonsMobile`). That rule sits
+  // inside an `@media` block, so the walk descends into those.
+  const declarations = declarationsFor(screen.getByTestId('commissioner-tabs'), 'MuiTabs-scrollButtons');
+  expect(declarations.join(' ')).not.toMatch(/display: *none/);
 });

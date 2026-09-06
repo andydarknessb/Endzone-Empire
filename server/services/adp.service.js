@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { normalizeNameKey } = require('./nameMatch');
 const { IDP_POSITIONS } = require('./scoring.service');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -261,19 +262,29 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   // wipe guard has passed. recordAdpRun stays OUTSIDE it: the run record is
   // best-effort observability and must not be rolled back with the market.
   //
-  // KNOWN HAZARD (#904). Holding the wipe's row locks across the bulk set (which
-  // locks target rows in a different order) permits a deadlock cycle with
-  // syncInjuries (scoring.service.js), which locks near the whole players table
-  // FOR UPDATE in its own scan order and holds to commit. Postgres aborts one
-  // transaction (~1s); if this one loses, the catch below rolls back to the
-  // PREVIOUS fully-populated ADP values, records ok=false, and re-throws, so the
-  // "no reader ever sees count 0" invariant holds even in the deadlock case and
-  // the rerun is a retry of an admin job. Accepted over the bug this fixes, which
-  // fired on every sync. #904 tracks the two cleaner remedies (advisory lock, or
-  // a single-statement refresh).
+  // SERIALIZED WITH syncInjuries (#904). Holding the wipe's row locks across the
+  // bulk set (which locks target rows in a different order) would otherwise
+  // permit a deadlock cycle with syncInjuries (scoring.service.js), which locks
+  // near the whole players table FOR UPDATE in its own scan order and holds to
+  // commit. Both writers take a single transaction-scoped advisory lock
+  // (PLAYERS_BULK_WRITE_LOCK) as the FIRST statement inside their transaction,
+  // before any row lock, so the two runs cannot interleave and cannot form the
+  // cycle. It is the BLOCKING xact form (pg_advisory_xact_lock): the second sync
+  // waits rather than skipping. That wait ends when the other sync's transaction
+  // finishes (no network I/O runs inside either transaction, so it is short) OR
+  // when statement_timeout fires, whichever comes first: every pooled connection
+  // sets statement_timeout (pool.js, 15s web / 30s worker), and it counts
+  // lock-wait time, so a lock blocked past the limit is CANCELLED with SQLSTATE
+  // 57014, not parked. 57014 is not in dbRetry's TRANSIENT_CODES, so that sync
+  // fails (rolls back to the previous ADP values, records ok=false) rather than
+  // retrying - whether to act on that cancellation is the open question in #929.
+  // Either way the xact scope releases the lock, so there is no explicit unlock
+  // that could strand it behind Supavisor's transaction pooling the way a session
+  // lock did in #839.
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
     await client.query(`UPDATE "players" SET "adp" = NULL WHERE "adp" IS NOT NULL`);
     if (updates.length > 0) {
       await client.query(

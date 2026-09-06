@@ -4,6 +4,7 @@ import PropTypes from 'prop-types';
 import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { buildDraftIcs, draftTimezoneDetail, formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
+import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -295,11 +296,16 @@ function Countdown({
               tabIndex={0}
               sx={{ color: 'text.secondary', cursor: 'help', width: 'fit-content' }}
             >
-              {`· ${viewerSchedule}`}
+              {/* No leading separator here, unlike the inline variant above:
+                  this row starts the line, so a middot would have nothing to
+                  its left (a pre-draft league's first screen opened with it). */}
+              {viewerSchedule}
             </Typography>
           </Tooltip>
           {leagueId != null && leagueName && (
-            <Button size="small" onClick={handleDownloadIcs}>Add to calendar</Button>
+            // `size="small"` stays so MUI's padding, and therefore the button's
+            // width, does not change: the floor is added underneath it.
+            <Button size="small" sx={MIN_TOUCH_TARGET_SX} onClick={handleDownloadIcs}>Add to calendar</Button>
           )}
         </Stack>
       )}

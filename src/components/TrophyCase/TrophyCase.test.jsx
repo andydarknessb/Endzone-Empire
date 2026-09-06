@@ -63,6 +63,45 @@ test('renders trophies with team names, defaulting to the current (latest) seaso
   expect(screen.queryByText(/League Champion/)).not.toBeInTheDocument();
 });
 
+// This card and RecapCard were the route's two literal h6s (ADR 0021: the
+// outline read h1, h6, h2, h2, h6). Asserted here rather than from the page
+// test, which mocks this component as a bare div.
+test('renders its heading at level 2', async () => {
+  apiClient.get.mockResolvedValue({ data: trophies });
+
+  renderWithProviders(<TrophyCase leagueId={1} />);
+
+  const card = await screen.findByTestId('trophy-case');
+  const heading = screen.getByRole('heading', { level: 2, name: 'Trophy Case' });
+  expect(screen.queryByRole('heading', { level: 6 })).not.toBeInTheDocument();
+  expect(card).toHaveAttribute('aria-labelledby', heading.id);
+});
+
+// No emoji in product UI: every trophy carries a decorative stroke glyph, and
+// a type the client does not know still gets the medal fallback.
+test('marks each trophy with a decorative stroke icon, no emoji', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      ...trophies,
+      { ...trophies[0], id: 4, type: 'invented_by_the_server', label: 'Mystery Cup' },
+    ],
+  });
+
+  renderWithProviders(<TrophyCase leagueId={1} />);
+  const card = await screen.findByTestId('trophy-case');
+
+  expect(card.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+  // eslint-disable-next-line testing-library/no-node-access -- the glyphs are aria-hidden by design, so no Testing Library query can reach them
+  const iconOf = (testId) => screen.getByTestId(testId).querySelector('svg[data-icon]');
+  expect(iconOf('trophy-1')).toHaveAttribute('data-icon', 'flame');
+  expect(iconOf('trophy-3')).toHaveAttribute('data-icon', 'compress');
+  expect(iconOf('trophy-4')).toHaveAttribute('data-icon', 'medal');
+  // eslint-disable-next-line testing-library/no-node-access -- same
+  card.querySelectorAll('svg[data-icon]').forEach((icon) => {
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
 test('renders nothing while loading', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderWithProviders(<TrophyCase leagueId={1} />);

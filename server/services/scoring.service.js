@@ -2,6 +2,7 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
+const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { tank01Get } = require('../modules/tank01Client');
 const {
   materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
@@ -1116,6 +1117,22 @@ async function syncInjuries({ api = tank01Get } = {}) {
   let updated = 0;
   try {
     await client.query('BEGIN');
+    // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
+    // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
+    // different order across its wipe and bulk set. Both writers take one
+    // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK) as the FIRST
+    // statement after BEGIN, before any row lock, so they cannot interleave into
+    // a deadlock cycle. Blocking xact form (pg_advisory_xact_lock): the second
+    // sync waits rather than skipping. The wait ends when the other sync's
+    // transaction finishes (no network I/O inside either transaction, so it is
+    // short) OR when statement_timeout fires (pool.js sets it on every pooled
+    // connection, 15s web / 30s worker, and it counts lock-wait time), whichever
+    // comes first. A wait cancelled by the timeout raises SQLSTATE 57014, which
+    // dbRetry does not treat as transient, so that sync fails and rolls back
+    // rather than retrying (open question #929). The lock releases with the
+    // transaction either way, so there is no explicit unlock and nothing strands
+    // behind the pooler (#839).
+    await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
     const playersResult = await client.query(
       `SELECT "id", "external_id", "injury_status"
          FROM "players" WHERE "external_id" IS NOT NULL

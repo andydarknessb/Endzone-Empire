@@ -282,6 +282,7 @@ function Shell({ children }) {
     >
       <Container
         maxWidth="lg"
+        data-testid="game-center-column"
         sx={{
           px: { xs: '14px', sm: '24px' },
           pt: { xs: '14px', sm: '24px' },

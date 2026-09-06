@@ -27,7 +27,7 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
 import EmojiEvents from '@mui/icons-material/EmojiEvents';
-import { TROPHY_EMOJI } from '../TrophyCase/TrophyCase';
+import { TrophyIcon } from '../TrophyCase/TrophyCase';
 import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 import { visuallyHidden } from '@mui/utils';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
@@ -37,7 +37,42 @@ import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
-const MEDAL_EMOJI = { 1: '🥇', 2: '🥈', 3: '🥉' };
+// The podium marks on the standings rows, as inline stroke glyphs on the same
+// 20px grid as the trophy icons (no emoji in product UI). Decorative: each is
+// aria-hidden and the rank number sits beside it, so the color carries nothing
+// on its own. The colors follow PODIUM_CONFIG's convention below.
+const MEDAL_COLOR = { 1: 'warning.main', 2: 'var(--medal-silver)', 3: 'var(--medal-bronze)' };
+
+function MedalIcon({ rank }) {
+  const color = MEDAL_COLOR[rank];
+  if (!color) return null;
+  return (
+    <Box
+      component="svg"
+      // Numbers, not strings. Box consumes width/height as system props, and a
+      // bare string is passed straight through as a CSS value: `width: "16"`
+      // carries no unit, so it is dropped and no attribute reaches the element
+      // either. The glyph then renders at its own scale (measured about 90px),
+      // which pushed the rank number onto a second line and made each podium
+      // row roughly 175px tall. A number becomes `16px`.
+      width={16}
+      height={16}
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      data-medal={rank}
+      sx={{ color, mr: 0.5, verticalAlign: 'text-bottom' }}
+    >
+      <circle cx="10" cy="12.5" r="4.5" />
+      <path d="M7 8.4 5 3.5h10l-2 4.9" />
+    </Box>
+  );
+}
 
 // Podium placement styling. Gold reuses the theme's `warning` color per the
 // existing champion-chip convention; silver/bronze have no MUI palette
@@ -181,8 +216,8 @@ function SeasonPanel({ season, defaultExpanded }) {
                 const { standing } = champion;
                 return (
                   <Box key={champion.teamId} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Box component="span" aria-hidden="true" sx={{ fontSize: '2rem', lineHeight: 1 }}>
-                      🏆
+                    <Box component="span" sx={{ display: 'inline-flex', color: 'warning.main' }}>
+                      <TrophyIcon type="champion" size={32} />
                     </Box>
                     <TeamAvatar
                       name={name}
@@ -234,18 +269,13 @@ function SeasonPanel({ season, defaultExpanded }) {
             </TableHead>
             <TableBody>
               {standings.map((team, index) => {
-                const medal = MEDAL_EMOJI[team.rank];
                 return (
                   <TableRow
                     key={teamRowKey(team.teamId, index)}
                     sx={team.rank === 1 ? { '& .MuiTableCell-root': { fontWeight: 'bold' } } : undefined}
                   >
                     <TableCell>
-                      {medal && (
-                        <Box component="span" aria-hidden="true" sx={{ mr: 0.5 }}>
-                          {medal}
-                        </Box>
-                      )}
+                      <MedalIcon rank={team.rank} />
                       {team.rank}
                     </TableCell>
                     {/*
@@ -293,7 +323,12 @@ function SeasonPanel({ season, defaultExpanded }) {
                   <Chip
                     key={trophy.id}
                     variant="outlined"
-                    label={`${TROPHY_EMOJI[trophy.type] || '🎖️'} ${trophy.label} · ${trophy.team_name}`}
+                    label={(
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <TrophyIcon type={trophy.type} size={18} />
+                        <Box component="span">{`${trophy.label} · ${trophy.team_name}`}</Box>
+                      </Box>
+                    )}
                   />
                 ))}
               </Box>

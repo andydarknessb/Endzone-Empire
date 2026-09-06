@@ -1,17 +1,17 @@
 import React from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Typography } from '@mui/material';
-import GroupsIcon from '@mui/icons-material/Groups';
-import AssignmentIcon from '@mui/icons-material/Assignment';
-import LiveTvIcon from '@mui/icons-material/LiveTv';
-import FactCheckIcon from '@mui/icons-material/FactCheck';
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
-import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
-import TimelineIcon from '@mui/icons-material/Timeline';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import MenuBookIcon from '@mui/icons-material/MenuBook';
-import SettingsIcon from '@mui/icons-material/Settings';
+import GroupsIcon from '@mui/icons-material/GroupsOutlined';
+import AssignmentIcon from '@mui/icons-material/AssignmentOutlined';
+import LiveTvIcon from '@mui/icons-material/LiveTvOutlined';
+import FactCheckIcon from '@mui/icons-material/FactCheckOutlined';
+import SwapHorizIcon from '@mui/icons-material/SwapHorizOutlined';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrowsOutlined';
+import TimelineIcon from '@mui/icons-material/TimelineOutlined';
+import TrendingUpIcon from '@mui/icons-material/TrendingUpOutlined';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEventsOutlined';
+import MenuBookIcon from '@mui/icons-material/MenuBookOutlined';
+import SettingsIcon from '@mui/icons-material/SettingsOutlined';
 import { Card, Badge } from '../../../shared/ui';
 import useQuickActions from '../model/useQuickActions';
 
@@ -23,11 +23,13 @@ import useQuickActions from '../model/useQuickActions';
  * attention carries the accent ring plus a "Recommended" pill.
  *
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. The action
- * tiles sit on `dash-surface2`, where ink (title) and dim (status copy) are
- * registered in tokens.contrast.test.js; the "Recommended" pill is the `Badge`
- * `live` variant (accent text on the accent tint), whose accent-on-accent-soft is
- * registered over that surface too. The recommended ring is a border, not text,
- * so it composes no new pairing.
+ * tiles sit on `dash-surface` (the artboard's `.action` card), where ink
+ * (title) and dim (status copy) are registered in tokens.contrast.test.js; the
+ * "Recommended" pill is the `Badge` `live` variant (accent text on the accent
+ * tint), whose accent-on-accent-soft is registered over that surface too. The
+ * recommended ring is a border, not text, so it composes no new pairing, and
+ * neither does the icon on its `dash-surface2` plate: an icon is a graphic, the
+ * same call the ring comment below records.
  *
  * This widget has NO aria-busy: its one extra read (the viewer roster, for the
  * Set Lineup recommendation) is best effort and its result is absent-until-ready
@@ -80,10 +82,15 @@ export default function QuickActions({ leagueId }) {
             </Typography>
 
             <Box
+              data-testid={`quick-actions-grid-${group.label.toLowerCase()}`}
               sx={{
                 display: 'grid',
                 gap: '10px',
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+                // auto-FILL, not auto-fit: auto-fit collapses the tracks a
+                // group has no card for, so the two-card Moves group would
+                // stretch into two half-width tiles while Play's four stayed
+                // narrow. auto-fill keeps every group on one tile width.
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fill, minmax(180px, 1fr))' },
               }}
             >
               {group.cards.map((card) => (
@@ -112,8 +119,8 @@ function ActionTile({ card }) {
         gap: 1.25,
         padding: '12px 14px',
         textDecoration: 'none',
-        borderRadius: 'var(--dash-radius-sm)',
-        backgroundColor: 'var(--dash-surface2)',
+        borderRadius: 'var(--dash-radius)',
+        backgroundColor: 'var(--dash-surface)',
         // The accent RING marks a recommended card. It is a border color, not
         // text, so it composes no contrast pairing; a plain card keeps the
         // hairline.
@@ -122,16 +129,37 @@ function ActionTile({ card }) {
           : '1px solid var(--dash-line)',
         boxShadow: recommended ? '0 0 0 1px var(--dash-accent-line)' : 'none',
         color: 'var(--dash-ink)',
-        transition: 'border-color 120ms ease',
-        '&:hover': { borderColor: 'var(--dash-accent-line)' },
+        transition:
+          'border-color var(--transition-fast) ease, transform var(--transition-fast) ease',
+        '&:hover': {
+          borderColor: 'var(--dash-accent-line)',
+          transform: 'translateY(-2px)',
+        },
       }}
     >
       {Icon && (
-        <Box sx={{ flex: 'none', display: 'flex', color: 'var(--dash-dim)', mt: '2px' }}>
+        <Box
+          data-testid={`quick-action-plate-${card.key}`}
+          sx={{
+            flex: 'none',
+            width: 34,
+            height: 34,
+            display: 'grid',
+            placeItems: 'center',
+            borderRadius: 'var(--dash-radius-sm)',
+            backgroundColor: 'var(--dash-surface2)',
+            // Accent on a recommended card, dim on a plain one, exactly as the
+            // artboard's `.action .ico` / `.action.plain .ico` pair does.
+            color: recommended ? 'var(--dash-accent)' : 'var(--dash-dim)',
+          }}
+        >
           <Icon fontSize="small" />
         </Box>
       )}
-      <Box sx={{ minWidth: 0, display: 'grid', gap: 0.25 }}>
+      {/* The zero minimum is paired with a break rule on the same box: a tile
+          is now only 180px wide, so a word wider than the text column has to
+          break rather than push past the plate (#916/#917/#919/#921). */}
+      <Box sx={{ minWidth: 0, overflowWrap: 'anywhere', display: 'grid', gap: 0.25 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
           <Typography
             component="span"

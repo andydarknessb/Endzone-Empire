@@ -202,6 +202,7 @@ test('syncAdp on a full Success body refreshes players and records ok=true with 
         { id: 2, name: 'Player 2', position: 'RB', nfl_team: 'KC' },
       ],
     })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
     [update('players'), () => ({ rows: [], rowCount: 2 })],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
   ]).install(t);
@@ -227,6 +228,20 @@ test('syncAdp on a full Success body refreshes players and records ok=true with 
   assert.equal(fake.calls[setIdx].via, 'client', 'the bulk set runs on the transaction client');
   assert.ok(beginIdx >= 0 && beginIdx < nullIdx, 'BEGIN precedes the wipe');
   assert.ok(commitIdx > setIdx, 'COMMIT follows the bulk set');
+  // #904: the two players-bulk-write syncs (this and syncInjuries) serialize on
+  // one transaction-scoped advisory lock, id 23004. The lock is the FIRST
+  // statement inside the transaction - after BEGIN, before the NULL wipe takes
+  // any row locks - so a lock acquired mid-transaction cannot form the deadlock
+  // cycle it exists to prevent. It runs on the transaction client (the lock must
+  // sit inside the sync's own transaction) and is the blocking xact form, so it
+  // releases with COMMIT/ROLLBACK and never with an explicit unlock. Red-tell:
+  // deleting the lock statement, or moving it after the wipe, turns this red.
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  assert.ok(lockIdx >= 0, 'the advisory lock is acquired');
+  assert.equal(fake.calls[lockIdx].via, 'client', 'the lock sits inside the transaction client');
+  assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
+  assert.ok(beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.ok(lockIdx < nullIdx, 'the lock is taken before the wipe takes any row locks');
   fake.assertClean();
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1);
@@ -245,6 +260,7 @@ test('syncAdp rolls back and records ok=false when the bulk set throws, leaving 
   const boom = new Error('bulk set failed mid-transaction');
   const fake = createFakePool([
     [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
     // The wipe succeeds; only the bulk set throws, so the wipe is what must be
     // undone by the ROLLBACK.
     [/^UPDATE "players" SET "adp" = NULL/, () => ({ rows: [], rowCount: 1 })],
@@ -284,6 +300,7 @@ test('a failed data_sync_runs record never masks a correctly refreshed market', 
   stubFfc(t, ffcBody(200));
   const fake = createFakePool([
     [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
     [update('players'), () => ({ rows: [], rowCount: 1 })],
     [insert('data_sync_runs'), () => { throw new Error('relation "data_sync_runs" does not exist'); }],
   ]).install(t);
