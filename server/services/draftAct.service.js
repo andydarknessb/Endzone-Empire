@@ -67,10 +67,14 @@ const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
  * autoPick escalation branch (the activityAppended-then-stateChanged emit right
  * after escalateNothingDraftable) already emits this exact pair narration-first,
  * and pick.service.js's landPick leads its completion group with the narration
- * too (activityAppended ahead of rosterChanged/draftCompleted); the router's
- * pause/resume was the lone site emitting stateChanged before the activity, and
- * adopting narration-first makes all three agree. (Cited by function, not line,
- * so a later edit to those files cannot silently misdirect the reference.)
+ * too (activityAppended ahead of rosterChanged/draftCompleted). This PR converts
+ * pause/resume to that narration-first order; it does NOT make the whole router
+ * agree - draft.router.js still has board-fact-first sites this PR leaves alone:
+ * POST /reset and POST /correct-pick both emit stateChanged before
+ * activityAppended. reset is a follower's (#967, whose job includes aligning that
+ * order); correct-pick is on no ticket, so this note is the only place it
+ * surfaces. (Cited by function, not line, so a later edit cannot silently
+ * misdirect the reference.)
  *
  * NO "ALREADY INSIDE AN ACT" MODE (load-bearing for the followers, #938). This
  * module always opens its own connection and takes its own lock; it offers no
