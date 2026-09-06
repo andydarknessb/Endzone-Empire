@@ -24,14 +24,28 @@ test('clicking an option calls onChange with that option', async () => {
   expect(onChange).toHaveBeenCalledWith(3);
 });
 
-test('arrow keys move the selection and wrap', async () => {
+// #933: an arrow key is a true roving move. It walks from the option that holds
+// DOM focus (not from `value`), carries focus onto the neighbour, and reports
+// that neighbour as the pick. This case renders uncontrolled, so `value` stays
+// 3 while focus moves: that is what proves the walk steps from focus and not
+// from the stale value. ArrowRight from a focused Wk 3 wraps to Wk 1 and moves
+// focus there; the following ArrowLeft then walks from Wk 1 and wraps back to
+// Wk 3, where the old value-derived arithmetic would instead have stepped from
+// the stale 3 to Wk 2.
+//
+// Red-tell (#933): reverting move() to derive its index from `value` (the
+// pre-#933 floored `selectedIndex`) leaves focus on Wk 3 throughout, so the
+// ArrowLeft reports 2 and both focus assertions go red.
+test('arrow keys walk from the focused option, carry focus, and wrap', async () => {
   const onChange = jest.fn();
   render(<SegmentedControl aria-label="Week" options={WEEKS} value={3} onChange={onChange} />);
   screen.getByRole('radio', { name: 'Wk 3' }).focus();
   await userEvent.keyboard('{ArrowRight}');
   expect(onChange).toHaveBeenLastCalledWith(1);
+  expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
   await userEvent.keyboard('{ArrowLeft}');
-  expect(onChange).toHaveBeenLastCalledWith(2);
+  expect(onChange).toHaveBeenLastCalledWith(3);
+  expect(screen.getByRole('radio', { name: 'Wk 3' })).toHaveFocus();
 });
 
 test('renders an option icon as decoration beside its label', () => {

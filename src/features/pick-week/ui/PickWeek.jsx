@@ -30,9 +30,11 @@ import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
  * Game Center picker used: disabled at either end, and both disabled while
  * "All" (or a week the list does not carry) is selected, since there is no
  * neighbour to step to. The segments are the kit's radio group, so the
- * selected week is a checked radio and arrow keys move between weeks; the
- * "All weeks" button carries `aria-pressed` so the all-weeks state has a home
- * when no radio is checked.
+ * selected week is a checked radio and an arrow key walks from the focused
+ * week, carrying DOM focus onto the neighbour so the checked week and the
+ * group's single tab stop stay the same button (#933); the "All weeks" button
+ * carries `aria-pressed` so the all-weeks state has a home when no radio is
+ * checked.
  *
  * Paints only `dash-*` tokens plus the app's focus ring and transition
  * tokens. Every pairing here is already registered in tokens.contrast.test.js:

@@ -64,6 +64,38 @@ test('forwards a ref to the group element, so the page can focus the checked opt
   expect(ref.current).toBe(screen.getByRole('radiogroup', { name: 'Matchup view' }));
 });
 
+// #933: the toggle is the kit's NON-scrollable radio group (it passes `fill`,
+// never `scrollable`), so it is the path where an arrow key used to move the
+// selection without moving DOM focus, stranding focus on a button that had just
+// become unchecked and untabbable while the group's one tab stop moved to the
+// other. A roving move fixes it: ArrowRight walks from the focused Standard,
+// carries focus onto Scoreboard, and the checked option and the single tab stop
+// stay the same button. Controlled, so the tabIndex flip is observable. (Whether
+// a real browser then leaves the group in one Tab press is a browser decision,
+// measured in tests/e2e/matchup-toggle-roving-focus.spec.ts, not asserted here.)
+//
+// Red-tell (#933): reverting move() to derive its target from `value` instead of
+// the focused option (the pre-#933 `selectedIndex`) leaves DOM focus on Standard
+// after ArrowRight, so `Scoreboard` never gains focus and this goes red.
+test('ArrowRight from a focused Standard carries focus to Scoreboard, checked and the one tab stop', async () => {
+  function Controlled() {
+    const [view, setView] = React.useState('standard');
+    return <ToggleMatchupView value={view} onChange={setView} />;
+  }
+  render(<Controlled />);
+  const standard = screen.getByRole('radio', { name: 'Standard' });
+  const scoreboard = screen.getByRole('radio', { name: 'Scoreboard' });
+
+  standard.focus();
+  await userEvent.keyboard('{ArrowRight}');
+
+  expect(scoreboard).toHaveFocus();
+  expect(scoreboard).toBeChecked();
+  expect(scoreboard).toHaveAttribute('tabindex', '0');
+  expect(standard).not.toBeChecked();
+  expect(standard).toHaveAttribute('tabindex', '-1');
+});
+
 // --- the memory ----------------------------------------------------------------
 
 // Red-tell (#903 review): keying the entry by anything but the user id (a
