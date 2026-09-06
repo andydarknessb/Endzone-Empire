@@ -40,22 +40,26 @@ const HOME_TEAM_NAME = 'Chattahoochee Valley Riverhogs'; // 30 chars (Matchup De
 const AWAY_TEAM_NAME = 'Sasquatch of the Cascade Range'; // 30 chars (Matchup Detail only)
 const LEAGUE_NAME = 'Greater Metropolitan Dynasty Fantasy League'; // 43 chars
 
-// Game Center uses SHORT team names to route around a real, out-of-scope Game
-// Center defect: #932. A rostered team's name threads through the Scoring feed
-// row's `nflTeam · teamName` line (white-space: nowrap), whose max-content
-// inflates the rail's `auto` grid track past the rail's 340px width, so a long
-// (but valid - team_name is varchar(100) with no client maximum) name overflows
-// the page column at the md+ two-column widths (measured 1328px inside a 1200px
-// column at 1440, 1028px inside 900 at 900). That is an assertion-1a container
-// overflow - exactly this guard's class - so a realistic name here would make
-// the Game Center width case red for a real reason that this guard is not
-// allowed to fix (a product change, out of scope). Short names keep the guard
-// green and exercising its other invariants until #932 lands; lift this the way
-// #927's nav-overflow exclusion was lifted. Matchup Detail keeps its 22+ char names
-// (criterion 6, for the clip red-tells); the long LEAGUE name (breadcrumb) that
-// the Game Center title-column red-tell needs is also kept.
-const GC_HOME_NAME = 'Riverhogs';
-const GC_AWAY_NAME = 'Cascades';
+// Game Center's viewer-matchup team names. Long (30 chars, the shape of
+// HOME_TEAM_NAME / AWAY_TEAM_NAME) and required at that length, not niceties:
+// they thread into the rail's two widest text runs, so a short name would make
+// the Game Center width red-tell green for the wrong reason. Both scores are
+// equal across every list row, so all three week-glance facts resolve to this
+// one matchup: `WeekGlance`'s "biggest lead" / "closest" lines render
+// "<home> over/· <away>" (nowrap), the rail's widest content at md+, and the
+// Scoring feed's `nflTeam · teamName` line carries this name at 390 where the
+// glance is not rendered. The rail (`game-center-rail`) is a grid whose single
+// implicit track is sized `auto`, so its base size floors at the largest child
+// min-content and free space can only grow a track above that floor, never
+// clamp it below the rail's width - which is the #932 overflow these names must
+// keep reachable, and which the rail's explicit `minmax(0, 1fr)` track now
+// clamps (that is the fix under test). team_name is varchar(100) with no client
+// maximum, so a 30-char name is a valid, representative value. Matchup Detail
+// keeps its own 22+ char names (criterion 6, for the clip red-tells); the long
+// LEAGUE name (breadcrumb) that the Game Center title-column red-tell needs is
+// also kept.
+const GC_HOME_NAME = 'Chesapeake Bay Tidewater Crabs'; // 30 chars
+const GC_AWAY_NAME = 'Mojave Desert Golden Scorpions'; // 30 chars
 
 // roster_slots in commissioner order (the slotOrder the entity pairs starters
 // by); each side's starters carry matching slot keys, or the starters table

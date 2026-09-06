@@ -238,7 +238,24 @@ export default function GameCenterPage() {
               )}
             </Box>
 
-            <Box data-testid="game-center-rail" sx={{ display: 'grid', gap: '18px', minWidth: 0 }}>
+            <Box
+              data-testid="game-center-rail"
+              sx={{
+                display: 'grid',
+                // Explicit, zero-floored track (#932). Without it the single
+                // implicit track is `auto`, whose base size floors at the
+                // widest child (a Card's min-width is `auto`) min-content and
+                // free space can only grow a track above that floor, so the
+                // definite 340px this rail is given cannot clamp it and a long
+                // team name in the week-glance line spills the page column at
+                // md+. `minmax(0, 1fr)` gives the track a zero minimum, the
+                // idiom `game-center-body` above already uses; the Cards then
+                // lay out at the rail's width and their own ellipsis clips.
+                gridTemplateColumns: 'minmax(0, 1fr)',
+                gap: '18px',
+                minWidth: 0,
+              }}
+            >
               <ScoringFeedList items={items} week={weekNumber} limit={compact ? 3 : 6} />
               {/* The mobile artboard ends at the feed: no glance tile below sm;
                   under "All weeks" the model hands no rows (the facts are
