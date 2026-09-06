@@ -1128,11 +1128,15 @@ async function syncInjuries({ api = tank01Get } = {}) {
     // short) OR when statement_timeout fires (pool.js sets it on every pooled
     // connection, 15s web / 30s worker, and it counts lock-wait time), whichever
     // comes first. The designation write below is a SINGLE bulk statement (#929),
-    // so the lock is held for the scan plus one round trip, not the ~3,000
-    // sequential single-row writes the per-player loop once took: a 57014
-    // cancellation of a blocked wait is far less likely to be reached in the
-    // first place. The lock releases with the transaction either way, so there
-    // is no explicit unlock and nothing strands behind the pooler (#839).
+    // not the ~3,000 sequential single-row writes the per-player loop once took.
+    // The lock is transaction-scoped, so it is held for the whole transaction:
+    // the scan, that one bulk write, and the IR flag pass (flagRecoveredIrStashes,
+    // still inside this transaction below - a select over the current IR stashes
+    // plus one notify insert per flagged stash, usually none), released at COMMIT.
+    // That is a far shorter hold than the loop's, so a 57014 cancellation of a
+    // blocked wait is far less likely to be reached in the first place. The lock
+    // releases with the transaction either way, so there is no explicit unlock and
+    // nothing strands behind the pooler (#839).
     await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
     const playersResult = await client.query(
       `SELECT "id", "external_id", "injury_status"
