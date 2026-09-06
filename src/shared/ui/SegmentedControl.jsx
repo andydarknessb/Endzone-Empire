@@ -21,7 +21,9 @@ import { Box } from '@mui/material';
  * given, and the checked segment is scrolled into view on mount and whenever
  * `value` changes. A season of weeks cannot be stretched into a phone (a flex
  * item's default `min-width: auto` refuses to shrink below its label), so the
- * week picker scrolls its strip instead of widening the page.
+ * week picker scrolls its strip instead of widening the page. In that mode
+ * the checked segment also takes focus whenever the group already holds it,
+ * so an arrow-key walk never scrolls the focus ring out of the row.
  */
 const SegmentedControl = React.forwardRef(function SegmentedControl({
   options,
@@ -52,11 +54,24 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
   // brought into view on mount and on every change of `value`. jsdom does not
   // implement `scrollIntoView` at all (a test stubs it), so the guard is what
   // keeps the picker rendering under the suite and in any browser without it.
+  //
+  // Arrow keys move the checked option without moving DOM focus, so a couple
+  // of presses (or a wrap from the last option back to the first) can scroll
+  // the focused segment out of the row with the focus ring still on it, which
+  // a keyboard user cannot see (WCAG 2.4.7). So when the group already holds
+  // focus the checked segment takes it, after the centring scroll and with no
+  // second scroll of its own. The containment guard is what keeps a mount, or
+  // a pick made with the mouse elsewhere on the page, from stealing focus.
   useEffect(() => {
     if (!scrollable) return;
-    const checked = groupRef.current?.querySelector('[role="radio"][aria-checked="true"]');
-    if (checked && typeof checked.scrollIntoView === 'function') {
+    const group = groupRef.current;
+    const checked = group?.querySelector('[role="radio"][aria-checked="true"]');
+    if (!checked) return;
+    if (typeof checked.scrollIntoView === 'function') {
       checked.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+    if (group.contains(document.activeElement) && document.activeElement !== checked) {
+      checked.focus({ preventScroll: true });
     }
   }, [scrollable, value]);
 

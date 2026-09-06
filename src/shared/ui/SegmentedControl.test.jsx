@@ -125,3 +125,35 @@ test('scrollable brings the checked segment into view on mount and whenever valu
     delete Element.prototype.scrollIntoView;
   }
 });
+
+// A scrolled strip is about three segments wide, so an arrow-key walk of two
+// or more steps (or the wrap from the last week to the first) used to leave
+// the focus ring on a segment scrolled out of the row, invisible to the
+// keyboard user (WCAG 2.4.7): the kit's arrow keys report the pick and never
+// move DOM focus. Each rerender below is what an arrow key produces, a new
+// `value` from the composer.
+//
+// Red-tell (#916 review): dropping the `checked.focus()` turns the first half
+// red (focus stays on Wk 9); dropping the `group.contains(document.activeElement)`
+// guard turns both the mount assertion and the second half red, since the
+// strip would then pull focus off whatever the user was actually on.
+test('scrollable moves focus to the checked segment, but only when the group already holds it', () => {
+  const view = (week) => (
+    <div>
+      <button type="button">Elsewhere</button>
+      <SegmentedControl aria-label="Week" options={SEASON} value={week} onChange={() => {}} scrollable />
+    </div>
+  );
+  const { rerender } = render(view(9));
+  expect(screen.getByRole('radio', { name: 'Wk 9' })).not.toHaveFocus();
+
+  screen.getByRole('radio', { name: 'Wk 9' }).focus();
+  rerender(view(10));
+  expect(screen.getByRole('radio', { name: 'Wk 10' })).toHaveFocus();
+
+  const elsewhere = screen.getByRole('button', { name: 'Elsewhere' });
+  elsewhere.focus();
+  rerender(view(14));
+  expect(elsewhere).toHaveFocus();
+  expect(screen.getByRole('radio', { name: 'Wk 14' })).not.toHaveFocus();
+});
