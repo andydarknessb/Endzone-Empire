@@ -54,6 +54,19 @@ function GlobalPlayerSearch({
     onShortcutMissRef.current = onShortcutMiss;
   }, [onShortcutMiss]);
 
+  // Take focus when autoFocus turns on. On first mount the TextField's own
+  // `autoFocus` already handles it (and the guard below skips this), but that
+  // fires on mount only: when "/" is pressed while the drawer is ALREADY open
+  // (opened earlier by the hamburger), this instance is already mounted, so
+  // autoFocus goes false->true without a remount. Without this the key would be
+  // consumed yet move no focus - the swallow this feature exists to prevent.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (autoFocus && el && document.activeElement !== el) {
+      el.focus();
+    }
+  }, [autoFocus]);
+
   useEffect(() => {
     const q = input.trim();
     if (!q) {

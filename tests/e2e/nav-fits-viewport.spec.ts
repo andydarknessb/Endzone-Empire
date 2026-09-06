@@ -243,6 +243,26 @@ test.describe('Nav fits the viewport (#927)', () => {
     });
   }
 
+  // Regression for a swallow edge (#934 risk review): "/" while the drawer is
+  // ALREADY open (opened by the hamburger) must still land focus in the drawer
+  // search. The drawer instance is already mounted, so mount-time autoFocus
+  // cannot carry it; the key would otherwise be consumed yet move no focus.
+  test('below `lg`, "/" focuses the drawer search even when the drawer is already open (#934)', async ({ page }) => {
+    await page.setViewportSize({ width: 899, height: 900 });
+    await openAuthedHost(page);
+
+    await page.getByRole('button', { name: 'open navigation menu' }).click();
+    const drawer = page.locator('.MuiDrawer-paper');
+    await expect(drawer).toBeVisible();
+    const drawerSearch = drawer.getByRole('combobox', { name: 'Search players' });
+    // Opened by the hamburger, so the search is NOT focused yet.
+    await expect(drawerSearch).not.toBeFocused();
+
+    await page.keyboard.press('/');
+
+    await expect(drawerSearch).toBeFocused();
+  });
+
   test('at `lg` and above, pressing "/" focuses the inline search and the drawer stays closed (#934)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     await openAuthedHost(page);
