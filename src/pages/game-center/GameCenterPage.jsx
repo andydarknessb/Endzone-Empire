@@ -83,6 +83,7 @@ export default function GameCenterPage() {
       <Box sx={{ display: 'grid', gap: '6px', mb: '18px' }}>
         <Breadcrumb leagueId={leagueId} leagueName={league?.name} />
         <Box
+          data-testid="game-center-header"
           sx={{
             display: 'flex',
             flexDirection: { xs: 'column', sm: 'row' },
@@ -91,6 +92,14 @@ export default function GameCenterPage() {
             // against the h1 + sync-line stack.
             alignItems: { xs: 'stretch', sm: 'center' },
             gap: { xs: '12px', sm: '24px' },
+            // This row is a grid item, and a grid item's automatic minimum
+            // size is its content's. Without this the scrollable week strip
+            // below it (features/pick-week, #916) reports the width of a
+            // whole season to the grid and the document grows past the
+            // phone, which is the dead strip beside every card the fix is
+            // about. The h1 column carries its own `minWidth: 0`; the row
+            // that holds both is what the grid measures.
+            minWidth: 0,
           }}
         >
           <Box sx={{ display: 'grid', gap: '4px', minWidth: 0 }}>

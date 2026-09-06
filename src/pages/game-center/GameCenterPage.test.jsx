@@ -160,6 +160,24 @@ const glanceRow = (fact) =>
 const feedRows = () => screen.queryAllByTestId('scoring-feed-row');
 const strip = () => screen.getByTestId('scoring-strip');
 
+// An sx rule is neither laid out nor computed by jsdom, but emotion inserts
+// every rule into `document.styleSheets` under the element's generated class
+// (the Matchup page's test and the picker's read their layout rules the same
+// way). This gathers the declarations of every rule whose selector starts
+// with that class, keyed by the selector's tail ('' for the element's own).
+const rulesUnder = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = {};
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      const tail = rule.selectorText.slice(`.${cls}`.length).replace(/\s+/g, '');
+      found[tail] = `${found[tail] || ''}${rule.style.cssText};`;
+    });
+  });
+  return found;
+};
+
 // --- loading, error, structure ---------------------------------------------
 
 test('a first load renders a skeleton per region, each region aria-busy', () => {
@@ -698,6 +716,48 @@ test('below the sm breakpoint the grid renders rows, the feed shows three and th
   expect(feedRows()).toHaveLength(3);
   expect(screen.getByTestId('scoring-feed-show-all')).toHaveTextContent('Show all 4 plays');
 });
+
+// The picker scrolls its own week strip below sm (#916), but a scroll
+// container only scrolls if an ancestor lets it: the header row is a grid
+// item, and a grid item's automatic minimum size is content-based, so without
+// `minWidth: 0` on that row the grid measures a whole season of segments and
+// the document grows past the phone, which is the dead strip beside every
+// card the issue reports. jsdom lays nothing out, so the rule is the binding;
+// it was measured in headless Chromium at a 390px viewport, on this page's
+// own DOM and rules: 1366px of document without it, exactly 390 with.
+//
+// Red-tell (#916 review): deleting `minWidth: 0` from the header row's sx in
+// GameCenterPage.jsx turns this case red and no other.
+test('below the sm breakpoint the header row can shrink below the week strip it holds', async () => {
+  mobile = true;
+  mockApi({ matchups: [row({ id: 5, week: 1, status: 'live' })] });
+  renderPage();
+
+  await screen.findByRole('radio', { name: 'Wk 1' });
+  const header = screen.getByTestId('game-center-header');
+  expect(header).toContainElement(screen.getByTestId('pick-week'));
+  // Zero below `sm` (the phone, where the strip scrolls) and back to the
+  // content minimum above it: a row that may shrink under a strip that does
+  // NOT scroll lets the strip overflow and paint under the "All weeks" button
+  // beside it, the desktop overlap the #916 review caught in Chromium.
+  // Red-tell: dropping the `sm` half, so the rule reads a bare `min-width: 0`,
+  // turns this case red and no other.
+  expect(rulesUnder(header)['']).toMatch(/min-width:\s*0/);
+  // The strip itself is the scroll container inside that row.
+  expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Week' }))['']).toMatch(/overflow-x:\s*auto/);
+});
+
+// The zero minimum asserted above is the MOBILE half of the rule. Above `sm`
+// the strip is not a scroll container and its segments are `flex: none`, so a
+// header row that may shrink under it lets the strip overflow and paint under
+// the "All weeks" button beside it. That desktop half is asserted in Chromium
+// rather than here: reading a SECOND emotion class back is worker-mode
+// dependent in this harness (emotion's cache is module state jest shares
+// across the files in a worker, while each file gets a fresh document), so the
+// assertion passed alone and failed under `--maxWorkers`. The #916 review
+// measured the overlap at 125px at 1440px with an unconditional minimum and
+// 56px clear without it; #920 carries the layout guard that belongs at that
+// level. See the same note in the picker's own test.
 
 // The canvas's mobile artboard (build.mjs `gameCenterMobile()`) ends at the
 // three-row feed with no Week at a glance tile; the same week renders the
