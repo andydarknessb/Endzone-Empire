@@ -100,6 +100,28 @@ function clockSecondsFor({ draftComplete, onClockAutodraft, league }) {
 }
 
 /**
+ * Read the clock policy for a league from the locked row (#948). This is
+ * onResumed's league SELECT, extracted verbatim so the arming events read the
+ * offline rule and the clock settings the same way onResumed always has, rather
+ * than trusting a caller to have SELECTed the exact columns. The obligation used
+ * to live only in a comment: a caller that dropped draft_type silently disarmed
+ * the offline rule and armed a clock on an offline draft. Every event that reads
+ * through here already holds the League row FOR UPDATE in its caller's
+ * transaction, and nothing writes the Leagues table between that lock and the
+ * event, so this re-read returns a provably identical row - not a second fact to
+ * keep consistent, the same fact read where it is needed.
+ */
+async function readClockPolicy(client, leagueId) {
+  const result = await client.query(
+    `SELECT "current_pick", "draft_type", "draft_rotation", "draft_order_overrides",
+            "pick_time_seconds", "autodraft_delay_seconds"
+       FROM "leagues" WHERE "id" = $1`,
+    [leagueId]
+  );
+  return result.rows[0] || null;
+}
+
+/**
  * Draft started: the pending -> active (or, on an all-keeper start, pending ->
  * complete) transition. Fixes draft_rounds at this instant (ADR 0005) and, on
  * the active branch, arms the first open pick's clock from the policy seconds
@@ -146,9 +168,11 @@ async function onDraftStarted(client, { leagueId, complete, currentPick, clockSe
  * same statement because the final pick's advance IS the completion; the
  * completion side effects the caller runs afterward depend on that status being
  * set first (#194). `nextTeam` is the resolved team now on the clock (null once
- * the draft completes); `league` carries the clock settings.
+ * the draft completes); the clock settings are read from the locked row here
+ * (#948), not passed in.
  */
-async function onPickLanded(client, { leagueId, nextPick, draftStatus, draftComplete, nextTeam, league }) {
+async function onPickLanded(client, { leagueId, nextPick, draftStatus, draftComplete, nextTeam }) {
+  const league = await readClockPolicy(client, leagueId);
   const clockSeconds = clockSecondsFor({
     draftComplete,
     onClockAutodraft: nextTeam ? nextTeam.autodraft : false,
@@ -187,13 +211,7 @@ async function onPaused(client, { leagueId }) {
  * advancing the turn (the same team stays on the clock through a pause).
  */
 async function onResumed(client, { leagueId }) {
-  const leagueResult = await client.query(
-    `SELECT "current_pick", "draft_type", "draft_rotation", "draft_order_overrides",
-            "pick_time_seconds", "autodraft_delay_seconds"
-       FROM "leagues" WHERE "id" = $1`,
-    [leagueId]
-  );
-  const league = leagueResult.rows[0];
+  const league = await readClockPolicy(client, leagueId);
   if (!league) return null;
   const teamsResult = await client.query(
     `SELECT "id", "autodraft", "draft_position" FROM "teams"
@@ -216,17 +234,20 @@ async function onResumed(client, { leagueId }) {
  * Autodraft toggled on for the team on the clock: arm the short autodraft delay
  * right away, so an absent owner's pick fires promptly. The team is autodrafting
  * by definition here (the caller only reaches this for enabling on the on-clock
- * team of an active, unpaused draft), so the policy resolves to the delay.
- * `league` carries the clock settings.
+ * team of an active, unpaused draft), so the policy resolves to the delay. The
+ * clock settings are read from the locked row here (#948), not passed in.
  */
-async function onAutodraftToggled(client, { leagueId, league }) {
+async function onAutodraftToggled(client, { leagueId }) {
   // The team is autodrafting by definition here, so the policy resolves to the
   // short delay (floored at one second) for a timed or untimed league. It goes
   // through clockSecondsFor like every other event so there is one spelling
   // (ADR 0018): an offline draft arms no clock, matching the five siblings
   // rather than diverging (spec #598 user story 7). The toggle route reaches
   // this with an active offline draft (no draft_type guard on that path), so
-  // `league` MUST carry draft_type or the offline rule would silently not apply.
+  // reading draft_type from the locked row here - rather than trusting the
+  // caller's SELECT to carry it - is what keeps the offline rule from silently
+  // not applying (#948).
+  const league = await readClockPolicy(client, leagueId);
   const clockSeconds = clockSecondsFor({ draftComplete: false, onClockAutodraft: true, league });
   return armInPlace(client, { leagueId, clockSeconds });
 }
@@ -235,9 +256,11 @@ async function onAutodraftToggled(client, { leagueId, league }) {
  * Pick undone (commissioner undo): rewind current_pick to the earliest undone
  * pick's own slot and re-arm the team now on the clock by the policy, in one
  * statement. `onClockAutodraft` is that team's autodraft flag, resolved by the
- * caller from the rewound pick; `league` carries the clock settings.
+ * caller from the rewound pick; the clock settings are read from the locked row
+ * here (#948), not passed in.
  */
-async function onPickUndone(client, { leagueId, newCurrentPick, onClockAutodraft, league }) {
+async function onPickUndone(client, { leagueId, newCurrentPick, onClockAutodraft }) {
+  const league = await readClockPolicy(client, leagueId);
   const clockSeconds = clockSecondsFor({ draftComplete: false, onClockAutodraft, league });
   const result = await client.query(
     `UPDATE "leagues"

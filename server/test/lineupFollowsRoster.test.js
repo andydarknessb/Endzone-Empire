@@ -461,7 +461,10 @@ const undoRouteLeague = {
 function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [/FROM "leagues" WHERE "id" = \$1 AND .* FOR UPDATE/, () => ({ rows: [undoRouteLeague] })],
+    // Shape matcher (blind to the select list), like #944's waiverWorld above, so
+    // it answers both the undo route's SELECT * ... FOR UPDATE and onPickUndone's
+    // own policy SELECT (#948), which the event now issues before it re-arms.
+    [select('leagues'), () => ({ rows: [undoRouteLeague] })],
     [/^SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"/, () => ({
       rows: [
         { pick_number: 1, team_id: 10, player_id: 20, is_keeper: false },
