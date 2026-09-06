@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, within } from '@testing-library/react';
 import { MatchupToasts, TOAST_MS } from '../index';
 
 const opponentToast = {
@@ -32,15 +32,28 @@ test('a whole-number points delta still prints one decimal', () => {
   expect(screen.getByRole('status')).toHaveTextContent('D. Adams · receiving TD (+6.0)');
 });
 
-test('a toast dismisses on tap and on its own after TOAST_MS', () => {
+// The dismiss control is a real button and the toast body is plain content
+// (#911). Red-tell: putting the `onClick` back on the `role="status"` body
+// turns the first assertion red (the body dismisses again), and dropping the
+// button's `aria-label` turns the "Dismiss" lookup red.
+test('a toast dismisses from its Dismiss button, never from its body, and on its own after TOAST_MS', () => {
   jest.useFakeTimers();
   try {
     const onDismiss = jest.fn();
     render(<MatchupToasts toasts={[opponentToast, summaryToast]} onDismiss={onDismiss} />);
 
+    // The body is content, not a control: clicking the line does nothing.
     fireEvent.click(screen.getAllByRole('status')[0]);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    const buttons = screen.getAllByRole('button', { name: 'Dismiss' });
+    expect(buttons).toHaveLength(2);
+    // Each button belongs to its own toast, so dismissing one names that one.
+    expect(within(screen.getAllByRole('status')[0]).getByRole('button', { name: 'Dismiss' })).toBe(buttons[0]);
+    fireEvent.click(buttons[0]);
     expect(onDismiss).toHaveBeenCalledWith(1);
 
+    // The auto-dismiss timer is untouched by any of that.
     act(() => { jest.advanceTimersByTime(TOAST_MS); });
     expect(onDismiss).toHaveBeenCalledWith(2);
   } finally {
