@@ -736,28 +736,43 @@ test('below the sm breakpoint the header row can shrink below the week strip it 
   await screen.findByRole('radio', { name: 'Wk 1' });
   const header = screen.getByTestId('game-center-header');
   expect(header).toContainElement(screen.getByTestId('pick-week'));
-  // Zero below `sm` (the phone, where the strip scrolls) and back to the
-  // content minimum above it: a row that may shrink under a strip that does
-  // NOT scroll lets the strip overflow and paint under the "All weeks" button
-  // beside it, the desktop overlap the #916 review caught in Chromium.
-  // Red-tell: dropping the `sm` half, so the rule reads a bare `min-width: 0`,
-  // turns this case red and no other.
+  // Zero at every width, which is safe only because the strip inside it
+  // scrolls at every width (#921). Paired with a strip that does NOT scroll,
+  // this same zero is what let the strip overflow onto the "All weeks" button
+  // beside it above `sm`: measured in Chromium on this page's DOM, 45.61px of
+  // overlap at 1440px with 14 weeks and 282.75px with 18, and a document of
+  // 1532px inside a 1440px viewport. With the strip scrolling, the button
+  // clears the strip by a structural 56px at every width from 600 to 1920.
+  // Red-tell: deleting `minWidth: 0` from the header row's sx turns this case
+  // red and no other.
   expect(rulesUnder(header)['']).toMatch(/min-width:\s*0/);
   // The strip itself is the scroll container inside that row.
   expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Week' }))['']).toMatch(/overflow-x:\s*auto/);
 });
 
-// The zero minimum asserted above is the MOBILE half of the rule. Above `sm`
-// the strip is not a scroll container and its segments are `flex: none`, so a
-// header row that may shrink under it lets the strip overflow and paint under
-// the "All weeks" button beside it. That desktop half is asserted in Chromium
-// rather than here: reading a SECOND emotion class back is worker-mode
-// dependent in this harness (emotion's cache is module state jest shares
-// across the files in a worker, while each file gets a fresh document), so the
-// assertion passed alone and failed under `--maxWorkers`. The #916 review
-// measured the overlap at 125px at 1440px with an unconditional minimum and
-// 56px clear without it; #920 carries the layout guard that belongs at that
-// level. See the same note in the picker's own test.
+// The title column is the OTHER half of that rule, and it points the other
+// way. It holds words, not a scroll container, so a zero minimum there does
+// not let it clip: it lets the h1 overflow its own column onto the picker's
+// first chevron. #917 gave it one, and Chromium measured "CENTER" (min-content
+// 104.86px) sitting 11.47px over the picker between 600 and 730px with a full
+// season, on a week with no sync line. jsdom lays nothing out, so the rule is
+// the binding.
+//
+// Red-tell (#921): putting `minWidth: 0` back on the title column's sx in
+// GameCenterPage.jsx turns this case red and no other.
+test('the title column keeps its content minimum, so the h1 cannot overflow onto the picker', async () => {
+  mockApi({ matchups: [row({ id: 5, week: 1, status: 'live' })] });
+  renderPage();
+
+  await screen.findByRole('radio', { name: 'Wk 1' });
+  const title = screen.getByTestId('game-center-title');
+  expect(title).toContainElement(screen.getByRole('heading', { level: 1, name: 'Game Center' }));
+  // Read the column's own rule first, so a harness that hands back nothing
+  // fails here rather than passing the absence assertion for free.
+  const rule = rulesUnder(title)[''];
+  expect(rule).toMatch(/display:\s*grid/);
+  expect(rule).not.toMatch(/min-width/);
+});
 
 // The canvas's mobile artboard (build.mjs `gameCenterMobile()`) ends at the
 // three-row feed with no Week at a glance tile; the same week renders the
