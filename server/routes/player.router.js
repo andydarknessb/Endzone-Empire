@@ -14,6 +14,7 @@ const {
   REG_SEASON_WEEKS,
 } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
+const irPolicy = require('../services/irPolicy.service');
 
 const router = express.Router();
 
@@ -529,12 +530,21 @@ router.get('/', requireAuth, async (req, res) => {
         `SELECT COUNT(*)::int AS "roster_count" FROM "team_players" WHERE "team_id" = $1`,
         [memberTeam.id],
       );
+      // The capacity the server actually enforces for THIS viewer's team, not
+      // the IR-inclusive roster limit column. The context is already scoped to
+      // memberTeam (rosterCount is that team's count), so the number to publish
+      // is that same team's irPolicy.rosterCapacity: draftRosterSize plus its
+      // filled IR slots. Reading the stored limit here published a ceiling
+      // larger than the gate whenever an IR slot sat empty (#945).
+      const rosterCapacity = await irPolicy.rosterCapacity(pool, {
+        league,
+        teamId: memberTeam.id,
+      });
       context = {
         leagueId: Number(leagueId),
         leagueName: league.name,
         rosterCount: Number(rosterCountResult.rows[0]?.roster_count || 0),
-        rosterCapacity:
-          league.roster_limit == null ? null : Number(league.roster_limit),
+        rosterCapacity,
         waiverType: league.waiver_type || null,
         faabRemaining:
           league.waiver_type === 'faab' ? memberTeam.faab_remaining : null,
