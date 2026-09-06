@@ -103,11 +103,15 @@ export default function PickWeek({ weeks, value, onChange, fill = false }) {
           options={options}
           value={isAll ? undefined : value}
           onChange={(week) => onChange?.(week)}
-          scrollable={fill}
-          // On mobile the group takes the room left in the row (the canvas's
-          // `flex: 1 1 0`) and scrolls its weeks inside it rather than
-          // stretching them, so the strip never widens the page (#916). Each
-          // segment still grows to the 44px touch target.
+          // The strip scrolls at EVERY width (#921). That is what makes the
+          // zero minimum on the two boxes above safe: bounded by its row, the
+          // strip can neither overflow onto the "All weeks" button beside it
+          // nor widen the page, whatever the season length. When the weeks fit
+          // there is no scrollbar and the desktop look is the canvas's.
+          scrollable
+          // On mobile the group also takes the room left in the row (the
+          // canvas's `flex: 1 1 0`) and each segment grows to the 44px touch
+          // target; on desktop the segments keep their natural width.
           sx={fill ? { flex: '1 1 0', minWidth: 0, '& [role="radio"]': { minHeight: 44 } } : undefined}
         />
 
