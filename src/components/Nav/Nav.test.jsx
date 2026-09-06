@@ -60,6 +60,49 @@ test('opens the authenticated mobile navigation drawer and closes it after navig
   await waitFor(() => expect(drawerHome).not.toBeVisible());
 });
 
+test('opening the drawer with the hamburger does not move focus into the search (#934)', async () => {
+  const user = userEvent.setup();
+  renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  // Opened by the hamburger, not by "/", so nothing should reach for the
+  // search. (jsdom has no layout and cannot host the "/"-opens-drawer case,
+  // which is a browser spec; this pins the half that needs no layout.)
+  await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
+  // The drawer is open: its navigation landmark is mounted.
+  expect(screen.getByRole('navigation', { name: 'Navigation menu' })).toBeInTheDocument();
+
+  // No player-search field autofocused. Both the app-bar and drawer instances
+  // render in jsdom (which ignores the media query), so assert none of them
+  // holds focus. Removing the opened-by-slash signal (autofocusing the drawer
+  // search on any open) turns this red.
+  screen
+    .getAllByRole('combobox', { name: 'Search players' })
+    .forEach((search) => expect(search).not.toHaveFocus());
+});
+
+test('typing "/" into a page-level text field is not intercepted and never opens the drawer (#934)', async () => {
+  const user = userEvent.setup();
+  renderWithProviders(
+    <>
+      <input aria-label="page field" />
+      <Nav />
+    </>,
+    { state: { user: { id: 1, username: 'alice' } } }
+  );
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  const field = screen.getByLabelText('page field');
+  field.focus();
+  await user.keyboard('/');
+
+  // The character lands in the page field and the shortcut stays out of the way.
+  expect(field).toHaveValue('/');
+  // The drawer's landmark only exists when the temporary drawer is open, so its
+  // absence proves the drawer stayed shut.
+  expect(screen.queryByRole('navigation', { name: 'Navigation menu' })).not.toBeInTheDocument();
+});
+
 test('exposes Notification Settings and Log Out from the profile menu', async () => {
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
 
