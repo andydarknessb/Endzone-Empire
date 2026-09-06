@@ -15,8 +15,9 @@
  *      elementFromPoint hit test at each control's centre and inset corners
  *      (catches an occluder painted ON TOP of a control), and (b) a
  *      bounding-box overlap check between the header's non-nested regions -
- *      including the h1 and the breadcrumb, which are not controls but are what
- *      the #921 title-column and header-wrap defects push onto the picker/toggle
+ *      including the page heading and, on Matchup Detail, the breadcrumb, which
+ *      are not controls but are what the #921 title-column and header-wrap
+ *      defects push onto the picker/toggle
  *      (the issue body's "compare bounding boxes ... for the h1 and the picker").
  *      Form (b) is required because when an earlier element overflows its column
  *      UNDER a later control, the control is painted on top, so elementFromPoint
@@ -502,11 +503,13 @@ for (const shape of SHAPES) {
 //
 // ---- Permanent negative controls ----
 //
-// One per predicate: inject a style that forces the defect, assert the predicate
+// Four controls: inject a style that forces the defect, assert the predicate
 // reports it, remove it. The one-time red-tell mutations (recorded in the PR)
 // verify the guard at merge; these keep it PROVING on every CI run that it can
 // still go red - the failure mode a guard that has quietly stopped working looks
-// exactly like. They run on Game Center at 1440, loaded.
+// exactly like. The width and occlusion predicates each get one control, run on
+// Game Center at 1440, loaded; the region-overlap predicate gets two, so it is
+// proven on both a Game Center and a Matchup shape.
 
 test('negative control: the width predicate reports a forced column overflow', async ({ page }) => {
   await gotoShape(page, GAME_CENTER, 1440, 900);
