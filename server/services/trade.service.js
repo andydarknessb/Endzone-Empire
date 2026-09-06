@@ -34,13 +34,34 @@ class TradeError extends Error {
 
 /** Load a trade with its league, both teams, and items; lock the trade row. */
 async function loadTrade(client, tradeId, { forUpdate = true } = {}) {
+  // Lock the League row BEFORE the trades row (#946). executeTrade's roster
+  // capacity check reads team_players counts and must serialize on the League
+  // row, the same row every capacity-increasing roster write locks first
+  // (forceTransaction via requireCommissioner, the #944 write gate, and the
+  // free-agent/waiver/pick adds). Two trades on DIFFERENT trades rows that each
+  // send a player to the SAME team otherwise lock two uncontended trades rows,
+  // both read the same sub-capacity count, and both commit the team over its
+  // limit -- the race this ticket fixes.
+  //
+  // League-BEFORE-trades is the lock ORDER, not just the addition of a lock:
+  // rolloverSeason locks the League row (requireCommissioner, forUpdate) and
+  // then row-locks this league's trades (`UPDATE "trades" ... WHERE
+  // "league_id" = $1 ...`), i.e. League -> trades. Locking the trades row first
+  // here would invert that into an AB/BA deadlock pair, so the League row is
+  // locked first -- via the trade's immutable league_id, read through an
+  // unlocked MVCC subquery that never blocks on a held trades-row lock -- and
+  // the trades row second. forceTransaction and the gate are League-first too,
+  // so this introduces no lock-order inversion on any path.
+  const leagueResult = await client.query(
+    `SELECT * FROM "leagues" WHERE "id" = (SELECT "league_id" FROM "trades" WHERE "id" = $1) FOR UPDATE`,
+    [tradeId]
+  );
   const tradeResult = await client.query(
     `SELECT * FROM "trades" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
     [tradeId]
   );
   const trade = tradeResult.rows[0];
   if (!trade) throw new TradeError(404, 'trade not found');
-  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [trade.league_id]);
   const itemsResult = await client.query(`SELECT * FROM "trade_items" WHERE "trade_id" = $1`, [tradeId]);
   const teamsResult = await client.query(
     `SELECT * FROM "teams" WHERE "id" IN ($1, $2)`,

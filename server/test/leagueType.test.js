@@ -554,6 +554,15 @@ test("commissioner: rollover, remove member and avatar moderation stay open for 
 // --- service one-liners: no orphaned fantasy rows ---------------------------
 
 const LEAGUE_ROW_SQL = /SELECT \* FROM "leagues" WHERE "id" = \$1/;
+// loadTrade takes the League lock FIRST, by the trade's immutable league_id via
+// an MVCC subquery, then locks the trades row (#946). Its league read is not the
+// `"id" = $1` shape LEAGUE_ROW_SQL matches, so respondToTrade needs its own
+// matcher. This one is FOR UPDATE-bearing and shape-specific on purpose: drop
+// the lock and it stops matching, so this test fails on an unlocked read rather
+// than passing blind. LEAGUE_ROW_SQL stays as-is for the five paths whose league
+// read really is `"id" = $1` (proposeTrade, submitClaim, setLineup, addFreeAgent,
+// and the waiver path).
+const LOAD_TRADE_LEAGUE_SQL = /SELECT \* FROM "leagues" WHERE "id" = \(SELECT "league_id" FROM "trades" WHERE "id" = \$1\) FOR UPDATE/;
 const TEAM_ROW = { id: 41, league_id: 3, owner_id: CALLER, locked: false, faab_remaining: 100 };
 
 test("submitClaim (waivers) refuses a pick'em-only league before any claim row exists", async (t) => {
@@ -585,7 +594,7 @@ test("respondToTrade (accept) refuses a pick'em-only league too: the check lives
   const tx = txClient([
     [/SELECT \* FROM "trades" WHERE "id" = \$1 FOR UPDATE/, () =>
       ({ rows: [{ id: 5, league_id: 3, status: 'pending', proposing_team_id: 42, receiving_team_id: 41 }] })],
-    [LEAGUE_ROW_SQL, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
+    [LOAD_TRADE_LEAGUE_SQL, () => ({ rows: [PICKEM_LEAGUE_ROW] })],
     [/FROM "trade_items"/, () => ({ rows: [] })],
     [/SELECT \* FROM "teams" WHERE "id" IN/, () =>
       ({ rows: [{ id: 41, owner_id: CALLER, name: 'Mine' }, { id: 42, owner_id: 77, name: 'Theirs' }] })],
