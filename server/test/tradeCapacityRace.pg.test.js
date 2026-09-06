@@ -38,8 +38,10 @@
  * so naming this file *.pg.test.js is the whole of the wiring -- there is no list
  * to edit. It seeds and deletes its own league (a CASCADE removes its teams,
  * trades, trade_items, team_players, lineup_entries, transactions and
- * notifications) and its own users, so it leaves the shared database as it found
- * it, the way the other seed-and-delete files do.
+ * notifications) and its own users, and deletes its seeded players EXPLICITLY --
+ * the players table is global (no league_id), so the league CASCADE does not
+ * reach them. With that it leaves the shared database as it found it, the way the
+ * other seed-and-delete files do.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -92,6 +94,7 @@ if (!ENABLED) {
   let tradeId1 = null;
   let tradeId2 = null;
   const seededUserIds = [];
+  const seededPlayerIds = [];
 
   async function rosterCount(teamId) {
     const result = await pool.query(
@@ -159,6 +162,7 @@ if (!ENABLED) {
               ('PG Incoming Two', 'WR', 'TCC')
        RETURNING "id", "name"`
     );
+    for (const row of players.rows) seededPlayerIds.push(row.id);
     const idByName = new Map(players.rows.map((p) => [p.name, p.id]));
     const heldOne = idByName.get('PG A Held One');
     const heldTwo = idByName.get('PG A Held Two');
@@ -194,8 +198,13 @@ if (!ENABLED) {
   });
 
   test.after(async () => {
+    // League first: its CASCADE clears team_players and lineup_entries, which
+    // reference players.id, so the players delete below cannot hit an FK.
     if (leagueId != null) {
       await pool.query(`DELETE FROM "leagues" WHERE "id" = $1`, [leagueId]);
+    }
+    if (seededPlayerIds.length) {
+      await pool.query(`DELETE FROM "players" WHERE "id" = ANY($1::int[])`, [seededPlayerIds]);
     }
     if (seededUserIds.length) {
       await pool.query(`DELETE FROM "users" WHERE "id" = ANY($1::int[])`, [seededUserIds]);
