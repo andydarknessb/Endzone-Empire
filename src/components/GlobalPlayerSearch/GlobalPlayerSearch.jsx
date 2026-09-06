@@ -21,8 +21,21 @@ function isTypingTarget(el) {
  * the shared PlayerQuickView on select. Rendered in the AppBar (desktop) and
  * the nav drawer (mobile). Pass `enableShortcut` on the always-mounted desktop
  * instance so "/" focuses it from anywhere.
+ *
+ * `onShortcutMiss` is called when "/" fires but this instance cannot take focus
+ * (it is CSS-hidden below the desktop breakpoint): that is the "no inline search
+ * at this width" signal, and the nav uses it to open the drawer and focus the
+ * search inside it instead (#934). `autoFocus` is how the drawer instance takes
+ * that focus: it is forwarded to the text field so the field grabs focus when
+ * the drawer content mounts, since the drawer's children do not exist while it
+ * is closed.
  */
-function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
+function GlobalPlayerSearch({
+  inDrawer = false,
+  enableShortcut = false,
+  autoFocus = false,
+  onShortcutMiss,
+}) {
   const [input, setInput] = useState('');
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -31,6 +44,15 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
   // Dialog, so its close transition still plays; only the first open fetches it.
   const [quickViewMounted, setQuickViewMounted] = useState(false);
   const inputRef = useRef(null);
+  // Keep the shortcut's window listener registered exactly once (on mount), yet
+  // always call the latest onShortcutMiss. If the callback identity were a
+  // dependency of the listener effect, a parent passing an inline callback would
+  // tear down and re-add the listener on every render, which reorders it against
+  // any other window keydown listener - a real source of flake.
+  const onShortcutMissRef = useRef(onShortcutMiss);
+  useEffect(() => {
+    onShortcutMissRef.current = onShortcutMiss;
+  }, [onShortcutMiss]);
 
   useEffect(() => {
     const q = input.trim();
@@ -63,19 +85,24 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
       if (e.key !== '/' || isTypingTarget(e.target)) return;
       // Below the desktop breakpoint this always-mounted instance is CSS-hidden
       // (display:none) and the search lives in the drawer instead, so the field
-      // cannot take focus. Claiming the key here would then swallow "/" and give
-      // nothing back (#927; what "/" should do on a narrow window is #934).
-      // Focus first and only consume the key if focus actually landed - a
-      // display:none input is not focusable, so activeElement stays put and the
-      // "/" is left to type. This reads the real focus outcome rather than a
-      // layout property, so it is correct in a browser and stays green in jsdom
-      // (which ignores the media query and renders the field focusable).
+      // cannot take focus. Focus first and read the real focus outcome rather
+      // than a layout property, so this is correct in a browser and stays green
+      // in jsdom (which ignores the media query and renders the field focusable).
       const el = inputRef.current;
       if (!el) return;
       el.focus();
       if (document.activeElement === el) {
+        // Inline field took focus (desktop): claim the key.
         e.preventDefault();
+      } else if (onShortcutMissRef.current) {
+        // Focus did not land: there is no inline search at this width. That is
+        // the signal to hand off to the nav, which opens the drawer and focuses
+        // the search inside it (#934). Claim the key so it is not also typed.
+        e.preventDefault();
+        onShortcutMissRef.current();
       }
+      // With no handoff wired and focus not landed, the "/" is left to type
+      // (the #937 interim behaviour, still exercised by the shortcut unit test).
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -117,6 +144,7 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
         renderInput={(params) => (
           <TextField
             {...params}
+            autoFocus={autoFocus}
             inputRef={inputRef}
             placeholder="Search players..."
             inputProps={{ ...params.inputProps, 'aria-label': 'Search players' }}
