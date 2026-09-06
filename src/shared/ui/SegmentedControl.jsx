@@ -98,9 +98,13 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
   // report it as the pick. Focusing before `onChange` means the checked option
   // and the group's single tab stop are the same button once the composer
   // re-renders, on the non-scrollable path (#933) as much as the scrollable one.
-  // This assumes the composer adopts the reported value (both consumers do); a
-  // composer that rejects it would leave focus off the checked option, so a
-  // controlled group must let the arrow keys move the selection, as APG requires.
+  // This assumes the composer adopts the reported value, which every current
+  // composer does: the week picker, the view toggle, and CommissionerTools'
+  // reception-preset and lineup-template controls. The lineup-template one is the
+  // subtle case, its value derived by matching slot shape, but its onChange writes
+  // the picked template's slots, so the derived value still becomes the pick. A
+  // composer that rejected the value would leave focus off the checked option, so
+  // a controlled group must let the arrow keys move the selection, as APG requires.
   // `preventScroll` keeps the browser's default focus-scroll from firing before
   // the scrollable effect above re-centres the checked segment (a double scroll);
   // that effect then sees focus already on the checked segment and does not move
