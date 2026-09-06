@@ -97,12 +97,25 @@ export default function GameCenterPage() {
             // below it (features/pick-week, #916) reports the width of a
             // whole season to the grid and the document grows past the
             // phone, which is the dead strip beside every card the fix is
-            // about. The h1 column carries its own `minWidth: 0`; the row
-            // that holds both is what the grid measures.
+            // about. The row that holds both columns is what the grid
+            // measures; inside it only the picker carries a zero minimum.
             minWidth: 0,
           }}
         >
-          <Box sx={{ display: 'grid', gap: '4px', minWidth: 0 }}>
+          <Box
+            data-testid="game-center-title"
+            sx={{
+              display: 'grid',
+              gap: '4px',
+              // No zero minimum here (#921). This column holds words, not a
+              // scroll container: shrunk past the min-content width of
+              // CENTER it does not clip, it overflows, and the overflow
+              // lands on the week picker's first chevron between 600 and
+              // 730px (measured). The picker beside it carries the zero
+              // minimum and absorbs the whole shrink, because its strip
+              // scrolls at every width.
+            }}
+          >
             <Typography
               component="h1"
               sx={{
