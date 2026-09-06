@@ -101,7 +101,13 @@ function TeamLineup() {
           || rosterLeagues[0];
         setSelectedLeague(selected.id);
         if (String(selected.id) !== searchParams.get('leagueId')) {
-          setSearchParams({ leagueId: String(selected.id) }, { replace: true });
+          // Rewrite ONLY `leagueId`. The Bench what-if card links in with the
+          // swap it found (`?swapOut=&swapIn=`, #910) and the editor reads that
+          // pair when it mounts, which is after this normalisation: replacing
+          // the whole query here threw the swap away before it was ever read.
+          const next = new URLSearchParams(searchParams);
+          next.set('leagueId', String(selected.id));
+          setSearchParams(next, { replace: true });
         }
       } else {
         setLoading(false);
@@ -157,6 +163,9 @@ function TeamLineup() {
   const handleLeagueChange = (event) => {
     const leagueId = event.target.value;
     setSelectedLeague(leagueId);
+    // The whole query goes here, deliberately: a Bench what-if swap (#910)
+    // names players on the League it was found in, so it does not follow the
+    // manager to a different one.
     setSearchParams({ leagueId: String(leagueId) }, { replace: true });
   };
 

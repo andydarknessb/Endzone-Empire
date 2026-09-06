@@ -50,8 +50,13 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
  *     (`GET /api/team/hindsight`), read only once the Matchup is final AND the
  *     league is known and not best ball: best ball sets no lineup, so nothing
  *     is ever left on a bench (ADR 0023), and until the league is known no
- *     read happens so a best-ball zero never flashes. A failed read is
- *     skipped silently (a supplementary stat).
+ *     read happens so a best-ball zero never flashes. Final is the MODEL's
+ *     status and not the fetched body's `final` flag (#912), so a week that
+ *     settles over the score feed issues the read and renders the line with no
+ *     refetch; the read fires at most once per (team, season, week) however
+ *     many entries arrive, and the figures it read stay put when a status that
+ *     moves off final merely hides the line. A failed read is skipped silently
+ *     (a supplementary stat).
  *   - The view (Standard or Scoreboard), remembered per viewer by the
  *     toggle-matchup-view feature under ONE stable key: the signed-in user's
  *     id from the redux user slice (`state.user.id`, on hand at first paint),
@@ -109,6 +114,8 @@ export function useMatchupPage(leagueId, matchupId) {
   // The latest detail body, so the play handler reads the current lineups and
   // viewer id without closing over them (and without re-subscribing the feed).
   const detailRef = useRef(null);
+  // The (team, season, week) the hindsight read has already been issued for.
+  const benchLeftReadRef = useRef(null);
 
   const handleScores = useCallback((event) => {
     const plays = (event && event.plays) || [];
@@ -170,20 +177,37 @@ export function useMatchupPage(leagueId, matchupId) {
     }
   }, []);
 
+  // Final is the MODEL's status, never the fetched body's `final` flag (#912):
+  // the score feed moves the status through applyScoreEvent (ADR 0030, status
+  // is a server fact, and the server states `final` for exactly a settled
+  // week), so a Matchup that settles while the page is open is final here with
+  // no refetch, and one that a correction pass re-opens stops being final. A
+  // status the server did not state (null, ADR 0030's unknown) is the one case
+  // that falls back to the `final` flag, the only finality fact such a body
+  // carries.
+  const isFinal = matchup?.status === 'final' || (matchup?.status == null && !!matchup?.final);
+
   // Points left on the bench: only once final, and only for a league that
   // sets a lineup (ADR 0023). Both gates are read here, so a best-ball league
-  // or an unknown league issues no read at all.
-  const benchLeftEligible = !!(detail?.matchup?.final && detail.home && detail.away && league && !league.best_ball);
-  const benchLeftWeek = detail?.matchup?.week;
-  const benchLeftSeason = detail?.matchup?.season;
-  const homeTeamId = detail?.home?.teamId;
-  const awayTeamId = detail?.away?.teamId;
+  // or an unknown league issues no read at all. The read's (team, season,
+  // week) come off the model too, so one Matchup fact drives the whole read.
+  const benchLeftWeek = matchup?.week;
+  const benchLeftSeason = matchup?.season;
+  const homeTeamId = matchup?.home?.teamId ?? null;
+  const awayTeamId = matchup?.away?.teamId ?? null;
+  const benchLeftEligible = !!(isFinal && homeTeamId != null && awayTeamId != null && league && !league.best_ball);
   useEffect(() => {
-    if (!benchLeftEligible) {
-      setHomeBenchLeft(null);
-      setAwayBenchLeft(null);
-      return undefined;
-    }
+    if (!benchLeftEligible) return undefined;
+    // At most one read per (team, season, week), however many score entries
+    // arrive: hindsight for a settled week is one answer, and eligibility can
+    // be re-entered (a correction pass moving the status off final and back).
+    // The ref holds the key already read; a new Matchup on the same page has a
+    // new key and clears the last one's figures before its own read lands.
+    const readKey = `${leagueId}|${homeTeamId}|${awayTeamId}|${benchLeftSeason}|${benchLeftWeek}`;
+    if (benchLeftReadRef.current === readKey) return undefined;
+    benchLeftReadRef.current = readKey;
+    setHomeBenchLeft(null);
+    setAwayBenchLeft(null);
     let cancelled = false;
     const url = (teamId) =>
       `/api/team/hindsight?leagueId=${leagueId}&teamId=${teamId}&season=${benchLeftSeason}&week=${benchLeftWeek}`;
@@ -214,7 +238,6 @@ export function useMatchupPage(leagueId, matchupId) {
 
   const status = matchupStatusView(matchup?.status);
   const isLive = matchup?.status === 'live';
-  const isFinal = !!matchup?.final;
 
   const homeProb = useMemo(() => {
     if (!matchup) return null;
