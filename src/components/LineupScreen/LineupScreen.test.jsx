@@ -1419,3 +1419,131 @@ test('appends the opponent to the row caption when provided, and omits it when m
     within(screen.getByTestId('slot-row-RB-1')).queryByText(/vs/)
   ).not.toBeInTheDocument();
 });
+
+// --- the Bench what-if swap named in the query (#910) -----------------------
+//
+// The Bench what-if card on Matchup Detail links here with the swap it found,
+// as `?swapOut=<the starter to bench>&swapIn=<the bench player to start>`
+// (swapLineupHref, src/features/bench-what-if). Lineup owns the mutation
+// (ADR 0019), so the page resolves that pair against the loaded lineup and
+// offers the move it already knows how to make.
+
+const renderScreenWithQuery = (query, leagueId = 1) =>
+  renderWithProviders(<LineupScreen />, {
+    path: '/league/:leagueId/lineup',
+    route: `/league/${leagueId}/lineup${query}`,
+  });
+
+// Justin Jefferson (10) starts at FLEX and Saquon Barkley (11) sits on the
+// bench, each eligible for the other's slot — the shape the what-if card emits.
+// Patrick Mahomes (1) is the uninvolved third row every case checks stays
+// unmarked.
+const swapEntries = [
+  {
+    id: 1,
+    name: 'Patrick Mahomes',
+    position: 'QB',
+    nfl_team: 'Kansas City Chiefs',
+    slot: 'QB',
+    locked: false,
+    onBye: false,
+  },
+  ...flexBenchEntries,
+];
+const swapQuery = '?swapOut=10&swapIn=11';
+
+// What an unparameterised mount renders: no offer and no marked rows.
+const expectNoSwapOffer = () => {
+  expect(screen.queryByTestId('lineup-swap-offer')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-FLEX-0')).not.toHaveAttribute('data-swap-highlight');
+  expect(screen.getByTestId('slot-row-BENCH-11')).not.toHaveAttribute('data-swap-highlight');
+  expect(screen.getByTestId('slot-row-QB-0')).not.toHaveAttribute('data-swap-highlight');
+};
+
+test('a swap named in the query marks both rows and offers it as the pre-filled move', async () => {
+  // Red-tell: reading the two ids in the opposite order (swapIn as the player
+  // to bench) flips both the offer copy and the order of the two moves, turning
+  // this test red and no other — the two negative cases below fail on a missing
+  // or a locked row whichever id is read first, so they stay green.
+  setupGet({ lineup: lineupResponse({ entries: swapEntries }) });
+  apiClient.put.mockResolvedValue({});
+
+  renderScreenWithQuery(swapQuery);
+  await screen.findByText('Justin Jefferson');
+
+  const offer = await screen.findByTestId('lineup-swap-offer');
+  expect(offer).toHaveTextContent('Start Saquon Barkley over Justin Jefferson');
+  expect(screen.getByTestId('slot-row-FLEX-0')).toHaveAttribute('data-swap-highlight', 'true');
+  expect(screen.getByTestId('slot-row-BENCH-11')).toHaveAttribute('data-swap-highlight', 'true');
+  // The rows the swap does not name stay unmarked.
+  expect(screen.getByTestId('slot-row-QB-0')).not.toHaveAttribute('data-swap-highlight');
+
+  await userEvent.click(within(offer).getByRole('button', { name: 'Swap' }));
+
+  // The same two-move payload a manual click-click swap produces, through the
+  // same save path — no second mutation exists (ADR 0019).
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 3,
+      moves: [
+        { playerId: 10, slot: 'BENCH' },
+        { playerId: 11, slot: 'FLEX' },
+      ],
+    })
+  );
+  // Consumed by applying it: the offer and the marks are both gone. The bench
+  // row is keyed by its occupant and the two players have just changed places,
+  // so it is Jefferson (10) sitting there now.
+  expect(screen.queryByTestId('lineup-swap-offer')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-FLEX-0')).not.toHaveAttribute('data-swap-highlight');
+  expect(screen.getByTestId('slot-row-BENCH-10')).not.toHaveAttribute('data-swap-highlight');
+});
+
+test('a swap naming a player who is not on this lineup renders like an unparameterised mount', async () => {
+  // Red-tell: dropping the `!outEntry || !inEntry` guard, so a lookup that
+  // misses still reaches the offer, turns this red and no other test.
+  setupGet({ lineup: lineupResponse({ entries: swapEntries }) });
+
+  renderScreenWithQuery('?swapOut=999&swapIn=11');
+  await screen.findByText('Justin Jefferson');
+
+  expectNoSwapOffer();
+  // Not an error either: an id this Team never had is a stale link, not a fault
+  // the manager has to read about.
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('a swap naming a locked row renders like an unparameterised mount', async () => {
+  // The same query as the positive case above; only `locked` differs.
+  // Red-tell: dropping the `isEligibleTarget` call, so the swap is offered on
+  // an id match alone, turns this red and no other test.
+  const lockedStarter = swapEntries.map((e) => (e.id === 10 ? { ...e, locked: true } : e));
+  setupGet({ lineup: lineupResponse({ entries: lockedStarter }) });
+
+  renderScreenWithQuery(swapQuery);
+  await screen.findByText('Justin Jefferson');
+
+  expectNoSwapOffer();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('the swap offer is consumed once and does not come back on a re-render', async () => {
+  // Red-tell: dropping `setRequestedSwap(null)` from `consumeRequestedSwap`, so
+  // answering the offer only clears the query, turns this red: the router
+  // commits that clear as a transition, and the offer is back on screen for the
+  // renders in between.
+  setupGet({ lineup: lineupResponse({ entries: swapEntries }) });
+
+  renderScreenWithQuery(swapQuery);
+  const offer = await screen.findByTestId('lineup-swap-offer');
+
+  await userEvent.click(within(offer).getByRole('button', { name: 'Dismiss' }));
+  expectNoSwapOffer();
+
+  // A re-render with nothing to do with the offer: selecting a row re-runs the
+  // whole render, the query read included.
+  await userEvent.click(screen.getByTestId('slot-row-BENCH-11'));
+  expect(await screen.findByTestId('lineup-move-strip')).toBeInTheDocument();
+  expectNoSwapOffer();
+});

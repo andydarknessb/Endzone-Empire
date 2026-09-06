@@ -199,6 +199,22 @@ test('"/league/:leagueId/lineup" is protected and redirects to Team with the Lea
   expect(window.location.hash).toBe('#/team?leagueId=1');
 });
 
+test('"/league/:leagueId/lineup" carries a Bench what-if swap through to Team', async () => {
+  // The Bench what-if card links to this legacy URL with the swap it found
+  // (?swapOut=&swapIn=, #910) and Team is where Lineup reads it.
+  // Red-tell: rebuilding the redirect target from leagueId alone, the way it
+  // read before, drops both params and turns this red.
+  renderApp('#/league/1/lineup?swapOut=11&swapIn=12', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/league/1') return Promise.resolve({ data: { league: { id: 1, pickem_only: false } } });
+      if (url === '/api/league') return Promise.resolve({ data: [{ id: 1, name: 'Sunday Ballers' }] });
+      return Promise.resolve({ data: [] });
+    });
+  });
+  expect(await screen.findByRole('heading', { name: 'My Team' })).toBeInTheDocument();
+  expect(window.location.hash).toBe('#/team?swapOut=11&swapIn=12&leagueId=1');
+});
+
 test('"/league/:leagueId/matchups/:matchupId" is protected and renders the Matchup page when logged in', async () => {
   const { unmount } = renderApp('#/league/1/matchups/9', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
