@@ -231,13 +231,15 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
     // draft_status rides that statement because the final pick's advance IS the
     // completion, and the completion side effects below depend on 'complete'
     // being set first (#194).
+    // The Pick clock reads the offline rule and clock settings from the locked
+    // league row itself (#948); this transaction holds it FOR UPDATE and writes
+    // no Leagues column before this call, so the re-read is the same row.
     pickDeadlineAt = await pickClock.onPickLanded(client, {
       leagueId,
       nextPick: committedPickIndex,
       draftStatus: draftComplete ? 'complete' : 'active',
       draftComplete,
       nextTeam,
-      league,
     });
     // A present owner making their own pick clears any timeout streak.
     if (!auto) {

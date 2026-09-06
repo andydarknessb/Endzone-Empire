@@ -324,10 +324,13 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
-      // draft_type is selected because the Pick clock policy needs it: an
-      // offline draft arms no clock. It must travel with the onAutodraftToggled
-      // call below, or clockSecondsFor would read undefined and keep arming.
-      `SELECT "owner_id", "draft_status", "draft_type", "current_pick", "draft_paused", "autodraft_delay_seconds",
+      // Locked FOR UPDATE for the whole transaction. The Pick clock policy
+      // columns this SELECT used to carry (draft_type and autodraft_delay_seconds)
+      // are no longer selected here: onAutodraftToggled re-reads the policy from
+      // this same locked row (#948), so they cannot drift out of this column list.
+      // The columns below are the ones this handler itself uses to authorize the
+      // toggle and resolve the on-clock team.
+      `SELECT "owner_id", "draft_status", "current_pick", "draft_paused",
               "draft_rotation", "draft_order_overrides"
        FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
@@ -373,8 +376,11 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
       });
       if (onClock && onClock.id === teamId) {
         // The team now on the clock is autodrafting: arm the short delay through
-        // the Pick clock module (ADR 0018), the only writer of the deadline.
-        await pickClock.onAutodraftToggled(client, { leagueId, league });
+        // the Pick clock module (ADR 0018), the only writer of the deadline. It
+        // reads the offline rule and clock settings from the locked row itself
+        // (#948); this transaction holds it FOR UPDATE and writes no Leagues
+        // column before this call.
+        await pickClock.onAutodraftToggled(client, { leagueId });
       }
     }
     await client.query('COMMIT');
@@ -478,12 +484,13 @@ router.post('/league/:id/undo', async (req, res) => {
     const onClock = teamForPick(newCurrentPick, teamsResult.rows, rotationOpts);
     // Rewind the turn and re-arm the team now on the clock by the one policy,
     // through the Pick clock module (ADR 0018): the only writer of current_pick
-    // and the deadline.
+    // and the deadline. It reads the offline rule and clock settings from the
+    // locked row itself (#948); this transaction holds the league FOR UPDATE and
+    // writes no Leagues column before this call.
     await pickClock.onPickUndone(client, {
       leagueId,
       newCurrentPick,
       onClockAutodraft: onClock ? onClock.autodraft : false,
-      league,
     });
     await client.query('COMMIT');
     const broadcast = getDraftRoomBroadcast();
