@@ -3,6 +3,26 @@ const { logger } = require('./logger');
 const sentry = require('./sentry');
 
 /**
+ * The advisory-lock id space, kept in one place so a new lock does not silently
+ * collide with an existing one. Every id here is a transaction-scoped lock
+ * (pg_advisory_xact_lock / pg_try_advisory_xact_lock); none is session-scoped
+ * (#839).
+ *
+ *   23001 league-scheduler  (modules/scheduler.js, via withAdvisoryLock)
+ *   23002 draft-clock       (modules/scheduler.js, via withAdvisoryLock)
+ *   23003 live-game-engine  (modules/liveGameEngine.js)
+ *   23004 players-bulk-write - serializes the two whole-players-table writers,
+ *         syncAdp (services/adp.service.js) and syncInjuries
+ *         (services/scoring.service.js), so their opposite row-lock orders cannot
+ *         deadlock (#904). Unlike the ids above it is NOT taken through
+ *         withAdvisoryLock: that helper is try-and-skip on its own client, but
+ *         these two syncs must WAIT and then run, and the lock must live inside
+ *         each sync's own transaction. Each sync issues a blocking
+ *         pg_advisory_xact_lock(23004) as the first statement after its BEGIN.
+ */
+const PLAYERS_BULK_WRITE_LOCK = 23004;
+
+/**
  * Consecutive skips per lock id (#842). After #839 a skip can only mean another
  * process holds the lock, which a deploy overlap explains for a few seconds and
  * nothing explains for longer. The third consecutive skip raises one Sentry
@@ -97,4 +117,4 @@ async function withAdvisoryLock(lockId, name, work) {
   }
 }
 
-module.exports = { withAdvisoryLock, resetSkipStreaks, SKIP_ALARM_STREAK };
+module.exports = { withAdvisoryLock, resetSkipStreaks, SKIP_ALARM_STREAK, PLAYERS_BULK_WRITE_LOCK };

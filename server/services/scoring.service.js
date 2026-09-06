@@ -2,6 +2,7 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
+const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { tank01Get } = require('../modules/tank01Client');
 const {
   materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
@@ -1116,6 +1117,15 @@ async function syncInjuries({ api = tank01Get } = {}) {
   let updated = 0;
   try {
     await client.query('BEGIN');
+    // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
+    // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
+    // different order across its wipe and bulk set. Both writers take one
+    // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK) as the FIRST
+    // statement after BEGIN, before any row lock, so they cannot interleave into
+    // a deadlock cycle. Blocking xact form (pg_advisory_xact_lock): the second
+    // sync waits and then runs, and the lock releases with the transaction, so
+    // there is no explicit unlock and nothing strands behind the pooler (#839).
+    await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
     const playersResult = await client.query(
       `SELECT "id", "external_id", "injury_status"
          FROM "players" WHERE "external_id" IS NOT NULL
