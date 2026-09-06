@@ -323,7 +323,11 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
  *  - `played`   every starter's game is over but the score of record is not
  *               yet written (the settle pass has not run).
  *  - `scheduled` no starter's game has kicked off, including a Matchup with
- *               no lineup rows on either side.
+ *               no lineup rows on either side, and one whose every starter is
+ *               on a bye (nobody has a game to kick off).
+ * Only starters who HAVE a game this week are read. A starter on a bye is
+ * classified `final` by the Expected final rule - nothing more is coming for
+ * him - but no game of his kicked off, so he is evidence of nothing either way.
  * `home` and `away` are the per-team producer results (with `starters`) or
  * null when a side has no lineup rows. In best ball `starters` is the
  * optimizer's chosen lineup, the same set the Expected final sums.
@@ -335,7 +339,12 @@ function statusForMatchup({ settled, home, away, computed = true, unreliable = f
   // status - it is stated as unknown (null), never guessed as scheduled.
   if (!computed || unreliable) return null;
   const startersOf = (team) => (team && Array.isArray(team.starters) ? team.starters : []);
-  const states = [...startersOf(home), ...startersOf(away)].map((s) => s.gameState);
+  // A bye starter carries no game, so his `final` is not a game that finished.
+  // Counting him read every future week in which either manager had started a
+  // player on a bye as `live`, weeks before a single game had kicked off.
+  const states = [...startersOf(home), ...startersOf(away)]
+    .filter((s) => s.availability?.reason !== 'bye')
+    .map((s) => s.gameState);
   if (states.some((s) => s === 'in_progress')) return 'live';
   if (states.length > 0 && states.every((s) => s === 'final')) return 'played';
   // A game has kicked off (some starter final) while others have not: the
