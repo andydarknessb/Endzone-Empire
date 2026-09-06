@@ -120,7 +120,16 @@ export const colorTokens = {
     'dash-home': '#1e5bb8',
     'dash-home-soft': 'rgba(30, 91, 184, 0.10)',
     'dash-away': '#1b7d4f',
-    'dash-away-soft': 'rgba(27, 125, 79, 0.12)',
+    // The away tint doubles as the island's SUCCESS tint: the canvas's
+    // `.chip.final` (`--success-soft`, 12%) is the Final status chip on the
+    // hero and the matchup cards (#897), success TEXT on the tint. At the
+    // canvas's 12% the text measures 4.36 over a card in light, under
+    // AA_TEXT, so the light alpha is 8% (4.63 over `dash-surface`; still
+    // 4.30 over `dash-surface2`, 3.90 over `dash-surface3`, 4.13 over the
+    // page), the same tuning `dash-accent` and `dash-faint` got. Registered
+    // in tokens.contrast over a card ONLY, so the tinted chip sits on
+    // `dash-surface` and nowhere else. Dark keeps the canvas's 16%.
+    'dash-away-soft': 'rgba(27, 125, 79, 0.08)',
     // The Game Center canvas's danger tone (build.mjs :root, lifted verbatim;
     // the same hex as the app's `danger`), for the scoring strip's Live pill
     // (the canvas's `.chip.live`: danger text and border on the danger tint)

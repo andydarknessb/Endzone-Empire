@@ -49,7 +49,8 @@ describe('matchupHeroView', () => {
     const view = matchupHeroView(live, 10);
     expect(view.hasStarted).toBe(true);
     expect(view.chipLabel).toBe('LIVE');
-    expect(view.chipVariant).toBe('live');
+    expect(view.chipVariant).toBe('danger');
+    expect(view.chipDot).toBe(true);
     expect(view.winProbability).toMatchObject({ homePct: 36, awayPct: 64 });
     expect(view.sentence).toBe('Ahead now, projected to trail by 13.4 with 6 of theirs still to play');
     expect(view.kickoff).toBeNull();
@@ -74,6 +75,7 @@ describe('matchupHeroView', () => {
     expect(view.hasStarted).toBe(false);
     expect(view.chipLabel).toBe('Scheduled');
     expect(view.chipVariant).toBe('neutral');
+    expect(view.chipDot).toBe(false);
     expect(view.kickoff).toBe(formatKickoff(live.firstKickoffAt));
     expect(view.winProbability).toBeNull();
     expect(view.sentence).toBeNull();
@@ -108,6 +110,19 @@ describe('matchupHeroView', () => {
     );
     expect(view.winProbability.homePct).toBeGreaterThan(50);
     expect(view.sentence).toBe('Won by 5.2');
+    // The canvas's `.chip.final`: the success chip, no live dot.
+    expect(view.chipLabel).toBe('Final');
+    expect(view.chipVariant).toBe('success');
+    expect(view.chipDot).toBe(false);
+  });
+
+  // Red-tell (#897): collapsing the variant map back to live-or-neutral turns
+  // this case and the final case above red (both read a third variant).
+  test('a played matchup carries the warning chip without the live dot', () => {
+    const view = matchupHeroView({ ...live, status: 'played' }, 10);
+    expect(view.chipLabel).toBe('Awaiting final');
+    expect(view.chipVariant).toBe('warning');
+    expect(view.chipDot).toBe(false);
   });
 });
 

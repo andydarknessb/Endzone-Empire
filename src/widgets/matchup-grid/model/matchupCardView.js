@@ -27,6 +27,10 @@ import { lookupRecord } from '../lib/records';
  *     record", the line the played copy is waiting on.
  *   - The header note is the week, or before kickoff the kickoff time from the
  *     model's `firstKickoffAt` (#892) in the viewer's own zone.
+ *   - The status chip's Badge variant follows the design source's statusChip():
+ *     the danger red with the dot while live, success green once final,
+ *     warning for Awaiting final, the plain chip for Scheduled. The label is
+ *     the entity predicate's.
  *
  * Win probability is the same arithmetic the hero uses (src/lib/winProbability,
  * a sanctioned reach below the island per ADR 0031): a side whose Expected
@@ -34,6 +38,12 @@ import { lookupRecord } from '../lib/records';
  */
 
 const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
+
+// The status chip's Badge variant per server status, the design source's
+// statusChip(): `.chip.live` is the danger red with the dot, `.chip.final` the
+// success green, `.chip.warn` for Awaiting final, the plain chip for
+// Scheduled. The label is the entity predicate's; an unknown status has none.
+const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
 /**
  * "Sun 7:20 PM" for an ISO instant, in the viewer's own zone. `timeZone` and
@@ -138,7 +148,8 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
     week: m.week ?? null,
     status,
     chipLabel,
-    chipVariant: status === 'live' ? 'live' : 'neutral',
+    chipVariant: CHIP_VARIANTS[status] ?? 'neutral',
+    chipDot: status === 'live',
     started,
     scheduled,
     headerNote,

@@ -8,7 +8,7 @@ import { computeDefaultWeek } from '../../lib/matchupWeek';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import { matchupFromListRow } from '../../entities/matchup';
 import GameCenterPage from './index';
-import { syncLineText, weekGlanceFacts } from './model/useGameCenter';
+import { SYNC_CADENCE_MS, syncLineText, weekGlanceFacts } from './model/useGameCenter';
 
 // The page reads everything through the shared apiClient (the league cache,
 // the Matchup list, the standings cache, the rosters), so the whole client is
@@ -322,12 +322,35 @@ test('the sync line is omitted while the week has no syncedAt', async () => {
   expect(screen.queryByTestId('game-center-sync')).not.toBeInTheDocument();
 });
 
-test('syncLineText: the countdown floors at zero once the pass is due', () => {
+// Red-tell (#897): flooring the countdown at zero and printing the tail
+// regardless ("next pass in 0 min", forever, once the week is over) turns
+// this case and the page case below red; the countdown case above binds the
+// tail while a pass is still due.
+test('syncLineText: the next-pass tail is dropped once that instant has passed', () => {
   const now = Date.UTC(2026, 8, 13, 20, 0, 0);
-  const syncedAt = new Date(now - 45 * 60000).toISOString();
-  expect(syncLineText(syncedAt, now)).toMatch(/next pass in 0 min$/);
+  const time = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  // 45 minutes after the sync the 30-minute pass is 15 minutes late: no tail.
+  const late = now - 45 * 60000;
+  expect(syncLineText(new Date(late).toISOString(), now)).toBe(`Scores synced ${time(late)}`);
+  // Exactly on the instant: nothing left to count down, no tail.
+  const due = now - SYNC_CADENCE_MS;
+  expect(syncLineText(new Date(due).toISOString(), now)).toBe(`Scores synced ${time(due)}`);
+  // Half a minute short of it rounds up to the last whole minute.
+  const almost = now - SYNC_CADENCE_MS + 30000;
+  expect(syncLineText(new Date(almost).toISOString(), now)).toBe(`Scores synced ${time(almost)} · next pass in 1 min`);
   expect(syncLineText(null, now)).toBeNull();
   expect(syncLineText('not a date', now)).toBeNull();
+});
+
+test('the sync line drops the countdown once the pass is overdue', async () => {
+  const syncedAt = new Date(Date.now() - 45 * 60000).toISOString();
+  mockApi({ matchups: [viewerRow({ synced_at: syncedAt }), otherRow({ synced_at: syncedAt })], viewerTeamId: 10 });
+  renderPage();
+
+  const line = await screen.findByTestId('game-center-sync');
+  const time = new Date(syncedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  expect(line).toHaveTextContent(`Scores synced ${time}`);
+  expect(line).not.toHaveTextContent('next pass');
 });
 
 // --- week at a glance ------------------------------------------------------
@@ -384,6 +407,32 @@ test('weekGlanceFacts: a row whose fact is not derivable is left out, and a week
   expect(screen.queryByTestId('week-glance')).not.toBeInTheDocument();
 });
 
+// Red-tell (#897): deriving the glance rows under "All weeks" (dropping the
+// All guard in useGameCenter) renders the tile with cross-week facts and turns
+// this case red; the per-week cases above stay green either way.
+test('the Week at a glance tile is not rendered under All weeks, and a week brings it back', async () => {
+  mockApi({
+    matchups: [
+      ...glanceWeek(),
+      row({ id: 4, week: 2, status: 'live', home_team_id: 70, away_team_id: 80, home_team_name: 'Eta', away_team_name: 'Theta', home_score: '150.0', away_score: '10.0' }),
+    ],
+    league: { id: 1, name: 'Sunday Ballers', current_week: 1 },
+  });
+  renderPage();
+
+  await screen.findByTestId('week-glance');
+  expect(within(glanceRow('top-score')).getByTestId('week-glance-value')).toHaveTextContent('101.3');
+
+  await userEvent.click(screen.getByRole('button', { name: 'All weeks' }));
+  expect(screen.queryByTestId('week-glance')).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { level: 2, name: 'Week at a glance' })).not.toBeInTheDocument();
+  // The rest of the rail is still up: only the per-week tile is gone.
+  expect(screen.getByRole('heading', { level: 2, name: 'Scoring feed' })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('radio', { name: 'Wk 2' }));
+  expect(within(glanceRow('top-score')).getByTestId('week-glance-value')).toHaveTextContent('150.0');
+});
+
 // --- the live feed: one model update reaches the DOM ----------------------
 
 test('a scores:updated event moves a card\'s score and chip with no refetch', async () => {
@@ -407,7 +456,7 @@ test('a scores:updated event moves a card\'s score and chip with no refetch', as
   expect(within(within(after).getByTestId('matchup-side-home')).getByTestId('matchup-figure')).toHaveTextContent('21.0');
   expect(within(within(after).getByTestId('matchup-side-away')).getByTestId('matchup-figure')).toHaveTextContent('14.0');
   expect(within(after).getByTestId('matchup-status')).toHaveTextContent('LIVE');
-  expect(within(after).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'live');
+  expect(within(after).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'danger');
   expect(within(within(after).getByTestId('matchup-side-home')).getByTestId('matchup-side-note')).toHaveTextContent('EF 104.6');
   // No refetch of the list and no per-card fetch rode the event.
   expect(apiClient.get.mock.calls.filter(([url]) => url.endsWith('/matchups'))).toHaveLength(1);

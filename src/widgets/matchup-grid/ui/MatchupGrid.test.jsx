@@ -135,10 +135,34 @@ test('a live card shows both scores and a bar with the two percentages', () => {
   // The footer carries the same two percentages; the header carries the week.
   expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent('Win probability 49% · 51%');
   expect(within(c).getByTestId('matchup-card-note')).toHaveTextContent('Week 3');
+  // The artboard's red LIVE: the danger Badge with the dot.
   expect(within(c).getByTestId('matchup-status')).toHaveTextContent('LIVE');
-  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'live');
+  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'danger');
   // Live: no check mark on anyone yet.
   expect(within(c).queryByRole('img', { name: 'Leading' })).toBeNull();
+});
+
+// Red-tell (#897): removing aria-hidden from the live footer puts "Win
+// probability" in the card link's name twice (the bar's label and the footer
+// text) and turns this case red; a played card's footer stays in its name.
+test('a live card link names the win probability once, from the bar', () => {
+  renderGrid({ matchups: [LIVE, PLAYED] });
+  const once = (name) => name.split('Win probability').length === 2;
+
+  const live = screen.getByRole('link', {
+    name: (name) => once(name) && /Bemidji Blizzard 49%, Mankato Mavericks 51%/.test(name),
+  });
+  expect(live).toBe(card(1));
+  // The footer is still on screen for the eye.
+  expect(within(live).getByTestId('matchup-card-footer')).toHaveAttribute('aria-hidden', 'true');
+  expect(within(live).getByTestId('matchup-card-footer')).toHaveTextContent('Win probability 49% · 51%');
+
+  // A played card's footer says what the bar does not, and is in the name.
+  const played = screen.getByRole('link', {
+    name: (name) => once(name) && /Waiting on the score of record/.test(name),
+  });
+  expect(played).toBe(card(3));
+  expect(within(played).getByTestId('matchup-card-footer')).not.toHaveAttribute('aria-hidden');
 });
 
 // Red-tell: rendering the score on a scheduled card turns THIS case red and no
@@ -191,6 +215,7 @@ test('a played card shows the check mark on the leader and the awaiting line', (
     'Waiting on the score of record'
   );
   expect(within(c).getByTestId('matchup-status')).toHaveTextContent('Awaiting final');
+  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'warning');
   // A settled game shows no forecast on its note line.
   expect(within(home).queryByTestId('matchup-side-note')).toBeNull();
   // The bar still splits the two sides.
@@ -208,6 +233,7 @@ test('a final card checks the winner, wherever they sit, and reads the score of 
   expect(within(home).getByTestId('matchup-figure')).toHaveTextContent('80.0');
   expect(within(away).getByTestId('matchup-figure')).toHaveTextContent('90.0');
   expect(within(c).getByTestId('matchup-status')).toHaveTextContent('Final');
+  expect(within(c).getByTestId('matchup-status')).toHaveAttribute('data-variant', 'success');
   expect(within(c).getByTestId('matchup-card-footer')).toHaveTextContent('Score of record');
   expect(within(c).getByTestId('matchup-card-footer')).not.toHaveTextContent('Win probability');
 });

@@ -3,7 +3,7 @@ import { Chip } from '@mui/material';
 
 /**
  * League Dashboard badge: a token-themed MUI Chip in three variants from the
- * mockup, plus one from the Game Center canvas:
+ * mockup, plus three from the Game Center canvas:
  *   - `neutral` (default): the plain `.chip` (surface2 fill, dim text).
  *   - `live`: the `.chip.live` accent state (accent text on the accent tint).
  *   - `you`: the small `.you` pill that is the viewer-row marker for the League
@@ -25,8 +25,14 @@ import { Chip } from '@mui/material';
  *     over a card (tokens.contrast.test.js), so it belongs on `dash-surface`.
  *   - `warning`: the canvas's `.chip.warn` (ADR 0031, #903): warning text and
  *     border on the warning tint, the "may not play" tone of the injury tag
- *     (InjuryTag). Its tint is guarded over a card and a stat tile
+ *     (InjuryTag) and the Awaiting final status chip on the hero and the
+ *     matchup cards (#897). Its tint is guarded over a card and a stat tile
  *     (`dash-surface`, `dash-surface2`, tokens.contrast.test.js), nowhere else.
+ *   - `success`: the canvas's `.chip.final` (ADR 0031, #897): success text and
+ *     border on the success tint, the Final status chip on the hero and the
+ *     matchup cards. The island's success pair is the away pair (`dash-away` /
+ *     `dash-away-soft`, tokens.js); the tint is guarded only over a card
+ *     (tokens.contrast.test.js), so it belongs on `dash-surface`.
  *
  * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
  * The label text is whatever `children` holds; the variant is also exposed as
@@ -64,6 +70,13 @@ const VARIANT_SX = {
     backgroundColor: 'var(--dash-warning-soft)',
     color: 'var(--dash-warning)',
     border: '1px solid var(--dash-warning)',
+  },
+  // The canvas's `.chip.final`: the same shape as `danger` and `warning`, on
+  // the island's success pair (the away color; there is no `dash-away-line`).
+  success: {
+    backgroundColor: 'var(--dash-away-soft)',
+    color: 'var(--dash-away)',
+    border: '1px solid var(--dash-away)',
   },
 };
 

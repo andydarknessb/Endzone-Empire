@@ -78,9 +78,25 @@ test('renders Expected final and PMR as stat tiles on each side', () => {
   renderHero();
 
   expect(within(homeSide()).getByTestId('matchup-hero-expected-final')).toHaveTextContent('Expected final110.5');
-  expect(within(homeSide()).getByTestId('matchup-hero-pmr')).toHaveTextContent('PMR4');
+  expect(within(homeSide()).getByTestId('matchup-hero-pmr')).toHaveTextContent(/4$/);
   expect(within(awaySide()).getByTestId('matchup-hero-expected-final')).toHaveTextContent('Expected final123.9');
-  expect(within(awaySide()).getByTestId('matchup-hero-pmr')).toHaveTextContent('PMR6');
+  expect(within(awaySide()).getByTestId('matchup-hero-pmr')).toHaveTextContent(/6$/);
+});
+
+// Red-tell (#897): printing the tile's label as the bare "PMR" string turns
+// this case red (no "Players remaining" text anywhere on the hero).
+test('the PMR tile reads Players remaining to assistive tech and PMR to the eye', () => {
+  renderHero();
+
+  const tile = within(homeSide()).getByTestId('matchup-hero-pmr');
+  expect(within(tile).getByText('Players remaining')).toBeInTheDocument();
+  expect(within(tile).getByText('PMR')).toHaveAttribute('aria-hidden', 'true');
+  // The value follows the expansion, so a screen reader hears "Players remaining 4".
+  expect(tile).toHaveTextContent(/Players remaining4$/);
+  // Expected final is not abbreviated: one visible label, nothing hidden.
+  const ef = within(homeSide()).getByTestId('matchup-hero-expected-final');
+  expect(ef).toHaveTextContent('Expected final110.5');
+  expect(within(ef).getByText('Expected final')).not.toHaveAttribute('aria-hidden');
 });
 
 test('both sides read Expected final before PMR, the away side included', () => {
@@ -215,8 +231,17 @@ test('shows the record alone without ranks, and no line without either', () => {
 
 test('the status chip comes from the entity predicate and is absent on an unknown status', () => {
   const { rerender } = renderHero();
+  // The artboard's red LIVE: the danger Badge with the dot.
   expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('LIVE');
-  expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'live');
+  expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'danger');
+
+  rerender(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MatchupHero leagueId={5} matchup={{ ...live, status: 'played' }} viewerTeamId={10} />
+    </MemoryRouter>
+  );
+  expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Awaiting final');
+  expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'warning');
 
   rerender(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -271,9 +296,10 @@ test('a final matchup degrades a missing Expected final to a named placeholder',
   const tile = within(homeSide()).getByTestId('matchup-hero-expected-final');
   expect(within(tile).getByText('Not available')).toBeInTheDocument();
   expect(within(tile).getByText('-')).toHaveAttribute('aria-hidden', 'true');
-  expect(within(homeSide()).getByTestId('matchup-hero-pmr')).toHaveTextContent('PMR0');
+  expect(within(homeSide()).getByTestId('matchup-hero-pmr')).toHaveTextContent(/0$/);
   expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('Won by 5.2');
   expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Final');
+  expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'success');
 });
 
 test('is a labelled region whose title is a heading, level 2 by default', () => {

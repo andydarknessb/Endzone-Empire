@@ -11,7 +11,9 @@ import { matchupWinProbability } from '../../../lib/winProbability';
  *     on home/away (#112: the You pill follows the viewer's Team, the layout
  *     stays home-left / away-right the way SplitBar encodes it);
  *   - the status chip and `hasStarted`, straight from the entity predicate
- *     (ADR 0030: status is a server fact, never inferred here);
+ *     (ADR 0030: status is a server fact, never inferred here), with the
+ *     chip's Badge variant (danger / success / warning / neutral for live /
+ *     final / played / scheduled) and whether it carries the live dot;
  *   - the per-side win probability percentages, rounded the same way SplitBar
  *     rounds its segments so the numbers beside the bar equal the bar's own
  *     accessible name (`homePct` rounded, `awayPct` its complement);
@@ -31,6 +33,12 @@ import { matchupWinProbability } from '../../../lib/winProbability';
  */
 
 const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
+
+// The status chip's Badge variant per server status, the canvas's statusChip():
+// `.chip.live` is the danger red with the dot, `.chip.final` the success
+// green, `.chip.warn` for Awaiting final, the plain chip for Scheduled. The
+// label is the entity predicate's; an unknown status has no chip at all.
+const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
 /** A finite number from a wire value (pg DECIMAL strings included), else null. */
 function finite(value) {
@@ -178,7 +186,8 @@ export function matchupHeroView(matchup, viewerTeamId) {
     viewerSide,
     hasStarted,
     chipLabel: status.chipLabel,
-    chipVariant: m.status === 'live' ? 'live' : 'neutral',
+    chipVariant: CHIP_VARIANTS[m.status] ?? 'neutral',
+    chipDot: m.status === 'live',
     winProbability,
     sentence,
     kickoff,

@@ -30,8 +30,10 @@ import { matchupCardView } from '../model/matchupCardView';
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Every
  * ink-on-surface pairing here is registered in tokens.contrast.test.js: ink,
  * dim and faint on the card surface, home and away on the card (the SplitBar's
- * own pairing), accent on the accent tint (the live Badge) and the focus ring
- * on a dashboard card. The leader's check mark is painted in `dash-ink`, not
+ * own pairing), the status chip's danger / success / warning text on its tint
+ * over a card (the design source's statusChip(); each tinted Badge is guarded
+ * over `dash-surface` only, which is what the kit Card paints) and the focus
+ * ring on a dashboard card. The leader's check mark is painted in `dash-ink`, not
  * the design's success green: the dash group has no success token, and
  * `dash-accent` on `dash-surface` is not a registered pairing, so the check
  * stays inside the certified set rather than inventing a pairing (ADR 0010).
@@ -133,7 +135,7 @@ function StatusChip({ view }) {
   if (!view.chipLabel) return null;
   return (
     <Badge variant={view.chipVariant} data-testid="matchup-status">
-      {view.chipVariant === 'live' && (
+      {view.chipDot && (
         <Box
           component="span"
           aria-hidden="true"
@@ -300,9 +302,14 @@ function MatchupCard({ view, leagueId }) {
           color: 'var(--dash-faint)',
         }}
       >
+        {/* While live the footer repeats the two percentages the SplitBar
+            already announces inside this link's name, so it is hidden from
+            assistive tech (still visible): the link names the split once.
+            The other footers say something the bar does not and stay. */}
         <Typography
           component="span"
           data-testid="matchup-card-footer"
+          aria-hidden={view.status === 'live' ? 'true' : undefined}
           sx={{ fontSize: '12px', color: 'var(--dash-faint)', fontVariantNumeric: 'tabular-nums' }}
         >
           {view.footer}

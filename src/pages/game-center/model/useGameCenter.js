@@ -57,7 +57,8 @@ import { recordsFromStandings } from '../../../widgets/matchup-grid';
  *
  * The week-at-a-glance facts and the sync line are derived from the list
  * read alone (`weekGlanceFacts`, `syncLineText`, both pure and exported for
- * their table tests).
+ * their table tests). The facts are per-week, so under "All" the page gets no
+ * rows and renders no tile.
  */
 
 /** The live score pass's cadence, which the sync line counts down against. */
@@ -89,8 +90,11 @@ function tenth(value) {
  * "Scores synced 3:42 PM · next pass in 8 min" for the week's `syncedAt`
  * (#892), or null when the week has not been synced (the page omits the
  * line). The clock time is the viewer's own locale; the next pass is the
- * cadence after the sync, in whole minutes rounded up, floored at zero once
- * the pass is due. `now` (epoch ms) exists so a test can pin the countdown.
+ * cadence after the sync, in whole minutes rounded up, and the "next pass"
+ * tail is printed only while at least a minute of it is left: once that
+ * instant has gone by (the pass is late, or the week is over and there is no
+ * next pass) the line is "Scores synced 3:42 PM" alone, never a "0 min" that
+ * sits there forever. `now` (epoch ms) exists so a test can pin the countdown.
  */
 export function syncLineText(syncedAt, now = Date.now()) {
   const syncedMs = toMs(syncedAt);
@@ -99,8 +103,9 @@ export function syncLineText(syncedAt, now = Date.now()) {
     hour: 'numeric',
     minute: '2-digit',
   });
-  const remaining = Math.max(0, Math.ceil((syncedMs + SYNC_CADENCE_MS - now) / 60000));
-  return `Scores synced ${time} · next pass in ${remaining} min`;
+  const synced = `Scores synced ${time}`;
+  const remaining = Math.ceil((syncedMs + SYNC_CADENCE_MS - now) / 60000);
+  return remaining >= 1 ? `${synced} · next pass in ${remaining} min` : synced;
 }
 
 /**
@@ -323,7 +328,13 @@ export function useGameCenter(leagueId) {
       });
   }, [plays, week, playerTeams, hero]);
 
-  const glance = useMemo(() => weekGlanceFacts(weekMatchups), [weekMatchups]);
+  // The glance facts are per-week (a top score or a closest Matchup across
+  // every week is not a week fact), so "All" hands the tile no rows and the
+  // tile renders nothing.
+  const glance = useMemo(
+    () => (week === 'All' || week == null ? [] : weekGlanceFacts(weekMatchups)),
+    [week, weekMatchups]
+  );
 
   return {
     league,

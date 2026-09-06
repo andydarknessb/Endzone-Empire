@@ -87,7 +87,9 @@ export default function GameCenterPage() {
             display: 'flex',
             flexDirection: { xs: 'column', sm: 'row' },
             justifyContent: 'space-between',
-            alignItems: { xs: 'stretch', sm: 'flex-start' },
+            // The artboard's header row: the picker sits vertically centred
+            // against the h1 + sync-line stack.
+            alignItems: { xs: 'stretch', sm: 'center' },
             gap: { xs: '12px', sm: '24px' },
           }}
         >
@@ -216,7 +218,9 @@ export default function GameCenterPage() {
 
             <Box data-testid="game-center-rail" sx={{ display: 'grid', gap: '18px', minWidth: 0 }}>
               <ScoringFeedList items={items} week={weekNumber} limit={compact ? 3 : 6} />
-              {/* The mobile artboard ends at the feed: no glance tile below sm. */}
+              {/* The mobile artboard ends at the feed: no glance tile below sm;
+                  under "All weeks" the model hands no rows (the facts are
+                  per-week) and the tile renders nothing. */}
               {!compact && <WeekGlance rows={glance} />}
             </Box>
           </Box>

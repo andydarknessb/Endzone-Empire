@@ -276,6 +276,15 @@ const PAIRINGS = [
   // 4.05 / 4.09 over the raised tile. A danger pill on any other surface is
   // not guarded here.
   pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over a card (the only guarded danger backdrop)', 'dash-surface'),
+  // The Final status chip on the hero and the matchup cards (#897): the
+  // canvas's `.chip.final` is success text on the success tint, and the
+  // island's success pair is `dash-away` / `dash-away-soft` (tokens.js). The
+  // chip is 11.5px/600, normal text, so AA_TEXT. The tint's light alpha was
+  // dropped from the canvas's 12% to 8% for exactly this row (4.36 failed;
+  // 4.63 over a card now, while 4.30 over a stat tile, 3.90 over the raised
+  // tile and 4.13 over the page all still FAIL in light), so the tinted chip
+  // is registered over `dash-surface` ONLY and a slice paints it nowhere else.
+  pairing('dash-away', 'dash-away-soft', AA_TEXT, 'the Final chip on the success tint over a card (the only guarded success backdrop)', 'dash-surface'),
   // bench-what-if (#900): the card's warning border and bolt icon are non-text
   // UI on `dash-surface` (AA_LARGE), and the gain chip (the canvas's
   // `.chip.warn`) is warning TEXT on the warning tint, painted on the swap row
@@ -283,7 +292,9 @@ const PAIRINGS = [
   // 11px/700 uppercase, normal text by WCAG, so AA_TEXT. Thin in light (4.66
   // over surface2; 5.00 over a card); the tint over the raised tile (4.23) and
   // the page (4.48) FAILS in light, so the tinted chip is registered on a card
-  // and a stat tile only and a slice paints it nowhere else (tokens.js).
+  // and a stat tile only and a slice paints it nowhere else (tokens.js). The
+  // Awaiting final status chip on the hero and the matchup cards (#897) is
+  // the same warning text on the same tint over a card: the card row below.
   pairing('dash-warning', 'dash-surface', AA_LARGE, 'bench what-if card border and bolt on a card'),
   pairing('dash-warning', 'dash-surface2', AA_LARGE, 'bench what-if gain chip border on the swap row'),
   pairing('dash-warning', 'dash-warning-soft', AA_TEXT, 'warning chip text on the warning tint over a card', 'dash-surface'),

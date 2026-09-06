@@ -47,8 +47,11 @@ import { matchupHeroView, formatKickoff, ordinal } from '../model/matchupHeroVie
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Pairings
  * registered in tokens.contrast.test.js: ink / dim / faint on the card, the
  * home and away hues on the card (the percentages), faint and ink on the stat
- * tile (StatTile), the You pill on the accent tint over the card, and the
- * primary button's `dash-on-accent` on `dash-accent`. One DOM serves both
+ * tile (StatTile), the You pill on the accent tint over the card, the status
+ * chip's danger / success / warning text on its tint over the card (the
+ * canvas's statusChip(); each tinted Badge is guarded over `dash-surface`
+ * only, which is what a Card paints), and the primary button's
+ * `dash-on-accent` on `dash-accent`. One DOM serves both
  * sizes: the sides restack through grid areas at the `md` breakpoint and the
  * actions stretch to full width with a 44px hit target below it, so no
  * media-query JS runs and the tree a test sees is the tree a phone gets.
@@ -83,7 +86,7 @@ export default function MatchupHero({
       tail={
         view.chipLabel ? (
           <Badge variant={view.chipVariant} data-testid="matchup-hero-status">
-            {view.chipVariant === 'live' && <Dot />}
+            {view.chipDot && <Dot />}
             {view.chipLabel}
           </Badge>
         ) : undefined
@@ -360,8 +363,15 @@ function HeroSide({ sideKey, side, name, isViewer, records, ranks }) {
           sx={{ minWidth: 88 }}
           data-testid="matchup-hero-expected-final"
         />
+        {/* The eye reads the canvas's "PMR"; assistive tech reads the
+            expansion, so the tile is heard as "Players remaining 4". */}
         <StatTile
-          label="PMR"
+          label={
+            <>
+              <Box component="span" aria-hidden="true">PMR</Box>
+              <Box component="span" sx={visuallyHidden}>Players remaining</Box>
+            </>
+          }
           value={figureOrPlaceholder(side.playersRemaining, 0)}
           align={right ? 'end' : 'start'}
           sx={{ minWidth: 64 }}

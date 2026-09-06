@@ -52,7 +52,8 @@ describe('matchupCardView', () => {
     expect(v.started).toBe(true);
     expect(v.scheduled).toBe(false);
     expect(v.chipLabel).toBe('LIVE');
-    expect(v.chipVariant).toBe('live');
+    expect(v.chipVariant).toBe('danger');
+    expect(v.chipDot).toBe(true);
     expect(v.headerNote).toBe('Week 3');
     expect(v.homePct).toBe(49);
     expect(v.awayPct).toBe(51);
@@ -71,6 +72,8 @@ describe('matchupCardView', () => {
       { timeZone: 'America/Chicago', locale: 'en-US' }
     );
     expect(v.scheduled).toBe(true);
+    expect(v.chipVariant).toBe('neutral');
+    expect(v.chipDot).toBe(false);
     expect(v.homeShare).toBeNull();
     expect(v.headerNote).toBe('Kicks off Sun 7:20 PM');
     expect(v.footer).toBe('Projected totals shown until kickoff');
@@ -92,8 +95,16 @@ describe('matchupCardView', () => {
     expect(played.home.note).toBe('2-0');
     expect(played.home.rowNote).toBe('2-0');
     expect(played.chipLabel).toBe('Awaiting final');
+    // Red-tell (#897): collapsing the variant map back to live-or-neutral
+    // turns these two chip assertions red (played and final read a third and
+    // a fourth variant).
+    expect(played.chipVariant).toBe('warning');
+    expect(played.chipDot).toBe(false);
 
     const final = matchupCardView(model({ status: 'final', home_score: '80', away_score: '90' }));
+    expect(final.chipLabel).toBe('Final');
+    expect(final.chipVariant).toBe('success');
+    expect(final.chipDot).toBe(false);
     expect(final.footer).toBe('Score of record');
     expect(final.away.check).toBe(true);
     expect(final.home.check).toBe(false);
@@ -105,6 +116,8 @@ describe('matchupCardView', () => {
     expect(v.started).toBe(false);
     expect(v.scheduled).toBe(false);
     expect(v.chipLabel).toBeNull();
+    expect(v.chipVariant).toBe('neutral');
+    expect(v.chipDot).toBe(false);
     expect(v.homeShare).toBeNull();
     expect(v.footer).toBe('');
     expect(v.headerNote).toBe('Week 3');
