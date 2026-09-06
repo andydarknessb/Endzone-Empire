@@ -174,6 +174,10 @@ test('a landed pick enters history attributed by Team, carrying no account ident
     // (#833). The board's Misery Meter reads a pick's ADP off the pick itself.
     adp: null,
     auto: true,
+    // A live pick is never a keeper. Both wire shapes now build one pick model
+    // (#949), so `is_keeper` is present on a live pick too - false here - which
+    // is what lets a board refresh preserve the flags a live pick set.
+    is_keeper: false,
   });
   // The broadcast no longer carries an account `by` object (#344); the autopick
   // flag rides at the root as `auto` and is the only thing carried into state.

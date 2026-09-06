@@ -161,6 +161,44 @@ test('memberSnapshot: each pick carries the player market ADP from the readPicks
   fake.assertClean();
 });
 
+// #949 (the draft:state half): every member pick carries the autopick fact, read
+// from the readPicks SELECT's `AS "auto"` projection (a COALESCE over the
+// draft_activity.is_autopick LATERAL join), so a board refresh preserves the mark
+// a live draft:picked set instead of silently un-marking every autopick in the
+// room's history. This is a true red-tell of the SELECT LIST: the draft_picks
+// handler returns `auto` ONLY when the real SELECT names `AS "auto"`, so dropping
+// that projection from readPicks makes picks[0].auto undefined instead of the
+// autopick fact, turning the assertion red. (Verified by experiment; reported in
+// the PR body.) The LATERAL's one-row-per-pick_number resolution is a claim about
+// the DATABASE that a matcher fake cannot express, so it is proven separately over
+// a real Postgres in draftRoomSnapshot.pg.test.js. memberSnapshot returns the pick
+// rows verbatim, so `auto` reaches the client at the top level; the presenter
+// narrows to PRESENTER_PICK_FIELDS, which does not name it, so a share link never
+// gets it (the presenter key-set test below is the guard for that).
+test('memberSnapshot: each pick carries the autopick fact from the readPicks select (#949)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    [/FROM "teams"/, () => ({ rows: [teamRow(11, 1), teamRow(12, 2)] })],
+    [/FROM "draft_picks"/, (text) => {
+      const selectsAuto = /AS "auto"/.test(text);
+      return {
+        rows: [
+          { ...pickRow(), auto: selectsAuto ? true : undefined },
+          { ...pickRow(), pick_number: 2, player_id: 502, name: 'Manual Pick', auto: selectsAuto ? false : undefined },
+        ],
+      };
+    }],
+  ]).install(t);
+
+  const snapshot = await memberSnapshot(LEAGUE_ID);
+
+  // The clock's pick reads true; a manual pick reads false. Strict, so a dropped
+  // projection (undefined) fails rather than passing a loose truthiness check.
+  assert.strictEqual(snapshot.picks[0].auto, true);
+  assert.strictEqual(snapshot.picks[1].auto, false);
+  fake.assertClean();
+});
+
 test('presenterSnapshot: league, teams[0], picks[0] and onTheClock key sets equal the PRESENTER_* lists', async (t) => {
   const fake = snapshotPool().install(t);
 

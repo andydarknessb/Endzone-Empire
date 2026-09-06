@@ -158,12 +158,47 @@ async function readPicks(leagueId) {
     // Draft grades read. The member snapshot returns these rows verbatim, so the
     // column reaches the client as a top-level `adp`; the presenter narrows to
     // PRESENTER_PICK_FIELDS, which does not name it, so a share link never gets it.
+    //
+    // `auto` is the autopick fact, carried on the snapshot pick payload since
+    // #949 so a board refresh preserves the mark a live draft:picked set (before
+    // #949 the flag rode ONLY the live event, and draft:state's wholesale rebuild
+    // silently un-marked every autopick in the room's history on the first
+    // reconnect / lifecycle act). It is NOT a draft_picks column: the fact is
+    // already durably stored in draft_activity.is_autopick, snapshotted there by
+    // appendPickActivity inside the same transaction that commits the Pick (ADR
+    // 0012), so this joins it rather than adding a second home for it (which is
+    // the duplication ADR 0029 exists to stop, and which a draft_picks migration
+    // - a carve-out - would be).
+    //
+    // THE JOIN TRAP (measured, not assumed - draftRoomSnapshot.pg.test.js).
+    // draft_activity is APPEND-ONLY and pick_number is REUSED: an undo + re-pick
+    // of a slot leaves the reversed Pick's activity row in place and appends a
+    // NEW pick-kind row for the same (league_id, pick_number). Joining on that
+    // pair alone would match BOTH and duplicate the pick in the snapshot, so the
+    // LATERAL resolves to ONE row per pick_number - the latest by feed_seq, the
+    // per-league position the trigger allocates and the feed already orders by,
+    // which is always the current draft_picks row's Pick (every re-pick appends a
+    // higher feed_seq). Filtered to kind = 'pick' so a commissioner CORRECTION
+    // (a distinct kind, carrying a reason and never an autopick flag) is excluded.
+    // A keeper - pre-filled into draft_picks but never written to draft_activity -
+    // and a legacy pick backfilled is_autopick = false ("not known to be an
+    // autopick") both COALESCE to false, exactly as they render today.
     `SELECT "draft_picks"."pick_number", "draft_picks"."team_id", "draft_picks"."is_keeper",
             ${teamIdentityColumns()},
             "players"."id" AS "player_id", "players"."name", "players"."position",
-            "players"."nfl_team", "players"."adp"
+            "players"."nfl_team", "players"."adp",
+            COALESCE("autopick"."is_autopick", false) AS "auto"
      FROM "draft_picks" JOIN "players" ON "players"."id" = "draft_picks"."player_id"
      LEFT JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
+     LEFT JOIN LATERAL (
+       SELECT "da"."is_autopick"
+       FROM "draft_activity" "da"
+       WHERE "da"."league_id" = "draft_picks"."league_id"
+         AND "da"."pick_number" = "draft_picks"."pick_number"
+         AND "da"."kind" = 'pick'
+       ORDER BY "da"."feed_seq" DESC
+       LIMIT 1
+     ) "autopick" ON true
      WHERE "draft_picks"."league_id" = $1 ORDER BY "pick_number"`,
     [leagueId]
   );
