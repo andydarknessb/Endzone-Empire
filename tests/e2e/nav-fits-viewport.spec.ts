@@ -106,25 +106,19 @@ test.describe('Nav fits the viewport (#927)', () => {
 
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
-      // A resize crosses breakpoints and remounts responsive branches, so let
-      // the geometry settle before the reported assertions below.
+      // A resize crosses breakpoints and remounts responsive branches, so poll
+      // until the geometry settles. Poll the measured VALUE, not a boolean, so a
+      // persistent regression prints the pixel overflow AND the overlapping
+      // sibling names into the failure. The overlap is the defect the width
+      // predicate cannot see - the search can slide ~158px under the icon
+      // buttons while scrollWidth still reads exactly the viewport - so its
+      // labels have to survive into the message (each entry is {a, b, by}).
       await expect
         .poll(async () => {
-          const s = await measure(page);
-          return s.fits && s.overlaps.length === 0;
-        }, { message: `nav geometry settling at ${width}px` })
-        .toBe(true);
-
-      const m = await measure(page);
-      expect(
-        m.fits,
-        `toolbar overflows at ${width}px: scrollWidth=${m.scrollWidth} clientWidth=${m.clientWidth}`
-      ).toBe(true);
-      expect(
-        m.overlaps,
-        `right-cluster children overlap at ${width}px: ` +
-          m.overlaps.map((o) => `"${o.a}" & "${o.b}" by ${o.by}px`).join(', ')
-      ).toEqual([]);
+          const m = await measure(page);
+          return { over: Math.max(0, m.scrollWidth - m.clientWidth), overlaps: m.overlaps };
+        }, { message: `nav geometry at ${width}px` })
+        .toEqual({ over: 0, overlaps: [] });
     }
   });
 
