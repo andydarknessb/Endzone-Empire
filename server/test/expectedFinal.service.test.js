@@ -324,6 +324,30 @@ test('attachExpectedFinals decorates open rows and leaves final rows and untouch
   assert.equal(Object.prototype.hasOwnProperty.call(rows[0], 'home_expected_final'), false);
 });
 
+// #923, through the producer: the wiring that carries the bye verdict onto the
+// starter row is what the pure rule above reads, so the false `live` is bound
+// end to end. Red-tell: dropping `availability` from the starter row, or
+// stopping the status rule from reading it, turns this red and the pure case
+// with it.
+test('a week nobody has kicked off in reads scheduled even when a starter is on bye', async (t) => {
+  // PHI kicks off at 20:25Z, an hour and a half after NOW; the Ghosts sit out
+  // WEEK entirely. Neither has played a down.
+  const starters = [
+    { team_id: 10, player_id: 3, slot: 'WR', position: 'WR', nfl_team: 'Philadelphia Eagles', injury_status: null, stats: null },
+    { team_id: 10, player_id: 4, slot: 'RB', position: 'RB', nfl_team: 'Ghosts', injury_status: null, stats: null },
+  ];
+  const fake = weekPool(t, { starters, live: [] });
+  const [row] = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(row.status, 'scheduled');
+  // The bye starter is still final and still priced at zero: only the reading
+  // of the status changed, not the Expected final rule.
+  assert.equal(row.home_expected_final, 11.3);
+  assert.equal(row.home_players_remaining, 1);
+});
+
 // ---------------------------------------------------------------------------
 // Matchup status
 // ---------------------------------------------------------------------------
@@ -336,6 +360,28 @@ test('status is a pure cascade over the per-starter game states plus the settled
   assert.equal(statusForMatchup({ settled: false, home: team('scheduled'), away: team('scheduled') }), 'scheduled');
   // No lineup rows on either side: scheduled (both team results absent).
   assert.equal(statusForMatchup({ settled: false, home: null, away: null }), 'scheduled');
+});
+
+// #923: every future week in which either manager started a player on a bye read
+// as `live` before a single game had kicked off. A bye starter is classified
+// `final` by the Expected final rule (nothing more is coming for him), and the
+// status cascade read any `final` beside a `scheduled` as "a game has already
+// been played", which a bye is not.
+test('a starter on bye is not evidence a game kicked off', () => {
+  const bye = { gameState: 'final', availability: { available: false, reason: 'bye' } };
+  const playing = (gameState) => ({ gameState, availability: { available: true, reason: null } });
+  // The reported shape: one bye starter, the rest yet to kick off.
+  assert.equal(statusForMatchup({ settled: false, home: { starters: [bye, playing('scheduled')] }, away: null }), 'scheduled');
+  // The bye on the other side reads the same.
+  assert.equal(statusForMatchup({ settled: false, home: { starters: [playing('scheduled')] }, away: { starters: [bye] } }), 'scheduled');
+  // A real game that has finished beside one still to come is still live.
+  assert.equal(statusForMatchup({ settled: false, home: { starters: [bye, playing('final')] }, away: { starters: [playing('scheduled')] } }), 'live');
+  // Byes never mask a game in progress, and never hold a finished slate open.
+  assert.equal(statusForMatchup({ settled: false, home: { starters: [bye, playing('in_progress')] }, away: null }), 'live');
+  assert.equal(statusForMatchup({ settled: false, home: { starters: [bye, playing('final')] }, away: null }), 'played');
+  // Nobody has a game at all: nothing has kicked off, so scheduled, exactly as
+  // a Matchup with no lineup rows reads, until the settle pass writes final.
+  assert.equal(statusForMatchup({ settled: false, home: { starters: [bye] }, away: { starters: [bye] } }), 'scheduled');
 });
 
 test('status in best ball reads the optimizer\'s chosen lineup, not every candidate', async (t) => {
