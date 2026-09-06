@@ -2,6 +2,7 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
+import { matchupHasStarted } from '../model/scoreboardModel';
 import LedBoard from './LedBoard';
 import RetroField from './RetroField';
 import LineupsCard from './LineupsCard';
@@ -35,11 +36,19 @@ import GamesTile from './GamesTile';
  *   - `games`: the live_game_states rows on `model.games`.
  *   - `activePlay`: `{ side, type, isTouchdown, nflTeam, opponent }` or null;
  *     a touchdown dashes that side's sprite, a moment play flashes the callout.
- *   - `homeProb`: the home win probability, 0..1 (null when unpriced).
+ *   - `homeProb`: the home win probability, 0..1 (null when unpriced). It is
+ *     shown only once the Matchup has started, read through the entity's one
+ *     predicate exactly as the Standard view's strip gates its bar (#903
+ *     review, scoreboardModel.matchupHasStarted): before kickoff, or under a
+ *     status the server could not compute, the board prints no WIN row and
+ *     the field parks both sprites at the neutral midpoint.
  *   - `headingLevel`: the level of the two cards' headings (default 2), so a
  *     page slots the widget under its own heading without skipping a level.
  *   - `onFullComparison`: optional; when given the Lineups card grows a "Full
  *     comparison" action that calls it (the page swaps to the standard view).
+ *   - `ticker`: optional full-width content between the field and the cards
+ *     (the canvas's last-plays row; the page's, since a widget imports no
+ *     feature and the plays are the page's own).
  *   - `aside`: optional content for the right column above the Games tile.
  *   - `fieldTail`: optional content for the right of the field's caption row
  *     (the canvas draws the "Celebrations on" affordance there; it is the
@@ -58,35 +67,45 @@ export default function RetroScoreboard({
   homeProb,
   headingLevel = 2,
   onFullComparison,
+  ticker,
   aside,
   fieldTail,
 }) {
   // `useTheme` falls back to the default theme outside a provider (a widget
   // test renders bare), so the breakpoint resolves the same way the sibling
-  // slot-comparison widget's does.
+  // slot-comparison widget's does. The cards stack below `md` (CSS `order`,
+  // no remount); the mobile geometry starts below `sm`.
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('sm'));
   if (!matchup) return null;
 
+  const gap = mobile ? '12px' : '16px';
+  // The probability is shown only once the Matchup has started (the strip's
+  // rule): before kickoff, or under an unknown status, the board prints no
+  // WIN row and the field reads an unknown probability (sprites at midfield).
+  const started = matchupHasStarted(matchup.status);
+  const shownProb = started ? homeProb : null;
+
   return (
     <Box
       data-testid="retro-scoreboard"
-      sx={{ display: 'flex', flexDirection: 'column', gap: mobile ? '12px' : '16px', fontFamily: 'var(--dash-font-body)' }}
+      sx={{ display: 'flex', flexDirection: 'column', gap, fontFamily: 'var(--dash-font-body)' }}
     >
-      <LedBoard matchup={matchup} leagueName={leagueName} homeProb={homeProb} mobile={mobile} />
+      <LedBoard matchup={matchup} leagueName={leagueName} homeProb={shownProb} showWin={started} mobile={mobile} />
       <RetroField
         homeName={matchup.home?.name}
         awayName={matchup.away?.name}
-        homeProb={homeProb}
+        homeProb={shownProb}
         activePlay={activePlay}
         mobile={mobile}
         tail={fieldTail}
       />
+      {ticker}
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 340px' },
-          gap: mobile ? '12px' : '16px',
+          gap,
           alignItems: 'start',
         }}
       >

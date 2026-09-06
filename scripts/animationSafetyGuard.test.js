@@ -318,7 +318,7 @@ test('scanCss: a forwards animation naming an unknown (cross-file) keyframes is 
 // the scan actually examined it (non-zero keyframes + forwards usages).
 test('scanCss: the real TecmoCutscene.css has zero violations but is non-empty (positive control)', () => {
   const css = fs.readFileSync(
-    path.join(REPO_ROOT, 'src/components/MatchupDetail/TecmoCutscene.css'),
+    path.join(REPO_ROOT, 'src/features/celebrate-touchdown/ui/TecmoCutscene.css'),
     'utf8'
   );
   const result = scanCss(css);
@@ -478,11 +478,14 @@ test('scanJs: an imported keyframes used forwards is unresolved (declared bounda
   assert.equal(result.keyframesCount, 0);
 });
 
-// Criterion 5 (positive control): the real RetroField.jsx passes AND the scan
-// examined it - flashIn (hidden, but guarded) and dash (visible) both resolved.
+// Criterion 5 (positive control): the real RetroField.jsx (the retro-scoreboard
+// widget's field since #903; the legacy page's copy left the tree with it)
+// passes AND the scan examined it - flashIn (hidden, but guarded) and dash
+// (visible) both resolved. The widget's field applies `dash` from ONE sprite
+// component used twice, so the source carries one dash usage plus flashIn.
 test('scanJs: the real RetroField.jsx has zero violations but is non-empty (positive control)', () => {
   const src = fs.readFileSync(
-    path.join(REPO_ROOT, 'src/components/MatchupDetail/RetroField.jsx'),
+    path.join(REPO_ROOT, 'src/widgets/retro-scoreboard/ui/RetroField.jsx'),
     'utf8'
   );
   const result = scanJs(src);
@@ -490,8 +493,8 @@ test('scanJs: the real RetroField.jsx has zero violations but is non-empty (posi
   assert.deepEqual(result.violations, []);
   assert.ok(result.keyframesCount >= 2, `expected >=2 keyframes (dash, flashIn), got ${result.keyframesCount}`);
   assert.ok(
-    result.forwardsUsageCount >= 3,
-    `expected >=3 forwards usages examined (2 dash + 1 flashIn), got ${result.forwardsUsageCount}`
+    result.forwardsUsageCount >= 2,
+    `expected >=2 forwards usages examined (1 dash + 1 flashIn), got ${result.forwardsUsageCount}`
   );
 });
 

@@ -2,7 +2,7 @@ import React, { useId } from 'react';
 import { Box, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
-import { Card, PosChip } from '../../../shared/ui';
+import { Card, InjuryTag, PosChip } from '../../../shared/ui';
 import PlayerAvatar from '../../../components/PlayerQuickView/PlayerAvatar';
 import {
   columnTotals,
@@ -22,11 +22,14 @@ import {
  * Each filled side is a starter cell: the headshot (PlayerAvatar with a
  * position-colored ring and the initials fallback), the name with a state
  * marker (a live dot for `in_progress`, a check for `final`, a clock for
- * `scheduled`, nothing for an unknown state), "NFL vs OPP · clock" on the
- * second line, an inline pace bar with the projection on desktop, and the
- * tabular points. An Unavailable starter shows his reason ("on bye", "out",
- * "on IR") in place of the projection and no pace bar. On mobile a cell is
- * two lines, the points on the second, and the pace bar is dropped.
+ * `scheduled`, nothing for an unknown state) and, for a flagged starter, his
+ * injury designation (the kit's InjuryTag: Q, D, O or IR beside the state
+ * marker, nothing for a healthy one; the legacy page's badge, #903), "NFL vs
+ * OPP · clock" on the second line, an inline pace bar with the projection on
+ * desktop, and the tabular points. An Unavailable starter shows his reason
+ * ("on bye", "out", "on IR") in place of the projection and no pace bar. On
+ * mobile a cell is two lines, the points on the second, and the pace bar is
+ * dropped.
  *
  * The rows arrive already paired and ordered by the Matchup entity
  * (`pairStartersBySlot`, in the league's slot order); this widget renders
@@ -504,6 +507,7 @@ function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpe
             {player.name}
           </Box>
           <StateMark view={state} />
+          <InjuryTag status={player.injury_status} />
         </Box>
 
         <Box component="span" data-testid="slot-line2" sx={{ gridArea: 'line2', minWidth: 0, ...NOTE, ...ELLIPSIS }}>

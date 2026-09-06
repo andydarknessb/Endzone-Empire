@@ -199,7 +199,7 @@ test('"/league/:leagueId/lineup" is protected and redirects to Team with the Lea
   expect(window.location.hash).toBe('#/team?leagueId=1');
 });
 
-test('"/league/:leagueId/matchups/:matchupId" is protected and renders MatchupDetail when logged in', async () => {
+test('"/league/:leagueId/matchups/:matchupId" is protected and renders the Matchup page when logged in', async () => {
   const { unmount } = renderApp('#/league/1/matchups/9', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();

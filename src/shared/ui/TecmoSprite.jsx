@@ -1,10 +1,16 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 
-// 16x16 pixel-art runner, shared by the full-screen touchdown cutscene and the
-// persistent retro field. Body rows are shared; only the legs differ between
-// the two animation frames, giving a 2-frame run cycle. Role letters map to
-// team-kit colors (H/J/P/A) or fixed sprite colors (S skin, F facemask, B boot).
+// 16x16 pixel-art runner, shared by the full-screen touchdown cutscene
+// (features/celebrate-touchdown) and the persistent retro field
+// (widgets/retro-scoreboard). It lives in `shared/ui` (ADR 0020: the bottom
+// of the island) because a feature and a widget both compose it and neither
+// may import the other (ADR 0031, #903). The palette is a fixed pixel-art data
+// encoding, not a themed pairing, and is allowlisted in
+// scripts/check-color-literals.js. Body rows are shared; only the legs differ
+// between the two animation frames, giving a 2-frame run cycle. Role letters
+// map to team-kit colors (H/J/P/A) or fixed sprite colors (S skin, F facemask,
+// B boot).
 export const BODY = [
   '................',
   '.....HHHHHH.....',
@@ -43,7 +49,7 @@ export const FIXED = {
   '.': null,
 };
 
-// 16x16 referee signaling touchdown — striped shirt, white knickers, both arms
+// 16x16 referee signaling touchdown - striped shirt, white knickers, both arms
 // up. Two full frames (the arms are what animate, so no body/legs split): B is
 // arms fully extended and A drops them 1px lower/wider for a bounce cycle.
 export const REF_UP_A = [
@@ -75,7 +81,7 @@ export const REF_UP_B = [
   ...REF_UP_A.slice(7),
 ];
 
-// 16x16 chunky goal post — uprights, crossbar, center pole, base.
+// 16x16 chunky goal post - uprights, crossbar, center pole, base.
 export const GOAL_POST = [
   'YY............YY',
   'YY............YY',
@@ -135,7 +141,7 @@ Sprite.propTypes = {
   className: PropTypes.string,
 };
 
-// The referee and goal post use only FIXED colors — no team kit letters — so
+// The referee and goal post use only FIXED colors - no team kit letters - so
 // rowsToRects gets an empty kit and the H/J/P/A branches never match.
 const EMPTY_KIT = {};
 

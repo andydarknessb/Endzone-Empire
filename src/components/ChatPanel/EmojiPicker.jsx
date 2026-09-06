@@ -21,7 +21,8 @@ import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
  * from the #483 review folded in):
  *  - the trigger carries a stable accessible name ("Insert emoji") and now
  *    announces whether the menu is open (aria-expanded) and which list it
- *    controls (aria-controls), matching DraftRail and MatchupExtras;
+ *    controls (aria-controls), matching DraftRail and the slot-comparison
+ *    widget's expand control;
  *  - each emoji is a `menuitem` whose accessible name is REAL, visually hidden
  *    text (not just an aria-label), because MUI's MenuList matches typeahead on
  *    an item's text, so "f" jumps to "fire"; the glyph is decorative;

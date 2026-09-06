@@ -12,6 +12,9 @@ describe('formatPoints', () => {
   test.each([
     [10.4, '+10.4'],
     [7, '+7.0'],
+    // Red-tell (#897): printing the rounded number as-is (`String(rounded)` in
+    // place of `toFixed(1)`) reads "+6" on the strip and turns this row red.
+    [6, '+6.0'],
     [0, '+0.0'],
     [-2, '-2.0'],
     [6.25, '+6.3'],

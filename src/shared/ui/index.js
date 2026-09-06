@@ -13,3 +13,12 @@ export { default as StatTile } from './StatTile';
 export { default as SplitBar } from './SplitBar';
 export { default as PosChip } from './PosChip';
 export { default as SegmentedControl } from './SegmentedControl';
+// The injury designation tag (ADR 0031, #903): composed by the slot-comparison
+// starter cell, the retro-scoreboard Lineups card and the Matchup page's Bench
+// card, so it sits here where all three can reach it.
+export { default as InjuryTag } from './InjuryTag';
+// The Tecmo pixel sprites (ADR 0031, #903): composed by the retro-scoreboard
+// widget's field and the celebrate-touchdown feature's cutscene, so they sit
+// here where both can reach them. `SPRITE_FIXED` is the kit-free palette the
+// field's resting kit reads its gold and white from.
+export { Sprite, RefereeSprite, GoalPostSprite, FIXED as SPRITE_FIXED } from './TecmoSprite';

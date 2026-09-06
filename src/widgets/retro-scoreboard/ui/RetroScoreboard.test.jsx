@@ -3,16 +3,19 @@ import { render, screen, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RetroScoreboard } from '..';
 
-// prefers-reduced-motion (and the widget's own mobile breakpoint) are read
-// through MUI's useMediaQuery; mock matchMedia the way RetroField.test.jsx
-// does, but answer per query so reduced motion can be switched on without the
-// widget also reading as mobile. Default: no preference, so the ordinary
-// (animated) path runs.
+// prefers-reduced-motion (and the widget's own breakpoints) are read through
+// MUI's useMediaQuery; mock matchMedia per query (this file's Field cases
+// below are the widget's own field tests and read the same mock), so reduced
+// motion can be switched on without the widget also reading as mobile, and
+// the stacked (max-width) layout switched on by itself. Default: no
+// preference and the desktop layout, so the ordinary (animated) path runs.
 let reducedMotion = false;
+let stacked = false;
 beforeEach(() => {
   reducedMotion = false;
+  stacked = false;
   window.matchMedia = jest.fn().mockImplementation((query) => ({
-    matches: /reduced-motion/.test(query) ? reducedMotion : false,
+    matches: /reduced-motion/.test(query) ? reducedMotion : /max-width/.test(query) ? stacked : false,
     media: query,
     onchange: null,
     addListener: jest.fn(),
@@ -62,7 +65,10 @@ const rows = [
   {
     slot: 'QB',
     home: starter(),
-    away: starter({ id: 11, name: 'J. Allen', nfl_team: 'BUF', points: 24.1, projected: 22.5, photo_url: 'https://cdn.example/allen.png' }),
+    away: starter({
+      id: 11, name: 'J. Allen', nfl_team: 'BUF', points: 24.1, projected: 22.5,
+      photo_url: 'https://cdn.example/allen.png', injury_status: 'Q',
+    }),
   },
   {
     slot: 'RB',
@@ -207,6 +213,52 @@ test('the field does not announce a guessed 50% when the win probability is unkn
   expect(within(screen.getByTestId('led-board')).getByTestId('led-win-home')).toHaveTextContent('-');
 });
 
+// The Scoreboard view follows the started state exactly as the Standard
+// view's strip does (#903 review): before kickoff, and under a status the
+// server could not compute, there are no WIN digits and the sprites rest at
+// the neutral midpoint, whatever probability the page computed. Red-tell:
+// showing the WIN row for a scheduled Matchup turns the scheduled case red;
+// gating on `hasStarted !== false` (which lets null through) turns the null
+// case red and no other.
+test.each(['scheduled', null])('a %s matchup shows no WIN digits and parks the sprites at midfield even with a probability on hand', (status) => {
+  // The neutral midpoint: where an unknown probability parks the sprites.
+  const { unmount: unmountNeutral } = renderBoard({ matchup: matchup({ status: 'live' }), homeProb: null });
+  const midHome = spriteX(screen.getByTestId('sprite-home'));
+  const midAway = spriteX(screen.getByTestId('sprite-away'));
+  unmountNeutral();
+  // Where 0.8 puts the home runner once started: further right than midfield.
+  const { unmount: unmountStarted } = renderBoard({ matchup: matchup({ status: 'live' }), homeProb: 0.8 });
+  expect(spriteX(screen.getByTestId('sprite-home'))).toBeGreaterThan(midHome);
+  unmountStarted();
+
+  renderBoard({ matchup: matchup({ status }), homeProb: 0.8 });
+  const board = within(screen.getByTestId('led-board'));
+  expect(board.queryByTestId('led-win')).not.toBeInTheDocument();
+  expect(board.queryByText('WIN')).not.toBeInTheDocument();
+  expect(board.queryByText('80%')).not.toBeInTheDocument();
+  expect(board.queryByText('20%')).not.toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /Field position/ })).toHaveAccessibleName('Field position: win probability not yet available');
+  expect(spriteX(screen.getByTestId('sprite-home'))).toBe(midHome);
+  expect(spriteX(screen.getByTestId('sprite-away'))).toBe(midAway);
+});
+
+// The home win probability reaches the accessibility tree once (#903 review):
+// the field image's name carries it, and the board's WIN row is its visible,
+// decorative duplicate, hidden from the tree. Red-tell: dropping the
+// aria-hidden from the WIN row turns the attribute assertion red.
+test('the WIN row is aria-hidden, so the probability is announced once, on the field image', () => {
+  renderBoard({ homeProb: 0.73 });
+  const win = within(screen.getByTestId('led-board')).getByTestId('led-win');
+  expect(win).toHaveAttribute('aria-hidden', 'true');
+  expect(win).toHaveTextContent('WIN');
+  expect(win).toHaveTextContent('73%');
+  expect(win).toHaveTextContent('27%');
+  expect(screen.getAllByRole('img', { name: /73% likely to win/ })).toHaveLength(1);
+  // Every "73%" text node sits under the hidden row: nothing outside the
+  // image exposes the figure.
+  screen.getAllByText('73%').forEach((el) => expect(win).toContainElement(el));
+});
+
 test('the field caption carries the sentence and, on its right, whatever the page slots in as the tail', () => {
   const { rerender } = renderBoard();
   const caption = screen.getByTestId('field-caption');
@@ -266,8 +318,9 @@ test('no callout renders without an active play, and a touchdown dashes the spri
 
 test('under reduced motion the moment callout is still rendered (not gated out by the preference)', () => {
   // The visible/invisible distinction is a computed-opacity one jsdom cannot
-  // resolve (see RetroField.test.jsx); what this guards is that the reduced
-  // path keeps the callout in the DOM and announced.
+  // resolve (see this file's Field cases above, the widget's own field
+  // tests); what this guards is that the reduced path keeps the callout in
+  // the DOM and announced.
   reducedMotion = true;
   renderBoard({ activePlay: { side: 'away', type: 'sack', isTouchdown: false, nflTeam: 'BUF', opponent: 'KC' } });
   expect(screen.getByRole('status')).toHaveTextContent('BUF · SACK');
@@ -306,6 +359,14 @@ test('the Lineups card renders the paired rows in the given order with a headsho
   expect(qb.getByText('J. Goff')).toBeInTheDocument();
   expect(qb.getByText('J. Allen')).toBeInTheDocument();
   expect(qb.getAllByTestId('lineup-note').map((el) => el.textContent)).toEqual(['18.6 · proj 19.2', '24.1 · proj 22.5']);
+  // The flagged starter carries his injury designation beside his name (the
+  // legacy page's badge, #903); the healthy one carries none.
+  const allen = within(qb.getByTestId('lineup-side-away'));
+  expect(allen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(allen.getByText('Q')).toBeInTheDocument();
+  expect(allen.getByText('Injury status: Questionable')).toBeInTheDocument();
+  expect(within(qb.getByTestId('lineup-side-home')).queryByTestId('injury-tag')).not.toBeInTheDocument();
+  expect(card.getAllByTestId('injury-tag')).toHaveLength(1);
 
   // Row two: only the home side is filled; the row keeps its empty away side.
   const rb = within(slotRows[1]);
@@ -455,4 +516,56 @@ test('below md the columns stack in the mobile artboard\'s order: Games, then Li
   expect(lineups.md).toMatch(/\border:\s*1;/);
   expect(aside.md).toMatch(/\border:\s*1;/);
   expect(gamesSlot.md).toMatch(/\border:\s*2;/);
+});
+
+// Document order, the one layout fact jsdom can read.
+const precedes = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+// The canvas (matchupScoreboardDesktop()) draws the ticker full width between
+// the field and the Lineups/aside grid, never inside the 340px column where a
+// four-play row would clip; the aside sits above the Games tile in that column.
+test('on desktop the ticker slot renders full width under the field, before the Lineups card, and the aside sits above the Games tile', () => {
+  renderBoard({
+    ticker: <div data-testid="page-ticker">Last plays</div>,
+    aside: <div data-testid="page-aside">Bench what-if</div>,
+  });
+
+  const field = screen.getByTestId('retro-field');
+  const ticker = screen.getByTestId('page-ticker');
+  const lineups = screen.getByTestId('lineups-card');
+  const aside = screen.getByTestId('page-aside');
+  const games = screen.getByTestId('games-tile');
+  expect(precedes(field, ticker)).toBe(true);
+  expect(precedes(ticker, lineups)).toBe(true);
+  expect(precedes(lineups, aside)).toBe(true);
+  expect(precedes(aside, games)).toBe(true);
+});
+
+// The canvas (liveTicker()): the ticker sits under the field and above the
+// cards at every width. It is a slot the page fills; the cards' own stacking
+// below md is CSS order (the case above), so the DOM keeps the desktop reading
+// order and nothing remounts at the breakpoint.
+test('the ticker slot renders under the field and before every card, at every width', () => {
+  stacked = true;
+  renderBoard({
+    ticker: <div data-testid="page-ticker">Last plays</div>,
+    aside: <div data-testid="page-aside">Bench what-if</div>,
+  });
+
+  const ticker = screen.getByTestId('page-ticker');
+  expect(precedes(screen.getByTestId('retro-field'), ticker)).toBe(true);
+  expect(precedes(ticker, screen.getByTestId('lineups-card'))).toBe(true);
+  expect(precedes(ticker, screen.getByTestId('games-tile'))).toBe(true);
+  expect(precedes(ticker, screen.getByTestId('page-aside'))).toBe(true);
+  // The aside lands in the widget's aside slot, so the CSS order rules above
+  // apply to it.
+  expect(within(screen.getByTestId('aside-slot')).getByTestId('page-aside')).toBeInTheDocument();
+});
+
+test('without a ticker or an aside the widget renders only its own pieces', () => {
+  renderBoard();
+  expect(screen.queryByTestId('page-ticker')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('page-aside')).not.toBeInTheDocument();
+  expect(screen.getByTestId('lineups-card')).toBeInTheDocument();
+  expect(screen.getByTestId('games-tile')).toBeInTheDocument();
 });

@@ -45,7 +45,7 @@ const rows = [
     away: starter({
       id: 4, name: 'S. Barkley', position: 'RB', nfl_team: 'PHI', opponent: 'NO',
       points: 4.8, projected: 16.4, game_state: 'in_progress', game_clock: 'Q3 11:20',
-      photo_url: 'https://cdn.example/barkley.png',
+      photo_url: 'https://cdn.example/barkley.png', injury_status: 'Q',
     }),
   },
   {
@@ -156,6 +156,22 @@ test('a scheduled starter shows the clock icon', () => {
   expect(within(adams).getByRole('img', { name: 'Yet to play' })).toBeInTheDocument();
   expect(within(adams).queryByRole('img', { name: 'In progress' })).not.toBeInTheDocument();
   expect(within(adams).queryByRole('img', { name: 'Final' })).not.toBeInTheDocument();
+});
+
+test('a flagged starter carries his injury designation beside the state marker; a healthy one carries none', () => {
+  render(<SlotComparison {...baseProps} />);
+  const barkley = cell(1, 'away');
+  const jones = cell(1, 'home');
+
+  // The legacy page's badge (#903): the visible code, the spoken designation.
+  const tag = within(barkley).getByTestId('injury-tag');
+  expect(tag).toHaveAttribute('data-status', 'Q');
+  expect(within(barkley).getByText('Q')).toBeInTheDocument();
+  expect(within(barkley).getByText('Injury status: Questionable')).toBeInTheDocument();
+  // The state marker stays beside it.
+  expect(within(barkley).getByRole('img', { name: 'In progress' })).toBeInTheDocument();
+  expect(within(jones).queryByTestId('injury-tag')).not.toBeInTheDocument();
+  expect(screen.getAllByTestId('injury-tag')).toHaveLength(1);
 });
 
 test('a starter with an unknown game state shows no state marker', () => {

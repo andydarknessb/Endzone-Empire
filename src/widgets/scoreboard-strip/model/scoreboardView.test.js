@@ -60,11 +60,15 @@ test.each([
   expect(scoreboardView(detail({ matchup: { status } })).showBar).toBe(expected);
 });
 
+// The chip variants are the canvas's statusChip() per status (#903 review),
+// the hero's and the matchup cards' map, with the dot on LIVE alone.
+// Red-tell: collapsing the map back to live-or-neutral turns the played and
+// final rows red; a dot on every chip turns the other three rows red.
 test.each([
-  ['live', { label: 'LIVE', variant: 'live' }],
-  ['played', { label: 'Awaiting final', variant: 'neutral' }],
-  ['final', { label: 'Final', variant: 'neutral' }],
-  ['scheduled', { label: 'Scheduled', variant: 'neutral' }],
+  ['live', { label: 'LIVE', variant: 'danger', dot: true }],
+  ['played', { label: 'Awaiting final', variant: 'warning', dot: false }],
+  ['final', { label: 'Final', variant: 'success', dot: false }],
+  ['scheduled', { label: 'Scheduled', variant: 'neutral', dot: false }],
   [null, null],
   ['bogus', null],
 ])('chip for status %p', (status, expected) => {

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { Sprite, FIXED } from '../../../components/MatchupDetail/TecmoSprite';
+import { Sprite, SPRITE_FIXED as FIXED } from '../../../shared/ui';
 import { FIELD_GREEN, getSpriteColors } from '../../../lib/nflTeamColors';
 import { playLabel } from '../../../lib/scoringEvents';
 import { initialsFor } from '../../../lib/initials';
@@ -52,7 +52,7 @@ import { LED_FONT } from './LedBoard';
  * Colors. The end zones, the sprites' jerseys, the callout and the labels ride
  * `dash-*` tokens (the end-zone label is `text-inverse` on the side color,
  * the pairing the position chips already use). The sprite kit is the
- * sanctioned TecmoSprite palette: the jersey is `currentColor`, inherited from
+ * kit's TecmoSprite palette (shared/ui): the jersey is `currentColor`, inherited from
  * a `<g>` painted with the side's token, because a `var()` inside an SVG
  * presentation attribute is not honoured everywhere while `currentColor` is;
  * the gold helmet and pants and the white number stripe are the kit's own

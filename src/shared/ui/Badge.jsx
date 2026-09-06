@@ -1,9 +1,9 @@
 import React from 'react';
-import { Chip } from '@mui/material';
+import { Box, Chip } from '@mui/material';
 
 /**
  * League Dashboard badge: a token-themed MUI Chip in three variants from the
- * mockup, plus one from the Game Center canvas:
+ * mockup, plus three from the Game Center canvas:
  *   - `neutral` (default): the plain `.chip` (surface2 fill, dim text).
  *   - `live`: the `.chip.live` accent state (accent text on the accent tint).
  *   - `you`: the small `.you` pill that is the viewer-row marker for the League
@@ -23,11 +23,28 @@ import { Chip } from '@mui/material';
  *     mockup's accent-toned season chip: the two canvases paint "live"
  *     differently and each keeps its own variant. Its tint is guarded only
  *     over a card (tokens.contrast.test.js), so it belongs on `dash-surface`.
+ *   - `warning`: the canvas's `.chip.warn` (ADR 0031, #903): warning text and
+ *     border on the warning tint, the "may not play" tone of the injury tag
+ *     (InjuryTag) and the Awaiting final status chip on the hero and the
+ *     matchup cards (#897). Its tint is guarded over a card and a stat tile
+ *     (`dash-surface`, `dash-surface2`, tokens.contrast.test.js), nowhere else.
+ *   - `success`: the canvas's `.chip.final` (ADR 0031, #897): success text and
+ *     border on the success tint, the Final status chip on the hero and the
+ *     matchup cards. The island's success pair is the away pair (`dash-away` /
+ *     `dash-away-soft`, tokens.js); the tint is guarded only over a card
+ *     (tokens.contrast.test.js), so it belongs on `dash-surface`.
  *
  * Part of `shared/ui` (ADR 0020). Colors come only from `--dash-*` tokens.
  * The label text is whatever `children` holds; the variant is also exposed as
  * a stable `data-variant` attribute so a composing widget (and this kit's own
  * tests) can assert which variant rendered without reaching into class names.
+ *
+ * `dot` (#903): the canvas's `.chip.live` carries an 8px disc before its
+ * label (`statusChip('live')` in build.mjs), the LIVE status chip's dot on
+ * the Matchup page header and the scoreboard strip. The disc is painted in
+ * the chip's own text colour through `currentColor`, so it takes whatever
+ * variant it sits in, and it is aria-hidden: the label carries the meaning
+ * and the dot is exposed as `data-dot` for a test to read.
  */
 const VARIANT_SX = {
   neutral: {
@@ -55,6 +72,19 @@ const VARIANT_SX = {
     color: 'var(--dash-danger)',
     border: '1px solid var(--dash-danger)',
   },
+  // Like `danger`, the border is the solid warning color (no `dash-warning-line`).
+  warning: {
+    backgroundColor: 'var(--dash-warning-soft)',
+    color: 'var(--dash-warning)',
+    border: '1px solid var(--dash-warning)',
+  },
+  // The canvas's `.chip.final`: the same shape as `danger` and `warning`, on
+  // the island's success pair (the away color; there is no `dash-away-line`).
+  success: {
+    backgroundColor: 'var(--dash-away-soft)',
+    color: 'var(--dash-away)',
+    border: '1px solid var(--dash-away)',
+  },
 };
 
 // The "You" pill's distinguishing type from the mockup (`.you`): smaller,
@@ -63,8 +93,30 @@ const VARIANT_SX = {
 // not just so it renders.
 const YOU_TYPE = { fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.08em' };
 
+// The canvas's `.dot`: an 8px disc in the chip's text colour, decorative.
+function Dot() {
+  return (
+    <Box
+      component="span"
+      aria-hidden="true"
+      data-testid="badge-dot"
+      sx={{
+        display: 'inline-block',
+        width: 8,
+        height: 8,
+        mr: '6px',
+        borderRadius: 'var(--radius-pill)',
+        backgroundColor: 'currentColor',
+        flex: 'none',
+        verticalAlign: 'middle',
+      }}
+    />
+  );
+}
+
 export default function Badge({
   variant = 'neutral',
+  dot = false,
   children,
   sx,
   style,
@@ -75,9 +127,10 @@ export default function Badge({
 
   return (
     <Chip
-      label={children}
+      label={dot ? <><Dot />{children}</> : children}
       size="small"
       data-variant={variant}
+      data-dot={dot || undefined}
       data-testid={testId}
       style={{ ...(variant === 'you' ? YOU_TYPE : {}), ...style }}
       sx={{

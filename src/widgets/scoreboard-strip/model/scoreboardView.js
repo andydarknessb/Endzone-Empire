@@ -39,6 +39,12 @@ function recordFor(records, teamId) {
   return value == null || value === '' ? null : String(value);
 }
 
+// The status chip's Badge variant per server status, the canvas's statusChip()
+// (#903 review, the hero's and the matchup cards' map): `.chip.live` is the
+// danger red with the dot, `.chip.final` the success green, `.chip.warn` for
+// Awaiting final, the plain chip for Scheduled.
+const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
+
 /**
  * @param {object} matchup the Matchup entity model (`entities/matchup`)
  * @param {object} [options]
@@ -90,10 +96,11 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
     homeShare,
     showBar,
     // The chip is the entity's own label; a null label (unknown status) is no
-    // chip at all, never a guessed one. `live` takes the kit's accent state,
-    // every other known status the neutral chip.
+    // chip at all, never a guessed one. The variant is the canvas's
+    // statusChip() per status (CHIP_VARIANTS), the same map the hero and the
+    // matchup cards use, with the dot on LIVE alone.
     chip: status.chipLabel == null
       ? null
-      : { label: status.chipLabel, variant: m.status === 'live' ? 'live' : 'neutral' },
+      : { label: status.chipLabel, variant: CHIP_VARIANTS[m.status] || 'neutral', dot: m.status === 'live' },
   };
 }

@@ -11,6 +11,13 @@ import { ledScore, ledFigure, ledPercents, ledStatus } from '../model/scoreboard
  * board stays dark in both themes (tokens.js: a scoreboard is black); the one
  * ink-on-surface pairing it paints, `dash-led` on `dash-board`, is registered
  * in tokens.contrast.test.js (ADR 0031).
+ *
+ * The WIN row (#903 review): rendered only while `showWin` (the widget passes
+ * the started state, so a scheduled Matchup prints no WIN digits at all), and
+ * aria-hidden when it is: it is the visible, decorative duplicate of the
+ * field image's accessible name, which already states the home side's win
+ * probability, so the page announces the probability once. An unknown
+ * probability under a started Matchup still prints the hyphens, visibly.
  */
 export const LED_FONT = '"Press Start 2P", "Courier New", monospace';
 
@@ -83,7 +90,7 @@ function WinRow({ percents, mobile }) {
   );
 }
 
-export default function LedBoard({ matchup, leagueName, homeProb, mobile }) {
+export default function LedBoard({ matchup, leagueName, homeProb, showWin = true, mobile }) {
   const home = matchup.home || {};
   const away = matchup.away || {};
   const percents = ledPercents(homeProb);
@@ -130,9 +137,19 @@ export default function LedBoard({ matchup, leagueName, homeProb, mobile }) {
           <Digit size={scoreSize} testId="led-score-home">{ledScore(home.score)}</Digit>
         </Box>
         {!mobile && (
+          // The middle column stays so the grid keeps its three tracks; the
+          // WIN row inside it renders only once the Matchup has started.
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', pb: '4px' }}>
-            <Small mobile={mobile}>WIN</Small>
-            <WinRow percents={percents} mobile={mobile} />
+            {showWin && (
+              <Box
+                aria-hidden="true"
+                data-testid="led-win"
+                sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}
+              >
+                <Small mobile={mobile}>WIN</Small>
+                <WinRow percents={percents} mobile={mobile} />
+              </Box>
+            )}
           </Box>
         )}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0, alignItems: 'flex-end', textAlign: 'right' }}>
@@ -141,8 +158,12 @@ export default function LedBoard({ matchup, leagueName, homeProb, mobile }) {
         </Box>
       </Box>
 
-      {mobile && (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', mt: '10px' }}>
+      {mobile && showWin && (
+        <Box
+          aria-hidden="true"
+          data-testid="led-win"
+          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', mt: '10px' }}
+        >
           <Small mobile={mobile}>WIN</Small>
           <WinRow percents={percents} mobile={mobile} />
         </Box>
