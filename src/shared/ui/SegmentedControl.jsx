@@ -10,7 +10,10 @@ import { Box } from '@mui/material';
  * Part of `shared/ui` (ADR 0020): paints only `dash-*` tokens. Each option is
  * a real `role="radio"` button, checked when its value equals `value`, so a
  * screen reader hears the group and its selection and arrow keys move between
- * options the way a radio group does. `options` are `{ value, label, icon? }`;
+ * options the way a radio group does. The group is one tab stop, carried by
+ * the checked option (a roving tab stop); where a composer hands it a value no
+ * option carries (the week picker's "All" state), the stop falls to the first
+ * option so the group never leaves the tab sequence (#928). `options` are `{ value, label, icon? }`;
  * `onChange` receives the clicked option's value. `fill` stretches the
  * segments to the container (the Standard / Scoreboard view toggle). A `ref`
  * reaches the group element, so a composer can move focus to the checked
@@ -39,7 +42,16 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
   const groupId = useId();
   const groupRef = useRef(null);
   const items = options || [];
-  const selectedIndex = Math.max(0, items.findIndex((o) => o.value === value));
+  // Which option is checked, or -1 if the composer handed the group a value no
+  // option carries (the week picker's "All" state). The `tabIndex` expression
+  // reads this unfloored form so a group with nothing checked can still tell it
+  // has no checked option and fall its one tab stop to the first segment.
+  const checkedIndex = items.findIndex((o) => o.value === value);
+  // The floored form is the arrow keys' cursor: from an unmatched state the
+  // arrows walk from the first option, so `move` needs a real index here, not
+  // -1. Keeping the two apart is deliberate (#928): folding them back together
+  // would silently change what the arrows do from the unmatched state (#933).
+  const selectedIndex = Math.max(0, checkedIndex);
 
   // The group element is kept here and handed on to whatever ref the composer
   // passed, so scrolling the checked segment into view never costs the
@@ -120,7 +132,7 @@ const SegmentedControl = React.forwardRef(function SegmentedControl({
             role="radio"
             aria-checked={checked}
             id={`${groupId}-${index}`}
-            tabIndex={checked || (selectedIndex === -1 && index === 0) ? 0 : -1}
+            tabIndex={checked || (checkedIndex === -1 && index === 0) ? 0 : -1}
             onClick={() => onChange?.(option.value)}
             onKeyDown={(e) => {
               if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); move(1); }
