@@ -51,7 +51,7 @@ const LEAGUE_NAME = 'Greater Metropolitan Dynasty Fantasy League'; // 43 chars
 // the Game Center width case red for a real reason that this guard is not
 // allowed to fix (a product change, out of scope). Short names keep the guard
 // green and exercising its other invariants until #932 lands; lift this the way
-// WIDTH_927_NAV_OVERFLOW is lifted. Matchup Detail keeps its 22+ char names
+// #927's nav-overflow exclusion was lifted. Matchup Detail keeps its 22+ char names
 // (criterion 6, for the clip red-tells); the long LEAGUE name (breadcrumb) that
 // the Game Center title-column red-tell needs is also kept.
 const GC_HOME_NAME = 'Riverhogs';
