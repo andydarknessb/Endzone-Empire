@@ -21,6 +21,17 @@
   font-family: 'Press Start 2P', 'Courier New', ui-monospace, monospace;
 }
 
+/* The overlay is focused on mount so the alertdialog owns the keyboard (#911),
+   but it is `tabindex="-1"`: nobody ever tabs to it, so a ring drawn around the
+   whole viewport would say nothing and only frame the scene. The cutscene
+   filling the screen is its own indication that focus is here. Controls placed
+   INSIDE the scene later keep the app's ring - this suppresses it on the
+   container alone. */
+.tecmo-overlay:focus,
+.tecmo-overlay:focus-visible {
+  outline: none;
+}
+
 .tecmo-scene {
   position: relative;
   width: 100%;

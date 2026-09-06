@@ -6,6 +6,7 @@ import {
   Routes,
   useLocation,
   useParams,
+  useSearchParams,
 } from 'react-router-dom';
 
 import { useDispatch, useSelector } from 'react-redux';
@@ -152,7 +153,14 @@ function AppLayout({ children }) {
 
 function LegacyLineupRedirect() {
   const { leagueId } = useParams();
-  return <Navigate to={`/team?leagueId=${encodeURIComponent(leagueId)}`} replace />;
+  const [searchParams] = useSearchParams();
+  // Everything the caller put in the query rides along. The Bench what-if card
+  // links here with the swap it found (`?swapOut=&swapIn=`, #910) and Team is
+  // where that swap is read; rebuilding the query from `leagueId` alone dropped
+  // it on the doorstep.
+  const params = new URLSearchParams(searchParams);
+  params.set('leagueId', leagueId);
+  return <Navigate to={`/team?${params.toString()}`} replace />;
 }
 
 function App() {

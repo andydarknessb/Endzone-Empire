@@ -1057,6 +1057,91 @@ test('the bench line waits for the league to be known, so a best-ball zero never
   expect(hindsightFetches()).toEqual([]);
 });
 
+// The finality that triggers the read is the MODEL's, which the score feed
+// moves (#912), not the fetched body's, which cannot move without a refetch.
+// Red-tell: keying the read off `detail?.matchup?.final` (the pre-#912 code)
+// turns this test red - the fetched body stays `final: false` here - and no
+// other test in this file, whose final matchups are final in the body too.
+test('a matchup that settles over the score feed reads the bench points and renders the line with no refetch', async () => {
+  mockApi({
+    matchup: matchupResponse({ matchup: { status: 'scheduled' } }),
+    hindsight: (url) => Promise.resolve({
+      data: url.includes('teamId=1')
+        ? { teamId: 1, week: 3, actualPoints: 101.5, optimalPoints: 113.9, pointsLeftOnBench: 12.4 }
+        : { teamId: 2, week: 3, actualPoints: 88, optimalPoints: 90.2, pointsLeftOnBench: 2.2 },
+    }),
+  });
+  renderPage();
+  await screen.findByTestId('scoreboard-strip');
+  expect(hindsightFetches()).toEqual([]);
+
+  emitScores({ scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88, status: 'final' }] });
+  expect(statusChip()).toHaveTextContent('Final');
+
+  expect(await screen.findByText('Left 12.4 on the bench')).toBeInTheDocument();
+  expect(screen.getByText('Left 2.2 on the bench')).toBeInTheDocument();
+  expect(hindsightFetches()).toHaveLength(2);
+  expect(hindsightFetches()[0][0]).toBe('/api/team/hindsight?leagueId=1&teamId=1&season=2026&week=3');
+  // The model carried the week home: no second fetch of the detail body.
+  expect(matchupFetches()).toHaveLength(1);
+});
+
+// Best ball sets no lineup, so a week that settles over the feed leaves nothing
+// on a bench either (ADR 0023). Red-tell: dropping the `!league.best_ball`
+// conjunct from `benchLeftEligible` turns this red (two reads and a line).
+test('a best-ball matchup that settles over the score feed issues no read and shows no line', async () => {
+  useLeague.mockReturnValue({ league: { ...LEAGUE, best_ball: true }, viewerTeamId: 1, loading: false, error: null });
+  mockApi({
+    matchup: matchupResponse({ matchup: { status: 'scheduled' } }),
+    hindsight: () => Promise.resolve({ data: { week: 3, actualPoints: 101.5, optimalPoints: 101.5, pointsLeftOnBench: 0 } }),
+  });
+  renderPage();
+  await screen.findByTestId('scoreboard-strip');
+
+  emitScores({ scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88, status: 'final' }] });
+  // The entry landed (the chip moved), so the absences below are the rule and
+  // not a feed that never fired.
+  expect(statusChip()).toHaveTextContent('Final');
+
+  expect(hindsightFetches()).toEqual([]);
+  expect(screen.queryByText(/on the bench/)).not.toBeInTheDocument();
+});
+
+// A settling week sends entry after entry, and a correction pass can move the
+// status off final and back; hindsight for a settled week is one answer, so the
+// read fires once per (team, season, week). The Matchup here is final in the
+// fetched body, so the case is about the entries alone and stays green under
+// the body-final mutation the test above binds. Red-tell: dropping the
+// `benchLeftReadRef` guard turns this one red on the re-settle at the end (four
+// fetches, not two); the repeated final entries leave the effect's dependencies
+// untouched and would stay green without the guard, which is why the correction
+// pass is here. Second red-tell, on the last two assertions: clearing the
+// figures whenever the Matchup is not eligible (the pre-#912 branch) leaves no
+// line to come back, since the guard rightly refuses the second read.
+test('the hindsight read fires once per team however many score entries settle the week', async () => {
+  mockApi({
+    matchup: matchupResponse({ matchup: { final: true } }),
+    hindsight: (url) => Promise.resolve({
+      data: url.includes('teamId=1')
+        ? { teamId: 1, week: 3, pointsLeftOnBench: 12.4 }
+        : { teamId: 2, week: 3, pointsLeftOnBench: 2.2 },
+    }),
+  });
+  renderPage();
+  expect(await screen.findByText('Left 12.4 on the bench')).toBeInTheDocument();
+  expect(hindsightFetches()).toHaveLength(2);
+
+  emitScores({ scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88, status: 'final' }] });
+  emitScores({ scored: [{ matchupId: 9, homeScore: 101.6, awayScore: 88, status: 'final' }] });
+  // A correction pass re-opens the week and settles it again.
+  emitScores({ scored: [{ matchupId: 9, homeScore: 101.6, awayScore: 88, status: 'live' }] });
+  emitScores({ scored: [{ matchupId: 9, homeScore: 101.6, awayScore: 88, status: 'final' }] });
+
+  expect(await screen.findByText('Left 12.4 on the bench')).toBeInTheDocument();
+  expect(screen.getByText('Left 2.2 on the bench')).toBeInTheDocument();
+  expect(hindsightFetches()).toHaveLength(2);
+});
+
 // --- the player quick view --------------------------------------------------
 
 test('a starter\'s name opens PlayerQuickView for that player in this league', async () => {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
@@ -16,6 +17,13 @@ afterEach(() => {
   jest.clearAllMocks();
   clearLeagueCache();
 });
+
+// Renders the live query string, so a test can read what Team left in the URL
+// rather than inferring it from what happened to render.
+function LocationSearchProbe() {
+  const { search } = useLocation();
+  return <span data-testid="location-search">{search}</span>;
+}
 
 const makeLeague = (overrides = {}) => ({
   id: 1,
@@ -293,4 +301,46 @@ test('keeps pickem-only leagues out of the Team selector', async () => {
   await userEvent.click(await screen.findByRole('combobox', { name: 'League' }));
   expect(await screen.findByRole('option', { name: 'Sunday Ballers' })).toBeInTheDocument();
   expect(screen.queryByRole('option', { name: 'Office Pool' })).not.toBeInTheDocument();
+});
+
+test('keeps a Bench what-if swap in the query while it normalises the League selection', async () => {
+  // The Bench what-if card links to /league/:id/lineup?swapOut=&swapIn= (#910)
+  // and that route redirects here, so the swap is in this URL before Team has
+  // picked a League. The editor mounts only after the roster loads, which is
+  // after Team writes `leagueId` into the query.
+  // Red-tell: replacing the whole query with `{ leagueId }` there (what this
+  // route used to do) drops the pair before the editor can read it, and no
+  // offer renders.
+  mockTeamApi({
+    lineup: lineupResponse({
+      entries: [
+        { id: 10, name: 'Starting Quarterback', position: 'QB', nfl_team: 'KC', slot: 'QB', locked: false, onBye: false },
+        { id: 11, name: 'Bench Receiver', position: 'WR', nfl_team: 'CHI', slot: 'WR', locked: false, onBye: false },
+        { id: 12, name: 'Reserve Receiver', position: 'WR', nfl_team: 'DET', slot: 'BENCH', locked: false, onBye: false },
+      ],
+    }),
+  });
+
+  renderWithProviders(
+    <>
+      <TeamLineup />
+      <LocationSearchProbe />
+    </>,
+    { path: '/team', route: '/team?swapOut=11&swapIn=12' }
+  );
+
+  // The URL is what this binds. The editor happens to mount before the router
+  // commits Team's normalisation, so asserting only the rendered offer would
+  // pass whether the swap survived the rewrite or not.
+  const search = await screen.findByTestId('location-search');
+  await waitFor(() => expect(search).toHaveTextContent('leagueId=1'));
+  expect(search).toHaveTextContent('swapOut=11');
+  expect(search).toHaveTextContent('swapIn=12');
+
+  // Both names, in no particular order: which of the two is benched is the
+  // Lineup suite's assertion, and repeating it here would make that suite's
+  // red-tell fire in two places instead of one.
+  const offer = await screen.findByTestId('lineup-swap-offer');
+  expect(offer).toHaveTextContent('Reserve Receiver');
+  expect(offer).toHaveTextContent('Bench Receiver');
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
   Container,
   Paper,
@@ -211,6 +211,29 @@ function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
   return aEligible && bEligible;
 }
 
+/**
+ * The swap this mount was linked with, as `{ outId, inId }`, or null when the
+ * query names none (#910). The Bench what-if card on Matchup Detail builds the
+ * link (`swapLineupHref` in src/features/bench-what-if) as
+ * `?swapOut=<the starter to bench>&swapIn=<the bench player to start>`, and
+ * that order is the whole meaning of the pair: read the other way round the
+ * page would offer the move backwards.
+ *
+ * A missing, blank, non-integer or self-referring pair is null rather than an
+ * error, so a hand-edited or stale link renders exactly what an unparameterised
+ * mount renders.
+ */
+function readRequestedSwap(searchParams) {
+  const rawOut = searchParams.get('swapOut');
+  const rawIn = searchParams.get('swapIn');
+  if (!rawOut || !rawIn) return null;
+  const outId = Number(rawOut);
+  const inId = Number(rawIn);
+  if (!Number.isInteger(outId) || !Number.isInteger(inId)) return null;
+  if (outId === inId) return null;
+  return { outId, inId };
+}
+
 export function LineupEditor({
   leagueId,
   showLeagueBreadcrumb = true,
@@ -234,6 +257,14 @@ export function LineupEditor({
   const [quickViewId, setQuickViewId] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
   const [dropCandidate, setDropCandidate] = useState(null); // entry awaiting drop confirmation
+  // #910: the Bench what-if swap arrives in the query. It is read ONCE, in this
+  // initializer, and never again: the manager answers the offer with Swap or
+  // Dismiss, and a query re-read on the next render would put the answered offer
+  // straight back on screen. `consumeRequestedSwap` clears the params too, so a
+  // remount (the Team route unmounts this editor while it refreshes the roster
+  // after a drop) cannot resurrect it either.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [requestedSwap, setRequestedSwap] = useState(() => readRequestedSwap(searchParams));
   const advicePanelRef = useRef(null);
   const rosterByPlayerId = new Map((roster || []).map((player) => [player.id, player]));
 
@@ -529,6 +560,13 @@ export function LineupEditor({
     const canManageRoster = Boolean(rosterPlayer && isCurrentWeek && typeof refreshRoster === 'function');
     const assignmentDisabledByBestBall = bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType);
     const isSpent = Boolean(entry?.spent);
+    // Both halves of an offered Bench what-if swap (#910) wear the same mark,
+    // so the manager can see which two rows the offer above is talking about.
+    const isSwapHighlighted = Boolean(
+      entry
+        && swapOffer
+        && (entry.id === swapOffer.outEntry.id || entry.id === swapOffer.inEntry.id)
+    );
     // Every row is inert while the league isn't known yet (#217) — the same
     // disabled treatment a locked slot already gets, not just the slots a
     // best-ball league would manage.
@@ -547,6 +585,7 @@ export function LineupEditor({
         key={key}
         data-testid={testId}
         selected={isSelected}
+        data-swap-highlight={isSwapHighlighted ? 'true' : undefined}
         disabled={disabled}
         aria-disabled={assignmentDisabledByBestBall && canManageRoster ? true : (disabled || undefined)}
         onClick={(e) => handleRowClick(entry, slotType, e)}
@@ -554,9 +593,10 @@ export function LineupEditor({
           border: '1px solid',
           borderStyle: isEmpty ? 'dashed' : 'solid',
           borderColor:
-            showEligibility && eligible ? 'primary.main' : isSpent ? 'warning.main' : isEmpty ? 'text.secondary' : 'divider',
+            (showEligibility && eligible) || isSwapHighlighted ? 'primary.main' : isSpent ? 'warning.main' : isEmpty ? 'text.secondary' : 'divider',
           borderRadius: 1,
           mb: 1,
+          ...(isSwapHighlighted && { bgcolor: 'var(--accent-soft)' }),
           ...(showEligibility && eligible && { bgcolor: 'var(--accent-soft)' }),
           ...(showEligibility && !eligible && { opacity: 0.45 }),
         }}
@@ -693,6 +733,55 @@ export function LineupEditor({
 
   const rosterSlots = lineup?.rosterSlots || [];
   const starterSlotOrder = rosterSlots.length > 0 ? rosterSlots.map((s) => s.key) : DEFAULT_STARTER_SLOT_ORDER;
+
+  // The Bench what-if swap named in the query (#910), resolved against the
+  // lineup that actually loaded. It survives only when BOTH ids name rows on
+  // this Team and the move is one the two-click swap would already be allowed
+  // to make, so a stale link, another manager's player, a locked row or an
+  // ineligible pairing leaves the page exactly as an unparameterised mount
+  // renders it: no mark, no offer, no error. Best ball sets its own lineup, so
+  // it is never offered a manual swap; `isStandardLeague` is also false while
+  // the league is still unknown (#217), which is the same "commit to nothing"
+  // rule every row already follows.
+  const swapOffer = (() => {
+    if (!requestedSwap || !lineup || !isStandardLeague) return null;
+    const outEntry = entries.find((e) => e.id === requestedSwap.outId);
+    const inEntry = entries.find((e) => e.id === requestedSwap.inId);
+    if (!outEntry || !inEntry) return null;
+    // The exact predicate a manual click-click swap uses: neither locked or
+    // spent, and each player eligible for the other's slot.
+    if (!isEligibleTarget(inEntry, outEntry, outEntry.slot, rosterSlots)) return null;
+    return { outEntry, inEntry };
+  })();
+
+  // Answering the offer retires it: the flag stops this mount re-rendering it,
+  // and dropping the two params stops a later remount reading it again. Every
+  // other search param (the Team route's `leagueId`) is left alone.
+  const consumeRequestedSwap = () => {
+    setRequestedSwap(null);
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete('swapOut');
+        next.delete('swapIn');
+        return next;
+      },
+      { replace: true }
+    );
+  };
+
+  // Pre-filled, not a new mutation: the same two-move payload a manual swap and
+  // the advice panel's Apply both produce, through the same save path. Lineup
+  // owns the mutation and the what-if feature only links here (ADR 0019).
+  const applyRequestedSwap = () => {
+    if (!swapOffer) return;
+    const { outEntry, inEntry } = swapOffer;
+    consumeRequestedSwap();
+    performMove([
+      { playerId: outEntry.id, slot: inEntry.slot },
+      { playerId: inEntry.id, slot: outEntry.slot },
+    ]);
+  };
 
   const starterRows = lineup
     ? starterSlotOrder.flatMap((type) => {
@@ -912,6 +1001,35 @@ export function LineupEditor({
                   />
                 </Tooltip>
               )}
+            </Box>
+          )}
+
+          {swapOffer && (
+            <Box
+              data-testid="lineup-swap-offer"
+              role="group"
+              aria-label="Bench what-if swap"
+              sx={{
+                mb: 3,
+                p: 1.5,
+                border: '1px solid',
+                borderColor: 'primary.main',
+                borderRadius: 1,
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 1,
+              }}
+            >
+              <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                Bench what-if · Start {swapOffer.inEntry.name} over {swapOffer.outEntry.name}
+              </Typography>
+              <Button size="small" variant="outlined" onClick={applyRequestedSwap}>
+                Swap
+              </Button>
+              <Button size="small" onClick={consumeRequestedSwap}>
+                Dismiss
+              </Button>
             </Box>
           )}
 
