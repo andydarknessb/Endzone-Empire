@@ -270,9 +270,15 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   // (PLAYERS_BULK_WRITE_LOCK) as the FIRST statement inside their transaction,
   // before any row lock, so the two runs cannot interleave and cannot form the
   // cycle. It is the BLOCKING xact form (pg_advisory_xact_lock): the second sync
-  // waits and then runs, it does not skip. The wait is bounded by the other
-  // sync's own database work (no network I/O runs inside either transaction),
-  // and the xact scope is what releases the lock, so there is no explicit unlock
+  // waits rather than skipping. That wait ends when the other sync's transaction
+  // finishes (no network I/O runs inside either transaction, so it is short) OR
+  // when statement_timeout fires, whichever comes first: every pooled connection
+  // sets statement_timeout (pool.js, 15s web / 30s worker), and it counts
+  // lock-wait time, so a lock blocked past the limit is CANCELLED with SQLSTATE
+  // 57014, not parked. 57014 is not in dbRetry's TRANSIENT_CODES, so that sync
+  // fails (rolls back to the previous ADP values, records ok=false) rather than
+  // retrying - whether to act on that cancellation is the open question in #929.
+  // Either way the xact scope releases the lock, so there is no explicit unlock
   // that could strand it behind Supavisor's transaction pooling the way a session
   // lock did in #839.
   const client = await pool.connect();

@@ -20,8 +20,10 @@ const sentry = require('./sentry');
  * Only 23001 and 23002 are taken through withAdvisoryLock; 23003 and 23004 call
  * pg_advisory_xact_lock / pg_try_advisory_xact_lock directly. 23004 deliberately
  * does NOT use the helper: withAdvisoryLock is try-and-skip on its own client,
- * but the two syncs must WAIT and then run, and the lock must live inside each
- * sync's own transaction.
+ * but the two syncs must WAIT for the lock rather than skip (until the holder's
+ * transaction ends, or until statement_timeout cancels the wait with SQLSTATE
+ * 57014 - see the call-site comments and #929), and the lock must live inside
+ * each sync's own transaction.
  *
  * SHARED KEYSPACE. The single-key form is one flat bigint namespace, so any
  * OTHER single-key advisory lock shares it with the ids above. The one other
