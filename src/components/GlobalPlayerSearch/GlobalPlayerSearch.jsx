@@ -60,9 +60,21 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
   useEffect(() => {
     if (!enableShortcut) return undefined;
     const onKey = (e) => {
-      if (e.key === '/' && !isTypingTarget(e.target)) {
+      if (e.key !== '/' || isTypingTarget(e.target)) return;
+      // Below the desktop breakpoint this always-mounted instance is CSS-hidden
+      // (display:none) and the search lives in the drawer instead, so the field
+      // cannot take focus. Claiming the key here would then swallow "/" and give
+      // nothing back (#927; what "/" should do on a narrow window is #934).
+      // Focus first and only consume the key if focus actually landed - a
+      // display:none input is not focusable, so activeElement stays put and the
+      // "/" is left to type. This reads the real focus outcome rather than a
+      // layout property, so it is correct in a browser and stays green in jsdom
+      // (which ignores the media query and renders the field focusable).
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      if (document.activeElement === el) {
         e.preventDefault();
-        inputRef.current?.focus();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -139,7 +151,7 @@ function GlobalPlayerSearch({ inDrawer = false, enableShortcut = false }) {
             }}
           />
         )}
-        sx={{ width: inDrawer ? '100%' : { xs: 160, md: 240 } }}
+        sx={{ width: inDrawer ? '100%' : { xs: 160, lg: 240 } }}
       />
       {quickViewMounted && (
         <Suspense fallback={null}>
