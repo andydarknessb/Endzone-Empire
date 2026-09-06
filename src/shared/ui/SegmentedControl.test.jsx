@@ -157,3 +157,58 @@ test('scrollable moves focus to the checked segment, but only when the group alr
   expect(elsewhere).toHaveFocus();
   expect(screen.getByRole('radio', { name: 'Wk 14' })).not.toHaveFocus();
 });
+
+// --- roving tab stop (#928) --------------------------------------------------
+
+// The group is one tab stop at all times: the checked option when there is one,
+// and the first option when there is not, so a composer that hands the group a
+// value no option carries (the week picker's "All" state) never strands the
+// segments out of the tab sequence. Each case below is a real Tab walk from a
+// sentinel, so it measures reachability, not an attribute.
+//
+// Red-tell (#928): restoring the floor on the index the `tabIndex` expression
+// reads (so nothing checked can never test as -1) turns the two reachability
+// cases red and leaves the converse case green. Second red-tell: giving the
+// first option an unconditional tab stop, so a checked group carries two, turns
+// the converse case red and leaves the reachability cases green.
+test('with no option checked the group is one tab stop, carried by the first option', async () => {
+  render(
+    <div>
+      <button type="button">Before</button>
+      <SegmentedControl aria-label="Week" options={WEEKS} value={undefined} onChange={() => {}} />
+      <button type="button">After</button>
+    </div>
+  );
+  screen.getByRole('button', { name: 'Before' }).focus();
+  await userEvent.tab();
+  expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
+  await userEvent.tab();
+  expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
+});
+
+test('a value no option carries still leaves the group in the tab sequence', async () => {
+  render(
+    <div>
+      <button type="button">Before</button>
+      <SegmentedControl aria-label="Week" options={WEEKS} value={99} onChange={() => {}} />
+    </div>
+  );
+  screen.getByRole('button', { name: 'Before' }).focus();
+  await userEvent.tab();
+  expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
+});
+
+test('with an option checked the one tab stop is the checked option', async () => {
+  render(
+    <div>
+      <button type="button">Before</button>
+      <SegmentedControl aria-label="Week" options={WEEKS} value={2} onChange={() => {}} />
+      <button type="button">After</button>
+    </div>
+  );
+  screen.getByRole('button', { name: 'Before' }).focus();
+  await userEvent.tab();
+  expect(screen.getByRole('radio', { name: 'Wk 2' })).toHaveFocus();
+  await userEvent.tab();
+  expect(screen.getByRole('button', { name: 'After' })).toHaveFocus();
+});

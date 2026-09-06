@@ -185,3 +185,56 @@ test('below sm every control still meets the 44px touch target', () => {
     expect(own).toMatch(/min-height: 44px/);
   });
 });
+
+// --- the strip stays reachable (#928) ----------------------------------------
+
+// The strip is the kit's roving-tab-stop group, so it is one tab stop and not
+// eighteen. With "All" selected no week is checked, and both chevrons are
+// disabled (no neighbour to step to), so the strip's own tab stop is the only
+// keyboard door onto the weeks: without it a Tab from before the picker skips
+// all 18 segments and lands on "All weeks". Each case is a real Tab walk.
+//
+// Red-tell (#928): restoring the floor on the index the kit's `tabIndex`
+// expression reads (nothing checked can never test as -1) turns the two
+// reachability cases red and leaves the converse case green. Second red-tell:
+// giving the kit's first option an unconditional tab stop turns the converse
+// case red and leaves the reachability cases green.
+test('with All weeks selected the strip is still one Tab away, landing on Wk 1', async () => {
+  render(
+    <div>
+      <button type="button">Before</button>
+      <PickWeek weeks={WEEKS} value="All" onChange={() => {}} />
+    </div>
+  );
+  screen.getByRole('button', { name: 'Before' }).focus();
+  await userEvent.tab();
+  expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
+  await userEvent.tab();
+  expect(screen.getByRole('button', { name: 'All weeks' })).toHaveFocus();
+});
+
+test('a week the list does not carry still leaves the strip in the tab sequence', async () => {
+  render(
+    <div>
+      <button type="button">Before</button>
+      <PickWeek weeks={WEEKS} value={99} onChange={() => {}} />
+    </div>
+  );
+  screen.getByRole('button', { name: 'Before' }).focus();
+  await userEvent.tab();
+  expect(screen.getByRole('radio', { name: 'Wk 1' })).toHaveFocus();
+});
+
+test('on a selected week the walk reaches Previous and then the checked week', async () => {
+  render(
+    <div>
+      <button type="button">Before</button>
+      <PickWeek weeks={WEEKS} value={9} onChange={() => {}} />
+    </div>
+  );
+  screen.getByRole('button', { name: 'Before' }).focus();
+  await userEvent.tab();
+  expect(screen.getByRole('button', { name: 'Previous week' })).toHaveFocus();
+  await userEvent.tab();
+  expect(screen.getByRole('radio', { name: 'Wk 9' })).toHaveFocus();
+});
