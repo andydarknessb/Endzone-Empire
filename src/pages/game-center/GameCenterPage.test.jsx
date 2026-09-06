@@ -747,20 +747,17 @@ test('below the sm breakpoint the header row can shrink below the week strip it 
   expect(rulesUnder(screen.getByRole('radiogroup', { name: 'Week' }))['']).toMatch(/overflow-x:\s*auto/);
 });
 
-// The other half of the same rule: the zero minimum is the MOBILE half. Above
-// `sm` the strip is not a scroll container and its segments are `flex: none`,
-// so a header row that may shrink under it lets the strip overflow and paint
-// under the "All weeks" button beside it, the desktop overlap the #916 review
-// caught in Chromium. Red-tell: making the header row's `minWidth`
-// unconditional turns this case red and no other.
-test('above the sm breakpoint the header row keeps its content minimum', async () => {
-  mobile = false;
-  mockApi({ matchups: [row({ id: 5, week: 1, status: 'live' })] });
-  renderPage();
-
-  await screen.findByRole('radio', { name: 'Wk 1' });
-  expect(rulesUnder(screen.getByTestId('game-center-header'))['']).not.toMatch(/min-width/);
-});
+// The zero minimum asserted above is the MOBILE half of the rule. Above `sm`
+// the strip is not a scroll container and its segments are `flex: none`, so a
+// header row that may shrink under it lets the strip overflow and paint under
+// the "All weeks" button beside it. That desktop half is asserted in Chromium
+// rather than here: reading a SECOND emotion class back is worker-mode
+// dependent in this harness (emotion's cache is module state jest shares
+// across the files in a worker, while each file gets a fresh document), so the
+// assertion passed alone and failed under `--maxWorkers`. The #916 review
+// measured the overlap at 125px at 1440px with an unconditional minimum and
+// 56px clear without it; #920 carries the layout guard that belongs at that
+// level. See the same note in the picker's own test.
 
 // The canvas's mobile artboard (build.mjs `gameCenterMobile()`) ends at the
 // three-row feed with no Week at a glance tile; the same week renders the
