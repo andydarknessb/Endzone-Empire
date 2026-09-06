@@ -35,7 +35,7 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
-import { SORT_FIELDS } from './sortFields';
+import { SORT_FIELDS, SORT_FIELDS_BY_KEY, DESKTOP_SORT_COLUMN_KEYS } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
@@ -53,37 +53,20 @@ const BYE_WEEK_OPTIONS = Array.from({ length: 18 }, (_, i) => i + 1);
 // three - validation, the mobile select, and the desktop headers - read one
 // list and can't drift apart again.
 //
-// RIGHT_ALIGNED_SORT_KEYS below is presentation-only (which sortable columns
-// are numeric and get the right-aligned header treatment: a label:definition
-// accessible name and a hover/focus tooltip, the same STAT_DEFINITIONS-keyed
-// pattern AbbreviationTooltip supplies everywhere else in this table - built
-// inline in SortableHeaderCell rather than by nesting an AbbreviationTooltip
-// inside it, because that nesting gave every numeric header two Tab stops
-// instead of one: AbbreviationTooltip's own focusable span nested inside the
-// header's already-focusable TableSortLabel (issue #212)) - not a second
-// list of sortable fields, since it's keyed off SORT_FIELDS' own keys rather
-// than repeating them. That said, it is its own hand-maintained membership
-// list, and the "can't drift apart again" guarantee above is about the
-// key/label pairing only - it does nothing to protect this Set. A numeric
-// SORT_FIELDS key missing here doesn't just render left-aligned: it's what
-// decides whether the header gets a definition at all, so the header renders
-// unwrapped and a screen-reader user gets a bare abbreviation with no
-// definition, silently (issue #211). Tests assert the accessible name of all
-// four current members (Bye, ADP, Pos rank, 17-game pace), so dropping any
-// one of them fails a test; a separate test catches a stray key added here
-// that isn't a SORT_FIELDS key (a dead entry, never rendered, rather than a
-// crash). Neither test derives this list from SORT_FIELDS - adding a new
-// numeric SORT_FIELDS entry still means remembering to add its key here and
-// a matching accessible-name assertion.
-const RIGHT_ALIGNED_SORT_KEYS = new Set(['bye_week', 'adp', 'position_rank', 'proj']);
-
-// Keyed lookup onto SORT_FIELDS (code-review finding on issue #163: the
-// header row below places each SortableHeaderCell by key rather than by
-// SORT_FIELDS' array position/slice, so reordering SORT_FIELDS - which only
-// needs to stay meaningful for the mobile "Sort by" Select's option order -
-// can't silently desync the desktop headers from the TableBody's own,
-// independently fixed column sequence).
-const sortFieldsByKey = Object.fromEntries(SORT_FIELDS.map((field) => [field.key, field]));
+// Which columns are numeric (right-aligned, with a label:definition accessible
+// name and a hover/focus tooltip - the same STAT_DEFINITIONS-keyed pattern
+// AbbreviationTooltip supplies everywhere else in this table, built inline in
+// SortableHeaderCell rather than by nesting an AbbreviationTooltip inside it,
+// because that nesting gave every numeric header two Tab stops instead of one:
+// AbbreviationTooltip's own focusable span nested inside the header's
+// already-focusable TableSortLabel, issue #212) is now the `numeric` flag each
+// SORT_FIELDS entry carries (issue #951), read as `field.numeric` in
+// SortableHeaderCell. It used to be a separate hand-maintained
+// right-aligned-keys Set here that nothing kept in step with SORT_FIELDS -
+// a numeric field missing from it rendered a bare abbreviation with no
+// definition for a screen-reader user, silently (issue #211). sortFields.test.js
+// now pins every numeric entry to a STAT_DEFINITIONS term through the module's
+// own interface.
 
 // Applies to every numeric column (Bye, ADP, Pos rank, 17-game pace): fixed-
 // width digit glyphs so a column of numbers lines up instead of drifting with
@@ -125,7 +108,7 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
 
 /** One desktop sortable column header, driven off a single SORT_FIELDS entry
  * (issue #163) - active/direction/onSort/touch-target behaviour identical to
- * what the six hardcoded headers had. Numeric columns (RIGHT_ALIGNED_SORT_KEYS)
+ * what the six hardcoded headers had. Numeric columns (field.numeric)
  * right-align and carry the same label:definition accessible name and
  * hover/focus tooltip AbbreviationTooltip supplies everywhere else in this
  * table (issue #211); Name shows its label plain, same as before.
@@ -178,7 +161,7 @@ function rowStateFor(player, { draftedIds, canManualPickBase, tablePickUnavailab
  * repo's own visuallyHidden convention - see Countdown.jsx and
  * ReadinessAnnouncer.jsx) for the hidden text. */
 function SortableHeaderCell({ field, sort, dir, onSort }) {
-  const alignRight = RIGHT_ALIGNED_SORT_KEYS.has(field.key);
+  const alignRight = field.numeric;
   const active = sort === field.key;
   const direction = active ? dir : 'asc';
   const definition = STAT_DEFINITIONS[field.label];
@@ -683,20 +666,21 @@ function PlayerPoolTable({
         >
           <TableHead>
             <TableRow>
-              {/* Column order is fixed markup here, same as the equally-fixed
-                  TableBody row below it - each SortableHeaderCell is looked
-                  up by key rather than taken from SORT_FIELDS' array
-                  position, so reordering SORT_FIELDS (its order only has to
-                  stay meaningful for the mobile "Sort by" Select) can't
-                  silently reorder these headers out of step with the body's
-                  independently-fixed column sequence. Position and Actions
-                  are the two non-sortable columns and aren't in SORT_FIELDS. */}
-              <SortableHeaderCell field={sortFieldsByKey.name} sort={sort} dir={dir} onSort={onSort} />
-              <TableCell sx={headCellSx}>Position</TableCell>
-              <SortableHeaderCell field={sortFieldsByKey.bye_week} sort={sort} dir={dir} onSort={onSort} />
-              <SortableHeaderCell field={sortFieldsByKey.adp} sort={sort} dir={dir} onSort={onSort} />
-              <SortableHeaderCell field={sortFieldsByKey.position_rank} sort={sort} dir={dir} onSort={onSort} />
-              <SortableHeaderCell field={sortFieldsByKey.proj} sort={sort} dir={dir} onSort={onSort} />
+              {/* The sortable headers map DESKTOP_SORT_COLUMN_KEYS in its own
+                  fixed order (issue #951), each looked up by key rather than by
+                  SORT_FIELDS' array position, so reordering SORT_FIELDS (its
+                  order only has to stay meaningful for the mobile "Sort by"
+                  Select) can't silently reorder these headers out of step with
+                  the TableBody's own independently-fixed column sequence below.
+                  Position and Actions are the two non-sortable columns and
+                  aren't sort fields: Position sits after the Name header, and
+                  Actions is last. */}
+              {DESKTOP_SORT_COLUMN_KEYS.map((key) => (
+                <React.Fragment key={key}>
+                  <SortableHeaderCell field={SORT_FIELDS_BY_KEY[key]} sort={sort} dir={dir} onSort={onSort} />
+                  {key === 'name' && <TableCell sx={headCellSx}>Position</TableCell>}
+                </React.Fragment>
+              ))}
               <TableCell sx={headCellSx} align="center">
                 Actions
               </TableCell>
