@@ -116,10 +116,34 @@ function lineupRecommendationCopy({ emptyStarterSlots, startersOnBye }) {
   return copy;
 }
 
+// The two states in which the server REFUSES a move, mirrored here so a card
+// stops inviting an action that comes back a 409:
+//
+//   - Waivers are gated on `transactions_locked` alone (waiver.service.js:143
+//     on claimTarget, :177 on submitClaim). The other refusal, the viewer's own
+//     `teams.locked`, is a team-row field this widget never reads, so the card
+//     deliberately says nothing about it rather than guessing.
+//   - Trades check that SAME lock first (trade.service.js:82) and only then the
+//     deadline (assertBeforeDeadline, trade.service.js:59).
+//
+// Neither card is ever `recommended`: pointing at a refused move is exactly
+// what this change exists to stop.
+const TRANSACTIONS_LOCKED_COPY = 'Transactions locked by your commissioner';
+
+// `trade_deadline_week` is nullable and null means "no deadline at all", so
+// both sides are guarded rather than leaning on `3 > null` being false by
+// accident. The comparison itself is the server's: strictly greater, so the
+// deadline week is still an open week.
+function tradeDeadlinePassed(week, tradeDeadlineWeek) {
+  return week != null && tradeDeadlineWeek != null && week > tradeDeadlineWeek;
+}
+
 // Per-card status copy + whether it is Recommended, from local signals only.
 // `attention` is null unless the roster read has resolved.
 function describeCard(key, ctx) {
-  const { phase, pickemOnly, seasonLive, week, attention } = ctx;
+  const {
+    phase, pickemOnly, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
+  } = ctx;
   const weekLabel = week != null ? `Week ${week}` : null;
 
   switch (key) {
@@ -153,8 +177,19 @@ function describeCard(key, ctx) {
         recommended: pickemOnly && seasonLive,
       };
     case 'waivers':
+      if (transactionsLocked) {
+        return { status: TRANSACTIONS_LOCKED_COPY, recommended: false };
+      }
       return { status: 'Claim free agents and place bids', recommended: false };
     case 'trades':
+      // Lock first, then deadline: that is the order trade.service.js answers
+      // in, so the card names the refusal the server would actually give.
+      if (transactionsLocked) {
+        return { status: TRANSACTIONS_LOCKED_COPY, recommended: false };
+      }
+      if (tradeDeadlinePassed(week, tradeDeadlineWeek)) {
+        return { status: `Trade deadline passed · week ${tradeDeadlineWeek}`, recommended: false };
+      }
       return { status: 'Propose and review trades', recommended: false };
     case 'activity':
       return { status: 'Recent roster and league moves', recommended: false };
@@ -178,6 +213,10 @@ export function useQuickActions(leagueId) {
   const phase = league ? deriveLeaguePhase(league) : null;
   const seasonLive = isSeasonLive(league);
   const week = league?.current_week ?? null;
+  // Both ride on the league row this hook already holds (SELECT leagues.*), so
+  // the refusal states cost no request.
+  const transactionsLocked = !!league?.transactions_locked;
+  const tradeDeadlineWeek = league?.trade_deadline_week ?? null;
 
   // The one sanctioned extra read, for the Set Lineup recommendation. Skipped
   // for a pick'em-only league (Set Lineup is hidden there) and until the league
@@ -198,7 +237,9 @@ export function useQuickActions(leagueId) {
     attention = lineupAttention({ rosterSlots: rosterSlotsOf(league), entries });
   }
 
-  const ctx = { phase, pickemOnly, seasonLive, week, attention };
+  const ctx = {
+    phase, pickemOnly, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
+  };
 
   // Resolve each group: filter cards this league/viewer cannot see, attach copy
   // and recommendation, drop empty groups. `count` is the visible-card count the

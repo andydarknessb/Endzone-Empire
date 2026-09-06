@@ -85,6 +85,12 @@ export default function CopyInvite({ code }) {
         sx={{
           textTransform: 'none',
           gap: 0.75,
+          // The 44px touch floor, phone widths only. Breakpoint-scoped rather
+          // than the flat MIN_TOUCH_TARGET_SX because this is a size="small"
+          // outlined control the artboard draws short: an unconditional 44
+          // would grow it by 14px on desktop, where a pointer needs no floor.
+          // It measured 29.88px at every width before this.
+          minHeight: { xs: 44, md: 'auto' },
           color: 'var(--dash-dim)',
           borderColor: 'var(--dash-line-strong)',
           borderRadius: 'var(--dash-radius-sm)',

@@ -79,7 +79,11 @@ export function useDraftGrades(leagueId) {
     };
   });
 
-  return { phase, rows, viewerTeamId };
+  // The league's Team count, so the card's loading state can hold the shape of
+  // the table it is about to render (one skeleton row per Team) instead of a
+  // fixed three. It comes from the membership already in the shared cache, not
+  // from the grades read, which is exactly the read that has not landed yet.
+  return { phase, rows, viewerTeamId, teamCount: teamRows.length };
 }
 
 export default useDraftGrades;

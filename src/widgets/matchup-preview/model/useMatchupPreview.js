@@ -1,7 +1,12 @@
 import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { teamNameLabel } from '../../../lib/teamIdentity';
-import { matchupFromListRow, matchupFromDetailBody } from '../../../entities/matchup';
+import {
+  matchupFromListRow,
+  matchupFromDetailBody,
+  matchupStatusView,
+} from '../../../entities/matchup';
+import { matchupWinProbability } from '../../../lib/winProbability';
 
 /**
  * Data model for the matchup-preview widget (League Dashboard hero-right,
@@ -28,13 +33,16 @@ import { matchupFromListRow, matchupFromDetailBody } from '../../../entities/mat
  *     not fall back) exactly like any other number.
  *   - The detail read is the FALLBACK, fired only when either side's Expected
  *     final is null on the list row for the viewer's matchup AND the league is
- *     not best-ball (#688: see below, the fallback read cannot help best ball).
- *     Its URL depends on three things together, the selected matchup id, that
- *     null check, and the league's best-ball flag, so it stays null (and never
- *     fetches, the same null-URL-never-fetches convention the list read
- *     already relies on) whenever the list already answered both sides,
- *     whenever the league is best-ball, or until the list has resolved and a
- *     matchup for the viewer exists. When it does fire, it supplies each
+ *     not best-ball (#688: see below, the fallback read cannot help best ball)
+ *     AND the Matchup has not started (T6: see below, a started week's nulls
+ *     are the result, not a gap the detail read can fill).
+ *     Its URL depends on four things together, the selected matchup id, that
+ *     null check, the league's best-ball flag and the Matchup's status, so it
+ *     stays null (and never fetches, the same null-URL-never-fetches
+ *     convention the list read already relies on) whenever the list already
+ *     answered both sides, whenever the league is best-ball, once the Matchup
+ *     has started, or until the list has resolved and a matchup for the viewer
+ *     exists. When it does fire, it supplies each
  *     side's projected total, `expectedFinal` (the per-side projected total
  *     the matchup detail computes; the Matchup page's scoreboard strip
  *     surfaces it as "Projected N.N" while a game is live, and this card
@@ -75,6 +83,18 @@ import { matchupFromListRow, matchupFromDetailBody } from '../../../entities/mat
  *     `listHasBothFinals` check below, before `detail.status` is ever
  *     consulted.
  *
+ *     A STARTED Matchup is the second cause the fallback cannot help with, and
+ *     it is the expensive one: once the week is live, played or final, both
+ *     Expected finals go null by design (a final Matchup's score IS its
+ *     result), which used to make `listHasBothFinals` false and fire the detail
+ *     read on every dashboard load of a completed week - a route that opens a
+ *     transaction and materializes BOTH teams' lineups
+ *     (server/routes/league.router.js) to hand back the same two nulls. The
+ *     status gate below skips it. It tests `hasStarted !== true` and not a
+ *     falsy check on purpose: an unknown status reads `hasStarted: null` (ADR
+ *     0030's "the server could not say" is not "not started"), and null must
+ *     keep firing the fallback exactly as it does today.
+ *
  *     A miss or a failed detail read degrades just the number to a placeholder
  *     rather than erroring the card, the way the spine/degrade split works in
  *     the sibling my-team widget.
@@ -102,6 +122,19 @@ import { matchupFromListRow, matchupFromDetailBody } from '../../../entities/mat
 // a null url on the happy path, and the card short-circuits on its own signal
 // BEFORE reading `detail.status`), so the "idles at 'loading'" notes throughout
 // this hook refer to that shared contract. See src/shared/lib/useEndpoint.js.
+
+// The status chip's Badge variant per server status, the same mapping the
+// Matchup page's hero paints. A widget never imports another widget's model
+// (ADR 0020), so the map is restated here rather than reached for; the labels
+// and `hasStarted` still come from the one entity predicate (ADR 0030).
+const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
+
+/** A finite number from a wire value (pg DECIMAL strings included), else null. */
+function finite(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
 export function useMatchupPreview(leagueId) {
   const { teams, viewerTeamId, league } = useLeague(leagueId);
@@ -145,12 +178,21 @@ export function useMatchupPreview(leagueId) {
   // that predates this field keeps its current behavior.
   const isBestBall = !!league?.best_ball;
 
+  // The Matchup's status, through the one entity predicate (ADR 0030: status
+  // is a server fact, never inferred here). `hasStarted` is true / false /
+  // null, and every branch below tests it against an explicit value.
+  const { hasStarted, chipLabel } = matchupStatusView(myMatchup?.status);
+
   // Whether the detail read stands any chance of answering: the list didn't
   // already answer both sides, AND the league isn't best-ball (#688, where
-  // neither read ever answers). Named once and reused below (detailUrl,
-  // busy) instead of repeating the same two-part check, so the gate stays a
-  // single source of truth as more callers of it get added.
-  const detailCanAnswer = !listHasBothFinals && !isBestBall;
+  // neither read ever answers), AND the Matchup has not started (T6: a started
+  // week's nulls are the result, and the detail route would open a write
+  // transaction over both lineups to return the same nulls). `!== true`, not a
+  // falsy check: an unknown status is null and keeps today's behavior. Named
+  // once and reused below (detailUrl, projectedFor, busy) instead of repeating
+  // the same three-part check, so the gate stays a single source of truth as
+  // more callers of it get added.
+  const detailCanAnswer = !listHasBothFinals && !isBestBall && hasStarted !== true;
 
   // Read 2 (chained fallback): the matchup detail, only once a matchup id
   // exists AND `detailCanAnswer`. This decision is made here, before
@@ -187,10 +229,10 @@ export function useMatchupPreview(leagueId) {
   // ever consulted: once the list has answered, detailUrl is null and
   // detail.status idles at 'loading' forever, so consulting it here would
   // skeleton this number forever instead of rendering the list's value (the
-  // shared useEndpoint's null-url contract, noted above). `isBestBall` is
-  // checked next, for the same reason (#688): detailUrl is null there too, so
-  // reaching detail.status would skeleton the number forever instead of
-  // resolving straight to the placeholder.
+  // shared useEndpoint's null-url contract, noted above). `detailCanAnswer` is
+  // checked next, for the same reason (#688 best ball, T6 a started week):
+  // detailUrl is null in both, so reaching detail.status would skeleton the
+  // number forever instead of resolving straight to the placeholder.
   // The chained detail read, read as the one Matchup shape too (#864), so the
   // fallback names `expectedFinal` on a per-side object and never the detail
   // body's raw fields. Built only when the read is ready.
@@ -204,7 +246,7 @@ export function useMatchupPreview(leagueId) {
           : Number(myMatchup.away.expectedFinal);
       return { loading: false, value: Number.isFinite(raw) ? raw.toFixed(1) : null };
     }
-    if (isBestBall) return { loading: false, value: null };
+    if (!detailCanAnswer) return { loading: false, value: null };
     if (detail.status === 'loading') return { loading: true, value: null };
     const sides = detailModel ? [detailModel.home, detailModel.away] : [];
     const side = sides.find((s) => s && s.teamId === teamId) || null;
@@ -223,15 +265,103 @@ export function useMatchupPreview(leagueId) {
   else if (!myMatchup) status = 'empty';
   else status = 'ready';
 
+  // The viewer's matchup's per-side object for one Team id, or null. The side
+  // facts below all read the LIST row rather than the detail: once the Matchup
+  // has started the detail read is gated off entirely (see `detailCanAnswer`),
+  // and the list row already carries the score, the status and Players
+  // remaining that a started card shows.
+  const sideOf = (teamId) => {
+    if (myMatchup == null || teamId == null) return null;
+    if (myMatchup.home.teamId === teamId) return myMatchup.home;
+    if (myMatchup.away.teamId === teamId) return myMatchup.away;
+    return null;
+  };
+
+  // The live score, to one decimal. `home_score` is a NOT NULL decimal and
+  // node-postgres hands decimals back as STRINGS (matchupModel renames without
+  // retyping), so the coercion is not decoration; the null guard is, because a
+  // fixture or a detail body may omit the column, and `Number(null)` is 0.
+  const scoreFor = (teamId) => {
+    const raw = finite(sideOf(teamId)?.score);
+    return raw != null ? raw.toFixed(1) : null;
+  };
+
   const viewer =
     status === 'ready'
-      ? { ...identityFor(viewerTeamId), projected: projectedFor(viewerTeamId) }
+      ? {
+          ...identityFor(viewerTeamId),
+          projected: projectedFor(viewerTeamId),
+          score: scoreFor(viewerTeamId),
+          playersRemaining: finite(sideOf(viewerTeamId)?.playersRemaining),
+        }
       : null;
   const opponent =
-    status === 'ready' ? { ...identityFor(opponentId), projected: projectedFor(opponentId) } : null;
+    status === 'ready'
+      ? {
+          ...identityFor(opponentId),
+          projected: projectedFor(opponentId),
+          score: scoreFor(opponentId),
+          playersRemaining: finite(sideOf(opponentId)?.playersRemaining),
+        }
+      : null;
+
+  // The game view: what the card paints about the Matchup itself rather than
+  // about one side. On an unknown status every claim here drops (no chip, no
+  // bar, no caption), so the card asserts neither state (the entity's
+  // `hasStarted === null` contract).
+  //
+  // The win probability is the SAME helper Game Center's hero reads
+  // (src/lib/winProbability, the sanctioned reach below the island), computed
+  // from the two scores and the two Expected finals, so the two surfaces
+  // cannot disagree. It is never a points ratio: SplitBar's accessible name is
+  // the hard-coded "Win probability" (#872), and a ratio there would announce a
+  // number that is not one. The share is clamped and rounded exactly as
+  // SplitBar rounds its own segments, and it is stated from the VIEWER's side
+  // because the card lays the viewer out on the left where SplitBar paints its
+  // `homeShare` segment.
+  let winProbability = null;
+  if (status === 'ready' && hasStarted === true) {
+    const shares = matchupWinProbability({
+      homeScore: finite(myMatchup.home.score) ?? 0,
+      awayScore: finite(myMatchup.away.score) ?? 0,
+      homeExpectedFinal: myMatchup.home.expectedFinal,
+      awayExpectedFinal: myMatchup.away.expectedFinal,
+    });
+    const raw = myMatchup.home.teamId === viewerTeamId ? shares.home : shares.away;
+    const clamped = Math.max(0, Math.min(1, Number(raw) || 0));
+    const viewerPct = Math.round(clamped * 100);
+    winProbability = { viewerShare: clamped, viewerPct, opponentPct: 100 - viewerPct };
+  }
+
+  // The one caption before kickoff: which way the projections lean and by how
+  // much. Read from the raw Expected finals, never from `projected.value`,
+  // which is already a formatted string. A margin that rounds to zero reads as
+  // even rather than "by 0.0", and a missing projection on either side drops
+  // the line rather than inventing a leader.
+  let projectedMargin = null;
+  if (status === 'ready' && hasStarted === false) {
+    const mine = finite(sideOf(viewerTeamId)?.expectedFinal);
+    const theirs = finite(sideOf(opponentId)?.expectedFinal);
+    if (mine != null && theirs != null) {
+      const gap = Math.round((mine - theirs) * 10) / 10;
+      projectedMargin =
+        gap === 0
+          ? 'Projected margin · Even'
+          : `Projected margin · ${(gap > 0 ? viewer : opponent).name} by ${Math.abs(gap).toFixed(1)}`;
+    }
+  }
+
+  const game = {
+    hasStarted,
+    chipLabel,
+    chipVariant: CHIP_VARIANTS[myMatchup?.status] ?? 'neutral',
+    chipDot: myMatchup?.status === 'live',
+    winProbability,
+    projectedMargin,
+  };
 
   // aria-busy while a layout-holding read is in flight: the list spine, and
-  // (only when `detailCanAnswer`, #670 + #688) the chained detail read whose
+  // (only when `detailCanAnswer`, #670 + #688 + T6) the chained detail read whose
   // projected numbers are skeletoned (carry-over #2). Checking
   // `detailCanAnswer` before `detail.status` matters: with the fallback
   // skipped, detailUrl is null and detail.status idles at 'loading' forever,
@@ -239,7 +369,7 @@ export function useMatchupPreview(leagueId) {
   const busy =
     status === 'loading' || (status === 'ready' && detailCanAnswer && detail.status === 'loading');
 
-  return { week, status, busy, matchupId, viewer, opponent };
+  return { week, status, busy, matchupId, viewer, opponent, game };
 }
 
 export default useMatchupPreview;

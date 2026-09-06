@@ -31,9 +31,33 @@ import { deriveLeaguePhase, LEAGUE_PHASE } from '../../../lib/leaguePhase';
  *
  * PRESEASON is the honest empty state: the League phase is before in season
  * (pre-draft or drafting), or every row has zero games played. Then the record,
- * PF and PA cells render a placeholder mark rather than 0-0-0 and zero points,
- * and the card shows a note that those values populate after Week 1.
+ * PF, PA, PCT and STRK cells render a placeholder mark rather than 0-0-0, zero
+ * points and a bare dash, and the card shows a note that those values populate
+ * after Week 1.
+ *
+ * STREAK, WIN PCT and PLAYOFF SEED are read off the same response, not derived
+ * here: season.service.js computes the trailing streak and the win percentage,
+ * and scoring.router.js stamps `playoffSeed` from the league's `playoff_teams`.
+ * Rank stays index + 1 (the #617 ruling) even though the row also carries the
+ * server's own `rank`, so the column and the row order cannot disagree.
  */
+
+// The server writes a bare '-' for a Team with no finished games (week 1, or a
+// Team added mid-season). That is its placeholder, not a streak, so it becomes
+// null here and the cell renders the card's own Placeholder mark, which carries
+// a screen-reader "Not available" the raw dash would not.
+const streakLabel = (value) =>
+  typeof value === 'string' && value.trim() !== '' && value.trim() !== '-' ? value.trim() : null;
+
+// Win percentage is a 0-1 fraction on the wire. Standings convention prints it
+// to three decimals with no leading zero (".750"), which is also what keeps the
+// column narrow enough to earn its place at sm and up.
+const winPctLabel = (value) => {
+  const pct = Number(value);
+  if (!Number.isFinite(pct)) return null;
+  const fixed = pct.toFixed(3);
+  return fixed.startsWith('0.') ? fixed.slice(1) : fixed;
+};
 
 export function useStandingsTable(leagueId) {
   const { league, teams, viewerTeamId } = useLeague(leagueId);
@@ -68,6 +92,11 @@ export function useStandingsTable(leagueId) {
       record: `${wins}-${losses}-${ties}`,
       pointsFor: (Number(row.pf) || 0).toFixed(1),
       pointsAgainst: (Number(row.pa) || 0).toFixed(1),
+      streak: streakLabel(row.streak),
+      winPct: winPctLabel(row.winPct),
+      // The seed the bracket gives this Team, or null for a Team outside it.
+      // Nothing recomputes it: the server owns the cutoff.
+      playoffSeed: row.playoffSeed ?? null,
       gamesPlayed: wins + losses + ties,
     };
   });
@@ -77,7 +106,23 @@ export function useStandingsTable(leagueId) {
   const allZeroGames = rows.length > 0 && rows.every((row) => row.gamesPlayed === 0);
   const preseason = phaseBeforeSeason || allZeroGames;
 
-  return { status, rows, preseason, teamCount };
+  // Where the table draws its playoff cut: the index of the first Team outside
+  // the bracket. The LEAGUE's own playoff_teams is what admits the rule at all,
+  // and both halves of that read matter:
+  //   - with no bracket size (a league that has not set one, or a standings
+  //     payload that carries no seeds) every row's seed is null, so "the first
+  //     row with no seed" would be row 1 and the rule would land above the
+  //     league leader;
+  //   - a bracket that takes the whole league states there is no cut, so the
+  //     seeds are not consulted at all.
+  // Preseason is excluded for the same reason the record cells are masked: the
+  // server still seeds by rank, but with every Team 0-0-0 that order is a
+  // tiebreak artefact, and a rule across it would claim a standing nobody has.
+  const playoffTeams = Number(standings.data?.league?.playoff_teams);
+  const bracketSplits = !preseason && playoffTeams > 0 && playoffTeams < rows.length;
+  const cutIndex = bracketSplits ? rows.findIndex((row) => row.playoffSeed == null) : -1;
+
+  return { status, rows, preseason, teamCount, cutIndex };
 }
 
 export default useStandingsTable;
