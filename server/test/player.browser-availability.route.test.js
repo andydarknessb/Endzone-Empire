@@ -271,3 +271,43 @@ test("GET players publishes exactly what irPolicy.rosterCapacity enforces for th
   assert.equal(res.body.context.rosterCapacity, enforced);
   assert.notEqual(res.body.context.rosterCapacity, leagueRow.roster_limit);
 });
+
+test("GET players on a NULL roster_limit legacy row publishes the enforced number, not a null passthrough", async (t) => {
+  // A legacy row can carry roster_limit = null (#70). The old context read
+  // published null on this row, so the browser rendered "-". Enforcement does
+  // not: irPolicy.rosterCapacity runs draftRosterSize, which is 0 by design on
+  // a null limit, so the gate would allow 0 here. Publishing null would put
+  // the display back out of step with the gate on a case nobody had examined,
+  // which is the exact divergence #945 exists to remove. So the context now
+  // publishes the enforced 0. ir_slots is 0, so this is the shortcut path
+  // (draftRosterSize with no read) that a null legacy row realistically hits.
+  const leagueRow = {
+    id: 1,
+    name: "Legacy League",
+    roster_limit: null,
+    ir_slots: 0,
+    waiver_type: "faab",
+    current_season: 2026,
+  };
+  capacityPool(t, {
+    rosterLimit: null,
+    irSlots: 0,
+    stashCount: 0,
+    leagueRow,
+  });
+
+  const token = signToken({ id: 7, username: "member" });
+  const res = await request(app)
+    .get("/api/players?leagueId=1")
+    .set("Authorization", `Bearer ${token}`);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const enforced = await irPolicy.rosterCapacity(pool, {
+    league: leagueRow,
+    teamId: 17,
+  });
+  assert.equal(res.body.context.rosterCapacity, enforced);
+  assert.equal(res.body.context.rosterCapacity, 0);
+  // The deliberate behaviour change: no longer null. Documents F1.
+  assert.notEqual(res.body.context.rosterCapacity, null);
+});
