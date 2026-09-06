@@ -119,6 +119,21 @@ test('marks each fact with a decorative stroke icon, no emoji', async () => {
   const icons = card.querySelectorAll('svg[data-icon]');
   expect(icons).toHaveLength(4);
   icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
+  // And each is actually 20px. Box takes width/height as system props, so a
+  // string value is emitted unitless, dropped, and never reaches the element as
+  // an attribute either, leaving the glyph to draw at its own scale. The same
+  // mistake sized the League History medals at roughly 90px, and presence plus
+  // aria-hidden both stayed green through it, so the size is asserted here.
+  icons.forEach((icon) => {
+    const iconCls = Array.from(icon.classList).find((c) => c.startsWith('css-'));
+    const iconRules = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules))
+      .filter((rule) => rule.selectorText === `.${iconCls}`)
+      .map((rule) => rule.style.cssText)
+      .join(';');
+    expect(iconRules).toMatch(/width:\s*20px/);
+    expect(iconRules).toMatch(/height:\s*20px/);
+  });
 });
 
 test('renders a biggestBlowout chip when present', async () => {

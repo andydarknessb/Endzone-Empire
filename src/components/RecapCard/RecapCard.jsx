@@ -40,8 +40,13 @@ function FactIcon({ name }) {
   return (
     <Box
       component="svg"
-      width="20"
-      height="20"
+      // Numbers, not strings. Box consumes width/height as system props, and a
+      // bare string is passed straight through as a CSS value: `width: "20"`
+      // carries no unit, so it is dropped and no attribute reaches the element
+      // either, leaving the glyph to render at its own scale. A number becomes
+      // `20px`. The same mistake sized the League History medals at ~90px.
+      width={20}
+      height={20}
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"

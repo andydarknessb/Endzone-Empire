@@ -20,6 +20,23 @@ const renderHistory = (leagueId = 1) =>
     route: `/league/${leagueId}/history`,
   });
 
+// jsdom lays nothing out, but emotion inserts every sx rule into
+// `document.styleSheets` under the element's generated class, so a declared
+// size can be read back. Same helper as GameCenterPage.test.jsx, keyed by the
+// selector's tail ('' for the element's own rule).
+const rulesUnder = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = {};
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      const tail = rule.selectorText.slice(`.${cls}`.length).replace(/\s+/g, '');
+      found[tail] = `${found[tail] || ''}${rule.style.cssText};`;
+    });
+  });
+  return found;
+};
+
 const historyResponse = () => ({
   data: {
     seasons: [
@@ -135,6 +152,17 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
   const medals = panel.querySelectorAll('svg[data-medal]');
   expect(Array.from(medals).map((el) => el.getAttribute('data-medal'))).toEqual(['1', '2', '3']);
   medals.forEach((el) => expect(el).toHaveAttribute('aria-hidden', 'true'));
+  // And they are actually 16px. Box takes width/height as system props, so a
+  // string value is emitted unitless, dropped, and never reaches the element as
+  // an attribute either: the glyph then draws at its own scale. That shipped
+  // once, at roughly 90px, which pushed the rank number onto a second line and
+  // made each podium row about 175px tall. Presence and aria-hidden both stayed
+  // green through it, so the size is asserted here rather than eyeballed.
+  medals.forEach((el) => {
+    const rule = rulesUnder(el)[''] || '';
+    expect(rule).toMatch(/width:\s*16px/);
+    expect(rule).toMatch(/height:\s*16px/);
+  });
   expect(panel.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   // Rank numbers remain present for screen readers alongside the decorative medals.
   const table = within(panel).getByRole('table', { name: 'Final Standings' });

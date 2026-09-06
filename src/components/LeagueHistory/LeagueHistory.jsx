@@ -49,8 +49,14 @@ function MedalIcon({ rank }) {
   return (
     <Box
       component="svg"
-      width="16"
-      height="16"
+      // Numbers, not strings. Box consumes width/height as system props, and a
+      // bare string is passed straight through as a CSS value: `width: "16"`
+      // carries no unit, so it is dropped and no attribute reaches the element
+      // either. The glyph then renders at its own scale (measured about 90px),
+      // which pushed the rank number onto a second line and made each podium
+      // row roughly 175px tall. A number becomes `16px`.
+      width={16}
+      height={16}
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"
