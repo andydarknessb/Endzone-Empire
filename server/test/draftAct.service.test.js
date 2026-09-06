@@ -170,6 +170,31 @@ test('a typo in a requested board-fact name throws before commit, rolls back, an
   fake.assertClean();
 });
 
+test('a reserved adapter method (pickLanded) is rejected even though the adapter defines it', async (t) => {
+  // The recording broadcast HAS pickLanded, so validating against the live adapter
+  // would accept it. The allowlist is by LEGITIMACY, not by adapter existence:
+  // ADR 0025 reserves pickLanded to the Pick module, so a Draft act may not emit
+  // it. This is the exclusion the BOARD_FACTS comment documents.
+  const fake = baseWorld(t);
+  const rec = installActBroadcast(t, fake);
+
+  await assert.rejects(
+    runDraftAct({ leagueId: LEAGUE_ID, userId: USER_ID }, async ({ client }) => {
+      await client.query(
+        `UPDATE "leagues" SET "draft_paused" = $1 WHERE "id" = $2 RETURNING "id"`,
+        [true, LEAGUE_ID]
+      );
+      return { response: {}, activity: [], broadcasts: ['pickLanded'] };
+    }),
+    /is not a board-fact broadcast/
+  );
+
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a reserved name never commits');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'it rolls back');
+  assert.equal(rec.calls.length, 0, 'and emits nothing');
+  fake.assertClean();
+});
+
 test('the act body receives the locked client, the League row, the Teams and the acting Team', async (t) => {
   const fake = baseWorld(t);
   installActBroadcast(t, fake);

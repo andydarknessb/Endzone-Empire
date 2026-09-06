@@ -4,13 +4,27 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
 const sentry = require('../modules/sentry');
 
-// The board-fact methods an act body may name in its `broadcasts` set. Mirrors
-// the draftRoomBroadcast adapter's board-fact surface; narration is not here (it
-// travels through the act body's `activity` and is emitted via activityAppended).
-// runDraftAct validates requested names against this set before COMMIT so a typo
-// fails loudly rather than silently in the contained fan-out. Adding a new board
-// fact means adding it here, deliberately.
-const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged', 'draftCompleted', 'pickLanded', 'scoresUpdated']);
+// The board-fact methods a DRAFT ACT may legitimately name in its `broadcasts`
+// set. runDraftAct validates requested names against this set before COMMIT so a
+// typo fails loudly rather than silently in the contained fan-out. It is also the
+// artifact a future slice reads to decide what a Draft act is allowed to emit, so
+// it lists only what a lifecycle act (pause/resume, autodraft, undo, reset) may
+// emit and names WHY the rest of the adapter's surface is excluded:
+//   - stateChanged, rosterChanged: the two a lifecycle act legitimately emits
+//     (undo emits rosterChanged; every lifecycle act emits stateChanged).
+//   - pickLanded: EXCLUDED. ADR 0025's 2026-09-03 amendment reserves it - "It is
+//     the only code that calls pickLanded" is the Pick module (pick.service.js).
+//     A Draft act is not a Pick.
+//   - draftCompleted: EXCLUDED. Draft completion rides the final Pick through
+//     pick.service.landPick; no lifecycle act completes a draft, so none requests
+//     it. A future slice that converts a completing path (e.g. startDraft) adds it
+//     here deliberately, with the injected-client caveat in the header.
+//   - scoresUpdated: EXCLUDED. The scoring service's live-score push (ADR 0025's
+//     2026-09-02 amendment); not a Draft concern.
+// Narration is not here either: it travels through the act body's `activity` and
+// is emitted via activityAppended. Adding a new board fact means adding it here,
+// deliberately, with its reason.
+const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
 
 /**
  * The Draft act module (#947, part of #938). It owns an ordering constraint
