@@ -74,6 +74,20 @@ test('both wire shapes build a pick of the same shape (one model)', () => {
   expect(fromSnapshot).toEqual({ ...fromEvent, is_keeper: false });
 });
 
+test('the snapshot builder carries is_keeper and auto by value, not as a literal', () => {
+  // A keeper that was NOT an autopick, and an autopicked non-keeper: proves each
+  // flag is read from the row rather than hard-coded (the :false in the shared
+  // fixture would pass a tautology otherwise).
+  expect(pickFromSnapshotRow(snapshotRow({ is_keeper: true, auto: false }))).toMatchObject({
+    is_keeper: true,
+    auto: false,
+  });
+  expect(pickFromSnapshotRow(snapshotRow({ is_keeper: false, auto: true }))).toMatchObject({
+    is_keeper: false,
+    auto: true,
+  });
+});
+
 test('a landed pick with no next-pick index returns the SAME league reference', () => {
   const league = activeLeague({ current_pick: 3 });
   const model = { ...emptyDraftModel, league, teams: [{ teamId: 12, teamName: 'Team B' }] };

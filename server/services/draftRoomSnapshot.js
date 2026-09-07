@@ -170,19 +170,24 @@ async function readPicks(leagueId) {
     // the duplication ADR 0029 exists to stop, and which a draft_picks migration
     // - a carve-out - would be).
     //
-    // THE JOIN TRAP (measured, not assumed - draftRoomSnapshot.pg.test.js).
-    // draft_activity is APPEND-ONLY and pick_number is REUSED: an undo + re-pick
-    // of a slot leaves the reversed Pick's activity row in place and appends a
-    // NEW pick-kind row for the same (league_id, pick_number). Joining on that
-    // pair alone would match BOTH and duplicate the pick in the snapshot, so the
-    // LATERAL resolves to ONE row per pick_number - the latest by feed_seq, the
-    // per-league position the trigger allocates and the feed already orders by,
-    // which is always the current draft_picks row's Pick (every re-pick appends a
-    // higher feed_seq). Filtered to kind = 'pick' so a commissioner CORRECTION
-    // (a distinct kind, carrying a reason and never an autopick flag) is excluded.
-    // A keeper - pre-filled into draft_picks but never written to draft_activity -
-    // and a legacy pick backfilled is_autopick = false ("not known to be an
-    // autopick") both COALESCE to false, exactly as they render today.
+    // THE JOIN KEY IS IDENTITY, NOT (league_id, pick_number). draft_activity is
+    // append-only and NEVER deleted (a reset in draft.router.js and a rollover in
+    // commissioner.service.js both wipe draft_picks and leave activity standing),
+    // while pick_number is reused - a keeper pre-filled by draftStart.service
+    // writes NO activity row at all. So joining on (league_id, pick_number) would
+    // let a new keeper inherit the PREVIOUS draft's autopick fact at the same
+    // slot and render it "AUTO" (#949 review F1). The join is on
+    // draft_activity.source_pick_id = draft_picks.id instead: the draft_picks row
+    // an activity entry represents (#436), set by pick.service for every live Pick
+    // and by the legacy backfill, CHECK-constrained to kind = 'pick' and UNIQUELY
+    // indexed, over a draft_picks.id that is a never-reused serial. That makes the
+    // join 1:0..1 by identity - no LATERAL, no feed_seq tie-break needed - and
+    // correct for every case: the current live Pick and a re-pick after undo /
+    // correction each match their own row (the reversed Pick's stale activity
+    // points at a now-deleted draft_picks id and matches nothing); a keeper and a
+    // legacy pick (is_autopick = false) COALESCE to false; and a keeper reusing a
+    // slot number after a reset no longer matches the prior draft's row, because
+    // its fresh draft_picks id was never any activity row's source_pick_id.
     `SELECT "draft_picks"."pick_number", "draft_picks"."team_id", "draft_picks"."is_keeper",
             ${teamIdentityColumns()},
             "players"."id" AS "player_id", "players"."name", "players"."position",
@@ -190,15 +195,9 @@ async function readPicks(leagueId) {
             COALESCE("autopick"."is_autopick", false) AS "auto"
      FROM "draft_picks" JOIN "players" ON "players"."id" = "draft_picks"."player_id"
      LEFT JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
-     LEFT JOIN LATERAL (
-       SELECT "da"."is_autopick"
-       FROM "draft_activity" "da"
-       WHERE "da"."league_id" = "draft_picks"."league_id"
-         AND "da"."pick_number" = "draft_picks"."pick_number"
-         AND "da"."kind" = 'pick'
-       ORDER BY "da"."feed_seq" DESC
-       LIMIT 1
-     ) "autopick" ON true
+     LEFT JOIN "draft_activity" "autopick"
+       ON "autopick"."source_pick_id" = "draft_picks"."id"
+      AND "autopick"."kind" = 'pick'
      WHERE "draft_picks"."league_id" = $1 ORDER BY "pick_number"`,
     [leagueId]
   );

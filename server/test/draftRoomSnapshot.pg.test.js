@@ -2,29 +2,28 @@
  * Disposable-Postgres test for the Draft room snapshot's autopick join (#949).
  *
  * The fast draftRoomSnapshot.test.js proves the SELECT PROJECTS `auto` (a matcher
- * fake can express "the query names AS \"auto\""). It cannot prove the one claim
- * that decides the join is correct: draft_activity is APPEND-ONLY and pick_number
- * is REUSED by an undo + re-pick, so joining draft_picks to draft_activity on
- * (league_id, pick_number, kind='pick') matches MORE THAN ONE row for a
- * re-picked slot and would DUPLICATE the pick in the snapshot - silently
- * lengthening the board. Only a real Postgres actually applies the LATERAL's
- * `ORDER BY feed_seq DESC LIMIT 1`, so this gets a real Postgres and proves, with
- * the COUNT as the assertion, that a slot with two pick-kind activity rows still
- * yields exactly one pick and reads the LATEST autopick fact.
+ * fake can express "the query names AS \"auto\""). It cannot prove the claim that
+ * decides the join is CORRECT: draft_activity is APPEND-ONLY and never deleted (a
+ * reset and a rollover both wipe draft_picks and leave activity standing), and
+ * pick_number is REUSED (a keeper pre-fill writes no activity row), so a
+ * (league_id, pick_number) join makes a fresh keeper inherit a PRIOR draft's
+ * autopick fact at the same slot (#949 review F1, a shipped bug). The join keys on
+ * draft_activity.source_pick_id = draft_picks.id instead - identity, over a
+ * never-reused serial. Only a real Postgres exercises that, so this gets a real
+ * Postgres.
  *
- * The scenario (the join trap the project-lead ruling named):
- *   - pick_number 1 was autopicked (activity row, is_autopick = true), then
- *     undone and re-picked manually (a SECOND pick-kind activity row for the same
- *     pick_number, is_autopick = false, at a higher feed_seq), plus a
- *     kind = 'correction' row for the same pick_number (a distinct kind that must
- *     be excluded). The CURRENT draft_picks row for pick_number 1 is the manual
- *     re-pick.
- *   - pick_number 2 is a KEEPER: pre-filled into draft_picks, never written to
- *     draft_activity, so it has no activity row and must COALESCE to auto = false.
+ * The scenario:
+ *   - Slot 1 was autopicked, then UNDONE and re-picked, plus a CORRECTION: three
+ *     activity rows, only the re-pick's source_pick_id points at the current row.
+ *     It must appear once and read the re-pick's is_autopick = false.
+ *   - Slot 2 is a KEEPER, and a PRIOR draft's is_autopick = true row survives at
+ *     pick_number 2 (source_pick_id pointing at the reset draft's deleted row).
+ *     The keeper's fresh id is no activity row's source_pick_id, so it reads
+ *     false. This is the F1 / F2 red-tell: it goes RED under a (league_id,
+ *     pick_number) join.
  *
  * Expected: memberSnapshot returns exactly TWO picks (one per draft_picks row),
- * pick_number 1 appears ONCE with auto = false (latest feed_seq, correction
- * excluded), and the keeper reads auto = false.
+ * slot 1 appears ONCE with auto = false, and the keeper reads auto = false.
  *
  * Gated twice, exactly like draftActivity.pg.test.js: DRAFT_ROOM_SNAPSHOT_PG_TESTS=1
  * (or the umbrella PG_TESTS=1) must be set, and every DATABASE_URL* variable must
@@ -132,30 +131,62 @@ if (!ENABLED) {
     playerOne = await seedPlayer('Star Runningback', 'RB', 'KC');
     playerKeeper = await seedPlayer('Kept Receiver', 'WR', 'SF');
 
-    // CURRENT draft_picks: the manual re-pick of slot 1, and a keeper at slot 2.
-    // draft_picks.team_id is NOT NULL; the reversed original pick's row is gone
-    // (an undo hard-deletes it), so only the re-pick row exists for slot 1.
-    await pool.query(
-      `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number", "is_keeper")
-       VALUES ($1, $2, $3, 1, false), ($1, $2, $4, 2, true)`,
-      [leagueId, teamId, playerOne, playerKeeper]
-    );
-
     const teamIdentity = { id: teamId, name: 'Team One' };
     const player = { id: playerOne, name: 'Star Runningback', position: 'RB', nfl_team: 'KC' };
-    // 1) The ORIGINAL autopick at slot 1 (lower feed_seq). Append-only: it stays.
+
+    // A never-reused draft_picks id that no CURRENT row holds: insert a row and
+    // delete it, exactly as a reset / undo / correction hard-deletes a Pick. Its
+    // surviving activity row's source_pick_id then points at a row that is gone -
+    // which is the whole reason the join keys on identity, not (league_id,
+    // pick_number).
+    async function deletedPickId(pickNumber) {
+      const res = await pool.query(
+        `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number")
+         VALUES ($1, $2, $3, $4) RETURNING "id"`,
+        [leagueId, teamId, playerOne, pickNumber]
+      );
+      const id = res.rows[0].id;
+      await pool.query(`DELETE FROM "draft_picks" WHERE "id" = $1`, [id]);
+      return id;
+    }
+    const reversedSlotOnePickId = await deletedPickId(101); // the undone original at slot 1
+    const priorDraftKeeperSlotPickId = await deletedPickId(102); // a prior draft's Pick at slot 2
+
+    // CURRENT draft_picks: the manual re-pick of slot 1, and a keeper at slot 2.
+    // The reversed original pick's row is gone (hard-deleted above), so only the
+    // re-pick row exists for slot 1; the keeper was pre-filled with NO activity row.
+    const current = await pool.query(
+      `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number", "is_keeper")
+       VALUES ($1, $2, $3, 1, false), ($1, $2, $4, 2, true)
+       RETURNING "id", "pick_number"`,
+      [leagueId, teamId, playerOne, playerKeeper]
+    );
+    const slotOnePickId = current.rows.find((r) => r.pick_number === 1).id;
+
+    // 1) The ORIGINAL autopick at slot 1, now REVERSED: its source_pick_id points
+    //    at the deleted original row, so it must match NO current pick. Append-only,
+    //    so it survives the undo (nothing in server/ deletes draft_activity).
     await appendPickActivity(pool, {
-      leagueId, team: teamIdentity, player, round: 1, pickNumber: 1, auto: true, sourcePickId: null,
+      leagueId, team: teamIdentity, player, round: 1, pickNumber: 1, auto: true, sourcePickId: reversedSlotOnePickId,
     });
-    // 2) A commissioner CORRECTION for slot 1 (kind = 'correction'): must be
-    //    excluded by the kind = 'pick' filter, never read as the slot's autopick.
+    // 2) A commissioner CORRECTION for slot 1 (kind = 'correction', source_pick_id
+    //    null): excluded by the kind = 'pick' filter and matches nothing anyway.
     await appendCorrectionActivity(pool, {
       leagueId, team: teamIdentity, player, round: 1, pickNumber: 1, reason: CORRECTION_REASON,
     });
-    // 3) The MANUAL re-pick at slot 1 (highest feed_seq): the current pick, so its
-    //    is_autopick = false is the fact the snapshot must read.
+    // 3) The MANUAL re-pick at slot 1: source_pick_id is the CURRENT row's id, so
+    //    the join reads THIS entry's is_autopick = false for the slot.
     await appendPickActivity(pool, {
-      leagueId, team: teamIdentity, player, round: 1, pickNumber: 1, auto: false, sourcePickId: null,
+      leagueId, team: teamIdentity, player, round: 1, pickNumber: 1, auto: false, sourcePickId: slotOnePickId,
+    });
+    // 4) THE F1 / F2 RED-TELL: a prior draft's AUTOPICK at slot 2 survives a reset
+    //    (draft_picks wiped, draft_activity not), so a stale is_autopick = true row
+    //    sits at pick_number 2 - the keeper's slot - with a source_pick_id pointing
+    //    at the prior draft's deleted row. The keeper's fresh row was never that
+    //    source_pick_id, so an identity join reads false; a (league_id, pick_number)
+    //    join would read this stale true and render the keeper "AUTO".
+    await appendPickActivity(pool, {
+      leagueId, team: teamIdentity, player, round: 1, pickNumber: 2, auto: true, sourcePickId: priorDraftKeeperSlotPickId,
     });
   });
 
@@ -171,21 +202,23 @@ if (!ENABLED) {
     await pool.end();
   });
 
-  test('a slot with two pick-kind activity rows yields exactly one pick, reading the latest autopick fact (#949)', async () => {
+  test('the autopick join keys on identity: undo, correction and a reset-surviving keeper all read the right fact (#949)', async () => {
     const snapshot = await memberSnapshot(leagueId);
 
-    // THE TRAP, as a count: pick_number 1 has TWO pick-kind activity rows, but the
-    // LATERAL resolves to one, so the slot appears exactly ONCE - the board is not
-    // silently lengthened.
+    // Slot 1 has THREE activity rows (reversed autopick, correction, re-pick) but
+    // appears exactly ONCE - the identity join is 1:0..1, so the board is not
+    // lengthened - and reads the CURRENT re-pick's is_autopick = false, not the
+    // stale reversed autopick and not the excluded correction.
     const slotOne = snapshot.picks.filter((p) => p.pick_number === 1);
-    assert.equal(slotOne.length, 1, 'pick_number 1 must appear exactly once despite two pick-kind activity rows');
-
-    // And it reads the LATEST by feed_seq: the manual re-pick (auto = false), not
-    // the stale original autopick and not the excluded correction.
+    assert.equal(slotOne.length, 1, 'pick_number 1 must appear exactly once');
     assert.strictEqual(slotOne[0].auto, false);
 
-    // The keeper has no draft_activity row at all, so its autopick fact COALESCEs
-    // to false.
+    // THE F1 / F2 RED-TELL. A stale is_autopick = true pick row sits at the
+    // keeper's pick_number (a prior draft's autopick that survived a reset), but
+    // the keeper's fresh draft_picks id is no activity row's source_pick_id, so it
+    // reads false. This assertion goes RED under a (league_id, pick_number) join -
+    // the keeper would inherit the prior draft's AUTO - which is the shipped bug
+    // this ticket's first round missed.
     const keeper = snapshot.picks.find((p) => p.pick_number === 2);
     assert.ok(keeper, 'the keeper pick is present');
     assert.strictEqual(keeper.auto, false);
@@ -194,10 +227,11 @@ if (!ENABLED) {
     assert.equal(snapshot.picks.length, 2);
   });
 
-  test('an autopicked slot with no later re-pick reads auto = true (control)', async () => {
-    // A second league where slot 1 was autopicked and left as-is: the LATERAL
-    // reads that one true row. This is the control that proves the false above is
-    // the join working, not the column being dark for everyone.
+  test('an autopicked slot whose activity row matches by identity reads auto = true (control)', async () => {
+    // A second league where slot 1 was autopicked and left as-is: the activity
+    // row's source_pick_id IS the current draft_picks id, so the join reads true.
+    // This is the control that proves the false above is the join working, not the
+    // column being dark for everyone.
     const owner = await seedUser('draft_room_snapshot_pg_owner2');
     const league = await pool.query(
       `INSERT INTO "leagues" ("name", "owner_id", "invite_code") VALUES ($1, $2, $3) RETURNING "id"`,
@@ -215,16 +249,16 @@ if (!ENABLED) {
     );
     const otherTeamId = team.rows[0].id;
     const otherPlayer = await seedPlayer('Auto Pickee', 'QB', 'BUF');
-    await pool.query(
+    const otherPick = await pool.query(
       `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number", "is_keeper")
-       VALUES ($1, $2, $3, 1, false)`,
+       VALUES ($1, $2, $3, 1, false) RETURNING "id"`,
       [otherLeague, otherTeamId, otherPlayer]
     );
     await appendPickActivity(pool, {
       leagueId: otherLeague,
       team: { id: otherTeamId, name: 'Team Two' },
       player: { id: otherPlayer, name: 'Auto Pickee', position: 'QB', nfl_team: 'BUF' },
-      round: 1, pickNumber: 1, auto: true, sourcePickId: null,
+      round: 1, pickNumber: 1, auto: true, sourcePickId: otherPick.rows[0].id,
     });
 
     const snapshot = await memberSnapshot(otherLeague);
