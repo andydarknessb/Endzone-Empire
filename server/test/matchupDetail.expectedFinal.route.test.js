@@ -453,8 +453,11 @@ const BB_SCHEDULE = [
   { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2099-10-25T20:25:00.000Z' },
 ];
 
-async function getBestBallDetail(t) {
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: BB_PROJECTIONS }));
+async function getBestBallDetail(t, { projectionsThrow = false } = {}) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => {
+    if (projectionsThrow) throw new Error('projection store unavailable');
+    return { modelVersion: 'test', projections: BB_PROJECTIONS };
+  });
   t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
@@ -522,4 +525,23 @@ test('the listed best-ball starters are exactly the set the returned total sums 
   assert.deepEqual(body.away.bench.map((p) => p.id), [604]);
   assert.equal(body.away.expectedFinal, 15);
   assert.equal(round2(body.away.starters.reduce((sum, p) => sum + p.projected, 0)), body.away.expectedFinal);
+});
+
+test('a best-ball projection outage does not claim every player is a starter (#953 F1)', async (t) => {
+  // When the projection read throws, the producer declines to choose a lineup
+  // (statusReliable false) and hands back every candidate as `starters` with
+  // null figures. Gating the best-ball branch on statusReliable makes the route
+  // fall through to the stored-slot split instead of turning that refusal into
+  // "every player started": the stored slot is BENCH for all, so starters is
+  // empty and every player rides in Bench, exactly the pre-#953 behaviour and
+  // no regression. Red-tell: dropping `team.statusReliable` from the gate makes
+  // this list all four players as starters with an empty bench, turning the
+  // starters-length and expectedFinal-null assertions red.
+  const body = await getBestBallDetail(t, { projectionsThrow: true });
+  assert.equal(body.home.starters.length, 0, 'no confident starter claim on an outage');
+  assert.deepEqual(body.home.bench.map((p) => p.id).sort(), [601, 602]);
+  assert.equal(body.home.expectedFinal, null);
+  assert.equal(body.away.starters.length, 0);
+  assert.deepEqual(body.away.bench.map((p) => p.id).sort(), [603, 604]);
+  assert.equal(body.away.expectedFinal, null);
 });

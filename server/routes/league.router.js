@@ -1005,14 +1005,18 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       // no starting slot and every non-IR row is stored BENCH (CONTEXT.md, Best
       // ball). The stored-slot split below would then match no starter and list
       // every player under Bench (#953).
-      // The starters are instead the optimizer's chosen lineup, the same set the
+      // The starters are instead the optimizer's chosen lineup, which the
       // producer summed into this team's Expected final; partition the route's
-      // own rows by that chosen set so the listed starters are exactly the
-      // players the total counts, and the number and the list cannot disagree.
-      // `team` is the producer result, which is null for a settled matchup (the
-      // producer never runs for a final week), so that path keeps the SQL split
-      // and never calls the producer for the current roster (trap 2 of #953).
-      if (leagueRow.best_ball && team) {
+      // own rows by that chosen set so a listed best-ball starter is exactly a
+      // player the total counts. team.starters is that chosen lineup ONLY when
+      // the producer had a projection run to choose on (statusReliable): on a
+      // projection outage it declines to choose and hands back every candidate
+      // with statusReliable false, so gating on it too means an outage falls
+      // through to the stored-slot split (today's behaviour, no regression)
+      // rather than declaring every player a starter. `team` is also null for a
+      // settled matchup (the producer never runs for a final week), so that path
+      // keeps the SQL split and never reads the current roster (trap 2 of #953).
+      if (leagueRow.best_ball && team && team.statusReliable) {
         const chosen = new Set(team.starters.map((p) => p.playerId));
         const rows = [...raw.starterRows, ...raw.benchRows];
         return {
