@@ -96,7 +96,10 @@ const TOUCH_FLOOR_SX = {
   },
 };
 
-const fail = (notify) => (err) => notify(err.response?.data?.error || err.message, { severity: 'error' });
+const fail = (notify) => (err) => {
+  const data = err.response?.data;
+  notify(data?.message || data?.error || err.message, { severity: 'error' });
+};
 
 /**
  * Unsaved commissioner edits, kept in ONE object owned by CommissionerTools so
