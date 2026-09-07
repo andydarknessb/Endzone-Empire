@@ -6,8 +6,12 @@
  * fields over the same endpoint (a follow-up to reconcile, not this module's
  * job).
  *
- * Each entry answers every fact a caller needs about a sort field, so none of
- * them leak into a hand-maintained copy somewhere else (issue #951):
+ * Each entry answers every fact a caller needs about a sort field, so no Draft
+ * room caller has to keep a hand-maintained copy that can silently drift from
+ * this list (issue #951) - the desktop headers, the mobile Select, the fetch
+ * site, and the Column guide all read these facts. The one known copy that does
+ * NOT read from here is PlayerManagement.jsx's own list (see below); reconciling
+ * it is a follow-up, not this module's job. Each entry carries:
  *   key          - the internal/URL key (what usePlayerPool validates `?sort=`
  *                  against and what onSort is called with)
  *   label        - the visible header/option text
@@ -42,8 +46,16 @@ export const SORT_KEYS = SORT_FIELDS.map((field) => field.key);
 
 /** Keyed lookup onto SORT_FIELDS. The desktop header row places each column by
  * key rather than by SORT_FIELDS' array position (issue #163), so this is how a
- * caller reaches a single field's facts without re-deriving the map itself. */
-export const SORT_FIELDS_BY_KEY = Object.fromEntries(SORT_FIELDS.map((field) => [field.key, field]));
+ * caller reaches a single field's facts without re-deriving the map itself.
+ *
+ * Backed by a null-prototype object rather than Object.fromEntries: a plain
+ * object inherits Object.prototype, so a lookup on an inherited key ('toString',
+ * 'constructor', ...) would be truthy and defeat any `|| default` guard reading
+ * from it (formal review F2). With no prototype, only real keys are truthy. */
+export const SORT_FIELDS_BY_KEY = SORT_FIELDS.reduce((acc, field) => {
+  acc[field.key] = field;
+  return acc;
+}, Object.create(null));
 
 /** The desktop sortable columns, in the fixed left-to-right order the table
  * renders them (Position and Actions are the two non-sortable columns and are

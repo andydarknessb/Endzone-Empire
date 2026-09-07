@@ -170,7 +170,10 @@ test('every numeric desktop sort header keeps its AbbreviationTooltip accessible
   render(<PlayerPoolTable {...makeProps({ controls: { sort: 'name' } })} />);
 
   const headerRow = screen.getAllByRole('row')[0];
-  const numericTerms = SORT_FIELDS.filter((field) => field.numeric).map((field) => field.label);
+  // numeric AND desktopColumn: this asserts against rendered DESKTOP headers, so
+  // a numeric field that is not a desktop column (none today) would have no
+  // header here to find.
+  const numericTerms = SORT_FIELDS.filter((field) => field.numeric && field.desktopColumn).map((field) => field.label);
   expect(numericTerms.length).toBeGreaterThan(0);
   numericTerms.forEach((term) => {
     const expectedName = `${term}: ${STAT_DEFINITIONS[term]}`;

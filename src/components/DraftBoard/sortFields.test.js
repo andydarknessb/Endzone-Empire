@@ -82,6 +82,16 @@ describe('SORT_FIELDS answers every fact about a sort field (issue #951)', () =>
     });
     expect(ACCEPTED_SORT_FIELDS).toContain(wireSortName('nonexistent-key'));
     expect(ACCEPTED_SORT_FIELDS).toContain(wireSortName(undefined));
+    // Inherited Object.prototype keys are the hole a plain-object lookup leaves:
+    // SORT_FIELDS_BY_KEY['toString'] would be truthy (the inherited method), so
+    // the `|| default` never fires and `.wire` is undefined. A total lookup must
+    // return an accepted wire name for these too (formal review F2).
+    ['toString', 'constructor', '__proto__', 'hasOwnProperty'].forEach((key) => {
+      expect(ACCEPTED_SORT_FIELDS).toContain(wireSortName(key));
+    });
+    // The default branch leans on 'adp' being a real key; pin it so removing it
+    // turns this red rather than making wireSortName throw for unknown keys.
+    expect(SORT_KEYS).toContain('adp');
   });
 
   test('SORT_FIELDS_BY_KEY maps each key to its own entry', () => {
