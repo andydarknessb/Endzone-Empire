@@ -337,3 +337,72 @@ test('an in-progress starter carries the live clock as one string', async (t) =>
   assert.equal(body.matchup.synced_at, '2026-10-25T17:58:00.000Z');
   assert.equal(body.matchup.first_kickoff_at, '2026-10-25T17:00:00.000Z');
 });
+
+// ---------------------------------------------------------------------------
+// #952: a settled (final) matchup. expectedFinal.service's decorateMatchups
+// filters `!matchup.final` before it reads anything, so the shared producer
+// never runs for a final matchup (decoration.home/away come back null) - the
+// route's own per-team lineup SQL is what still builds both sides. No case
+// before this one drove a final matchup, so that survival path had no guard.
+// ---------------------------------------------------------------------------
+
+const FINAL_MATCHUP_ROW = {
+  ...MATCHUP_ROW,
+  final: true,
+  home_score: '134.58',
+  away_score: '96.20',
+};
+const FINAL_HOME_STARTERS = [
+  player(501, 'Settled Home QB', 'QB', 'KC', null, 'QB', null),
+];
+const FINAL_HOME_BENCH = [
+  player(502, 'Settled Home Bench RB', 'RB', 'DAL', null, 'BENCH', null),
+];
+const FINAL_AWAY_STARTERS = [
+  player(503, 'Settled Away WR', 'WR', 'PHI', null, 'WR', null),
+];
+const FINAL_AWAY_BENCH = [
+  player(504, 'Settled Away Bench TE', 'TE', 'PHI', null, 'BENCH', null),
+];
+
+test('a final (settled) matchup still returns non-empty starters and bench for both sides, with the settled score (#952)', async (t) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...FINAL_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    // The route's own per-team reads (bench by slot, starters by NOT IN):
+    // these are what still populate a settled matchup's lineups.
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
+      rows: params[0] === HOME ? FINAL_HOME_BENCH : FINAL_AWAY_BENCH,
+    })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
+      rows: params[0] === HOME ? FINAL_HOME_STARTERS : FINAL_AWAY_STARTERS,
+    })],
+    // No handler for the producer's own read
+    // (`"lineup_entries"."team_id", "lineup_entries"."player_id"...`): a
+    // final matchup's `open` list is empty, so decorateMatchups never issues
+    // it. If a refactor made the route depend on that read instead, this
+    // fixture would throw "unexpected query" here rather than silently
+    // passing.
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const { body } = res;
+  assert.equal(body.matchup.final, true);
+  assert.equal(body.matchup.home_score, '134.58');
+  assert.equal(body.matchup.away_score, '96.20');
+  assert.ok(body.home.starters.length > 0, 'home starters non-empty');
+  assert.ok(body.home.bench.length > 0, 'home bench non-empty');
+  assert.ok(body.away.starters.length > 0, 'away starters non-empty');
+  assert.ok(body.away.bench.length > 0, 'away bench non-empty');
+});
