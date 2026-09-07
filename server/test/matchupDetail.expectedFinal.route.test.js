@@ -406,3 +406,120 @@ test('a final (settled) matchup still returns non-empty starters and bench for b
   assert.ok(body.away.starters.length > 0, 'away starters non-empty');
   assert.ok(body.away.bench.length > 0, 'away bench non-empty');
 });
+
+// ---------------------------------------------------------------------------
+// #953: a best-ball league. Nobody sets a lineup (CONTEXT.md, Best ball), so
+// materialization writes BENCH for every row and the route's stored-slot split
+// finds no starter - the bug was every player under Bench, next to a projected
+// final computed from a different idea of who started. The starters are the
+// optimizer's chosen lineup, the set the producer summed into the team's
+// Expected final; the route must partition its own rows by that chosen set so
+// the list and the number agree. This matchup is OPEN (not final), so the
+// producer runs and its read IS registered here - the settled case above keeps
+// its missing-handler guard (trap 2), which is a different, out-of-scope fix.
+// ---------------------------------------------------------------------------
+
+const BB_MATCHUP_ROW = { ...MATCHUP_ROW }; // open (final: false), same teams
+// Two QBs per side, both stored BENCH. The optimizer fills the one QB slot with
+// the higher projection and benches the other, so the chosen set is a strict
+// subset and each list carries a distinct id. Home: 601 (20) starts, 602 (8)
+// benches. Away: 603 (15) starts, 604 (6) benches.
+const BB_HOME = [
+  player(601, 'BB Home QB1', 'QB', 'KC', null, 'BENCH', null),
+  player(602, 'BB Home QB2', 'QB', 'BUF', null, 'BENCH', null),
+];
+const BB_AWAY = [
+  player(603, 'BB Away QB1', 'QB', 'SF', null, 'BENCH', null),
+  player(604, 'BB Away QB2', 'QB', 'DAL', null, 'BENCH', null),
+];
+const BB_PROJECTIONS = new Map([
+  [601, { points: 20 }],
+  [602, { points: 8 }],
+  [603, { points: 15 }],
+  [604, { points: 6 }],
+]);
+// All 18 weeks present for every team so no team reads as on bye.
+const BB_BYE_ROWS = [];
+for (let w = 1; w <= 18; w++) {
+  for (const teamCode of ['KC', 'BUF', 'SF', 'DAL']) BB_BYE_ROWS.push({ nfl_team: teamCode, week: w });
+}
+// Kickoffs far in the future, so every game reads scheduled at the real clock:
+// a scheduled starter's expected final is exactly his projection, which lets
+// the list-sums-to-total assertion compare projections directly.
+const BB_SCHEDULE = [
+  { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2099-10-25T17:00:00.000Z' },
+  { nfl_team: 'BUF', opponent: 'MIA', kickoff_at: '2099-10-25T17:00:00.000Z' },
+  { nfl_team: 'SF', opponent: 'LAR', kickoff_at: '2099-10-25T20:25:00.000Z' },
+  { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2099-10-25T20:25:00.000Z' },
+];
+
+async function getBestBallDetail(t) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: BB_PROJECTIONS }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...BB_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: true }] })],
+    // The producer's bye read; must precede the bare nfl_games matcher below.
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BB_BYE_ROWS })],
+    // Both the route's opponent map and the producer's kickoff map read this;
+    // each row carries opponent and kickoff_at so both consumers are answered.
+    [/FROM "nfl_games"/, () => ({ rows: BB_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    // The route's own per-team reads. Best ball stores BENCH for every row, so
+    // the bench read returns the whole side and the starter read returns none -
+    // exactly the shape that made the stored-slot split show no starters.
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
+      rows: params[0] === HOME ? BB_HOME : BB_AWAY,
+    })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, () => ({ rows: [] })],
+    // The producer's one read across both teams: every non-IR lineup row with
+    // its slot, the candidate pool the optimizer chooses from.
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
+      rows: [
+        ...BB_HOME.map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, position: p.position, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...BB_AWAY.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, position: p.position, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+      ],
+    })],
+  ]).install(t);
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+const round2 = (x) => Math.round(x * 100) / 100;
+
+test('a best-ball matchup lists the optimizer\'s chosen lineup as starters, not an empty starters list (#953)', async (t) => {
+  const body = await getBestBallDetail(t);
+  // Criterion 1: the starters list is non-empty (the bug listed every player
+  // under Bench). Criterion 3 red-tell: reverting buildTeam to the stored-slot
+  // split makes raw.starterRows (empty for best ball) the starters, so this
+  // asserts empty and turns red.
+  assert.ok(body.home.starters.length > 0, 'home starters non-empty');
+  assert.ok(body.away.starters.length > 0, 'away starters non-empty');
+});
+
+test('the listed best-ball starters are exactly the set the returned total sums (#953)', async (t) => {
+  const body = await getBestBallDetail(t);
+  // Criterion 2: the list and the number cannot disagree. The chosen QB is the
+  // higher projection on each side; the other QB rides in Bench and is NOT
+  // summed. Asserting distinct ids proves the two lists are not the same query,
+  // and comparing the starters' projections to expectedFinal proves the total
+  // sums exactly those rows. Red-tell: the stored-slot split lists no starters
+  // (sum 0) beside a producer total of 20, so both the id and the sum assertion
+  // turn red.
+  assert.deepEqual(body.home.starters.map((p) => p.id), [601]);
+  assert.deepEqual(body.home.bench.map((p) => p.id), [602]);
+  assert.equal(body.home.expectedFinal, 20);
+  assert.equal(round2(body.home.starters.reduce((sum, p) => sum + p.projected, 0)), body.home.expectedFinal);
+
+  assert.deepEqual(body.away.starters.map((p) => p.id), [603]);
+  assert.deepEqual(body.away.bench.map((p) => p.id), [604]);
+  assert.equal(body.away.expectedFinal, 15);
+  assert.equal(round2(body.away.starters.reduce((sum, p) => sum + p.projected, 0)), body.away.expectedFinal);
+});
