@@ -768,7 +768,7 @@ test('standings-table: in-season renders the full table, a team count, names fro
   // Column headers.
   expect(within(card).getByText('Rank')).toBeInTheDocument();
   expect(within(card).getByText('Team')).toBeInTheDocument();
-  expect(within(card).getByText('W-L-T')).toBeInTheDocument();
+  expect(within(card).getByText('Record')).toBeInTheDocument();
   expect(within(card).getByText('PF')).toBeInTheDocument();
   expect(within(card).getByText('PA')).toBeInTheDocument();
   // The header count of teams.
@@ -805,7 +805,7 @@ test('standings-table: in-season renders the full table, a team count, names fro
   expect(within(otherRow).queryByTestId('badge')).not.toBeInTheDocument();
 });
 
-test('standings-table: in-season renders the viewer record as W-L-T and points to one decimal', async () => {
+test('standings-table: in-season renders the viewer record as W-L (no ties) and points to one decimal', async () => {
   mockGetByUrl({
     '/api/league/1': standingsTableLeague(),
     '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
@@ -814,8 +814,10 @@ test('standings-table: in-season renders the viewer record as W-L-T and points t
 
   const card = await screen.findByTestId('standings-table');
   const youRow = await within(card).findByTestId('standings-table-you-row');
-  // Viewer is row 0: 12 wins, 0 losses, 0 ties, pf 1200, pa 1000.
-  expect(within(youRow).getByText('12-0-0')).toBeInTheDocument();
+  // Viewer is row 0: 12 wins, 0 losses, 0 ties, pf 1200, pa 1000. Record is
+  // conditional (#958): a tie-less Team never prints the zero tie part.
+  expect(within(youRow).getByText('12-0')).toBeInTheDocument();
+  expect(within(youRow).queryByText('12-0-0')).not.toBeInTheDocument();
   expect(within(youRow).getByText('1200.0')).toBeInTheDocument();
   expect(within(youRow).getByText('1000.0')).toBeInTheDocument();
 });

@@ -116,7 +116,10 @@ test('renders roster-managed player rows in one Team Lineup surface', async () =
 
   expect(await screen.findByRole('heading', { name: 'Gridiron Guild' })).toBeInTheDocument();
   expect(await screen.findByRole('heading', { name: 'Lineup' })).toBeInTheDocument();
-  expect(screen.getByText('Record: 1-0-0 · Rank: #1 · Waiver priority: #3')).toBeInTheDocument();
+  // Record is conditional (#958): the fixture has ties: 0, so it prints two
+  // parts, not three. Restoring the unconditional wins-losses-ties format
+  // turns this red.
+  expect(screen.getByText('Record: 1-0 · Rank: #1 · Waiver priority: #3')).toBeInTheDocument();
 
   const quarterbackRow = screen.getByTestId('slot-row-QB-0');
   expect(within(quarterbackRow).getByText('Starting Quarterback')).toBeInTheDocument();
