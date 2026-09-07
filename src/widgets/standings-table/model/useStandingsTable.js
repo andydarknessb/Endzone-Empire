@@ -87,9 +87,13 @@ export function useStandingsTable(leagueId) {
       avatarUrl: team?.avatar_url ?? null,
       avatarStaticUrl: team?.avatar_static_url ?? null,
       isViewer: row.teamId != null && row.teamId === viewerTeamId,
-      // Record as hyphen-joined W-L-T; points to one decimal. Masked in the UI
-      // during preseason.
-      record: `${wins}-${losses}-${ties}`,
+      // Record is conditional: wins-losses when the Team has no ties, and
+      // wins-losses-ties once a tie has happened, matching
+      // matchup-grid/lib/records.js and
+      // my-team-summary/model/useMyTeamSummary.js. A tie count is never
+      // printed as zero. Points to one decimal. Masked in the UI during
+      // preseason.
+      record: ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`,
       pointsFor: (Number(row.pf) || 0).toFixed(1),
       pointsAgainst: (Number(row.pa) || 0).toFixed(1),
       streak: streakLabel(row.streak),

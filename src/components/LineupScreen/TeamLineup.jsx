@@ -36,7 +36,13 @@ function TeamSummary({ league, summary }) {
   if (isPreDraft || (row && gamesPlayed === 0)) {
     parts.push('No record yet');
   } else if (row) {
-    parts.push(`Record: ${row.wins}-${row.losses}-${row.ties}`);
+    // Record is conditional: wins-losses when the Team has no ties, and
+    // wins-losses-ties once a tie has happened, matching
+    // matchup-grid/lib/records.js and
+    // my-team-summary/model/useMyTeamSummary.js. A tie count is never
+    // printed as zero.
+    const record = row.ties > 0 ? `${row.wins}-${row.losses}-${row.ties}` : `${row.wins}-${row.losses}`;
+    parts.push(`Record: ${record}`);
     parts.push(`Rank: #${row.rank}`);
   } else {
     parts.push('Record unavailable');

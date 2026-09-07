@@ -725,6 +725,17 @@ nothing is added to them after the fact, so re-scoring a final week counts
 only the players who were there when the games were played.
 _Avoid_: game (a game is an NFL game), fixture
 
+**Record**:
+A Team's season tally of wins, losses and ties, drawn from its finalized
+Matchups. It renders as two parts, wins-losses, for as long as the Team has no
+ties; a tie count is never printed as zero, so a third part, ties, appears
+only once one has actually happened. Every surface that shows a Team's Record
+(the standings table, a Matchup card, the Team summary, the Lineup screen,
+Power Rankings) follows this same rule, so a tie-less Team never reads
+differently from one screen to another.
+_Avoid_: standings (the ordered table built from every Team's Record, not one
+Team's own tally)
+
 **Scoring rules**:
 The full set of per-stat point values a league scores by.
 _Avoid_: settings, scoring system

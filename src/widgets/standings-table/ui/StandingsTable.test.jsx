@@ -197,6 +197,41 @@ test('standings-table: preseason masks the streak instead of printing the server
   expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
 });
 
+// --- the Record cell (#958) -------------------------------------------------
+
+test('standings-table: a tie-less Team renders a two-part record', async () => {
+  primeLeague();
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({
+      rows: standingsRows({ count: 12 }),
+    }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  expect(within(youRow).getByText('12-0')).toBeInTheDocument();
+  expect(within(youRow).queryByText('12-0-0')).not.toBeInTheDocument();
+});
+
+test('standings-table: a Team with ties renders a three-part record', async () => {
+  primeLeague();
+  const rows = standingsRows({ count: 12 });
+  rows[0] = { ...rows[0], wins: 8, losses: 2, ties: 2 };
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  expect(within(youRow).getByText('8-2-2')).toBeInTheDocument();
+});
+
+// Red-tell (AC2): restoring the unconditional `${wins}-${losses}-${ties}`
+// format is exactly what turns the tie-less case above red, because it would
+// print '12-0-0' where the case asserts '12-0'.
+
 // --- the playoff cut -------------------------------------------------------
 
 test('standings-table: the playoff cut rules off the first Team out of the bracket', async () => {
