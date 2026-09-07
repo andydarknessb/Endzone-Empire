@@ -727,12 +727,14 @@ _Avoid_: game (a game is an NFL game), fixture
 
 **Record**:
 A Team's season tally of wins, losses and ties, drawn from its finalized
-Matchups. It renders as two parts, wins-losses, for as long as the Team has no
-ties; a tie count is never printed as zero, so a third part, ties, appears
-only once one has actually happened. Every surface that shows a Team's Record
-(the standings table, a Matchup card, the Team summary, the Lineup screen,
-Power Rankings) follows this same rule, so a tie-less Team never reads
-differently from one screen to another.
+regular-season Matchups; a playoff Matchup is not counted toward it. It
+renders as two parts, wins-losses, for as long as the Team has no ties; a
+tie count is never printed as zero, so a third part, ties, appears only
+once one has actually happened. The standings table, a Matchup card, the
+Team summary and the Lineup screen all follow this rule, and so does Power
+Rankings. League History does not yet: it always renders two parts and
+never shows a tie, so a Team that actually tied reads as if it never did;
+#1009 tracks bringing it into line.
 _Avoid_: standings (the ordered table built from every Team's Record, not one
 Team's own tally)
 
