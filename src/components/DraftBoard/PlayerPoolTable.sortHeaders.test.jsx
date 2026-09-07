@@ -1,6 +1,4 @@
 import React from 'react';
-import fs from 'fs';
-import path from 'path';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlayerPoolTable from './PlayerPoolTable';
@@ -150,13 +148,14 @@ test('every desktop sortable header shows the label SORT_FIELDS assigns its key,
 });
 
 // Code-review finding (issue #211): AbbreviationTooltip isn't decoration on
-// these four numeric headers - its aria-label IS the header's accessible
-// name (the plain-text `label` prop the header shows visually is the same
-// string either way, so a header silently missing its tooltip wrapper would
-// look correct here and still lose its definition for a screen-reader user).
-// RIGHT_ALIGNED_SORT_KEYS in PlayerPoolTable.jsx isn't derived from
-// SORT_FIELDS, so this asserts the four current entries directly rather than
-// trying to derive the set.
+// these numeric headers - its aria-label IS the header's accessible name (the
+// plain-text `label` prop the header shows visually is the same string either
+// way, so a header silently missing its tooltip wrapper would look correct
+// here and still lose its definition for a screen-reader user). The term list
+// is derived from SORT_FIELDS' own `numeric` flag (issue #951) rather than a
+// literal, so a new numeric field extends this assertion automatically;
+// sortFields.test.js separately pins every numeric entry to a STAT_DEFINITIONS
+// term through the module interface.
 //
 // Renders with sort="name" (overriding baseProps' default 'adp') rather
 // than baseProps as-is: issue #212 gave the active header's aria-label a
@@ -171,7 +170,12 @@ test('every numeric desktop sort header keeps its AbbreviationTooltip accessible
   render(<PlayerPoolTable {...makeProps({ controls: { sort: 'name' } })} />);
 
   const headerRow = screen.getAllByRole('row')[0];
-  ['Bye', 'ADP', 'Pos rank', '17-game pace'].forEach((term) => {
+  // numeric AND desktopColumn: this asserts against rendered DESKTOP headers, so
+  // a numeric field that is not a desktop column (none today) would have no
+  // header here to find.
+  const numericTerms = SORT_FIELDS.filter((field) => field.numeric && field.desktopColumn).map((field) => field.label);
+  expect(numericTerms.length).toBeGreaterThan(0);
+  numericTerms.forEach((term) => {
     const expectedName = `${term}: ${STAT_DEFINITIONS[term]}`;
     expect(within(headerRow).getByRole('button', { name: expectedName })).toBeInTheDocument();
   });
@@ -237,35 +241,16 @@ test('the active numeric desktop sort header\'s accessible name includes both it
 // dropping the direction. Restoring the suffix returned the suite to
 // green.
 
-// The other direction of the same #211 drift: a key added to
-// RIGHT_ALIGNED_SORT_KEYS that ISN'T a SORT_FIELDS key. Nothing renders
-// differently for a stray entry - the Set is only ever read via
-// `.has(field.key)` for keys SORT_FIELDS actually produces, so no amount of
-// rendering the table (including the test above) can catch it. This reads
-// the Set literal straight out of the source instead of exporting it -
-// #211's scope is tests and a comment only, no production change beyond the
-// comment. The extraction pulls every quoted string token out of the
-// captured region rather than splitting on commas, so it isn't thrown by
-// reordering, multiline formatting, or a trailing per-entry comment in this
-// file's own dense-comment style (e.g. `'bye_week', // Bye`) - a comma-split
-// approach would mangle a comment into the next entry and fail for reasons
-// that have nothing to do with the actual invariant.
-test('every RIGHT_ALIGNED_SORT_KEYS entry is a real SORT_FIELDS key', () => {
-  const source = fs.readFileSync(path.join(__dirname, 'PlayerPoolTable.jsx'), 'utf8');
-  const setLiteral = source.match(/RIGHT_ALIGNED_SORT_KEYS\s*=\s*new Set\(\[([\s\S]*?)\]\)/);
-  expect(setLiteral).not.toBeNull();
-
-  const stringLiteral = /'([^']*)'|"([^"]*)"/g;
-  const keys = [];
-  let match;
-  // eslint-disable-next-line no-cond-assign
-  while ((match = stringLiteral.exec(setLiteral[1])) !== null) {
-    keys.push(match[1] !== undefined ? match[1] : match[2]);
-  }
-
-  expect(keys.length).toBeGreaterThan(0);
-  keys.forEach((key) => expect(SORT_KEYS).toContain(key));
-});
+// The other direction of the same #211 drift - a numeric column that isn't a
+// real sort field - is now structurally impossible rather than tested here:
+// numeric-ness is the `numeric` flag on each SORT_FIELDS entry (issue #951),
+// not a separate membership Set that could carry a stray key. The old test
+// that regex-scraped the numeric-key Set literal straight out of
+// PlayerPoolTable.jsx as file text is DELETED, not rewritten: the fact it
+// approximated (a numeric field with no accessible definition) now has a real
+// interface home in sortFields.test.js ("every numeric entry has a
+// STAT_DEFINITIONS accessible term"), which fails through the module rather
+// than by scraping source.
 
 // Issue #212: the desktop sortable headers never announced the current sort
 // to assistive technology. sortButtons[i] lines up 1:1 with
