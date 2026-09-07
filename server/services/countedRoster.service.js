@@ -1,0 +1,136 @@
+const { optimalLineup, parseLineupSettings } = require('./lineup.service');
+
+/*
+ * The FORMAT and the SUMMING RULE for a week's counted roster.
+ *
+ * The POPULATION - which of the week's lineup rows count as played - is owned
+ * by `rowsHeldAsPlayed` in lineup.service (the tenure predicate, #228; the
+ * last-kickoff bound best ball adds, #635/ADR 0022). This module owns
+ * everything that happens AFTER that read: the IR classification, the
+ * started-total test, the pricing loop, the ordering of the excluded rows and
+ * the rounding. It is pure - no database, no clock - and takes rows that were
+ * already fetched and already held-as-played, so a caller reads the population
+ * once and then hands the rows here.
+ *
+ * Before #954 this logic was copied at the three sites that price a counted
+ * roster. I enumerated the set by grepping `rowsHeldAsPlayed(` across
+ * server/services (the population read every counted-roster site must go
+ * through) and reading each hit; the three that price its result are:
+ *   - scoring.service `teamScore`, best-ball branch (the settle pass);
+ *   - scoring.service `teamScore`, standard branch (the settle pass);
+ *   - decision.service `weekHindsight`.
+ * Four other sites read a lineup population WITHOUT the tenure exclusion - the
+ * live/current-roster question, not this one - and are deliberately NOT here:
+ * decision.service `liveWhatIf`, expectedFinal.service, and the matchup box
+ * score in league.router. They price the current roster, so folding them in
+ * would change behaviour (#1010 tracks the join drift the settle sites carry).
+ *
+ * The two settle branches feed DIFFERENT rows on purpose, and this module does
+ * not reconcile them (#1010): the standard branch's SQL inner-joins
+ * player_stats and so drops a statless starter from the row set entirely, while
+ * best ball and hindsight left-join and keep him priced at zero. The team total
+ * is the same either way; only the row COUNT differs. Rows arrive as given -
+ * this module never filters a statless row nor synthesises a zero-stat one.
+ *
+ * IR is excluded here in JS for the best-ball settle branch and for hindsight,
+ * which both select every slot. The standard settle branch instead excludes IR
+ * (and BENCH) in its SQL and never sends an IR row here; that SQL clause is load
+ * bearing for a fixture guard (#954 criterion 4) and stays where it is. So an
+ * IR row reaching this module is dropped once, by the classification below; a
+ * standard-branch row never reaches it as IR in the first place.
+ */
+
+const IR = 'IR';
+const BENCH = 'BENCH';
+
+function round2(x) {
+  return Math.round(Number(x) * 100) / 100;
+}
+
+/**
+ * Price and summarise a team's counted roster for one week.
+ *
+ * @param {object}   args
+ * @param {Array}    args.rows    the held-as-played lineup rows, as fetched:
+ *                                each `{ player_id, slot, stats, position?, name? }`.
+ *                                `position` is required only where an optimal
+ *                                lineup is read (best ball, and hindsight);
+ *                                `name` is carried through to `optimalStarters`.
+ * @param {object}   args.league  the league row; `best_ball` and the roster
+ *                                slots (via parseLineupSettings) are read.
+ * @param {function} args.price   `(stats) => points`, the league's pricer. Kept
+ *                                as a parameter rather than imported so this
+ *                                module does not depend on scoring.service,
+ *                                which depends on it.
+ * @returns {{
+ *   counted: Array, excluded: Array, teamScore: number,
+ *   startedPoints: number, optimalPoints: number,
+ *   optimalStarters: Array, pointsLeftOnBench: number
+ * }}
+ *   `teamScore` is the score of record for this team: best ball scores its
+ *   optimal lineup over the whole held pool; a standard league scores only the
+ *   rows in a starting slot. `excluded` lists the IR rows dropped, in input
+ *   order. Hindsight reads every field; the settle pass reads `teamScore`.
+ */
+function countedRoster({ rows, league, price }) {
+  const bestBall = !!league.best_ball;
+  const { rosterSlots } = parseLineupSettings(league);
+
+  // IR classification, preserving input order in both partitions. An IR
+  // occupant is never a candidate starter in any league type (#741) and never
+  // counted toward the started total.
+  const counted = [];
+  const excluded = [];
+  for (const row of rows) {
+    if (row.slot === IR) {
+      excluded.push({ playerId: row.player_id, slot: row.slot, reason: IR });
+      continue;
+    }
+    counted.push(row);
+  }
+
+  // The pricing loop. Built once over the counted rows and reused for both the
+  // started total and the optimal lineup, so the two can never price a row two
+  // different ways.
+  const pointsFor = new Map();
+  const nameById = new Map();
+  const candidates = [];
+  let startedPoints = 0;
+  const countedShaped = [];
+  for (const row of counted) {
+    const points = price(row.stats);
+    pointsFor.set(row.player_id, points);
+    if (row.name !== undefined) nameById.set(row.player_id, row.name);
+    candidates.push({ playerId: row.player_id, position: row.position });
+    // Standard: only a row in a starting slot counts toward the started total;
+    // a benched row stays a candidate for the optimal lineup. Best ball keeps
+    // no started total - its score is its optimal over the whole pool.
+    if (!bestBall && row.slot !== BENCH) startedPoints += points;
+    countedShaped.push({
+      playerId: row.player_id, position: row.position, slot: row.slot, points,
+      name: nameById.get(row.player_id),
+    });
+  }
+
+  const optimal = optimalLineup(candidates, rosterSlots, pointsFor);
+  const optimalPoints = optimal.total;
+  const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
+
+  // Best ball's score of record IS its optimal lineup (ADR 0022/0023): the two
+  // numbers are one, so nothing is ever left on the bench. A standard league
+  // scores what it started and rounds that.
+  const teamScore = bestBall ? optimalPoints : round2(startedPoints);
+  const pointsLeftOnBench = Math.max(0, round2(optimalPoints - teamScore));
+
+  return {
+    counted: countedShaped,
+    excluded,
+    teamScore,
+    startedPoints: round2(startedPoints),
+    optimalPoints,
+    optimalStarters,
+    pointsLeftOnBench,
+  };
+}
+
+module.exports = { countedRoster };

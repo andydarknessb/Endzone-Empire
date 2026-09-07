@@ -5,13 +5,14 @@ const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { tank01Get } = require('../modules/tank01Client');
 const {
-  materializeLineup, optimalLineup, parseLineupSettings, POSITION_GROUPS,
+  materializeLineup, POSITION_GROUPS,
   rowsHeldAsPlayed,
 } = require('./lineup.service');
 const { NFL_TEAM_FULL_NAMES: NFL_TEAM_NAME_TO_ABBR, normalizeNflTeam } = require('./nflTeam');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { fantasySideWhereSql } = require('./leagueType');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
+const { countedRoster } = require('./countedRoster.service');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -1826,6 +1827,10 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
     );
     league = leagueResult.rows[0];
     const rules = rulesForLeague(league);
+    // The counted-roster module owns the summing rule but not the pricer, so
+    // scoring.service (which defines the pricer) hands it in. Keeps the module
+    // free of a require back into this file.
+    const price = (stats) => calculateFantasyPoints(stats, rules);
     const matchupsResult = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
       [leagueId, season, week]
@@ -1901,14 +1906,11 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
              AND "lineup_entries"."week" = $3`,
           [teamId, season, week]
         );
-        const candidateRows = (await heldRows(r.rows, teamId, asPlayed))
-          .filter((row) => row.slot !== 'IR');
-        const candidates = candidateRows.map((row) => ({ playerId: row.player_id, position: row.position }));
-        const pointsFor = new Map(
-          candidateRows.map((row) => [row.player_id, calculateFantasyPoints(row.stats, rules)])
-        );
-        const { rosterSlots } = parseLineupSettings(league);
-        return optimalLineup(candidates, rosterSlots, pointsFor).total;
+        // IR drop, pricing and the optimal-lineup total are the counted-roster
+        // module's job now (#954); the row set (every slot, LEFT JOIN) is what
+        // this branch owns.
+        const rows = await heldRows(r.rows, teamId, asPlayed);
+        return countedRoster({ rows, league, price }).teamScore;
       }
       const r = await client.query(
         `SELECT "lineup_entries"."player_id", "players"."nfl_team", "player_stats"."stats"
@@ -1922,9 +1924,11 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
            AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
         [teamId, season, week]
       );
-      const counted = await heldRows(r.rows, teamId, asPlayed);
-      const total = counted.reduce((sum, row) => sum + calculateFantasyPoints(row.stats, rules), 0);
-      return Math.round(total * 100) / 100;
+      // Standard: the SQL already dropped BENCH and IR, so every row here is a
+      // starter. The started-total sum and the rounding are the counted-roster
+      // module's job now (#954).
+      const rows = await heldRows(r.rows, teamId, asPlayed);
+      return countedRoster({ rows, league, price }).teamScore;
     };
     scored = [];
     for (const matchup of matchupsResult.rows) {

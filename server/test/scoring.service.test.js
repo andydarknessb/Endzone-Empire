@@ -1,8 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, select, update } = require('./helpers/fakePool');
-const { tenureHandlers } = require('./helpers/tenureFakes');
-const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const {
   calculateFantasyPoints,
   tank01Body,
@@ -14,68 +11,16 @@ const {
   missingTeamDefenses,
   normalizeTank01Game,
   detectScoringEvents,
-  scoreMatchups,
   SCORING_RULES,
 } = require('../services/scoring.service');
 
-test('scoreMatchups excludes IR occupants from the best-ball candidate pool', async (t) => {
-  // scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no
-  // broadcast is registered (ruling 2, #765). Install a recording one so the pass
-  // has a transport; this test is about the IR slot rule, not the emit.
-  installRecordingBroadcast(t);
-  const fake = createFakePool([
-    [select('leagues'), () => ({ rows: [{
-      id: 5,
-      best_ball: true,
-      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
-      scoring_rules: null,
-    }] })],
-    [select('matchups'), () => ({ rows: [{
-      id: 90,
-      home_team_id: 10,
-      away_team_id: 20,
-      final: true,
-    }] })],
-    [/^SELECT "lineup_entries"\."player_id"/, (text, params) => ({
-      rows: params[0] === 10
-        ? [
-            { player_id: 1, position: 'QB', slot: 'IR', nfl_team: 'IRT', stats: { passingYards: 300, passingTDs: 2 } },
-            { player_id: 2, position: 'QB', slot: 'BENCH', nfl_team: 'IRT', stats: { passingYards: 100 } },
-          ]
-        : [{ player_id: 3, position: 'QB', slot: 'BENCH', nfl_team: 'IRT', stats: { passingYards: 50 } }],
-    })],
-    // A final week, so the tenure exclusion runs (#228). This test is about
-    // the IR slot, so everyone is held since long before kickoff and the
-    // exclusion takes nobody: what it measures stays the slot rule.
-    ...tenureHandlers({
-      schedule: { IRT: new Date('2026-10-25T17:00:00Z') },
-      heldSince: new Date('2026-08-01T00:00:00Z'),
-    }),
-    [update('matchups'), () => ({ rows: [] })],
-  ]).install(t);
-
-  const result = await scoreMatchups({ leagueId: 5, season: 2026, week: 8 });
-
-  assert.deepEqual(result.scored, [{
-    matchupId: 90,
-    homeTeamId: 10,
-    awayTeamId: 20,
-    homeScore: 4,
-    awayScore: 2,
-    // A settled matchup's status is final; a final week has a score, not an
-    // expected final (expectedFinal.service).
-    status: 'final',
-    homeExpectedFinal: null,
-    awayExpectedFinal: null,
-    homePlayersRemaining: null,
-    awayPlayersRemaining: null,
-    // The two week facts (#892) ride every entry; a settled matchup was not
-    // decorated, so both are null like its figures.
-    firstKickoffAt: null,
-    syncedAt: null,
-  }]);
-  fake.assertClean();
-});
+// The best-ball IR-classification assertion that used to live here moved to
+// server/test/countedRoster.service.test.js (#954): the IR drop is now the
+// counted-roster module's rule, tested there by direct call with a red-tell
+// ('#954 best ball scores the optimal lineup over every non-IR row ...'). The
+// settled-matchup emit envelope this test also pinned (status 'final', null
+// expected-final and players-remaining) is covered by
+// scoresUpdatedExpectedFinal.test.js, so nothing else moved with it.
 
 test('SCORING_RULES is defined', () => {
   assert(SCORING_RULES);
