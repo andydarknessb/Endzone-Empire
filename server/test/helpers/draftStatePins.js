@@ -29,6 +29,10 @@ const MEMBER_PICK_FIELDS = [
   // Misery Meter reads a pick's market ADP off the pick, not off the windowed
   // pool. The presenter still never publishes it (PRESENTER_PICK_FIELDS below).
   'player_id', 'name', 'position', 'nfl_team', 'adp',
+  // `auto` (the autopick fact, joined from draft_activity.is_autopick) rides on
+  // every member pick since #949 so a board refresh preserves the mark a live
+  // draft:picked set. The presenter never publishes it (PRESENTER_PICK_FIELDS).
+  'auto',
 ];
 
 const PRESENTER_LEAGUE_FIELDS = [

@@ -158,12 +158,46 @@ async function readPicks(leagueId) {
     // Draft grades read. The member snapshot returns these rows verbatim, so the
     // column reaches the client as a top-level `adp`; the presenter narrows to
     // PRESENTER_PICK_FIELDS, which does not name it, so a share link never gets it.
+    //
+    // `auto` is the autopick fact, carried on the snapshot pick payload since
+    // #949 so a board refresh preserves the mark a live draft:picked set (before
+    // #949 the flag rode ONLY the live event, and draft:state's wholesale rebuild
+    // silently un-marked every autopick in the room's history on the first
+    // reconnect / lifecycle act). It is NOT a draft_picks column: the fact is
+    // already durably stored in draft_activity.is_autopick, snapshotted there by
+    // appendPickActivity inside the same transaction that commits the Pick (ADR
+    // 0012), so this joins it rather than adding a second home for it (which is
+    // the duplication ADR 0029 exists to stop, and which a draft_picks migration
+    // - a carve-out - would be).
+    //
+    // THE JOIN KEY IS IDENTITY, NOT (league_id, pick_number). draft_activity is
+    // append-only and NEVER deleted (a reset in draft.router.js and a rollover in
+    // commissioner.service.js both wipe draft_picks and leave activity standing),
+    // while pick_number is reused - a keeper pre-filled by draftStart.service
+    // writes NO activity row at all. So joining on (league_id, pick_number) would
+    // let a new keeper inherit the PREVIOUS draft's autopick fact at the same
+    // slot and render it "AUTO" (#949 review F1). The join is on
+    // draft_activity.source_pick_id = draft_picks.id instead: the draft_picks row
+    // an activity entry represents (#436), set by pick.service for every live Pick
+    // and by the legacy backfill, CHECK-constrained to kind = 'pick' and UNIQUELY
+    // indexed, over a draft_picks.id that is a never-reused serial. That makes the
+    // join 1:0..1 by identity - no LATERAL, no feed_seq tie-break needed - and
+    // correct for every case: the current live Pick and a re-pick after undo /
+    // correction each match their own row (the reversed Pick's stale activity
+    // points at a now-deleted draft_picks id and matches nothing); a keeper and a
+    // legacy pick (is_autopick = false) COALESCE to false; and a keeper reusing a
+    // slot number after a reset no longer matches the prior draft's row, because
+    // its fresh draft_picks id was never any activity row's source_pick_id.
     `SELECT "draft_picks"."pick_number", "draft_picks"."team_id", "draft_picks"."is_keeper",
             ${teamIdentityColumns()},
             "players"."id" AS "player_id", "players"."name", "players"."position",
-            "players"."nfl_team", "players"."adp"
+            "players"."nfl_team", "players"."adp",
+            COALESCE("autopick"."is_autopick", false) AS "auto"
      FROM "draft_picks" JOIN "players" ON "players"."id" = "draft_picks"."player_id"
      LEFT JOIN "teams" ON "teams"."id" = "draft_picks"."team_id"
+     LEFT JOIN "draft_activity" "autopick"
+       ON "autopick"."source_pick_id" = "draft_picks"."id"
+      AND "autopick"."kind" = 'pick'
      WHERE "draft_picks"."league_id" = $1 ORDER BY "pick_number"`,
     [leagueId]
   );

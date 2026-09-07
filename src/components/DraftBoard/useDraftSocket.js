@@ -1,128 +1,32 @@
 import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { MEMBERSHIP_UNKNOWN, MEMBERSHIP_NON_MEMBER, membershipAfterJoinAck } from './draftMembership';
-import { deriveOnTheClock, isTeamOnTheClock } from '../../lib/onTheClock';
+import { isTeamOnTheClock } from '../../lib/onTheClock';
+import {
+  emptyDraftModel,
+  applyBoardSnapshot,
+  applyLandedPick,
+  applyDraftComplete,
+} from '../../entities/draft';
 
-const initialState = {
-  league: null,
-  teams: [],
-  picks: [],
-  // The On-the-clock value (src/lib/onTheClock): `{ team, state, deadlineAt }`.
-  // Holds the DEADLINE and never a per-second field (#754 amendments A1): the
-  // seconds are read off `deadlineAt` by the one leaf that ticks (PickClock),
-  // so nothing in this store, and so nothing in the room, re-renders per second.
-  onTheClock: deriveOnTheClock(),
-  draftComplete: false,
-};
-
-/** Epoch-ms deadline for a timed, active, unpaused league, else null. */
-function deadlineFromLeague(league, deadlineAtIso) {
-  if (
-    league?.draft_status === 'active' &&
-    league?.pick_time_seconds > 0 &&
-    !league?.draft_paused &&
-    deadlineAtIso
-  ) {
-    return Date.parse(deadlineAtIso);
-  }
-  return null;
-}
-
-/** Map a league snapshot plus the team up into the On-the-clock value. */
-function onTheClockFor(league, team, deadlineAt) {
-  return deriveOnTheClock({
-    team,
-    deadlineAt,
-    paused: !!league?.draft_paused,
-    active: league?.draft_status === 'active',
-  });
-}
+// The reducer holds ONLY the shared Draft MODEL (league/teams/picks/on-the-clock/
+// completion), and every case delegates to the pure Draft entity (#949, ADR
+// 0029): the un-marking defect lived in a rule inside this reducer, reachable
+// only through a render harness plus a fake socket plus `act`, so the model moved
+// to src/entities/draft where it is asserted by plain function call. The hook
+// keeps its per-viewer SESSION state (viewerTeamId, isCommissioner, membership,
+// the on-clock alert) as separate useState below - the entity is the model, not
+// the session.
+const initialState = emptyDraftModel;
 
 function reducer(state, action) {
   switch (action.type) {
-    case 'state': {
-      const { league, teams, picks, onTheClock } = action.data;
-      return {
-        ...state,
-        league,
-        teams,
-        picks: [...picks].reverse(), // history renders newest first
-        onTheClock: onTheClockFor(league, onTheClock, deadlineFromLeague(league, league?.pick_deadline_at)),
-      };
-    }
-    case 'picked': {
-      const { data } = action;
-      // A Pick is attributed by Team (#113, contract #112): `teamId` and
-      // `teamName` come straight off the broadcast. The account `by` object
-      // (the picking manager's id and username) is gone from the wire (#344,
-      // #115 child C); the one non-account fact it used to carry, the autopick
-      // flag, now rides at the root of the broadcast as `auto`.
-      const pick = {
-        pick_number: data.pickNumber,
-        teamId: data.teamId,
-        teamName: data.teamName ?? null,
-        player_id: data.player.id,
-        name: data.player.name,
-        position: data.player.position,
-        nfl_team: data.player.nfl_team,
-        // The player's market ADP rides on the pick (#833) so the room's Misery
-        // Meter reads it off the pick, never off the windowed pool. It sits at the
-        // top level here to match the draft:state pick row, which carries a
-        // top-level `adp`; both reach the board's myPicks mapping as `pick.adp`.
-        adp: data.player.adp ?? null,
-        auto: !!data.auto,
-      };
-      const nextOnTheClock = data.nextTeamId
-        ? state.teams.find((t) => t.teamId === data.nextTeamId) || null
-        : null;
-
-      // Server sends the new deadline directly; fall back to a client-side
-      // estimate (pick_time_seconds from now) if it's ever omitted.
-      let deadlineAt = null;
-      if (data.pickDeadlineAt) {
-        deadlineAt = Date.parse(data.pickDeadlineAt);
-      } else if (state.league?.pick_time_seconds > 0) {
-        deadlineAt = Date.now() + state.league.pick_time_seconds * 1000;
-      }
-
-      const draftComplete = data.draftComplete ? true : state.draftComplete;
-      // The pick advances the shared field the whole room reads (#854). The
-      // server sends the value it wrote to leagues.current_pick in this commit
-      // as `nextPickIndex` (the next OPEN slot, keepers skipped, so it is NOT
-      // current_pick + 1 in a keeper league). When it is a finite number the
-      // returned `league` is a NEW object with `current_pick` set to it: the
-      // reducer must not mutate the prior state object, so it spreads a fresh
-      // one rather than assigning in place. The assistant's currentPickNumber,
-      // the Upcoming strip and the correction target recompute because
-      // current_pick's VALUE changed - they key on that primitive, not on the
-      // league object's identity. When the key is absent or null the `league` is
-      // left exactly as before (same reference): this keeps a newer client
-      // correct against an older server that has not shipped the field yet, and
-      // is load-bearing for #819, whose test fixture drives a live picked
-      // payload with no nextPickIndex and asserts current_pick is untouched.
-      const advancesPick = Number.isFinite(data.nextPickIndex);
-      let league = state.league;
-      if (state.league && (data.draftComplete || advancesPick)) {
-        league = { ...state.league };
-        if (data.draftComplete) league.draft_status = 'complete';
-        if (advancesPick) league.current_pick = data.nextPickIndex;
-      }
-
-      return {
-        ...state,
-        picks: [pick, ...state.picks],
-        // A completing pick derives `idle` (league is no longer active).
-        onTheClock: onTheClockFor(league, nextOnTheClock, deadlineAt),
-        draftComplete,
-        league,
-      };
-    }
-    case 'complete': {
-      // Same as a completing pick: the league is no longer active, so the
-      // On-the-clock value derives idle and the leaf unmounts.
-      const league = state.league ? { ...state.league, draft_status: 'complete' } : state.league;
-      return { ...state, draftComplete: true, league, onTheClock: onTheClockFor(league, null, null) };
-    }
+    case 'state':
+      return applyBoardSnapshot(state, action.data);
+    case 'picked':
+      return applyLandedPick(state, action.data);
+    case 'complete':
+      return applyDraftComplete(state);
     default:
       return state;
   }

@@ -110,9 +110,9 @@ function rosterViewFor({ league, teams, picks, viewerTeamId, viewerTurn }) {
       // (#833), so the room assistant's Misery Meter sums it off the pick rather
       // than the windowed player pool. Null when the player has no market ADP.
       adp: pick.adp ?? null,
-      // Neither flag is on both socket payloads: draft:state carries is_keeper
-      // but no autopick flag, draft:picked carries one but no is_keeper.
-      // Each renders when the data happens to be there.
+      // Both flags now ride both socket payloads: the Draft entity builds one
+      // pick model from draft:state and draft:picked alike (#949), so a board
+      // refresh preserves the autopick mark instead of un-marking history.
       auto: !!pick.auto,
       keeper: !!pick.is_keeper,
     }))
