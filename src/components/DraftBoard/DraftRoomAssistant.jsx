@@ -161,11 +161,16 @@ export function DraftRoomAssistantProvider({
   const poolByIdRef = useRef(new Map());
 
   // The Map is filled in an effect, never in the render body (issue #818 AC3,
-  // ruling 2): a render React discards must not mutate the ref. This is the
-  // FIRST passive effect declared, so it runs before the pick/turn/browse
-  // effects below that read the Map through poolRowFor at fire time. No snapshot
-  // state is published: the Misery memo no longer depends on the loaded pool
-  // (#833), so the only reader is poolRowFor, which reads the ref at fire time.
+  // ruling 2): a render React discards must not mutate the ref. It is declared
+  // before the pick/turn/browse effects below, so it runs before them and they
+  // read a filled Map through poolRowFor at fire time. (The shared assistant
+  // hook, called at the top of this component, registers its own
+  // clear-on-toggle-off effect ahead of this one, so this is not the FIRST
+  // passive effect overall; but that effect never touches poolByIdRef, so the
+  // only ordering this Map relies on - ahead of the readers below - holds.) No
+  // snapshot state is published: the Misery memo no longer depends on the
+  // loaded pool (#833), so the only reader is poolRowFor, reading the ref at
+  // fire time.
   useEffect(() => {
     for (const row of poolRows) {
       if (row && row.id != null) poolByIdRef.current.set(row.id, row);

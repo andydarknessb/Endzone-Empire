@@ -13,8 +13,13 @@ const stealFacts = { trigger: TRIGGERS.PICK_STEAL, player: { name: 'Steal Star' 
 const stealLine = (i) => fillTemplate(POLK_HIGH_LEGEND_LINES[TRIGGERS.PICK_STEAL][i], stealFacts);
 
 // The hook is the folded machinery both venue presenters share (#950). These
-// cover it ONCE, by rendering the hook rather than two full presenters: the two
-// venue suites keep only their own trigger gates and facts.
+// cover that machinery by rendering the hook rather than two full presenters.
+// This does NOT reduce the venue suites to trigger gates alone: each still
+// asserts its own display bindings (the toggle-to-panel-visibility wiring), and
+// SimAssistantPanel.test.jsx keeps #786's presenter-level clear-on-toggle-off
+// accessibility guard - it renders the real PoliteRegion end to end, a
+// different claim from this hook's `announcement === ''`. That split is
+// intentional and complete; the Sim's clear-on-off case is not leftover.
 const strictWrapper = ({ children }) => <React.StrictMode>{children}</React.StrictMode>;
 
 beforeEach(() => {
@@ -76,7 +81,28 @@ describe('useDraftAssistant (#950 folded machinery)', () => {
     expect(result.current.announcement).toBe('');
   });
 
-  it('creates the line generator ONCE and keeps it stable across re-renders, even under StrictMode (criterion 3)', () => {
+  it('announces a line only when spoken, never when silent, while recording both', () => {
+    window.localStorage.setItem(DRAFT_ASSISTANT_KEY, '1');
+    const { result } = renderHook(() => useDraftAssistant({ rng: firstDraw }));
+
+    // A silent push (a browse/pool line): recorded in the scrollback, but the
+    // region stays empty - a browse line is never spoken (ruling item 4). The
+    // assertions are decoupled from which pool line is drawn (that is the
+    // generator case's job), so this mutant reddens only here.
+    act(() => result.current.pushLine(stealFacts, { spoken: false }));
+    expect(result.current.scrollback).toHaveLength(1);
+    expect(result.current.scrollback[0].text).not.toBe(''); // a line WAS recorded
+    expect(result.current.announcement).toBe(''); // ...but nothing was spoken
+
+    // A spoken push: recorded AND announced with exactly the line it recorded.
+    // Red-tell: dropping the `if (spoken)` guard in pushLine makes the silent
+    // push above announce too, so the `announcement === ''` assertion fails.
+    act(() => result.current.pushLine(stealFacts, { spoken: true }));
+    expect(result.current.scrollback).toHaveLength(2);
+    expect(result.current.announcement).toBe(result.current.scrollback[0].text);
+  });
+
+  it('keeps one stable line generator across re-renders, even under StrictMode (criterion 3)', () => {
     const { result, rerender } = renderHook(
       () => useDraftAssistant({ rng: firstDraw }),
       { wrapper: strictWrapper }
