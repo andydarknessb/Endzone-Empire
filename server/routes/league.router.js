@@ -1001,6 +1001,31 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       const pricedById = new Map(
         [...(team ? team.starters : []), ...(team && team.bench ? team.bench : [])].map((p) => [p.playerId, p])
       );
+      // In a best-ball league nobody sets a lineup, so materialization assigns
+      // no starting slot and every non-IR row is stored BENCH (CONTEXT.md, Best
+      // ball). The stored-slot split below would then match no starter and list
+      // every player under Bench (#953).
+      // The starters are instead the optimizer's chosen lineup, which the
+      // producer summed into this team's Expected final; partition the route's
+      // own rows by that chosen set so a listed best-ball starter is exactly a
+      // player the total counts. team.starters is that chosen lineup ONLY when
+      // the producer had a projection run to choose on (statusReliable): on a
+      // projection outage it declines to choose and hands back every candidate
+      // with statusReliable false, so gating on it too means an outage falls
+      // through to the stored-slot split (today's behaviour, no regression)
+      // rather than declaring every player a starter. `team` is also null for a
+      // settled matchup (the producer never runs for a final week), so that path
+      // keeps the SQL split and never reads the current roster (trap 2 of #953).
+      if (leagueRow.best_ball && team && team.statusReliable) {
+        const chosen = new Set(team.starters.map((p) => p.playerId));
+        const rows = [...raw.starterRows, ...raw.benchRows];
+        return {
+          starters: rows.filter((row) => chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          expectedFinal: team.expectedFinal,
+          playersRemaining: team.playersRemaining,
+        };
+      }
       return {
         starters: raw.starterRows.map((row) => toPlayer(row, pricedById.get(row.id) || null)),
         bench: raw.benchRows.map((row) => toPlayer(row, pricedById.get(row.id) || null)),
