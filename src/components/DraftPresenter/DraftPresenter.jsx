@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Alert, Box, Container, Paper, Stack, Typography } from '@mui/material';
 import DraftBoardMatrix from '../DraftBoard/DraftBoardMatrix';
 import PickClock from '../DraftBoard/PickClock';
-import { deriveOnTheClock } from '../../lib/onTheClock';
+import { deriveOnTheClock } from '../../shared/lib/onTheClock';
 import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 import { draftRounds } from '../../lib/rosterShape';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';

@@ -1,4 +1,4 @@
-import { deriveOnTheClock } from '../../../lib/onTheClock';
+import { deriveOnTheClock } from '../../../shared/lib/onTheClock';
 
 /**
  * The Draft room read model, pure (ADR 0029: the FSD island's entities layer;
@@ -121,7 +121,7 @@ export const emptyDraftModel = Object.freeze({
   league: null,
   teams: [],
   picks: [],
-  // The On-the-clock value (src/lib/onTheClock): `{ team, state, deadlineAt }`.
+  // The On-the-clock value (src/shared/lib/onTheClock): `{ team, state, deadlineAt }`.
   // Holds the DEADLINE and never a per-second field (#754): the seconds are read
   // off `deadlineAt` by the one leaf that ticks (PickClock), so nothing in the
   // model, and so nothing in the room, re-renders per second.

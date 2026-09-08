@@ -93,3 +93,18 @@ docblock (`src/entities/matchup/index.js`), and that docblock is the audit
 surface for the entity's below-island edges until the boundary lint rule ADR
 0020 names as a follow-up exists - unaudited in the sense of ADR 0010, exactly
 as the rest of this ADR's import rules are.
+
+## Amendment (2026-09-07, #997): the Draft entity's below-island edge count is zero
+
+The Draft entity's index docblock (`src/entities/draft/index.js`) used to
+record a held-open conflict with this ADR: its model imported the On-the-clock
+derivation, `deriveOnTheClock`, from `src/lib/onTheClock`, a domain concept
+reached below the island, which this ADR's directional rule (the 2026-09-05
+amendment above) does not sanction. That import is now closed. The whole
+On-the-clock module - `deriveOnTheClock`, `isTeamOnTheClock`, `isUrgent`,
+`formatRemaining`, `remainingSeconds`, `URGENT_SECONDS` and
+`OVERDUE_AFTER_MS`, plus its parity test - moved into the shared layer at
+`src/shared/lib/onTheClock`, exported through `src/shared/lib`'s index the
+same way every other shared module is. The Draft entity's model now imports it
+from there, which is `shared`, not a reach below the island. The Draft
+entity's below-island edge count is zero.

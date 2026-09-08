@@ -11,7 +11,7 @@ import { templateFor } from '../../lib/draftSim/templates';
 // The one shared urgency threshold (#754): SimStatusBar.jsx reads `myTurn &&
 // isUrgent(secondsLeft)` off this same module, so the assistant's "is this
 // urgent" question can never drift from the status bar's.
-import { isUrgent } from '../../lib/onTheClock';
+import { isUrgent } from '../../shared/lib/onTheClock';
 import {
   netVsAdpFor, factsForUserPick, factsForPoolTaken,
   factsForTurnStart, factsForClockUrgent, userTeamId,
@@ -29,7 +29,7 @@ import {
  * QUEUE_PICKED_BY_OTHER never applies here):
  *   - TURN_START: the edge from not-my-turn to my-turn.
  *   - CLOCK_URGENT: the <=10s edge inside a turn that is still mine, once per
- *     turn (isUrgent() imported from lib/onTheClock.js, the #754 shared
+ *     turn (isUrgent() imported from shared/lib/onTheClock.js, the #754 shared
  *     threshold - the same call SimStatusBar.jsx makes for its own urgent
  *     styling).
  *   - PICK_STEAL / PICK_REACH / PICK_EARLY_KDEF / PICK_RB / PICK_GENERIC /

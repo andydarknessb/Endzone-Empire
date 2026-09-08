@@ -5,23 +5,19 @@
  * and never from an internal path; the entity itself never imports a feature, a
  * widget, a page or another entity.
  *
- * BELOW-ISLAND EDGES (ADR 0029's audit surface). This slice reaches the legacy
- * tree below the island for exactly ONE thing: the shared On-the-clock
- * derivation `src/lib/onTheClock` (deriveOnTheClock), which is the one place the
- * client turns a draft snapshot into the `{ team, state, deadlineAt }` pick-clock
- * value the room, the presenter and the mock draft all speak (#754). The model
- * owns the room's on-the-clock derivation, so it depends on that helper directly
- * rather than re-deriving the clock a second way. It reaches nothing else below
- * the island - no fetch, no socket, no React - so the model stays pure and
- * testable by plain function call. Everything else in this folder is internal.
- *
- * KNOWN ADR 0029 CONFLICT, held open (not a sanctioned edge). "On the clock" is a
- * defined domain term (CONTEXT.md), and ADR 0029 says an entity does not reach
- * below the island for a domain concept; ADR 0031's carve-out is scoped to
- * page-only helpers, which this is not (DraftOrderPanel is already a second island
- * consumer). So this edge is a recorded exception, not an example to copy: the
- * project lead is filing a ticket to move `onTheClock` into the island, and this
- * import moves onto it when that lands. Until then the edge stands, tracked here.
+ * BELOW-ISLAND EDGES (ADR 0029's audit surface). This slice reaches below the
+ * island for nothing. The On-the-clock derivation `deriveOnTheClock` the model
+ * uses to turn a draft snapshot into the `{ team, state, deadlineAt }`
+ * pick-clock value the room, the presenter and the mock draft all speak (#754)
+ * now lives in the shared layer itself, `src/shared/lib/onTheClock` (#997),
+ * imported by its file path rather than through `shared/lib`'s barrel index
+ * (that barrel re-exports `useEndpoint`, and pulling it in from the Draft
+ * room would make the room's harness coverage think the room reaches a live
+ * API client through this entity, which it does not); it is no longer a
+ * reach below the island, so the ADR 0029 conflict this docblock used to
+ * record is closed. The model reaches nothing else below the island either -
+ * no fetch, no socket, no React - so it stays pure and testable by plain
+ * function call. Everything else in this folder is internal.
  */
 export {
   pickFromSnapshotRow,

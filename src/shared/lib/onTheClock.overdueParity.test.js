@@ -6,7 +6,7 @@ const { OVERDUE_AFTER_MS } = require('./onTheClock');
 //
 // The Overdue tolerance has ONE spelling on the server (OVERDUE_AFTER_MS in
 // server/services/pickClock.service.js, #768) and the client keeps a copy in
-// src/lib/onTheClock.js because react-scripts's webpack build cannot pull a
+// src/shared/lib/onTheClock.js because react-scripts's webpack build cannot pull a
 // server module into the client bundle, and pickClock.service.js is not even
 // import-safe under jest (its load-time requires reach pg and socket.io). So
 // this pins the two numbers by reading the server SOURCE as text, the same
@@ -29,7 +29,7 @@ const { OVERDUE_AFTER_MS } = require('./onTheClock');
 //
 // If the declaration is ever moved or renamed the match returns null and the
 // test throws, rather than comparing the client value against undefined.
-const SERVER_SOURCE = path.join(__dirname, '..', '..', 'server', 'services', 'pickClock.service.js');
+const SERVER_SOURCE = path.join(__dirname, '..', '..', '..', 'server', 'services', 'pickClock.service.js');
 
 describe('OVERDUE_AFTER_MS parity with server/services/pickClock.service.js', () => {
   it('the client copy equals the server declaration', () => {
