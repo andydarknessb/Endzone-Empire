@@ -251,6 +251,17 @@ test('shows an error alert when the fetch fails', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('matchup not found');
 });
 
+// A code+message envelope with no `error` key (the shape the global express
+// error handler and the rate limiter emit). The old hand-rolled read of
+// `err.response.data.error` found no `error` key here and fell through to
+// `err.message`, absent on the rejected object, so the page showed NO alert;
+// reading through readHttpFailure surfaces the server's own sentence.
+test('shows the server sentence when a matchup failure is a code+message envelope (no error key)', async () => {
+  apiClient.get.mockRejectedValue({ response: { data: { code: 'MATCHUP_DOWN', message: 'the box score is briefly unavailable' } } });
+  renderPage();
+  expect(await screen.findByRole('alert')).toHaveTextContent('the box score is briefly unavailable');
+});
+
 test('renders the header, both teams\' starters with points, and the strip\'s scores', async () => {
   renderPage();
 
