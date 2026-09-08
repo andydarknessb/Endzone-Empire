@@ -104,13 +104,17 @@ if (!ENABLED) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   // Wait until a backend is blocked on a lock while running a `FOR UPDATE` read,
-  // which is B waiting on A's held League row. Returns true once seen.
+  // which is B waiting on A's held League row. Returns true once seen. Scoped to
+  // THIS database and to backends other than the poller's own, so an unrelated
+  // connection elsewhere cannot satisfy it (belt-and-braces: the runner already
+  // serialises pg files with --test-concurrency=1).
   async function waitForBlockedLock(timeoutMs = 5000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const res = await pool.query(
         `SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE wait_event_type = 'Lock' AND query ILIKE '%FOR UPDATE%'`
+          WHERE wait_event_type = 'Lock' AND query ILIKE '%FOR UPDATE%'
+            AND datname = current_database() AND pid <> pg_backend_pid()`
       );
       if (res.rows[0].n > 0) return true;
       await sleep(100);
@@ -215,15 +219,19 @@ if (!ENABLED) {
     assert.equal(joinError, null, joinError ? `the join should succeed once unblocked, got: ${joinError.message}` : '');
     assert.ok(joinResult && joinResult.team && joinResult.team.id, 'the join returns the created Team');
 
-    // Consistency: the join serialized behind the act, so the new Team was
-    // created against the committed post-wipe state. It exists, and it carries
-    // no roster - nothing was stranded between the act's snapshot and its wipe.
+    // The block is the proof, and it was already made: `joinResolved === false`
+    // while the act held the lock, above. Having unblocked, the join committed a
+    // durable Team, so the two transactions serialized and neither lost its work.
     const teamRow = await pool.query(`SELECT "id" FROM "teams" WHERE "id" = $1`, [joinResult.team.id]);
     assert.equal(teamRow.rows.length, 1, 'the joined Team row is present after both transactions commit');
+    // NOT a proof of anything about stranding: joinLeague never creates roster
+    // rows, so a freshly joined Team has an empty roster under every ordering.
+    // Kept only as a sanity check that the join produced a clean row; the
+    // serialization guarantee rests entirely on the block assertion above.
     const roster = await pool.query(
       `SELECT count(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
       [joinResult.team.id]
     );
-    assert.equal(roster.rows[0].n, 0, 'the new Team has an empty roster (it was created after the wipe, not before it)');
+    assert.equal(roster.rows[0].n, 0, 'sanity: a freshly joined Team carries no roster rows');
   });
 }

@@ -1,7 +1,8 @@
 /**
- * The guard for #1043: every Team-insert under server/ runs behind a League-row
- * lock taken in the same function, so the unlocked Teams snapshot a Draft act
- * reads (draftAct.service.js) cannot miss a Team created mid-act.
+ * The guard for #1043: every Team-insert in the online server directories
+ * (routes, services, modules) runs behind a League-row lock on its lexical-
+ * ancestor chain, so the unlocked Teams snapshot a Draft act reads
+ * (draftAct.service.js) cannot miss a Team created mid-act.
  *
  * This file pins BOTH halves of a source-derived guard, because a guard that
  * discovers its own inputs fails silently when the DISCOVERY breaks, not only
@@ -32,7 +33,7 @@ const LEAGUE_LOCK = 'SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE';
 const TEAM_INSERT = 'INSERT INTO "teams" ("league_id", "owner_id", "name") VALUES ($1, $2, $3)';
 const q = (sql) => `await client.query(\`${sql}\`);`;
 
-test('every Team-insert under server/ takes a League row lock first', () => {
+test('every Team-insert in the online server dirs takes a League row lock first', () => {
   const { violationSites } = check(SERVER_ROOTS);
   assert.deepEqual(
     violationSites,
@@ -224,4 +225,91 @@ test('a control block between lock and insert does not break scoping', () => {
     '',
   ].join('\n');
   assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
+// The over-correction a second review caught: excluding nested function bodies
+// from the lock scope also hid the outer lock from the insert's OWN enclosing
+// callback. These pin BOTH directions, which is where a one-sided fix hides: a
+// callback lexically inside the locked function must SEE that lock, and a helper
+// defined elsewhere must still NOT satisfy it.
+
+test('an insert in a callback after the lock sees the enclosing function lock', () => {
+  const src = [
+    'async function addTeam(client) {',
+    `  ${q(LEAGUE_LOCK)}`,
+    '  await Promise.all(rows.map(async (r) => {',
+    `    ${q(TEAM_INSERT)}`,
+    '  }));',
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
+test('an insert in a callback with NO enclosing lock is still a violation', () => {
+  const src = [
+    'async function addTeam(client) {',
+    '  await Promise.all(rows.map(async (r) => {',
+    `    ${q(TEAM_INSERT)}`,
+    '  }));',
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), [{ line: 3 }]);
+});
+
+test('an insert in a for-await loop after the lock is not a violation', () => {
+  // `for await (...)` puts `await`, not `for`, before the paren; the finder must
+  // still read it as a control block, not a function body.
+  const src = [
+    'async function addTeam(client) {',
+    `  ${q(LEAGUE_LOCK)}`,
+    '  for await (const r of rows) {',
+    `    ${q(TEAM_INSERT)}`,
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
+test('an insert in a plain for-of loop after the lock is not a violation', () => {
+  const src = [
+    'async function addTeam(client) {',
+    `  ${q(LEAGUE_LOCK)}`,
+    '  for (const r of rows) {',
+    `    ${q(TEAM_INSERT)}`,
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
+test('a lock whose SQL is hoisted to a module const still satisfies the rule', () => {
+  const src = [
+    `const LOCK_SQL = \`${LEAGUE_LOCK}\`;`,
+    'async function addTeam(client, id) {',
+    '  await client.query(LOCK_SQL, [id]);',
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
+test('a hoisted lock const referenced by a DIFFERENT, unlocked function does not help it', () => {
+  // The const-name resolution must not leak the lock across functions: only the
+  // function that references the const is taking it.
+  const src = [
+    `const LOCK_SQL = \`${LEAGUE_LOCK}\`;`,
+    'async function locker(client, id) {',
+    '  await client.query(LOCK_SQL, [id]);',
+    '}',
+    'async function addTeam(client, id) {',
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), [{ line: 6 }]);
 });

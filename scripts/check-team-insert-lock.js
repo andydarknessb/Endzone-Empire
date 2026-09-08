@@ -17,15 +17,17 @@
  * instead of silently reopening the gap.
  *
  * WHAT IS ASSERTED, and its operationalization. The domain invariant is "in the
- * same transaction". Statically, the checkable proxy is "in the same enclosing
- * function": the one Team-insert takes its own League lock in its own body
- * (joinLeague's docstring: the lock is a no-op when the caller's transaction
- * already holds it, but joinLeague takes it regardless), so a per-function rule
- * captures today's invariant exactly and is what a new insert site must satisfy
- * too. A future site that locks in a HELPER and inserts in the caller would be
- * reported here as unlocked - deliberately: that is a "make the lock visible"
- * prompt, not a false alarm, and it is the conservative direction for a guard
- * whose whole job is to refuse a silent gap.
+ * same transaction". Statically, the checkable proxy is "a League lock appears,
+ * before the insert, in the insert's enclosing function or one of the functions
+ * lexically enclosing it": joinLeague takes its own League lock in its own body
+ * before its INSERT (its docstring notes the lock is a no-op when the caller's
+ * transaction already holds it, but it takes it regardless). The lock counts
+ * when it sits on the insert's own lexical-ancestor chain - so an insert nested
+ * in a callback or a loop still sees a lock its enclosing function took. It does
+ * NOT count when it sits inside some OTHER nested function (a helper that may
+ * never run, or run in another transaction); that is reported as unlocked,
+ * deliberately, as a "make the lock visible" prompt. The lock's SQL may be
+ * inline or referenced by the name of a module const that holds it.
  *
  * WHY SOURCE-DERIVED, NOT HAND-LISTED. The precedents are the identity-comparison
  * guard (scripts/check-identity-comparisons.js) and the envelope-conformance
@@ -38,15 +40,34 @@
  * the scan. So the guard's own tests prove the scan too: a non-emptiness floor,
  * and the known site named by path (server/test/teamInsertLockGuard.test.js).
  *
- * SCOPE. All non-test source under server/ - services AND routes AND modules,
- * not services alone. The acceptance criterion says "the services directory",
- * but the issue's own threat model names a commissioner "add team" path, and
- * nothing stops such a path landing in a router, so scanning services alone
- * would be blind to one of the two futures this guard exists to catch. Scanning
- * all of server/ is a strict superset of the services directory, so it cannot
- * miss anything a services-only scan would catch; the choice to exceed the
- * criterion this way is called out in the PR. server/test/ is excluded so
- * fixture SQL in tests does not trip it.
+ * SCOPE. The ONLINE (request-path) directories only: server/routes,
+ * server/services and server/modules - the same three SERVER_ROOTS the
+ * identity-comparison guard scans. AC1 says "the services directory"; routes is
+ * added because the threat model names a commissioner "add team" path and
+ * nothing stops it landing in a router, and modules because request-path code
+ * lives there too (draftAct.service.js's callers, the socket handlers). That
+ * widening past the letter of AC1 is called out in the PR.
+ *
+ * The OFFLINE trees are deliberately OUT: server/db/migrations, server/db/seeds,
+ * server/scripts, server/data, worker.js. The cost of a scan is false POSITIVES,
+ * not false negatives, and those trees are where they would come from. A data
+ * migration or a backfill script legitimately inserts Team rows and CANNOT take
+ * a League row `FOR UPDATE` (a migration runs in its own one-shot transaction,
+ * with no concurrent Draft act to serialize against), so scanning them would
+ * red an author for omitting a lock that would mean nothing there - and
+ * migrations are a Cory-owned carve-out, so that red is one no IC could even
+ * fix. The invariant this guard exists for is a RUNTIME one: a join or add-team
+ * path racing a Draft act. Only online code can be on either side of that race.
+ *
+ * BLIND SPOTS, named rather than papered over. The discovery matcher sees only a
+ * literal `INSERT INTO "teams"` (quoted or bare) in SQL text. It does NOT see a
+ * query builder (`knex('teams').insert(...)`), a schema-qualified name
+ * (`INSERT INTO public.teams`), or a `.sql` file (EXTENSIONS is .js/.jsx). None
+ * is a live gap today - the server runtime creates Teams only through raw
+ * `pool.query` with this exact shape (joinLeague), and knex appears only in
+ * migrations and tests - so the non-emptiness floor stays honest. But a FUTURE
+ * add-team path written in any of those forms would be invisible, and a guard's
+ * blind spots belong in its own header, not in a reader's surprise.
  *
  * Comments are stripped first (check-color-literals.js's own stripper, which
  * keeps string and template-literal bodies verbatim so the SQL inside them is
@@ -63,10 +84,13 @@ const EXTENSIONS = new Set(['.js', '.jsx']);
 
 // A fixed source-tree allowlist, exactly as the identity-comparison guard does
 // it: scan() refuses any other root so a caller cannot silently point it
-// somewhere that finds nothing.
-const SERVER_ROOTS = ['server'];
+// somewhere that finds nothing. These are the ONLINE (request-path) directories
+// only - see the SCOPE note in the header for why the offline trees are out.
+const SERVER_ROOTS = ['server/routes', 'server/services', 'server/modules'];
 const ROOT_DIRECTORIES = Object.freeze({
-  server: path.join(REPO, 'server'),
+  'server/routes': path.join(REPO, 'server', 'routes'),
+  'server/services': path.join(REPO, 'server', 'services'),
+  'server/modules': path.join(REPO, 'server', 'modules'),
 });
 
 // A statement inserting a Team row. The table name and its opening paren need
@@ -166,9 +190,35 @@ function sqlStatements(source) {
   return statements;
 }
 
-/** True when some single SQL statement in `scopeSource` is a League-row lock. */
-function containsLeagueLock(scopeSource) {
-  return sqlStatements(scopeSource).some((statement) => LEAGUE_LOCK.test(statement));
+/**
+ * The names of any `const`/`let`/`var` in `fileSource` whose string value is a
+ * League-row lock. This lets the lock's SQL be hoisted to a (module or local)
+ * const and passed to `client.query(LOCK, ...)`: the function still takes the
+ * lock, the SQL just lives under a name. Referencing such a name in scope
+ * counts as taking the lock (see containsLeagueLock).
+ */
+function lockConstNames(fileSource) {
+  const names = new Set();
+  const declaration = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(`[^`]*`|'[^'\n]*'|"[^"\n]*")/g;
+  for (const match of fileSource.matchAll(declaration)) {
+    if (LEAGUE_LOCK.test(match[2])) names.add(match[1]);
+  }
+  return names;
+}
+
+/**
+ * True when `scopeSource` takes a League-row lock: either a single SQL statement
+ * in it IS the lock, or it references the name of a const whose value is the
+ * lock (`lockNames`, from lockConstNames over the whole file).
+ */
+function containsLeagueLock(scopeSource, lockNames) {
+  if (sqlStatements(scopeSource).some((statement) => LEAGUE_LOCK.test(statement))) return true;
+  if (lockNames) {
+    for (const name of lockNames) {
+      if (new RegExp(`\\b${name}\\b`).test(scopeSource)) return true;
+    }
+  }
+  return false;
 }
 
 // Keywords whose `(...) {` is a control block, not a function body.
@@ -230,12 +280,29 @@ function isFunctionBodyOpen(source, openIndex) {
   // The identifier (if any) immediately before that `(` decides it: a control
   // keyword means a control block, anything else (a function/method name, or
   // `function`) means a body.
-  let j = i - 1;
+  const first = identifierBefore(source, i);
+  if (CONTROL_KEYWORDS.has(first.text)) return false;
+  // `for await (...) {` puts `await`, not `for`, immediately before the `(`, so
+  // the raw keyword reads as a function name. Look one token further back: a
+  // preceding `for` makes this a for-await-of control block, not a function.
+  if (first.text === 'await') {
+    const second = identifierBefore(source, first.start - 1);
+    if (second.text === 'for') return false;
+  }
+  return true;
+}
+
+/**
+ * The identifier ending at or before `from` (skipping trailing whitespace),
+ * as `{ text, start }` where `start` is the index of its first character.
+ * `text` is '' when no identifier is there.
+ */
+function identifierBefore(source, from) {
+  let j = from;
   while (j >= 0 && isSpace(source[j])) j -= 1;
   const end = j;
   while (j >= 0 && isIdentChar(source[j])) j -= 1;
-  const keyword = source.slice(j + 1, end + 1);
-  return !CONTROL_KEYWORDS.has(keyword);
+  return { text: source.slice(j + 1, end + 1), start: j + 1 };
 }
 
 /**
@@ -258,13 +325,16 @@ function functionBodyRanges(source) {
   return ranges;
 }
 
-/** The innermost function body containing `index`, or null if none does. */
-function enclosingFunction(ranges, index) {
+/** Every function body containing `index` - the insert's lexical-ancestor chain. */
+function enclosingFunctions(ranges, index) {
+  return ranges.filter((range) => range.open < index && index < range.close);
+}
+
+/** The outermost function body containing `index`, or null if none does. */
+function outermostFunction(ancestors) {
   let best = null;
-  for (const range of ranges) {
-    if (range.open < index && index < range.close) {
-      if (!best || range.open > best.open) best = range;
-    }
+  for (const range of ancestors) {
+    if (!best || range.open < best.open) best = range;
   }
   return best;
 }
@@ -286,32 +356,40 @@ function findTeamInserts(rawSource) {
 }
 
 /**
- * The enclosing function's OWN body text from its `{` up to `index`, with the
- * bodies of any nested functions blanked. A League lock hidden inside a nested
- * inline helper (`const lock = async () => { ... FOR UPDATE ... }`) that happens
- * to sit textually before the insert must NOT count: the helper may never run,
- * or run in another transaction. Only a lock the enclosing function itself takes
- * before the insert is the invariant (see the module header's operationalization
- * note). Ranges and indices come from the masked copy; the SQL is sliced from
- * the unmasked copy, and the two are the same length.
+ * The lock scope for an insert: the text from the insert's OUTERMOST enclosing
+ * function up to the insert, with the bodies of nested functions that are NOT on
+ * the insert's ancestor chain blanked out.
+ *
+ * Two directions, and both matter:
+ *  - The insert's own enclosing callbacks and loops (its ancestor chain) stay
+ *    OPEN, so an insert nested in `rows.map(async r => { ... })` after the lock,
+ *    or in a `for await` loop after the lock, still sees the lock its enclosing
+ *    function took. (This is the over-correction the first cut got wrong.)
+ *  - A nested function that does NOT contain the insert (a helper defined
+ *    elsewhere in the body, whether or not it sits textually before the insert)
+ *    is BLANKED, so a `FOR UPDATE` inside a helper that may never run, or run in
+ *    another transaction, does not count.
+ *
+ * Ranges and indices come from the masked copy; the SQL is sliced from the
+ * unmasked copy, and the two are the same length.
  */
-function ownScopeBeforeInsert(unmasked, ranges, fn, index) {
-  const chars = unmasked.slice(fn.open, index).split('');
+function lockScope(unmasked, ranges, ancestors, outermost, index) {
+  const isAncestor = new Set(ancestors);
+  const chars = unmasked.slice(outermost.open, index).split('');
   for (const range of ranges) {
-    const isFn = range.open === fn.open && range.close === fn.close;
-    const nestedInFn = range.open > fn.open && range.close <= fn.close;
-    if (isFn || !nestedInFn) continue;
-    const from = Math.max(range.open, fn.open);
+    const nestedInOutermost = range.open >= outermost.open && range.close <= outermost.close;
+    if (!nestedInOutermost || isAncestor.has(range)) continue;
+    const from = Math.max(range.open, outermost.open);
     const to = Math.min(range.close, index - 1);
-    for (let p = from; p <= to; p += 1) chars[p - fn.open] = ' ';
+    for (let p = from; p <= to; p += 1) chars[p - outermost.open] = ' ';
   }
   return chars.join('');
 }
 
 /**
- * Every Team-insert site NOT preceded by a League-row lock the SAME function
- * takes, as `{ line }`. This is the RULE half. A site with no enclosing function
- * (top-level) is a violation: no lock can be proven for it.
+ * Every Team-insert site NOT preceded by a League-row lock on its lexical-
+ * ancestor chain, as `{ line }`. This is the RULE half. A site with no enclosing
+ * function (top-level) is a violation: no lock can be proven for it.
  *
  * Function-body ranges are found on the literal-masked copy (so a brace inside a
  * string or SQL cannot mis-scope them), while the lock is read from the unmasked
@@ -325,12 +403,14 @@ function unlockedTeamInserts(rawSource) {
   if (!hasTeamInsert(source)) return [];
   const masked = maskLiterals(source);
   const ranges = functionBodyRanges(masked);
+  const lockNames = lockConstNames(source);
   const violations = [];
   for (const match of source.matchAll(TEAM_INSERT)) {
     const index = match.index;
-    const fn = enclosingFunction(ranges, index);
-    const scope = fn ? ownScopeBeforeInsert(source, ranges, fn, index) : '';
-    if (!fn || !containsLeagueLock(scope)) {
+    const ancestors = enclosingFunctions(ranges, index);
+    const outermost = outermostFunction(ancestors);
+    const scope = outermost ? lockScope(source, ranges, ancestors, outermost, index) : '';
+    if (!outermost || !containsLeagueLock(scope, lockNames)) {
       violations.push({ line: lineOf(source, index) });
     }
   }
@@ -379,15 +459,15 @@ function main() {
 
   if (insertSites.length === 0) {
     console.error(
-      '\n❌ The Team-insert scan found NOTHING under server/. That is not a pass: '
-      + 'the discovery matcher has broken, and this guard would be vacuously green.\n'
-      + 'Fix TEAM_INSERT in scripts/check-team-insert-lock.js.\n'
+      '\n❌ The Team-insert scan found NOTHING under the online server directories. '
+      + 'That is not a pass: the discovery matcher has broken, and this guard would be '
+      + 'vacuously green.\nFix TEAM_INSERT in scripts/check-team-insert-lock.js.\n'
     );
     process.exit(1);
   }
   if (violationSites.length === 0) {
     console.log(
-      `✅ All ${insertSites.length} Team-insert site(s) under server/ take a League row lock first.`
+      `✅ All ${insertSites.length} Team-insert site(s) in the online server directories take a League row lock first.`
     );
     return;
   }
@@ -414,7 +494,10 @@ module.exports = {
   LEAGUE_LOCK,
   isFunctionBodyOpen,
   functionBodyRanges,
-  enclosingFunction,
+  enclosingFunctions,
+  outermostFunction,
+  lockConstNames,
+  containsLeagueLock,
   findTeamInserts,
   unlockedTeamInserts,
   scan,
