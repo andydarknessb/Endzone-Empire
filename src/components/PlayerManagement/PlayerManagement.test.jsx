@@ -240,3 +240,30 @@ test("keeps player browsing available without a fantasy league while withholding
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Select league" })).toBeDisabled();
 });
+
+// #970: player management reads its failures through readHttpFailure. The
+// envelope is shape (b): the machine CODE in `error`, the sentence for the
+// manager in `message`. The old hand-rolled `err.response?.data?.error` read
+// the code, so the browser's error Alert showed PLAYER_INDEX_UNAVAILABLE.
+test("a load refusal carrying a code beside a message renders the message, not the code", async () => {
+  apiClient.get.mockImplementation((url) => (
+    url === "/api/players"
+      ? Promise.reject({
+          response: {
+            status: 503,
+            data: {
+              error: "PLAYER_INDEX_UNAVAILABLE",
+              message: "The player index is rebuilding. Try again in a moment.",
+            },
+          },
+        })
+      : Promise.resolve({ data: [league] })
+  ));
+
+  renderWithProviders(<PlayerManagement />, { path: "/players", route: "/players" });
+
+  expect(
+    await screen.findByText("The player index is rebuilding. Try again in a moment.")
+  ).toBeInTheDocument();
+  expect(screen.queryByText("PLAYER_INDEX_UNAVAILABLE")).not.toBeInTheDocument();
+});

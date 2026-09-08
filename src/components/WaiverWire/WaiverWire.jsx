@@ -31,6 +31,7 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
@@ -113,7 +114,7 @@ function WaiverWire() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err.response?.data?.error || err.message);
+        setError(readHttpFailure(err).message || err.message);
       })
       .finally(() => {
         if (!cancelled) {
@@ -143,7 +144,7 @@ function WaiverWire() {
       setData(waiversRes.data);
       setRoster(rosterRes.data);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
     }
@@ -234,8 +235,9 @@ function WaiverWire() {
       setClaimPlayer(null);
       await fetchAll();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      notify(message, { severity: 'error' });
     }
   };
 
@@ -246,8 +248,9 @@ function WaiverWire() {
       notify('Waiver claim cancelled', { severity: 'info' });
       await fetchAll();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      notify(message, { severity: 'error' });
     }
   };
 

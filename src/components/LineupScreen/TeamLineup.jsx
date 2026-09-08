@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import GroupAddOutlinedIcon from '@mui/icons-material/GroupAddOutlined';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import TeamAvatarUploader from '../common/TeamAvatarUploader';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
@@ -79,7 +80,7 @@ function TeamLineup() {
   const activeTeamId = activeLeague?.my_team_id;
   const leaguePhase = deriveLeaguePhase(activeLeague);
 
-  const report = (err) => setError(err.response?.data?.error || err.message);
+  const report = (err) => setError(readHttpFailure(err).message || err.message);
 
   const fetchRoster = async (leagueId) => {
     try {

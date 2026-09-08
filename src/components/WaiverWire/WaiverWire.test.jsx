@@ -627,3 +627,32 @@ test('the sort toggle can still be engaged manually when there are no suggestion
   const rows = screen.getAllByRole('row').slice(1);
   expect(within(rows[0]).getByText('Breece Hall')).toBeInTheDocument();
 });
+
+// #970: the transaction surfaces read a refusal through readHttpFailure. This
+// is the envelope where the user-visible benefit of the whole sequence lands:
+// the server sends shape (b), the machine code in `error` and the sentence
+// written for the manager in `message`. The old hand-rolled
+// `err.response?.data?.error` read the code, so a manager whose claim was
+// refused was shown WAIVER_PERIOD_CLOSED in both the banner and the toast.
+test('a claim refusal carrying a code beside a message renders the message, not the code', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
+  apiClient.post.mockRejectedValueOnce({
+    response: {
+      status: 409,
+      data: {
+        error: 'WAIVER_PERIOD_CLOSED',
+        message: 'Waivers have already cleared for this week. Try a free agent add.',
+      },
+    },
+  });
+  renderScreenWithToasts();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Submit Claim' }));
+
+  expect(await screen.findAllByText(
+    'Waivers have already cleared for this week. Try a free agent add.'
+  )).not.toHaveLength(0);
+  expect(screen.queryByText('WAIVER_PERIOD_CLOSED')).not.toBeInTheDocument();
+});
