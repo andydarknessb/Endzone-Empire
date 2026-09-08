@@ -1123,6 +1123,9 @@ async function syncInjuries({ api = tank01Get } = {}) {
     //     - pool.connect() itself failing (pool exhaustion or refusal, the
     //       #839 shape) is tagged in its own guard, above the transaction
     //       try, since no client exists yet to roll back or release.
+    //     - a ROLLBACK that itself rejects (#1048) never changes the tag: the
+    //       rollback failure is attached as error.rollbackError and logged,
+    //       and the original error is what gets tagged write_failed and rethrown.
     //   sync_failed   - reserved for a genuinely unclassified error (e.g. a bug
     //                   in the feed-mapping loop), so the three above never blur.
     // The record is written on the POOL, outside the transaction, so a
@@ -1263,7 +1266,12 @@ async function runInjurySync(api) {
     irFlags = await flagRecoveredIrStashes(client, transitions);
     await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      error.rollbackError = rollbackError;
+      console.error(`[injuries] ROLLBACK failed after a transaction error: ${rollbackError.message}`);
+    }
     // The database side threw (lock, FOR UPDATE scan, bulk UPDATE, or IR flag
     // pass) and rolled back. Tagged so the failure row reads "ours", distinct
     // from an upstream fetch_failed.
