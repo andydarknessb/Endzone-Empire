@@ -858,7 +858,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const leagueRow = leagueResult.rows[0];
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
-    const { materializeLineup } = require('../services/lineup.service');
+    const { materializeLineup, rowsHeldAsPlayed } = require('../services/lineup.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
     const { availabilityFor } = require('../services/projectionModel');
@@ -879,43 +879,62 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const opponentByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
 
     await client.query('BEGIN');
+    // A SETTLED matchup is read AS PLAYED, never through the current roster
+    // (CONTEXT.md, Settle pass): the score printed beside these lists was
+    // computed over the as-played population, so joining team_players here
+    // would drop a starter who played and was dropped afterwards while his
+    // points stayed in the total, and would add a player acquired after his
+    // own kickoff to a week he did not play (#976). The matchup's own `final`
+    // flag is the settled test, the same fact the settle pass switches on;
+    // isFinalWeekForTeam would ask it again with an extra query.
+    const asPlayed = matchup.final === true;
+    // One schedule read for the request rather than one per lineup read: the
+    // settled path asks four times (bench and starters, home and away).
+    const kickoffCache = new Map();
+    // The current-roster join, present for a live week and absent for an
+    // as-played one. Filtering cannot substitute for removing it: the join is
+    // what took the departed player away.
+    const rosterJoin = asPlayed ? '' : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"`;
+    // lineup_entries.player_id rides beside players.id: rowsHeldAsPlayed reads
+    // player_id, while the serialized row and the producer join key on id.
+    const lineupSql = (slotPredicate) => `SELECT "players"."id", "players"."name", "players"."position",
+                "players"."nfl_team", "players"."injury_status", "players"."photo_url",
+                "lineup_entries"."player_id",
+                "lineup_entries"."slot", "player_stats"."stats"
+         FROM "lineup_entries"
+         ${rosterJoin}
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
+         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+           AND "lineup_entries"."week" = $3
+           AND ${slotPredicate}
+         ORDER BY "lineup_entries"."slot", "players"."name"`;
     const teamLineup = async (teamId) => {
       await materializeLineup(client, {
         leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueRow,
       });
       const lineupRows = await client.query(
-        `SELECT "players"."id", "players"."name", "players"."position",
-                "players"."nfl_team", "players"."injury_status", "players"."photo_url",
-                "lineup_entries"."slot", "player_stats"."stats"
-         FROM "lineup_entries"
-         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-           AND "team_players"."player_id" = "lineup_entries"."player_id"
-         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
-           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
-         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-           AND "lineup_entries"."week" = $3
-           AND "lineup_entries"."slot" = $4
-         ORDER BY "lineup_entries"."slot", "players"."name"`,
+        lineupSql('"lineup_entries"."slot" = $4'),
         [teamId, matchup.season, matchup.week, 'BENCH']
       );
       const starterRows = await client.query(
-        `SELECT "players"."id", "players"."name", "players"."position",
-                "players"."nfl_team", "players"."injury_status", "players"."photo_url",
-                "lineup_entries"."slot", "player_stats"."stats"
-         FROM "lineup_entries"
-         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-           AND "team_players"."player_id" = "lineup_entries"."player_id"
-         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
-           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
-         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-           AND "lineup_entries"."week" = $3
-           AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')
-         ORDER BY "lineup_entries"."slot", "players"."name"`,
+        lineupSql(`"lineup_entries"."slot" NOT IN ('BENCH', 'IR')`),
         [teamId, matchup.season, matchup.week]
       );
-      return { starterRows: starterRows.rows, benchRows: lineupRows.rows };
+      // Fatal, like the two reads it filters. A settled page that fell back to
+      // the current roster when this read failed would be this defect again,
+      // wearing a `try`.
+      const asPlayedRows = (rows) => (asPlayed
+        ? rowsHeldAsPlayed(client, {
+          league: leagueRow, teamId, season: matchup.season, week: matchup.week, rows, kickoffCache,
+        })
+        : rows);
+      return {
+        starterRows: await asPlayedRows(starterRows.rows),
+        benchRows: await asPlayedRows(lineupRows.rows),
+      };
     };
     const homeRaw = await teamLineup(matchup.home_team_id);
     const awayRaw = await teamLineup(matchup.away_team_id);

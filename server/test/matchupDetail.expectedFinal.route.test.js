@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { createFakePool, select } = require('./helpers/fakePool');
+const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
 const projectionService = require('../services/projection.service');
@@ -61,8 +62,11 @@ const MATCHUP_ROW = {
 // 0.04), a WR ruled Out (projection 11.3 counts 0) not yet kicked off. Home
 // bench: an available RB with a weekly projection of 7.7, and a TE ruled Out
 // (projection 5.5 counts 0). Away: one starter, a bye.
+// player_id rides beside players.id because the settled reads select it (#976)
+// and rowsHeldAsPlayed is the one consumer that reads it; every other consumer
+// keys on id, so carrying both is what the real row shape does.
 const player = (id, name, position, nfl_team, injury_status, slot, stats) => ({
-  id, name, position, nfl_team, injury_status, slot, stats,
+  id, player_id: id, name, position, nfl_team, injury_status, slot, stats,
 });
 const HOME_STARTERS = [
   player(101, 'Some Passer', 'QB', 'KC', null, 'QB', { passingYards: 562.5 }),
@@ -544,4 +548,120 @@ test('a best-ball projection outage does not claim every player is a starter (#9
   assert.equal(body.away.starters.length, 0);
   assert.deepEqual(body.away.bench.map((p) => p.id).sort(), [603, 604]);
   assert.equal(body.away.expectedFinal, null);
+});
+
+// ---------------------------------------------------------------------------
+// #976: a SETTLED matchup lists the week AS PLAYED, not through the current
+// roster. The score of record was computed over the as-played population
+// (CONTEXT.md, Settle pass), so a detail page that joins `team_players` prints
+// a list and a score that describe different teams: a starter who played and
+// was dropped afterwards vanishes from the list while his points stay in the
+// total, and a player acquired after his own kickoff appears in a week he did
+// not play for this team.
+//
+// The fake performs no join, so the fixture's lineup handlers lift both
+// properties out of the emitted statement (the precedent is
+// finalWeekFreeze.test.js): the current-roster filter is applied only when the
+// statement still names "team_players", and `player_id` rides on a row only
+// when the select list actually asks for it. That second lift is what makes
+// the 200 assertion bind edit 1 - drop the column from the SQL and
+// `rowsHeldAsPlayed` reaches for an id that is not there, which
+// `scheduleKeyFor` turns into a 500 rather than an empty exclusion set (#227).
+// ---------------------------------------------------------------------------
+
+const SETTLED_MATCHUP_ROW = {
+  ...MATCHUP_ROW,
+  final: true,
+  home_score: '30.00',
+  away_score: '5.00',
+};
+// Home: a starter still on the roster (10), a starter who played and was
+// DROPPED afterwards (20), and a starter ACQUIRED AFTER HIS OWN KICKOFF (10),
+// who is no part of the week as played. 30 is the stored home score.
+const SETTLED_HOME_KEPT = player(801, 'Kept Starter', 'QB', 'KC', null, 'QB', { passingYards: 250 });
+const SETTLED_HOME_DROPPED = player(802, 'Dropped Starter', 'RB', 'DAL', null, 'RB', { rushingYards: 200 });
+const SETTLED_HOME_LATE = player(803, 'Late Acquirer', 'WR', 'PHI', null, 'WR', { receivingYards: 100 });
+const SETTLED_HOME_BENCH = player(804, 'Settled Bench TE', 'TE', 'KC', null, 'BENCH', null);
+const SETTLED_AWAY_KEPT = player(811, 'Away Starter', 'RB', 'SF', null, 'RB', { rushingYards: 50 });
+
+const SETTLED_STARTERS = [SETTLED_HOME_KEPT, SETTLED_HOME_DROPPED, SETTLED_HOME_LATE, SETTLED_AWAY_KEPT];
+const SETTLED_BENCH = [SETTLED_HOME_BENCH];
+const SETTLED_TEAM_OF = new Map([[801, HOME], [802, HOME], [803, HOME], [804, HOME], [811, AWAY]]);
+// The roster as it stands TODAY: 802 has been dropped since the week settled.
+const SETTLED_ROSTER_TODAY = new Set([801, 803, 804, 811]);
+
+const SETTLED_KICKOFFS = {
+  KC: new Date('2026-10-25T17:00:00.000Z'),
+  DAL: new Date('2026-10-25T17:00:00.000Z'),
+  PHI: new Date('2026-10-25T20:25:00.000Z'),
+  SF: new Date('2026-10-25T20:25:00.000Z'),
+};
+const SETTLED_SCHEDULE = Object.entries(SETTLED_KICKOFFS).map(([nfl_team, at]) => ({
+  nfl_team, opponent: 'OPP', kickoff_at: at.toISOString(),
+}));
+// Explicit for the late acquirer only, with everyone else held since long
+// before kickoff. Taking the helper's permissive default for all would make
+// the tenure filter exclude nobody (a green bought for nothing); leaving
+// `heldSince` null would exclude EVERYONE and buy the absence assertion by
+// deleting the team.
+const SETTLED_TENURES = [tenure(HOME, 803, new Date('2026-10-26T00:00:00.000Z'))];
+const SETTLED_HELD_SINCE = new Date('2026-08-01T00:00:00.000Z');
+
+async function getSettledDetail(t) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  // The fake joins nothing, so answer these two questions the way the table
+  // would: the current-roster filter applies only while the statement still
+  // names team_players, and player_id rides only when it is selected.
+  const answer = (pool, text, params) => {
+    let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
+    if (/"team_players"/.test(text)) rows = rows.filter((p) => SETTLED_ROSTER_TODAY.has(p.id));
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    // BEFORE the route's own unanchored nfl_games entry: tenureHandlers'
+    // kickoff matcher is anchored on the same table, and fakePool takes the
+    // first match, so the other order silently substitutes the route's
+    // schedule for the tenure fixture's.
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: SETTLED_TENURES, heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answer(SETTLED_BENCH, text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => answer(SETTLED_STARTERS, text, params)],
+  ]).install(t);
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  // 200, not 500: the settled reads carry lineup_entries.player_id, the field
+  // rowsHeldAsPlayed reads. Removing it from either select list makes
+  // scheduleKeyFor throw and this line report a 500 (#227).
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+test('a settled matchup lists a dropped starter and sums to the stored score (#976)', async (t) => {
+  const body = await getSettledDetail(t);
+  const homeStarterIds = body.home.starters.map((p) => p.id).sort();
+  assert.ok(homeStarterIds.includes(802), `a starter dropped after the week still played it: ${homeStarterIds}`);
+  const homeSum = round2(body.home.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(homeSum, Number(body.matchup.home_score), 'the list and the score of record describe the same team');
+  const awaySum = round2(body.away.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(awaySum, Number(body.matchup.away_score));
+});
+
+test('a settled matchup excludes a player acquired after his own kickoff (#976)', async (t) => {
+  const body = await getSettledDetail(t);
+  const listed = [...body.home.starters, ...body.home.bench].map((p) => p.id);
+  assert.equal(listed.includes(803), false, `acquired after his own kickoff: ${listed}`);
+  // Not bought by emptying the team: the rest of the week is still listed.
+  assert.deepEqual(listed.sort(), [801, 802, 804]);
 });
