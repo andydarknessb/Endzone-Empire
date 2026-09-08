@@ -64,13 +64,14 @@ function createFakePool(handlers = []) {
   }
 
   async function connect() {
-    const state = { released: false, open: false };
+    const state = { released: false, open: false, releaseArg: undefined };
     clients.push(state);
     return {
       query: (sql, params) => dispatch('client', state, sql, params),
-      release: () => {
+      release: (err) => {
         if (state.released) throw new Error('client released twice');
         state.released = true;
+        state.releaseArg = err;
       },
     };
   }
@@ -80,6 +81,10 @@ function createFakePool(handlers = []) {
     matching: (re) => calls.filter((call) => re.test(call.text)),
     query: (sql, params) => dispatch('pool', null, sql, params),
     connect,
+    // The argument each connected client was released with, in connect order:
+    // an Error for a destroy (pg-pool's release(err) drops the socket), or
+    // undefined for a plain return-to-pool. Lets a suite tell the two apart.
+    releaseArgs: () => clients.map((state) => state.releaseArg),
     // Patches the shared pool module for the duration of the test; node:test
     // restores the originals when the test ends.
     install(t) {
@@ -91,6 +96,13 @@ function createFakePool(handlers = []) {
     assertClean() {
       for (const state of clients) {
         if (!state.released) throw new Error('client never released');
+        // A client released WITH an Error was destroyed, not returned to the
+        // pool: pg-pool drops the socket, so Postgres rolls back and frees the
+        // session's locks on disconnect. Any open transaction on it is already
+        // gone, so it is clean regardless of the `open` flag. The leak this
+        // guards against is a client returned to the pool (released with no
+        // argument) while its transaction is still open.
+        if (state.releaseArg instanceof Error) continue;
         if (state.open) throw new Error('transaction left open');
       }
     },

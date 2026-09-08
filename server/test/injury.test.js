@@ -424,6 +424,11 @@ test('#961 failure: one ok=false row carries the error message, and the run stil
   // sync_failed. Control: 'write_failed' here, 'fetch_failed'/'bad_response' in
   // the two pre-transaction tests below.
   assert.equal(detail.reason, 'write_failed', 'a scan failure is the database side');
+  // Ruling 1 control: this scan throws but the ROLLBACK succeeds cleanly, so
+  // the connection is healthy and must be returned to the pool, not destroyed.
+  // Red-tell: destroying on every error path (release with an Error
+  // unconditionally) makes this fail.
+  assert.equal(fake.releaseArgs()[0], undefined, 'an ordinary error keeps its healthy connection');
   fake.assertClean();
 });
 
@@ -580,17 +585,15 @@ test('#1048 rollback rejects: the original error survives and still tags write_f
   assert.equal(detail.message, 'scan blew up', 'the original error message survives the rollback failure');
   assert.equal(detail.reason, 'write_failed', 'a rollback failure never changes the tag');
 
-  // fakePool's dispatch (helpers/fakePool.js:53-62) matches and awaits a
-  // handler before it updates BEGIN/COMMIT/ROLLBACK bookkeeping, so a ROLLBACK
-  // handler that throws never flips the client's `open` flag back off. That is
-  // the fake telling the truth: a ROLLBACK that rejects really does leave the
-  // transaction open, which is the exact hazard this ticket is about. Asserting
-  // that positively, instead of deleting the assertClean() check every sibling
-  // test ends on, keeps a live assertion on the condition that makes the fix
-  // worth having. The client was still released exactly once by the finally,
-  // regardless of the open transaction.
-  assert.throws(() => fake.assertClean(), /transaction left open/,
-    'the fake correctly reports the transaction as left open, since the ROLLBACK never completed');
+  // A rejecting ROLLBACK leaves the transaction open on the socket, so the
+  // finally now releases the client WITH an Error: pg-pool destroys the
+  // connection and Postgres frees the session's locks (the players advisory
+  // lock included) on disconnect. The fake reports clean because the client was
+  // destroyed, not because the transaction closed. Red-tell: reverting the
+  // finally to a bare `client.release()` returns the open-transaction client to
+  // the pool, and this assertClean() goes red on "transaction left open".
+  fake.assertClean();
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
 });
 
 test('#961 best-effort: a record write that throws changes neither outcome nor return value', async (t) => {
