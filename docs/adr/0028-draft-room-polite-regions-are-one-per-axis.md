@@ -116,3 +116,58 @@ setter recreates the second ungated writer that `useAnnouncement`'s docblock
 says #791 folded away; a new shared module for two lines is not worth its own
 surface. A second amendment is cheaper than keeping a clause whose stated
 reasoning does not support its second half.
+
+## Amendment (2026-09-07, #950): a third shared part for one axis in two venues
+
+Filed against #950, which folded the Draft room's and the Draft Sim's
+assistant machinery (the scrollback, the toggle, the line generator, the
+announcement and its clear-on-toggle-off) into one shared hook,
+`useDraftAssistant`. PR #995's body first argued the fold was safe because
+"it shares a hook, not a rendering leaf, so ADR 0028's cap-a-shared-leaf
+precedent does not apply." That argument does not hold and was sent back in
+review; this amendment records the reasoning that does hold, and changes no
+ruling above it.
+
+**The "exactly two" sentence describes the room's five hidden announcers, not
+a ceiling on every hook a venue ever shares.** Consequences above says:
+
+> The shared parts are exactly two: a rendering leaf for the `role="status"`
+> span, and a hook that owns the repeat-safe update (the zero-width-space
+> idiom).
+
+That count is scoped to the five room announcers it is counting; it is not a
+standing bound on the number of shared primitives any two venues may hold.
+`useDraftAssistant` is a third shared part, and read this way that is not a
+violation: it serves a single axis, assistant commentary, across two venues
+that are never mounted together, which is a different question from how many
+parts the five room announcers share among themselves.
+
+**The shared-gating-hook hazard in Why is about differing reset paths across
+different axes, not a shared reset for one axis whose venues never
+co-mount.** The Why section says:
+
+> A shared gating hook would have to carry a reset path that only some
+> announcers own; #513 named that the reset-semantics hazard and #636's
+> state-model fix diverged the two effects on purpose.
+
+The hazard that sentence names is two *different* axes superseding each
+other on one region because their clear paths legitimately differ, exactly
+what #513 and #636 diverged. It does not reach a hook whose two callers are
+the *same* axis, with clear paths that were already byte-identical before
+the fold, in venues that are never mounted at the same time. No supersession
+is possible when only one of the two callers can ever be live.
+
+**`useDraftAssistant` is the case in point.** The Draft room's assistant
+(`DraftRoomAssistant.jsx`, #787) and the Draft Sim's assistant
+(`SimAssistantPanel.jsx`, #786) are one axis, assistant commentary, in two
+venues, not two axes. ADR 0027's rule that venues share primitives, not
+components, governs here: a hook is a primitive, and one primitive serving
+one axis across venues that never co-mount is what that rule expects, not an
+exception to it.
+
+**The limit.** This amendment licenses a shared reset path for one axis
+across venues that are never simultaneously mounted and whose clear paths
+already agree. It does not license folding a second axis into an existing
+shared hook, or sharing a reset path between two axes whose clear paths
+differ or might come to differ. That is still the hazard the Why section
+describes, and it still needs its own ruling before it is done.
