@@ -66,6 +66,10 @@ function whatIfWorld(t, {
       }],
     })],
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ ok: 1 }] })],
+    // #977's finality guard. Every week in this suite is LIVE, so the guard
+    // falls through and the advisor below still runs in full; a settled week
+    // answers `delta: 0, swaps: []` without reaching the lock at all.
+    [/^SELECT COUNT\(\*\)::int AS "n"/, () => ({ rows: [{ n: 2, all_final: false }] })],
     // materializeLineup: a live week, already fully materialized.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
