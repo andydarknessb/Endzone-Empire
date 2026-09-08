@@ -799,6 +799,15 @@ test('a full roster resolves by dropping a bench player before activating the st
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // The #962 write gate on the drop, League then Team, with its own explicit
+    // column lists. Neither shape matcher below is blind enough to answer them
+    // correctly - the gate refuses a League row that cannot answer the freeze.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ id: 5, transactions_locked: false }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ id: 10, locked: false }],
+    })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, locked: false }] })],
     [/^DELETE FROM "team_players"/, (text, params) => {
       const deleted = rosteredPlayerIds.delete(params[1]);
