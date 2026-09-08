@@ -73,23 +73,11 @@ test('run-pg-tests orders every pg file with holdout last', () => {
   assert.deepEqual([...ordered].sort(), files);
   assert.equal(ordered.length, files.length);
 
-  // Every run-last basename sits at the tail, in RUN_LAST order.
+  // Every run-last basename sits at the tail, in RUN_LAST order. Keeping
+  // holdout last is defensive and not established -- see the runner's own
+  // docblock (scripts/run-pg-tests.js) for the full argument.
   assert.deepEqual(ordered.slice(-RUN_LAST.length), RUN_LAST);
   assert.ok(RUN_LAST.includes('holdout.pg.test.js'));
-
-  // The far-future-season seeders must precede holdout: they seed and delete a
-  // far-future season, and holdout inserts append-only ledger rows that cannot
-  // be deleted, so holdout runs after them and the empty-ledger rollback smoke
-  // keeps passing.
-  const holdoutAt = ordered.indexOf('holdout.pg.test.js');
-  for (const seeder of [
-    'backtestSnapshotClient.pg.test.js',
-    'rosterTenures.pg.test.js',
-    'lineupFollowsRoster.pg.test.js',
-  ]) {
-    assert.ok(files.includes(seeder), `${seeder} missing from tree`);
-    assert.ok(ordered.indexOf(seeder) < holdoutAt, `${seeder} must run before holdout`);
-  }
 });
 
 // orderPgTests must fail loudly if a RUN_LAST basename no longer matches a real

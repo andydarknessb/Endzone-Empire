@@ -18,12 +18,18 @@
  *      these files share the single migration-smoke database and are not safe
  *      to interleave, so we pass --test-concurrency=1.
  *
- *   2. Ordering. holdout.pg.test.js inserts append-only ledger rows that by
- *      design cannot be deleted, and the empty-ledger rollback smoke earlier in
- *      migration-smoke must keep passing, so holdout runs LAST -- after the
- *      backtest, roster-tenure and lineup files that seed and delete a
- *      far-future season. The rule: every file in sorted order, except that
- *      RUN_LAST basenames move to the end. RUN_LAST is load-bearing, not
+ *   2. Ordering. holdout.pg.test.js runs LAST. The reason is defensive and
+ *      not established: the migrate/rollback/migrate smoke above this
+ *      script's own step already finished by the time test:pg starts, and
+ *      the postgres:17 service is a fresh per-job container with no declared
+ *      volume, so nothing holdout inserts can reach back and break a step
+ *      that already passed. No pg file today asserts anything globally about
+ *      the ledger being empty, so nothing running after holdout is known to
+ *      break. But holdout's rows are permanent for the rest of the job, so a
+ *      future pg file that did make such an assertion would break if it ran
+ *      after holdout -- keeping holdout last is cheap insurance against a
+ *      file nobody has written yet. The rule: every file in sorted order, except
+ *      that RUN_LAST basenames move to the end. RUN_LAST is load-bearing, not
  *      decorative: holdout.pg.test.js sorts alphabetically AHEAD of the
  *      rosterTenures and lineupFollowsRoster seed-and-delete files, so plain
  *      sorted order would run it too early; force-appending RUN_LAST is what
@@ -53,8 +59,10 @@ const TEST_DIR = path.join(__dirname, '..', 'server', 'test');
 // Basenames of pg files that MUST run last, held explicitly and by basename so
 // a rename is a visible failure here rather than a silent reordering -- same
 // discipline as the SWEEP list in scripts/run-server-tests.js. holdout is here
-// because its append-only ledger rows cannot be deleted; if a second
-// must-run-last file ever appears, add its basename to this list.
+// because its ledger rows are permanent for the rest of the job; that is
+// defensive and not established, since no pg file today asserts anything
+// globally about ledger emptiness. If a file ever needs that guarantee, or a
+// second must-run-last file appears, add its basename to this list.
 const RUN_LAST = ['holdout.pg.test.js'];
 
 function listPgTestFiles() {
