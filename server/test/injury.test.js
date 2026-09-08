@@ -551,6 +551,48 @@ test('#1041 connect failure: pool.connect() rejecting records ok=false with reas
   fake.assertClean();
 });
 
+test('#1048 rollback rejects: the original error survives and still tags write_failed', async (t) => {
+  // The #839 hazard's sibling: a ROLLBACK that itself rejects. The bare
+  // `await client.query('ROLLBACK')` in the transaction catch used to let a
+  // rejecting ROLLBACK replace the scan's original error, so the caller would
+  // see "rollback rejected" instead of "scan blew up" and the write_failed tag
+  // would be lost along with it.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => { throw new Error('scan blew up'); }, 'client'],
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // Red-tell: reverting the inner try/catch around ROLLBACK (leaving the bare
+  // `await client.query('ROLLBACK')`) makes this reject with "rollback
+  // rejected" instead, since the unhandled ROLLBACK rejection replaces boom.
+  const promise = syncInjuries({ api: healthyToQuestionableApi });
+  await assert.rejects(promise, /scan blew up/);
+  const error = await promise.catch((e) => e);
+  assert.equal(error.rollbackError.message, 'rollback rejected',
+    'the rollback failure is attached to the original error, not swallowed silently');
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row despite the rollback failure');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'scan blew up', 'the original error message survives the rollback failure');
+  assert.equal(detail.reason, 'write_failed', 'a rollback failure never changes the tag');
+
+  // fakePool's dispatch (helpers/fakePool.js:53-62) matches and awaits a
+  // handler before it updates BEGIN/COMMIT/ROLLBACK bookkeeping, so a ROLLBACK
+  // handler that throws never flips the client's `open` flag back off. That is
+  // the fake telling the truth: a ROLLBACK that rejects really does leave the
+  // transaction open, which is the exact hazard this ticket is about. Asserting
+  // that positively, instead of deleting the assertClean() check every sibling
+  // test ends on, keeps a live assertion on the condition that makes the fix
+  // worth having. The client was still released exactly once by the finally,
+  // regardless of the open transaction.
+  assert.throws(() => fake.assertClean(), /transaction left open/,
+    'the fake correctly reports the transaction as left open, since the ROLLBACK never completed');
+});
+
 test('#961 best-effort: a record write that throws changes neither outcome nor return value', async (t) => {
   // The table may not exist yet in a given environment (the migration is a
   // maintainer step). A thrown record write must not turn a correct run into a
