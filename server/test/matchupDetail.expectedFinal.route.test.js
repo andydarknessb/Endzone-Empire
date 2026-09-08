@@ -822,3 +822,54 @@ test('an open matchup still opens a transaction and materializes each team once 
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
   assert.equal(materializeMock.mock.callCount(), 2, 'once per team');
 });
+
+// #1017 gave liveWhatIf an optional `weekIsFinal`, so a caller that already
+// holds the settled fact does not make it buy isWeekFinal's own COUNT read
+// again. The route holds that fact on `matchup.final` and now passes it
+// through as `weekIsFinal`. liveWhatIf itself is NOT mocked here (every other
+// case in this file mocks it away): the point is to observe the real call it
+// makes against the fake pool.
+test('a settled matchup passes weekIsFinal into liveWhatIf, buying it out of its own finality COUNT read (#978, #1017)', async (t) => {
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  const answer = (pool, text, params) => {
+    let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
+    if (/"team_players"/.test(text)) rows = rows.filter((p) => SETTLED_ROSTER_TODAY.has(p.id));
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: SETTLED_TENURES, heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answer(SETTLED_BENCH, text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => answer(SETTLED_STARTERS, text, params)],
+    // liveWhatIf's own population read (distinct from the route's own lineup
+    // SQL above: this one leads with lineup_entries.player_id, not players.id).
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: [
+        { player_id: 801, name: 'Kept Starter', position: 'QB', nfl_team: 'KC', slot: 'QB', stats: { passingYards: 250 } },
+        { player_id: 802, name: 'Dropped Starter', position: 'RB', nfl_team: 'DAL', slot: 'RB', stats: { rushingYards: 200 } },
+      ],
+    })],
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  // No isWeekFinal COUNT read: liveWhatIf trusted the weekIsFinal it was handed.
+  assert.deepEqual(fake.matching(/^SELECT COUNT\(\*\)::int AS "n"/), []);
+  // And the settled short-circuit answered: no swaps to advise on a played week.
+  assert.deepEqual(res.body.viewerWhatIf, {
+    teamId: HOME, week: WEEK, actualPoints: 30, optimalPoints: 30, delta: 0, swaps: [],
+  });
+});

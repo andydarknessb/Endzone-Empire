@@ -1082,8 +1082,11 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     if (viewerTeamId) {
       try {
         const { liveWhatIf } = require('../services/decision.service');
+        // The route already holds the settled fact on `matchup.final`; passing
+        // it as `weekIsFinal` buys liveWhatIf out of its own isWeekFinal COUNT
+        // read on a settled request (#978, #1017).
         viewerWhatIf = await liveWhatIf({
-          leagueId, teamId: viewerTeamId, season: matchup.season, week: matchup.week,
+          leagueId, teamId: viewerTeamId, season: matchup.season, week: matchup.week, weekIsFinal: asPlayed,
         });
       } catch (whatIfErr) {
         console.error('live what-if unavailable', whatIfErr.message);
