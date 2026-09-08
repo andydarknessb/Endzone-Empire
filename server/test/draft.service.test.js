@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { teamIndexForPick, addFreeAgent, undoDrop } = require('../services/draft.service');
+const { teamIndexForPick, addFreeAgent, undoDrop, dropPlayer } = require('../services/draft.service');
 const lineupService = require('../services/lineup.service');
 const { createFakePool, select, insert, remove } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
@@ -261,6 +261,109 @@ test('addFreeAgent: a league row that cannot answer the freeze fails closed (#94
   );
   assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not rostered');
   assert.deepEqual(recorder.calls, [], 'a refusal emits nothing');
+  fake.assertClean();
+});
+
+// --- dropPlayer: the #962 freeze gate and the demoted Team-first lock --------
+//
+// The drop was the ONE roster write that locked the Team row FOR UPDATE and
+// then read the League unlocked. requireMember's lock is demoted to a plain
+// read and the gate takes both rows, League then Team, matching
+// forceTransaction (requireCommissioner forUpdate, then the teams row FOR
+// UPDATE) - so a drop and a forced transaction on the same league and team can
+// no longer form an AB/BA pair. The concurrency half of that claim is
+// rosterDropLockOrder.pg.test.js; what these prove is the refusal and the
+// statement order.
+
+const dropLeagueRow = {
+  id: 1,
+  waiver_period_hours: 24,
+  current_season: 2026,
+  current_week: 4,
+};
+
+/**
+ * A drop world. The gate's League and Team reads get their own handlers with
+ * their own rows: the gate reads its OWN League row with an explicit column
+ * list, and a shape matcher blind to the select list would hand it a row that
+ * cannot answer the freeze.
+ */
+function dropWorld({ frozen = false, teamLocked = false, leagueRow } = {}) {
+  const gateLeague = leagueRow === undefined
+    ? { id: 1, transactions_locked: frozen }
+    : leagueRow;
+  return createFakePool([
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [gateLeague] })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 11, locked: teamLocked }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 11, owner_id: 7, locked: teamLocked }] })],
+    [/^SELECT "id", "waiver_period_hours"/, () => ({ rows: [dropLeagueRow] })],
+    [remove('team_players'), () => ({ rows: [{ id: 99 }], rowCount: 1 })],
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT .* FROM "lineup_entries"/, () => ({ rows: [] })],
+    [remove('lineup_entries'), () => ({ rows: [], rowCount: 1 })],
+    [insert('waiver_players'), () => ({ rows: [] })],
+    [insert('transactions'), () => ({ rows: [] })],
+  ]);
+}
+
+test('dropPlayer: a frozen league is refused before the roster row is deleted (#962)', async (t) => {
+  const fake = dropWorld({ frozen: true }).install(t);
+
+  await assert.rejects(
+    dropPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, code: 'TRANSACTIONS_LOCKED', message: 'transactions are locked by the commissioner' }
+  );
+  assert.equal(fake.matching(remove('team_players')).length, 0, 'the roster row survived');
+  assert.equal(fake.matching(insert('waiver_players')).length, 0, 'no waiver hold was written');
+  fake.assertClean();
+});
+
+test('dropPlayer: a locked team is refused, preserving the refusal this path used to raise itself', async (t) => {
+  const fake = dropWorld({ teamLocked: true }).install(t);
+
+  await assert.rejects(
+    dropPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 409, code: 'TEAM_LOCKED', message: 'your team is locked by the commissioner' }
+  );
+  assert.equal(fake.matching(remove('team_players')).length, 0, 'the roster row survived');
+  fake.assertClean();
+});
+
+test('dropPlayer: a league row that cannot answer the freeze fails closed, it does not drop', async (t) => {
+  // The same fail-closed rule the acquire paths get (#944 rule 2), now on the
+  // release side: a row without the column is refused 500, never read as
+  // "not frozen".
+  const fake = dropWorld({ leagueRow: { id: 1 } }).install(t);
+
+  await assert.rejects(
+    dropPlayer({ leagueId: 1, userId: 7, playerId: 500 }),
+    { statusCode: 500, code: 'ROSTER_GATE_INDETERMINATE' }
+  );
+  assert.equal(fake.matching(remove('team_players')).length, 0, 'the roster row survived');
+  fake.assertClean();
+});
+
+test('dropPlayer: an unfrozen league still drops, and locks League before Team (#962)', async (t) => {
+  const fake = dropWorld().install(t);
+
+  const result = await dropPlayer({ leagueId: 1, userId: 7, playerId: 500 });
+  assert.deepEqual(result, { leagueId: 1, teamId: 11, playerId: 500 });
+
+  // The membership read takes NO row lock any more: it is a plain SELECT, and
+  // the only Team lock on the path is the gate's, which comes after the
+  // League lock. Restoring requireMember's forUpdate turns this red.
+  const teamsForUpdate = fake.calls.filter((c) => /^SELECT \* FROM "teams".*FOR UPDATE/.test(c.text));
+  assert.equal(teamsForUpdate.length, 0, 'the membership read is no longer FOR UPDATE');
+
+  const leagueLockAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const teamLockAt = fake.calls.findIndex((c) => /FROM "teams".*FOR UPDATE/.test(c.text));
+  assert.ok(leagueLockAt >= 0 && teamLockAt >= 0, 'both rows are locked');
+  assert.ok(leagueLockAt < teamLockAt, 'League is locked before Team, the one order on every path');
   fake.assertClean();
 });
 

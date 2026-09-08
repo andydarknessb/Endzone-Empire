@@ -109,6 +109,16 @@ function managerDropWorld({
   kickedOff = [], interrupted = null, removals = [], holds = [], bestBall = false,
 } = {}) {
   return createFakePool([
+    // The #962 write gate reads its OWN League and Team rows FOR UPDATE with an
+    // explicit column list, League first. Seeded as their own handlers rather
+    // than by widening the two reads below: a shape matcher is blind to a
+    // select list, so it would hand the gate a row that cannot answer the
+    // freeze and the gate would fail closed. Registered FIRST, since handlers
+    // are tried in order.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 5, transactions_locked: false }] })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 10, locked: false }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, owner_id: 7, locked: false }] })],
     [/^SELECT "id", "waiver_period_hours"/, () => ({
       rows: [{ ...dropLeague, best_ball: bestBall }],

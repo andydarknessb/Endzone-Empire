@@ -208,13 +208,39 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
  * every future week's row go with the roster row. What that row held is
  * recorded on the waiver hold first, because the hold is what gates undo and
  * the row will not be there to read afterwards.
+ *
+ * Lock order is League then Team (#962). This was the ONE path in the server
+ * that inverted it: it took the Team row FOR UPDATE through requireMember and
+ * then read the League unlocked, while every other roster write - and the
+ * commissioner's forced transaction - locks the League first. Adopting the
+ * write gate here without demoting that locking read would have shipped an
+ * AB/BA pair between a drop and a forced transaction on the same league and
+ * team. So the membership read is now a plain SELECT (it takes no row lock at
+ * all), and the gate below is what takes both rows, League first.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const team = await requireMember(client, { leagueId, userId, forUpdate: true });
-    if (team.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+    // Demoted from FOR UPDATE (#962): see the lock-order note above. The Team
+    // row is still locked a statement later, by the gate, in League-then-Team
+    // order, so the drop is no less serialized than it was.
+    const team = await requireMember(client, { leagueId, userId });
+
+    // The write-time roster gate (#940 story 2): a frozen League refuses a
+    // drop, and so does a locked Team - the refusal this path used to raise
+    // itself, now owned by the one module that answers "may this Team release
+    // this player right now". Nothing is bypassed: capacity, the position cap
+    // and the waiver hold are acquire-only and never evaluated on a release.
+    // This is the first lock this transaction takes, and it takes League then
+    // Team.
+    await assertRosterWriteAllowed(client, {
+      leagueId,
+      teamId: team.id,
+      direction: 'release',
+      playerId,
+      bypass: [],
+    });
 
     const leagueResult = await client.query(
       `SELECT "id", "waiver_period_hours", "current_season", "current_week"
