@@ -73,7 +73,18 @@ const TIMEOUT_MS = { fast: 60_000, sweep: 600_000 };
 
 function runSpawn(command, args, options) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: 'inherit', ...options });
+    let child;
+    try {
+      child = spawn(command, args, { stdio: 'inherit', ...options });
+    } catch (err) {
+      // spawn can throw synchronously (e.g. ENAMETOOLONG when the argv is too
+      // long, ENOENT when the binary is missing) before ever emitting 'error'.
+      // Route that to the same message and exit code as the async 'error' path
+      // so the runner reports a clean failure instead of dying with a stack.
+      console.error(`run-server-tests: failed to launch ${command}: ${err.message}`);
+      resolve(1);
+      return;
+    }
     child.on('exit', (code, signal) => {
       if (signal) {
         console.error(`run-server-tests: a runner was terminated by ${signal}`);
@@ -89,7 +100,11 @@ function runSpawn(command, args, options) {
   });
 }
 
-function runNodeTestSet(mode) {
+// The files a mode selects, as basenames read from TEST_DIR. Exits the process
+// if the SWEEP list has gone stale or the mode matched nothing; those are the
+// same fatal conditions as before and are part of what "which files each mode
+// selects" means.
+function selectNodeTestFiles(mode) {
   const all = fs.readdirSync(TEST_DIR).filter((name) => name.endsWith('.test.js')).sort();
 
   const missing = SWEEP.filter((name) => !all.includes(name));
@@ -108,13 +123,33 @@ function runNodeTestSet(mode) {
     process.exit(1);
   }
 
+  return selected;
+}
+
+// The exact spawn descriptor for the node:test set. Kept pure (no spawn, no
+// logging) so the guard (scripts/run-server-tests.test.js) can assert its shape
+// directly: each file is a path relative to REPO_ROOT and the spawn cwd is
+// REPO_ROOT, the same shape runCrossTreeSet uses. `node --test` resolves
+// relative paths against cwd, so the selected set is identical, but the argv
+// stays short (~10 KB instead of ~34 KB from a deep .claude/worktrees checkout),
+// which is what keeps spawn under the OS command-length limit (ENAMETOOLONG).
+function buildNodeTestSpawn(mode, selected) {
+  const files = selected || selectNodeTestFiles(mode);
+  const timeout = mode === 'fast' ? TIMEOUT_MS.fast : TIMEOUT_MS.sweep;
+  return {
+    command: process.execPath,
+    args: ['--test', `--test-timeout=${timeout}`, ...files.map((name) => path.join('server', 'test', name))],
+    options: { cwd: REPO_ROOT },
+  };
+}
+
+function runNodeTestSet(mode) {
+  const selected = selectNodeTestFiles(mode);
   const timeout = mode === 'fast' ? TIMEOUT_MS.fast : TIMEOUT_MS.sweep;
   console.log(`run-server-tests: node:test ${mode}, ${selected.length} files, per-test timeout ${timeout}ms`);
 
-  return runSpawn(
-    process.execPath,
-    ['--test', `--test-timeout=${timeout}`, ...selected.map((name) => path.join(TEST_DIR, name))]
-  );
+  const { command, args, options } = buildNodeTestSpawn(mode, selected);
+  return runSpawn(command, args, options);
 }
 
 function runCrossTreeSet() {
@@ -168,4 +203,10 @@ async function main() {
   process.exit(nodeTestCode !== 0 || crossTreeCode !== 0 ? 1 : 0);
 }
 
-main();
+// Only run when invoked as the CLI (node scripts/run-server-tests.js). Under
+// require() -- the guard -- the module exports its builders without spawning.
+if (require.main === module) {
+  main();
+}
+
+module.exports = { REPO_ROOT, TEST_DIR, selectNodeTestFiles, buildNodeTestSpawn };
