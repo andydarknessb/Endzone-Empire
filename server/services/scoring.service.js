@@ -1917,7 +1917,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
          FROM "lineup_entries"
          ${currentRosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-         JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
          WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
            AND "lineup_entries"."week" = $3

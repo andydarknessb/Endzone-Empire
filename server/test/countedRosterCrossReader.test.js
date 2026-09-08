@@ -43,12 +43,29 @@ const ROSTER_SLOTS = [
 ];
 
 /**
- * A settled world serving BOTH readers over one set of rows and tenures. The
- * population handlers reproduce the join drift the two settle branches carry
- * (#1010): the standard branch's SQL drops BENCH and IR (read out of the
- * statement), the best-ball and hindsight reads select every slot.
+ * A settled world serving BOTH readers over one set of rows and tenures. Each
+ * population handler reproduces what its real query does, reading the behaviour
+ * out of the emitted statement rather than hard-coding one answer:
+ *   - The standard settle read reproduces the SLOT drop (BENCH and IR, the
+ *     `slot NOT IN (...)` filter its SQL has always carried; a slot filter, not
+ *     a join), AND the player_stats JOIN (#1010): it reads whether the statement
+ *     inner- or left-joins player_stats and, on an INNER join, drops a statless
+ *     starter (a `players` entry with `stats: null`, modelling a lineup row with
+ *     no matching player_stats row) exactly as the database would.
+ *   - The best-ball and hindsight reads select every slot and left-join.
+ * After #1010 both settle branches left-join, so neither carries join drift any
+ * more; the standard handler still models EITHER join so this file's #1010 case
+ * can gate the fix (restore the INNER join and the statless starter drops).
+ *
+ * `populations` records, per teamId, the player ids each reader's population
+ * read handed back. The readers discard countedRoster's `counted` array, so the
+ * scoring population is not on the wire; this capture is the weaker of the two
+ * evidences the ruling names (the emitted statement plus the returned rows), and
+ * it is a real gate: on the standard settle read it depends on the join text the
+ * production query emits at scoring.service.js:1920.
  */
 function settledWorld({ bestBall, players, lineupEntries, tenures }) {
+  const populations = { settleStandard: new Map(), hindsight: new Map() };
   const league = {
     id: LEAGUE_ID, current_season: SEASON, current_week: WEEK + 1,
     best_ball: bestBall, roster_slots: ROSTER_SLOTS, bench_slots: 5, ir_slots: 1,
@@ -78,7 +95,11 @@ function settledWorld({ bestBall, players, lineupEntries, tenures }) {
     ...tenureHandlers({ schedule: SCHEDULE, tenures, heldSince: null }),
     // weekHindsight's read: every slot, LEFT JOIN, carries name + position.
     [/^SELECT "lineup_entries"\."player_id", "players"\."name", "players"\."position"/,
-      (text, [teamId]) => ({ rows: rowsFor(teamId).map((e) => shape(e, true)) })],
+      (text, [teamId]) => {
+        const rows = rowsFor(teamId).map((e) => shape(e, true));
+        populations.hindsight.set(teamId, rows.map((r) => r.player_id));
+        return { rows };
+      }],
     // Best-ball settle read: every slot, LEFT JOIN, carries position.
     [/^SELECT "lineup_entries"\."player_id", "lineup_entries"\."slot"/,
       (text, [teamId]) => ({ rows: rowsFor(teamId).map((e) => shape(e, false)) })],
@@ -92,14 +113,21 @@ function settledWorld({ bestBall, players, lineupEntries, tenures }) {
     [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team", "player_stats"\."stats"/,
       (text, [teamId]) => {
         const dropsBench = /"slot" NOT IN \('BENCH', 'IR'\)/.test(text);
-        return {
-          rows: rowsFor(teamId)
-            .filter((e) => !dropsBench || (e.slot !== 'BENCH' && e.slot !== 'IR'))
-            .map((e) => {
-              const p = players.get(e.player_id);
-              return { player_id: e.player_id, nfl_team: p.nfl_team, stats: p.stats };
-            }),
-        };
+        // player_stats JOIN drift (#1010): an INNER join drops a starter with no
+        // player_stats row (modelled here as `stats: null`, meaning the join
+        // found no match); a LEFT join keeps him and he prices at 0. Read the
+        // join out of the statement, the same way the drop clause above is read,
+        // so this population answers the production SQL rather than a canned set.
+        const leftJoinsStats = /LEFT JOIN "player_stats"/.test(text);
+        const rows = rowsFor(teamId)
+          .filter((e) => !dropsBench || (e.slot !== 'BENCH' && e.slot !== 'IR'))
+          .filter((e) => leftJoinsStats || players.get(e.player_id).stats != null)
+          .map((e) => {
+            const p = players.get(e.player_id);
+            return { player_id: e.player_id, nfl_team: p.nfl_team, stats: p.stats };
+          });
+        populations.settleStandard.set(teamId, rows.map((r) => r.player_id));
+        return { rows };
       }],
     [/^SELECT \* FROM "matchups"/, (text, [leagueId, season, week]) => ({
       rows: matchups
@@ -114,7 +142,7 @@ function settledWorld({ bestBall, players, lineupEntries, tenures }) {
       return { rows: [] };
     }],
   ];
-  return { matchups, fake: createFakePool(handlers) };
+  return { matchups, fake: createFakePool(handlers), populations };
 }
 
 const held = (teamId, playerId) => tenure(teamId, playerId, HELD_ALL_SEASON);
@@ -185,4 +213,59 @@ test('#954 best ball: the settle pass and weekHindsight agree on the score of re
   assert.equal(scoreOfRecord, 38, 'best ball scores the optimal lineup QB 8 + RB 30; the IR 50 is excluded');
   assert.equal(h.actualPoints, scoreOfRecord, 'best-ball hindsight actual equals the settle pass score of record');
   assert.equal(h.pointsLeftOnBench, 0, 'best ball leaves nothing on the bench');
+});
+
+test('#1010 standard: a statless starter is in the counted population at zero, and both readers agree by player id', async (t) => {
+  // Team B started QB 1 (10 pts) and RB 2, who has NO player_stats row for the
+  // week (statless). He is a started player who scored nothing, so he belongs to
+  // the week's counted roster priced at 0; the score of record is the QB's 10
+  // with him or without him, which is precisely why a total-only assertion is
+  // blind here. This world has NO bench and NO IR, so each reader's raw
+  // population read IS its scoring population and the two are directly
+  // comparable by player id.
+  const players = new Map([
+    [1, { name: 'QB', position: 'QB', nfl_team: 'Chiefs', stats: { passingYards: 250 } }], // 10
+    [2, { name: 'Statless RB', position: 'RB', nfl_team: 'Eagles', stats: null }], // 0, no player_stats row
+    [9, { name: 'Home QB', position: 'QB', nfl_team: 'Chiefs', stats: { passingYards: 200 } }], // 8
+  ]);
+  const world = settledWorld({
+    bestBall: false,
+    players,
+    lineupEntries: [
+      { team_id: TEAM_A, player_id: 9, season: SEASON, week: WEEK, slot: 'QB' },
+      { team_id: TEAM_B, player_id: 1, season: SEASON, week: WEEK, slot: 'QB' },
+      { team_id: TEAM_B, player_id: 2, season: SEASON, week: WEEK, slot: 'RB' },
+    ],
+    tenures: [held(TEAM_A, 9), held(TEAM_B, 1), held(TEAM_B, 2)],
+  });
+  world.fake.install(t);
+
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK, settle: true });
+  const scoreOfRecord = Number(world.matchups[0].away_score);
+  const h = await weekHindsight({ leagueId: LEAGUE_ID, teamId: TEAM_B, season: SEASON, week: WEEK });
+
+  // The counted populations, observed as the rows each reader's population read
+  // handed back for team B, sorted by player id. This is the weaker of the two
+  // evidences the ruling names: the readers discard countedRoster's `counted`
+  // array, so the population is not on the wire, but the standard settle capture
+  // is bound to the production join text at scoring.service.js:1920.
+  const settlePop = [...world.populations.settleStandard.get(TEAM_B)].sort((a, b) => a - b);
+  const hindsightPop = [...world.populations.hindsight.get(TEAM_B)].sort((a, b) => a - b);
+
+  // POPULATION, not total. RED-TELL: restoring `JOIN "player_stats"` (the INNER
+  // join) at scoring.service.js:1920 drops the statless RB (id 2) from settlePop
+  // and turns the equality below red. The score-of-record assertion further down
+  // stays green through that mutation, which is why it cannot be the gate.
+  assert.deepEqual(settlePop, [1, 2], 'settle pass counts the QB and the statless RB');
+  assert.deepEqual(hindsightPop, [1, 2], 'weekHindsight counts the QB and the statless RB');
+  assert.deepEqual(settlePop, hindsightPop, 'both readers agree on the counted population by player id');
+  assert.ok(
+    settlePop.includes(2) && hindsightPop.includes(2),
+    'the statless starter is in both counted populations',
+  );
+
+  // At zero, and the score of record is unchanged by his presence: 10 is the QB
+  // alone. Numbers quoted for the PR body.
+  assert.equal(scoreOfRecord, 10, 'score of record is the QB 10; the statless RB adds 0');
+  assert.equal(h.actualPoints, scoreOfRecord, 'weekHindsight actual equals the settle pass score of record');
 });

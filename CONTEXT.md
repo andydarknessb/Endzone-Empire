@@ -795,7 +795,10 @@ The scoring run that produces the score of record. It counts the week's lineup
 entries as played and excludes a player unless one of the team's tenures covered
 his game's kickoff: began at or before it and had not ended by it. A tenure
 that began after kickoff and one that ended before it are both excluded; a
-player with no game that week is never excluded. The same predicate governs a
+player with no game that week is never excluded. A statless starter, one in a
+starting slot with no `player_stats` row for that season and week, is in the
+counted roster and prices at zero: being started is what counts him, not
+whether the stats feed produced a row. The same predicate governs a
 re-score of a final week. In best ball a candidate must also have been held at
 the week's last kickoff: a player dropped after his own game but before the
 week's last kickoff does not score (ADR 0022). Hindsight reads the same
