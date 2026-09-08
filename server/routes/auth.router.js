@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { signToken, requireAuth } = require('../modules/auth');
 const account = require('../services/account.service');
@@ -61,38 +62,48 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'password must be between 8 and 128 characters' });
   }
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const existing = await client.query(
-      `SELECT 1 FROM "users"
-       WHERE lower("username") = lower($1) OR lower("email") = lower($2)`,
-      [username, email]
+    const { user, refreshToken } = await withTransaction(
+      pool,
+      async (client) => {
+        const existing = await client.query(
+          `SELECT 1 FROM "users"
+           WHERE lower("username") = lower($1) OR lower("email") = lower($2)`,
+          [username, email]
+        );
+        // Read-only refusal before the INSERT: throw (not respond-and-return)
+        // so the wrapper rolls the read back instead of committing it (ADR 0033,
+        // #1065 Ruling 2). The throw carries a statusCode the catch maps, the
+        // settled idiom (#967). auth.router has no coded error of its own, so
+        // the account-domain AccountError - already imported and shaped
+        // (statusCode, message) - carries the 409; the catch's own 23505 branch
+        // still answers the same refusal raised by the unique index below.
+        if (existing.rows[0]) {
+          throw new account.AccountError(409, 'username or email already in use');
+        }
+        const hash = await encryptLib.encryptPassword(password);
+        const result = await client.query(
+          `INSERT INTO "users" ("username", "email", "password")
+           VALUES ($1, $2, $3) RETURNING "id", "username", "email"`,
+          [username, email, hash]
+        );
+        const created = publicUser(result.rows[0]);
+        const token = await tokens.issueRefreshToken({ userId: created.id }, client);
+        return { user: created, refreshToken: token };
+      },
+      { label: 'register' }
     );
-    if (existing.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'username or email already in use' });
-    }
-    const hash = await encryptLib.encryptPassword(password);
-    const result = await client.query(
-      `INSERT INTO "users" ("username", "email", "password")
-       VALUES ($1, $2, $3) RETURNING "id", "username", "email"`,
-      [username, email, hash]
-    );
-    const user = publicUser(result.rows[0]);
-    const refreshToken = await tokens.issueRefreshToken({ userId: user.id }, client);
-    await client.query('COMMIT');
+    // Post-commit work: the cookie and body ship after the connection is back
+    // in the pool (ADR 0033).
     setRefreshCookie(res, refreshToken);
     return res.status(201).json({ token: signToken(user), user });
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     if (error.code === '23505') {
       return res.status(409).json({ error: 'username or email already in use' });
     }
     logger.error({ err: error }, 'registration failed');
     return res.status(500).json({ error: 'registration failed' });
-  } finally {
-    client.release();
   }
 });
 

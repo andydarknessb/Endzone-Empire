@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { logger } = require('../modules/logger');
 
@@ -94,39 +95,38 @@ async function resetPassword({ token, newPassword }) {
   ) {
     throw new AccountError(400, 'password must be between 8 and 128 characters');
   }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const tokenResult = await client.query(
-      `SELECT * FROM "auth_tokens"
-       WHERE "token_hash" = $1 AND "type" = 'reset' AND "used" = false AND "expires_at" > now()
-       FOR UPDATE`,
-      [hashToken(token)]
-    );
-    const row = tokenResult.rows[0];
-    if (!row) throw new AccountError(400, 'invalid or expired reset token');
-    await client.query(
-      `UPDATE "users" SET "password" = $1, "updated_at" = now() WHERE "id" = $2`,
-      [await encryptLib.encryptPassword(newPassword), row.user_id]
-    );
-    await client.query(
-      `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
-      [row.id]
-    );
-    // A password reset invalidates every refresh session for the account
-    await client.query(
-      `UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
-       WHERE "user_id" = $1 AND "revoked" = false`,
-      [row.user_id]
-    );
-    await client.query('COMMIT');
-    return { ok: true };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  return withTransaction(
+    pool,
+    async (client) => {
+      const tokenResult = await client.query(
+        `SELECT * FROM "auth_tokens"
+         WHERE "token_hash" = $1 AND "type" = 'reset' AND "used" = false AND "expires_at" > now()
+         FOR UPDATE`,
+        [hashToken(token)]
+      );
+      const row = tokenResult.rows[0];
+      // A read-only refusal: no write precedes it, so throwing (not returning)
+      // lets the wrapper roll the FOR UPDATE read back instead of committing it
+      // (ADR 0033, #1065 Ruling 2).
+      if (!row) throw new AccountError(400, 'invalid or expired reset token');
+      await client.query(
+        `UPDATE "users" SET "password" = $1, "updated_at" = now() WHERE "id" = $2`,
+        [await encryptLib.encryptPassword(newPassword), row.user_id]
+      );
+      await client.query(
+        `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
+        [row.id]
+      );
+      // A password reset invalidates every refresh session for the account
+      await client.query(
+        `UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
+         WHERE "user_id" = $1 AND "revoked" = false`,
+        [row.user_id]
+      );
+      return { ok: true };
+    },
+    { label: 'password-reset' }
+  );
 }
 
 /** Send (or resend) the email-verification link for a logged-in user. */
@@ -152,33 +152,31 @@ async function requestEmailVerification({ userId, appOrigin }) {
 /** Complete email verification. */
 async function verifyEmail({ token }) {
   if (!token || typeof token !== 'string') throw new AccountError(400, 'token is required');
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const tokenResult = await client.query(
-      `SELECT * FROM "auth_tokens"
-       WHERE "token_hash" = $1 AND "type" = 'verify' AND "used" = false AND "expires_at" > now()
-       FOR UPDATE`,
-      [hashToken(token)]
-    );
-    const row = tokenResult.rows[0];
-    if (!row) throw new AccountError(400, 'invalid or expired verification token');
-    await client.query(
-      `UPDATE "users" SET "email_verified" = true, "updated_at" = now() WHERE "id" = $1`,
-      [row.user_id]
-    );
-    await client.query(
-      `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
-      [row.id]
-    );
-    await client.query('COMMIT');
-    return { ok: true };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  return withTransaction(
+    pool,
+    async (client) => {
+      const tokenResult = await client.query(
+        `SELECT * FROM "auth_tokens"
+         WHERE "token_hash" = $1 AND "type" = 'verify' AND "used" = false AND "expires_at" > now()
+         FOR UPDATE`,
+        [hashToken(token)]
+      );
+      const row = tokenResult.rows[0];
+      // Read-only refusal before any write: throw so the wrapper rolls the
+      // FOR UPDATE read back rather than committing it (ADR 0033, Ruling 2).
+      if (!row) throw new AccountError(400, 'invalid or expired verification token');
+      await client.query(
+        `UPDATE "users" SET "email_verified" = true, "updated_at" = now() WHERE "id" = $1`,
+        [row.user_id]
+      );
+      await client.query(
+        `UPDATE "auth_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
+        [row.id]
+      );
+      return { ok: true };
+    },
+    { label: 'email-verify' }
+  );
 }
 
 module.exports = {
