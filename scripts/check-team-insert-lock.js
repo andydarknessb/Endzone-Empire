@@ -39,10 +39,14 @@
  * and the known site named by path (server/test/teamInsertLockGuard.test.js).
  *
  * SCOPE. All non-test source under server/ - services AND routes AND modules,
- * not services alone (#1043 ruling): the threat model names a commissioner "add
- * team" path, and nothing stops such a path landing in a router, so scanning
- * services alone would be blind to one of the two futures this guard exists to
- * catch. server/test/ is excluded so fixture SQL in tests does not trip it.
+ * not services alone. The acceptance criterion says "the services directory",
+ * but the issue's own threat model names a commissioner "add team" path, and
+ * nothing stops such a path landing in a router, so scanning services alone
+ * would be blind to one of the two futures this guard exists to catch. Scanning
+ * all of server/ is a strict superset of the services directory, so it cannot
+ * miss anything a services-only scan would catch; the choice to exceed the
+ * criterion this way is called out in the PR. server/test/ is excluded so
+ * fixture SQL in tests does not trip it.
  *
  * Comments are stripped first (check-color-literals.js's own stripper, which
  * keeps string and template-literal bodies verbatim so the SQL inside them is
@@ -67,8 +71,9 @@ const ROOT_DIRECTORIES = Object.freeze({
 
 // A statement inserting a Team row. The table name and its opening paren need
 // not be on one line, and either may be quoted or bare, so this stays a hair
-// wider than the one shape in the tree today (#1043 ruling 2: a matcher a hair
-// too narrow empties the discovery set and the guard goes vacuously green).
+// wider than the one shape in the tree today: a matcher a hair too narrow would
+// empty the discovery set (size one today) and the guard would go vacuously
+// green while asserting nothing.
 const TEAM_INSERT_SOURCE = 'INSERT\\s+INTO\\s+"?teams"?';
 // Global, for matchAll (which copies lastIndex, so it stays reentrant). Never
 // call `.test()` on this one - use a fresh non-global regex for that.

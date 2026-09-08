@@ -6,8 +6,8 @@
  * This file pins BOTH halves of a source-derived guard, because a guard that
  * discovers its own inputs fails silently when the DISCOVERY breaks, not only
  * when its assertion does - and the discovery set here has size ONE, so a
- * matcher a hair too narrow would empty it and leave the guard vacuously green
- * (#1043 ruling 2). So:
+ * matcher a hair too narrow would empty it and leave the guard vacuously green.
+ * So:
  *
  *  - the RULE holds (no unlocked Team-insert exists);
  *  - the SCAN actually reaches the tree (a non-emptiness floor), and finds the
@@ -131,7 +131,8 @@ test('a teams lock (not a leagues lock) does not satisfy the rule', () => {
 
 test('an arrow-function handler counts as an enclosing function', () => {
   // Route handlers are arrows, and a commissioner "add team" path could land in
-  // one (#1043 ruling 3), so the finder must scope by an arrow body too.
+  // one (the reason the scan covers routes, not services alone), so the finder
+  // must scope by an arrow body too.
   const locked = `router.post('/x', async (req, res) => {\n  ${q(LEAGUE_LOCK)}\n  ${q(TEAM_INSERT)}\n});\n`;
   const unlocked = `router.post('/x', async (req, res) => {\n  ${q(TEAM_INSERT)}\n});\n`;
   assert.deepEqual(unlockedTeamInserts(locked), []);
@@ -190,6 +191,23 @@ test('an unbalanced brace inside a string does not mis-scope a locked insert', (
     '',
   ].join('\n');
   assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
+test('an unbalanced brace in a regex literal fails CLOSED, never open', () => {
+  // maskLiterals does not mask regex bodies (telling `/` division from a regex
+  // opener needs a full tokenizer), so a `{` in `/[{]/` still counts as a
+  // structural brace and can mis-scope the walk. The module docblock claims that
+  // fails CLOSED - a spurious violation, never a silent pass. Pin the direction
+  // that matters: an UNLOCKED insert alongside such a regex is STILL reported,
+  // so the hazard can never hide a genuinely unlocked insert.
+  const src = [
+    'async function addTeam(client, id) {',
+    '  const re = /[{]/;',
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), [{ line: 3 }]);
 });
 
 test('a control block between lock and insert does not break scoping', () => {
