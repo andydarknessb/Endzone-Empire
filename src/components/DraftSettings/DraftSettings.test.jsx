@@ -378,3 +378,27 @@ test('saving keeper settings preserves and continues guarding unsaved assignment
   await userEvent.click(screen.getByRole('tab', { name: 'Timer' }));
   expect(screen.getByRole('dialog', { name: /You have unsaved changes/ })).toBeInTheDocument();
 });
+
+// #969: Draft settings reads its refusals through readHttpFailure; its private
+// `errorMessage` helper (a twelfth hand-rolled spelling) is deleted. The
+// envelope below is shape (b) - `error` holds the machine CODE, the sentence
+// rides in `message` - which the deleted helper read backwards, putting
+// DRAFT_NOT_READY in the dialog where the sentence belongs.
+test('a start refusal carrying a code beside a message shows the message, not the code', async () => {
+  mockData();
+  apiClient.post.mockRejectedValueOnce({
+    response: {
+      status: 409,
+      data: { error: 'DRAFT_NOT_READY', message: 'Every team must be ready.' },
+    },
+  });
+  renderSettings();
+  await screen.findByText('Sunday Ballers');
+  await userEvent.click(screen.getByRole('tab', { name: 'Schedule' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start Draft Now' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start now' }));
+
+  const dialog = screen.getByRole('dialog', { name: 'Start draft now?' });
+  expect(await within(dialog).findByText('Every team must be ready.')).toBeInTheDocument();
+  expect(screen.queryByText('DRAFT_NOT_READY')).not.toBeInTheDocument();
+});

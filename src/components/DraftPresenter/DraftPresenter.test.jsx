@@ -175,3 +175,28 @@ test('the presenter link carries no Draft assistant: no panel, no toggle, no ban
   expect(screen.queryByRole('list', { name: 'Draft assistant commentary' })).not.toBeInTheDocument();
   expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
 });
+
+// #969: the presenter reads its load failure through readHttpFailure. The
+// envelope below is shape (c) - `code`, `message` and a requestId, with no
+// `error` key at all, which is what the global express error handler and the
+// rate limiter emit. The old hand-rolled `error?.response?.data?.error` found
+// nothing there and fell through to the generic fallback, discarding the only
+// sentence the server sent.
+test('a load failure in the code/message/requestId envelope renders its message, not the fallback', async () => {
+  mockPresenterGet.mockImplementation((url) => Promise.reject(
+    isActivityUrl(url)
+      ? new Error('activity unavailable')
+      : {
+        response: {
+          status: 429,
+          data: { code: 'RATE_LIMITED', message: 'Too many requests. Try again shortly.', requestId: 'r-1' },
+        },
+      }
+  ));
+
+  renderWithProviders(<DraftPresenter />, { path: '/present/:token', route: '/present/share-token' });
+
+  expect(await screen.findByText('Too many requests. Try again shortly.')).toBeInTheDocument();
+  expect(screen.queryByText('Unable to load this draft board.')).not.toBeInTheDocument();
+  expect(screen.queryByText('RATE_LIMITED')).not.toBeInTheDocument();
+});

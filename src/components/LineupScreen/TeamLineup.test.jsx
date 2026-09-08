@@ -347,3 +347,29 @@ test('keeps a Bench what-if swap in the query while it normalises the League sel
   expect(offer).toHaveTextContent('Reserve Receiver');
   expect(offer).toHaveTextContent('Bench Receiver');
 });
+
+// #970: the Team page reads a roster load failure through readHttpFailure. The
+// envelope is shape (b): the machine CODE in `error`, the sentence in
+// `message`. The old hand-rolled `err.response?.data?.error` read the code, so
+// the Alert on this page showed ROSTER_UNAVAILABLE.
+test('a roster load refusal carrying a code beside a message renders the message, not the code', async () => {
+  mockTeamApi();
+  const defaultGet = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url) => (
+    url.startsWith('/api/team/roster')
+      ? Promise.reject({
+        response: {
+          status: 503,
+          data: { error: 'ROSTER_UNAVAILABLE', message: 'Your roster is briefly unavailable. Try again shortly.' },
+        },
+      })
+      : defaultGet(url)
+  ));
+
+  renderWithProviders(<TeamLineup />);
+
+  expect(
+    await screen.findByText('Your roster is briefly unavailable. Try again shortly.')
+  ).toBeInTheDocument();
+  expect(screen.queryByText('ROSTER_UNAVAILABLE')).not.toBeInTheDocument();
+});

@@ -39,6 +39,7 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import SearchIcon from "@mui/icons-material/Search";
 import SwapVertIcon from "@mui/icons-material/SwapVert";
 import apiClient from "../../api/apiClient";
+import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerQuickView from "../PlayerQuickView/PlayerQuickView";
 import PlayerAvatar from "../PlayerQuickView/PlayerAvatar";
 import PositionChip from "../PlayerQuickView/PositionChip";
@@ -197,7 +198,7 @@ function PlayerManagement() {
     [setSearchParams],
   );
   const report = useCallback(
-    (err) => setError(err.response?.data?.error || err.message),
+    (err) => setError(readHttpFailure(err).message || err.message),
     [],
   );
 
@@ -283,7 +284,7 @@ function PlayerManagement() {
         await fetchPlayers();
       } catch (err) {
         report(err);
-        notify(err.response?.data?.error || err.message, { severity: "error" });
+        notify(readHttpFailure(err).message || err.message, { severity: "error" });
       }
     },
     [fetchPlayers, notify, report, selectedLeague],

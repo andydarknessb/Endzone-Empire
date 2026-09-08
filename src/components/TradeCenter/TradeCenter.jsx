@@ -26,6 +26,7 @@ import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import ConstructionOutlinedIcon from '@mui/icons-material/ConstructionOutlined';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
@@ -95,7 +96,7 @@ function TradeAnalysisPanel({ leagueId, receivingTeamId, offeredPlayerIds, reque
       });
       setResult(res.data);
     } catch (err) {
-      setAnalyzeError(err.response?.data?.error || err.message);
+      setAnalyzeError(readHttpFailure(err).message || err.message);
     } finally {
       setAnalyzing(false);
     }
@@ -289,7 +290,7 @@ function TradeCenter() {
       setTrades(tradesRes.data.trades || []);
       setRosters(rostersRes.data || []);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
     }
@@ -345,8 +346,9 @@ function TradeCenter() {
       setCounterTradeId(null);
       await fetchTrades();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      notify(message, { severity: 'error' });
     }
   };
 
@@ -357,8 +359,9 @@ function TradeCenter() {
       notify(message);
       await fetchTrades();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      notify(message, { severity: 'error' });
     }
   };
 

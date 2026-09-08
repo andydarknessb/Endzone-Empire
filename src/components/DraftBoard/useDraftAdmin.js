@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
@@ -27,7 +28,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       await apiClient.post(`/api/draft/league/${leagueId}/order`, { randomize: true });
       notify('Draft order randomized');
     } catch (err) {
-      onError?.(err.response?.data?.error || err.message);
+      onError?.(readHttpFailure(err).message || err.message);
     }
   };
 
@@ -39,7 +40,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       notify('Draft started successfully!');
       return { success: true };
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       onError?.(message);
       notify(message, { severity: 'error' });
       return { success: false, error: message };
@@ -51,7 +52,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       onError?.(null);
       await apiClient.post(`/api/draft/league/${leagueId}/pause`, { paused: !league?.draft_paused });
     } catch (err) {
-      onError?.(err.response?.data?.error || err.message);
+      onError?.(readHttpFailure(err).message || err.message);
     }
   };
 
@@ -62,7 +63,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       onError?.(null);
       await apiClient.post(`/api/draft/league/${leagueId}/teams/${teamId}/autodraft`, { enabled });
     } catch (err) {
-      onError?.(err.response?.data?.error || err.message);
+      onError?.(readHttpFailure(err).message || err.message);
     }
   };
 
@@ -74,7 +75,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       notify('Clock updated for the next pick');
       return true;
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       onError?.(message);
       notify(message, { severity: 'error' });
       return false;
@@ -94,7 +95,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       notify('Latest pick corrected; draft paused');
       return true;
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       onError?.(message);
       notify(message, { severity: 'error' });
       return false;
@@ -109,7 +110,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       notify('Draft reset; schedule cleared');
       return true;
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       onError?.(message);
       notify(message, { severity: 'error' });
       return false;
@@ -123,7 +124,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       notify(ready ? 'You are marked ready' : 'You are marked not ready');
       return true;
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       onError?.(message);
       notify(message, { severity: 'error' });
       return false;
@@ -144,7 +145,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       }
       return url;
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       onError?.(message);
       notify(message, { severity: 'error' });
       return null;
@@ -168,7 +169,7 @@ export default function useDraftAdmin(leagueId, league, { onError } = {}) {
       }
       clearLeagueCache(leagueId);
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       onError?.(message);
       notify(message, { severity: 'error' });
     } finally {
