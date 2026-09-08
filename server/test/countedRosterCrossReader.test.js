@@ -82,16 +82,23 @@ function settledWorld({ bestBall, players, lineupEntries, tenures }) {
     // Best-ball settle read: every slot, LEFT JOIN, carries position.
     [/^SELECT "lineup_entries"\."player_id", "lineup_entries"\."slot"/,
       (text, [teamId]) => ({ rows: rowsFor(teamId).map((e) => shape(e, false)) })],
-    // Standard settle read: no position, and the SQL itself drops BENCH and IR.
-    // Read that clause out of the statement so this handler answers the real
-    // population, not a canned one (the scoreOfRecordTenure.test.js pattern).
+    // Standard settle read: the real SQL selects ONLY player_id, nfl_team and
+    // stats - no slot, no position - and drops BENCH and IR in the statement
+    // itself. Return exactly those columns (so the rows countedRoster prices on
+    // this branch are genuinely slot-less and position-less, as in production),
+    // and read the drop clause out of the statement to answer the real
+    // population rather than a canned one (the scoreOfRecordTenure.test.js
+    // pattern).
     [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team", "player_stats"\."stats"/,
       (text, [teamId]) => {
         const dropsBench = /"slot" NOT IN \('BENCH', 'IR'\)/.test(text);
         return {
           rows: rowsFor(teamId)
             .filter((e) => !dropsBench || (e.slot !== 'BENCH' && e.slot !== 'IR'))
-            .map((e) => shape(e, false)),
+            .map((e) => {
+              const p = players.get(e.player_id);
+              return { player_id: e.player_id, nfl_team: p.nfl_team, stats: p.stats };
+            }),
         };
       }],
     [/^SELECT \* FROM "matchups"/, (text, [leagueId, season, week]) => ({
