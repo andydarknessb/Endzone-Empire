@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
+const { withTransaction } = require('../modules/withTransaction');
 const { tank01Get } = require('../modules/tank01Client');
 const {
   materializeLineup, POSITION_GROUPS,
@@ -1179,121 +1180,104 @@ async function runInjurySync(api) {
     });
   }
 
-  let client;
-  try {
-    client = await pool.connect();
-  } catch (error) {
-    // Pool exhaustion or refusal (the #839 shape) is the database side, and
-    // this sits above the transaction try/catch/finally on purpose: client is
-    // undefined here, so folding this into that catch would ROLLBACK and
-    // release() on nothing, turning a connection failure into a TypeError
-    // that swallows the original error.
-    error.syncFailureReason = error.syncFailureReason || 'write_failed';
-    throw error;
-  }
   let irFlags;
   let matchedCount = 0;
-  let rollbackError = null;
   try {
-    await client.query('BEGIN');
-    // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
-    // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
-    // different order across its wipe and bulk set. Both writers take one
-    // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK) as the FIRST
-    // statement after BEGIN, before any row lock, so they cannot interleave into
-    // a deadlock cycle. Blocking xact form (pg_advisory_xact_lock): the second
-    // sync waits rather than skipping. The wait ends when the other sync's
-    // transaction finishes (no network I/O inside either transaction, so it is
-    // short) OR when statement_timeout fires (pool.js sets it on every pooled
-    // connection, 15s web / 30s worker, and it counts lock-wait time), whichever
-    // comes first. The designation write below is a SINGLE bulk statement (#929),
-    // not the ~3,000 sequential single-row writes the per-player loop once took.
-    // The lock is transaction-scoped, so it is held for the whole transaction:
-    // the scan, that one bulk write, and the IR flag pass (flagRecoveredIrStashes,
-    // still inside this transaction below - a select over the current IR stashes
-    // plus one notify insert per flagged stash, usually none), released at COMMIT.
-    // That is a far shorter hold than the loop's, so a 57014 cancellation of a
-    // blocked wait is far less likely to be reached in the first place. The lock
-    // releases with the transaction either way, so there is no explicit unlock and
-    // nothing strands behind the pooler (#839): with COMMIT, with ROLLBACK, or,
-    // when the ROLLBACK itself rejects, with the destroyed connection (the
-    // release-with-error in the finally below, which drops the socket so Postgres
-    // frees the session's locks on disconnect).
-    await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
-    const playersResult = await client.query(
-      `SELECT "id", "external_id", "injury_status"
-         FROM "players" WHERE "external_id" IS NOT NULL
-         FOR UPDATE`
-    );
-    // Build three parallel arrays (ids int[], statuses/details text[]) over
-    // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
-    // designation writes null into both text columns, and nulls survive into the
-    // text[] as SQL NULL. transitions is built over the SAME matches and drives
-    // both playersUpdated and the IR flag pass, independent of which rows the
-    // statement actually writes.
-    const transitions = [];
-    const ids = [];
-    const statuses = [];
-    const details = [];
-    for (const player of playersResult.rows) {
-      const injury = injuryByExternal.get(String(player.external_id));
-      if (!injury) continue; // not in the feed — leave untouched
-      ids.push(player.id);
-      statuses.push(injury.status);
-      details.push(injury.detail);
-      transitions.push({
-        playerId: player.id,
-        previousDesignation: player.injury_status,
-        currentDesignation: injury.status,
-      });
-    }
-    // One bulk UPDATE replaces the per-player loop. The two-column
-    // IS DISTINCT FROM predicate against the target row p skips no-op rows (both
-    // columns unchanged), so an unchanged row costs no write and the FOR UPDATE
-    // scan does not need widening to compare injury_detail in JS. Guarded on a
-    // non-empty id list the way syncAdp guards its own bulk set.
-    if (ids.length > 0) {
-      await client.query(
-        `UPDATE "players" p
-            SET "injury_status" = v."status", "injury_detail" = v."detail"
-           FROM (SELECT unnest($1::int[]) AS "id",
-                        unnest($2::text[]) AS "status",
-                        unnest($3::text[]) AS "detail") v
-          WHERE p."id" = v."id"
-            AND (p."injury_status" IS DISTINCT FROM v."status"
-                 OR p."injury_detail" IS DISTINCT FROM v."detail")`,
-        [ids, statuses, details]
-      );
-    }
-    matchedCount = transitions.length;
-    const { flagRecoveredIrStashes } = require('./irPolicy.service');
-    irFlags = await flagRecoveredIrStashes(client, transitions);
-    await client.query('COMMIT');
+    // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK, and the
+    // release rule (ADR 0033). This one catch now covers BOTH failure modes:
+    // pool.connect() itself failing (the #839 shape - withTransaction propagates
+    // it untouched, with no client to ROLLBACK or release, so the connection
+    // error is never turned into a TypeError that swallows it) AND any
+    // in-transaction failure (withTransaction has already rolled back, attached
+    // error.rollbackError on a rejecting ROLLBACK, logged once, and destroyed or
+    // returned the connection). The wrapper rethrows the ORIGINAL error
+    // untouched, so tagging it write_failed here is correct for both.
+    ({ irFlags, matchedCount } = await withTransaction(
+      pool,
+      async (client) => {
+        // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
+        // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
+        // different order across its wipe and bulk set. Both writers take one
+        // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK) as the FIRST
+        // statement after BEGIN, before any row lock, so they cannot interleave into
+        // a deadlock cycle. Blocking xact form (pg_advisory_xact_lock): the second
+        // sync waits rather than skipping. The wait ends when the other sync's
+        // transaction finishes (no network I/O inside either transaction, so it is
+        // short) OR when statement_timeout fires (pool.js sets it on every pooled
+        // connection, 15s web / 30s worker, and it counts lock-wait time), whichever
+        // comes first. The designation write below is a SINGLE bulk statement (#929),
+        // not the ~3,000 sequential single-row writes the per-player loop once took.
+        // The lock is transaction-scoped, so it is held for the whole transaction:
+        // the scan, that one bulk write, and the IR flag pass (flagRecoveredIrStashes,
+        // still inside this transaction below - a select over the current IR stashes
+        // plus one notify insert per flagged stash, usually none), released at COMMIT.
+        // That is a far shorter hold than the loop's, so a 57014 cancellation of a
+        // blocked wait is far less likely to be reached in the first place. The lock
+        // releases with the transaction either way, so there is no explicit unlock and
+        // nothing strands behind the pooler (#839): with COMMIT, with ROLLBACK, or,
+        // when the ROLLBACK itself rejects, with the connection withTransaction
+        // destroys, which drops the socket so Postgres frees the session's locks on
+        // disconnect.
+        await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
+        const playersResult = await client.query(
+          `SELECT "id", "external_id", "injury_status"
+             FROM "players" WHERE "external_id" IS NOT NULL
+             FOR UPDATE`
+        );
+        // Build three parallel arrays (ids int[], statuses/details text[]) over
+        // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
+        // designation writes null into both text columns, and nulls survive into the
+        // text[] as SQL NULL. transitions is built over the SAME matches and drives
+        // both playersUpdated and the IR flag pass, independent of which rows the
+        // statement actually writes.
+        const transitions = [];
+        const ids = [];
+        const statuses = [];
+        const details = [];
+        for (const player of playersResult.rows) {
+          const injury = injuryByExternal.get(String(player.external_id));
+          if (!injury) continue; // not in the feed — leave untouched
+          ids.push(player.id);
+          statuses.push(injury.status);
+          details.push(injury.detail);
+          transitions.push({
+            playerId: player.id,
+            previousDesignation: player.injury_status,
+            currentDesignation: injury.status,
+          });
+        }
+        // One bulk UPDATE replaces the per-player loop. The two-column
+        // IS DISTINCT FROM predicate against the target row p skips no-op rows (both
+        // columns unchanged), so an unchanged row costs no write and the FOR UPDATE
+        // scan does not need widening to compare injury_detail in JS. Guarded on a
+        // non-empty id list the way syncAdp guards its own bulk set.
+        if (ids.length > 0) {
+          await client.query(
+            `UPDATE "players" p
+                SET "injury_status" = v."status", "injury_detail" = v."detail"
+               FROM (SELECT unnest($1::int[]) AS "id",
+                            unnest($2::text[]) AS "status",
+                            unnest($3::text[]) AS "detail") v
+              WHERE p."id" = v."id"
+                AND (p."injury_status" IS DISTINCT FROM v."status"
+                     OR p."injury_detail" IS DISTINCT FROM v."detail")`,
+            [ids, statuses, details]
+          );
+        }
+        const { flagRecoveredIrStashes } = require('./irPolicy.service');
+        return {
+          irFlags: await flagRecoveredIrStashes(client, transitions),
+          matchedCount: transitions.length,
+        };
+      },
+      { label: 'injuries' }
+    ));
   } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rbError) {
-      rollbackError = rbError;
-      error.rollbackError = rbError;
-      console.error(`[injuries] ROLLBACK failed after a transaction error: ${rbError.message}`);
-    }
-    // The database side threw (lock, FOR UPDATE scan, bulk UPDATE, or IR flag
-    // pass) and rolled back. Tagged so the failure row reads "ours", distinct
-    // from an upstream fetch_failed.
+    // The database side threw (connect, lock, FOR UPDATE scan, bulk UPDATE, or IR
+    // flag pass). Tagged so the failure row reads "ours", distinct from an
+    // upstream fetch_failed.
     error.syncFailureReason = error.syncFailureReason || 'write_failed';
     throw error;
-  } finally {
-    // A rejecting ROLLBACK leaves the transaction, and the xact-scoped players
-    // lock, open on this socket. Returning it to the pool would hand the next
-    // borrower an open transaction and strand the lock behind the pooler (#839,
-    // #1053). Release with an error so pg-pool destroys the connection instead;
-    // see advisoryLock.js for the same rule. A clean ROLLBACK keeps its healthy
-    // connection: release with no argument, exactly as before.
-    client.release(
-      rollbackError
-        ? new Error(`injury sync ROLLBACK failed; connection destroyed: ${rollbackError.message}`)
-        : undefined
-    );
   }
 
   try {
@@ -1783,77 +1767,64 @@ async function getSeasonPositionRank(playerId, position, season) {
  * skips if matchups already exist). Odd team counts give one team a bye.
  */
 async function generateMatchups({ leagueId, season, week }) {
-  const client = await pool.connect();
-  let rollbackError = null;
-  try {
-    await client.query('BEGIN');
-    // #194: this is the third path that inserts matchups, so it carries the
-    // same phase refusal as season operations' own two entry points. Read
-    // through this transaction's client for the same reason they do.
-    const leagueResult = await client.query(
-      `SELECT "pickem_only", "draft_status", "season_status" FROM "leagues" WHERE "id" = $1`,
-      [leagueId]
-    );
-    if (!seasonOperationsAvailable(leagueResult.rows[0])) {
-      // Thrown, not rolled back here: this function's own catch rolls back
-      // and rethrows, and rolling back twice is an error in its own right.
-      const err = new Error(SEASON_BEFORE_DRAFT_MESSAGE);
-      err.statusCode = 409;
-      throw err;
-    }
-    const existing = await client.query(
-      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
-      [leagueId, season, week]
-    );
-    if (existing.rows[0]) {
-      await client.query('ROLLBACK');
-      return { created: 0, reason: 'matchups already exist for this week' };
-    }
-    const teamsResult = await client.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "id"`,
-      [leagueId]
-    );
-    const ids = teamsResult.rows.map((r) => r.id);
-    if (ids.length < 2) {
-      await client.query('ROLLBACK');
-      return { created: 0, reason: 'need at least 2 teams' };
-    }
-    // Circle-method round robin, rotated by week for variety
-    const rotation = week % Math.max(1, ids.length - 1);
-    const fixed = ids[0];
-    const rest = ids.slice(1);
-    const rotated = rest.slice(rotation).concat(rest.slice(0, rotation));
-    const order = [fixed, ...rotated];
-    let created = 0;
-    for (let i = 0; i < Math.floor(order.length / 2); i++) {
-      const home = order[i];
-      const away = order[order.length - 1 - i];
-      await client.query(
-        `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id")
-         VALUES ($1, $2, $3, $4, $5)`,
-        [leagueId, season, week, home, away]
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The two early-out paths return a value: inside the
+  // wrapper that COMMITs a read-only transaction, which is harmless and releases
+  // the same locks a ROLLBACK would (#1060 Ruling 3, superseding #1055 Ruling 3
+  // for this site). The 409 refusal throws, and the wrapper rolls it back.
+  return withTransaction(
+    pool,
+    async (client) => {
+      // #194: this is the third path that inserts matchups, so it carries the
+      // same phase refusal as season operations' own two entry points. Read
+      // through this transaction's client for the same reason they do.
+      const leagueResult = await client.query(
+        `SELECT "pickem_only", "draft_status", "season_status" FROM "leagues" WHERE "id" = $1`,
+        [leagueId]
       );
-      created += 1;
-    }
-    await client.query('COMMIT');
-    return { created };
-  } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rbError) {
-      rollbackError = rbError;
-      error.rollbackError = rbError;
-      console.error(`[matchups] ROLLBACK failed after a transaction error: ${rbError.message}`);
-    }
-    throw error;
-  } finally {
-    // A rejecting ROLLBACK leaves the transaction open on this socket; returning
-    // it to the pool would hand the next borrower an open transaction (#1055,
-    // #839). Release with an error so pg-pool destroys the connection instead;
-    // see advisoryLock.js and runInjurySync for the same rule. A clean ROLLBACK
-    // keeps its healthy connection: release with no argument, exactly as before.
-    client.release(rollbackError ? new Error(`matchup generation ROLLBACK failed; connection destroyed: ${rollbackError.message}`) : undefined);
-  }
+      if (!seasonOperationsAvailable(leagueResult.rows[0])) {
+        // Thrown so withTransaction rolls the (read-only) transaction back and
+        // rethrows this 409 untouched.
+        const err = new Error(SEASON_BEFORE_DRAFT_MESSAGE);
+        err.statusCode = 409;
+        throw err;
+      }
+      const existing = await client.query(
+        `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
+        [leagueId, season, week]
+      );
+      if (existing.rows[0]) {
+        return { created: 0, reason: 'matchups already exist for this week' };
+      }
+      const teamsResult = await client.query(
+        `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "id"`,
+        [leagueId]
+      );
+      const ids = teamsResult.rows.map((r) => r.id);
+      if (ids.length < 2) {
+        return { created: 0, reason: 'need at least 2 teams' };
+      }
+      // Circle-method round robin, rotated by week for variety
+      const rotation = week % Math.max(1, ids.length - 1);
+      const fixed = ids[0];
+      const rest = ids.slice(1);
+      const rotated = rest.slice(rotation).concat(rest.slice(0, rotation));
+      const order = [fixed, ...rotated];
+      let created = 0;
+      for (let i = 0; i < Math.floor(order.length / 2); i++) {
+        const home = order[i];
+        const away = order[order.length - 1 - i];
+        await client.query(
+          `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id")
+           VALUES ($1, $2, $3, $4, $5)`,
+          [leagueId, season, week, home, away]
+        );
+        created += 1;
+      }
+      return { created };
+    },
+    { label: 'matchups' }
+  );
 }
 
 /**
@@ -1926,20 +1897,17 @@ async function generateMatchups({ leagueId, season, week }) {
  * the score of record agree with what the manager watched on Sunday.
  */
 async function scoreMatchups({ leagueId, season, week, plays = [], settle = false }) {
-  const client = await pool.connect();
-  // Hoisted so the post-commit work below runs after the connection is
-  // released rather than inside the transaction's try.
-  let league;
-  let scored = [];
-  let openMatchups = [];
-  let rollbackError = null;
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The callback returns exactly what the post-commit
+  // work below needs (league, scored, openMatchups), and that work runs AFTER
+  // the connection is back in the pool - never inside the transaction (#1060
+  // Ruling 5).
+  const { league, scored, openMatchups } = await withTransaction(pool, async (client) => {
     const leagueResult = await client.query(
       `SELECT * FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
-    league = leagueResult.rows[0];
+    const league = leagueResult.rows[0];
     const rules = rulesForLeague(league);
     // The counted-roster module owns the summing rule but not the pricer, so
     // scoring.service (which defines the pricer) hands it in. Keeps the module
@@ -2044,7 +2012,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
       const rows = await heldRows(r.rows, teamId, asPlayed);
       return countedRoster({ rows, league, price }).teamScore;
     };
-    scored = [];
+    const scored = [];
     for (const matchup of matchupsResult.rows) {
       // The ONE place the population is chosen. A settled week and a final
       // week are the same population - the week as played - so `settle` and
@@ -2065,25 +2033,11 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
         awayScore,
       });
     }
-    await client.query('COMMIT');
-    openMatchups = matchupsResult.rows.filter((m) => !(settle || m.final));
-  } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rbError) {
-      rollbackError = rbError;
-      error.rollbackError = rbError;
-      console.error(`[scoring] ROLLBACK failed after a transaction error: ${rbError.message}`);
-    }
-    throw error;
-  } finally {
-    // A rejecting ROLLBACK leaves the transaction open on this socket; returning
-    // it to the pool would hand the next borrower an open transaction (#1055,
-    // #839). Release with an error so pg-pool destroys the connection instead;
-    // see advisoryLock.js and runInjurySync for the same rule. A clean ROLLBACK
-    // keeps its healthy connection: release with no argument, exactly as before.
-    client.release(rollbackError ? new Error(`scoring pass ROLLBACK failed; connection destroyed: ${rollbackError.message}`) : undefined);
-  }
+    // Computed here, before the wrapper's COMMIT, but purely from the
+    // in-memory matchup rows - the same set the old post-COMMIT filter read.
+    const openMatchups = matchupsResult.rows.filter((m) => !(settle || m.final));
+    return { league, scored, openMatchups };
+  }, { label: 'scoring' });
 
   // Each side's status, expected final and players remaining ride the same
   // emit as the fresh scores, so a card can never show a new score against a
