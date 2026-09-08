@@ -4,6 +4,7 @@ const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { normalizeNameKey } = require('./nameMatch');
 const { IDP_POSITIONS } = require('./scoring.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { recordDataSyncRun } = require('./dataSyncRuns');
 
 const IDP_POSITION_SET = new Set(IDP_POSITIONS);
 
@@ -35,25 +36,15 @@ const MARKET_STALE_DAYS = 7;
  * started_at is captured before the upstream fetch, and finished_at is left to
  * the column DEFAULT (now()), the instant of the write.
  *
- * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
- * outcome of a run: the market may have been refreshed correctly, and a thrown
- * observability write would turn that into a 500 to the admin and stop the
- * scheduler from day-stamping (re-running the full sync every tick). This also
- * covers the carve-out window - the migration that creates data_sync_runs is
- * applied by the maintainer, so the table may not exist yet when this code is
- * live. Swallowing here (rather than at each call site) keeps every caller
- * uniformly best-effort with no chance of the asymmetry creeping back.
+ * A thin wrapper over the shared recorder (#961): the INSERT, its best-effort
+ * swallow, and the "record failed for adp" log all live in
+ * services/dataSyncRuns now, so the injury sync records the same way without a
+ * second copy of the rule. This spells the job literal 'adp' the way it always
+ * did; the recorder writes on the pool, outside any transaction, exactly as
+ * before. Behaviour is unchanged.
  */
 async function recordAdpRun({ startedAt, ok, detail }) {
-  try {
-    await pool.query(
-      `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "detail")
-       VALUES ($1, $2, $3, $4::jsonb)`,
-      ['adp', startedAt, ok, detail ? JSON.stringify(detail) : null]
-    );
-  } catch (err) {
-    console.error('data_sync_runs record failed for adp (run outcome unaffected):', err.message);
-  }
+  await recordDataSyncRun({ job: 'adp', startedAt, ok, detail });
 }
 
 /**
