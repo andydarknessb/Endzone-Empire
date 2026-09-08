@@ -54,6 +54,7 @@ const TEAMS = [
  *  `SELECT 1 FROM "leagues"` answer the byCommissioner authority check reads. */
 function pickPool({
   league, picksMade, commissioner = false, playerAdp = 3.2, takenPickNumbers = [],
+  frozen = false, teamLocked = false, rosterCount = 1,
 } = {}) {
   // Stateful: the completing Pick's draft_status flip is visible to the
   // precondition read draftCompletion.completeDraft runs on this same client
@@ -64,6 +65,17 @@ function pickPool({
     handlers.push([/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })]);
   }
   handlers.push(
+    // The #940 write gate reads its OWN League and Team rows FOR UPDATE with
+    // explicit column lists (#965). Registered before the two shape matchers
+    // below, which are blind to a select list and would otherwise answer them.
+    // `frozen` and `teamLocked` are the two gates a Pick bypasses, so seeding
+    // them true is how a test proves the bypass rather than a lucky pass.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ ...row, transactions_locked: frozen }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
+      rows: [{ id: params[0], locked: teamLocked }],
+    })],
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     [select('teams'), () => ({ rows: TEAMS.map((t) => ({ ...t })) })],
     // #833: the player read now names `adp`, which rides on the draft:picked
@@ -75,7 +87,7 @@ function pickPool({
         ...(/"adp"/.test(text) ? { adp: playerAdp } : {}),
       }],
     })],
-    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rosterCount }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "draft_picks"/, () => ({ rows: [{ n: picksMade }] })],
     [/^SELECT "pick_number" FROM "draft_picks"/, () => ({ rows: takenPickNumbers.map((pick_number) => ({ pick_number })) })],
@@ -487,5 +499,109 @@ test('landPick: the completing pick reaches completeDraft after the status flip 
   assert.notEqual(flipAt, -1, 'the clock flipped draft_status to complete');
   assert.notEqual(callsAtHandoff, null, 'completeDraft was reached');
   assert.ok(flipAt < callsAtHandoff, 'the flip precedes the completeDraft handoff');
+  fake.assertClean();
+});
+
+// --- the Pick commit runs through the write gate (#965) ----------------------
+//
+// THE RULING: a commissioner freeze does NOT refuse a Pick during an active
+// draft. #965 required this edge to be decided and tested either way, so the
+// decision and its reasons are recorded here beside the test that binds it.
+//
+// The freeze is `leagues.transactions_locked`, and the commissioner console
+// describes it as freezing "adds, drops, waiver claims, and trades" - four
+// post-draft transactions. A Pick is deliberately none of them: #782 ruling 2
+// split a Pick from a free-agent add precisely because they are different acts,
+// and a Pick writes no `transactions` row where an add, a drop and a trade all
+// do. So the freeze's own domain, as the code defines it, stops at the draft.
+//
+// The operational half decides it. A draft is a clock. Refusing Picks in a
+// frozen league would not pause the draft: the Pick clock would keep expiring,
+// the autopick that fires on expiry would be refused too, and every team would
+// be timed out in turn while no manager could act - a stalled room with no
+// route out, which is the incident class this repo has already been bitten by.
+// The commissioner's switch for stopping a draft exists and is `draft_paused`.
+//
+// The same reading is applied to the other three draft-phase writes #965 wires:
+// the keeper pre-fill at draft start (draftStart.service.js), and the Draft
+// router's undo and reset handlers, both of which refuse unless the draft is
+// active.
+
+test('landPick: a frozen league does NOT refuse a Pick during an active draft (#965 ruling)', async (t) => {
+  const fake = pickPool({
+    league: { ...BASE_LEAGUE, current_pick: 0 },
+    picksMade: 1,
+    frozen: true,
+  }).install(t);
+  const recorder = withRecorder(t);
+
+  const outcome = await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(outcome.player.id, 500);
+  assert.equal(fake.matching(insert('team_players')).length, 1, 'the Pick still rosters the player');
+  assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);
+  fake.assertClean();
+});
+
+test('landPick: a team the GATE reads as locked still picks, because TEAM_LOCK is bypassed', async (t) => {
+  // TEAM_LOCK is bypassed at the gate because commitPick's commissioner branch
+  // deliberately does not check it - a commissioner entering picks for an
+  // offline draft must not be stopped by a manager's team lock - while the
+  // manager branch keeps its own inline check, unchanged. Seeding the gate's
+  // Team row locked and the roster list unlocked separates the two: this Pick
+  // lands, so the gate is not the thing enforcing the lock.
+  const fake = pickPool({
+    league: { ...BASE_LEAGUE, current_pick: 0 },
+    picksMade: 1,
+    teamLocked: true,
+  }).install(t);
+  const recorder = withRecorder(t);
+
+  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  assert.equal(fake.matching(insert('team_players')).length, 1);
+  assert.deepEqual(recorder.calls.map((c) => c.method), ['pickLanded']);
+  fake.assertClean();
+});
+
+test('landPick: exactly one gate call, and it precedes the roster write it guards', async (t) => {
+  const fake = pickPool({ league: { ...BASE_LEAGUE, current_pick: 0 }, picksMade: 1 }).install(t);
+  withRecorder(t);
+
+  await landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 });
+
+  const gateAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const teamLockAt = fake.calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
+  const insertAt = fake.calls.findIndex((c) => /^INSERT INTO "team_players"/.test(c.text));
+  assert.equal(
+    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text)).length,
+    1,
+    'one Pick, one gate call'
+  );
+  assert.ok(gateAt >= 0 && teamLockAt >= 0 && insertAt >= 0, 'the gate ran and the Pick landed');
+  assert.ok(gateAt < teamLockAt, 'League is locked before Team, the one order on every path');
+  assert.ok(teamLockAt < insertAt, 'the gate precedes the roster write it guards');
+  fake.assertClean();
+});
+
+test('landPick: the acquire bundle is still evaluated - a full roster is refused by the gate', async (t) => {
+  // The bypass set is exactly {FREEZE, TEAM_LOCK}. Capacity, the position cap
+  // and the waiver hold are all still live inside the gate, which is what keeps
+  // a Pick and a free-agent add asking the same question (#782 ruling 2).
+  // roster_limit 3 with ir_slots 1 makes capacity 2, and this team already
+  // holds 2.
+  const fake = pickPool({
+    league: { ...BASE_LEAGUE, current_pick: 0 },
+    picksMade: 1,
+    rosterCount: 2,
+  }).install(t);
+  const recorder = withRecorder(t);
+
+  await assert.rejects(
+    landPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    { statusCode: 409, message: 'roster capacity of 2 reached' }
+  );
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'nothing was rostered');
+  assert.deepEqual(recorder.calls, [], 'a refusal emits nothing');
   fake.assertClean();
 });

@@ -254,3 +254,36 @@ test('an unknown direction fails closed', async () => {
     { statusCode: 500, code: 'ROSTER_GATE_INDETERMINATE' }
   );
 });
+
+// --- an unknown bypass name fails closed (#964) ------------------------------
+
+test('an unknown bypass name throws rather than being ignored', async () => {
+  // Silently ignoring it would leave a caller believing it had overridden a
+  // gate it had not - or, after a token rename, believing it had NOT overridden
+  // one it now does. Neither is discoverable at the call site, so the set fails
+  // closed on anything it does not recognise.
+  const client = await gateWorld().connect();
+  await assert.rejects(
+    assertRosterWriteAllowed(client, { ...ACQUIRE, bypass: ['freze'] }),
+    { statusCode: 500, code: 'ROSTER_GATE_INDETERMINATE', message: 'roster gate: unknown bypass "freze"; refusing' }
+  );
+});
+
+test('an unknown bypass name throws even alongside valid ones, and before any read', async () => {
+  // No handlers at all: if the gate reached its League read this would die with
+  // the fake pool's "unexpected query" instead of the refusal below, so this
+  // also pins that the validation happens before the gate touches the database.
+  const fake = createFakePool([]);
+  await assert.rejects(
+    assertRosterWriteAllowed(await fake.connect(), {
+      ...ACQUIRE,
+      bypass: [ROSTER_GATE.FREEZE, 'positionCaps'],
+    }),
+    { statusCode: 500, code: 'ROSTER_GATE_INDETERMINATE', message: 'roster gate: unknown bypass "positionCaps"; refusing' }
+  );
+});
+
+test('an empty bypass list and no bypass at all are both accepted', async () => {
+  await assert.doesNotReject(assertRosterWriteAllowed(await gateWorld().connect(), { ...ACQUIRE, bypass: [] }));
+  await assert.doesNotReject(assertRosterWriteAllowed(await gateWorld().connect(), { ...ACQUIRE, bypass: undefined }));
+});

@@ -31,8 +31,8 @@ const ROSTER_GATE = Object.freeze({
  * which is known to be incomplete (#940). forceTransaction bypasses the freeze,
  * per-team locks and waiver holds, and does NOT enforce the position cap; roster
  * capacity still binds, so CAPACITY is deliberately absent here. Slice #944
- * defines the set and proves it against the gate; wiring forceTransaction at it
- * is a later ticket.
+ * defined the set and proved it against the gate; #964 wired forceTransaction
+ * at it, so this constant and that path's behaviour are now the same fact.
  */
 const COMMISSIONER_OVERRIDE = Object.freeze([
   ROSTER_GATE.FREEZE,
@@ -41,7 +41,30 @@ const COMMISSIONER_OVERRIDE = Object.freeze([
   ROSTER_GATE.POSITION_CAP,
 ]);
 
-const asBypassSet = (bypass) => (bypass instanceof Set ? bypass : new Set(bypass || []));
+/** Every token a caller may legally name in a bypass list. */
+const KNOWN_GATES = new Set(Object.values(ROSTER_GATE));
+
+/**
+ * A bypass list, validated. An unknown name throws rather than being ignored
+ * (#964): a typo or a renamed token would otherwise leave a caller believing
+ * it had overridden a gate it had not, which is the silent-drift failure the
+ * exact-set design exists to prevent. Fail closed, with the same
+ * ROSTER_GATE_INDETERMINATE code every other "this gate cannot answer" refusal
+ * carries, because that is what this is.
+ */
+const asBypassSet = (bypass) => {
+  const set = bypass instanceof Set ? bypass : new Set(bypass || []);
+  for (const name of set) {
+    if (!KNOWN_GATES.has(name)) {
+      throw new DraftError(
+        500,
+        `roster gate: unknown bypass "${name}"; refusing`,
+        'ROSTER_GATE_INDETERMINATE'
+      );
+    }
+  }
+  return set;
+};
 
 // The gate reads its own League row FOR UPDATE (#944 rule 1): every column the
 // freeze check and the acquire bundle need, listed so a caller cannot starve
