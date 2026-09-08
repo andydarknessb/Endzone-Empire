@@ -99,4 +99,34 @@ describe('SORT_FIELDS answers every fact about a sort field (issue #951)', () =>
       expect(SORT_FIELDS_BY_KEY[field.key]).toBe(field);
     });
   });
+
+  // Issue #1002: wireSortName stays total, but its fallback is no longer
+  // silent. 'projected_points' is the case that motivated it - a WIRE name
+  // handed in where a key belongs, which is exactly the confusion the Player
+  // Browser's own second sort list used to create; it returned the default wire
+  // name and the surface sorted by ADP with nothing said.
+  describe('wireSortName warns on an unknown key', () => {
+    let warn;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    test("wireSortName('projected_points') returns the default wire name and warns, naming the value", () => {
+      expect(wireSortName('projected_points')).toBe(SORT_FIELDS_BY_KEY.adp.wire);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('projected_points');
+    });
+
+    test('a valid key does not warn', () => {
+      SORT_KEYS.forEach((key) => {
+        expect(wireSortName(key)).toBe(SORT_FIELDS_BY_KEY[key].wire);
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
 });

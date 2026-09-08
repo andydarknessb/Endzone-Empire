@@ -361,3 +361,44 @@ test('each desktop sort header (including every numeric one) exposes exactly one
 //   tabindex="0">...<span class="MuiBox-root ..." tabindex="0">Bye</span>...
 // i.e. exactly the two-tab-stop shape the ticket describes. Removing the
 // tabIndex again returned the suite to green.
+// Issue #1003: the Position header used to render as a side effect of the
+// header loop hitting the 'name' key, so its column index was pinned to name's
+// index rather than to its own. Every existing test in this file asserts the
+// order of the SORTABLE buttons only, so reordering the desktop keys moved
+// Position with name, desynced it from the TableBody's own Position cell, and
+// left the suite green. This asserts the two indices against each other - the
+// one relationship the button-order tests structurally cannot see.
+test('the Position header sits at the same column index as the body row\'s position cell', () => {
+  render(<PlayerPoolTable {...makeProps()} />);
+
+  const [headerRow, bodyRow] = screen.getAllByRole('row');
+  const headerCells = within(headerRow).getAllByRole('columnheader');
+  const positionHeaderIndex = headerCells.findIndex((cell) => cell.textContent === 'Position');
+  expect(positionHeaderIndex).toBeGreaterThanOrEqual(0);
+
+  const bodyCells = within(bodyRow).getAllByRole('cell');
+  // The player's position ('RB') reaches the DOM as a PositionChip, so match on
+  // the cell's own text rather than a testid the component doesn't carry. The
+  // Name cell above it holds the player's name, not their position, so this
+  // index is unambiguous for this fixture.
+  const positionCellIndex = bodyCells.findIndex((cell) => cell.textContent === players[0].position);
+  expect(positionCellIndex).toBeGreaterThanOrEqual(0);
+
+  expect(positionHeaderIndex).toBe(positionCellIndex);
+});
+
+// Issue #1003: the empty state and the loading-more spinner each hard-coded
+// colSpan={7} next to a header row nobody had counted, so adding or removing a
+// desktop column silently left a full-width row short or over-wide. Asserted
+// against the header row's actual cell count rather than a literal 7, which
+// would just be the same uncounted literal written a second time.
+test('the empty-state row spans exactly as many columns as the header renders', () => {
+  const { unmount } = render(<PlayerPoolTable {...makeProps()} />);
+  const headerCellCount = within(screen.getAllByRole('row')[0]).getAllByRole('columnheader').length;
+
+  unmount();
+  render(<PlayerPoolTable {...makeProps()} players={[]} />);
+
+  const emptyCell = screen.getByRole('cell', { name: 'No available players' });
+  expect(emptyCell).toHaveAttribute('colspan', String(headerCellCount));
+});

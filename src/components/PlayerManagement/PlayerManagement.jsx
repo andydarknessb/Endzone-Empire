@@ -47,6 +47,11 @@ import { useSnackbar } from "../Snackbar/SnackbarProvider";
 import AbbreviationTooltip from "../common/AbbreviationTooltip";
 import { rosterActionForPhase } from "../../lib/leaguePhase";
 import { isPickemOnly } from "../../lib/leagueType";
+import {
+  SORT_FIELDS,
+  SORT_FIELDS_BY_KEY,
+  wireSortName,
+} from "../DraftBoard/sortFields";
 
 const POSITIONS = [
   "All",
@@ -70,14 +75,54 @@ const AVAILABILITY_FILTERS = [
   { value: "my_team", label: "On my Team" },
   { value: "rostered", label: "Rostered" },
 ];
-const SORTS = [
-  { value: "adp", label: "ADP" },
-  { value: "name", label: "Name" },
-  { value: "position_rank", label: "Position rank" },
-  { value: "nfl_team", label: "NFL Team" },
-  { value: "bye_week", label: "Bye week" },
-  { value: "projected_points", label: "Pool projection" },
-];
+// The Player Browser's sort options, derived from the Draft room's
+// sortFields.js entries rather than from a second hand-maintained list of the
+// same fields over the same endpoint (issue #1002). One vocabulary now crosses
+// the module boundary: this surface's sort STATE holds sortFields KEYS, and the
+// server's `?sort=` field name is produced once, at the fetch site, by
+// wireSortName - exactly as the Draft room does it. Before this, the state held
+// wire names directly, so the `proj` field's wire name was written out as a
+// literal here, in the URL, and at four header call sites, free to drift from
+// sortFields.js. No sort field's wire name is spelled anywhere in this file
+// now; sortFields.js is the only place any of them appears.
+//
+// The visible option text is the one fact NOT taken from sortFields.js: the
+// Player Browser's copy for three of these fields is its own and predates the
+// Draft room's. #1002 reconciles the KEYS, not the copy - changing what either
+// surface calls a column is out of scope - so the overrides below are keyed by
+// the Draft room's label rather than by a sort key, which keeps this file free
+// of sort-field identifiers entirely. A Draft room relabel drops its override
+// and shows the shared label instead: visible, and correct either way.
+const OPTION_LABEL_OVERRIDES = {
+  "Pos rank": "Position rank",
+  Bye: "Bye week",
+  "17-game pace": "Pool projection",
+};
+
+const SORT_OPTIONS = SORT_FIELDS.map((field) => ({
+  key: field.key,
+  label: OPTION_LABEL_OVERRIDES[field.label] || field.label,
+}));
+
+// The Player Browser's default sort. Omitted from the URL rather than written
+// into it (see updateParams' empty-value deletion), so `?sort=` absent means
+// this key. It is the same default wireSortName falls back to.
+const DEFAULT_SORT_KEY = "adp";
+
+// The `?sort=` URL param, resolved to a sortFields KEY.
+//
+// The param carried WIRE names before #1002, and one field's wire name differs
+// from its key, so a bookmark or a shared link made before this change would
+// otherwise resolve to the default and silently re-sort the page. A wire name
+// is therefore still accepted on READ and mapped back to its key; only keys are
+// ever WRITTEN into the URL. Anything else falls back to the default rather
+// than reaching the API verbatim.
+function sortKeyFromParam(value) {
+  if (!value) return DEFAULT_SORT_KEY;
+  if (SORT_FIELDS_BY_KEY[value]) return value;
+  const legacy = SORT_FIELDS.find((field) => field.wire === value);
+  return legacy ? legacy.key : DEFAULT_SORT_KEY;
+}
 const headCellSx = {
   fontWeight: 800,
   color: "primary.contrastText",
@@ -170,7 +215,7 @@ function PlayerManagement() {
   const positionFilter = searchParams.get("pos") || "All";
   const availabilityFilter = searchParams.get("availability") || "all";
   const search = searchParams.get("q") || "";
-  const sort = searchParams.get("sort") || "adp";
+  const sort = sortKeyFromParam(searchParams.get("sort"));
   const dir = searchParams.get("dir") || "asc";
   const [searchInput, setSearchInput] = useState(search);
   const activeLeague = leagues.find(
@@ -226,7 +271,15 @@ function PlayerManagement() {
     if (!leaguesLoaded) return;
     try {
       setError(null);
-      const params = { page: pageNumber, position: positionFilter, sort };
+      // The one translation from this surface's sort KEY to the server's
+      // `?sort=` field name (issue #1002). Every request the Player Browser
+      // sent before this change still carries the identical value; only the
+      // place the wire name is produced moved, from six literals to here.
+      const params = {
+        page: pageNumber,
+        position: positionFilter,
+        sort: wireSortName(sort),
+      };
       if (selectedLeague) params.leagueId = Number(selectedLeague);
       if (availabilityFilter !== "all")
         params.availability = availabilityFilter;
@@ -268,7 +321,7 @@ function PlayerManagement() {
   const handleSort = (key) => {
     const nextDesc = sort === key && dir === "asc";
     updateParams({
-      sort: key === "adp" ? "" : key,
+      sort: key === DEFAULT_SORT_KEY ? "" : key,
       dir: nextDesc ? "desc" : "",
       page: 1,
     });
@@ -408,13 +461,16 @@ function PlayerManagement() {
             value={sort}
             onChange={(event) =>
               updateParams({
-                sort: event.target.value === "adp" ? "" : event.target.value,
+                sort:
+                  event.target.value === DEFAULT_SORT_KEY
+                    ? ""
+                    : event.target.value,
                 page: 1,
               })
             }
           >
-            {SORTS.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
+            {SORT_OPTIONS.map((option) => (
+              <MenuItem key={option.key} value={option.key}>
                 {option.label}
               </MenuItem>
             ))}
@@ -637,9 +693,9 @@ function PlayerManagement() {
               <TableRow>
                 <TableCell sx={headCellSx}>
                   <TableSortLabel
-                    active={sort === "name"}
-                    direction={sort === "name" ? dir : "asc"}
-                    onClick={() => handleSort("name")}
+                    active={sort === SORT_FIELDS_BY_KEY.name.key}
+                    direction={sort === SORT_FIELDS_BY_KEY.name.key ? dir : "asc"}
+                    onClick={() => handleSort(SORT_FIELDS_BY_KEY.name.key)}
                     sx={sortLabelSx}
                   >
                     Player
@@ -648,9 +704,15 @@ function PlayerManagement() {
                 <TableCell sx={headCellSx}>NFL</TableCell>
                 <TableCell sx={headCellSx} align="right">
                   <TableSortLabel
-                    active={sort === "position_rank"}
-                    direction={sort === "position_rank" ? dir : "asc"}
-                    onClick={() => handleSort("position_rank")}
+                    active={sort === SORT_FIELDS_BY_KEY.position_rank.key}
+                    direction={
+                      sort === SORT_FIELDS_BY_KEY.position_rank.key
+                        ? dir
+                        : "asc"
+                    }
+                    onClick={() =>
+                      handleSort(SORT_FIELDS_BY_KEY.position_rank.key)
+                    }
                     sx={sortLabelSx}
                   >
                     <AbbreviationTooltip term="Pos rank" />
@@ -658,9 +720,9 @@ function PlayerManagement() {
                 </TableCell>
                 <TableCell sx={headCellSx} align="right">
                   <TableSortLabel
-                    active={sort === "adp"}
-                    direction={sort === "adp" ? dir : "asc"}
-                    onClick={() => handleSort("adp")}
+                    active={sort === SORT_FIELDS_BY_KEY.adp.key}
+                    direction={sort === SORT_FIELDS_BY_KEY.adp.key ? dir : "asc"}
+                    onClick={() => handleSort(SORT_FIELDS_BY_KEY.adp.key)}
                     sx={sortLabelSx}
                   >
                     <AbbreviationTooltip term="ADP" />
@@ -668,9 +730,9 @@ function PlayerManagement() {
                 </TableCell>
                 <TableCell sx={headCellSx} align="right">
                   <TableSortLabel
-                    active={sort === "projected_points"}
-                    direction={sort === "projected_points" ? dir : "asc"}
-                    onClick={() => handleSort("projected_points")}
+                    active={sort === SORT_FIELDS_BY_KEY.proj.key}
+                    direction={sort === SORT_FIELDS_BY_KEY.proj.key ? dir : "asc"}
+                    onClick={() => handleSort(SORT_FIELDS_BY_KEY.proj.key)}
                     sx={sortLabelSx}
                   >
                     Pool projection
