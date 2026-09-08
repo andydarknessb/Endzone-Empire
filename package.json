@@ -63,6 +63,8 @@
     "lint:colors": "npm run test:check-color-literals && node scripts/check-color-literals.js",
     "lint:identity-comparisons": "npm run test:check-identity-comparisons && node scripts/check-identity-comparisons.js",
     "test:check-identity-comparisons": "node --test server/test/identityComparisonGuard.test.js",
+    "lint:team-insert-lock": "npm run test:check-team-insert-lock && node scripts/check-team-insert-lock.js",
+    "test:check-team-insert-lock": "node --test server/test/teamInsertLockGuard.test.js",
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
     "seed": "knex seed:run",
