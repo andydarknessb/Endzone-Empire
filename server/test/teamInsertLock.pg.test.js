@@ -73,6 +73,9 @@ if (!ENABLED) {
     return id;
   }
   async function seedLeague(name, ownerId, code) {
+    // invite_code is varchar(12) (initial_schema): the code MUST be 12 chars or
+    // fewer, or the INSERT fails 22001 before any assertion runs. See the same
+    // warning at draftActivity.pg.test.js. `code` is assumed already <= 12.
     const res = await pool.query(
       `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "max_teams")
        VALUES ($1, $2, $3, 12) RETURNING "id", "draft_status"`,
@@ -144,7 +147,10 @@ if (!ENABLED) {
   test('a join blocks while a Draft act holds the League lock, then completes consistently', async () => {
     const owner = await seedUser(`til_owner_${Date.now()}`);
     const joiner = await seedUser(`til_joiner_${Date.now()}`);
-    const league = await seedLeague('Team Insert Lock League', owner, `TIL${Date.now()}`);
+    // invite_code is varchar(12); base-36 of Date.now() keeps `TIL<...>` to 11
+    // chars and unique enough for a single seed in a disposable database.
+    const inviteCode = `TIL${Date.now().toString(36)}`.slice(0, 12);
+    const league = await seedLeague('Team Insert Lock League', owner, inviteCode);
     assert.equal(league.draft_status, 'pending', 'a fresh league must be pre-draft (joinable) for the join to be admissible');
     const ownerTeam = await seedTeam(league.id, owner, 'Owner Team');
     const player = await seedPlayer(`TIL Player ${Date.now()}`);
