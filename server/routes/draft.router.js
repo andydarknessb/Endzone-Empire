@@ -193,59 +193,56 @@ router.post('/league/:id/order', async (req, res) => {
     return res.status(400).json({ error: 'provide order (array of team ids) or randomize: true' });
   }
   try {
-    // Each early refusal below reads the locked leagues row (and teams) and then
-    // sends its response and returns before any write; Ruling 2: returning from
-    // `work` COMMITs, and a COMMIT of a read-only (FOR UPDATE) transaction frees
-    // the same lock a ROLLBACK would. Refusals send their response inside `work`;
-    // the success response is sent AFTER the wrapper resolves, so it never
-    // precedes the COMMIT.
+    // Each early refusal throws a DraftError (ADR 0008) - the shape #967 already
+    // converted this router's ROLLBACK-and-return pairs to. Every refusal reads
+    // only (the FOR UPDATE read included) before it throws, so withTransaction
+    // rolls the read-only transaction back - freeing the same lock a COMMIT would
+    // - and rethrows the DraftError, which the outer catch maps via
+    // isDraftRefusal exactly as /queue does. The success response is sent after
+    // the wrapper resolves.
     const finalOrder = await withTransaction(pool, async (client) => {
       const leagueResult = await client.query(
         `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
         [leagueId, req.user.id]
       );
       if (!leagueResult.rows[0]) {
-        return res.status(403).json({ error: 'league not found or you are not the commissioner' });
+        throw new DraftError(403, 'league not found or you are not the commissioner');
       }
       if (leagueResult.rows[0].draft_status !== 'pending') {
-        return res.status(409).json({ error: 'draft order is locked once the draft starts' });
+        throw new DraftError(409, 'draft order is locked once the draft starts');
       }
       const teamsResult = await client.query(
         `SELECT "id" FROM "teams" WHERE "league_id" = $1`,
         [leagueId]
       );
       const teamIds = teamsResult.rows.map((r) => r.id);
-      let order_;
+      let finalOrder;
       if (randomize) {
-        order_ = [...teamIds];
-        for (let i = order_.length - 1; i > 0; i--) {
+        finalOrder = [...teamIds];
+        for (let i = finalOrder.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
-          [order_[i], order_[j]] = [order_[j], order_[i]];
+          [finalOrder[i], finalOrder[j]] = [finalOrder[j], finalOrder[i]];
         }
       } else {
         const valid = order.length === teamIds.length && teamIds.every((id) => order.includes(id));
         if (!valid) {
-          return res.status(400).json({ error: 'order must contain every team in the league exactly once' });
+          throw new DraftError(400, 'order must contain every team in the league exactly once');
         }
-        order_ = order;
+        finalOrder = order;
       }
-      for (let i = 0; i < order_.length; i++) {
+      for (let i = 0; i < finalOrder.length; i++) {
         await client.query(
           `UPDATE "teams" SET "draft_position" = $1, "updated_at" = now() WHERE "id" = $2`,
-          [i + 1, order_[i]]
+          [i + 1, finalOrder[i]]
         );
       }
-      return order_;
+      return finalOrder;
     }, { label: 'draftOrder' });
-    // A refusal above already sent the response; only the success path reaches here.
-    if (!res.headersSent) res.json({ leagueId, order: finalOrder });
+    res.json({ leagueId, order: finalOrder });
   } catch (error) {
-    // Guarded because a refusal now responds inside `work` before the wrapper's
-    // COMMIT: if that COMMIT of the read-only refusal transaction rejects (a dead
-    // connection mid-request), the wrapper rethrows here with the response
-    // already sent, and an unguarded res.status would throw ERR_HTTP_HEADERS_SENT.
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error setting draft order', error);
-    if (!res.headersSent) res.status(500).json({ error: 'failed to set draft order' });
+    res.status(500).json({ error: 'failed to set draft order' });
   }
 });
 
@@ -767,12 +764,13 @@ router.put('/league/:id/keepers', async (req, res) => {
     return res.status(400).json({ error: 'keepers must be an array' });
   }
   try {
-    // All four early refusals below read the locked leagues row (and teams,
-    // rosters) and validate in memory, then send their response and return
-    // before the DELETE/INSERT; Ruling 2: returning from `work` COMMITs, and a
-    // COMMIT of the read-only (FOR UPDATE) transaction frees the same lock a
-    // ROLLBACK would. Refusals respond inside `work`; the success response is
-    // sent after the wrapper resolves so it never precedes the COMMIT.
+    // The four early refusals throw a DraftError (ADR 0008) - the shape #967
+    // converted this router's ROLLBACK-and-return pairs to. Each reads only (the
+    // FOR UPDATE read, teams, rosters) and validates in memory before it throws,
+    // so withTransaction rolls the read-only transaction back - freeing the same
+    // lock a COMMIT would - and rethrows the DraftError for the outer catch to map
+    // via isDraftRefusal. The DELETE/INSERT replace-all runs only past the last
+    // refusal; the success response is sent after the wrapper resolves.
     const savedCount = await withTransaction(pool, async (client) => {
       const leagueResult = await client.query(
         `SELECT "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
@@ -782,14 +780,14 @@ router.put('/league/:id/keepers', async (req, res) => {
       );
       const league = leagueResult.rows[0];
       if (!league || !league.is_commissioner) {
-        return res.status(403).json({ error: 'league not found or you are not the commissioner' });
+        throw new DraftError(403, 'league not found or you are not the commissioner');
       }
       if (league.draft_status !== 'pending') {
-        return res.status(409).json({ error: 'keepers can only be edited before the draft starts' });
+        throw new DraftError(409, 'keepers can only be edited before the draft starts');
       }
       const lockAt = league.keeper_lock_at || league.draft_date;
       if (lockAt && new Date(lockAt).getTime() <= Date.now()) {
-        return res.status(409).json({ error: 'the keeper deadline has passed' });
+        throw new DraftError(409, 'the keeper deadline has passed');
       }
       const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
       const rosterResult = await client.query(
@@ -809,7 +807,7 @@ router.put('/league/:id/keepers', async (req, res) => {
         draftRosterSize: draftRosterSize(league),
       });
       if (errors.length > 0) {
-        return res.status(400).json({ error: errors.join('; ') });
+        throw new DraftError(400, errors.join('; '));
       }
       await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
       for (const k of normalized) {
@@ -821,22 +819,22 @@ router.put('/league/:id/keepers', async (req, res) => {
       }
       return normalized.length;
     }, { label: 'draftKeepers' });
-    // A refusal above already sent the response; only the success path reaches here.
-    if (!res.headersSent) res.json({ leagueId, keepers: savedCount });
+    res.json({ leagueId, keepers: savedCount });
   } catch (error) {
-    // Ruling 3: the 23503 mapping and logging move outward unchanged. The old
-    // in-transaction catch also carried a bare `ROLLBACK().catch(() => {})` that
-    // swallowed a rejecting rollback (the #839 shape); withTransaction owns that
-    // close now and destroys the connection instead, so the swallow is gone.
-    // A 23503 can only come from the INSERT on the success path, where no
-    // response has been sent yet. The trailing 500 is guarded for the same
-    // reason as the order handler: a refusal responds inside `work`, so a
-    // rejecting post-refusal COMMIT must not drive an ERR_HTTP_HEADERS_SENT throw.
+    // Ruling 3: the refusal mapping and the 23503 mapping both move outward,
+    // unchanged. The old in-transaction catch also carried a bare
+    // `ROLLBACK().catch(() => {})` that swallowed a rejecting rollback (the #839
+    // shape); withTransaction owns that close now and destroys the connection
+    // instead, so the swallow is gone. A DraftError refusal carries a numeric
+    // statusCode, so isDraftRefusal maps it first; a pg foreign-key violation
+    // carries `code` (not statusCode), so it falls through to its own branch, and
+    // that 23503 can only come from the INSERT on the success path.
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     if (error.code === '23503') {
       return res.status(400).json({ error: 'unknown team or player in keepers list' });
     }
     console.error('Error saving keepers', error);
-    if (!res.headersSent) res.status(500).json({ error: 'failed to save keepers' });
+    res.status(500).json({ error: 'failed to save keepers' });
   }
 });
 

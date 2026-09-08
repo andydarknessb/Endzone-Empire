@@ -7,10 +7,12 @@ const { createFakePool, select, insert, remove } = require('./helpers/fakePool')
 
 /**
  * PUT /api/draft/league/:id/keepers — the commissioner's replace-all keeper
- * save. Covered here for one thing only: the round bound it validates against
- * is the league's DRAFT roster size (starters + bench), not the IR-inclusive
- * roster_limit column (#96). The route is otherwise covered by
- * membership.rowSites.test.js and leagueType.test.js.
+ * save. Two things are covered here. First (#96): the round bound it validates
+ * against is the league's DRAFT roster size (starters + bench), not the
+ * IR-inclusive roster_limit column. Second (#1062): this handler is the child's
+ * representative site for the #1053/#1055 withTransaction pair, proving its
+ * transaction closes through the wrapper (ADR 0033). The route is otherwise
+ * covered by membership.rowSites.test.js and leagueType.test.js.
  */
 
 const previousSecret = process.env.JWT_SECRET;
@@ -125,10 +127,20 @@ test('PUT keepers: a rejecting ROLLBACK destroys the connection and the ORIGINAL
 
   const res = await save(19);
 
-  // The 23505/23503 mapping moved into the outer catch (Ruling 3): the response
-  // is the INSERT's original 23503 refusal, NOT the 500 the rollback failure
-  // would produce if it had surfaced. That proves withTransaction rethrew the
-  // ORIGINAL error, not `rollback boom`.
+  // The 23503 mapping moved into the outer catch (Ruling 3): the response is the
+  // INSERT's original 23503 code mapping, NOT the 500 the rollback failure would
+  // produce if it had surfaced. That proves withTransaction rethrew the ORIGINAL
+  // error, not `rollback boom`.
+  //
+  // Ruling 5 also asks this case to assert the original error carries the
+  // attached `rollbackError`. That is unobservable at this layer: the handler's
+  // catch turns the thrown error into an HTTP response and never exposes the
+  // error object, so the attachment cannot be inspected through supertest. The
+  // wrapper's own test (withTransaction.test.js) asserts `err.rollbackError` on
+  // the rethrown error directly; here we assert the two route-observable
+  // consequences of that same path - the original error's mapping survives, and
+  // the connection was destroyed (releaseArgs below) - which together prove the
+  // site routes through the wrapper.
   assert.equal(res.status, 400, JSON.stringify(res.body));
   assert.match(res.body.error, /unknown team or player/);
   // Red-tell (AC2): a rejecting ROLLBACK leaves the transaction open on the
