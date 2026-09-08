@@ -30,6 +30,7 @@ import LeaderboardOutlinedIcon from '@mui/icons-material/LeaderboardOutlined';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
+import { teamStandingFromRow } from '../../entities/standings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
 
@@ -77,9 +78,11 @@ function MovementCell({ change }) {
   );
 }
 
+// The Record arrives FORMATTED from the standings entity (src/entities/
+// standings, #959/#1044); this only masks a missing standing, exactly as it
+// always has.
 function formatRecord(record) {
-  if (!record) return '-';
-  return record.ties ? `${record.wins}-${record.losses}-${record.ties}` : `${record.wins}-${record.losses}`;
+  return record || '-';
 }
 
 function HighlightCard({ label, team, change, up }) {
@@ -189,7 +192,10 @@ function PowerRankings() {
 
   const recordByTeamId = useMemo(() => {
     const map = new Map();
-    for (const s of standings) map.set(s.teamId, s);
+    for (const row of standings) {
+      const standing = teamStandingFromRow(row);
+      if (standing.teamId != null) map.set(standing.teamId, standing.record);
+    }
     return map;
   }, [standings]);
 

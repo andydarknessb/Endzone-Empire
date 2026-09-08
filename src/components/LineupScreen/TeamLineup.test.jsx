@@ -5,6 +5,7 @@ import { useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { findTeamStanding } from '../../entities/standings';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import TeamLineup from './TeamLineup';
 
@@ -12,6 +13,25 @@ jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
+
+// findTeamStanding is mocked to forward to the real implementation by
+// default; the red-tell test below overrides it for one call to prove
+// TeamSummary reads the entity's `record` rather than recomputing one.
+jest.mock('../../entities/standings', () => {
+  const actual = jest.requireActual('../../entities/standings');
+  return { ...actual, findTeamStanding: jest.fn(actual.findTeamStanding) };
+});
+const realFindTeamStanding = jest.requireActual('../../entities/standings').findTeamStanding;
+
+// react-scripts' Jest preset sets `resetMocks: true`, which wipes ANY
+// mockImplementation (including the one the jest.mock factory above sets at
+// module load) before every test, not just once. findTeamStanding must be
+// re-armed to forward to the real implementation in beforeEach, after that
+// reset has already run, or every test but the one that sets its own
+// override sees it return undefined.
+beforeEach(() => {
+  findTeamStanding.mockImplementation(realFindTeamStanding);
+});
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -130,6 +150,41 @@ test('renders roster-managed player rows in one Team Lineup surface', async () =
   expect(within(quarterbackRow).getByRole('link', { name: 'Trade' })).toHaveAttribute('href', '/league/1/trades');
   expect(within(quarterbackRow).getByRole('button', { name: 'Drop' })).toBeInTheDocument();
   expect(screen.queryByRole('table', { name: 'Roster management' })).not.toBeInTheDocument();
+});
+
+test('shows a tied Team as three parts in the Team summary', async () => {
+  mockTeamApi({ standings: [{ teamId: 101, wins: 2, losses: 1, ties: 1, rank: 2 }] });
+
+  renderWithProviders(<TeamLineup />);
+
+  expect(await screen.findByText('Record: 2-1-1 · Rank: #2 · Waiver priority: #3')).toBeInTheDocument();
+});
+
+test('shows "No record yet" for a Team that has not played a game', async () => {
+  mockTeamApi({ standings: [{ teamId: 101, wins: 0, losses: 0, ties: 0, rank: 1 }] });
+
+  renderWithProviders(<TeamLineup />);
+
+  expect(await screen.findByText('No record yet · Waiver priority: #3')).toBeInTheDocument();
+});
+
+// #1044 red-tell: the standings entity is the ONE place the Record string is
+// computed. Forcing it to hand back a string no wins/losses/ties combination
+// would produce, and seeing that exact string reach the DOM, is what proves
+// TeamSummary reads `row.record` rather than recomputing one from row.wins /
+// row.losses / row.ties (a hand-derivation would print "Record: 1-0" here,
+// since the fixture's raw counts are still wins:1/losses:0/ties:0).
+test('reads the Record straight from the standings entity rather than recomputing it', async () => {
+  mockTeamApi({ standings: [{ teamId: 101, wins: 1, losses: 0, ties: 0, rank: 1 }] });
+  findTeamStanding.mockImplementation((rows, teamId) => {
+    const standing = realFindTeamStanding(rows, teamId);
+    return standing ? { ...standing, record: 'ENTITY-SAYS-9-9-9' } : standing;
+  });
+
+  renderWithProviders(<TeamLineup />);
+
+  expect(await screen.findByText('Record: ENTITY-SAYS-9-9-9 · Rank: #1 · Waiver priority: #3')).toBeInTheDocument();
+  expect(screen.queryByText(/Record: 1-0/)).not.toBeInTheDocument();
 });
 
 test('keeps lineup assignment in the same surface as roster actions', async () => {
