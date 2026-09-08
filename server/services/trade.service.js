@@ -4,6 +4,13 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { rosterCapacity } = require('./irPolicy.service');
+// The write-time roster gate (#940). Its error type is DraftError, which does
+// NOT extend TradeError - and that is load-bearing here, not incidental:
+// processDueTrades permanently CANCELS a trade when it catches a TradeError, so
+// a freeze refusal shaped like one would destroy every accepted trade whose
+// review window ended during a freeze. As a DraftError it falls to the "log and
+// retry next tick" branch, and the trade stays accepted.
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
@@ -400,6 +407,22 @@ async function commissionerDecide({ tradeId, userId, approve }) {
  * Swap the rosters atomically inside the caller's transaction. Re-validates
  * that every player is still on the expected roster and that both teams stay
  * within the roster limit after the swap.
+ *
+ * The write gate runs ONCE PER PLAYER, immediately before that player's own
+ * write (#963), never once up front: a single check before the loop would let
+ * two incoming players at the same position both pass a cap of one, because
+ * neither row has landed yet when the check runs. The release gate precedes
+ * each DELETE and the acquire gate precedes each INSERT, so both teams in a
+ * trade answer for the freeze and for their own Team lock - and the Team lock
+ * is new here, since this path checked neither manager's before.
+ *
+ * Capacity is the exception, and it is bypassed on the per-item call rather
+ * than dropped. Every add asks a per-player question; a trade asks a NET
+ * question over a swap that may transiently exceed - a team at capacity that
+ * sends one player and receives one is legal, but its incoming insert happens
+ * while the count is still full. So the net question stays exactly where it is,
+ * in the delta loop below, and the per-item gate is invoked with
+ * ROSTER_GATE.CAPACITY bypassed, which is precisely how the path behaves today.
  */
 async function executeTrade(client, { trade, league, items, teams, byCommissioner = false }) {
   const delta = new Map([[trade.proposing_team_id, 0], [trade.receiving_team_id, 0]]);
@@ -434,6 +457,16 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
       throw new TradeError(409, `trade would put ${teams.get(teamId).name} over its roster capacity of ${capacity}`);
     }
   }
+  // Positions for the per-item acquire gate's position-cap check, and the names
+  // the transaction detail bakes in below, read in one statement before the
+  // loop. Reading the FACTS up front is not the same as gating up front: the
+  // gate itself still runs per player, immediately before that player's write.
+  const tradedPlayersResult = await client.query(
+    `SELECT "id", "name", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
+    [items.map((i) => i.player_id)]
+  );
+  const tradedPlayerById = new Map(tradedPlayersResult.rows.map((p) => [p.id, p]));
+
   for (const item of items) {
     // Delete-and-insert rather than UPDATE ... SET team_id (#197). Moving the
     // row keeps the GIVING team's created_at, so "when this team acquired
@@ -441,6 +474,17 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     // row dates the acquisition it actually records, which is what a
     // post-kickoff exclusion has to read. The delete comes first: the unique
     // constraint on (league_id, player_id) would refuse the insert otherwise.
+    //
+    // The giving side's release gate: the freeze and the giving Team's lock.
+    // Capacity, the position cap and the waiver hold are acquire-only and are
+    // never evaluated on a release, so nothing is bypassed here.
+    await assertRosterWriteAllowed(client, {
+      leagueId: league.id,
+      teamId: item.from_team_id,
+      direction: 'release',
+      playerId: item.player_id,
+      bypass: [],
+    });
     await client.query(
       `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
       [item.from_team_id, item.player_id]
@@ -450,6 +494,20 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     // receiving team's week, and these two must not interleave.
     await lineupService.removeLineupEntries(client, {
       league, teamId: item.from_team_id, playerId: item.player_id,
+    });
+    // The receiving side's acquire gate, immediately before this player's own
+    // insert: the freeze, the receiving Team's lock, the per-position cap and
+    // the waiver hold. Only capacity is bypassed - the net question above owns
+    // it. Because this runs after the previous item's insert has landed, two
+    // incoming players at the same position are counted one after the other and
+    // the second is refused against a cap of one.
+    await assertRosterWriteAllowed(client, {
+      leagueId: league.id,
+      teamId: item.to_team_id,
+      direction: 'acquire',
+      playerId: item.player_id,
+      position: (tradedPlayerById.get(item.player_id) || {}).position,
+      bypass: [ROSTER_GATE.CAPACITY],
     });
     await client.query(
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
@@ -465,11 +523,8 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
   // Names are baked into the transaction detail at execution time so the
   // league activity feed can render "traded X to Y for Z" without the
   // transactions route having to re-join trade_items/players/teams later.
-  const playerNamesResult = await client.query(
-    `SELECT "id", "name" FROM "players" WHERE "id" = ANY($1::int[])`,
-    [items.map((i) => i.player_id)]
-  );
-  const playerNameById = new Map(playerNamesResult.rows.map((p) => [p.id, p.name]));
+  // Read once, above the loop, together with the positions the gate needs.
+  const playerNameById = new Map(tradedPlayersResult.rows.map((p) => [p.id, p.name]));
   await logTransaction(client, {
     leagueId: league.id,
     teamId: trade.proposing_team_id,

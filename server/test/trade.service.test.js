@@ -19,8 +19,55 @@ const teams = new Map([
 // A 1-for-0 trade: team 41 sends player 21 to team 42.
 const items = [{ from_team_id: 41, to_team_id: 42, player_id: 21 }];
 
-function tradeWorld({ counts, stashes, stashQueries }) {
+/**
+ * `counts` and `stashes` feed the NET capacity question; `frozen`,
+ * `lockedTeams`, `positionCaps` and `positionCounts` feed the per-item write
+ * gate (#963).
+ *
+ * The gate's own League and Team reads get their own handlers, registered
+ * FIRST because handlers are tried in order. They are not folded into the
+ * reads below on purpose: the gate reads its League row with an explicit
+ * column list, and a matcher blind to that select list would hand it a row
+ * that cannot answer the freeze, which the gate refuses (500) rather than
+ * reading as "not frozen".
+ *
+ * `positionCounts` is a function, not a map, so a test can make the count grow
+ * as inserts land. That is what makes "two incoming players at the same
+ * position against a cap of one" a real per-item question: the second call
+ * sees the first player's row.
+ */
+function tradeWorld({
+  counts,
+  stashes,
+  stashQueries,
+  frozen = false,
+  lockedTeams = [],
+  positionCaps = {},
+  positionCounts = () => 0,
+  players = [{ id: 21, name: 'Test Runner', position: 'RB' }],
+  // The fake pool applies no writes, so a test that needs a later read to see
+  // an earlier write advances its own state here.
+  onRosterWrite = () => {},
+}) {
   return createFakePool([
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{
+        id: 1,
+        transactions_locked: frozen,
+        draft_status: 'complete',
+        roster_limit: 16,
+        ir_slots: 2,
+        position_caps: positionCaps,
+        waivers_clear_at: null,
+      }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
+      rows: [{ id: params[0], locked: lockedTeams.includes(params[0]) }],
+    })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, (text, params) => ({
+      rows: [{ n: positionCounts(params[0], params[1]) }],
+    })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
     [/^SELECT 1 FROM "team_players"/, () => ({ rows: [{ 1: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, (text, params) => (
       { rows: [{ n: counts.get(params[0]) }] }
@@ -32,15 +79,21 @@ function tradeWorld({ counts, stashes, stashQueries }) {
     // Delete-and-insert, not UPDATE ... SET team_id (#197): the giving
     // team's row is replaced rather than moved, so created_at means "when
     // this team acquired him" on every path.
-    [remove('team_players'), () => ({ rows: [], rowCount: 1 })],
-    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [remove('team_players'), (text, params) => {
+      onRosterWrite('remove', params);
+      return { rows: [], rowCount: 1 };
+    }],
+    [insert('team_players'), (text, params) => {
+      onRosterWrite('insert', params);
+      return { rows: [], rowCount: 1 };
+    }],
     // The giving side's lineup follows its roster out.
     [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [remove('lineup_entries'), () => ({ rows: [], rowCount: 1 })],
     [update('trades'), () => ({ rows: [], rowCount: 1 })],
-    [select('players'), () => ({ rows: [{ id: 21, name: 'Test Runner' }] })],
+    [select('players'), () => ({ rows: players })],
     [insert('transactions'), () => ({ rows: [] })],
     [insert('notifications'), () => ({ rows: [] })],
   ]);
@@ -104,5 +157,187 @@ test('executeTrade: an eligible IR stash on the receiving team grants the extra 
   // The acquired player lands on the receiving team's bench (user story 13),
   // never in a stash his old lineup rows there might still describe.
   assert.deepEqual(benched, [{ league, teamId: 42, playerId: 21, afterRosterWrite: true }]);
+  fake.assertClean();
+});
+
+// --- the #963 write gate: freeze, Team lock and the per-position cap ---------
+//
+// The gate runs once per player, immediately before that player's own write.
+// The proof that it is per item rather than up front is the two-incoming-WRs
+// test below: gating once before the loop lets both pass a cap of one, because
+// neither row has landed when a single up-front check runs.
+
+const clearBench = (t) => t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+test('executeTrade: a frozen league refuses the trade, and not as a TradeError', async () => {
+  const fake = tradeWorld({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    frozen: true,
+  });
+  const client = await fake.connect();
+
+  await assert.rejects(
+    executeTrade(client, { trade, league, items, teams }),
+    (error) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.code, 'TRANSACTIONS_LOCKED');
+      // Load-bearing: processDueTrades permanently CANCELS a trade when it
+      // catches a TradeError. A freeze refusal must fall to the log-and-retry
+      // branch instead, so an accepted trade whose review window ends during a
+      // freeze survives the freeze.
+      assert.ok(!(error instanceof TradeError), 'the gate refusal must not be a TradeError');
+      return true;
+    }
+  );
+  client.release();
+
+  assert.equal(fake.matching(remove('team_players')).length, 0, 'no roster row was removed');
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'no roster row was written');
+  assert.equal(fake.matching(update('trades')).length, 0, 'the trade was not marked executed');
+  fake.assertClean();
+});
+
+test('executeTrade: a locked receiving team refuses the trade, which is new', async () => {
+  const fake = tradeWorld({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    lockedTeams: [42],
+  });
+  const client = await fake.connect();
+
+  await assert.rejects(
+    executeTrade(client, { trade, league, items, teams }),
+    { statusCode: 409, code: 'TEAM_LOCKED', message: 'your team is locked by the commissioner' }
+  );
+  client.release();
+
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'no roster row was written');
+  fake.assertClean();
+});
+
+test('executeTrade: a locked GIVING team refuses the trade too, at the release gate', async () => {
+  const fake = tradeWorld({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    lockedTeams: [41],
+  });
+  const client = await fake.connect();
+
+  await assert.rejects(
+    executeTrade(client, { trade, league, items, teams }),
+    { statusCode: 409, code: 'TEAM_LOCKED' }
+  );
+  client.release();
+
+  assert.equal(fake.matching(remove('team_players')).length, 0, 'the giving row survived');
+  fake.assertClean();
+});
+
+test('executeTrade: two incoming players at the same position are refused against a cap of one', async (t) => {
+  // Team 41 sends two WRs to team 42, which holds none. A cap of one WR must
+  // let the first land and refuse the second. Gating ONCE before the loop
+  // instead of per item turns this from red to green: both items would be
+  // checked against the same count of zero.
+  const twoIn = [
+    { from_team_id: 41, to_team_id: 42, player_id: 21 },
+    { from_team_id: 41, to_team_id: 42, player_id: 22 },
+  ];
+  const rosteredWrs = new Map([[41, 2], [42, 0]]);
+  const fake = tradeWorld({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    positionCaps: { WR: 1 },
+    // The count grows as inserts land, the way a real roster does.
+    positionCounts: (teamId) => rosteredWrs.get(teamId),
+    players: [
+      { id: 21, name: 'First WR', position: 'WR' },
+      { id: 22, name: 'Second WR', position: 'WR' },
+    ],
+    // The fake pool never applies a write, so the roster the position-cap
+    // count reads is advanced here instead: each landed insert is one more WR
+    // on the receiving team and one fewer on the giving team.
+    onRosterWrite: (verb, params) => {
+      if (verb !== 'insert') return;
+      rosteredWrs.set(params[1], rosteredWrs.get(params[1]) + 1);
+      rosteredWrs.set(41, rosteredWrs.get(41) - 1);
+    },
+  });
+  clearBench(t);
+  const client = await fake.connect();
+
+  await assert.rejects(
+    executeTrade(client, { trade, league, items: twoIn, teams }),
+    { statusCode: 409, message: 'position cap reached: max 1 WR' }
+  );
+  client.release();
+
+  // The first player landed before the second was refused: that is the shape
+  // only a per-item gate produces. The whole transaction rolls back at the
+  // caller, so nothing half-applies in production.
+  assert.equal(fake.matching(insert('team_players')).length, 1, 'exactly one insert landed before the refusal');
+  assert.equal(fake.matching(update('trades')).length, 0, 'the trade was not marked executed');
+  fake.assertClean();
+});
+
+test('executeTrade: the net capacity question still governs a swap that transiently exceeds', async (t) => {
+  // Team 42 is exactly AT capacity (14) and swaps one for one. A per-player
+  // capacity question would refuse its incoming insert, because at the moment
+  // that insert runs the count is still 14. The NET question is the one that
+  // governs, and it says the swap is legal - which is why CAPACITY is bypassed
+  // on the per-item gate rather than the net check being folded into it.
+  const swap = [
+    { from_team_id: 41, to_team_id: 42, player_id: 21 },
+    { from_team_id: 42, to_team_id: 41, player_id: 22 },
+  ];
+  const fake = tradeWorld({
+    counts: new Map([[41, 14], [42, 14]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    players: [
+      { id: 21, name: 'Out One', position: 'RB' },
+      { id: 22, name: 'Out Two', position: 'TE' },
+    ],
+  });
+  clearBench(t);
+  const client = await fake.connect();
+
+  await executeTrade(client, { trade, league, items: swap, teams });
+  client.release();
+
+  assert.equal(fake.matching(insert('team_players')).length, 2, 'both players moved');
+  assert.equal(fake.matching(update('trades')).length, 1, 'the trade executed');
+  fake.assertClean();
+});
+
+test('executeTrade: the gate runs per item, immediately around each write', async (t) => {
+  const swap = [
+    { from_team_id: 41, to_team_id: 42, player_id: 21 },
+    { from_team_id: 42, to_team_id: 41, player_id: 22 },
+  ];
+  const fake = tradeWorld({
+    counts: new Map([[41, 5], [42, 5]]),
+    stashes: new Map([[41, 0], [42, 0]]),
+    players: [
+      { id: 21, name: 'Out One', position: 'RB' },
+      { id: 22, name: 'Out Two', position: 'TE' },
+    ],
+  });
+  clearBench(t);
+  const client = await fake.connect();
+  await executeTrade(client, { trade, league, items: swap, teams });
+  client.release();
+
+  // Two items, each gated twice (release before its delete, acquire before its
+  // insert): four gate League reads, not one. A hoisted batch-level call would
+  // read the League once.
+  const gateReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  assert.equal(gateReads.length, 4, 'four gate calls: one per direction per item');
+
+  // Each gate League read is immediately followed by its Team lock, League then
+  // Team, so this path introduces no lock-order inversion.
+  for (const read of gateReads) {
+    const at = fake.calls.indexOf(read);
+    assert.match(fake.calls[at + 1].text, /^SELECT "id", "locked" FROM "teams"/);
+  }
   fake.assertClean();
 });

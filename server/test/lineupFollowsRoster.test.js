@@ -369,6 +369,26 @@ const tradeLeague = {
 
 function tradeWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
+    // The #963 per-item write gate reads its OWN League and Team rows FOR
+    // UPDATE with explicit column lists, League first. Registered first, since
+    // handlers are tried in order, and given their own rows: a matcher blind to
+    // a select list would hand the gate a League row that cannot answer the
+    // freeze, which the gate refuses rather than reading as "not frozen".
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{
+        id: 5,
+        transactions_locked: false,
+        draft_status: 'complete',
+        roster_limit: 16,
+        ir_slots: 1,
+        position_caps: {},
+        waivers_clear_at: null,
+      }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
+      rows: [{ id: params[0], locked: false }],
+    })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
     [/^SELECT 1 FROM "team_players"/, () => ({ rows: [{ 1: 1 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
@@ -379,7 +399,11 @@ function tradeWorld({ kickedOff = [], removals = [] } = {}) {
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: [] })],
     [/^UPDATE "lineup_entries"/, () => ({ rows: [], rowCount: 0 })],
     [/^UPDATE "trades"/, () => ({ rows: [] })],
-    [/^SELECT "id", "name" FROM "players"/, () => ({ rows: [{ id: 21, name: 'Test Runner' }] })],
+    // The positions the per-item acquire gate needs ride along with the names
+    // the transaction detail bakes in: one read, above the loop (#963).
+    [/^SELECT "id", "name", "position" FROM "players"/, () => ({
+      rows: [{ id: 21, name: 'Test Runner', position: 'RB' }],
+    })],
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
   ]);
