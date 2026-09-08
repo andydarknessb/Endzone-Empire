@@ -87,6 +87,7 @@ describe('recordsByTeamId / findTeamStanding: the lookups the surfaces read', ()
       { teamId: 1, wins: 3, losses: 1, ties: 0 },
       { teamId: 2, wins: '1', losses: '2', ties: '1' },
       { teamId: null, wins: 9, losses: 9 },
+      null,
     ]);
     expect(map.get(1)).toBe('3-1');
     expect(map.get(2)).toBe('1-2-1');

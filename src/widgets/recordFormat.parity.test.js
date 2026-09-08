@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react';
 import renderWithProviders from '../test-utils/renderWithProviders';
 import apiClient from '../api/apiClient';
 import { setResource, invalidate } from '../lib/resourceCache';
-import { recordsFromStandings } from './matchup-grid/lib/records';
+import { recordsByTeamId } from '../entities/standings';
 import StandingsTable from './standings-table';
 import TeamLineup from '../components/LineupScreen/TeamLineup';
 
@@ -14,6 +14,13 @@ import TeamLineup from '../components/LineupScreen/TeamLineup';
  * line. #958 exists because useStandingsTable.js and TeamLineup.jsx printed a
  * third, always-zero tie part that the other sites never did; this pins all
  * three to the same conditional rule so the three cannot drift apart again.
+ *
+ * Since #959 the standings entity owns the one derivation, so this file is no
+ * longer guarding three widget formatters against each other: two of the three
+ * surfaces below now read the entity, and what is still worth pinning is the
+ * THIRD, TeamLineup.jsx, which is a legacy `src/components` screen with its own
+ * inline formatter and is out of #959's scope (three widgets). It is the one
+ * surface that can still drift, and this is what would catch it.
  *
  * jest.mock below intercepts by resolved module (src/api/apiClient.js), so it
  * covers every import of it regardless of the relative path each component
@@ -38,7 +45,7 @@ afterEach(() => {
 
 test('a tie-less Team renders the same record string on the standings table, the matchup card lookup and the Lineup screen', async () => {
   // --- the matchup card's lookup: a pure function, no rendering needed -----
-  const matchupCardRecord = recordsFromStandings([ROW]).get(TEAM_ID);
+  const matchupCardRecord = recordsByTeamId([ROW]).get(TEAM_ID);
   expect(matchupCardRecord).toBe('3-1');
 
   // --- the standings table -------------------------------------------------

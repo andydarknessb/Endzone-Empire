@@ -734,7 +734,11 @@ once one has actually happened. The standings table, a Matchup card, the
 Team summary and the Lineup screen all follow this rule, and so does Power
 Rankings. League History does not yet: it always renders two parts and
 never shows a tie, so a Team that actually tied reads as if it never did;
-#1009 tracks bringing it into line.
+#1009 tracks bringing it into line. Since #959 the rule is computed in ONE
+place, the standings entity (src/entities/standings): the standings table, the
+Team summary and a Matchup card all read the formatted Record from there rather
+than deriving it, which is what stops a fourth surface inventing a fourth
+answer. The Lineup screen and League History still derive their own.
 _Avoid_: standings (the ordered table built from every Team's Record, not one
 Team's own tally)
 
