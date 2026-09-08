@@ -1888,6 +1888,29 @@ test('commissioner-panel: a 409 from advance-week shows the server message verba
   expect(within(card).getByRole('button', { name: 'Advance to Week 2' })).toBeEnabled();
 });
 
+test('commissioner-panel: an advance-week failure in a code+message envelope (no error key) shows the server sentence, not the generic fallback', async () => {
+  // A code+message envelope with no `error` key (the shape the global express
+  // error handler and the rate limiter emit). The old hand-rolled read of
+  // `err.response.data.error` found no `error` key here and, with no err.message
+  // on the rejected object, showed the generic 'Could not advance the week.';
+  // reading through readHttpFailure surfaces the server's own sentence.
+  const serverMessage = 'scoring is locked while the weekly sync runs; try again in a minute';
+  apiClient.post.mockRejectedValue({
+    response: { status: 409, data: { code: 'SYNC_IN_PROGRESS', message: serverMessage } },
+  });
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  await userEvent.click(within(card).getByRole('button', { name: 'Advance to Week 2' }));
+  const dialog = await screen.findByRole('dialog');
+  await userEvent.click(within(dialog).getByRole('button', { name: /confirm/i }));
+
+  const alert = await within(card).findByRole('alert');
+  expect(alert).toHaveTextContent(serverMessage);
+  expect(alert).not.toHaveTextContent('Could not advance the week.');
+});
+
 test("commissioner-panel: a pick'em-only commissioner sees the panel but no advance control", async () => {
   mockGetByUrl({ '/api/league/1': commissionerPanelPickemLeague() });
   renderPage();

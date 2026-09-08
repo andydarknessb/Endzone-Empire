@@ -3,6 +3,7 @@ import apiClient from '../../../api/apiClient';
 import supabase from '../../../api/supabaseClient';
 import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
+import { readHttpFailure } from '../../../lib/httpFailure';
 import {
   matchupFromDetailBody, applyScoreEvent, applyIdentityPatch, pairStartersBySlot,
 } from './matchupModel';
@@ -195,7 +196,7 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
       setHome(res.data?.home ?? null);
       setAway(res.data?.away ?? null);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       if (!silent) setLoading(false);
     }

@@ -209,6 +209,26 @@ test('a failed Matchup read renders an Alert and keeps the page frame up', async
   expect(screen.queryByTestId('game-center-loading')).not.toBeInTheDocument();
 });
 
+// A code+message envelope with no `error` key (the shape the global express
+// error handler and the rate limiter emit). The old hand-rolled read of
+// `err.response.data.error` found no `error` key here and fell through to
+// `err.message`, which a rejected object like this does not carry, so the page
+// showed NO alert at all; reading through readHttpFailure surfaces the server's
+// own sentence in the alert region.
+test('a code+message Matchup failure (no error key) shows the server sentence in the Alert', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.endsWith('/matchups')) {
+      return Promise.reject({ response: { data: { code: 'MATCHUPS_DOWN', message: 'scores are briefly unavailable' } } });
+    }
+    if (url.endsWith('/rosters') || url.endsWith('/standings')) return Promise.resolve({ data: [] });
+    return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers' }, teams: [], viewerTeamId: null } });
+  });
+  renderPage();
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('scores are briefly unavailable');
+  expect(screen.getByRole('heading', { level: 1, name: 'Game Center' })).toBeInTheDocument();
+});
+
 test('one h1, the breadcrumb, and an explicit h2 over every region', async () => {
   mockApi({
     matchups: [viewerRow(), otherRow()],

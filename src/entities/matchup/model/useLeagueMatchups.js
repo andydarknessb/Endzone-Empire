@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../../api/apiClient';
 import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
+import { readHttpFailure } from '../../../lib/httpFailure';
 import { matchupFromListRow, applyScoreEvent, applyIdentityPatch } from './matchupModel';
 
 /**
@@ -47,7 +48,7 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
       const rows = Array.isArray(res.data) ? res.data : [];
       setMatchups(rows.map(matchupFromListRow));
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       if (!silent) setLoading(false);
     }
