@@ -13,6 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import { formatRelative } from '../../utils/formatRelative';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 /**
  * The commissioner-only pending-draft start action. Both the Draft room and
@@ -93,7 +94,7 @@ export default function DraftStartControl({
       }
       setConfirmOpen(false);
     } catch (error) {
-      setStartError(error?.response?.data?.error || error?.message || 'The draft could not be started.');
+      setStartError(readHttpFailure(error).message || error?.message || 'The draft could not be started.');
     } finally {
       startInFlight.current = false;
       setStartPending(false);

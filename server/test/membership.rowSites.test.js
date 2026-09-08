@@ -261,19 +261,54 @@ test('trades router: GET / and POST /analyze refuse a non-member with the standa
 
 // --- draft service ----------------------------------------------------------
 
-test('draft service: dropPlayer refuses a non-member, and locks a member Team row before reading locked', async (t) => {
+// The gate's own reads (#962), as overrides: explicit column lists that the
+// substring defaults above would otherwise answer with the wrong rows.
+const dropGateHandlers = ({ frozen = false, locked = false } = {}) => [
+  [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+    () => ({ rows: [{ id: 3, transactions_locked: frozen }] })],
+  [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+    () => ({ rows: [{ id: TEAM.id, locked }] })],
+];
+
+test('draft service: dropPlayer refuses a non-member, and no longer locks the Team row first', async (t) => {
   const draft = require('../services/draft.service');
-  const nonMember = fakeDb(t);
+  const nonMember = fakeDb(t, { overrides: dropGateHandlers() });
   await rejectsAsNonMember(draft.dropPlayer({ leagueId: 3, userId: CALLER, playerId: 1 }));
   assertNoWrites(nonMember, 'dropPlayer non-member');
 
-  const calls = fakeDb(t, { member: { ...TEAM, locked: true } });
-  await assert.rejects(draft.dropPlayer({ leagueId: 3, userId: CALLER, playerId: 1 }), {
-    statusCode: 409, message: 'your team is locked by the commissioner',
+  // #962 INVERTS the old assertion here, deliberately. This membership read used
+  // to be the ONE Team-first row lock in the server: the drop took the Team row
+  // FOR UPDATE and then read the League unlocked, while every other roster write
+  // and the commissioner's forced transaction lock the League first. Wiring the
+  // #944 write gate onto the drop without demoting it would have shipped an
+  // AB/BA pair, so the read is now a plain SELECT and the gate takes both rows,
+  // League then Team. The deadlock half of that claim is
+  // rosterDropLockOrder.pg.test.js; this is the statement-shape half.
+  const calls = fakeDb(t, {
+    member: { ...TEAM, locked: true },
+    overrides: dropGateHandlers({ locked: true }),
   });
-  assert.match(teamLookups(calls)[0].text, /FOR UPDATE$/);
-  // The locked-team guard sits directly above the DELETE FROM "team_players".
+  await assert.rejects(draft.dropPlayer({ leagueId: 3, userId: CALLER, playerId: 1 }), {
+    statusCode: 409, code: 'TEAM_LOCKED', message: 'your team is locked by the commissioner',
+  });
+  assert.equal(teamLookups(calls).length, 1);
+  assert.doesNotMatch(teamLookups(calls)[0].text, /FOR UPDATE$/, 'the membership read takes no row lock');
+  // The refusal moved from an inline check into the gate, keeping its message
+  // and gaining the TEAM_LOCKED code. It still sits above every write.
+  const leagueLockAt = calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE$/.test(c.text));
+  const teamLockAt = calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE$/.test(c.text));
+  assert.ok(leagueLockAt >= 0 && teamLockAt >= 0, 'the gate locked both rows');
+  assert.ok(leagueLockAt < teamLockAt, 'League before Team, the one order on every path');
   assertNoWrites(calls, 'dropPlayer locked team');
+});
+
+test('draft service: dropPlayer refuses a frozen league before any write (#962)', async (t) => {
+  const draft = require('../services/draft.service');
+  const calls = fakeDb(t, { member: TEAM, overrides: dropGateHandlers({ frozen: true }) });
+  await assert.rejects(draft.dropPlayer({ leagueId: 3, userId: CALLER, playerId: 1 }), {
+    statusCode: 409, code: 'TRANSACTIONS_LOCKED',
+  });
+  assertNoWrites(calls, 'dropPlayer frozen league');
 });
 
 test('draft service: undoDrop refuses a non-member with the standard 403', async (t) => {

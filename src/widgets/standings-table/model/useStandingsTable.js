@@ -1,5 +1,5 @@
 import { useLeague } from '../../../hooks/useLeague';
-import { useStandings } from '../../../hooks/useStandings';
+import { useLeagueStandings } from '../../../entities/standings';
 import { teamNameLabel, teamRowKey } from '../../../lib/teamIdentity';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../../lib/leaguePhase';
 
@@ -9,8 +9,11 @@ import { deriveLeaguePhase, LEAGUE_PHASE } from '../../../lib/leaguePhase';
  * stays a thin presenter.
  *
  * Two sources:
- *   - Row order, rank and the record/points values come from the scoring
- *     standings read (useStandings / ADR 0004). That read is the card's SPINE:
+ *   - Row order, rank and the record/points values come from the STANDINGS
+ *     ENTITY (src/entities/standings, #959), which owns the read and computes
+ *     the Record once, so this widget cannot disagree with the matchup card or
+ *     the my-team summary about it. It reads through the same week-keyed
+ *     shared cache as before (ADR 0004). That read is the card's SPINE:
  *     its loading state drives the skeletons and its failure drives the compact
  *     error, so a failed table never touches the rest of the page. It is a
  *     SHARED-cache read keyed by the league's current week: my-team-summary
@@ -61,43 +64,44 @@ const winPctLabel = (value) => {
 
 export function useStandingsTable(leagueId) {
   const { league, teams, viewerTeamId } = useLeague(leagueId);
-  const standings = useStandings(leagueId, league?.current_week);
-
-  // useResource's { data, loading, error } maps to the card's three spine
-  // states, the same mapping my-team-summary uses.
-  const status = standings.loading ? 'loading' : standings.error ? 'error' : 'ready';
+  // The week is the entity's caller's to supply (#942 ruling R4: no League
+  // entity slice), and the card's three spine states come back on `status`,
+  // the same mapping my-team-summary reads.
+  const { status, rows: standingRows, playoffTeams: bracketSize } = useLeagueStandings(
+    leagueId,
+    league?.current_week,
+  );
 
   const teamList = Array.isArray(teams) ? teams : [];
   const teamsById = new Map(teamList.map((t) => [t.teamId, t]));
   const teamCount = teamList.length;
 
-  const rawRows = Array.isArray(standings.data?.standings) ? standings.data.standings : [];
-  const rows = rawRows.map((row, index) => {
+  const rows = standingRows.map((row, index) => {
     const team = teamsById.get(row.teamId) || null;
-    const wins = Number(row.wins) || 0;
-    const losses = Number(row.losses) || 0;
-    const ties = Number(row.ties) || 0;
     return {
       key: teamRowKey(row.teamId, index),
-      // The rank column is the position in the standings order, not a re-derived
-      // number, so the two cannot disagree.
-      rank: index + 1,
+      // The rank column is the position in the standings order, not a
+      // re-derived number, so the two cannot disagree (the #617 ruling). The
+      // entity reports that position beside the server's own rank.
+      rank: row.position,
       teamId: row.teamId,
       teamName: teamNameLabel(team?.teamName),
       avatarUrl: team?.avatar_url ?? null,
       avatarStaticUrl: team?.avatar_static_url ?? null,
       isViewer: row.teamId != null && row.teamId === viewerTeamId,
-      // Record as hyphen-joined W-L-T; points to one decimal. Masked in the UI
+      // The Record arrives FORMATTED from the entity, which owns the tie rule
+      // (CONTEXT.md, Record); nothing here re-derives it. Points are the
+      // entity's numbers printed to one decimal. Both are masked in the UI
       // during preseason.
-      record: `${wins}-${losses}-${ties}`,
-      pointsFor: (Number(row.pf) || 0).toFixed(1),
-      pointsAgainst: (Number(row.pa) || 0).toFixed(1),
+      record: row.record,
+      pointsFor: row.pointsFor.toFixed(1),
+      pointsAgainst: row.pointsAgainst.toFixed(1),
       streak: streakLabel(row.streak),
       winPct: winPctLabel(row.winPct),
       // The seed the bracket gives this Team, or null for a Team outside it.
       // Nothing recomputes it: the server owns the cutoff.
-      playoffSeed: row.playoffSeed ?? null,
-      gamesPlayed: wins + losses + ties,
+      playoffSeed: row.playoffSeed,
+      gamesPlayed: row.gamesPlayed,
     };
   });
 
@@ -118,8 +122,7 @@ export function useStandingsTable(leagueId) {
   // Preseason is excluded for the same reason the record cells are masked: the
   // server still seeds by rank, but with every Team 0-0-0 that order is a
   // tiebreak artefact, and a rule across it would claim a standing nobody has.
-  const playoffTeams = Number(standings.data?.league?.playoff_teams);
-  const bracketSplits = !preseason && playoffTeams > 0 && playoffTeams < rows.length;
+  const bracketSplits = !preseason && bracketSize > 0 && bracketSize < rows.length;
   const cutIndex = bracketSplits ? rows.findIndex((row) => row.playoffSeed == null) : -1;
 
   return { status, rows, preseason, teamCount, cutIndex };

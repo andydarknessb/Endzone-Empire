@@ -1019,7 +1019,18 @@ test('Matchup Scheduling & Scoring surfaces a toast and skips refresh when an op
   expect(onRefresh).not.toHaveBeenCalled();
 });
 
-test('Manual Score Correction preserves input and locks submission after the correction window expires', async () => {
+// The correction lock is the live consumer of the envelope #973 converged
+// (ADR 0032). It branches on the CODE, never on the sentence, so it must lock
+// on BOTH the envelope the server emits now ({ code, message }) and the one it
+// emitted before ({ error: <code>, message }), which is the readHttpFailure
+// tolerance arm. The old-shape row is a HAND-WRITTEN fixture, not a shape any
+// migrated route still produces: it is what proves the tolerance is still
+// load-bearing, and it is the row that goes red the day that arm is deleted.
+describe.each([
+  ['the { code, message } envelope emitted since #973', { code: 'CORRECTION_WINDOW_EXPIRED', message: 'Manual score modifications for this week are locked.' }],
+  ['the tolerated { error: <code>, message } envelope', { error: 'CORRECTION_WINDOW_EXPIRED', message: 'Manual score modifications for this week are locked.' }],
+])('Manual Score Correction on %s', (_label, refusalBody) => {
+  test('preserves input and locks submission after the correction window expires', async () => {
   mockGetByUrl({
     '/matchups': {
       data: [
@@ -1027,15 +1038,7 @@ test('Manual Score Correction preserves input and locks submission after the cor
       ],
     },
   });
-  apiClient.post.mockRejectedValue({
-    response: {
-      status: 403,
-      data: {
-        error: 'CORRECTION_WINDOW_EXPIRED',
-        message: 'Manual score modifications for this week are locked.',
-      },
-    },
-  });
+  apiClient.post.mockRejectedValue({ response: { status: 403, data: refusalBody } });
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
 
@@ -1060,6 +1063,7 @@ test('Manual Score Correction preserves input and locks submission after the cor
   expect(screen.getByText('Manual Score Correction')).toBeInTheDocument();
   expect(apiClient.post).toHaveBeenCalledTimes(1);
   expect(apiClient.put).not.toHaveBeenCalled();
+  });
 });
 
 test('Lock Specific Team toggles a single team without touching the league-wide lock', async () => {
@@ -1419,6 +1423,93 @@ test('Start New Season is guarded by a dialog that names what rollover deletes',
     expect(apiClient.post).toHaveBeenCalledWith('/api/commissioner/league/1/rollover', {})
   );
   expect(onRefresh).toHaveBeenCalled();
+});
+
+// #956: the server's rollover envelope can carry both a machine code (for a
+// caller that branches on it) and a human sentence written for the
+// commissioner. The toast used to read the code off `error` unconditionally,
+// so a legitimate refusal like this one showed the literal string
+// PICKEM_SEASON_RESULT_MISSING instead of the sentence sitting right next to
+// it in `message`. Message wins when both are present.
+test('Start New Season shows the message, not the code, when the rollover envelope carries both', async () => {
+  apiClient.post.mockRejectedValue({
+    response: {
+      data: {
+        error: 'PICKEM_SEASON_RESULT_MISSING',
+        message: "Finish scoring this season's last week before starting a new one.",
+      },
+    },
+  });
+  renderTools({
+    league: league({ draft_status: 'complete', season_status: 'complete', current_season: 2026 }),
+  });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+
+  expect(await screen.findByText("Finish scoring this season's last week before starting a new one."))
+    .toBeInTheDocument();
+  expect(screen.queryByText('PICKEM_SEASON_RESULT_MISSING')).not.toBeInTheDocument();
+});
+
+// The fallback direction: an envelope with no `message` field at all still has
+// to show whatever human-readable sentence the server put in `error`.
+test('Start New Season falls back to the error field when the envelope carries no message', async () => {
+  apiClient.post.mockRejectedValue({
+    response: { data: { error: 'The season is already archived.' } },
+  });
+  renderTools({
+    league: league({ draft_status: 'complete', season_status: 'complete', current_season: 2026 }),
+  });
+
+  await userEvent.click(screen.getByRole('button', { name: 'Start New Season' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+
+  expect(await screen.findByText('The season is already archived.')).toBeInTheDocument();
+});
+
+// The live consumer this ticket must not regress: Manual Score Correction
+// branches on the SAME `error` field to lock the control, but only for
+// CORRECTION_WINDOW_EXPIRED. A different refusal on the same endpoint (the
+// issue's own example) must still show its message via the toast and must
+// NOT trip the lock, proving the code-preferring `notify` fix above never
+// reaches that branch.
+test('Manual Score Correction shows the message and stays unlocked for a refusal other than window-expired', async () => {
+  mockGetByUrl({
+    '/matchups': {
+      data: [
+        { id: 9, season: 2026, week: 3, home_team_id: 1, away_team_id: 2, home_score: 100, away_score: 90, home_team_name: "Alice's Team", away_team_name: "Bob's Team" },
+      ],
+    },
+  });
+  apiClient.post.mockRejectedValue({
+    response: {
+      status: 503,
+      data: {
+        code: 'DATABASE_TEMPORARILY_UNAVAILABLE',
+        message: 'The database is temporarily unavailable. Try again shortly.',
+      },
+    },
+  });
+  renderTools();
+  await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
+
+  const teamSelects = screen.getAllByLabelText('Team');
+  await userEvent.click(teamSelects[2]);
+  await userEvent.click(await screen.findByRole('option', { name: "Alice's Team" }));
+  await userEvent.click(screen.getByLabelText('Week'));
+  await userEvent.click(await screen.findByRole('option', { name: 'Week 3' }));
+
+  expect(await screen.findByText(/Current score:/)).toBeInTheDocument();
+  const adjustmentInput = screen.getByLabelText('Adjustment (+/-)');
+  await userEvent.type(adjustmentInput, '5');
+  const submitButton = screen.getByRole('button', { name: 'Apply Correction' });
+  await userEvent.click(submitButton);
+
+  expect(await screen.findByText('The database is temporarily unavailable. Try again shortly.'))
+    .toBeInTheDocument();
+  expect(screen.queryByText('DATABASE_TEMPORARILY_UNAVAILABLE')).not.toBeInTheDocument();
+  expect(submitButton).not.toBeDisabled();
 });
 
 test('cancelling the rollover dialog sends nothing', async () => {

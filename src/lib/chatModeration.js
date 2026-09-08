@@ -1,4 +1,5 @@
 import apiClient from '../api/apiClient';
+import { readHttpFailure } from './httpFailure';
 
 // The one League-chat feed type, tagged on the wire by leagueFeed.feedEntryOf
 // (a client module cannot import server code, so it mirrors the value). This is
@@ -62,5 +63,5 @@ export function hidePost({ leagueId, messageId, reason }) {
     apiClient.post('/api/safety/hide', { leagueId: Number(leagueId), messageId, reason: trimmed })
   )
     .then(() => ({ ok: true }))
-    .catch((err) => ({ ok: false, error: err?.response?.data?.error || 'failed to hide message' }));
+    .catch((err) => ({ ok: false, error: readHttpFailure(err).message || 'failed to hide message' }));
 }

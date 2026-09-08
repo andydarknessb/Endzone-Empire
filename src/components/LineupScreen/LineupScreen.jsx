@@ -35,6 +35,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
 import useResilientLineupMutation from '../../hooks/useResilientLineupMutation';
@@ -359,7 +360,7 @@ export function LineupEditor({
       const res = await apiClient.get(url);
       setLineup(res.data);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
     }
@@ -457,7 +458,7 @@ export function LineupEditor({
       }
     } catch (err) {
       setLineup(snapshot);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
 
@@ -525,7 +526,7 @@ export function LineupEditor({
       await apiClient.post(`/api/team/roster/${entry.id}/undo-drop`, { leagueId: Number(leagueId) });
       await refreshAfterRosterMutation();
     } catch (err) {
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
 
@@ -539,7 +540,7 @@ export function LineupEditor({
         onAction: () => undoDrop(entry),
       });
     } catch (err) {
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
 

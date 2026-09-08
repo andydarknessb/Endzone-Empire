@@ -116,7 +116,10 @@ test('renders roster-managed player rows in one Team Lineup surface', async () =
 
   expect(await screen.findByRole('heading', { name: 'Gridiron Guild' })).toBeInTheDocument();
   expect(await screen.findByRole('heading', { name: 'Lineup' })).toBeInTheDocument();
-  expect(screen.getByText('Record: 1-0-0 · Rank: #1 · Waiver priority: #3')).toBeInTheDocument();
+  // Record is conditional (#958): the fixture has ties: 0, so it prints two
+  // parts, not three. Restoring the unconditional wins-losses-ties format
+  // turns this red.
+  expect(screen.getByText('Record: 1-0 · Rank: #1 · Waiver priority: #3')).toBeInTheDocument();
 
   const quarterbackRow = screen.getByTestId('slot-row-QB-0');
   expect(within(quarterbackRow).getByText('Starting Quarterback')).toBeInTheDocument();
@@ -343,4 +346,30 @@ test('keeps a Bench what-if swap in the query while it normalises the League sel
   const offer = await screen.findByTestId('lineup-swap-offer');
   expect(offer).toHaveTextContent('Reserve Receiver');
   expect(offer).toHaveTextContent('Bench Receiver');
+});
+
+// #970: the Team page reads a roster load failure through readHttpFailure. The
+// envelope is shape (b): the machine CODE in `error`, the sentence in
+// `message`. The old hand-rolled `err.response?.data?.error` read the code, so
+// the Alert on this page showed ROSTER_UNAVAILABLE.
+test('a roster load refusal carrying a code beside a message renders the message, not the code', async () => {
+  mockTeamApi();
+  const defaultGet = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url) => (
+    url.startsWith('/api/team/roster')
+      ? Promise.reject({
+        response: {
+          status: 503,
+          data: { error: 'ROSTER_UNAVAILABLE', message: 'Your roster is briefly unavailable. Try again shortly.' },
+        },
+      })
+      : defaultGet(url)
+  ));
+
+  renderWithProviders(<TeamLineup />);
+
+  expect(
+    await screen.findByText('Your roster is briefly unavailable. Try again shortly.')
+  ).toBeInTheDocument();
+  expect(screen.queryByText('ROSTER_UNAVAILABLE')).not.toBeInTheDocument();
 });

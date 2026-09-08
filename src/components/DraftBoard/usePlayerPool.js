@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/apiClient';
-import { SORT_KEYS } from './sortFields';
+import { SORT_KEYS, wireSortName } from './sortFields';
 
 /** Parses the `byes` URL param (comma-separated week numbers) into a sorted,
  * deduped array of finite integers — anything unparsable is dropped rather
@@ -61,9 +61,13 @@ export default function usePlayerPool(leagueId) {
         const params = {
           page: pageNum + 1,
           leagueId: Number(leagueId),
-          // Keep the compact UI/URL key while using the server's global
-          // projection sort across every page.
-          sort: sort === 'proj' ? 'projected_points' : sort,
+          // Map the compact UI/URL key to the server's `?sort=` wire name via
+          // the module that owns that fact (issue #951), rather than a ternary
+          // that only knew the one 'proj' -> 'projected_points' case. wireSortName
+          // is total: an unknown key returns the default sort's wire name rather
+          // than throwing, so this lookup cannot throw inside the try below whose
+          // catch is empty and leave the pool silently empty.
+          sort: wireSortName(sort),
         };
         // "Hide drafted" (default) keeps the board to available players only.
         if (hideDrafted) params.available = true;

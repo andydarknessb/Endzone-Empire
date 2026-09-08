@@ -15,6 +15,7 @@ import KeeperPanel from './KeeperPanel';
 import ReadinessPanel from './ReadinessPanel';
 import { useUnsavedChangesGuard } from '../NavigationGuard/NavigationGuard';
 import { isLeagueCreator } from '../../lib/teamIdentity';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 const TAB_ITEMS = [
   ['type', 'Draft type'], ['schedule', 'Schedule'], ['timer', 'Timer'], ['order', 'Draft order'],
@@ -24,8 +25,8 @@ const TAB_ITEMS = [
 const tabId = (value) => `draft-settings-tab-${value}`;
 const panelId = (value) => `draft-settings-tabpanel-${value}`;
 
-const errorMessage = (error) => error?.response?.data?.error || error?.message || 'Request failed';
-const failure = (notify, error) => notify(errorMessage(error), { severity: 'error' });
+const failure = (notify, error) =>
+  notify(readHttpFailure(error).message || error?.message || 'Request failed', { severity: 'error' });
 
 export default function DraftSettings() {
   const { leagueId } = useParams();
@@ -76,7 +77,7 @@ export default function DraftSettings() {
       setKeepers(keeperResponse.data || []);
       setKeeperCandidates(candidateResponse.data || []);
     } catch (requestError) {
-      setKeeperDataError(errorMessage(requestError));
+      setKeeperDataError(readHttpFailure(requestError).message || requestError?.message || 'Request failed');
     } finally {
       setKeeperDataLoading(false);
     }
@@ -111,7 +112,7 @@ export default function DraftSettings() {
         response = await apiClient.put(`/api/league/${leagueId}`, payload);
       } catch (requestError) {
         failure(notify, requestError);
-        return { success: false, error: errorMessage(requestError) };
+        return { success: false, error: readHttpFailure(requestError).message || requestError?.message || 'Request failed' };
       }
       updateLeague(response.data);
       if (clearDirty) setDirtyTabs((current) => ({ ...current, [tab]: false }));
@@ -163,7 +164,7 @@ export default function DraftSettings() {
     } catch (requestError) {
       failure(notify, requestError);
       setSaving(false);
-      return { success: false, error: errorMessage(requestError) };
+      return { success: false, error: readHttpFailure(requestError).message || requestError?.message || 'Request failed' };
     }
     try {
       await refresh();
@@ -184,7 +185,7 @@ export default function DraftSettings() {
       return { success: true };
     } catch (requestError) {
       failure(notify, requestError);
-      return { success: false, error: errorMessage(requestError) };
+      return { success: false, error: readHttpFailure(requestError).message || requestError?.message || 'Request failed' };
     } finally { setSaving(false); }
   };
 

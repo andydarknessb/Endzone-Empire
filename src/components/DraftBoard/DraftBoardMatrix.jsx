@@ -3,7 +3,7 @@ import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContain
 import { keyframes } from '@mui/material/styles';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
-import { isTeamOnTheClock } from '../../lib/onTheClock';
+import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 
 // Same technique as the matchup score flash: a CSS var color (theme-aware,
 // no hard-coded literal) that fades in and back out.
@@ -65,7 +65,7 @@ function useFlashKey(value) {
  * `teams` and `onTheClock.team` are read as `teamId` / `teamName` for the
  * same reason: a cell key matches a Pick's Team against a column's Team, so
  * both sides have to be spelled the same way. `onTheClock` is the
- * On-the-clock value (src/lib/onTheClock, #754); the team lives under it.
+ * On-the-clock value (src/shared/lib/onTheClock, #754); the team lives under it.
  */
 function DraftBoardMatrix({
   teams, picks, onTheClock, draftRounds, onOpenQuickView, readOnly = false, headerAction = null,

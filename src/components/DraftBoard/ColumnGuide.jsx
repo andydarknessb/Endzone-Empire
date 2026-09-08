@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import { SORT_FIELDS } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // The pool's per-column abbreviation tooltips (see AbbreviationTooltip) are
@@ -27,7 +28,13 @@ const STATUS_DEFINITIONS = [
   { term: 'IR', definition: 'Injured Reserve' },
 ];
 
-const COLUMN_TERMS = ['Bye', 'ADP', 'Pos rank', '17-game pace'];
+// The pool's numeric column abbreviations, derived from the module that owns the
+// sort-field facts (issue #951) rather than a hand-maintained copy that could
+// drift: a numeric field added there appears in this guide automatically instead
+// of being silently omitted from the one place a keyboard/screen-reader user can
+// discover it. sortFields.test.js pins every numeric label to a STAT_DEFINITIONS
+// entry, so each term here always has a definition to render.
+const COLUMN_TERMS = SORT_FIELDS.filter((field) => field.numeric).map((field) => field.label);
 
 /** A keyboard-accessible "Column guide" button + dialog explaining the pool
  * table's abbreviations (ADP, Pos rank, Bye, 17-game pace) and injury-status

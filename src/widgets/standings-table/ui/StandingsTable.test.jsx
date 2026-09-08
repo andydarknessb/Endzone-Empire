@@ -4,6 +4,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
 import StandingsTable from '../index';
+import { teamStandingFromRow } from '../../../entities/standings';
 
 /**
  * The standings-table widget's own suite (#641 follow-ups T3/T4). The page test
@@ -195,6 +196,32 @@ test('standings-table: preseason masks the streak instead of printing the server
   // which is what makes the footer note ("populate after Week 1") true.
   expect(within(card).queryByText('.000')).not.toBeInTheDocument();
   expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
+});
+
+// --- the Record cell (#959) -------------------------------------------------
+
+// The two record-FORMAT cases that stood here (a tie-less Team renders two
+// parts, a Team with ties renders three) are gone: the tie rule is no longer
+// this widget's to state. src/entities/standings owns it and asserts all four
+// cases as a table with no render (standingsModel.test.js), and each of the two
+// deletions is behind its own red-tell in this PR - the entity's tie-less row
+// goes red when the format is made unconditional, and its with-ties row goes
+// red when the tie part is always dropped. What is left here is the widget's
+// own job: the entity's value reaches the DOM.
+test("standings-table: the entity's record for a row reaches that row's cell", async () => {
+  primeLeague();
+  const rows = standingsRows({ count: 12 });
+  rows[0] = { ...rows[0], wins: 8, losses: 2, ties: 2 };
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({ rows }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  // Not a literal: whatever the entity computes for this row is what the cell
+  // must show, so the assertion cannot drift from the owner of the rule.
+  expect(within(youRow).getByText(teamStandingFromRow(rows[0]).record)).toBeInTheDocument();
 });
 
 // --- the playoff cut -------------------------------------------------------

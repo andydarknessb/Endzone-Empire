@@ -1,5 +1,5 @@
 import React from "react";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, useLocation } from "react-router-dom";
 import renderWithProviders from "../../test-utils/renderWithProviders";
@@ -239,4 +239,89 @@ test("keeps player browsing available without a fantasy league while withholding
     await screen.findByText(/not in a fantasy league yet/i),
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Select league" })).toBeDisabled();
+});
+
+// #970: player management reads its failures through readHttpFailure. The
+// envelope is shape (b): the machine CODE in `error`, the sentence for the
+// manager in `message`. The old hand-rolled `err.response?.data?.error` read
+// the code, so the browser's error Alert showed PLAYER_INDEX_UNAVAILABLE.
+test("a load refusal carrying a code beside a message renders the message, not the code", async () => {
+  apiClient.get.mockImplementation((url) => (
+    url === "/api/players"
+      ? Promise.reject({
+          response: {
+            status: 503,
+            data: {
+              error: "PLAYER_INDEX_UNAVAILABLE",
+              message: "The player index is rebuilding. Try again in a moment.",
+            },
+          },
+        })
+      : Promise.resolve({ data: [league] })
+  ));
+
+  renderWithProviders(<PlayerManagement />, { path: "/players", route: "/players" });
+
+  expect(
+    await screen.findByText("The player index is rebuilding. Try again in a moment.")
+  ).toBeInTheDocument();
+  expect(screen.queryByText("PLAYER_INDEX_UNAVAILABLE")).not.toBeInTheDocument();
+});
+
+// Issue #1002 acceptance criterion 2. The Player Browser's sort state now holds
+// sortFields.js KEYS and translates to the server's field name once, at the
+// fetch site, through wireSortName - the Draft room's own vocabulary instead of
+// this file's second, independent list of the same fields over the same
+// endpoint. Nothing the SERVER sees may change, so this pins the `?sort=` value
+// each column sends against the value it sent before the change (the PR body
+// carries the same table). Driven through the real header click rather than by
+// seeding the URL, so it fails if a header is wired to the wrong key.
+const SORT_PARAM_BY_COLUMN = [
+  ["Player", "name"],
+  ["Pos rank", "position_rank"],
+  ["ADP", "adp"],
+  ["Pool projection", "projected_points"],
+];
+
+test.each(SORT_PARAM_BY_COLUMN)(
+  "sorting by the %s column sends the same ?sort= value it sent before the sortFields reconciliation",
+  async (column, expectedSortParam) => {
+    mockBrowser();
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByRole("heading", { name: "Player Browser" });
+
+    // Scoped to the header row and matched on the visible column text: two of
+    // these headers wrap their label in an AbbreviationTooltip, whose nested
+    // aria-label makes the sort control's accessible name the whole
+    // "term: definition" sentence rather than the column text. Clicking the
+    // label bubbles to the TableSortLabel exactly as a real click does.
+    const headerRow = within(screen.getByRole("table")).getAllByRole("row")[0];
+    await userEvent.click(within(headerRow).getByText(column));
+
+    await waitFor(() => {
+      const playerCalls = apiClient.get.mock.calls.filter(
+        ([url]) => url === "/api/players",
+      );
+      expect(playerCalls.at(-1)[1].params.sort).toBe(expectedSortParam);
+    });
+  },
+);
+
+// The `?sort=` URL param carried WIRE names before #1002 and now carries keys,
+// and one field's two names differ, so a bookmark made before this change would
+// otherwise resolve to nothing and silently fall back to the default sort. The
+// legacy value is still accepted on read and maps to the same request.
+test("a pre-existing ?sort= bookmark holding the old wire name still sorts by that field", async () => {
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />, {
+    route: "/player?league=1&sort=projected_points",
+    path: "/player",
+  });
+
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(
+      ([url]) => url === "/api/players",
+    );
+    expect(playerCalls.at(-1)[1].params.sort).toBe("projected_points");
+  });
 });

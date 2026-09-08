@@ -29,9 +29,18 @@ import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
 import EmojiEvents from '@mui/icons-material/EmojiEvents';
 import { TrophyIcon } from '../TrophyCase/TrophyCase';
 import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
+// The Record rule (two parts until a tie has happened, three after) is computed
+// ONCE, by the standings entity (#959 / ADR 0029), and read from here through
+// its public surface. This screen used to print an unconditional two-part
+// record of its own (issue #1009); a per-surface formatter, even a shared one
+// under src/lib, would just be another derivation of a rule that already has an
+// owner. An archived season's standings row carries the same wins/losses/ties
+// shape the live read does, so it goes through the same model.
+import { teamStandingFromRow } from '../../entities/standings';
 import { visuallyHidden } from '@mui/utils';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
@@ -117,7 +126,7 @@ function PodiumCard({ place }) {
         Team Name
       </Typography>
       <Typography variant="caption" color="text.disabled">
-        W-L-T
+        Record
       </Typography>
       <Chip size="small" variant="outlined" label={config.label} sx={{ mt: 0.5, borderColor: config.borderColor }} />
     </Card>
@@ -233,7 +242,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                         <Typography variant="body2" color="text.secondary">
                           {pickem
                             ? `${standing.points} points · ${standing.correct} correct`
-                            : `${standing.wins}-${standing.losses} record`}
+                            : `${teamStandingFromRow(standing).record} record`}
                         </Typography>
                       )}
                     </Box>
@@ -261,7 +270,16 @@ function SeasonPanel({ season, defaultExpanded }) {
                   </>
                 ) : (
                   <>
-                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>W-L</TableCell>
+                    {/* Record rather than a fixed-part abbreviation: the value
+                        under it follows the CONTEXT.md Record rule (two parts
+                        until a tie has happened, three after), so any
+                        abbreviation naming a fixed number of parts misdescribes
+                        it one way or the other. This surface's headers used to
+                        name three parts while the cells printed two (issue
+                        #1009), which is worse than either: it promised a tie
+                        column and never filled it, so a reader could not tell a
+                        tie-less season from a missing third part. */}
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>Record</TableCell>
                     <TableCell align="right"><AbbreviationTooltip term="PF" /></TableCell>
                   </>
                 )}
@@ -297,7 +315,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                       </>
                     ) : (
                       <>
-                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{`${team.wins}-${team.losses}`}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{teamStandingFromRow(team).record}</TableCell>
                         <TableCell align="right">{team.pf}</TableCell>
                       </>
                     )}
@@ -444,7 +462,7 @@ function LeagueHistory() {
       const res = await apiClient.get(`/api/league/${leagueId}/history`);
       setSeasons(Array.isArray(res.data?.seasons) ? res.data.seasons : []);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
       setSeasons([]);
     } finally {
       setLoading(false);
@@ -544,7 +562,7 @@ function LeagueHistory() {
                 <TableRow>
                   <TableCell>Rank</TableCell>
                   <TableCell>Team</TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>W-L-T</TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>Record</TableCell>
                   <TableCell align="right">Total Points</TableCell>
                 </TableRow>
               </TableHead>

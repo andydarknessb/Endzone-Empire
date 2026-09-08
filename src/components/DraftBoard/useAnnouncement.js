@@ -40,9 +40,13 @@ import { useCallback, useState } from 'react';
  * and this idiom.
  *
  * WHAT STAYS PER-CALLER (ADR 0028). This hook is the two-line repeat idiom
- * ONLY. Whether an announcer is mounted, WHEN it fires, and its own clear path
- * stay in each announcer's own effect - PickAnnouncer, StallAnnouncer and
- * FeedAnnouncer each keep theirs. ReadinessAnnouncer and
+ * ONLY. Whether an announcer is mounted and WHEN it fires stay in each
+ * announcer's own effect; its clear path usually does too - PickAnnouncer,
+ * StallAnnouncer and FeedAnnouncer each keep theirs. (The Draft assistant is
+ * the exception since #950: its clear-on-toggle-off lives once in the shared
+ * useDraftAssistant hook, which owns the region in both venues. That is a
+ * shared primitive, ADR 0027, not a second ungated setter.) ReadinessAnnouncer
+ * and
  * DraftChatMembershipAnnouncer do not use this hook: their text is DERIVED from
  * props on every render, never repeated as a discrete event, so there is
  * nothing for a repeat-safe update to guard.

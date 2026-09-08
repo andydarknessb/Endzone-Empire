@@ -109,3 +109,16 @@ test('falls back to a generic error when the server offers none', async () => {
   const res = await hidePost({ leagueId: 3, messageId: 55, reason: 'targeted harassment' });
   expect(res).toEqual({ ok: false, error: 'failed to hide message' });
 });
+
+// A code+message envelope with no `error` key (the global express error handler
+// and the rate limiter emit this shape). The old hand-rolled `err.response.data.error`
+// read found no `error` key here and dropped to the generic 'failed to hide
+// message'; reading through readHttpFailure surfaces the sentence the server
+// actually wrote for the commissioner.
+test('surfaces the server sentence from a code+message envelope (no error key)', async () => {
+  apiClient.post.mockRejectedValue({
+    response: { data: { code: 'RATE_LIMITED', message: 'too many hides, slow down' } },
+  });
+  const res = await hidePost({ leagueId: 3, messageId: 55, reason: 'targeted harassment' });
+  expect(res).toEqual({ ok: false, error: 'too many hides, slow down' });
+});

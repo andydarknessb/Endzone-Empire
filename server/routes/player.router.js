@@ -14,6 +14,8 @@ const {
   REG_SEASON_WEEKS,
 } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
+const irPolicy = require('../services/irPolicy.service');
+const { ACCEPTED_SORT_FIELDS } = require('../services/playerSort');
 
 const router = express.Router();
 
@@ -274,19 +276,25 @@ router.get('/', requireAuth, async (req, res) => {
   // Ordering: whitelisted sort key + direction — never interpolate raw user
   // input into SQL. ADP is the default (best pick first, undrafted last).
   const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
-  const projectionSort = req.query.sort === 'projected_points';
+  // The accepted `?sort=` values live in one exported list (ACCEPTED_SORT_FIELDS,
+  // issue #951); anything else normalises to null and falls through to the
+  // stable "id" ordering below, silently, exactly as before. Both booleans and
+  // the ORDER BY chain read `sortField` so the accepted set has a single source
+  // of truth rather than being re-stated at each `req.query.sort === ...`.
+  const sortField = ACCEPTED_SORT_FIELDS.includes(req.query.sort) ? req.query.sort : null;
+  const projectionSort = sortField === 'projected_points';
   // Bye is schedule-derived, not a stored column (see the bye_week attachment
   // below), so it can't be an ORDER BY target in this query — like
   // projectionSort, it needs the full matching pool fetched and sorted in JS.
-  const byeSort = req.query.sort === 'bye_week';
+  const byeSort = sortField === 'bye_week';
   let orderBy;
-  if (req.query.sort === 'name') {
+  if (sortField === 'name') {
     orderBy = `"name" ${dir}, "id"`;
-  } else if (req.query.sort === 'adp') {
+  } else if (sortField === 'adp') {
     orderBy = `"adp" ${dir} NULLS LAST, "id"`;
-  } else if (req.query.sort === 'position_rank') {
+  } else if (sortField === 'position_rank') {
     orderBy = `"position_rank" ${dir} NULLS LAST, "name", "id"`;
-  } else if (req.query.sort === 'nfl_team') {
+  } else if (sortField === 'nfl_team') {
     orderBy = `"nfl_team" ${dir} NULLS LAST, "id"`;
   } else {
     orderBy = `"id"`;
@@ -529,12 +537,21 @@ router.get('/', requireAuth, async (req, res) => {
         `SELECT COUNT(*)::int AS "roster_count" FROM "team_players" WHERE "team_id" = $1`,
         [memberTeam.id],
       );
+      // The capacity the server actually enforces for THIS viewer's team, not
+      // the IR-inclusive roster limit column. The context is already scoped to
+      // memberTeam (rosterCount is that team's count), so the number to publish
+      // is that same team's irPolicy.rosterCapacity: draftRosterSize plus its
+      // filled IR slots. Reading the stored limit here published a ceiling
+      // larger than the gate whenever an IR slot sat empty (#945).
+      const rosterCapacity = await irPolicy.rosterCapacity(pool, {
+        league,
+        teamId: memberTeam.id,
+      });
       context = {
         leagueId: Number(leagueId),
         leagueName: league.name,
         rosterCount: Number(rosterCountResult.rows[0]?.roster_count || 0),
-        rosterCapacity:
-          league.roster_limit == null ? null : Number(league.roster_limit),
+        rosterCapacity,
         waiverType: league.waiver_type || null,
         faabRemaining:
           league.waiver_type === 'faab' ? memberTeam.faab_remaining : null,

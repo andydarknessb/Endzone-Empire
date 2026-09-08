@@ -1547,3 +1547,26 @@ test('the swap offer is consumed once and does not come back on a re-render', as
   expect(await screen.findByTestId('lineup-move-strip')).toBeInTheDocument();
   expectNoSwapOffer();
 });
+
+// #970: the lineup screen reads its load failure through readHttpFailure. The
+// envelope here is shape (b) - `error` holds the machine CODE and the sentence
+// a manager can act on rides in `message` - which the old hand-rolled
+// `err.response?.data?.error` read backwards, putting LINEUP_LOCKED in the
+// page banner where the sentence belongs.
+test('a lineup load refusal carrying a code beside a message renders the message, not the code', async () => {
+  setupGet();
+  apiClient.get.mockImplementation((url) => (
+    url.startsWith('/api/team/lineup')
+      ? Promise.reject({
+        response: {
+          status: 423,
+          data: { error: 'LINEUP_LOCKED', message: 'Lineups are locked while this week is scoring.' },
+        },
+      })
+      : Promise.resolve({ data: { league: { id: 1, best_ball: false } } })
+  ));
+  renderScreen();
+
+  expect(await screen.findByText('Lineups are locked while this week is scoring.')).toBeInTheDocument();
+  expect(screen.queryByText('LINEUP_LOCKED')).not.toBeInTheDocument();
+});

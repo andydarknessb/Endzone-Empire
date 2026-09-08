@@ -28,6 +28,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerAvatar from './PlayerAvatar';
 import PositionChip from './PositionChip';
@@ -210,7 +211,7 @@ function PlayerQuickView({
         const hasPrevious = (res.data.previousSeasons || []).length > 0;
         setView(hasCurrent ? lastView : hasPrevious ? 'previous' : lastView);
       } catch (err) {
-        setError(err.response?.data?.error || err.message);
+        setError(readHttpFailure(err).message || err.message);
       } finally {
         setLoading(false);
       }

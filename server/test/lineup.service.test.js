@@ -799,6 +799,15 @@ test('a full roster resolves by dropping a bench player before activating the st
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // The #962 write gate on the drop, League then Team, with its own explicit
+    // column lists. Neither shape matcher below is blind enough to answer them
+    // correctly - the gate refuses a League row that cannot answer the freeze.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ id: 5, transactions_locked: false }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ id: 10, locked: false }],
+    })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, locked: false }] })],
     [/^DELETE FROM "team_players"/, (text, params) => {
       const deleted = rosteredPlayerIds.delete(params[1]);
@@ -1800,4 +1809,191 @@ test('restoreInterruptedStash still writes the row when the week has gone final'
   // the restore itself.
   assert.deepEqual(inserts, [[5, 10, 21, 2026, 9, 'IR', true]]);
   fake.assertClean();
+});
+
+// ---------------------------------------------------------------------------
+// #982: the Lineup page reads a SETTLED week AS PLAYED.
+//
+// The entries read joined `team_players` for every week, so a settled week was
+// listed through the roster as it stands today. Redraft compensated partially
+// (`spentStartingSlots` put the departed STARTERS back); best ball skips that
+// call, so it put nobody back. Both are the same defect: the population a
+// settled week is displayed through must be the one its score was computed
+// over (CONTEXT.md, Settle pass).
+//
+// The fake performs no join, so these worlds lift both properties out of the
+// emitted statement: the current-roster filter applies only while the
+// statement still names team_players, and `player_id` rides on a row only when
+// the select list asks for it, which is what makes a wrong column name a 500
+// here rather than a silent pass.
+// ---------------------------------------------------------------------------
+
+const L_SEASON = 2026;
+const L_CURRENT_WEEK = 9;
+const L_SETTLED_WEEK = 8;
+const L_TEAM = 10;
+const DAY = 24 * 60 * 60 * 1000;
+// Real instants: the tenure predicate compares against them.
+const KICK_KC = new Date(Date.now() - 3 * DAY);
+const KICK_DAL = new Date(Date.now() - 3 * DAY + 2 * 60 * 60 * 1000);
+const KICK_PHI = new Date(Date.now() - 3 * DAY + 5 * 60 * 60 * 1000); // the week's LAST kickoff
+const L_SCHEDULE = { KC: KICK_KC, DAL: KICK_DAL, PHI: KICK_PHI };
+const L_HELD_SINCE = new Date(Date.now() - 60 * DAY);
+
+const asPlayedEntry = (id, name, position, nfl_team, slot) => ({
+  id, name, position, nfl_team, injury_status: null, slot, ir_attested: false,
+});
+
+/**
+ * One getLineup world. `roster` is the team as it stands TODAY; `rows` is
+ * every lineup_entries row for the week, departed players included.
+ */
+function lineupWorld(t, {
+  rows, roster, settled, bestBall = false, tenures = [], spentRows = [],
+}) {
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  const byeRows = [];
+  for (let w = 1; w <= REG_SEASON_WEEKS; w++) {
+    for (const team of Object.keys(L_SCHEDULE)) byeRows.push({ nfl_team: team, week: w });
+  }
+  const rosterToday = new Set(roster);
+  return createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: settled ? [{ one: 1 }] : [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{ id: 5, current_season: L_SEASON, current_week: L_CURRENT_WEEK, best_ball: bestBall }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: L_TEAM }] })],
+    // materializeLineup's two reads (live weeks only; a settled week returns
+    // before them). Every rostered player already has a row, so nothing
+    // materializes.
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: rows.filter((r) => rosterToday.has(r.id)).map((r) => ({ player_id: r.id, position: r.position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: rows.map((r) => ({ player_id: r.id })) })],
+    // The entries read. The fake joins nothing, so answer the roster join the
+    // way the table would, and carry player_id only when it is selected.
+    [/^SELECT "players"\."id"/, (text) => {
+      const kept = /"team_players"/.test(text) ? rows.filter((r) => rosterToday.has(r.id)) : rows;
+      // Anchored on the SELECT LIST, not the statement: the players join names
+      // the same column, so a bare match would hold however the select list
+      // spells it and the column name would bind nothing.
+      const selectsPlayerId = /"lineup_entries"."player_id" FROM/.test(text);
+      return { rows: kept.map((r) => (selectsPlayerId ? { ...r, player_id: r.id } : { ...r })) };
+    }],
+    // spentStartingSlots. Answered unconditionally on purpose: on a settled
+    // week the fix is that it is never ASKED, so a fixture that withheld the
+    // rows could not tell the difference.
+    [/^SELECT "players"\."position"/, () => ({ rows: spentRows })],
+    // Before the locked and bye reads: tenureHandlers anchors its own
+    // nfl_games matcher and fakePool takes the first match.
+    ...tenureHandlers({ schedule: L_SCHEDULE, tenures, heldSince: L_HELD_SINCE }),
+    // lockedPlayerIds: every game this week has kicked off.
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
+      rows: Object.keys(L_SCHEDULE).map((nfl_team) => ({ nfl_team })),
+    })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: byeRows })],
+  ]).install(t);
+}
+
+// Redraft: a kept starter, a starter dropped after the week, a bench player
+// dropped after the week, and a player acquired AFTER his own kickoff.
+const R_KEPT = asPlayedEntry(21, 'Kept Starter', 'QB', 'KC', 'QB');
+const R_GONE_STARTER = asPlayedEntry(22, 'Departed Starter', 'RB', 'DAL', 'RB');
+const R_GONE_BENCH = asPlayedEntry(23, 'Departed Bench', 'WR', 'KC', 'BENCH');
+const R_LATE = asPlayedEntry(24, 'Late Acquirer', 'TE', 'PHI', 'BENCH');
+const R_ROWS = [R_KEPT, R_GONE_STARTER, R_GONE_BENCH, R_LATE];
+const R_ROSTER_TODAY = [21, 24];
+// What spentStartingSlots would answer for this team: the departed starter.
+const R_SPENT = [{
+  spent_player_id: 22, name: 'Departed Starter', position: 'RB', nfl_team: 'DAL',
+  injury_status: null, slot: 'RB',
+}];
+// Acquired the day AFTER his own kickoff, so no tenure of this team covered
+// the game he is listed for. Everyone else takes the explicit heldSince.
+const R_TENURES = [tenure(L_TEAM, 24, new Date(KICK_PHI.getTime() + DAY))];
+
+const idsIn = (lineup) => lineup.entries.map((row) => row.id).sort((a, b) => a - b);
+const countOf = (lineup, id) => lineup.entries.filter((row) => row.id === id).length;
+
+test('getLineup lists a settled redraft week as played: each departed player exactly once (#982)', async (t) => {
+  lineupWorld(t, {
+    rows: R_ROWS, roster: R_ROSTER_TODAY, settled: true,
+    tenures: R_TENURES, spentRows: R_SPENT,
+  });
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: L_SETTLED_WEEK });
+  // The departed BENCH player was returned by nothing before this: the roster
+  // join dropped him and spentStartingSlots only ever answers starting slots.
+  assert.equal(countOf(lineup, 23), 1, 'a departed bench player appears exactly once');
+  // The departed STARTER arrives once, not twice: the as-played rows carry him
+  // and `spent` is not computed on a settled week. Computing both is the
+  // regression this guards.
+  assert.equal(countOf(lineup, 22), 1, 'a departed starter appears exactly once');
+  assert.deepEqual(idsIn(lineup), [21, 22, 23]);
+  const departed = lineup.entries.find((row) => row.id === 22);
+  assert.equal(departed.slot, 'RB', 'he is listed in the slot he played');
+  assert.equal(departed.spent, undefined, 'not a spent placeholder: a real as-played row');
+  // annotateLineupEntries derives `locked` from `row.spent || locked.has(id)`.
+  // On a settled week every game has kicked off, so the lock comes from the
+  // schedule and no row needs `spent` to be treated as locked.
+  assert.equal(departed.locked, true, 'locked by the schedule, not by spent');
+});
+
+test('getLineup excludes a player acquired after his own kickoff from a settled week (#982)', async (t) => {
+  lineupWorld(t, {
+    rows: R_ROWS, roster: R_ROSTER_TODAY, settled: true,
+    tenures: R_TENURES, spentRows: R_SPENT,
+  });
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: L_SETTLED_WEEK });
+  assert.equal(countOf(lineup, 24), 0, 'no tenure covered the game he is listed for');
+  // Not bought by excluding everybody: the rest of the week is still listed.
+  assert.deepEqual(idsIn(lineup), [21, 22, 23]);
+});
+
+// Best ball: nobody sets a lineup, so every row is BENCH and
+// spentStartingSlots is skipped entirely - a departed candidate was returned
+// by nothing at all.
+const B_KEPT = asPlayedEntry(31, 'Kept Candidate', 'QB', 'KC', 'BENCH');
+const B_HELD_THROUGH = asPlayedEntry(32, 'Dropped After The Week', 'RB', 'DAL', 'BENCH');
+const B_DROPPED_MID = asPlayedEntry(33, 'Dropped Mid Week', 'WR', 'KC', 'BENCH');
+const B_ROWS = [B_KEPT, B_HELD_THROUGH, B_DROPPED_MID];
+const B_ROSTER_TODAY = [31];
+// 32 was held through the week's LAST kickoff and dropped after it; 33 was
+// dropped after his own game but BEFORE that last kickoff, which is the one
+// best ball excludes (ADR 0022).
+const B_TENURES = [
+  tenure(L_TEAM, 32, L_HELD_SINCE, new Date(KICK_PHI.getTime() + DAY)),
+  tenure(L_TEAM, 33, L_HELD_SINCE, new Date(KICK_KC.getTime() + 60 * 60 * 1000)),
+];
+
+test('getLineup lists a settled best-ball week as played, where nothing put a departed candidate back (#982)', async (t) => {
+  lineupWorld(t, {
+    rows: B_ROWS, roster: B_ROSTER_TODAY, settled: true,
+    bestBall: true, tenures: B_TENURES,
+  });
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: L_SETTLED_WEEK });
+  assert.equal(countOf(lineup, 32), 1, 'held through the last kickoff, dropped since: he played the week');
+  // The other half of best ball's population rule still holds: dropped after
+  // his own game but before the week's last kickoff, he did not score.
+  assert.equal(countOf(lineup, 33), 0);
+  assert.deepEqual(idsIn(lineup), [31, 32]);
+});
+
+test('getLineup leaves the CURRENT week unchanged: a departed starter still arrives as a spent row (#982)', async (t) => {
+  const fake = lineupWorld(t, {
+    rows: R_ROWS, roster: R_ROSTER_TODAY, settled: false,
+    tenures: R_TENURES, spentRows: R_SPENT,
+  });
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: L_CURRENT_WEEK });
+  // The roster join still governs a live week: only today's roster is read,
+  // and the departed starter comes back through spentStartingSlots, holding
+  // his starting slot so lineup validation still counts the seat as occupied.
+  const spentRow = lineup.entries.find((row) => row.id === 22);
+  assert.equal(spentRow.spent, true);
+  assert.equal(spentRow.slot, 'RB');
+  assert.equal(spentRow.locked, true);
+  assert.equal(countOf(lineup, 22), 1);
+  assert.deepEqual(idsIn(lineup), [21, 22, 24]);
+  // And the live read is still the roster-joined one, with no tenure filter.
+  assert.equal(fake.matching(/^SELECT "players"\."id"[\s\S]*"team_players"/).length, 1);
+  assert.equal(fake.matching(/FROM "roster_tenures"/).length, 0);
 });

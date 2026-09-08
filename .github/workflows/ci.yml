@@ -211,9 +211,10 @@ jobs:
       # Every server/test/*.pg.test.js, run serially from one directory-wide
       # script (#371). scripts/run-pg-tests.js resolves the glob, runs the files
       # with --test-concurrency=1 (they share this one database), and keeps
-      # holdout.pg.test.js last so its append-only ledger rows never break the
-      # empty-ledger rollback smoke above; the backtest, roster-tenure and
-      # lineup files that seed and delete a far-future season all run before it.
+      # holdout.pg.test.js last, which is defensive and not established: its
+      # ledger rows are permanent for the rest of the job, so a future pg file
+      # that asserted global ledger emptiness would break running after it,
+      # though no such file exists today.
       # PG_TESTS=1 enables every file at once; each file also still honours its
       # own *_PG_TESTS variable for local runs. A new pg test file is picked up
       # here automatically, with no edit to this workflow -- what each file

@@ -37,10 +37,10 @@
  *     carries no play for a rendered ticker),
  *   - the bench what-if (live-only; this fixture is `played`, not `live`),
  *   - the bench panel (collapsed by default).
- * It also routes AROUND #927 (the app nav overflows between 900 and 1024, its
- * own ticket): the document-width assertion is skipped at 900, through the
- * named constant below, and must be lifted when #927 lands rather than
- * forgotten.
+ * It used to route around #927 (the app nav overflowed between 900 and 1085,
+ * its own ticket) by skipping the document-width assertion at 900. #927 has
+ * landed, so that exclusion is now lifted and the document assertion runs at
+ * 900 like every other width.
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
@@ -55,12 +55,6 @@ import {
 // corner point is outside the rounded shape until ~2.64px, and sub-pixel rect
 // origins push the practical floor to 4), not occlusion. 6 keeps a margin.
 const INSET = 6;
-
-// The document-width assertion is skipped at this width: at 900 the document is
-// wider than the viewport because the app nav overflows (measured 1086px),
-// filed as #927. That is app chrome, not these pages. LIFT this exclusion when
-// #927 lands. The column assertion still runs at 900.
-const WIDTH_927_NAV_OVERFLOW = 900;
 
 const WIDTHS = [
   { w: 390, h: 844 },
@@ -435,12 +429,12 @@ for (const shape of SHAPES) {
 
       // Assertion 1b: the document never overflows the viewport (compare against
       // clientWidth, never innerWidth, which includes the scrollbar and would
-      // tolerate ~15px of real overflow). Skipped at 900 (#927).
-      if (w !== WIDTH_927_NAV_OVERFLOW) {
-        const doc = await page.evaluate(probeWidth, ':root');
-        logPair(shape.name, w, 'document', doc);
-        expect(doc.scrollWidth, widthMessage('document', shape.name, w, doc)).toBeLessThanOrEqual(doc.clientWidth + 1);
-      }
+      // tolerate ~15px of real overflow). Runs at every width including 900:
+      // the #927 nav-overflow exclusion that used to skip 900 was lifted when
+      // #927 landed.
+      const doc = await page.evaluate(probeWidth, ':root');
+      logPair(shape.name, w, 'document', doc);
+      expect(doc.scrollWidth, widthMessage('document', shape.name, w, doc)).toBeLessThanOrEqual(doc.clientWidth + 1);
 
       // Assertion 2: no header control is occluded, and every control that
       // should render at this width did (a control that quietly stops rendering

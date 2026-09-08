@@ -858,7 +858,9 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const leagueRow = leagueResult.rows[0];
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
-    const { materializeLineup } = require('../services/lineup.service');
+    const {
+      materializeLineup, rowsHeldAsPlayed, optimalLineup, parseLineupSettings,
+    } = require('../services/lineup.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
     const { availabilityFor } = require('../services/projectionModel');
@@ -878,48 +880,79 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // own vocabulary.
     const opponentByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
 
-    await client.query('BEGIN');
-    const teamLineup = async (teamId) => {
-      await materializeLineup(client, {
-        leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueRow,
-      });
-      const lineupRows = await client.query(
-        `SELECT "players"."id", "players"."name", "players"."position",
+    // A SETTLED matchup is read AS PLAYED, never through the current roster
+    // (CONTEXT.md, Settle pass): the score printed beside these lists was
+    // computed over the as-played population, so joining team_players here
+    // would drop a starter who played and was dropped afterwards while his
+    // points stayed in the total, and would add a player acquired after his
+    // own kickoff to a week he did not play (#976). The matchup's own `final`
+    // flag is the settled test, the same fact the settle pass switches on;
+    // isFinalWeekForTeam would ask it again with an extra query.
+    const asPlayed = matchup.final === true;
+    // A settled week's materialization is a no-op (its own finality guard
+    // returns immediately) and the reads that follow write nothing, so a
+    // settled request buys no transaction: no BEGIN, no finality probes to
+    // wrap, no COMMIT (#978). The live path is unchanged - it still needs the
+    // transaction, since materializeLineup's copy-forward insert loop must
+    // not be observed half-written.
+    if (!asPlayed) await client.query('BEGIN');
+    // One schedule read for the request rather than one per lineup read: the
+    // settled path asks four times (bench and starters, home and away).
+    const kickoffCache = new Map();
+    // The current-roster join, present for a live week and absent for an
+    // as-played one. Filtering cannot substitute for removing it: the join is
+    // what took the departed player away.
+    const rosterJoin = asPlayed ? '' : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"`;
+    // lineup_entries.player_id rides beside players.id: rowsHeldAsPlayed reads
+    // player_id, while the serialized row and the producer join key on id.
+    const lineupSql = (slotPredicate) => `SELECT "players"."id", "players"."name", "players"."position",
                 "players"."nfl_team", "players"."injury_status", "players"."photo_url",
+                "lineup_entries"."player_id",
                 "lineup_entries"."slot", "player_stats"."stats"
          FROM "lineup_entries"
-         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-           AND "team_players"."player_id" = "lineup_entries"."player_id"
+         ${rosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
            AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
          WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
            AND "lineup_entries"."week" = $3
-           AND "lineup_entries"."slot" = $4
-         ORDER BY "lineup_entries"."slot", "players"."name"`,
+           AND ${slotPredicate}
+         ORDER BY "lineup_entries"."slot", "players"."name"`;
+    const teamLineup = async (teamId) => {
+      // Skipped on the settled path: materializeLineup's own finality guard
+      // would return immediately anyway, but this ticket's point is that a
+      // settled request never opens the transaction that call would run
+      // inside, so it must not be called at all (#978).
+      if (!asPlayed) {
+        await materializeLineup(client, {
+          leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueRow,
+        });
+      }
+      const lineupRows = await client.query(
+        lineupSql('"lineup_entries"."slot" = $4'),
         [teamId, matchup.season, matchup.week, 'BENCH']
       );
       const starterRows = await client.query(
-        `SELECT "players"."id", "players"."name", "players"."position",
-                "players"."nfl_team", "players"."injury_status", "players"."photo_url",
-                "lineup_entries"."slot", "player_stats"."stats"
-         FROM "lineup_entries"
-         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-           AND "team_players"."player_id" = "lineup_entries"."player_id"
-         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-         LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
-           AND "player_stats"."season" = $2 AND "player_stats"."week" = $3
-         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-           AND "lineup_entries"."week" = $3
-           AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')
-         ORDER BY "lineup_entries"."slot", "players"."name"`,
+        lineupSql(`"lineup_entries"."slot" NOT IN ('BENCH', 'IR')`),
         [teamId, matchup.season, matchup.week]
       );
-      return { starterRows: starterRows.rows, benchRows: lineupRows.rows };
+      // Fatal, like the two reads it filters. A settled page that fell back to
+      // the current roster when this read failed would be this defect again,
+      // wearing a `try`.
+      const asPlayedRows = (rows) => (asPlayed
+        ? rowsHeldAsPlayed(client, {
+          league: leagueRow, teamId, season: matchup.season, week: matchup.week, rows, kickoffCache,
+        })
+        : rows);
+      return {
+        starterRows: await asPlayedRows(starterRows.rows),
+        benchRows: await asPlayedRows(lineupRows.rows),
+      };
     };
     const homeRaw = await teamLineup(matchup.home_team_id);
     const awayRaw = await teamLineup(matchup.away_team_id);
-    await client.query('COMMIT');
+    if (!asPlayed) await client.query('COMMIT');
 
     // The NFL games either roster plays in this week (#884). The view joins
     // through lineup_entries, which the transaction above just materialized
@@ -1001,6 +1034,63 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       const pricedById = new Map(
         [...(team ? team.starters : []), ...(team && team.bench ? team.bench : [])].map((p) => [p.playerId, p])
       );
+      // In a best-ball league nobody sets a lineup, so materialization assigns
+      // no starting slot and every non-IR row is stored BENCH (CONTEXT.md, Best
+      // ball). The stored-slot split below would then match no starter and list
+      // every player under Bench (#953).
+      // The starters are instead the optimizer's chosen lineup, which the
+      // producer summed into this team's Expected final; partition the route's
+      // own rows by that chosen set so a listed best-ball starter is exactly a
+      // player the total counts. team.starters is that chosen lineup ONLY when
+      // the producer had a projection run to choose on (statusReliable): on a
+      // projection outage it declines to choose and hands back every candidate
+      // with statusReliable false, so gating on it too means an outage falls
+      // through to the stored-slot split (today's behaviour, no regression)
+      // rather than declaring every player a starter. `team` is also null for a
+      // settled matchup (the producer never runs for a final week), so that path
+      // keeps the SQL split and never reads the current roster (trap 2 of #953).
+      if (leagueRow.best_ball && team && team.statusReliable) {
+        const chosen = new Set(team.starters.map((p) => p.playerId));
+        const rows = [...raw.starterRows, ...raw.benchRows];
+        return {
+          starters: rows.filter((row) => chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          expectedFinal: team.expectedFinal,
+          playersRemaining: team.playersRemaining,
+        };
+      }
+      // A SETTLED best-ball matchup (#1006): `team` is null (decorateMatchups
+      // never runs the producer for a final week, #953 trap 2), so the branch
+      // above is skipped and the stored-slot split below would find no starter
+      // for the same reason it does not for an open week - #953's fix without
+      // #1006 was the SAME symptom for every historical best-ball week. There
+      // is no producer result to partition by here, but there does not need to
+      // be one: `raw`'s rows are already the as-played population (#976,
+      // rowsHeldAsPlayed), the identical rows and identical ACTUAL points the
+      // settle pass fed its own `optimalLineup` call (scoring.service's
+      // best-ball branch), so recomputing that same pure function over them
+      // reproduces the settled score's own counted set - not a second,
+      // possibly-disagreeing idea of who started. This is NOT the outage
+      // shortcut #953 forbids: that one needed a live PROJECTION run this
+      // request does not have; this one needs only the already-fetched actual
+      // stats, so it never reads the current roster and never calls the
+      // producer (trap 2 stays satisfied, and the settled fixture's missing
+      // producer-read handler stays unregistered).
+      if (leagueRow.best_ball && asPlayed) {
+        const rows = [...raw.starterRows, ...raw.benchRows];
+        const candidates = rows.map((row) => ({ playerId: row.id, position: row.position }));
+        const pointsFor = new Map(
+          rows.map((row) => [row.id, row.stats ? calculateFantasyPoints(row.stats, rules) : 0])
+        );
+        const { rosterSlots } = parseLineupSettings(leagueRow);
+        const chosen = new Set(optimalLineup(candidates, rosterSlots, pointsFor).starters.map((p) => p.playerId));
+        return {
+          starters: rows.filter((row) => chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          expectedFinal: team ? team.expectedFinal : null,
+          playersRemaining: team ? team.playersRemaining : null,
+        };
+      }
       return {
         starters: raw.starterRows.map((row) => toPlayer(row, pricedById.get(row.id) || null)),
         bench: raw.benchRows.map((row) => toPlayer(row, pricedById.get(row.id) || null)),
@@ -1026,8 +1116,11 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     if (viewerTeamId) {
       try {
         const { liveWhatIf } = require('../services/decision.service');
+        // The route already holds the settled fact on `matchup.final`; passing
+        // it as `weekIsFinal` buys liveWhatIf out of its own isWeekFinal COUNT
+        // read on a settled request (#978, #1017).
         viewerWhatIf = await liveWhatIf({
-          leagueId, teamId: viewerTeamId, season: matchup.season, week: matchup.week,
+          leagueId, teamId: viewerTeamId, season: matchup.season, week: matchup.week, weekIsFinal: asPlayed,
         });
       } catch (whatIfErr) {
         console.error('live what-if unavailable', whatIfErr.message);

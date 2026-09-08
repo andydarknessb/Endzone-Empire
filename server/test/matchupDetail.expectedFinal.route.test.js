@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { createFakePool, select } = require('./helpers/fakePool');
+const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
 const projectionService = require('../services/projection.service');
@@ -61,8 +62,11 @@ const MATCHUP_ROW = {
 // 0.04), a WR ruled Out (projection 11.3 counts 0) not yet kicked off. Home
 // bench: an available RB with a weekly projection of 7.7, and a TE ruled Out
 // (projection 5.5 counts 0). Away: one starter, a bye.
+// player_id rides beside players.id because the settled reads select it (#976)
+// and rowsHeldAsPlayed is the one consumer that reads it; every other consumer
+// keys on id, so carrying both is what the real row shape does.
 const player = (id, name, position, nfl_team, injury_status, slot, stats) => ({
-  id, name, position, nfl_team, injury_status, slot, stats,
+  id, player_id: id, name, position, nfl_team, injury_status, slot, stats,
 });
 const HOME_STARTERS = [
   player(101, 'Some Passer', 'QB', 'KC', null, 'QB', { passingYards: 562.5 }),
@@ -336,4 +340,625 @@ test('an in-progress starter carries the live clock as one string', async (t) =>
   assert.equal(awayRb.game_clock, null);
   assert.equal(body.matchup.synced_at, '2026-10-25T17:58:00.000Z');
   assert.equal(body.matchup.first_kickoff_at, '2026-10-25T17:00:00.000Z');
+});
+
+// ---------------------------------------------------------------------------
+// #952: a settled (final) matchup. expectedFinal.service's decorateMatchups
+// filters `!matchup.final` before it reads anything, so the shared producer
+// never runs for a final matchup (decoration.home/away come back null) - the
+// route's own per-team lineup SQL is what still builds both sides. No case
+// before this one drove a final matchup, so that survival path had no guard.
+// ---------------------------------------------------------------------------
+
+const FINAL_MATCHUP_ROW = {
+  ...MATCHUP_ROW,
+  final: true,
+  home_score: '134.58',
+  away_score: '96.20',
+};
+const FINAL_HOME_STARTERS = [
+  player(501, 'Settled Home QB', 'QB', 'KC', null, 'QB', null),
+];
+const FINAL_HOME_BENCH = [
+  player(502, 'Settled Home Bench RB', 'RB', 'DAL', null, 'BENCH', null),
+];
+const FINAL_AWAY_STARTERS = [
+  player(503, 'Settled Away WR', 'WR', 'PHI', null, 'WR', null),
+];
+const FINAL_AWAY_BENCH = [
+  player(504, 'Settled Away Bench TE', 'TE', 'PHI', null, 'BENCH', null),
+];
+
+test('a final (settled) matchup still returns non-empty starters and bench for both sides, with the settled score (#952)', async (t) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...FINAL_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    // The route's own per-team reads (bench by slot, starters by NOT IN):
+    // these are what still populate a settled matchup's lineups.
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
+      rows: params[0] === HOME ? FINAL_HOME_BENCH : FINAL_AWAY_BENCH,
+    })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
+      rows: params[0] === HOME ? FINAL_HOME_STARTERS : FINAL_AWAY_STARTERS,
+    })],
+    // No handler for the producer's own read
+    // (`"lineup_entries"."team_id", "lineup_entries"."player_id"...`): a
+    // final matchup's `open` list is empty, so decorateMatchups never issues
+    // it. If a refactor made the route depend on that read instead, this
+    // fixture would throw "unexpected query" here rather than silently
+    // passing.
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const { body } = res;
+  assert.equal(body.matchup.final, true);
+  assert.equal(body.matchup.home_score, '134.58');
+  assert.equal(body.matchup.away_score, '96.20');
+  assert.ok(body.home.starters.length > 0, 'home starters non-empty');
+  assert.ok(body.home.bench.length > 0, 'home bench non-empty');
+  assert.ok(body.away.starters.length > 0, 'away starters non-empty');
+  assert.ok(body.away.bench.length > 0, 'away bench non-empty');
+});
+
+// ---------------------------------------------------------------------------
+// #953: a best-ball league. Nobody sets a lineup (CONTEXT.md, Best ball), so
+// materialization writes BENCH for every row and the route's stored-slot split
+// finds no starter - the bug was every player under Bench, next to a projected
+// final computed from a different idea of who started. The starters are the
+// optimizer's chosen lineup, the set the producer summed into the team's
+// Expected final; the route must partition its own rows by that chosen set so
+// the list and the number agree. This matchup is OPEN (not final), so the
+// producer runs and its read IS registered here - the settled case above keeps
+// its missing-handler guard (trap 2), which is a different, out-of-scope fix.
+// ---------------------------------------------------------------------------
+
+const BB_MATCHUP_ROW = { ...MATCHUP_ROW }; // open (final: false), same teams
+// Two QBs per side, both stored BENCH. The optimizer fills the one QB slot with
+// the higher projection and benches the other, so the chosen set is a strict
+// subset and each list carries a distinct id. Home: 601 (20) starts, 602 (8)
+// benches. Away: 603 (15) starts, 604 (6) benches.
+const BB_HOME = [
+  player(601, 'BB Home QB1', 'QB', 'KC', null, 'BENCH', null),
+  player(602, 'BB Home QB2', 'QB', 'BUF', null, 'BENCH', null),
+];
+const BB_AWAY = [
+  player(603, 'BB Away QB1', 'QB', 'SF', null, 'BENCH', null),
+  player(604, 'BB Away QB2', 'QB', 'DAL', null, 'BENCH', null),
+];
+const BB_PROJECTIONS = new Map([
+  [601, { points: 20 }],
+  [602, { points: 8 }],
+  [603, { points: 15 }],
+  [604, { points: 6 }],
+]);
+// All 18 weeks present for every team so no team reads as on bye.
+const BB_BYE_ROWS = [];
+for (let w = 1; w <= 18; w++) {
+  for (const teamCode of ['KC', 'BUF', 'SF', 'DAL']) BB_BYE_ROWS.push({ nfl_team: teamCode, week: w });
+}
+// Kickoffs far in the future, so every game reads scheduled at the real clock:
+// a scheduled starter's expected final is exactly his projection, which lets
+// the list-sums-to-total assertion compare projections directly.
+const BB_SCHEDULE = [
+  { nfl_team: 'KC', opponent: 'LV', kickoff_at: '2099-10-25T17:00:00.000Z' },
+  { nfl_team: 'BUF', opponent: 'MIA', kickoff_at: '2099-10-25T17:00:00.000Z' },
+  { nfl_team: 'SF', opponent: 'LAR', kickoff_at: '2099-10-25T20:25:00.000Z' },
+  { nfl_team: 'DAL', opponent: 'NYG', kickoff_at: '2099-10-25T20:25:00.000Z' },
+];
+
+async function getBestBallDetail(t, { projectionsThrow = false } = {}) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => {
+    if (projectionsThrow) throw new Error('projection store unavailable');
+    return { modelVersion: 'test', projections: BB_PROJECTIONS };
+  });
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...BB_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: true }] })],
+    // The producer's bye read; must precede the bare nfl_games matcher below.
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BB_BYE_ROWS })],
+    // Both the route's opponent map and the producer's kickoff map read this;
+    // each row carries opponent and kickoff_at so both consumers are answered.
+    [/FROM "nfl_games"/, () => ({ rows: BB_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    // The route's own per-team reads. Best ball stores BENCH for every row, so
+    // the bench read returns the whole side and the starter read returns none -
+    // exactly the shape that made the stored-slot split show no starters.
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
+      rows: params[0] === HOME ? BB_HOME : BB_AWAY,
+    })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, () => ({ rows: [] })],
+    // The producer's one read across both teams: every non-IR lineup row with
+    // its slot, the candidate pool the optimizer chooses from.
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, () => ({
+      rows: [
+        ...BB_HOME.map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, position: p.position, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...BB_AWAY.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, position: p.position, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+      ],
+    })],
+  ]).install(t);
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+const round2 = (x) => Math.round(x * 100) / 100;
+
+test('a best-ball matchup lists the optimizer\'s chosen lineup as starters, not an empty starters list (#953)', async (t) => {
+  const body = await getBestBallDetail(t);
+  // Criterion 1: the starters list is non-empty (the bug listed every player
+  // under Bench). Criterion 3 red-tell: reverting buildTeam to the stored-slot
+  // split makes raw.starterRows (empty for best ball) the starters, so this
+  // asserts empty and turns red.
+  assert.ok(body.home.starters.length > 0, 'home starters non-empty');
+  assert.ok(body.away.starters.length > 0, 'away starters non-empty');
+});
+
+test('the listed best-ball starters are exactly the set the returned total sums (#953)', async (t) => {
+  const body = await getBestBallDetail(t);
+  // Criterion 2: the list and the number cannot disagree. The chosen QB is the
+  // higher projection on each side; the other QB rides in Bench and is NOT
+  // summed. Asserting distinct ids proves the two lists are not the same query,
+  // and comparing the starters' projections to expectedFinal proves the total
+  // sums exactly those rows. Red-tell: the stored-slot split lists no starters
+  // (sum 0) beside a producer total of 20, so both the id and the sum assertion
+  // turn red.
+  assert.deepEqual(body.home.starters.map((p) => p.id), [601]);
+  assert.deepEqual(body.home.bench.map((p) => p.id), [602]);
+  assert.equal(body.home.expectedFinal, 20);
+  assert.equal(round2(body.home.starters.reduce((sum, p) => sum + p.projected, 0)), body.home.expectedFinal);
+
+  assert.deepEqual(body.away.starters.map((p) => p.id), [603]);
+  assert.deepEqual(body.away.bench.map((p) => p.id), [604]);
+  assert.equal(body.away.expectedFinal, 15);
+  assert.equal(round2(body.away.starters.reduce((sum, p) => sum + p.projected, 0)), body.away.expectedFinal);
+});
+
+test('a best-ball projection outage does not claim every player is a starter (#953 F1)', async (t) => {
+  // When the projection read throws, the producer declines to choose a lineup
+  // (statusReliable false) and hands back every candidate as `starters` with
+  // null figures. Gating the best-ball branch on statusReliable makes the route
+  // fall through to the stored-slot split instead of turning that refusal into
+  // "every player started": the stored slot is BENCH for all, so starters is
+  // empty and every player rides in Bench, exactly the pre-#953 behaviour and
+  // no regression. Red-tell: dropping `team.statusReliable` from the gate makes
+  // this list all four players as starters with an empty bench, turning the
+  // starters-length and expectedFinal-null assertions red.
+  const body = await getBestBallDetail(t, { projectionsThrow: true });
+  assert.equal(body.home.starters.length, 0, 'no confident starter claim on an outage');
+  assert.deepEqual(body.home.bench.map((p) => p.id).sort(), [601, 602]);
+  assert.equal(body.home.expectedFinal, null);
+  assert.equal(body.away.starters.length, 0);
+  assert.deepEqual(body.away.bench.map((p) => p.id).sort(), [603, 604]);
+  assert.equal(body.away.expectedFinal, null);
+});
+
+// ---------------------------------------------------------------------------
+// #976: a SETTLED matchup lists the week AS PLAYED, not through the current
+// roster. The score of record was computed over the as-played population
+// (CONTEXT.md, Settle pass), so a detail page that joins `team_players` prints
+// a list and a score that describe different teams: a starter who played and
+// was dropped afterwards vanishes from the list while his points stay in the
+// total, and a player acquired after his own kickoff appears in a week he did
+// not play for this team.
+//
+// The fake performs no join, so the fixture's lineup handlers lift both
+// properties out of the emitted statement (the precedent is
+// finalWeekFreeze.test.js): the current-roster filter is applied only when the
+// statement still names "team_players", and `player_id` rides on a row only
+// when the select list actually asks for it. That second lift is what makes
+// the 200 assertion bind edit 1 - drop the column from the SQL and
+// `rowsHeldAsPlayed` reaches for an id that is not there, which
+// `scheduleKeyFor` turns into a 500 rather than an empty exclusion set (#227).
+// ---------------------------------------------------------------------------
+
+const SETTLED_MATCHUP_ROW = {
+  ...MATCHUP_ROW,
+  final: true,
+  home_score: '30.00',
+  away_score: '5.00',
+};
+// Home: a starter still on the roster (10), a starter who played and was
+// DROPPED afterwards (20), and a starter ACQUIRED AFTER HIS OWN KICKOFF (10),
+// who is no part of the week as played. 30 is the stored home score.
+const SETTLED_HOME_KEPT = player(801, 'Kept Starter', 'QB', 'KC', null, 'QB', { passingYards: 250 });
+const SETTLED_HOME_DROPPED = player(802, 'Dropped Starter', 'RB', 'DAL', null, 'RB', { rushingYards: 200 });
+const SETTLED_HOME_LATE = player(803, 'Late Acquirer', 'WR', 'PHI', null, 'WR', { receivingYards: 100 });
+const SETTLED_HOME_BENCH = player(804, 'Settled Bench TE', 'TE', 'KC', null, 'BENCH', null);
+const SETTLED_AWAY_KEPT = player(811, 'Away Starter', 'RB', 'SF', null, 'RB', { rushingYards: 50 });
+
+const SETTLED_STARTERS = [SETTLED_HOME_KEPT, SETTLED_HOME_DROPPED, SETTLED_HOME_LATE, SETTLED_AWAY_KEPT];
+const SETTLED_BENCH = [SETTLED_HOME_BENCH];
+const SETTLED_TEAM_OF = new Map([[801, HOME], [802, HOME], [803, HOME], [804, HOME], [811, AWAY]]);
+// The roster as it stands TODAY: 802 has been dropped since the week settled.
+const SETTLED_ROSTER_TODAY = new Set([801, 803, 804, 811]);
+
+const SETTLED_KICKOFFS = {
+  KC: new Date('2026-10-25T17:00:00.000Z'),
+  DAL: new Date('2026-10-25T17:00:00.000Z'),
+  PHI: new Date('2026-10-25T20:25:00.000Z'),
+  SF: new Date('2026-10-25T20:25:00.000Z'),
+};
+const SETTLED_SCHEDULE = Object.entries(SETTLED_KICKOFFS).map(([nfl_team, at]) => ({
+  nfl_team, opponent: 'OPP', kickoff_at: at.toISOString(),
+}));
+// Explicit for the late acquirer only, with everyone else held since long
+// before kickoff. Taking the helper's permissive default for all would make
+// the tenure filter exclude nobody (a green bought for nothing); leaving
+// `heldSince` null would exclude EVERYONE and buy the absence assertion by
+// deleting the team.
+const SETTLED_TENURES = [tenure(HOME, 803, new Date('2026-10-26T00:00:00.000Z'))];
+const SETTLED_HELD_SINCE = new Date('2026-08-01T00:00:00.000Z');
+
+async function getSettledDetail(t) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  // The fake joins nothing, so answer these two questions the way the table
+  // would: the current-roster filter applies only while the statement still
+  // names team_players, and player_id rides only when it is selected.
+  const answer = (pool, text, params) => {
+    let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
+    if (/"team_players"/.test(text)) rows = rows.filter((p) => SETTLED_ROSTER_TODAY.has(p.id));
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    // BEFORE the route's own unanchored nfl_games entry: tenureHandlers'
+    // kickoff matcher is anchored on the same table, and fakePool takes the
+    // first match, so the other order silently substitutes the route's
+    // schedule for the tenure fixture's.
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: SETTLED_TENURES, heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answer(SETTLED_BENCH, text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => answer(SETTLED_STARTERS, text, params)],
+  ]).install(t);
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  // 200, not 500: the settled reads carry lineup_entries.player_id, the field
+  // rowsHeldAsPlayed reads. Removing it from either select list makes
+  // scheduleKeyFor throw and this line report a 500 (#227).
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+test('a settled matchup lists a dropped starter and sums to the stored score (#976)', async (t) => {
+  const body = await getSettledDetail(t);
+  const homeStarterIds = body.home.starters.map((p) => p.id).sort();
+  assert.ok(homeStarterIds.includes(802), `a starter dropped after the week still played it: ${homeStarterIds}`);
+  const homeSum = round2(body.home.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(homeSum, Number(body.matchup.home_score), 'the list and the score of record describe the same team');
+  const awaySum = round2(body.away.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(awaySum, Number(body.matchup.away_score));
+});
+
+test('a settled matchup excludes a player acquired after his own kickoff (#976)', async (t) => {
+  const body = await getSettledDetail(t);
+  const listed = [...body.home.starters, ...body.home.bench].map((p) => p.id);
+  assert.equal(listed.includes(803), false, `acquired after his own kickoff: ${listed}`);
+  // Not bought by emptying the team: the rest of the week is still listed.
+  assert.deepEqual(listed.sort(), [801, 802, 804]);
+});
+
+// ---------------------------------------------------------------------------
+// #1006: a SETTLED best-ball matchup. #976 fixed the as-played population;
+// #953 fixed the open-matchup best-ball split via the producer's chosen
+// lineup. Neither reaches a settled best-ball week: the producer never runs
+// for a final week (`team` is null), so the stored-slot split ran and found
+// no starter, because best-ball materialisation stores every non-IR row
+// BENCH - the #953 symptom, unchanged, for every historical best-ball week.
+// The fix reconstructs the counted set locally from the as-played rows'
+// ACTUAL points (never live projections, never the current roster, never the
+// producer), so this fixture deliberately keeps the settled fixture's
+// missing producer-read handler absent, same as the #976 cases above.
+//
+// Home candidates: two QBs (only one QB slot - the higher-points QB starts,
+// the other rides Bench), one RB, one WR, one TE, filling QB/RB/WR/TE and
+// leaving FLEX/K/DEF empty for lack of a candidate. Away: a single RB with no
+// competition, so away.bench is empty. Points are actual stats under
+// half_ppr (verified with scoring.service directly): QB 300py=12, QB 100py=4,
+// RB 50ry=5, WR 40recy+2rec=5, TE 20recy=2, so home's counted total is
+// 12+5+5+2=24 and away's is a lone RB 30ry=3 - the settled scores below.
+// ---------------------------------------------------------------------------
+
+const BB_SETTLED_MATCHUP_ROW = {
+  ...MATCHUP_ROW,
+  final: true,
+  home_score: '24.00',
+  away_score: '3.00',
+};
+const BB_SETTLED_HOME_QB_HIGH = player(901, 'BB High QB', 'QB', 'KC', null, 'QB', { passingYards: 300 });
+const BB_SETTLED_HOME_QB_LOW = player(902, 'BB Low QB', 'QB', 'DAL', null, 'QB', { passingYards: 100 });
+const BB_SETTLED_HOME_RB = player(903, 'BB RB', 'RB', 'PHI', null, 'RB', { rushingYards: 50 });
+const BB_SETTLED_HOME_WR = player(904, 'BB WR', 'WR', 'SF', null, 'WR', { receivingYards: 40, receptions: 2 });
+const BB_SETTLED_HOME_TE = player(905, 'BB TE', 'TE', 'KC', null, 'TE', { receivingYards: 20 });
+const BB_SETTLED_AWAY_RB = player(911, 'BB Away RB', 'RB', 'DAL', null, 'RB', { rushingYards: 30 });
+
+const BB_SETTLED_HOME_ROWS = [
+  BB_SETTLED_HOME_QB_HIGH, BB_SETTLED_HOME_QB_LOW, BB_SETTLED_HOME_RB, BB_SETTLED_HOME_WR, BB_SETTLED_HOME_TE,
+];
+const BB_SETTLED_AWAY_ROWS = [BB_SETTLED_AWAY_RB];
+const BB_SETTLED_TEAM_OF = new Map([
+  [901, HOME], [902, HOME], [903, HOME], [904, HOME], [905, HOME], [911, AWAY],
+]);
+
+async function getSettledBestBallDetail(t) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const allRows = [...BB_SETTLED_HOME_ROWS, ...BB_SETTLED_AWAY_ROWS];
+  // Real best-ball materialisation stores every non-IR row BENCH, so the
+  // fixture answers the whole population through the bench query and leaves
+  // the starter query empty, exactly the pre-#1006 (and pre-#953) shape.
+  const answerBench = (text, params) => {
+    const rows = allRows.filter((p) => BB_SETTLED_TEAM_OF.get(p.id) === params[0]);
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...BB_SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: true }] })],
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: [], heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answerBench(text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, () => ({ rows: [] })],
+  ]).install(t);
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+test('a settled best-ball matchup lists the counted roster as played, not every player under Bench (#1006)', async (t) => {
+  const body = await getSettledBestBallDetail(t);
+  assert.deepEqual(body.home.starters.map((p) => p.id).sort((a, b) => a - b), [901, 903, 904, 905]);
+  assert.deepEqual(body.home.bench.map((p) => p.id), [902], 'the lower-points QB is the remainder, not a starter');
+  const homeSum = round2(body.home.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(homeSum, Number(body.matchup.home_score), 'the starters list sums to the settled score of record');
+
+  assert.deepEqual(body.away.starters.map((p) => p.id), [911]);
+  assert.deepEqual(body.away.bench, []);
+  const awaySum = round2(body.away.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(awaySum, Number(body.matchup.away_score));
+});
+
+// ---------------------------------------------------------------------------
+// #978: a settled matchup's materialization is a no-op (its own finality
+// guard returns immediately), so the reads that followed it wrapped a
+// transaction around zero writes - a BEGIN, two finality probes and a COMMIT
+// per page view, for nothing. A settled request now skips both the
+// transaction and materializeLineup outright; an open matchup is unchanged.
+// ---------------------------------------------------------------------------
+
+// The expected body captured from the handler as it stood on this PR's parent
+// commit (80cdafd9, #1020, already on origin/integration when this branch was
+// cut): this ticket only removes the transaction bracket and the
+// materializeLineup calls around the settled reads, so the settled response
+// body itself must be byte-for-byte the same before and after.
+const SETTLED_EXPECTED_BODY = {
+  viewerTeamId: 11,
+  viewerWhatIf: null,
+  matchup: {
+    id: 7,
+    league_id: LEAGUE_ID,
+    season: SEASON,
+    week: WEEK,
+    home_team_id: HOME,
+    away_team_id: AWAY,
+    home_score: '30.00',
+    away_score: '5.00',
+    final: true,
+    home_team_name: 'Gridiron Ghosts',
+    away_team_name: 'Sunday Scaries',
+    home_team_avatar_url: null,
+    away_team_avatar_url: null,
+    home_team_avatar_static_url: null,
+    away_team_avatar_static_url: null,
+    status: 'final',
+    first_kickoff_at: null,
+    synced_at: null,
+  },
+  nflGameIds: [],
+  home: {
+    teamId: HOME,
+    name: 'Gridiron Ghosts',
+    starters: [
+      {
+        id: 801, name: 'Kept Starter', position: 'QB', nfl_team: 'KC', injury_status: null, slot: 'QB',
+        stats: { passingYards: 250 }, points: 10, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+      {
+        id: 802, name: 'Dropped Starter', position: 'RB', nfl_team: 'DAL', injury_status: null, slot: 'RB',
+        stats: { rushingYards: 200 }, points: 20, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+    ],
+    bench: [
+      {
+        id: 804, name: 'Settled Bench TE', position: 'TE', nfl_team: 'KC', injury_status: null, slot: 'BENCH',
+        stats: null, points: 0, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+    ],
+    expectedFinal: null,
+    playersRemaining: null,
+  },
+  away: {
+    teamId: AWAY,
+    name: 'Sunday Scaries',
+    starters: [
+      {
+        id: 811, name: 'Away Starter', position: 'RB', nfl_team: 'SF', injury_status: null, slot: 'RB',
+        stats: { rushingYards: 50 }, points: 5, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+    ],
+    bench: [],
+    expectedFinal: null,
+    playersRemaining: null,
+  },
+};
+
+test('a settled matchup opens no transaction and never calls materializeLineup, and the body is unchanged (#978)', async (t) => {
+  const materializeMock = t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const answer = (pool, text, params) => {
+    let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
+    if (/"team_players"/.test(text)) rows = rows.filter((p) => SETTLED_ROSTER_TODAY.has(p.id));
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: SETTLED_TENURES, heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answer(SETTLED_BENCH, text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => answer(SETTLED_STARTERS, text, params)],
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  // No BEGIN, no COMMIT: a settled request never opens the transaction.
+  assert.deepEqual(fake.matching(/^BEGIN$/), []);
+  assert.deepEqual(fake.matching(/^COMMIT$/), []);
+  // materializeLineup is never called on the settled path, not just a no-op
+  // inside its own finality guard.
+  assert.equal(materializeMock.mock.callCount(), 0);
+  // The response body is exactly what the handler produced before this
+  // ticket: only the transaction bracket around it is gone.
+  assert.deepEqual(res.body, SETTLED_EXPECTED_BODY);
+});
+
+test('an open matchup still opens a transaction and materializes each team once (#978)', async (t) => {
+  const materializeMock = t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: PROJECTIONS }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
+    [/FROM "nfl_games"/, () => ({ rows: SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: LIVE })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
+      rows: params[0] === HOME ? HOME_BENCH : [],
+    })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
+      rows: params[0] === HOME ? HOME_STARTERS : AWAY_STARTERS,
+    })],
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, (text) => {
+      const rows = [
+        ...[...HOME_STARTERS, ...HOME_BENCH].map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...AWAY_STARTERS.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+      ];
+      return { rows: /NOT IN \('BENCH'/.test(text) ? rows.filter((r) => r.slot !== 'BENCH') : rows };
+    }],
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  assert.equal(fake.matching(/^BEGIN$/).length, 1);
+  assert.equal(fake.matching(/^COMMIT$/).length, 1);
+  assert.equal(materializeMock.mock.callCount(), 2, 'once per team');
+});
+
+// #1017 gave liveWhatIf an optional `weekIsFinal`, so a caller that already
+// holds the settled fact does not make it buy isWeekFinal's own COUNT read
+// again. The route holds that fact on `matchup.final` and now passes it
+// through as `weekIsFinal`. liveWhatIf itself is NOT mocked here (every other
+// case in this file mocks it away): the point is to observe the real call it
+// makes against the fake pool.
+test('a settled matchup passes weekIsFinal into liveWhatIf, buying it out of its own finality COUNT read (#978, #1017)', async (t) => {
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  const answer = (pool, text, params) => {
+    let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
+    if (/"team_players"/.test(text)) rows = rows.filter((p) => SETTLED_ROSTER_TODAY.has(p.id));
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: SETTLED_TENURES, heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answer(SETTLED_BENCH, text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => answer(SETTLED_STARTERS, text, params)],
+    // liveWhatIf's own population read (distinct from the route's own lineup
+    // SQL above: this one leads with lineup_entries.player_id, not players.id).
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({
+      rows: [
+        { player_id: 801, name: 'Kept Starter', position: 'QB', nfl_team: 'KC', slot: 'QB', stats: { passingYards: 250 } },
+        { player_id: 802, name: 'Dropped Starter', position: 'RB', nfl_team: 'DAL', slot: 'RB', stats: { rushingYards: 200 } },
+      ],
+    })],
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  // No isWeekFinal COUNT read: liveWhatIf trusted the weekIsFinal it was handed.
+  assert.deepEqual(fake.matching(/^SELECT COUNT\(\*\)::int AS "n"/), []);
+  // And the settled short-circuit answered: no swaps to advise on a played week.
+  assert.deepEqual(res.body.viewerWhatIf, {
+    teamId: HOME, week: WEEK, actualPoints: 30, optimalPoints: 30, delta: 0, swaps: [],
+  });
 });

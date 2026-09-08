@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 
 describe('SimAssistantPanel (#786)', () => {
-  it('renders no assistant panel content while the toggle is off', () => {
+  it('renders no assistant panel content while the toggle is off, and reveals it when the switch is clicked on', () => {
     render(<SimAssistantPanel sim={makeSim([])} myTurn={false} secondsLeft={null} />);
     expect(screen.getByText('Draft assistant')).toBeInTheDocument(); // the heading
     expect(screen.getByRole('checkbox', { name: 'Draft assistant commentary' })).toBeInTheDocument(); // the toggle control itself
@@ -61,6 +61,14 @@ describe('SimAssistantPanel (#786)', () => {
     // assistive tech has already discovered it before there is ever anything
     // to announce - present, but silent, while the toggle is off.
     expect(screen.getByRole('status').textContent).toBe('');
+
+    // Clicking the switch reveals the panel: this is the Sim's own display
+    // binding (assistantOn -> panel visibility) and its wiring of the switch to
+    // the shared hook's toggleAssistant. The toggle's PERSISTENCE is machinery,
+    // covered once in src/hooks/useDraftAssistant.test.jsx (#950); it is
+    // deliberately not re-asserted here.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant commentary' }));
+    expect(screen.getByText('Misery Meter')).toBeInTheDocument();
   });
 
   it('with the toggle on, a user reach pick renders a line from the reach pool and the live region announces it once', () => {
@@ -147,16 +155,6 @@ describe('SimAssistantPanel (#786)', () => {
     expect(within(commentaryList()).getAllByRole('listitem')).toHaveLength(2);
     // Selection lines never reach the live region, cooldown-suppressed or not.
     expect(region.textContent).toBe('');
-  });
-
-  it('toggling the switch on reveals the panel and persists the preference', () => {
-    render(<SimAssistantPanel sim={makeSim([])} myTurn={false} secondsLeft={null} />);
-    expect(screen.queryByText('Misery Meter')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Draft assistant commentary' }));
-
-    expect(screen.getByText('Misery Meter')).toBeInTheDocument();
-    expect(window.localStorage.getItem(DRAFT_ASSISTANT_KEY)).toBe('1');
   });
 
   it('clears the live region on toggle-off and never re-shows the stale line merely from mounting it again', () => {

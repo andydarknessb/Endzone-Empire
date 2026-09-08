@@ -240,7 +240,7 @@ test('renders the Hall of Fame preview (year tabs, podium, mock standings) when 
   expect(screen.getByTestId('podium-card-3')).toBeInTheDocument();
 
   const mockTable = screen.getByTestId('history-mock-standings');
-  expect(within(mockTable).getByText('W-L-T')).toBeInTheDocument();
+  expect(within(mockTable).getByText('Record')).toBeInTheDocument();
   expect(within(mockTable).getByText('Total Points')).toBeInTheDocument();
 });
 
@@ -280,7 +280,7 @@ test("a pick'em season's standings render points and correct picks instead of a 
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('Points')).toBeInTheDocument();
   expect(within(table).getByText('Correct')).toBeInTheDocument();
-  expect(within(table).queryByText('W-L')).not.toBeInTheDocument();
+  expect(within(table).queryByText('Record')).not.toBeInTheDocument();
   expect(within(table).getByText('171')).toBeInTheDocument();
   expect(within(table).getByText('160')).toBeInTheDocument();
   expect(within(table).getByText('120')).toBeInTheDocument();
@@ -383,4 +383,55 @@ test("a declared Pick'em no-champion season is explicit rather than reported as 
   expect(panel).toHaveTextContent('No champion');
   expect(panel).not.toHaveTextContent('No champion recorded');
   expect(within(panel).queryByTestId('champion-banner-2026')).not.toBeInTheDocument();
+});
+
+// Issue #1009. Both League History record sites printed an unconditional
+// `wins-losses` under a header that read W-L-T, so an 8-4-2 season displayed as
+// 8-4 and the surface promised a tie column it never filled. The payload
+// already carried `ties` (the season standings service returns it), so this
+// asserts the rendered value, both sites at once, in both directions - a tied
+// Team and a tie-less one - which is the pair that pins the rule rather than
+// just the tie case (a formatter that always printed three parts would satisfy
+// the tie case alone and regress every tie-less season to 12-2-0).
+const seasonWithTies = (ties) => ({
+  data: {
+    seasons: [
+      {
+        season: 2026,
+        champion: { teamId: 1, name: 'Sunday Ballers' },
+        standings: [
+          { teamId: 1, name: 'Sunday Ballers', rank: 1, wins: 8, losses: 4, ties, pf: 1502.4 },
+        ],
+        trophies: [],
+        draftGrades: null,
+      },
+    ],
+  },
+});
+
+test('a Team that has tied shows the three-part record in the champion line and the standings cell', async () => {
+  apiClient.get.mockResolvedValue(seasonWithTies(2));
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  expect(within(panel).getByTestId('champion-banner-2026')).toHaveTextContent('8-4-2 record');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
+  expect(within(table).getByText('8-4-2')).toBeInTheDocument();
+  // The header no longer names a fixed number of parts.
+  expect(within(table).getByText('Record')).toBeInTheDocument();
+});
+
+test('a tie-less Team shows the two-part record in the champion line and the standings cell', async () => {
+  apiClient.get.mockResolvedValue(seasonWithTies(0));
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const banner = within(panel).getByTestId('champion-banner-2026');
+  expect(banner).toHaveTextContent('8-4 record');
+  expect(banner).not.toHaveTextContent('8-4-0');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
+  expect(within(table).getByText('8-4')).toBeInTheDocument();
+  expect(within(table).queryByText('8-4-0')).not.toBeInTheDocument();
 });

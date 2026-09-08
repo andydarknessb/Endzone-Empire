@@ -2,7 +2,8 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { matchupFromListRow } from '../../../entities/matchup';
-import { MatchupGrid, recordsFromStandings } from '../index';
+import { MatchupGrid } from '../index';
+import { recordsByTeamId } from '../../../entities/standings';
 import { formatKickoff } from '../model/matchupCardView';
 
 // Fixtures are built through the entity's own list-row builder, so a test
@@ -259,7 +260,7 @@ test('each side prints its record from the lookup, in any of its shapes', () => 
   expect(within(card(1)).getByTestId('matchup-side-away')).toHaveTextContent('1-1 · EF 119.4 · PMR 3');
   unmount();
 
-  const fromStandings = recordsFromStandings([
+  const fromStandings = recordsByTeamId([
     { teamId: 5, wins: 2, losses: 0, ties: 0 },
     { teamId: 6, wins: 1, losses: 1, ties: 1 },
   ]);

@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 import apiClient from '../../../api/apiClient';
+import { readHttpFailure } from '../../../lib/httpFailure';
 
 /**
  * advance-week feature (ADR 0020): the commissioner's control to close the
@@ -31,10 +32,18 @@ import apiClient from '../../../api/apiClient';
  * request.
  *
  * The 409 path is a contract. The phase gate refuses a fantasy league whose
- * draft has not finished with a manager-readable sentence, and this renders
- * that sentence VERBATIM (`err.response.data.error`) in an alert region, never
- * a message it builds from the status code. The button stays enabled so the
- * commissioner can retry once the draft completes.
+ * draft has not finished with a manager-readable sentence, and this shows that
+ * sentence in an alert region, read from the failure through the shared
+ * `readHttpFailure` reader (src/lib/httpFailure.js) rather than reached out of
+ * `err.response.data` by hand. The reader understands the several envelope
+ * shapes the server reports a failure in and returns the human sentence
+ * whichever key carried it, so what shows is still the server's own sentence
+ * and never a message this feature builds from the status code. The sentence is
+ * shown as the server wrote it; the reader chooses which field is the sentence,
+ * it does not rewrite the copy. When the failure carries no server sentence (a
+ * dropped connection has no 409 body to quote), the local fallback below shows
+ * instead. The button stays enabled so the commissioner can retry once the
+ * draft completes.
  */
 export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
   const [open, setOpen] = useState(false);
@@ -51,12 +60,13 @@ export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
       setOpen(false);
       if (typeof onAdvanced === 'function') onAdvanced();
     } catch (err) {
-      // Render exactly what the server sent. The transport-level fallback is
-      // only for a failure that carries no server sentence (a dropped
-      // connection has no 409 body to quote); a real phase-gate 409 always
-      // has `response.data.error`, so that is what shows.
+      // Show the server's own failure sentence, read through the shared
+      // readHttpFailure reader so the several envelope shapes the server uses
+      // all resolve to the human sentence. The fallback is only for a failure
+      // that carries no server sentence (a dropped connection has no 409 body
+      // to quote).
       setOpen(false);
-      setError(err?.response?.data?.error || err?.message || 'Could not advance the week.');
+      setError(readHttpFailure(err).message || err?.message || 'Could not advance the week.');
     } finally {
       setBusy(false);
     }
@@ -106,9 +116,10 @@ export default function AdvanceWeek({ leagueId, currentWeek, onAdvanced }) {
         </Button>
       </Box>
 
-      {/* The server's refusal, verbatim. MUI Alert carries role="alert", so a
-          screen reader hears it when it appears; the message text is exactly
-          the string the 409 carried. */}
+      {/* The server's refusal. MUI Alert carries role="alert", so a screen
+          reader hears it when it appears; the text is the server's own sentence
+          (read from the failure through readHttpFailure, shown as the server
+          wrote it), or the local fallback when the failure carried none. */}
       {error && (
         <Alert severity="error" sx={{ fontSize: '13px' }}>
           {error}

@@ -13,9 +13,10 @@ const FOLDED_COLUMN_SX = { display: { xs: 'none', sm: 'table-cell' } };
 
 /**
  * League Dashboard standings-table widget (ticket #641): the full league
- * standings as the main grid's wide card. Rank, Team (avatar + name), record
- * (W-L-T), win percentage, points for, points against and the trailing streak,
- * a header count of teams, and the viewer's own row highlighted and marked with
+ * standings as the main grid's wide card. Rank, Team (avatar + name), Record
+ * (conditional: wins-losses, or wins-losses-ties once a tie has happened),
+ * win percentage, points for, points against and the trailing streak, a
+ * header count of teams, and the viewer's own row highlighted and marked with
  * a "You" pill.
  *
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Ink text sits
@@ -95,7 +96,7 @@ export default function StandingsTable({ leagueId }) {
               <Box component="tr">
                 <HeadCell align="right">Rank</HeadCell>
                 <HeadCell>Team</HeadCell>
-                <HeadCell align="right">W-L-T</HeadCell>
+                <HeadCell align="right">Record</HeadCell>
                 <HeadCell align="right" sx={FOLDED_COLUMN_SX}>PCT</HeadCell>
                 <HeadCell align="right" sx={FOLDED_COLUMN_SX}>PF</HeadCell>
                 <HeadCell align="right" sx={FOLDED_COLUMN_SX}>PA</HeadCell>

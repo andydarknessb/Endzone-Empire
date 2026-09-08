@@ -325,6 +325,32 @@ class FakeDraftDatabase {
       this.releaseLeagueLock(client);
       return { rows: [] };
     }
+    // The #940 write gate's own League read (#965): an explicit column list,
+    // FOR UPDATE, and a RE-lock of the row this client already holds - so it
+    // must not queue on acquireLeagueLock, which models the real lock and would
+    // park the transaction behind itself. It is answered with the gate's own
+    // columns rather than the whole row on purpose: the gate refuses a row that
+    // cannot answer a gate input it evaluates, and answering it from a
+    // spread of `state.league` here is exactly what a real SELECT would do.
+    if (sql.includes('SELECT "id", "transactions_locked"') && sql.includes('FROM "leagues"')) {
+      const l = state.league;
+      return { rows: values[0] === l.id ? [{
+        id: l.id,
+        transactions_locked: l.transactions_locked ?? false,
+        draft_status: l.draft_status,
+        roster_limit: l.roster_limit,
+        ir_slots: l.ir_slots ?? 0,
+        position_caps: l.position_caps ?? {},
+        waivers_clear_at: l.waivers_clear_at ?? null,
+      }] : [] };
+    }
+    // The write gate's Team read, League-then-Team. A Pick bypasses the team
+    // lock (it is checked inline for the manager branch only), but the gate
+    // reads the row either way.
+    if (sql.includes('SELECT "id", "locked" FROM "teams"')) {
+      const team = state.teams.find((entry) => entry.id === values[0]);
+      return { rows: team ? [{ id: team.id, locked: team.locked ?? false }] : [] };
+    }
     if (sql.includes('SELECT * FROM "leagues"') && sql.includes('FOR UPDATE')) {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };

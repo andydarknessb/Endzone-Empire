@@ -1,5 +1,5 @@
 const pool = require('../modules/pool');
-const { placeOnWaiversUndoable, isOnWaivers } = require('./waiver.service');
+const { placeOnWaiversUndoable } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
@@ -17,18 +17,17 @@ const { rosterCapacity, interruptedStash } = require('./irPolicy.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
 const sentry = require('../modules/sentry');
-
-const { POSITION_GROUPS } = lineupService;
-
-class DraftError extends Error {
-  constructor(statusCode, message, code = null) {
-    super(message);
-    this.statusCode = statusCode;
-    // A stable SCREAMING_SNAKE code (ADR 0008) a client branches on, distinct
-    // from the human message. Optional so existing throws keep their behaviour.
-    this.code = code;
-  }
-}
+// #943: the acquire gate (roster capacity, the per-position cap, the waiver
+// hold) now lives in rosterGate.service.js; this re-exports
+// assertRosterAcquisitionAllowed below for pick.service.js and its own tests,
+// and still calls assertPositionCapNotReached directly from undoDrop.
+const {
+  assertRosterAcquisitionAllowed,
+  assertPositionCapNotReached,
+  assertRosterWriteAllowed,
+  ROSTER_GATE,
+} = require('./rosterGate.service');
+const { DraftError } = require('./draftError');
 
 /**
  * Whether a caught error is a draft REFUSAL rather than an internal fault. A
@@ -82,72 +81,10 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
 }
 
 /**
- * Position caps are keyed at the same granularity as positionCapsFeasible's
- * POSITION_KEYS: literal offense positions plus the three IDP group keys
- * (DL/LB/DB) rather than every specific position Tank01 reports. A 'CB' must
- * therefore be checked (and counted) against the 'DB' cap, not a literal
- * 'CB' cap that would never be set.
- */
-function positionCapGroup(position) {
-  return Object.keys(POSITION_GROUPS).find((key) => POSITION_GROUPS[key].includes(position)) || position;
-}
-
-/** Enforce a team's per-position draft cap (if the league sets one for this player's cap group). Throws DraftError(409) when full. */
-async function assertPositionCapNotReached(client, { teamId, positionCaps, position }) {
-  const caps = typeof positionCaps === 'string' ? JSON.parse(positionCaps) : positionCaps || {};
-  const group = positionCapGroup(position);
-  const cap = caps[group];
-  if (!Number.isInteger(cap)) return;
-  const members = POSITION_GROUPS[group] || [position];
-  const countResult = await client.query(
-    `SELECT COUNT(*)::int AS n FROM "team_players"
-     JOIN "players" ON "players"."id" = "team_players"."player_id"
-     WHERE "team_players"."team_id" = $1 AND "players"."position" = ANY($2::text[])`,
-    [teamId, members]
-  );
-  if (countResult.rows[0].n >= cap) {
-    throw new DraftError(409, `position cap reached: max ${cap} ${group}`);
-  }
-}
-
-/**
- * The roster-acquisition checks shared by a Pick (pick.service.commitPick) and a
- * post-draft free-agent add (addFreeAgent below), #782 ruling 2: roster capacity,
- * the per-position cap, and - for a completed draft only - the on-waivers gate.
- * The order matches what the single pre-#782 commit ran before it was split into
- * pick.service.commitPick and addFreeAgent, so both callers refuse for the same
- * reason in the same order they always did.
- *
- * Roster capacity is the IR-policy capacity, not the static roster limit: a draft
- * pick and a post-draft add both land here, and an eligible IR stash grants a
- * spot beyond the draft roster size (#97). The added player himself earns no
- * restored credit - an add benches him (undoDrop is the one restore).
- */
-async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId, position }) {
-  const rosterCountResult = await client.query(
-    `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-    [teamId]
-  );
-  const capacity = await rosterCapacity(client, { league, teamId });
-  if (rosterCountResult.rows[0].n >= capacity) {
-    throw new DraftError(409, `roster capacity of ${capacity} reached`);
-  }
-
-  await assertPositionCapNotReached(client, { teamId, positionCaps: league.position_caps, position });
-
-  // Post-draft pickups are free agency: players still on waivers must be claimed
-  // through the waiver process instead. An active draft never reaches this branch
-  // (a Pick is not a waiver claim), so it is a no-op for pick.service.commitPick.
-  if (league.draft_status === 'complete' &&
-      await isOnWaivers(client, { league, playerId })) {
-    throw new DraftError(409, 'player is on waivers; submit a waiver claim instead');
-  }
-}
-
-/**
  * A post-draft free-agent add: the caller adds a free player to their OWN roster
  * once the draft is complete. This is NOT a Pick (#782 ruling 2, CONTEXT.md) - it
- * takes the Pick path's roster-acquisition checks through the shared helper above,
+ * takes the Pick path's roster-acquisition checks through the shared helper
+ * (assertRosterAcquisitionAllowed, re-exported from rosterGate.service.js),
  * but it commits no draft_pick, appends no Draft activity, arms no clock, and
  * fans out only `rosterChanged` (the availability read model changed). It refuses
  * unless the draft is complete; a Pick, conversely, refuses unless it is active.
@@ -192,8 +129,20 @@ async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
     );
     if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
-    await assertRosterAcquisitionAllowed(client, {
-      league, teamId: myTeam.id, playerId, position: playerResult.rows[0].position,
+    // The write-time roster gate (#944): it reads the freeze off the League row
+    // it re-locks FOR UPDATE (the League is already held from line 98, so this
+    // is a no-op re-lock in League-first order), and runs the acquire bundle -
+    // capacity, the position cap and the on-waivers gate - that used to live in
+    // assertRosterAcquisitionAllowed here. Team lock is bypassed because this
+    // path already refused a locked team above (myTeam.locked), which fails
+    // earlier and keeps that refusal's ordering unchanged.
+    await assertRosterWriteAllowed(client, {
+      leagueId,
+      teamId: myTeam.id,
+      direction: 'acquire',
+      playerId,
+      position: playerResult.rows[0].position,
+      bypass: [ROSTER_GATE.TEAM_LOCK],
     });
 
     await client.query(
@@ -259,13 +208,39 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
  * every future week's row go with the roster row. What that row held is
  * recorded on the waiver hold first, because the hold is what gates undo and
  * the row will not be there to read afterwards.
+ *
+ * Lock order is League then Team (#962). This was the ONE path in the server
+ * that inverted it: it took the Team row FOR UPDATE through requireMember and
+ * then read the League unlocked, while every other roster write - and the
+ * commissioner's forced transaction - locks the League first. Adopting the
+ * write gate here without demoting that locking read would have shipped an
+ * AB/BA pair between a drop and a forced transaction on the same league and
+ * team. So the membership read is now a plain SELECT (it takes no row lock at
+ * all), and the gate below is what takes both rows, League first.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const team = await requireMember(client, { leagueId, userId, forUpdate: true });
-    if (team.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+    // Demoted from FOR UPDATE (#962): see the lock-order note above. The Team
+    // row is still locked a statement later, by the gate, in League-then-Team
+    // order, so the drop is no less serialized than it was.
+    const team = await requireMember(client, { leagueId, userId });
+
+    // The write-time roster gate (#940 story 2): a frozen League refuses a
+    // drop, and so does a locked Team - the refusal this path used to raise
+    // itself, now owned by the one module that answers "may this Team release
+    // this player right now". Nothing is bypassed: capacity, the position cap
+    // and the waiver hold are acquire-only and never evaluated on a release.
+    // This is the first lock this transaction takes, and it takes League then
+    // Team.
+    await assertRosterWriteAllowed(client, {
+      leagueId,
+      teamId: team.id,
+      direction: 'release',
+      playerId,
+      bypass: [],
+    });
 
     const leagueResult = await client.query(
       `SELECT "id", "waiver_period_hours", "current_season", "current_week"
@@ -330,6 +305,23 @@ async function undoDrop({ leagueId, userId, playerId }) {
     if (!league) throw new DraftError(404, 'league not found');
 
     const team = await requireMember(client, { leagueId, userId });
+
+    // The write-time roster gate (#944) for the freeze and the Team lock: the
+    // undo was "the one path that checks neither lock" (#940), and now inherits
+    // both. It reads the freeze off the League row it re-locks FOR UPDATE (the
+    // League is already held from line 258, League-first order), and refuses a
+    // frozen League or a locked Team before any hold is read or deleted.
+    // Capacity, the position cap and the waiver hold are bypassed: undoDrop owns
+    // its own restored-stash capacity (the interrupted stash grants a spot the
+    // generic gate would not credit), its own assertPositionCapNotReached below,
+    // and its own waiver-hold read above (the hold is what AUTHORIZES an undo).
+    await assertRosterWriteAllowed(client, {
+      leagueId,
+      teamId: team.id,
+      direction: 'acquire',
+      playerId,
+      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+    });
 
     const holdResult = await client.query(
       `SELECT 1 FROM "waiver_players"

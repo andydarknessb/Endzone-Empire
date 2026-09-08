@@ -394,6 +394,29 @@ receives, so it carries Team identity and no account identifier.
 _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
+**Draft act**:
+A lifecycle operation on a Draft that serializes on the League row, runs the
+caller's mutations on that locked client, commits, and only then fans out to
+the room in one order. `runDraftAct` (`server/services/draftAct.service.js`)
+is the only way to perform one; a caller supplies an act body and never opens
+its own connection, takes its own lock, or chooses the fan-out order. Pause,
+resume, autodraft toggle, undo and reset are Draft acts; a Pick is not one
+(pick.service.js owns landing a Pick on its own commit-and-fan-out, ADR 0025).
+_Avoid_: administrative act (Pick correction is that, not a Draft act),
+transaction (the lock and commit are how it works, not what it is)
+
+**board fact**:
+A room broadcast that reports Draft state rather than narration: a named
+method on the Draft room broadcast adapter (ADR 0025) that a Draft act may
+list in its `broadcasts`, as opposed to narration, which travels through the
+act's `activity` and is always emitted as `activityAppended`. Which module
+owns which board fact is a standing ownership ruling, not a matter of what a
+given caller happens to request; see ADR 0025's 2026-09-07 amendment for the
+full list and reasons. A Draft act may only emit `stateChanged` and
+`rosterChanged`.
+_Avoid_: event, broadcast (unqualified; the adapter has other room traffic),
+domain event
+
 **Presenter**:
 This term carries two senses, numbered below. A reader tells them apart by
 what the word describes and never by which directory the file sits in, by
@@ -691,7 +714,11 @@ _Avoid_: roster lock
 
 **Roster lock**:
 A commissioner freeze on one team's roster moves, or on the whole league's.
-Unrelated to lineup locks.
+Stops every roster write: a free agent add, a drop, an undo-drop, a waiver
+award, and trade execution, both entering (proposing or accepting a trade,
+submitting a claim) and completing (an accepted trade, an already-submitted
+claim). The commissioner's own forced transaction is the one explicit
+override. Unrelated to lineup locks.
 _Avoid_: lineup lock
 
 **Free agent**:
@@ -725,6 +752,21 @@ nothing is added to them after the fact, so re-scoring a final week counts
 only the players who were there when the games were played.
 _Avoid_: game (a game is an NFL game), fixture
 
+**Record**:
+A Team's season tally of wins, losses and ties, drawn from its finalized
+regular-season Matchups; a playoff Matchup is not counted toward it. It
+renders as two parts, wins-losses, for as long as the Team has no ties; a
+tie count is never printed as zero, so a third part, ties, appears only
+once one has actually happened. The standings table, a Matchup card, the
+Team summary and the Lineup screen all follow this rule, and so do Power
+Rankings and season history. Since #959 the rule is computed in ONE
+place, the standings entity (src/entities/standings): the standings table, the
+Team summary, a Matchup card and season history all read the formatted Record
+from there rather than deriving it, which is what stops another surface
+inventing another answer. The Lineup screen still derives its own.
+_Avoid_: standings (the ordered table built from every Team's Record, not one
+Team's own tally)
+
 **Scoring rules**:
 The full set of per-stat point values a league scores by.
 _Avoid_: settings, scoring system
@@ -757,8 +799,11 @@ player with no game that week is never excluded. The same predicate governs a
 re-score of a final week. In best ball a candidate must also have been held at
 the week's last kickoff: a player dropped after his own game but before the
 week's last kickoff does not score (ADR 0022). Hindsight reads the same
-population (ADR 0023). Distinct from live scoring (the current roster, every
-few minutes).
+population (ADR 0023). So does every other reading of a settled week,
+including one that only displays it: a surface that lists a settled week's
+lineup reads it as played, never through the current roster, or its list and
+the score beside it describe different teams. Distinct from live scoring (the
+current roster, every few minutes).
 _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:

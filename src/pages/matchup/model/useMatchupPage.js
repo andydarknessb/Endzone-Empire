@@ -5,7 +5,7 @@ import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
 import { matchupWinProbability } from '../../../lib/winProbability';
 import { useMatchup, matchupStatusView } from '../../../entities/matchup';
-import { recordsFromStandings } from '../../../widgets/matchup-grid';
+import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';
 import { useMatchupView } from '../../../features/toggle-matchup-view';
 
@@ -229,7 +229,7 @@ export function useMatchupPage(leagueId, matchupId) {
   // A plain object keyed by Team id, the lookup shape the scoreboard strip reads.
   const records = useMemo(() => {
     const rows = Array.isArray(standings.data?.standings) ? standings.data.standings : [];
-    return rows.length ? Object.fromEntries(recordsFromStandings(rows)) : null;
+    return rows.length ? Object.fromEntries(recordsByTeamId(rows)) : null;
   }, [standings.data]);
 
   const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;

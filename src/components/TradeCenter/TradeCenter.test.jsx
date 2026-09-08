@@ -487,3 +487,27 @@ test('Analyze Trade on an existing trade card posts the trade items and renders 
   );
   expect(await screen.findByText('Fair')).toBeInTheDocument();
 });
+
+// #970: the trade centre reads its load failure through readHttpFailure. This
+// envelope is shape (c) - `code`, `message` and a requestId, with no `error`
+// key at all - which the global express error handler and the rate limiter
+// emit. The old hand-rolled `err.response?.data?.error` found nothing there
+// and fell through to axios's own generic `err.message` ("Request failed with
+// status code 429"), throwing away the sentence the server actually sent.
+test('a load failure in the code/message/requestId envelope renders its message', async () => {
+  const rateLimited = {
+    message: 'Request failed with status code 429',
+    response: {
+      status: 429,
+      data: { code: 'RATE_LIMITED', message: 'Too many trade requests. Try again in a minute.', requestId: 'r-1' },
+    },
+  };
+  apiClient.get.mockImplementation((url) => (
+    url.startsWith('/api/trades') ? Promise.reject(rateLimited) : Promise.resolve({ data: leagueResponse() })
+  ));
+  renderScreen();
+
+  expect(await screen.findByText('Too many trade requests. Try again in a minute.')).toBeInTheDocument();
+  expect(screen.queryByText('Request failed with status code 429')).not.toBeInTheDocument();
+  expect(screen.queryByText('RATE_LIMITED')).not.toBeInTheDocument();
+});

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
 /** Owns the caller's draft queue: load, reorder, remove, and persisting each
@@ -32,7 +33,7 @@ export default function useDraftQueue(leagueId, { onError } = {}) {
       // with the server - any writeError it was showing is stale.
       if (!isFirstLoad) setWriteError(null);
     } catch (err) {
-      onError?.(err.response?.data?.error || err.message);
+      onError?.(readHttpFailure(err).message || err.message);
     } finally {
       if (isFirstLoad) {
         hasLoadedOnceRef.current = true;
@@ -56,7 +57,7 @@ export default function useDraftQueue(leagueId, { onError } = {}) {
         playerIds: nextQueue.map((p) => p.id),
       });
     } catch (err) {
-      const message = err.response?.data?.error || err.message;
+      const message = readHttpFailure(err).message || err.message;
       setWriteError(message);
       // Also the room-wide banner, same as every other error this hook
       // reports: the queue panel that would otherwise show `writeError`

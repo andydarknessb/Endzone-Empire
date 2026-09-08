@@ -1,6 +1,6 @@
 import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
-import { useStandings } from '../../../hooks/useStandings';
+import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
 import { ordinal } from '../lib/ordinal';
 
 /**
@@ -16,8 +16,10 @@ import { ordinal } from '../lib/ordinal';
  *     the Team in `teams[]` whose id equals `viewerTeamId`. A repeat read here
  *     is served from the same cache the page shell already warmed, so it costs
  *     no extra request.
- *   - Record and current rank come from the scoring standings read. The
- *     standings read is the widget's SPINE: its loading state drives the card's
+ *   - Record and current rank come from the STANDINGS ENTITY
+ *     (src/entities/standings, #959), which owns the read and computes the
+ *     Record once, so this card cannot disagree with the standings table or a
+ *     matchup card about it. That read is the widget's SPINE: its loading state drives the card's
  *     skeletons and its failure drives the card's compact error, so a failed
  *     summary never touches the rest of the page. Standings is a SHARED-cache
  *     read (useStandings / ADR 0004): it is on the service-worker allowlist and,
@@ -49,17 +51,6 @@ import { ordinal } from '../lib/ordinal';
 
 const findById = (rows, teamId) =>
   (Array.isArray(rows) ? rows.find((row) => row && row.teamId === teamId) : null) || null;
-
-// "3-1" with no ties, "3-1-2" when ties have happened.
-const formatRecord = (row) => {
-  const wins = Number(row.wins) || 0;
-  const losses = Number(row.losses) || 0;
-  const ties = Number(row.ties) || 0;
-  return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
-};
-
-const gamesPlayed = (row) =>
-  (Number(row.wins) || 0) + (Number(row.losses) || 0) + (Number(row.ties) || 0);
 
 // A finite number, or null when the field is absent. Every optional numeric
 // below goes through this for the same reason `rawRosterValue` does: an absent
@@ -95,11 +86,15 @@ function capacityFact(league, team) {
 export function useMyTeamSummary(leagueId) {
   const { league, teams, viewerTeamId } = useLeague(leagueId);
 
-  // Standings through the shared week-keyed cache, so the standings-table widget
-  // beside this one issues one request between them (ADR 0004). `useResource`'s
-  // { data, loading, error } maps to the same three spine states the card reads.
-  const standings = useStandings(leagueId, league?.current_week);
-  const standingsStatus = standings.loading ? 'loading' : standings.error ? 'error' : 'ready';
+  // Standings through the entity, which reads the same shared week-keyed cache
+  // entry, so the standings-table widget beside this one still issues one
+  // request between them (ADR 0004). The week is the caller's to supply (#942
+  // ruling R4: no League entity slice), and `status` is the same three spine
+  // states the card reads.
+  const { status: standingsStatus, rows: standingRows } = useLeagueStandings(
+    leagueId,
+    league?.current_week,
+  );
 
   const grades = useEndpoint(leagueId != null ? `/api/league/${leagueId}/draft-grades` : null);
   const rankings = useEndpoint(leagueId != null ? `/api/scoring/league/${leagueId}/power-rankings` : null);
@@ -126,10 +121,12 @@ export function useMyTeamSummary(leagueId) {
   // spine is ready.
   let record = null;
   if (standingsStatus === 'ready') {
-    const row = findById(standings.data?.standings, viewerTeamId);
-    if (row && gamesPlayed(row) > 0) {
-      const rank = ordinal(Number(row.rank));
-      record = { text: formatRecord(row), rankText: rank ? rank.toString() : null };
+    // The Record arrives FORMATTED from the entity and the rank is the server's
+    // own, both off one Team standing; nothing here re-derives either.
+    const standing = findTeamStanding(standingRows, viewerTeamId);
+    if (standing && standing.gamesPlayed > 0) {
+      const rank = ordinal(standing.rank);
+      record = { text: standing.record, rankText: rank ? rank.toString() : null };
     }
   }
 

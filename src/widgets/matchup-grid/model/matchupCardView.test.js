@@ -1,6 +1,6 @@
 import { matchupFromListRow } from '../../../entities/matchup';
 import { matchupCardView, formatKickoff, formatPoints, formatCount } from './matchupCardView';
-import { lookupRecord, recordsFromStandings } from '../lib/records';
+import { lookupRecord } from '../lib/records';
 
 function model(overrides = {}) {
   return matchupFromListRow({
@@ -138,16 +138,11 @@ describe('records', () => {
     expect(lookupRecord({ 1: '2-0' }, null)).toBeNull();
   });
 
-  test('recordsFromStandings prints ties only when one has happened', () => {
-    const map = recordsFromStandings([
-      { teamId: 1, wins: 3, losses: 1, ties: 0 },
-      { teamId: 2, wins: '1', losses: '2', ties: '1' },
-      { teamId: null, wins: 9, losses: 9 },
-      null,
-    ]);
-    expect(map.get(1)).toBe('3-1');
-    expect(map.get(2)).toBe('1-2-1');
-    expect(map.size).toBe(2);
-    expect(recordsFromStandings(undefined).size).toBe(0);
-  });
+  // The record-FORMAT case that stood here (ties printed only once one has
+  // happened, a missing count read as zero, an id-less row skipped) is gone
+  // with the builder itself: src/entities/standings owns `recordsByTeamId` and
+  // asserts those cases with no render (#959), and the deletion is behind its
+  // own red-tell in this PR - dropping the entity's id-less-row guard turns
+  // the entity's lookup case red. This widget only READS a lookup, which is
+  // what the case above pins.
 });

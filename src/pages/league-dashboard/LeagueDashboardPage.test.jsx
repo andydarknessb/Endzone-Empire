@@ -768,7 +768,7 @@ test('standings-table: in-season renders the full table, a team count, names fro
   // Column headers.
   expect(within(card).getByText('Rank')).toBeInTheDocument();
   expect(within(card).getByText('Team')).toBeInTheDocument();
-  expect(within(card).getByText('W-L-T')).toBeInTheDocument();
+  expect(within(card).getByText('Record')).toBeInTheDocument();
   expect(within(card).getByText('PF')).toBeInTheDocument();
   expect(within(card).getByText('PA')).toBeInTheDocument();
   // The header count of teams.
@@ -805,7 +805,7 @@ test('standings-table: in-season renders the full table, a team count, names fro
   expect(within(otherRow).queryByTestId('badge')).not.toBeInTheDocument();
 });
 
-test('standings-table: in-season renders the viewer record as W-L-T and points to one decimal', async () => {
+test('standings-table: in-season renders the viewer record as W-L (no ties) and points to one decimal', async () => {
   mockGetByUrl({
     '/api/league/1': standingsTableLeague(),
     '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
@@ -814,8 +814,10 @@ test('standings-table: in-season renders the viewer record as W-L-T and points t
 
   const card = await screen.findByTestId('standings-table');
   const youRow = await within(card).findByTestId('standings-table-you-row');
-  // Viewer is row 0: 12 wins, 0 losses, 0 ties, pf 1200, pa 1000.
-  expect(within(youRow).getByText('12-0-0')).toBeInTheDocument();
+  // Viewer is row 0: 12 wins, 0 losses, 0 ties, pf 1200, pa 1000. Record is
+  // conditional (#958): a tie-less Team never prints the zero tie part.
+  expect(within(youRow).getByText('12-0')).toBeInTheDocument();
+  expect(within(youRow).queryByText('12-0-0')).not.toBeInTheDocument();
   expect(within(youRow).getByText('1200.0')).toBeInTheDocument();
   expect(within(youRow).getByText('1000.0')).toBeInTheDocument();
 });
@@ -1884,6 +1886,29 @@ test('commissioner-panel: a 409 from advance-week shows the server message verba
   expect(alert).toHaveTextContent(serverMessage);
   // The button stays usable so the commissioner can retry once the draft ends.
   expect(within(card).getByRole('button', { name: 'Advance to Week 2' })).toBeEnabled();
+});
+
+test('commissioner-panel: an advance-week failure in a code+message envelope (no error key) shows the server sentence, not the generic fallback', async () => {
+  // A code+message envelope with no `error` key (the shape the global express
+  // error handler and the rate limiter emit). The old hand-rolled read of
+  // `err.response.data.error` found no `error` key here and, with no err.message
+  // on the rejected object, showed the generic 'Could not advance the week.';
+  // reading through readHttpFailure surfaces the server's own sentence.
+  const serverMessage = 'scoring is locked while the weekly sync runs; try again in a minute';
+  apiClient.post.mockRejectedValue({
+    response: { status: 409, data: { code: 'SYNC_IN_PROGRESS', message: serverMessage } },
+  });
+  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
+  renderPage();
+
+  const card = await screen.findByTestId('commissioner-panel');
+  await userEvent.click(within(card).getByRole('button', { name: 'Advance to Week 2' }));
+  const dialog = await screen.findByRole('dialog');
+  await userEvent.click(within(dialog).getByRole('button', { name: /confirm/i }));
+
+  const alert = await within(card).findByRole('alert');
+  expect(alert).toHaveTextContent(serverMessage);
+  expect(alert).not.toHaveTextContent('Could not advance the week.');
 });
 
 test("commissioner-panel: a pick'em-only commissioner sees the panel but no advance control", async () => {

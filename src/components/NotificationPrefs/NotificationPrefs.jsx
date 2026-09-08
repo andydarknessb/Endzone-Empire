@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Typography, Paper, Box, FormControlLabel, Switch, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { urlBase64ToUint8Array } from '../../utils/push';
 
 const PREF_FIELDS = [
@@ -80,7 +81,7 @@ function NotificationPrefs() {
         setPushEnabled(true);
       } catch (err) {
         setPushEnabled(false);
-        setPushError(err.response?.data?.error || err.message || 'Failed to enable push notifications');
+        setPushError(readHttpFailure(err).message || err.message || 'Failed to enable push notifications');
       } finally {
         setPushBusy(false);
       }
@@ -96,7 +97,7 @@ function NotificationPrefs() {
         setPushEnabled(false);
       } catch (err) {
         setPushEnabled(true);
-        setPushError(err.response?.data?.error || err.message || 'Failed to disable push notifications');
+        setPushError(readHttpFailure(err).message || err.message || 'Failed to disable push notifications');
       } finally {
         setPushBusy(false);
       }
@@ -110,7 +111,7 @@ function NotificationPrefs() {
       const res = await apiClient.get('/api/notifications/prefs');
       setPrefs(res.data || {});
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
     }
@@ -127,7 +128,7 @@ function NotificationPrefs() {
       setPrefs(res.data || { ...prefs, [key]: next });
     } catch (err) {
       setPrefs((prev) => ({ ...prev, [key]: previous }));
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setSavingKey(null);
     }

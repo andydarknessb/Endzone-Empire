@@ -7,6 +7,7 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import CloseIcon from '@mui/icons-material/Close';
 import TeamAvatar from './TeamAvatar';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -88,7 +89,7 @@ function TeamAvatarUploader({ teamId, teamName, avatarUrl, avatarStaticUrl, onUp
       });
       onUpdated?.(response.data);
     } catch (err) {
-      setError(err.response?.data?.error || 'Upload failed');
+      setError(readHttpFailure(err).message || 'Upload failed');
     } finally {
       URL.revokeObjectURL(localPreview);
       setPreviewUrl(null);
@@ -112,7 +113,7 @@ function TeamAvatarUploader({ teamId, teamName, avatarUrl, avatarStaticUrl, onUp
       const response = await apiClient.delete(`/api/team/${teamId}/avatar`);
       onUpdated?.(response.data);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to remove avatar');
+      setError(readHttpFailure(err).message || 'Failed to remove avatar');
     } finally {
       setBusy(false);
     }

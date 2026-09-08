@@ -214,8 +214,20 @@ for (const { paused, kind } of [{ paused: true, kind: 'pause' }, { paused: false
 test('POST /reset broadcasts a reset lifecycle entry to the room', async (t) => {
   createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // The reset's guarded league lookup, more specific than memberSnapshot's league read.
-    [/SELECT "id", "current_season" FROM "leagues"/, () => ({ rows: [{ id: LEAGUE_ID, current_season: 2026 }] })],
+    // The Draft act module (#967) owns the reset's transaction now: it locks the
+    // League row generically, loads Teams in rotation order and resolves the
+    // acting Team, and the body authorizes against the locked row.
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({
+      rows: [{ id: LEAGUE_ID, current_season: 2026, draft_status: 'active' }],
+    })],
+    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({ rows: START_TEAMS })],
+    // The #965 write gate, once per team, ahead of the wipe.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ id: LEAGUE_ID, transactions_locked: false }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
+      rows: [{ id: params[0], locked: false }],
+    })],
     [select('matchups'), () => ({ rows: [] })],
     [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 0 })],
     [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 0 })],

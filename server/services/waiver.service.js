@@ -6,6 +6,11 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { rosterCapacity } = require('./irPolicy.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
+// isOnWaivers lives in its own leaf so the roster gate can share it without a
+// circular require back into this module (#944; see waiverStatus.js). Kept in
+// this module's exports below so existing importers are untouched.
+const { isOnWaivers } = require('./waiverStatus');
+const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message) {
@@ -110,26 +115,6 @@ async function placeOnWaiversUndoable(client, { league, teamId, playerId }) {
 }
 
 /**
- * Is this player currently on waivers in the league (not yet a free agent)?
- * True when he has an unexpired waiver_players row, or the league's post-draft
- * blanket window is still open and he is unrostered.
- */
-async function isOnWaivers(client, { league, playerId }) {
-  const row = await client.query(
-    `SELECT 1 FROM "waiver_players"
-     WHERE "league_id" = $1 AND "player_id" = $2 AND "available_at" > now()`,
-    [league.id, playerId]
-  );
-  if (row.rows[0]) return true;
-  if (!league.waivers_clear_at || new Date(league.waivers_clear_at) <= new Date()) return false;
-  const rostered = await client.query(
-    `SELECT 1 FROM "team_players" WHERE "league_id" = $1 AND "player_id" = $2`,
-    [league.id, playerId]
-  );
-  return !rostered.rows[0];
-}
-
-/**
  * The single player a manager selected from Player Browser to claim. This is
  * intentionally a targeted read rather than a second waiver list: a blanket
  * waiver window applies to every unrostered player and must not turn the
@@ -140,7 +125,11 @@ async function claimTarget({ leagueId, userId, playerId }) {
   const league = leagueResult.rows[0];
   if (!league) throw new WaiverError(404, 'league not found');
   assertFantasyLeagueRow(league);
-  if (league.transactions_locked) {
+  // An entry gate: tells the manager before he fills in a claim. The actual
+  // award still runs the write-time gate below, in submitClaim/processWaivers;
+  // this delegates to the gate's own fail-closed freeze read (#966) so the
+  // two cannot drift on what the column means.
+  if (isLeagueFrozen(league)) {
     throw new WaiverError(409, 'transactions are locked by the commissioner');
   }
 
@@ -174,7 +163,10 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
     assertFantasyLeagueRow(league); // no waivers in a pick'em-only league
-    if (league.transactions_locked) {
+    // An entry gate (#966): the award itself runs through processWaivers's
+    // own write-time gate; this delegates to the gate's fail-closed freeze
+    // read so the two cannot drift on what the column means.
+    if (isLeagueFrozen(league)) {
       throw new WaiverError(409, 'transactions are locked by the commissioner');
     }
 
@@ -344,12 +336,37 @@ async function processWaivers({ leagueId }) {
       byPlayer.get(claim.player_id).push(claim);
     }
 
-    const finish = (claim, status, note) =>
-      client.query(
+    // Every terminal claim status goes through the write-time roster gate
+    // (#990). A freeze must stop a claim being permanently invalidated, not
+    // only stop it being awarded: `invalid` is terminal and nothing revives
+    // it, so a batch in which every due claim independently fails
+    // `claimFailureReason` used to destroy those claims inside the very
+    // window the league was supposed to be standing still. Gating the helper
+    // rather than the one `invalid` call site means a terminal status added
+    // later inherits the refusal too. The League row is held FOR UPDATE from
+    // the top of this transaction, so the gate's League read is a re-lock of
+    // a row we already own and the answer is the same at every point in the
+    // loop - which is what lets the gate be asked here, per claim, with no
+    // second read of the freeze and no batch-level check. Team id and player
+    // id come off the claim row rather than the in-memory teams map, and the
+    // bypass set is the award site's, so on this path the gate enforces the
+    // freeze alone. The gate's DraftError propagates out unwrapped (409 and
+    // its code intact); it is never caught per claim and converted into a
+    // finish(claim, 'invalid'), which is the defect itself.
+    const finish = async (claim, status, note) => {
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: claim.team_id,
+        direction: 'acquire',
+        playerId: claim.player_id,
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+      });
+      return client.query(
         `UPDATE "waiver_claims" SET "status" = $1, "note" = $2, "processed_at" = now(), "updated_at" = now()
          WHERE "id" = $3`,
         [status, note || null, claim.id]
       );
+    };
 
     const results = [];
     for (const [playerId, claims] of byPlayer) {
@@ -367,6 +384,26 @@ async function processWaivers({ leagueId }) {
           results.push({ claimId: claim.id, playerId, status: 'invalid', reason: failure });
           continue;
         }
+
+        // The write-time roster gate (#944), once per player immediately before
+        // this player's write: a claim submitted before a freeze must not land
+        // during it (#940 story 4). The gate reads the freeze off the League row
+        // it re-locks FOR UPDATE (the League is already held from the top of
+        // processWaivers, League-first order); a frozen League throws, the
+        // transaction rolls back, and every due claim stays pending for the next
+        // tick rather than being awarded or permanently invalidated. The team
+        // lock and the acquire bundle are bypassed: this batch path enforces its
+        // net capacity through claimFailureReason above and does not enforce the
+        // position cap or the on-waivers gate (a waiver award IS a waiver), and
+        // per-team-lock handling on the batch path is a later ticket - so this
+        // slice changes only the freeze here (#944 criterion 5).
+        await assertRosterWriteAllowed(client, {
+          leagueId,
+          teamId: team.id,
+          direction: 'acquire',
+          playerId,
+          bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+        });
 
         // Execute: optional drop (dropped player goes on waivers), then add
         if (claim.drop_player_id) {

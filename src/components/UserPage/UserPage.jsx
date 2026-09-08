@@ -11,6 +11,7 @@ import Grid from '@mui/material/Unstable_Grid2';
 import { alpha } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import Countdown from '../Countdown/Countdown';
 import LeagueCard from '../common/LeagueCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
@@ -128,7 +129,7 @@ function UserPage() {
       const response = await apiClient.get('/api/league');
       setMyLeagues(response.data);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoadingLeagues(false);
     }
@@ -228,8 +229,8 @@ function UserPage() {
       setDraftAcknowledged(false);
       fetchMyLeagues();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      setError(readHttpFailure(err).message || err.message);
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     } finally {
       handleCloseCreateDialog();
     }
@@ -254,8 +255,8 @@ function UserPage() {
       setJoinTeamName('');
       fetchMyLeagues();
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      setError(readHttpFailure(err).message || err.message);
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     } finally {
       handleCloseJoinDialog();
     }

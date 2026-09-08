@@ -6,7 +6,12 @@ const { requireAuth } = require('../modules/auth');
 // route no longer imports anything from the Socket.IO attach module.
 const { presenterSnapshot } = require('../services/draftRoomSnapshot');
 const { teamForPick } = require('../services/draftOrder.service');
-const { correctLatestPick, isDraftRefusal } = require('../services/draft.service');
+const { correctLatestPick, isDraftRefusal, DraftError } = require('../services/draft.service');
+// The Draft act module (#947, part of #938) owns the transaction, the
+// serializing League-row lock and the post-commit fan-out order for a lifecycle
+// act. pause/resume is the first handler lifted onto it; the other three
+// (autodraft, undo, reset) are the follower's.
+const { runDraftAct } = require('../services/draftAct.service');
 // A Pick lands in one place (#782): the offline bulk route commits AND fans out
 // each Pick through the one seam, landPick, exactly like a live one.
 const { landPick } = require('../services/pick.service');
@@ -19,8 +24,11 @@ const { draftRosterSize } = require('../services/rosterShape');
 const { removeLineupEntries } = require('../services/lineup.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 const { requireMember } = require('../services/leagueMembership.service');
+// The one write-time roster gate (#940). The undo and reset handlers below both
+// remove roster rows and ask the same module, with the bypasses that reproduce
+// what they have always done stated as an exact set (#965).
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('../services/rosterGate.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
-const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
 const { listPresenterDraftActivity } = require('../services/leagueFeed');
 // Every room-wide emit in this router rides the one Draft room adapter (#745).
@@ -241,52 +249,63 @@ router.post('/league/:id/pause', async (req, res) => {
   if (typeof paused !== 'boolean') {
     return res.status(400).json({ error: 'paused (boolean) is required' });
   }
-  // A transaction now, not a bare UPDATE: the pause/resume must append its
-  // Draft-activity entry from the SAME transaction that flips draft_paused
-  // (#437 AC2), so a rolled-back toggle leaves no orphan activity and a
-  // committed one always has its entry. The clock is armed through the Pick
-  // clock module (ADR 0018): resuming grants the on-the-clock team the policy
-  // clock, never the time remaining at pause, so an autodrafting team resumes on
-  // the short delay instead of a full clock (timed) or a frozen NULL (untimed).
-  const client = await pool.connect();
+  // Both refusals decidable without the database - the leagueId parse above and
+  // the paused-boolean check here - stay AHEAD of the act module, so the League
+  // row is never locked for malformed input; the module's lock delta then falls
+  // only on authorization failures (the act body's refusal below).
   try {
-    await client.query('BEGIN');
-    const result = await client.query(
-      `UPDATE "leagues" SET "draft_paused" = $1, "updated_at" = now()
-       WHERE "id" = $2 AND ${commissionerPredicate(3)} AND "draft_status" = 'active'
-       RETURNING "id", "draft_paused"`,
-      [paused, leagueId, req.user.id]
-    );
-    if (!result.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
-    }
-    // Clear the clock on pause, arm the policy clock on resume - the module is
-    // the only writer of the deadline.
-    const pickDeadlineAt = paused
-      ? await pickClock.onPaused(client, { leagueId })
-      : await pickClock.onResumed(client, { leagueId });
-    // The acting commissioner's Team, or null when they hold none - recorded as
-    // null, never fabricated (#437 AC5). Team identity only, no account field.
-    const actorTeam = await lookupTeam(client, { leagueId, userId: req.user.id });
-    const entry = await appendLifecycleActivity(client, {
-      leagueId,
-      kind: paused ? PAUSE : RESUME,
-      team: actorTeam,
+    // The act module (#947) owns the transaction, the serializing League-row
+    // lock and the post-commit fan-out order. pause/resume must still append its
+    // Draft-activity entry from the SAME transaction that flips draft_paused
+    // (#437 AC2), so a rolled-back toggle leaves no orphan activity and a
+    // committed one always has its entry; the clock is armed through the Pick
+    // clock module (ADR 0018), resuming granting the on-the-clock team the policy
+    // clock rather than the time remaining at pause.
+    const response = await runDraftAct({ leagueId, userId: req.user.id }, async ({ client, league, actingTeam }) => {
+      // Authorization + precondition, reproducing the refusal set the old guarded
+      // UPDATE fused into one empty result: league absent, caller not a
+      // commissioner, or draft not active all return the IDENTICAL 403 and body.
+      // The check sits immediately after the lock with nothing between it and the
+      // rollback runDraftAct performs on the throw. commissionerPredicate(3)'s
+      // WHERE-clause form is reproduced here by isLeagueCommissioner, its JS twin.
+      if (!league || league.draft_status !== 'active' ||
+          !(await isLeagueCommissioner(client, leagueId, req.user.id))) {
+        throw new DraftError(403, 'league not found, not commissioner, or draft not active');
+      }
+      const result = await client.query(
+        `UPDATE "leagues" SET "draft_paused" = $1, "updated_at" = now()
+         WHERE "id" = $2 RETURNING "id", "draft_paused"`,
+        [paused, leagueId]
+      );
+      // Clear the clock on pause, arm the policy clock on resume - the module is
+      // the only writer of the deadline.
+      const pickDeadlineAt = paused
+        ? await pickClock.onPaused(client, { leagueId })
+        : await pickClock.onResumed(client, { leagueId });
+      // The acting commissioner's Team, or null when they hold none - recorded as
+      // null, never fabricated (#437 AC5). Resolved by the act module (actingTeam)
+      // rather than a second lookupTeam. Team identity only, no account field.
+      const entry = await appendLifecycleActivity(client, {
+        leagueId,
+        kind: paused ? PAUSE : RESUME,
+        team: actingTeam,
+      });
+      // The response still carries the re-armed (or cleared) deadline the clients
+      // read, sourced from the Pick clock module rather than the flip's own UPDATE.
+      // The module emits activityAppended before stateChanged, the one
+      // narration-first order (matching pickClock.service.js's autoPick
+      // escalation emit, after escalateNothingDraftable).
+      return {
+        response: { ...result.rows[0], pick_deadline_at: pickDeadlineAt },
+        activity: [entry],
+        broadcasts: ['stateChanged'],
+      };
     });
-    await client.query('COMMIT');
-    const broadcast = getDraftRoomBroadcast();
-    await broadcast.stateChanged(leagueId);
-    await broadcast.activityAppended(leagueId, entry);
-    // The response still carries the re-armed (or cleared) deadline the clients
-    // read, now sourced from the Pick clock module rather than the flip's own UPDATE.
-    res.json({ ...result.rows[0], pick_deadline_at: pickDeadlineAt });
+    res.json(response);
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error pausing draft', error);
     res.status(500).json({ error: 'failed to pause draft' });
-  } finally {
-    client.release();
   }
 });
 
@@ -304,72 +323,61 @@ router.post('/league/:id/teams/:teamId/autodraft', async (req, res) => {
   if (typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled (boolean) is required' });
   }
-  const client = await pool.connect();
+  // Both database-free refusals stay AHEAD of the act module, so a malformed
+  // request never locks the League row.
   try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      // draft_type is selected because the Pick clock policy needs it: an
-      // offline draft arms no clock. It must travel with the onAutodraftToggled
-      // call below, or clockSecondsFor would read undefined and keep arming.
-      `SELECT "owner_id", "draft_status", "draft_type", "current_pick", "draft_paused", "autodraft_delay_seconds",
-              "draft_rotation", "draft_order_overrides"
-       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'league not found' });
-    }
-    const teamResult = await client.query(
-      `SELECT "id", "owner_id" FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
-      [teamId, leagueId]
-    );
-    const team = teamResult.rows[0];
-    if (!team) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'team not found in this league' });
-    }
-    const isCommissioner = await isLeagueCommissioner(client, leagueId, req.user.id);
-    const isTeamManager = team.owner_id === req.user.id;
-    if (!isTeamManager && !isCommissioner) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'only the team manager or a commissioner can change autodraft' });
-    }
-    // Turning autodraft off clears any timeout streak.
-    await client.query(
-      `UPDATE "teams" SET "autodraft" = $1,
-              "consecutive_timeouts" = CASE WHEN $1 THEN "consecutive_timeouts" ELSE 0 END,
-              "updated_at" = now()
-       WHERE "id" = $2`,
-      [enabled, teamId]
-    );
-    // Enabling for the team currently on the clock applies the short autodraft
-    // delay right away, so an absent owner's pick fires promptly.
-    if (enabled && league.draft_status === 'active' && !league.draft_paused) {
-      const teams = await client.query(
-        `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
-        [leagueId]
-      );
-      const onClock = teamForPick(league.current_pick, teams.rows, {
-        rotation: league.draft_rotation,
-        overrides: league.draft_order_overrides,
-      });
-      if (onClock && onClock.id === teamId) {
-        // The team now on the clock is autodrafting: arm the short delay through
-        // the Pick clock module (ADR 0018), the only writer of the deadline.
-        await pickClock.onAutodraftToggled(client, { leagueId, league });
+    // The act module (#967, part of #938) owns the transaction, the serializing
+    // League-row lock and the post-commit fan-out. The handler is now
+    // authorization plus a response shape.
+    const response = await runDraftAct({ leagueId, userId: req.user.id }, async ({ client, league, teams }) => {
+      if (!league) throw new DraftError(404, 'league not found');
+      // The act module already loaded Teams in rotation order under the same
+      // transaction, so the target team is picked out of that list rather than
+      // re-SELECTed. Same row, same league scope (the module's read is
+      // league_id-scoped), one fewer statement.
+      const team = teams.find((row) => row.id === teamId);
+      if (!team) throw new DraftError(404, 'team not found in this league');
+      const isCommissioner = await isLeagueCommissioner(client, leagueId, req.user.id);
+      const isTeamManager = team.owner_id === req.user.id;
+      if (!isTeamManager && !isCommissioner) {
+        throw new DraftError(403, 'only the team manager or a commissioner can change autodraft');
       }
-    }
-    await client.query('COMMIT');
-    await getDraftRoomBroadcast().stateChanged(leagueId);
-    res.json({ leagueId, teamId, autodraft: enabled });
+      // Turning autodraft off clears any timeout streak.
+      await client.query(
+        `UPDATE "teams" SET "autodraft" = $1,
+                "consecutive_timeouts" = CASE WHEN $1 THEN "consecutive_timeouts" ELSE 0 END,
+                "updated_at" = now()
+         WHERE "id" = $2`,
+        [enabled, teamId]
+      );
+      // Enabling for the team currently on the clock applies the short autodraft
+      // delay right away, so an absent owner's pick fires promptly.
+      if (enabled && league.draft_status === 'active' && !league.draft_paused) {
+        const onClock = teamForPick(league.current_pick, teams, {
+          rotation: league.draft_rotation,
+          overrides: league.draft_order_overrides,
+        });
+        if (onClock && onClock.id === teamId) {
+          // The team now on the clock is autodrafting: arm the short delay through
+          // the Pick clock module (ADR 0018), the only writer of the deadline. It
+          // reads the offline rule and clock settings from the locked row itself
+          // (#948); the act module holds that row under its serializing lock
+          // and this body writes no Leagues column before this call.
+          await pickClock.onAutodraftToggled(client, { leagueId });
+        }
+      }
+      // No narration: an autodraft toggle appends no Draft-activity entry, so the
+      // one fan-out order reduces to the single board fact.
+      return {
+        response: { leagueId, teamId, autodraft: enabled },
+        broadcasts: ['stateChanged'],
+      };
+    });
+    res.json(response);
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error toggling autodraft', error);
     res.status(500).json({ error: 'failed to toggle autodraft' });
-  } finally {
-    client.release();
   }
 });
 
@@ -414,72 +422,94 @@ router.post('/league/:id/undo', async (req, res) => {
   if (!Number.isInteger(count) || count < 1 || count > 10) {
     return res.status(400).json({ error: 'count must be an integer between 1 and 10' });
   }
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
-      [leagueId, req.user.id]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
-    }
-    const picksResult = await client.query(
-      `SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"
-       WHERE "league_id" = $1 AND "pick_number" <= $2`,
-      [leagueId, league.current_pick]
-    );
-    const { targets, error: undoError } = undoTargets(picksResult.rows, count);
-    if (undoError) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: undoError });
-    }
-    const targetRows = picksResult.rows.filter((p) => targets.includes(p.pick_number));
-    for (const row of targetRows) {
-      await client.query(
-        `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
-        [leagueId, row.pick_number]
+    // The act module (#967, part of #938) owns the transaction, the serializing
+    // League-row lock and the post-commit fan-out order.
+    const response = await runDraftAct({ leagueId, userId: req.user.id }, async ({ client, league, teams }) => {
+      // Authorization + precondition, reproducing the refusal set the old guarded
+      // locked SELECT fused into one empty result: league absent, caller not a
+      // commissioner, or draft not active all return the IDENTICAL 403 and body.
+      // commissionerPredicate(2)'s WHERE-clause form is reproduced here by
+      // isLeagueCommissioner, its JS twin, on the locked client.
+      if (!league || league.draft_status !== 'active' ||
+          !(await isLeagueCommissioner(client, leagueId, req.user.id))) {
+        throw new DraftError(403, 'league not found, not commissioner, or draft not active');
+      }
+      const picksResult = await client.query(
+        `SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"
+         WHERE "league_id" = $1 AND "pick_number" <= $2`,
+        [leagueId, league.current_pick]
       );
-      await client.query(
-        `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3`,
-        [leagueId, row.team_id, row.player_id]
-      );
-      // The lineup follows the roster (#197): the pick benched him when it
-      // was made, so undoing it takes that row back too.
-      await removeLineupEntries(client, { league, teamId: row.team_id, playerId: row.player_id });
-    }
-    // The earliest undone pick's own slot was itself open (a live pick, never
-    // a keeper) before it was made, so rewinding current_pick straight to it
-    // reproduces the exact pre-pick state — no re-scan for open slots needed.
-    const newCurrentPick = Math.min(...targets) - 1;
-    const teamsResult = await client.query(
-      `SELECT "id", "autodraft" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
-      [leagueId]
-    );
-    const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
-    const onClock = teamForPick(newCurrentPick, teamsResult.rows, rotationOpts);
-    // Rewind the turn and re-arm the team now on the clock by the one policy,
-    // through the Pick clock module (ADR 0018): the only writer of current_pick
-    // and the deadline.
-    await pickClock.onPickUndone(client, {
-      leagueId,
-      newCurrentPick,
-      onClockAutodraft: onClock ? onClock.autodraft : false,
-      league,
+      const { targets, error: undoError } = undoTargets(picksResult.rows, count);
+      // A refusal, not a fault: the act module rolls back and emits nothing.
+      if (undoError) throw new DraftError(409, undoError);
+      const targetRows = picksResult.rows.filter((p) => targets.includes(p.pick_number));
+      for (const row of targetRows) {
+        // The write gate, once per undone pick, immediately before that pick's
+        // roster row goes (#965). Both release-direction gates are bypassed, and
+        // both are decisions:
+        //
+        // - FREEZE. Same reading as the Pick commit: a commissioner freeze is the
+        //   transaction lock and does not govern a draft-phase roster write. This
+        //   route already refuses unless the draft is ACTIVE, so every row it can
+        //   reach is a draft row.
+        // - TEAM_LOCK. This is a commissioner tool acting on other managers'
+        //   teams; a locked team's mispicked player must still be undoable, which
+        //   is the whole point of an override (#940 story 7).
+        //
+        // So the call refuses nothing today. It is here so this write inherits a
+        // release rule the module gains later by a stated decision rather than by
+        // an omission - which is the failure #940 exists to end.
+        await assertRosterWriteAllowed(client, {
+          leagueId,
+          teamId: row.team_id,
+          direction: 'release',
+          playerId: row.player_id,
+          bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
+        });
+        await client.query(
+          `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
+          [leagueId, row.pick_number]
+        );
+        await client.query(
+          `DELETE FROM "team_players" WHERE "league_id" = $1 AND "team_id" = $2 AND "player_id" = $3`,
+          [leagueId, row.team_id, row.player_id]
+        );
+        // The lineup follows the roster (#197): the pick benched him when it
+        // was made, so undoing it takes that row back too.
+        await removeLineupEntries(client, { league, teamId: row.team_id, playerId: row.player_id });
+      }
+      // The earliest undone pick's own slot was itself open (a live pick, never
+      // a keeper) before it was made, so rewinding current_pick straight to it
+      // reproduces the exact pre-pick state — no re-scan for open slots needed.
+      const newCurrentPick = Math.min(...targets) - 1;
+      // The act module's Teams read is already the rotation-order list this
+      // resolution needs (draft_position NULLS LAST, id), carrying `autodraft`,
+      // so the handler's own teams SELECT is gone.
+      const rotationOpts = { rotation: league.draft_rotation, overrides: league.draft_order_overrides };
+      const onClock = teamForPick(newCurrentPick, teams, rotationOpts);
+      // Rewind the turn and re-arm the team now on the clock by the one policy,
+      // through the Pick clock module (ADR 0018): the only writer of current_pick
+      // and the deadline. It reads the offline rule and clock settings from the
+      // locked row itself (#948); the act module holds the league under its
+      // serializing lock and this body writes no Leagues column before it.
+      await pickClock.onPickUndone(client, {
+        leagueId,
+        newCurrentPick,
+        onClockAutodraft: onClock ? onClock.autodraft : false,
+      });
+      // No narration on an undo, so the fan-out is the two board facts in the
+      // order this route has always emitted them: rosters, then state.
+      return {
+        response: { leagueId, undone: targets.length, currentPick: newCurrentPick },
+        broadcasts: ['rosterChanged', 'stateChanged'],
+      };
     });
-    await client.query('COMMIT');
-    const broadcast = getDraftRoomBroadcast();
-    await broadcast.rosterChanged(leagueId);
-    await broadcast.stateChanged(leagueId);
-    res.json({ leagueId, undone: targets.length, currentPick: newCurrentPick });
+    res.json(response);
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error undoing draft pick', error);
     res.status(500).json({ error: 'failed to undo the pick' });
-  } finally {
-    client.release();
   }
 });
 
@@ -527,81 +557,117 @@ router.post('/league/:id/correct-pick', async (req, res) => {
 router.post('/league/:id/reset', async (req, res) => {
   const leagueId = intOrNull(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `SELECT "id", "current_season" FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} AND "draft_status" = 'active' FOR UPDATE`,
-      [leagueId, req.user.id]
-    );
-    if (!leagueResult.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found, not commissioner, or draft not active' });
-    }
-    // Refuse rather than repair (#192): after #189 froze materialization on
-    // final weeks, a deleted lineup_entries row behind a final matchup can
-    // never be refilled, so a settled week would keep its score with nothing
-    // behind it. Scoping the delete to spare only the non-final weeks was
-    // considered and ruled out - a reset over settled weeks is a request to
-    // invalidate results that already counted, and the answer to that
-    // request is no. This check must run, and the transaction must roll
-    // back, before any DELETE below.
-    const finalMatchup = await client.query(
-      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "final" = true LIMIT 1`,
-      [leagueId, leagueResult.rows[0].current_season]
-    );
-    if (finalMatchup.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        error: 'the draft cannot be reset because weeks of this season are already settled',
-      });
-    }
-    await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
-    // The season's lineup rows go with the rosters: the lineup screen has no
-    // draft guard, and a stash set during the wiped draft must not be waiting
-    // for the restarted one's keeper pre-fill or picks (#94, user story 13).
-    await client.query(
-      `DELETE FROM "lineup_entries" WHERE "league_id" = $1 AND "season" = $2`,
-      [leagueId, leagueResult.rows[0].current_season]
-    );
-    await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
-    await client.query(
-      `UPDATE "teams" SET "autodraft" = false, "draft_ready" = false, "consecutive_timeouts" = 0, "updated_at" = now()
-       WHERE "league_id" = $1`,
-      [leagueId]
-    );
-    // draft_date is nulled so the 5-minute scheduler doesn't immediately
-    // auto-restart the draft it just reset; draft_timezone clears with it
-    // (#116 — a zone means nothing without the instant it describes).
-    await client.query(
-      `UPDATE "leagues"
-       SET "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
-           "draft_date" = NULL, "draft_timezone" = NULL, "draft_reminder_stage" = 0,
-           "draft_autostart_failed" = false, "updated_at" = now()
-       WHERE "id" = $1`,
-      [leagueId]
-    );
-    // A reset to pending has no team on the clock: clear the deadline through the
-    // Pick clock module (ADR 0018), the only writer of the pick deadline column.
-    await pickClock.clearClock(client, { leagueId });
-    // Record the reset as append-only Draft activity, in the SAME transaction
-    // (#437 AC3). Every DELETE above wiped picks, rosters and lineup rows, but
-    // NOT draft_activity: it has no FK to draft_picks and this route issues no
-    // delete against it, so earlier Pick and lifecycle entries survive the
-    // reset - the reset is an appended fact, not erased history.
-    const actorTeam = await lookupTeam(client, { leagueId, userId: req.user.id });
-    const entry = await appendLifecycleActivity(client, { leagueId, kind: RESET, team: actorTeam });
-    await client.query('COMMIT');
-    const broadcast = getDraftRoomBroadcast();
-    await broadcast.stateChanged(leagueId);
-    await broadcast.activityAppended(leagueId, entry);
-    res.json({ leagueId, reset: true });
+    // The act module (#967, part of #938) owns the transaction, the serializing
+    // League-row lock and the post-commit fan-out. Converting this handler is
+    // also what FLIPS its fan-out order: reset used to emit stateChanged ahead of
+    // activityAppended, the opposite of the order ADR 0025's 2026-09-03 amendment
+    // assigns. The module emits the narration first, so this site now agrees with
+    // pickClock.service.js's escalation path (draftFanoutOrder.test.js pins the
+    // two equal).
+    const response = await runDraftAct({ leagueId, userId: req.user.id }, async ({ client, league, teams, actingTeam }) => {
+      // Authorization + precondition, reproducing the refusal set the old guarded
+      // locked SELECT fused into one empty result: league absent, caller not a
+      // commissioner, or draft not active all return the IDENTICAL 403 and body.
+      if (!league || league.draft_status !== 'active' ||
+          !(await isLeagueCommissioner(client, leagueId, req.user.id))) {
+        throw new DraftError(403, 'league not found, not commissioner, or draft not active');
+      }
+      // Refuse rather than repair (#192): after #189 froze materialization on
+      // final weeks, a deleted lineup_entries row behind a final matchup can
+      // never be refilled, so a settled week would keep its score with nothing
+      // behind it. Scoping the delete to spare only the non-final weeks was
+      // considered and ruled out - a reset over settled weeks is a request to
+      // invalidate results that already counted, and the answer to that
+      // request is no. This check must run, and the transaction must roll
+      // back, before any DELETE below.
+      const finalMatchup = await client.query(
+        `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "final" = true LIMIT 1`,
+        [leagueId, league.current_season]
+      );
+      if (finalMatchup.rows[0]) {
+        throw new DraftError(409, 'the draft cannot be reset because weeks of this season are already settled');
+      }
+      // The write gate, before the league-wide roster wipe (#965). The reset's
+      // write is one statement over every roster in the league, so the gate is
+      // asked once per TEAM rather than once per player - and that is exactly as
+      // strong here, not a shortcut: the gate's release-direction inputs are the
+      // League and the Team, and `playerId` is read only by the acquire bundle.
+      // #940's "once per player, never once for a batch" rule exists because a
+      // position cap accumulates across an acquire loop; nothing on the release
+      // side accumulates, so per team is the finest distinction the gate can
+      // make. Asking it 300 times to get the same 16 answers would be cost
+      // without meaning.
+      //
+      // Bypasses are the undo handler's, for the same two reasons: this route
+      // also refuses unless the draft is ACTIVE, and a reset must reach a locked
+      // team's roster.
+      //
+      // The team list is the act module's, re-sorted by id: the module loads
+      // Teams in ROTATION order and this loop wants a stable id order, so the
+      // handler's own `SELECT "id" FROM "teams" ... ORDER BY "id"` is gone
+      // rather than kept for its ordering alone.
+      const wipeTeams = [...teams].sort((a, b) => a.id - b.id);
+      for (const team of wipeTeams) {
+        await assertRosterWriteAllowed(client, {
+          leagueId,
+          teamId: team.id,
+          direction: 'release',
+          playerId: null,
+          bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
+        });
+      }
+      await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);
+      // The season's lineup rows go with the rosters: the lineup screen has no
+      // draft guard, and a stash set during the wiped draft must not be waiting
+      // for the restarted one's keeper pre-fill or picks (#94, user story 13).
+      await client.query(
+        `DELETE FROM "lineup_entries" WHERE "league_id" = $1 AND "season" = $2`,
+        [leagueId, league.current_season]
+      );
+      await client.query(`DELETE FROM "draft_picks" WHERE "league_id" = $1`, [leagueId]);
+      await client.query(
+        `UPDATE "teams" SET "autodraft" = false, "draft_ready" = false, "consecutive_timeouts" = 0, "updated_at" = now()
+         WHERE "league_id" = $1`,
+        [leagueId]
+      );
+      // draft_date is nulled so the 5-minute scheduler doesn't immediately
+      // auto-restart the draft it just reset; draft_timezone clears with it
+      // (#116 — a zone means nothing without the instant it describes).
+      await client.query(
+        `UPDATE "leagues"
+         SET "draft_status" = 'pending', "current_pick" = 0, "draft_paused" = false,
+             "draft_date" = NULL, "draft_timezone" = NULL, "draft_reminder_stage" = 0,
+             "draft_autostart_failed" = false, "updated_at" = now()
+         WHERE "id" = $1`,
+        [leagueId]
+      );
+      // A reset to pending has no team on the clock: clear the deadline through the
+      // Pick clock module (ADR 0018), the only writer of the pick deadline column.
+      await pickClock.clearClock(client, { leagueId });
+      // Record the reset as append-only Draft activity, in the SAME transaction
+      // (#437 AC3). Every DELETE above wiped picks, rosters and lineup rows, but
+      // NOT draft_activity: it has no FK to draft_picks and this route issues no
+      // delete against it, so earlier Pick and lifecycle entries survive the
+      // reset - the reset is an appended fact, not erased history. The acting
+      // commissioner's Team comes from the act module (actingTeam) rather than a
+      // second lookupTeam.
+      const entry = await appendLifecycleActivity(client, { leagueId, kind: RESET, team: actingTeam });
+      // The reset wipes every roster in the league but names only stateChanged:
+      // rosterChanged sits on the module's BOARD_FACTS allowlist and is
+      // deliberately not requested here, preserving this route's shipped emit set
+      // (#947's inherited note).
+      return {
+        response: { leagueId, reset: true },
+        activity: [entry],
+        broadcasts: ['stateChanged'],
+      };
+    });
+    res.json(response);
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error resetting draft', error);
     res.status(500).json({ error: 'failed to reset the draft' });
-  } finally {
-    client.release();
   }
 });
 

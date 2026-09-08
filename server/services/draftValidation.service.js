@@ -16,9 +16,9 @@ const {
 // position caps against this same export. A slot's eligiblePositions already
 // lives at this granularity: group keys like 'DL' are NOT expanded to member
 // positions (DE/DT/NT) here, because position_caps are enforced at the same
-// group granularity in draft.service.js's assertPositionCapNotReached, reached
-// from pick.service.commitPick via assertRosterAcquisitionAllowed (see the
-// POSITION_GROUPS fix there).
+// group granularity in rosterGate.service.js's assertPositionCapNotReached, reached
+// from pick.service.commitPick via assertRosterAcquisitionAllowed (#943 moved
+// both out of draft.service.js).
 const POSITION_KEYS = Object.freeze(['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB']);
 
 /**

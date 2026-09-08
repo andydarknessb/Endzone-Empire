@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import GroupAddOutlinedIcon from '@mui/icons-material/GroupAddOutlined';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import TeamAvatarUploader from '../common/TeamAvatarUploader';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
@@ -36,7 +37,13 @@ function TeamSummary({ league, summary }) {
   if (isPreDraft || (row && gamesPlayed === 0)) {
     parts.push('No record yet');
   } else if (row) {
-    parts.push(`Record: ${row.wins}-${row.losses}-${row.ties}`);
+    // Record is conditional: wins-losses when the Team has no ties, and
+    // wins-losses-ties once a tie has happened, matching
+    // matchup-grid/lib/records.js and
+    // my-team-summary/model/useMyTeamSummary.js. A tie count is never
+    // printed as zero.
+    const record = row.ties > 0 ? `${row.wins}-${row.losses}-${row.ties}` : `${row.wins}-${row.losses}`;
+    parts.push(`Record: ${record}`);
     parts.push(`Rank: #${row.rank}`);
   } else {
     parts.push('Record unavailable');
@@ -73,7 +80,7 @@ function TeamLineup() {
   const activeTeamId = activeLeague?.my_team_id;
   const leaguePhase = deriveLeaguePhase(activeLeague);
 
-  const report = (err) => setError(err.response?.data?.error || err.message);
+  const report = (err) => setError(readHttpFailure(err).message || err.message);
 
   const fetchRoster = async (leagueId) => {
     try {

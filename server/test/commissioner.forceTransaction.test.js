@@ -86,3 +86,210 @@ test('forceTransaction add: an eligible IR stash grants the extra spot', async (
   assert.deepEqual(benched, [{ league, teamId: 31, playerId: 500, afterRosterWrite: true }]);
   fake.assertClean();
 });
+
+// --- the commissioner override as an EXPLICIT bypass set (#964) -------------
+//
+// forceTransaction runs through the one write gate with COMMISSIONER_OVERRIDE.
+// The set is {freeze, team lock, waiver hold, position cap}, and roster
+// capacity is deliberately absent. It was read out of this path's CODE, not out
+// of the comment that used to sit above it: that comment named the waiver hold,
+// the league-wide lock and the per-team lock and never mentioned the position
+// cap, which the path also did not enforce. There is one assertion per entry
+// below, plus the proof that capacity still binds - which is what makes the set
+// a reproduction of today's behaviour rather than a restatement of the comment.
+
+const overrideLeague = {
+  ...league,
+  transactions_locked: true,
+  draft_status: 'complete',
+  position_caps: { RB: 1 },
+  waivers_clear_at: null,
+};
+
+/**
+ * A forced-transaction world in which EVERY gate the override is supposed to
+ * bypass is tripped at once: the league is frozen, the team is locked, the
+ * player is on waivers, and the position cap for his position is already met.
+ * `rostered` is the only dial left, because capacity is the one gate the
+ * override does not cover.
+ */
+function overrideWorld({ rostered = 0, stashed = 0, positionCount = 1 } = {}) {
+  return createFakePool([
+    // The gate's own reads, with their own explicit column lists. Registered
+    // first, since handlers are tried in order.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [overrideLeague] })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 31, locked: true }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/,
+      () => ({ rows: [{ n: positionCount }] })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: true }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rostered }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: stashed }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [remove('team_players'), () => ({ rows: [{ id: 77 }], rowCount: 1 })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+    [update('waiver_claims'), () => ({ rows: [] })],
+    // placeOnWaiversUndoable, on the forced-drop path.
+    [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({ rows: [] })],
+    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [remove('lineup_entries'), () => ({ rows: [], rowCount: 1 })],
+    [insert('waiver_players'), () => ({ rows: [] })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]);
+}
+
+const forceAdd = () => forceTransaction({ leagueId: 1, userId: 100, teamId: 31, action: 'add', playerId: 500 });
+const forceDrop = () => forceTransaction({ leagueId: 1, userId: 100, teamId: 31, action: 'drop', playerId: 500 });
+
+test('forceTransaction add: succeeds against a frozen league, a locked team, a waiver hold and a met position cap', async (t) => {
+  const fake = overrideWorld().install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  const result = await forceAdd();
+
+  assert.equal(result.playerName, 'Pick Me');
+  assert.equal(fake.matching(insert('team_players')).length, 1, 'the override still adds');
+  fake.assertClean();
+});
+
+test('forceTransaction add: the FREEZE bypass is what carries it past a frozen league', async (t) => {
+  // One assertion per override entry. Each isolates its gate by leaving the
+  // other three clear, so a set that lost this entry fails here and only here.
+  const fake = createFakePool([
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ ...overrideLeague, position_caps: {} }] })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 31, locked: false }] })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+    [update('waiver_claims'), () => ({ rows: [] })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  await forceAdd();
+  assert.equal(fake.matching(insert('team_players')).length, 1);
+  fake.assertClean();
+});
+
+test('forceTransaction add: the TEAM_LOCK bypass is what carries it past a locked team', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ ...overrideLeague, transactions_locked: false, position_caps: {} }] })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 31, locked: true }] })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: true }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+    [update('waiver_claims'), () => ({ rows: [] })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  await forceAdd();
+  assert.equal(fake.matching(insert('team_players')).length, 1);
+  fake.assertClean();
+});
+
+test('forceTransaction add: the WAIVER_HOLD bypass is what carries it past a player on waivers', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ ...overrideLeague, transactions_locked: false, position_caps: {} }] })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 31, locked: false }] })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [{ 1: 1 }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+    [update('waiver_claims'), () => ({ rows: [] })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  await forceAdd();
+  assert.equal(fake.matching(insert('team_players')).length, 1);
+  fake.assertClean();
+});
+
+test('forceTransaction add: the POSITION_CAP bypass, the entry the old comment did not mention', async (t) => {
+  // This is the entry that had to be read out of the code. The path's own
+  // comment listed the waiver hold and the two locks and stopped there;
+  // reproducing the comment would have added a position cap this path has
+  // never enforced. A met cap of one RB must still let a forced add through.
+  const fake = createFakePool([
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ ...overrideLeague, transactions_locked: false }] })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/,
+      () => ({ rows: [{ id: 31, locked: false }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: 1 }] })],
+    [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [overrideLeague] })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+    [select('players'), () => ({ rows: [{ id: 500, name: 'Pick Me', position: 'RB' }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 0 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+    [update('waiver_claims'), () => ({ rows: [] })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  await forceAdd();
+  assert.equal(fake.matching(insert('team_players')).length, 1, 'a met position cap does not stop a forced add');
+  fake.assertClean();
+});
+
+test('forceTransaction add: CAPACITY is NOT in the override, so a full roster still refuses', async (t) => {
+  // The complement of the four above, and what makes them mean something: the
+  // set is exactly four entries, not five. roster_limit 16 with ir_slots 2 and
+  // no stash puts capacity at 14.
+  const fake = overrideWorld({ rostered: 14, stashed: 0 }).install(t);
+  const benched = [];
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async (client, args) => { benched.push(args); });
+
+  await assert.rejects(forceAdd(), { statusCode: 409, message: 'roster capacity of 14 reached' });
+
+  assert.equal(fake.matching(insert('team_players')).length, 0, 'the player was not rostered');
+  assert.equal(fake.matching(remove('waiver_players')).length, 0, 'his waiver row survived');
+  assert.equal(fake.matching(insert('transactions')).length, 0, 'no transaction was logged');
+  assert.equal(benched.length, 0, 'the bench step never ran');
+  fake.assertClean();
+});
+
+test('forceTransaction drop: succeeds against a frozen league and a locked team', async (t) => {
+  const fake = overrideWorld().install(t);
+
+  const result = await forceDrop();
+
+  assert.equal(result.action, 'drop');
+  assert.equal(fake.matching(remove('team_players')).length, 1, 'the forced drop still removed the row');
+  assert.equal(fake.matching(insert('waiver_players')).length, 1, 'and it is still undoable');
+  fake.assertClean();
+});

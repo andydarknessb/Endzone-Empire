@@ -53,6 +53,7 @@ import {
 import { teamNameLabel } from '../../lib/teamIdentity';
 import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { Badge, SegmentedControl } from '../../shared/ui';
 
 const PLAYOFF_TEAM_OPTIONS = [4, 6, 8];
@@ -96,7 +97,10 @@ const TOUCH_FLOOR_SX = {
   },
 };
 
-const fail = (notify) => (err) => notify(err.response?.data?.error || err.message, { severity: 'error' });
+const fail = (notify) => (err) => {
+  const data = err.response?.data;
+  notify(data?.message || data?.error || err.message, { severity: 'error' });
+};
 
 /**
  * Unsaved commissioner edits, kept in ONE object owned by CommissionerTools so
@@ -1720,9 +1724,9 @@ function ScoreCorrectionCard({ leagueId, teams, notify, onRefresh }) {
       notify('Score correction applied');
       onRefresh();
     } catch (err) {
-      const payload = err.response && err.response.data;
-      if (err.response && err.response.status === 403 && payload && payload.error === 'CORRECTION_WINDOW_EXPIRED') {
-        setCorrectionError(payload.message || 'Manual score modifications for this week are locked.');
+      const failure = readHttpFailure(err);
+      if (err.response && err.response.status === 403 && failure.code === 'CORRECTION_WINDOW_EXPIRED') {
+        setCorrectionError(failure.message || 'Manual score modifications for this week are locked.');
         setCorrectionLocked(true);
       } else {
         report(err);

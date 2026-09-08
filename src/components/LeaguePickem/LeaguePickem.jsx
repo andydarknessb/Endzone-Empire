@@ -33,6 +33,7 @@ import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
 import { setPickemSettings, usePickemSettings } from '../../hooks/usePickemSettings';
+import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import usePickemWeek from './usePickemWeek';
 import PickemWeekBoard from './PickemWeekBoard';
@@ -50,9 +51,6 @@ const TAB_VALUES = TAB_ITEMS.map(([value]) => value);
 
 const tabId = (value) => `league-pickem-tab-${value}`;
 const panelId = (value) => `league-pickem-tabpanel-${value}`;
-
-const errorMessage = (error) =>
-  error?.response?.data?.error || error?.message || 'Request failed';
 
 const clampWeek = (value) =>
   Math.min(Math.max(Number(value) || 1, 1), REG_SEASON_WEEKS);
@@ -140,7 +138,7 @@ export default function LeaguePickem() {
       // leave a cached table captioned with the old one.
       clearPickemStandingsCache(leagueId);
     } catch (requestError) {
-      setSettingsSaveError(errorMessage(requestError));
+      setSettingsSaveError(readHttpFailure(requestError).message || requestError.message || 'Request failed');
     } finally {
       setSavingSettings(false);
     }

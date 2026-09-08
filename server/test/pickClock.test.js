@@ -40,6 +40,26 @@ function armingLeagueUpdate() {
 /** The single leagues UPDATE this event issued. */
 const leagueUpdate = (fake) => fake.matching(update('leagues'))[0];
 
+/**
+ * The world for the events that now read their own policy from the locked row
+ * (#948): onPickLanded, onAutodraftToggled and onPickUndone no longer take a
+ * `league` argument, so each issues onResumed's policy SELECT before it arms.
+ * This fake answers that SELECT with `league` (over the shared defaults) and the
+ * arming UPDATE with the deadline it binds. Deleting `draft_type` from an offline
+ * `league` here falls back to the timed default, which is exactly why the offline
+ * cases redden when the policy read stops carrying the column - the defect #948
+ * fixes.
+ */
+function policyWorld(league) {
+  return createFakePool([
+    [select('leagues'), () => ({ rows: [{
+      current_pick: 0, draft_rotation: 'snake', draft_order_overrides: null,
+      draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10, ...league,
+    }] })],
+    armingLeagueUpdate(),
+  ]);
+}
+
 async function withClient(fake, fn) {
   const client = await fake.connect();
   try {
@@ -77,13 +97,12 @@ test('draft started: an all-keeper completion arms no clock', async (t) => {
 // --- pick landed ------------------------------------------------------------
 
 test('pick landed: a timed next team gets the full pick clock; the turn advances', async (t) => {
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-  const league = { draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 };
+  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
 
   const deadline = await withClient(fake, (client) =>
     pickClock.onPickLanded(client, {
       leagueId: LEAGUE_ID, nextPick: 4, draftStatus: 'active', draftComplete: false,
-      nextTeam: { id: 12, autodraft: false }, league,
+      nextTeam: { id: 12, autodraft: false },
     }));
 
   assert.equal(deadline, armedAt(90));
@@ -93,29 +112,44 @@ test('pick landed: a timed next team gets the full pick clock; the turn advances
 });
 
 test('pick landed: an autodrafting next team gets the short delay, not the full clock', async (t) => {
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-  const league = { draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 };
+  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
 
   const deadline = await withClient(fake, (client) =>
     pickClock.onPickLanded(client, {
       leagueId: LEAGUE_ID, nextPick: 4, draftStatus: 'active', draftComplete: false,
-      nextTeam: { id: 12, autodraft: true }, league,
+      nextTeam: { id: 12, autodraft: true },
     }));
 
   assert.equal(deadline, armedAt(10));
 });
 
 test('pick landed: the completing pick arms no clock', async (t) => {
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-  const league = { draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 };
+  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
 
   const deadline = await withClient(fake, (client) =>
     pickClock.onPickLanded(client, {
       leagueId: LEAGUE_ID, nextPick: 30, draftStatus: 'complete', draftComplete: true,
-      nextTeam: null, league,
+      nextTeam: null,
     }));
 
   assert.equal(deadline, null);
+});
+
+test('pick landed: an offline draft arms no clock for the next team', async (t) => {
+  // #948 coverage: onPickLanded had no offline case. It reads draft_type from
+  // the locked row now, so an offline draft arms nothing even for a next team
+  // that would otherwise take the clock. Red tell: default the policy read's
+  // missing/other draft_type to a timed value (drop the offline branch in
+  // clockSecondsFor) and this arms the full 90s clock instead of null.
+  const fake = policyWorld({ draft_type: 'offline', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
+
+  const deadline = await withClient(fake, (client) =>
+    pickClock.onPickLanded(client, {
+      leagueId: LEAGUE_ID, nextPick: 4, draftStatus: 'active', draftComplete: false,
+      nextTeam: { id: 12, autodraft: false },
+    }));
+
+  assert.equal(deadline, null, 'an offline draft never arms a clock');
 });
 
 // --- paused -----------------------------------------------------------------
@@ -186,10 +220,9 @@ test('resumed: an untimed non-autodrafting team gets no clock', async (t) => {
 // --- autodraft toggled ------------------------------------------------------
 
 test('autodraft toggled: the on-clock team now autodrafting gets the short delay at once', async (t) => {
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-  const league = { draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 8 };
+  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 8 }).install(t);
 
-  const deadline = await withClient(fake, (client) => pickClock.onAutodraftToggled(client, { leagueId: LEAGUE_ID, league }));
+  const deadline = await withClient(fake, (client) => pickClock.onAutodraftToggled(client, { leagueId: LEAGUE_ID }));
 
   assert.equal(deadline, armedAt(8), 'the short delay, floored at one second');
 });
@@ -198,10 +231,12 @@ test('autodraft toggled: an offline draft arms no clock, like the other events',
   // The toggle route reaches this with an active offline draft (no draft_type
   // guard on that path), so this event must apply the offline rule too - it does
   // not arm a divergent deadline where the five siblings arm none (#598 story 7).
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-  const league = { draft_type: 'offline', pick_time_seconds: 90, autodraft_delay_seconds: 8 };
+  // This guard already binds; #948 preserves it while the read moves off the
+  // caller. Deleting draft_type from this fixture row (falling back to the timed
+  // default) still reddens this assertion, so the offline column stays load-bearing.
+  const fake = policyWorld({ draft_type: 'offline', pick_time_seconds: 90, autodraft_delay_seconds: 8 }).install(t);
 
-  const deadline = await withClient(fake, (client) => pickClock.onAutodraftToggled(client, { leagueId: LEAGUE_ID, league }));
+  const deadline = await withClient(fake, (client) => pickClock.onAutodraftToggled(client, { leagueId: LEAGUE_ID }));
 
   assert.equal(deadline, null, 'an offline draft never arms a clock');
 });
@@ -209,22 +244,34 @@ test('autodraft toggled: an offline draft arms no clock, like the other events',
 // --- pick undone ------------------------------------------------------------
 
 test('pick undone: the turn rewinds and the team now on the clock is re-armed by the policy', async (t) => {
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-  const league = { draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 };
+  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
 
   const deadline = await withClient(fake, (client) =>
-    pickClock.onPickUndone(client, { leagueId: LEAGUE_ID, newCurrentPick: 2, onClockAutodraft: false, league }));
+    pickClock.onPickUndone(client, { leagueId: LEAGUE_ID, newCurrentPick: 2, onClockAutodraft: false }));
 
   assert.equal(deadline, armedAt(90));
   assert.equal(leagueUpdate(fake).params[0], 2, 'current_pick rewinds to the undone slot');
 });
 
 test('pick undone: rewinding onto an autodrafting team arms the short delay', async (t) => {
-  const fake = createFakePool([armingLeagueUpdate()]).install(t);
-  const league = { draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 };
+  const fake = policyWorld({ draft_type: 'snake', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
 
   const deadline = await withClient(fake, (client) =>
-    pickClock.onPickUndone(client, { leagueId: LEAGUE_ID, newCurrentPick: 2, onClockAutodraft: true, league }));
+    pickClock.onPickUndone(client, { leagueId: LEAGUE_ID, newCurrentPick: 2, onClockAutodraft: true }));
 
   assert.equal(deadline, armedAt(10));
+});
+
+test('pick undone: an offline draft arms no clock on rewind', async (t) => {
+  // #948 coverage: onPickUndone had no offline case. It reads draft_type from
+  // the locked row now, so rewinding onto a team in an offline draft arms
+  // nothing. Red tell: default the policy read's missing/other draft_type to a
+  // timed value (drop the offline branch in clockSecondsFor) and this arms the
+  // full 90s clock instead of null.
+  const fake = policyWorld({ draft_type: 'offline', pick_time_seconds: 90, autodraft_delay_seconds: 10 }).install(t);
+
+  const deadline = await withClient(fake, (client) =>
+    pickClock.onPickUndone(client, { leagueId: LEAGUE_ID, newCurrentPick: 2, onClockAutodraft: false }));
+
+  assert.equal(deadline, null, 'an offline draft never arms a clock');
 });
