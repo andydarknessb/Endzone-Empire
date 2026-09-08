@@ -858,7 +858,9 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const leagueRow = leagueResult.rows[0];
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
-    const { materializeLineup, rowsHeldAsPlayed } = require('../services/lineup.service');
+    const {
+      materializeLineup, rowsHeldAsPlayed, optimalLineup, parseLineupSettings,
+    } = require('../services/lineup.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
     const { availabilityFor } = require('../services/projectionModel');
@@ -1055,6 +1057,38 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
           bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
           expectedFinal: team.expectedFinal,
           playersRemaining: team.playersRemaining,
+        };
+      }
+      // A SETTLED best-ball matchup (#1006): `team` is null (decorateMatchups
+      // never runs the producer for a final week, #953 trap 2), so the branch
+      // above is skipped and the stored-slot split below would find no starter
+      // for the same reason it does not for an open week - #953's fix without
+      // #1006 was the SAME symptom for every historical best-ball week. There
+      // is no producer result to partition by here, but there does not need to
+      // be one: `raw`'s rows are already the as-played population (#976,
+      // rowsHeldAsPlayed), the identical rows and identical ACTUAL points the
+      // settle pass fed its own `optimalLineup` call (scoring.service's
+      // best-ball branch), so recomputing that same pure function over them
+      // reproduces the settled score's own counted set - not a second,
+      // possibly-disagreeing idea of who started. This is NOT the outage
+      // shortcut #953 forbids: that one needed a live PROJECTION run this
+      // request does not have; this one needs only the already-fetched actual
+      // stats, so it never reads the current roster and never calls the
+      // producer (trap 2 stays satisfied, and the settled fixture's missing
+      // producer-read handler stays unregistered).
+      if (leagueRow.best_ball && asPlayed) {
+        const rows = [...raw.starterRows, ...raw.benchRows];
+        const candidates = rows.map((row) => ({ playerId: row.id, position: row.position }));
+        const pointsFor = new Map(
+          rows.map((row) => [row.id, row.stats ? calculateFantasyPoints(row.stats, rules) : 0])
+        );
+        const { rosterSlots } = parseLineupSettings(leagueRow);
+        const chosen = new Set(optimalLineup(candidates, rosterSlots, pointsFor).starters.map((p) => p.playerId));
+        return {
+          starters: rows.filter((row) => chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
+          expectedFinal: team ? team.expectedFinal : null,
+          playersRemaining: team ? team.playersRemaining : null,
         };
       }
       return {

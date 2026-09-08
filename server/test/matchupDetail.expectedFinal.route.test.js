@@ -667,6 +667,95 @@ test('a settled matchup excludes a player acquired after his own kickoff (#976)'
 });
 
 // ---------------------------------------------------------------------------
+// #1006: a SETTLED best-ball matchup. #976 fixed the as-played population;
+// #953 fixed the open-matchup best-ball split via the producer's chosen
+// lineup. Neither reaches a settled best-ball week: the producer never runs
+// for a final week (`team` is null), so the stored-slot split ran and found
+// no starter, because best-ball materialisation stores every non-IR row
+// BENCH - the #953 symptom, unchanged, for every historical best-ball week.
+// The fix reconstructs the counted set locally from the as-played rows'
+// ACTUAL points (never live projections, never the current roster, never the
+// producer), so this fixture deliberately keeps the settled fixture's
+// missing producer-read handler absent, same as the #976 cases above.
+//
+// Home candidates: two QBs (only one QB slot - the higher-points QB starts,
+// the other rides Bench), one RB, one WR, one TE, filling QB/RB/WR/TE and
+// leaving FLEX/K/DEF empty for lack of a candidate. Away: a single RB with no
+// competition, so away.bench is empty. Points are actual stats under
+// half_ppr (verified with scoring.service directly): QB 300py=12, QB 100py=4,
+// RB 50ry=5, WR 40recy+2rec=5, TE 20recy=2, so home's counted total is
+// 12+5+5+2=24 and away's is a lone RB 30ry=3 - the settled scores below.
+// ---------------------------------------------------------------------------
+
+const BB_SETTLED_MATCHUP_ROW = {
+  ...MATCHUP_ROW,
+  final: true,
+  home_score: '24.00',
+  away_score: '3.00',
+};
+const BB_SETTLED_HOME_QB_HIGH = player(901, 'BB High QB', 'QB', 'KC', null, 'QB', { passingYards: 300 });
+const BB_SETTLED_HOME_QB_LOW = player(902, 'BB Low QB', 'QB', 'DAL', null, 'QB', { passingYards: 100 });
+const BB_SETTLED_HOME_RB = player(903, 'BB RB', 'RB', 'PHI', null, 'RB', { rushingYards: 50 });
+const BB_SETTLED_HOME_WR = player(904, 'BB WR', 'WR', 'SF', null, 'WR', { receivingYards: 40, receptions: 2 });
+const BB_SETTLED_HOME_TE = player(905, 'BB TE', 'TE', 'KC', null, 'TE', { receivingYards: 20 });
+const BB_SETTLED_AWAY_RB = player(911, 'BB Away RB', 'RB', 'DAL', null, 'RB', { rushingYards: 30 });
+
+const BB_SETTLED_HOME_ROWS = [
+  BB_SETTLED_HOME_QB_HIGH, BB_SETTLED_HOME_QB_LOW, BB_SETTLED_HOME_RB, BB_SETTLED_HOME_WR, BB_SETTLED_HOME_TE,
+];
+const BB_SETTLED_AWAY_ROWS = [BB_SETTLED_AWAY_RB];
+const BB_SETTLED_TEAM_OF = new Map([
+  [901, HOME], [902, HOME], [903, HOME], [904, HOME], [905, HOME], [911, AWAY],
+]);
+
+async function getSettledBestBallDetail(t) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const allRows = [...BB_SETTLED_HOME_ROWS, ...BB_SETTLED_AWAY_ROWS];
+  // Real best-ball materialisation stores every non-IR row BENCH, so the
+  // fixture answers the whole population through the bench query and leaves
+  // the starter query empty, exactly the pre-#1006 (and pre-#953) shape.
+  const answerBench = (text, params) => {
+    const rows = allRows.filter((p) => BB_SETTLED_TEAM_OF.get(p.id) === params[0]);
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...BB_SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: true }] })],
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: [], heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answerBench(text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, () => ({ rows: [] })],
+  ]).install(t);
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body;
+}
+
+test('a settled best-ball matchup lists the counted roster as played, not every player under Bench (#1006)', async (t) => {
+  const body = await getSettledBestBallDetail(t);
+  assert.deepEqual(body.home.starters.map((p) => p.id).sort((a, b) => a - b), [901, 903, 904, 905]);
+  assert.deepEqual(body.home.bench.map((p) => p.id), [902], 'the lower-points QB is the remainder, not a starter');
+  const homeSum = round2(body.home.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(homeSum, Number(body.matchup.home_score), 'the starters list sums to the settled score of record');
+
+  assert.deepEqual(body.away.starters.map((p) => p.id), [911]);
+  assert.deepEqual(body.away.bench, []);
+  const awaySum = round2(body.away.starters.reduce((sum, p) => sum + p.points, 0));
+  assert.equal(awaySum, Number(body.matchup.away_score));
+});
+
+// ---------------------------------------------------------------------------
 // #978: a settled matchup's materialization is a no-op (its own finality
 // guard returns immediately), so the reads that followed it wrapped a
 // transaction around zero writes - a BEGIN, two finality probes and a COMMIT
