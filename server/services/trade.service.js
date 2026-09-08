@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { logTransaction, notify, notifyLeague } = require('./activity.service');
 const { isLeagueCommissioner } = require('./leagueRole.service');
 const { requireMember } = require('./leagueMembership.service');
@@ -101,96 +102,94 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
   if (new Set(playerIds).size !== playerIds.length) {
     throw new TradeError(400, 'duplicate players in trade');
   }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-    const league = leagueResult.rows[0];
-    if (!league) throw new TradeError(404, 'league not found');
-    // An entry gate: tells the proposer before he fills in an offer. Execution
-    // still runs the write-time gate below (executeTrade); this delegates to
-    // the gate's fail-closed freeze read (#966) so the two cannot drift on
-    // what the column means.
-    if (isLeagueFrozen(league)) {
-      throw new TradeError(409, 'transactions are locked by the commissioner');
-    }
-    assertBeforeDeadline(league);
-
-    const myTeam = await requireMember(client, { leagueId, userId });
-    if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
-    if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
-
-    const otherResult = await client.query(
-      `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
-      [receivingTeamId, leagueId]
-    );
-    if (!otherResult.rows[0]) throw new TradeError(404, 'receiving team not found in this league');
-    const otherTeam = otherResult.rows[0];
-
-    const rosterResult = await client.query(
-      `SELECT "player_id", "team_id" FROM "team_players"
-       WHERE "team_id" IN ($1, $2)`,
-      [myTeam.id, otherTeam.id]
-    );
-    const ownership = new Map(rosterResult.rows.map((r) => [r.player_id, r.team_id]));
-
-    const tradeResult = await client.query(
-      `INSERT INTO "trades" ("league_id", "proposing_team_id", "receiving_team_id", "counter_of")
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [leagueId, myTeam.id, otherTeam.id, counterOf]
-    );
-    const trade = tradeResult.rows[0];
-
-    let sendsSomething = false;
-    let getsSomething = false;
-    for (const playerId of playerIds) {
-      const fromTeamId = ownership.get(playerId);
-      if (!fromTeamId) {
-        throw new TradeError(400, `player ${playerId} is not on either team's roster`);
+  const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
+    pool,
+    async (client) => {
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+      const league = leagueResult.rows[0];
+      if (!league) throw new TradeError(404, 'league not found');
+      // An entry gate: tells the proposer before he fills in an offer. Execution
+      // still runs the write-time gate below (executeTrade); this delegates to
+      // the gate's fail-closed freeze read (#966) so the two cannot drift on
+      // what the column means.
+      if (isLeagueFrozen(league)) {
+        throw new TradeError(409, 'transactions are locked by the commissioner');
       }
-      const toTeamId = fromTeamId === myTeam.id ? otherTeam.id : myTeam.id;
-      if (fromTeamId === myTeam.id) sendsSomething = true;
-      else getsSomething = true;
-      await client.query(
-        `INSERT INTO "trade_items" ("trade_id", "player_id", "from_team_id", "to_team_id")
-         VALUES ($1, $2, $3, $4)`,
-        [trade.id, playerId, fromTeamId, toTeamId]
+      assertBeforeDeadline(league);
+
+      const myTeam = await requireMember(client, { leagueId, userId });
+      if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
+      if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
+
+      const otherResult = await client.query(
+        `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
+        [receivingTeamId, leagueId]
       );
-    }
-    if (!sendsSomething || !getsSomething) {
-      throw new TradeError(400, 'a trade must move at least one player in each direction');
-    }
+      if (!otherResult.rows[0]) throw new TradeError(404, 'receiving team not found in this league');
+      const otherTeam = otherResult.rows[0];
 
-    await notify(client, {
-      userId: otherTeam.owner_id,
-      leagueId,
-      type: 'trade_offer',
-      message: `${myTeam.name} sent you a trade offer`,
-      data: { tradeId: trade.id },
-    });
-    await client.query('COMMIT');
-    // Web push after commit, best-effort, pref-gated
-    try {
-      const { usersWanting } = require('./prefs.service');
-      const wanting = await usersWanting([otherTeam.owner_id], 'tradeOffers');
-      if (wanting.length > 0) {
-        const push = require('./push.service');
-        await push.sendPushToUsers(wanting, {
-          title: 'New trade offer',
-          body: `${myTeam.name} sent you a trade offer`,
-          url: `/#/league/${leagueId}/trades`,
-        });
+      const rosterResult = await client.query(
+        `SELECT "player_id", "team_id" FROM "team_players"
+         WHERE "team_id" IN ($1, $2)`,
+        [myTeam.id, otherTeam.id]
+      );
+      const ownership = new Map(rosterResult.rows.map((r) => [r.player_id, r.team_id]));
+
+      const tradeResult = await client.query(
+        `INSERT INTO "trades" ("league_id", "proposing_team_id", "receiving_team_id", "counter_of")
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [leagueId, myTeam.id, otherTeam.id, counterOf]
+      );
+      const trade = tradeResult.rows[0];
+
+      let sendsSomething = false;
+      let getsSomething = false;
+      for (const playerId of playerIds) {
+        const fromTeamId = ownership.get(playerId);
+        if (!fromTeamId) {
+          throw new TradeError(400, `player ${playerId} is not on either team's roster`);
+        }
+        const toTeamId = fromTeamId === myTeam.id ? otherTeam.id : myTeam.id;
+        if (fromTeamId === myTeam.id) sendsSomething = true;
+        else getsSomething = true;
+        await client.query(
+          `INSERT INTO "trade_items" ("trade_id", "player_id", "from_team_id", "to_team_id")
+           VALUES ($1, $2, $3, $4)`,
+          [trade.id, playerId, fromTeamId, toTeamId]
+        );
       }
-    } catch (err) {
-      console.error('trade offer push failed:', err.message);
+      if (!sendsSomething || !getsSomething) {
+        throw new TradeError(400, 'a trade must move at least one player in each direction');
+      }
+
+      await notify(client, {
+        userId: otherTeam.owner_id,
+        leagueId,
+        type: 'trade_offer',
+        message: `${myTeam.name} sent you a trade offer`,
+        data: { tradeId: trade.id },
+      });
+      return { trade, otherTeamOwnerId: otherTeam.owner_id, myTeamName: myTeam.name };
+    },
+    { label: 'proposeTrade' }
+  );
+  // Web push after commit, best-effort, pref-gated. Runs AFTER withTransaction
+  // resolves, so the connection is already back in the pool (Ruling 3).
+  try {
+    const { usersWanting } = require('./prefs.service');
+    const wanting = await usersWanting([otherTeamOwnerId], 'tradeOffers');
+    if (wanting.length > 0) {
+      const push = require('./push.service');
+      await push.sendPushToUsers(wanting, {
+        title: 'New trade offer',
+        body: `${myTeamName} sent you a trade offer`,
+        url: `/#/league/${leagueId}/trades`,
+      });
     }
-    return trade;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+  } catch (err) {
+    console.error('trade offer push failed:', err.message);
   }
+  return trade;
 }
 
 /**
@@ -199,149 +198,180 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
  */
 async function respondToTrade({ tradeId, userId, action }) {
   if (!['accept', 'reject'].includes(action)) throw new TradeError(400, 'action must be accept or reject');
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { trade, league, items, teams } = await loadTrade(client, tradeId);
-    if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
-    const receiving = teams.get(trade.receiving_team_id);
-    if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can respond');
-    const proposing = teams.get(trade.proposing_team_id);
+  const result = await withTransaction(
+    pool,
+    async (client) => {
+      const { trade, league, items, teams } = await loadTrade(client, tradeId);
+      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
+      const receiving = teams.get(trade.receiving_team_id);
+      if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can respond');
+      const proposing = teams.get(trade.proposing_team_id);
 
-    if (action === 'reject') {
-      await client.query(
-        `UPDATE "trades" SET "status" = 'rejected', "updated_at" = now() WHERE "id" = $1`,
-        [tradeId]
-      );
-      await notify(client, {
-        userId: proposing.owner_id,
-        leagueId: league.id,
-        type: 'trade_result',
-        message: `${receiving.name} rejected your trade offer`,
-        data: { tradeId },
-      });
-      await client.query('COMMIT');
-      return { tradeId, status: 'rejected' };
-    }
+      if (action === 'reject') {
+        await client.query(
+          `UPDATE "trades" SET "status" = 'rejected', "updated_at" = now() WHERE "id" = $1`,
+          [tradeId]
+        );
+        await notify(client, {
+          userId: proposing.owner_id,
+          leagueId: league.id,
+          type: 'trade_result',
+          message: `${receiving.name} rejected your trade offer`,
+          data: { tradeId },
+        });
+        return { tradeId, status: 'rejected' };
+      }
 
-    assertBeforeDeadline(league);
-    const reviewed = league.trade_veto_votes > 0 && league.trade_review_hours > 0;
-    if (reviewed) {
-      await client.query(
-        `UPDATE "trades" SET "status" = 'accepted', "updated_at" = now(),
-         "review_ends_at" = now() + make_interval(hours => $2)
-         WHERE "id" = $1`,
-        [tradeId, league.trade_review_hours]
-      );
-      await notifyLeague(client, {
-        leagueId: league.id,
-        type: 'trade_review',
-        message: `Trade accepted between ${proposing.name} and ${receiving.name}. League review is open`,
-        data: { tradeId },
-        excludeUserIds: [proposing.owner_id, receiving.owner_id],
-      });
-      await notify(client, {
-        userId: proposing.owner_id,
-        leagueId: league.id,
-        type: 'trade_result',
-        message: `${receiving.name} accepted your trade; it executes after league review`,
-        data: { tradeId },
-      });
-      await client.query('COMMIT');
-      return { tradeId, status: 'accepted' };
-    }
+      assertBeforeDeadline(league);
+      const reviewed = league.trade_veto_votes > 0 && league.trade_review_hours > 0;
+      if (reviewed) {
+        await client.query(
+          `UPDATE "trades" SET "status" = 'accepted', "updated_at" = now(),
+           "review_ends_at" = now() + make_interval(hours => $2)
+           WHERE "id" = $1`,
+          [tradeId, league.trade_review_hours]
+        );
+        await notifyLeague(client, {
+          leagueId: league.id,
+          type: 'trade_review',
+          message: `Trade accepted between ${proposing.name} and ${receiving.name}. League review is open`,
+          data: { tradeId },
+          excludeUserIds: [proposing.owner_id, receiving.owner_id],
+        });
+        await notify(client, {
+          userId: proposing.owner_id,
+          leagueId: league.id,
+          type: 'trade_result',
+          message: `${receiving.name} accepted your trade; it executes after league review`,
+          data: { tradeId },
+        });
+        return { tradeId, status: 'accepted' };
+      }
 
-    await executeTrade(client, { trade, league, items, teams });
-    await client.query('COMMIT');
-    await getDraftRoomBroadcast().rosterChanged(league.id);
-    return { tradeId, status: 'executed' };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+      await executeTrade(client, { trade, league, items, teams });
+      return { tradeId, status: 'executed', leagueId: league.id };
+    },
+    { label: 'respondToTrade' }
+  );
+  // Broadcast runs AFTER withTransaction resolves, so the connection is
+  // already back in the pool (Ruling 3).
+  if (result.status === 'executed') {
+    await getDraftRoomBroadcast().rosterChanged(result.leagueId);
   }
+  return { tradeId: result.tradeId, status: result.status };
 }
 
 /** Proposer cancels their own pending offer. */
 async function cancelTrade({ tradeId, userId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { trade, teams } = await loadTrade(client, tradeId);
-    if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
-    if (teams.get(trade.proposing_team_id).owner_id !== userId) {
-      throw new TradeError(403, 'only the proposer can cancel');
-    }
-    await client.query(
-      `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
-      [tradeId]
-    );
-    await client.query('COMMIT');
-    return { tradeId, status: 'cancelled' };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  return withTransaction(
+    pool,
+    async (client) => {
+      const { trade, teams } = await loadTrade(client, tradeId);
+      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
+      if (teams.get(trade.proposing_team_id).owner_id !== userId) {
+        throw new TradeError(403, 'only the proposer can cancel');
+      }
+      await client.query(
+        `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
+        [tradeId]
+      );
+      return { tradeId, status: 'cancelled' };
+    },
+    { label: 'cancelTrade' }
+  );
 }
 
 /** Receiving owner counters: original becomes 'countered', a mirrored new offer is created. */
 async function counterTrade({ tradeId, userId, playerIds }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { trade, teams } = await loadTrade(client, tradeId);
-    if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
-    const receiving = teams.get(trade.receiving_team_id);
-    if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can counter');
-    await client.query(
-      `UPDATE "trades" SET "status" = 'countered', "updated_at" = now() WHERE "id" = $1`,
-      [tradeId]
-    );
-    await client.query('COMMIT');
-    // New offer flows through proposeTrade for full validation
-    return await proposeTrade({
-      leagueId: trade.league_id,
-      userId,
-      receivingTeamId: trade.proposing_team_id,
-      playerIds,
-      counterOf: tradeId,
-    });
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+  const trade = await withTransaction(
+    pool,
+    async (client) => {
+      const { trade, teams } = await loadTrade(client, tradeId);
+      if (trade.status !== 'pending') throw new TradeError(409, `trade is ${trade.status}, not pending`);
+      const receiving = teams.get(trade.receiving_team_id);
+      if (receiving.owner_id !== userId) throw new TradeError(403, 'only the receiving owner can counter');
+      await client.query(
+        `UPDATE "trades" SET "status" = 'countered', "updated_at" = now() WHERE "id" = $1`,
+        [tradeId]
+      );
+      return trade;
+    },
+    { label: 'counterTrade' }
+  );
+  // New offer flows through proposeTrade for full validation, called AFTER
+  // this withTransaction resolves (Ruling 3 / the ticket's ruling 4): calling
+  // it from inside `work` would nest a second, independent pooled transaction
+  // on the same pool rather than a savepoint (withTransaction's misuse list).
+  return proposeTrade({
+    leagueId: trade.league_id,
+    userId,
+    receivingTeamId: trade.proposing_team_id,
+    playerIds,
+    counterOf: tradeId,
+  });
 }
 
 /** A non-involved team owner votes to veto a trade in review. */
 async function vetoTrade({ tradeId, userId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { trade, league, teams } = await loadTrade(client, tradeId);
-    if (trade.status !== 'accepted') throw new TradeError(409, 'trade is not in league review');
-    if (league.trade_veto_votes < 1) throw new TradeError(409, 'vetoes are disabled in this league');
+  return withTransaction(
+    pool,
+    async (client) => {
+      const { trade, league, teams } = await loadTrade(client, tradeId);
+      if (trade.status !== 'accepted') throw new TradeError(409, 'trade is not in league review');
+      if (league.trade_veto_votes < 1) throw new TradeError(409, 'vetoes are disabled in this league');
 
-    const voter = await requireMember(client, { leagueId: league.id, userId });
-    if (voter.id === trade.proposing_team_id || voter.id === trade.receiving_team_id) {
-      throw new TradeError(403, 'teams in the trade cannot vote on it');
-    }
-    await client.query(
-      `INSERT INTO "trade_votes" ("trade_id", "team_id") VALUES ($1, $2)
-       ON CONFLICT ("trade_id", "team_id") DO NOTHING`,
-      [tradeId, voter.id]
-    );
-    const votes = await client.query(
-      `SELECT COUNT(*)::int AS n FROM "trade_votes" WHERE "trade_id" = $1`,
-      [tradeId]
-    );
-    let status = 'accepted';
-    if (votes.rows[0].n >= league.trade_veto_votes) {
-      status = 'vetoed';
+      const voter = await requireMember(client, { leagueId: league.id, userId });
+      if (voter.id === trade.proposing_team_id || voter.id === trade.receiving_team_id) {
+        throw new TradeError(403, 'teams in the trade cannot vote on it');
+      }
+      await client.query(
+        `INSERT INTO "trade_votes" ("trade_id", "team_id") VALUES ($1, $2)
+         ON CONFLICT ("trade_id", "team_id") DO NOTHING`,
+        [tradeId, voter.id]
+      );
+      const votes = await client.query(
+        `SELECT COUNT(*)::int AS n FROM "trade_votes" WHERE "trade_id" = $1`,
+        [tradeId]
+      );
+      let status = 'accepted';
+      if (votes.rows[0].n >= league.trade_veto_votes) {
+        status = 'vetoed';
+        await client.query(
+          `UPDATE "trades" SET "status" = 'vetoed', "updated_at" = now() WHERE "id" = $1`,
+          [tradeId]
+        );
+        for (const teamId of [trade.proposing_team_id, trade.receiving_team_id]) {
+          await notify(client, {
+            userId: teams.get(teamId).owner_id,
+            leagueId: league.id,
+            type: 'trade_result',
+            message: 'Your trade was vetoed by league vote',
+            data: { tradeId },
+          });
+        }
+      }
+      return { tradeId, votes: votes.rows[0].n, votesNeeded: league.trade_veto_votes, status };
+    },
+    { label: 'vetoTrade' }
+  );
+}
+
+/** Commissioner (owner or co-commissioner) force-approves or vetoes a pending/accepted trade. */
+async function commissionerDecide({ tradeId, userId, approve }) {
+  const result = await withTransaction(
+    pool,
+    async (client) => {
+      const { trade, league, items, teams } = await loadTrade(client, tradeId);
+      if (!(await isLeagueCommissioner(client, league.id, userId))) {
+        throw new TradeError(403, 'only the commissioner can do this');
+      }
+      if (!['pending', 'accepted'].includes(trade.status)) {
+        throw new TradeError(409, `trade is ${trade.status}`);
+      }
+      if (approve) {
+        await executeTrade(client, { trade, league, items, teams, byCommissioner: true });
+        return { tradeId, status: 'executed', leagueId: league.id };
+      }
       await client.query(
         `UPDATE "trades" SET "status" = 'vetoed', "updated_at" = now() WHERE "id" = $1`,
         [tradeId]
@@ -351,60 +381,20 @@ async function vetoTrade({ tradeId, userId }) {
           userId: teams.get(teamId).owner_id,
           leagueId: league.id,
           type: 'trade_result',
-          message: 'Your trade was vetoed by league vote',
+          message: 'Your trade was vetoed by the commissioner',
           data: { tradeId },
         });
       }
-    }
-    await client.query('COMMIT');
-    return { tradeId, votes: votes.rows[0].n, votesNeeded: league.trade_veto_votes, status };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+      return { tradeId, status: 'vetoed' };
+    },
+    { label: 'commissionerDecide' }
+  );
+  // Broadcast runs AFTER withTransaction resolves, so the connection is
+  // already back in the pool (Ruling 3).
+  if (result.status === 'executed') {
+    await getDraftRoomBroadcast().rosterChanged(result.leagueId);
   }
-}
-
-/** Commissioner (owner or co-commissioner) force-approves or vetoes a pending/accepted trade. */
-async function commissionerDecide({ tradeId, userId, approve }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { trade, league, items, teams } = await loadTrade(client, tradeId);
-    if (!(await isLeagueCommissioner(client, league.id, userId))) {
-      throw new TradeError(403, 'only the commissioner can do this');
-    }
-    if (!['pending', 'accepted'].includes(trade.status)) {
-      throw new TradeError(409, `trade is ${trade.status}`);
-    }
-    if (approve) {
-      await executeTrade(client, { trade, league, items, teams, byCommissioner: true });
-      await client.query('COMMIT');
-      await getDraftRoomBroadcast().rosterChanged(league.id);
-      return { tradeId, status: 'executed' };
-    }
-    await client.query(
-      `UPDATE "trades" SET "status" = 'vetoed', "updated_at" = now() WHERE "id" = $1`,
-      [tradeId]
-    );
-    for (const teamId of [trade.proposing_team_id, trade.receiving_team_id]) {
-      await notify(client, {
-        userId: teams.get(teamId).owner_id,
-        leagueId: league.id,
-        type: 'trade_result',
-        message: 'Your trade was vetoed by the commissioner',
-        data: { tradeId },
-      });
-    }
-    await client.query('COMMIT');
-    return { tradeId, status: 'vetoed' };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  return { tradeId: result.tradeId, status: result.status };
 }
 
 /**

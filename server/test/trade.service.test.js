@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
-const { TradeError, executeTrade } = require('../services/trade.service');
+const { TradeError, executeTrade, cancelTrade } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 
 // --- roster capacity at the trade site (#97) --------------------------------
@@ -340,4 +340,61 @@ test('executeTrade: the gate runs per item, immediately around each write', asyn
     assert.match(fake.calls[at + 1].text, /^SELECT "id", "locked" FROM "teams"/);
   }
   fake.assertClean();
+});
+
+// --- withTransaction routing (ADR 0033, #1064 Ruling 5) ---------------------
+// The representative pair for this child: cancelTrade is the thinnest of the
+// six sites now routed through withTransaction, so it is the one that proves
+// the routing itself rather than any of its own business logic. Both cases
+// hit the SAME early throw (trade.status !== 'pending', 409) after loadTrade's
+// four reads and zero writes, so the only thing that differs between them is
+// whether the ROLLBACK that follows succeeds.
+
+const cancelTradeWorldHandlers = () => [
+  [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1 }] })],
+  [select('trades'), () => ({ rows: [{ id: 5, status: 'executed', proposing_team_id: 41, league_id: 1 }] })],
+  [select('trade_items'), () => ({ rows: [] })],
+  [select('teams'), () => ({ rows: [{ id: 41, owner_id: 99 }] })],
+];
+
+test('cancelTrade: a rejecting ROLLBACK destroys the connection and the original error survives (#1064 Ruling 5)', async (t) => {
+  const world = createFakePool([
+    ...cancelTradeWorldHandlers(),
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+  ]).install(t);
+
+  // Red-tell: reverting cancelTrade to its own bare `client.release()` (rather
+  // than routing through withTransaction) makes this reject with "rollback
+  // rejected" instead of the original 409, since the unhandled ROLLBACK
+  // rejection would replace the TradeError.
+  const promise = cancelTrade({ tradeId: 5, userId: 99 });
+  await assert.rejects(promise, { statusCode: 409, message: 'trade is executed, not pending' });
+  const error = await promise.catch((e) => e);
+  assert.equal(error.rollbackError.message, 'rollback rejected',
+    'the rollback failure is attached to the original error, not swallowed silently');
+
+  // A rejecting ROLLBACK leaves the transaction open on the socket, so
+  // withTransaction's finally releases the client WITH an Error: pg-pool
+  // destroys the connection and Postgres frees the session's locks on
+  // disconnect. Red-tell: making the release unconditional (or reverting to
+  // a bare client.release()) makes this fail.
+  world.assertClean();
+  assert.ok(world.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+});
+
+test('cancelTrade: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
+  const world = createFakePool(cancelTradeWorldHandlers()).install(t);
+
+  await assert.rejects(
+    cancelTrade({ tradeId: 5, userId: 99 }),
+    { statusCode: 409, message: 'trade is executed, not pending' }
+  );
+
+  // Complementary control to the test above: the same early throw, but this
+  // time the ROLLBACK succeeds cleanly (fakePool's default auto-answer), so
+  // the connection is healthy and must be returned to the pool, not
+  // destroyed. Red-tell: destroying on every error path (release with an
+  // Error unconditionally) makes this fail.
+  assert.equal(world.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  world.assertClean();
 });
