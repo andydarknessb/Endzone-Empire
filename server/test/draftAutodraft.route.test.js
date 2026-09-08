@@ -32,12 +32,36 @@ const toggle = (actorId, enabled) => request(app)
   .set('Authorization', auth(actorId))
   .send({ enabled });
 
-function autodraftPool({ isCommissioner, teamOwnerId = MANAGER_ID }) {
+// The Draft act module's serializing lock on the League row (#967). It replaces
+// this suite's private `/FROM "leagues"[\s\S]*FOR UPDATE/` matcher, which was,
+// until this PR, the only thing here binding that the autodraft toggle locked
+// the League row before it wrote a Team. That ordering is now structural -
+// runDraftAct takes the lock as its first statement after BEGIN, and
+// draftAct.service.test.js's "the FOR UPDATE lock precedes the first mutation"
+// owns it - so the private matcher is deleted rather than restated. This
+// matcher is still load-bearing in THIS suite: drop it and the module's lock
+// read hits the fake pool's unregistered-query throw and every test reddens.
+const ACT_LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/;
+// The act module loads Teams in rotation order and the body picks the target
+// Team out of that list, so the route no longer issues its own
+// `SELECT "id", "owner_id" FROM "teams" WHERE "id" = $1 AND "league_id" = $2`.
+const ACT_TEAMS = /^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/;
+// lookupTeam, the act module's acting-Team read. The toggle never uses it (it
+// appends no narration), but the module resolves it for every act.
+const ACT_ACTING_TEAM = /^SELECT "id", "name" FROM "teams"/;
+
+function autodraftPool({ isCommissioner, teamOwnerId = MANAGER_ID, league = true, teamInLeague = true }) {
   return createFakePool([
     // requireFantasyLeague middleware.
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [/FROM "leagues"[\s\S]*FOR UPDATE/, () => ({
-      rows: [{
+    // isLeagueCommissioner includes owners and co-commissioners. Kept ahead of
+    // the lock matcher: both read FROM "leagues".
+    [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({
+      rows: isCommissioner ? [{ ok: 1 }] : [],
+    })],
+    [ACT_LOCK, () => ({
+      rows: league ? [{
+        id: LEAGUE_ID,
         owner_id: COMMISSIONER_ID,
         draft_status: 'active',
         current_pick: 0,
@@ -45,15 +69,12 @@ function autodraftPool({ isCommissioner, teamOwnerId = MANAGER_ID }) {
         autodraft_delay_seconds: 10,
         draft_rotation: 'snake',
         draft_order_overrides: null,
-      }],
+      }] : [],
     })],
-    [/SELECT "id", "owner_id" FROM "teams" WHERE "id" = \$1 AND "league_id" = \$2/, () => ({
-      rows: [{ id: TEAM_ID, owner_id: teamOwnerId }],
+    [ACT_TEAMS, () => ({
+      rows: teamInLeague ? [{ id: TEAM_ID, owner_id: teamOwnerId, autodraft: false, draft_position: 1 }] : [],
     })],
-    // isLeagueCommissioner includes owners and co-commissioners.
-    [/SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({
-      rows: isCommissioner ? [{ ok: 1 }] : [],
-    })],
+    [ACT_ACTING_TEAM, () => ({ rows: [] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
   ]);
 }
@@ -63,8 +84,9 @@ function autodraftPool({ isCommissioner, teamOwnerId = MANAGER_ID }) {
  * through onAutodraftToggled, and the only route that reaches that event. #948
  * moved the offline-rule read off the router's SELECT and into the event, which
  * re-reads the policy from the locked row - so this world registers that policy
- * SELECT (carrying draft_type) alongside the on-clock teams list. It records the
- * arm-in-place UPDATE's bound seconds so the assertion is the arming decision.
+ * SELECT (carrying draft_type) alongside the act module's own lock read. It
+ * records the arm-in-place UPDATE's bound seconds so the assertion is the arming
+ * decision.
  */
 function onClockPool({ draftType }) {
   const armed = [];
@@ -72,10 +94,11 @@ function onClockPool({ draftType }) {
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     // isLeagueCommissioner's probe, kept ahead of the shape matcher below.
     [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [] })],
-    // The router's FOR UPDATE authz read and onAutodraftToggled's policy read
-    // are both SELECT ... FROM "leagues"; one full row answers both (#948).
+    // The act module's lock read and onAutodraftToggled's policy read are both
+    // SELECT ... FROM "leagues"; one full row answers both (#948).
     [select('leagues'), () => ({
       rows: [{
+        id: LEAGUE_ID,
         owner_id: COMMISSIONER_ID,
         draft_status: 'active',
         draft_type: draftType,
@@ -87,11 +110,12 @@ function onClockPool({ draftType }) {
         draft_order_overrides: null,
       }],
     })],
-    [/^SELECT "id", "owner_id" FROM "teams" WHERE "id" = \$1 AND "league_id" = \$2/, () => ({
-      rows: [{ id: TEAM_ID, owner_id: MANAGER_ID }],
+    // The act module's rotation-order Teams read, which is now also the on-clock
+    // resolution list: TEAM_ID holds pick 0, so it is on the clock.
+    [ACT_TEAMS, () => ({
+      rows: [{ id: TEAM_ID, owner_id: MANAGER_ID, autodraft: false, draft_position: 1 }],
     })],
-    // The on-clock resolution list: TEAM_ID holds pick 0, so it is on the clock.
-    [/^SELECT "id" FROM "teams" WHERE "league_id" = \$1/, () => ({ rows: [{ id: TEAM_ID }] })],
+    [ACT_ACTING_TEAM, () => ({ rows: [] })],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
     [update('leagues'), (text, params) => {
       armed.push(params);
@@ -173,4 +197,31 @@ test('POST autodraft lets a commissioner change any Team', async (t) => {
   assert.equal(updates.length, 1);
   assert.deepEqual(updates[0].params, [false, TEAM_ID]);
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
+});
+
+/**
+ * The two 404s the conversion moved out of the handler's own ROLLBACK-and-return
+ * pairs and into DraftError refusals the act module rolls back (#967). Same
+ * status, same body, and - the part worth pinning - still no write.
+ */
+test('POST autodraft: a missing league is a 404 that writes nothing', async (t) => {
+  const fake = autodraftPool({ isCommissioner: false, league: false }).install(t);
+
+  const response = await toggle(MANAGER_ID, true);
+
+  assert.equal(response.status, 404, JSON.stringify(response.body));
+  assert.equal(response.body.error, 'league not found');
+  assert.equal(fake.matching(update('teams')).length, 0);
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
+});
+
+test('POST autodraft: a team outside this league is a 404 that writes nothing', async (t) => {
+  const fake = autodraftPool({ isCommissioner: false, teamInLeague: false }).install(t);
+
+  const response = await toggle(MANAGER_ID, true);
+
+  assert.equal(response.status, 404, JSON.stringify(response.body));
+  assert.equal(response.body.error, 'team not found in this league');
+  assert.equal(fake.matching(update('teams')).length, 0);
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1);
 });
