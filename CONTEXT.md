@@ -761,9 +761,9 @@ once one has actually happened. The standings table, a Matchup card, the
 Team summary and the Lineup screen all follow this rule, and so do Power
 Rankings and season history. Since #959 the rule is computed in ONE
 place, the standings entity (src/entities/standings): the standings table, the
-Team summary, a Matchup card and season history all read the formatted Record
-from there rather than deriving it, which is what stops another surface
-inventing another answer. The Lineup screen still derives its own.
+Team summary, a Matchup card, season history, the Lineup screen and Power
+Rankings all read the formatted Record from there rather than deriving it,
+which is what stops another surface inventing another answer.
 _Avoid_: standings (the ordered table built from every Team's Record, not one
 Team's own tally)
 
