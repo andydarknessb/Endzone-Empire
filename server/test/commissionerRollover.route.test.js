@@ -55,7 +55,7 @@ test("POST rollover exposes the Pick'em missing-result integrity response withou
 
   assert.equal(response.status, 409);
   assert.deepEqual(response.body, {
-    error: 'PICKEM_SEASON_RESULT_MISSING',
+    code: 'PICKEM_SEASON_RESULT_MISSING',
     message: "Pick'em season result is missing for league 5, season 2026",
     leagueId: 5,
     season: 2026,

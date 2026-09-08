@@ -252,7 +252,7 @@ describe('individual-player lineup lock timeline', () => {
       .send(fixture.requests.swap.body);
 
     expect(response.status).toBe(409);
-    expect(response.body.error).toBe('LINEUP_LOCKED');
+    expect(response.body.code).toBe('LINEUP_LOCKED');
     expect(state.slots.get(fixture.players.playerA.id)).toBe('FLEX');
     expect(state.slots.get(fixture.players.playerB.id)).toBe('BENCH');
   });
@@ -266,7 +266,7 @@ describe('individual-player lineup lock timeline', () => {
 
     expect(swapResponse.status).toBe(409);
     expect(swapResponse.body).toEqual({
-      error: 'LINEUP_LOCKED',
+      code: 'LINEUP_LOCKED',
       message: 'that player is locked; his game has started',
     });
     expect(state.slots.get(fixture.players.playerA.id)).toBe('FLEX');

@@ -1019,7 +1019,18 @@ test('Matchup Scheduling & Scoring surfaces a toast and skips refresh when an op
   expect(onRefresh).not.toHaveBeenCalled();
 });
 
-test('Manual Score Correction preserves input and locks submission after the correction window expires', async () => {
+// The correction lock is the live consumer of the envelope #973 converged
+// (ADR 0032). It branches on the CODE, never on the sentence, so it must lock
+// on BOTH the envelope the server emits now ({ code, message }) and the one it
+// emitted before ({ error: <code>, message }), which is the readHttpFailure
+// tolerance arm. The old-shape row is a HAND-WRITTEN fixture, not a shape any
+// migrated route still produces: it is what proves the tolerance is still
+// load-bearing, and it is the row that goes red the day that arm is deleted.
+describe.each([
+  ['the { code, message } envelope emitted since #973', { code: 'CORRECTION_WINDOW_EXPIRED', message: 'Manual score modifications for this week are locked.' }],
+  ['the tolerated { error: <code>, message } envelope', { error: 'CORRECTION_WINDOW_EXPIRED', message: 'Manual score modifications for this week are locked.' }],
+])('Manual Score Correction on %s', (_label, refusalBody) => {
+  test('preserves input and locks submission after the correction window expires', async () => {
   mockGetByUrl({
     '/matchups': {
       data: [
@@ -1027,15 +1038,7 @@ test('Manual Score Correction preserves input and locks submission after the cor
       ],
     },
   });
-  apiClient.post.mockRejectedValue({
-    response: {
-      status: 403,
-      data: {
-        error: 'CORRECTION_WINDOW_EXPIRED',
-        message: 'Manual score modifications for this week are locked.',
-      },
-    },
-  });
+  apiClient.post.mockRejectedValue({ response: { status: 403, data: refusalBody } });
   renderTools();
   await userEvent.click(screen.getByRole('tab', { name: 'System Overrides' }));
 
@@ -1060,6 +1063,7 @@ test('Manual Score Correction preserves input and locks submission after the cor
   expect(screen.getByText('Manual Score Correction')).toBeInTheDocument();
   expect(apiClient.post).toHaveBeenCalledTimes(1);
   expect(apiClient.put).not.toHaveBeenCalled();
+  });
 });
 
 test('Lock Specific Team toggles a single team without touching the league-wide lock', async () => {
@@ -1482,7 +1486,7 @@ test('Manual Score Correction shows the message and stays unlocked for a refusal
     response: {
       status: 503,
       data: {
-        error: 'DATABASE_TEMPORARILY_UNAVAILABLE',
+        code: 'DATABASE_TEMPORARILY_UNAVAILABLE',
         message: 'The database is temporarily unavailable. Try again shortly.',
       },
     },

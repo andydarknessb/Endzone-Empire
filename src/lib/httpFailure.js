@@ -58,6 +58,15 @@
 // next tickets read): this reads the HTTP *response* envelope only. A failure
 // with no response (a cancel, a DNS or connection error) yields message and code
 // undefined and status undefined; it does not surface axios's own `err.code`.
+// Shrinking the tolerance (#973, ADR 0032). Shape (b) is now emitted by NO
+// server route: the thirteen emitters that carried the code in the
+// message-carrying field were converged onto (c). Shapes (b) and (d) are kept
+// here for hand-written fixtures and for a browser holding a response emitted
+// before that deploy. scripts/envelopeConformance.js counts the remaining
+// non-conforming emitters on a shrink-only allowlist, and ADR 0032 states the
+// three conditions under which the (b)/(d) arms below are deleted: the guard
+// at zero with an empty allowlist, no fixture hand-writing a retired envelope
+// except the ones kept to pin this tolerance, and one release shipped at zero.
 export function readHttpFailure(err) {
   const response = err && typeof err === 'object' ? err.response : undefined;
   const status =

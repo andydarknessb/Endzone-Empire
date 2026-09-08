@@ -106,7 +106,7 @@ test('correct-week: refuses a re-sync outside the window and never re-syncs or r
     .send({ season: 2026, week: 2 });
 
   assert.equal(res.status, 403);
-  assert.equal(res.body.error, CORRECTION_WINDOW_ERROR.code);
+  assert.equal(res.body.code, CORRECTION_WINDOW_ERROR.code);
   assert.equal(res.body.message, CORRECTION_WINDOW_ERROR.message);
   assert.equal(synced.length, 0, 'stats were never re-synced');
   assert.equal(corrected.length, 0, 'the league week was never re-scored');
@@ -131,7 +131,7 @@ test('correct-week: refuses a manual score override outside the window and never
     .send({ season: 2026, week: 2, matchupId: 55, homeScore: 100, awayScore: 90 });
 
   assert.equal(res.status, 403);
-  assert.equal(res.body.error, CORRECTION_WINDOW_ERROR.code);
+  assert.equal(res.body.code, CORRECTION_WINDOW_ERROR.code);
   assert.equal(adjusted.length, 0, 'the manual score override never ran');
   fake.assertClean();
 });
@@ -214,7 +214,7 @@ test('correct-week: adjustMatchupScore refuses a matchup whose OWN week is out o
     .send({ season: 2026, week: 8, matchupId: 77, homeScore: 50, awayScore: 40 });
 
   assert.equal(res.status, 403);
-  assert.equal(res.body.error, CORRECTION_WINDOW_ERROR.code);
+  assert.equal(res.body.code, CORRECTION_WINDOW_ERROR.code);
   assert.equal(res.body.message, CORRECTION_WINDOW_ERROR.message);
   assert.equal(fake.matching(update('matchups')).length, 0, 'the score was never updated');
   // `activity.logTransaction` is destructured into a local binding inside
