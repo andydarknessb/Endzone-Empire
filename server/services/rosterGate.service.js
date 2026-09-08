@@ -145,6 +145,24 @@ async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId
 }
 
 /**
+ * Whether a League row is frozen, read the one fail-closed way the write-time
+ * gate below reads it (#944 rule 2): a row that cannot answer is refused, not
+ * treated as "not frozen". `claimTarget`/`submitClaim` (waiver.service.js) and
+ * `proposeTrade` (trade.service.js) are entry gates, not write-time gates -
+ * they tell a manager before he fills in a form, and the actual roster write
+ * still runs the full `assertRosterWriteAllowed` gate below. They call this
+ * function instead of re-reading `transactions_locked` themselves, so entry
+ * and write time read the freeze the same way and cannot drift on what the
+ * column means (#966).
+ */
+function isLeagueFrozen(league) {
+  if (!('transactions_locked' in league)) {
+    throw new DraftError(500, 'roster gate cannot read the freeze state; refusing', 'ROSTER_GATE_INDETERMINATE');
+  }
+  return league.transactions_locked;
+}
+
+/**
  * The write-time roster gate (#944): may this Team acquire or release this
  * player right now? One assertion over the League id, the Team id, a direction
  * and an exact-set bypass list, so a seventeenth roster write inherits every
@@ -188,13 +206,8 @@ async function assertRosterWriteAllowed(client, { leagueId, teamId, direction, p
   // when its gate is actually evaluated: a bypassed check reads nothing, so it
   // cannot be starved. When the freeze IS evaluated, a row that cannot answer
   // it is refused - fail closed, never read as "not frozen" (#944 rule 2).
-  if (!skip.has(ROSTER_GATE.FREEZE)) {
-    if (!('transactions_locked' in league)) {
-      throw new DraftError(500, 'roster gate cannot read the freeze state; refusing', 'ROSTER_GATE_INDETERMINATE');
-    }
-    if (league.transactions_locked) {
-      throw new DraftError(409, 'transactions are locked by the commissioner', 'TRANSACTIONS_LOCKED');
-    }
+  if (!skip.has(ROSTER_GATE.FREEZE) && isLeagueFrozen(league)) {
+    throw new DraftError(409, 'transactions are locked by the commissioner', 'TRANSACTIONS_LOCKED');
   }
 
   const teamResult = await client.query(
@@ -226,6 +239,7 @@ module.exports = {
   assertRosterWriteAllowed,
   assertRosterAcquisitionAllowed,
   assertPositionCapNotReached,
+  isLeagueFrozen,
   DIRECTION,
   ROSTER_GATE,
   COMMISSIONER_OVERRIDE,
