@@ -181,11 +181,17 @@ describe('DraftSimulator', () => {
   it('mounts one status region on both turns, announcing the turn change once', async () => {
     await startDraft();
 
-    const onUserTurn = screen.getAllByRole('status').find((region) => region.textContent === 'Your pick!');
+    // Awaited rather than a synchronous getAllByRole read: SimTurnStatus
+    // mounts the region empty and fills it from a passive effect, so a
+    // synchronous read here can land before that effect does (#1036).
     // Asserted separately from toBeInTheDocument so a reverted, off-turn-only
     // mount fails with a readable "undefined is not defined" rather than
     // jest-dom's HtmlElementTypeError on a non-element value.
-    expect(onUserTurn).toBeDefined();
+    const onUserTurn = await waitFor(() => {
+      const region = screen.getAllByRole('status').find((r) => r.textContent === 'Your pick!');
+      expect(region).toBeDefined();
+      return region;
+    });
     expect(onUserTurn).toBeInTheDocument();
 
     draftFirstAvailable();
