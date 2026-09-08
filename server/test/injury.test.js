@@ -505,6 +505,52 @@ test('#961 bad response: a non-array getNFLPlayerList body records ok=false with
   fake.assertClean();
 });
 
+test('#1041 connect failure: pool.connect() rejecting records ok=false with reason "write_failed", not "sync_failed"', async (t) => {
+  // The #839 shape: pool exhaustion or refusal makes pool.connect() itself
+  // throw, above the transaction try/catch/finally (no client exists yet to
+  // ROLLBACK or release). Before this fix that throw carried no
+  // syncFailureReason and fell through to the sync_failed fallback, even
+  // though it is unambiguously the database side. Control: 'write_failed'
+  // here matches the in-transaction test above; 'fetch_failed'/'bad_response'
+  // are the two upstream sibling tests.
+  const connectError = new Error('connection refused by pooler');
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]);
+  const pool = require('../modules/pool');
+  // Mock query and connect separately, rather than fake.install(t) followed by
+  // a second t.mock.method(pool, 'connect', ...): node:test's MockTracker
+  // restores each mocked method to what it was at the time IT was mocked, in
+  // registration order, so mocking the same method twice leaves pool.connect
+  // pointed at this test's fake connect (not the real one) once the test ends
+  // and t.mock.reset() runs - a leak into whichever test happens to run next.
+  t.mock.method(pool, 'query', (sql, params) => fake.query(sql, params));
+  t.mock.method(pool, 'connect', async () => { throw connectError; });
+
+  // Criterion 2: assert on the rejection's message, not merely that it
+  // rejected. A TypeError about `release` reaching the caller (the hazard the
+  // ticket exists to avoid) would also make this reject, so only the message
+  // proves the original connection error survived intact.
+  await assert.rejects(
+    syncInjuries({ api: healthyToQuestionableApi }),
+    /connection refused by pooler/,
+  );
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row on a connect failure');
+  assert.equal(records[0].via, 'pool');
+  assert.equal(records[0].params[0], 'injuries');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'connection refused by pooler', 'the connect error message is in detail');
+  // Red-tell: dropping the tag line in the new connect() guard (or the guard
+  // itself) drops this to 'sync_failed'.
+  assert.equal(detail.reason, 'write_failed', 'a connect failure is the database side, not unclassified');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction opens: connect() never returned a client');
+  // No client was ever acquired, so none is left unreleased.
+  fake.assertClean();
+});
+
 test('#961 best-effort: a record write that throws changes neither outcome nor return value', async (t) => {
   // The table may not exist yet in a given environment (the migration is a
   // maintainer step). A thrown record write must not turn a correct run into a

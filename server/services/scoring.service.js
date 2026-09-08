@@ -1120,6 +1120,9 @@ async function syncInjuries({ api = tank01Get } = {}) {
     //                   guard). Upstream contract drift. (ADP: adp.service.js:203.)
     //   write_failed  - the database side threw (connect, lock, scan, bulk
     //                   UPDATE, IR flag pass), rolled back. Ours. Check the DB.
+    //     - pool.connect() itself failing (pool exhaustion or refusal, the
+    //       #839 shape) is tagged in its own guard, above the transaction
+    //       try, since no client exists yet to roll back or release.
     //   sync_failed   - reserved for a genuinely unclassified error (e.g. a bug
     //                   in the feed-mapping loop), so the three above never blur.
     // The record is written on the POOL, outside the transaction, so a
@@ -1173,7 +1176,18 @@ async function runInjurySync(api) {
     });
   }
 
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (error) {
+    // Pool exhaustion or refusal (the #839 shape) is the database side, and
+    // this sits above the transaction try/catch/finally on purpose: client is
+    // undefined here, so folding this into that catch would ROLLBACK and
+    // release() on nothing, turning a connection failure into a TypeError
+    // that swallows the original error.
+    error.syncFailureReason = error.syncFailureReason || 'write_failed';
+    throw error;
+  }
   let irFlags;
   let matchedCount = 0;
   try {
