@@ -90,7 +90,7 @@ const Body = () => (
         <TR><TD>2025 Result</TD><TD>Super Bowl LX runners-up</TD><TD>Super Bowl LX champions</TD></TR>
         <TR><TD>Implied Total</TD><TD>~21</TD><TD>~24.5</TD></TR>
         <TR><TD>Spread</TD><TD>+3.5</TD><TD>&minus;3.5</TD></TR>
-        <TR><TD>Key Absence</TD><TD>&mdash;</TD><TD>Charbonnet (PUP, torn ACL)</TD></TR>
+        <TR><TD>Key Absence</TD><TD>-</TD><TD>Charbonnet (PUP, torn ACL)</TD></TR>
       </TBody>
     </Table>
     <P>
