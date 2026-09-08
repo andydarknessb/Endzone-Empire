@@ -10,6 +10,7 @@ const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const pickService = require('../services/pick.service');
 const sentry = require('../modules/sentry');
 const pickClock = require('../services/pickClock.service');
+const { createFakePool } = require('./helpers/fakePool');
 
 /**
  * The Pick clock module owns expiry (#600, ADR 0018): the sweep, the Autopick
@@ -653,4 +654,89 @@ test('overdue: the outer sweep catch has no league and passes path sweep only', 
   assert.equal(captured.length, 1, 'the outer catch routes exactly one capture');
   assert.equal(captured[0].ctx.path, 'sweep');
   assert.equal(captured[0].ctx.leagueId, undefined, 'the outer catch has no league to name');
+});
+
+// --- escalateNothingDraftable under withTransaction (#1071 Ruling 4) ---------
+// escalateNothingDraftable is the representative site this child gives the
+// #1053/#1055 wrapper pair. It is not exported, so the pair drives it through
+// the exported autoPick: an expired clock with an empty candidate pool escalates
+// into it, and the pause+clear UPDATE is made to throw so the transaction takes
+// its error path. The two tests differ only in whether the ROLLBACK itself
+// rejects, isolating the wrapper's destroy-vs-return-bare decision (#839).
+
+// A league whose clock elapsed long ago (the sweep/timer both treat it as due),
+// active and unpaused, with just enough columns for autoPick's pure helpers
+// (parseLineupSettings, draftRounds) and its rotation math.
+const ESC_LEAGUE = {
+  id: LEAGUE_ID, draft_status: 'active', draft_paused: false, current_pick: 0,
+  draft_rotation: 'snake', draft_order_overrides: null, draft_rounds: 15,
+  draft_type: 'snake', pick_time_seconds: 30, autodraft_delay_seconds: 5,
+  roster_slots: null, position_caps: null, bench_slots: 5, ir_slots: 1,
+  pick_deadline_at: new Date('2000-01-01T00:00:00.000Z'),
+};
+const ESC_TEAM = { id: 55, owner_id: 7, name: 'Stuck Team', autodraft: false, draft_position: 1 };
+
+// The matcher table that walks autoPick from its league read to the escalation
+// write, with an EMPTY candidate pool so no pick can land and the escalation
+// runs. The FOR UPDATE re-read (escalate's own, on the checked-out client) is
+// listed before autoPick's non-locking league read so the locked read never
+// falls through to it. The pause+clear UPDATE is left to the caller to add,
+// since each test fails it differently.
+function escalationHandlers() {
+  return [
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [ESC_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [ESC_LEAGUE] })],
+    [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, () => ({ rows: [{ season: 2026 }] })],
+    [/FROM "team_players" JOIN "players"/, () => ({ rows: [] })],
+    [/FROM "players" LEFT JOIN/, () => ({ rows: [] })],
+    [/FROM "draft_picks"/, () => ({ rows: [] })],
+    [/FROM "teams"/, () => ({ rows: [ESC_TEAM] })],
+  ];
+}
+
+test('escalateNothingDraftable: a rejecting ROLLBACK destroys the connection and the original error survives (#1071 Ruling 4)', async (t) => {
+  // Representative rejecting-ROLLBACK case. The pause+clear UPDATE throws mid
+  // transaction AND the ROLLBACK that follows itself rejects. autoPick must
+  // reject with the ORIGINAL error (not the rollback failure), carry the
+  // rollback failure on error.rollbackError, and - because a rejecting ROLLBACK
+  // leaves the transaction and the league row's FOR UPDATE lock open on the
+  // socket - release the client WITH an Error so pg-pool drops the connection and
+  // Postgres frees the lock on disconnect (#839). Red tell: reverting
+  // escalateNothingDraftable to its own bare `client.release()` (bypassing
+  // withTransaction) leaves releaseArgs()[0] undefined and reddens assertClean()
+  // with "transaction left open" - the fake's `tx.open` is only cleared after a
+  // handler returns, and the rejecting ROLLBACK handler never returns.
+  const boom = new Error('pause update failed mid-transaction');
+  const fake = createFakePool([
+    ...escalationHandlers(),
+    [/^UPDATE "leagues" SET "draft_paused" = true/, () => { throw boom; }],
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+  ]).install(t);
+
+  const promise = pickClock.autoPick({ leagueId: LEAGUE_ID });
+  await assert.rejects(promise, /pause update failed mid-transaction/);
+  const error = await promise.catch((e) => e);
+  assert.equal(error.rollbackError.message, 'rollback rejected',
+    'the rollback failure is attached to the original error, not swallowed');
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+  fake.assertClean();
+});
+
+test('escalateNothingDraftable: a clean ROLLBACK returns the connection to the pool bare (#1071 Ruling 4 control)', async (t) => {
+  // The pair's clean control: the pause+clear UPDATE throws but the ROLLBACK
+  // succeeds, so withTransaction rolls back and returns the HEALTHY connection to
+  // the pool bare, not destroyed. Red tell: making withTransaction's release
+  // unconditional (release with an Error on every error path) turns
+  // releaseArgs()[0] from undefined into an Error and reddens this.
+  const boom = new Error('pause update failed mid-transaction');
+  const fake = createFakePool([
+    ...escalationHandlers(),
+    [/^UPDATE "leagues" SET "draft_paused" = true/, () => { throw boom; }],
+  ]).install(t);
+
+  await assert.rejects(pickClock.autoPick({ leagueId: LEAGUE_ID }), /pause update failed mid-transaction/);
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction was rolled back');
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'no COMMIT on a thrown write');
+  assert.equal(fake.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  fake.assertClean();
 });
