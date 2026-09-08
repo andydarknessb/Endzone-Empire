@@ -273,6 +273,46 @@ test('syncAdp rolls back and records ok=false when the bulk set throws, leaving 
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction was rolled back');
   assert.equal(fake.matching(/^COMMIT$/).length, 0, 'no COMMIT on a thrown bulk set');
   fake.assertClean();
+  // Clean-ROLLBACK control (#1070 Ruling 5): the ROLLBACK succeeded, so the
+  // healthy connection is returned to the pool bare, not destroyed. Red-tell:
+  // making withTransaction's release unconditional (release with an Error on
+  // every error path) turns this undefined into an Error and reddens it.
+  assert.equal(fake.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1, 'the failed run is still recorded');
+  assert.equal(runOk(runs[0]), false, 'recorded ok=false');
+});
+
+test('syncAdp: a rejecting ROLLBACK destroys the connection and the original error survives (#1070 Ruling 5)', async (t) => {
+  // Representative rejecting-ROLLBACK case, the pair to the clean control above.
+  // The bulk set throws AND the ROLLBACK that follows itself rejects. syncAdp
+  // must still reject with the ORIGINAL error (not the rollback failure), carry
+  // the rollback failure on error.rollbackError, and — because a rejecting
+  // ROLLBACK leaves the transaction open on the socket — release the client WITH
+  // an Error so pg-pool drops the connection and Postgres frees the advisory
+  // lock on disconnect (#839). Red-tell: reverting syncAdp to its own bare
+  // `client.release()` (bypassing withTransaction) makes this reject with
+  // "rollback rejected" and leaves releaseArgs()[0] undefined, reddening both
+  // the error assertion and assertClean.
+  stubFfc(t, ffcBody(200));
+  const boom = new Error('bulk set failed mid-transaction');
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
+    [/^UPDATE "players" SET "adp" = NULL/, () => ({ rows: [], rowCount: 1 })],
+    [/^UPDATE "players" p SET "adp"/, () => { throw boom; }],
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const promise = syncAdp();
+  await assert.rejects(promise, /bulk set failed mid-transaction/);
+  const error = await promise.catch((e) => e);
+  assert.equal(error.rollbackError.message, 'rollback rejected',
+    'the rollback failure is attached to the original error, not swallowed silently');
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+  fake.assertClean();
+  // The failed run is still recorded (recordAdpRun stays outside the transaction).
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1, 'the failed run is still recorded');
   assert.equal(runOk(runs[0]), false, 'recorded ok=false');
