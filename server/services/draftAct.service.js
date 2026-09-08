@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { lookupTeam } = require('./teamIdentity');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
@@ -80,9 +81,14 @@ const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
  * handler needs it.
  */
 async function runDraftAct({ leagueId, userId }, actBody) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). runDraftAct is otherwise unchanged as its callers
+  // and tests see it: the work takes the League lock, loads Teams, resolves the
+  // acting Team, runs the caller's actBody, and validates the requested board
+  // facts before the wrapper COMMITs; runFanout stays AFTER the call, so the
+  // commit-then-fan-out ordering (F3) is preserved. A thrown refusal still rolls
+  // back and emits nothing (F2), now through the wrapper.
+  const { response, activity, broadcasts } = await withTransaction(pool, async (client) => {
     // 1. The serializing lock on the League row, before any mutation. Generic on
     // purpose: the module does not know a given act's authorization rule, so it
     // locks the row and hands it to the body, which authorizes against it.
@@ -131,20 +137,15 @@ async function runDraftAct({ leagueId, userId }, actBody) {
         );
       }
     }
-    // 5. Commit. From here the act is durable.
-    await client.query('COMMIT');
-    // 6. Fan out, after commit, in the one order, contained.
-    await runFanout({ leagueId, activity, broadcasts });
-    return response;
-  } catch (error) {
-    // Any pre-commit throw unwinds here: roll back and re-raise so the caller can
-    // map a refusal to its status. A post-commit fan-out failure never reaches
-    // this catch - runFanout contains its own.
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+    // 5. Return the act's outcome; the wrapper COMMITs on return. From here the
+    // act is durable. A pre-commit throw (a refusal, or the board-fact typo
+    // check above) unwinds through the wrapper's ROLLBACK instead, and never
+    // reaches the fan-out.
+    return { response, activity, broadcasts };
+  }, { label: 'draftAct' });
+  // 6. Fan out, after commit, in the one order, contained.
+  await runFanout({ leagueId, activity, broadcasts });
+  return response;
 }
 
 /**
