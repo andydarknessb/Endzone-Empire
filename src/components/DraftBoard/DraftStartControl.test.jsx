@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import DraftStartControl from './DraftStartControl';
 
 // The commissioner-only player-market status line on the Start control (#748).
@@ -137,4 +138,25 @@ test('showMarketStatus suppresses the market line independently of showHints', (
   // The absent state still disables Start even when its copy is suppressed -
   // suppressing the message is not the same as suppressing the gate.
   expect(screen.getByRole('button', { name: 'Start Draft' })).toBeDisabled();
+});
+
+// #969: the start control reads a thrown refusal through readHttpFailure. The
+// envelope below is shape (b) - the `error` field holds the machine CODE and
+// the sentence rides in `message` - which the old hand-rolled read got exactly
+// backwards, showing the commissioner DRAFT_NOT_READY in the dialog.
+test('a thrown refusal carrying a code beside a message shows the message in the dialog', async () => {
+  const onStart = jest.fn().mockRejectedValue({
+    response: {
+      status: 409,
+      data: { error: 'DRAFT_NOT_READY', message: 'Every team must be ready before the draft starts.' },
+    },
+  });
+  render(<DraftStartControl {...baseProps} onStart={onStart} market={FRESH_MARKET} />);
+
+  await userEvent.click(screen.getByRole('button', { name: 'Start Draft' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Start now' }));
+
+  const dialog = screen.getByRole('dialog', { name: 'Start draft now?' });
+  expect(await within(dialog).findByText('Every team must be ready before the draft starts.')).toBeInTheDocument();
+  expect(within(dialog).queryByText('DRAFT_NOT_READY')).not.toBeInTheDocument();
 });

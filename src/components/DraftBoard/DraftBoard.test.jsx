@@ -1865,6 +1865,34 @@ test('a transient refusal leaves the commissioner controls exactly where they we
     .getByRole('group', { name: 'My picks' })).toBeInTheDocument();
 });
 
+// #969: the room reads a refusal through readHttpFailure. This envelope is the
+// commissioner shape (b): the `error` field holds the machine CODE and the
+// sentence written for the commissioner rides in `message`. The old hand-rolled
+// `err.response?.data?.error` read the code, so a commissioner was shown
+// DRAFT_ORDER_LOCKED. The room must render the sentence and never the code.
+test('a refusal carrying a code beside a message renders the message, not the code', async () => {
+  renderBoardWithToasts(1);
+  await screen.findByText('Patrick Mahomes');
+  connectAsCommissioner();
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague({
+      draft_status: 'pending',
+      owner_id: 7,
+    }), { onTheClock: null }))
+  );
+
+  apiClient.post.mockRejectedValueOnce({
+    response: {
+      status: 409,
+      data: { error: 'DRAFT_ORDER_LOCKED', message: 'The draft order is locked once the draft starts.' },
+    },
+  });
+  await userEvent.click(screen.getByRole('button', { name: 'Randomize Draft order' }));
+
+  expect(await screen.findByText('The draft order is locked once the draft starts.')).toBeInTheDocument();
+  expect(screen.queryByText('DRAFT_ORDER_LOCKED')).not.toBeInTheDocument();
+});
+
 test('Randomize Draft order shows only for the commissioner pre-draft and POSTs', async () => {
   const { unmount } = renderBoardWithToasts(1);
   await screen.findByText('Patrick Mahomes');

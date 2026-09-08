@@ -8,13 +8,14 @@ import { deriveOnTheClock } from '../../lib/onTheClock';
 import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 import { draftRounds } from '../../lib/rosterShape';
 import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 // Presenter links are intentionally anonymous: do not use apiClient here,
 // because its 401 interceptor can attempt an authenticated token refresh.
 const presenterClient = axios.create();
 
 function presenterError(error) {
-  return error?.response?.data?.error || 'Unable to load this draft board.';
+  return readHttpFailure(error).message || 'Unable to load this draft board.';
 }
 
 function DraftPresenter() {
