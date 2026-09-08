@@ -1193,6 +1193,7 @@ async function runInjurySync(api) {
   }
   let irFlags;
   let matchedCount = 0;
+  let rollbackError = null;
   try {
     await client.query('BEGIN');
     // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
@@ -1214,7 +1215,10 @@ async function runInjurySync(api) {
     // That is a far shorter hold than the loop's, so a 57014 cancellation of a
     // blocked wait is far less likely to be reached in the first place. The lock
     // releases with the transaction either way, so there is no explicit unlock and
-    // nothing strands behind the pooler (#839).
+    // nothing strands behind the pooler (#839): with COMMIT, with ROLLBACK, or,
+    // when the ROLLBACK itself rejects, with the destroyed connection (the
+    // release-with-error in the finally below, which drops the socket so Postgres
+    // frees the session's locks on disconnect).
     await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
     const playersResult = await client.query(
       `SELECT "id", "external_id", "injury_status"
@@ -1268,9 +1272,10 @@ async function runInjurySync(api) {
   } catch (error) {
     try {
       await client.query('ROLLBACK');
-    } catch (rollbackError) {
-      error.rollbackError = rollbackError;
-      console.error(`[injuries] ROLLBACK failed after a transaction error: ${rollbackError.message}`);
+    } catch (rbError) {
+      rollbackError = rbError;
+      error.rollbackError = rbError;
+      console.error(`[injuries] ROLLBACK failed after a transaction error: ${rbError.message}`);
     }
     // The database side threw (lock, FOR UPDATE scan, bulk UPDATE, or IR flag
     // pass) and rolled back. Tagged so the failure row reads "ours", distinct
@@ -1278,7 +1283,17 @@ async function runInjurySync(api) {
     error.syncFailureReason = error.syncFailureReason || 'write_failed';
     throw error;
   } finally {
-    client.release();
+    // A rejecting ROLLBACK leaves the transaction, and the xact-scoped players
+    // lock, open on this socket. Returning it to the pool would hand the next
+    // borrower an open transaction and strand the lock behind the pooler (#839,
+    // #1053). Release with an error so pg-pool destroys the connection instead;
+    // see advisoryLock.js for the same rule. A clean ROLLBACK keeps its healthy
+    // connection: release with no argument, exactly as before.
+    client.release(
+      rollbackError
+        ? new Error(`injury sync ROLLBACK failed; connection destroyed: ${rollbackError.message}`)
+        : undefined
+    );
   }
 
   try {

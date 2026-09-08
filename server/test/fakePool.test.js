@@ -96,6 +96,31 @@ test('assertClean throws on a transaction left open', async () => {
   assert.throws(() => fake.assertClean(), /transaction left open/);
 });
 
+test('assertClean treats a client released WITH an Error as clean even with an open transaction', async () => {
+  // A destroy: pg-pool's release(err) drops the socket, so Postgres rolls back
+  // and frees the session's locks on disconnect. The open transaction is gone
+  // with the connection, so assertClean passes. Red-tell: removing the
+  // release-with-Error branch from assertClean turns this red on
+  // "transaction left open".
+  const fake = createFakePool([]);
+  const client = await fake.connect();
+  await client.query('BEGIN');
+  client.release(new Error('connection destroyed'));
+  fake.assertClean();
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'the recorded release argument is the destroy Error');
+});
+
+test('assertClean still throws for a client released bare while its transaction is open', async () => {
+  // The control for the case above: a plain return-to-pool (no argument) with
+  // an open transaction is the leak, and stays a leak.
+  const fake = createFakePool([]);
+  const client = await fake.connect();
+  await client.query('BEGIN');
+  client.release();
+  assert.throws(() => fake.assertClean(), /transaction left open/);
+  assert.equal(fake.releaseArgs()[0], undefined, 'a plain release records undefined');
+});
+
 test('verb/table matcher constructors key on statement shape, not formatting', async () => {
   const fake = createFakePool([
     [select('teams'), () => ({ rows: [{ from: 'select' }] })],
