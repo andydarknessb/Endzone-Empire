@@ -1108,18 +1108,27 @@ async function syncInjuries({ api = tank01Get } = {}) {
   try {
     result = await runInjurySync(api);
   } catch (error) {
-    // Every throw is recorded before it is rethrown: the two before the
-    // transaction opens (api() itself, and the 502 response-shape guard) and
-    // anything the transaction throws (rolled back and rethrown from
-    // runInjurySync's inner catch). The record is written on the POOL, outside
-    // that transaction, so a rolled-back run still leaves its failure row.
-    // reason splits the two pre-transaction shape/upstream failures (502) from
-    // everything else; both carry the error message.
+    // Every throw is recorded before it is rethrown, and reason answers the
+    // highest-value operational question this row exists for: was it upstream
+    // (Tank01, which is quota-metered) or was it us (our database)? The four
+    // reasons mirror the ADP job's vocabulary so two rows in one table read in
+    // one language, and each throw site tags its own (runInjurySync sets
+    // error.syncFailureReason):
+    //   fetch_failed  - the Tank01 getNFLPlayerList call itself threw (network,
+    //                   HTTP error, quota refusal). Upstream. Check Tank01.
+    //   bad_response  - Tank01 answered but the payload shape was wrong (the 502
+    //                   guard). Upstream contract drift. (ADP: adp.service.js:203.)
+    //   write_failed  - the database side threw (connect, lock, scan, bulk
+    //                   UPDATE, IR flag pass), rolled back. Ours. Check the DB.
+    //   sync_failed   - reserved for a genuinely unclassified error (e.g. a bug
+    //                   in the feed-mapping loop), so the three above never blur.
+    // The record is written on the POOL, outside the transaction, so a
+    // rolled-back run still leaves its failure row; both paths carry the message.
     await recordDataSyncRun({
       job: 'injuries',
       startedAt,
       ok: false,
-      detail: { reason: error.statusCode === 502 ? 'bad_response' : 'sync_failed', message: error.message },
+      detail: { reason: error.syncFailureReason || 'sync_failed', message: error.message },
     });
     throw error;
   }
@@ -1137,11 +1146,21 @@ async function syncInjuries({ api = tank01Get } = {}) {
 }
 
 async function runInjurySync(api) {
-  const response = await api('/getNFLPlayerList');
+  let response;
+  try {
+    response = await api('/getNFLPlayerList');
+  } catch (error) {
+    // Upstream: the Tank01 call itself threw. Tagged here because such an error
+    // carries no statusCode, so it cannot be told apart from a database failure
+    // downstream without a tag - the exact conflation finding 1 called out.
+    error.syncFailureReason = error.syncFailureReason || 'fetch_failed';
+    throw error;
+  }
   const entries = tank01Body(response.data) || [];
   if (!Array.isArray(entries)) {
     const err = new Error('unexpected getNFLPlayerList response shape');
     err.statusCode = 502;
+    err.syncFailureReason = 'bad_response';
     throw err;
   }
   const injuryByExternal = new Map();
@@ -1231,6 +1250,10 @@ async function runInjurySync(api) {
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
+    // The database side threw (lock, FOR UPDATE scan, bulk UPDATE, or IR flag
+    // pass) and rolled back. Tagged so the failure row reads "ours", distinct
+    // from an upstream fetch_failed.
+    error.syncFailureReason = error.syncFailureReason || 'write_failed';
     throw error;
   } finally {
     client.release();

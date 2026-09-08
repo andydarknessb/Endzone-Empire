@@ -417,7 +417,13 @@ test('#961 failure: one ok=false row carries the error message, and the run stil
   assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended on failure');
   assert.equal(records[0].params[0], 'injuries');
   assert.equal(records[0].params[2], false, 'ok is false');
-  assert.equal(JSON.parse(records[0].params[3]).message, 'scan blew up', 'the error message is in detail');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'scan blew up', 'the error message is in detail');
+  // A throw from inside the transaction is the database side. Red-tell:
+  // dropping the write_failed tag in the transaction catch drops this to
+  // sync_failed. Control: 'write_failed' here, 'fetch_failed'/'bad_response' in
+  // the two pre-transaction tests below.
+  assert.equal(detail.reason, 'write_failed', 'a scan failure is the database side');
   fake.assertClean();
 });
 
@@ -441,6 +447,61 @@ test('#961 survives rollback: the failure row is written on the pool, after ROLL
   assert.ok(rollbackIdx >= 0, 'the run rolled back');
   assert.equal(fake.calls[recordIdx].via, 'pool', 'the record is written on the pool, not the rolled-back client');
   assert.ok(rollbackIdx < recordIdx, 'the record is written after the ROLLBACK');
+  fake.assertClean();
+});
+
+test('#961 upstream failure: an api() throw records ok=false with reason "fetch_failed"', async (t) => {
+  // The upstream Tank01 call throws before the transaction opens. It carries no
+  // statusCode, so only a tag distinguishes it from a database failure - which
+  // is the whole point of splitting the reason (finding 1): "upstream or us" is
+  // the highest-value question the row answers, and this sync is quota-metered.
+  // Red-tell: dropping the fetch_failed tag in runInjurySync's api() catch drops
+  // this to sync_failed. Control: reason is 'fetch_failed' here, 'bad_response'
+  // in the shape-guard test, 'write_failed' in the in-transaction test.
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    syncInjuries({ api: async () => { throw new Error('Tank01 timed out'); } }),
+    /Tank01 timed out/,
+  );
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row on an upstream failure');
+  assert.equal(records[0].via, 'pool');
+  assert.equal(records[0].params[0], 'injuries');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'Tank01 timed out', 'the upstream error message is in detail');
+  assert.equal(detail.reason, 'fetch_failed', 'an upstream throw is fetch_failed, not merged with our failures');
+  // No transaction was opened: the failure is upstream of pool.connect().
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction on an upstream failure');
+  fake.assertClean();
+});
+
+test('#961 bad response: a non-array getNFLPlayerList body records ok=false with reason "bad_response"', async (t) => {
+  // Tank01 answered, but the body is not an array, so the 502 shape guard throws
+  // before the transaction. Red-tell: dropping the bad_response tag (or the
+  // guard) changes this reason. Control: 'bad_response' here vs 'fetch_failed'
+  // and 'write_failed' in the sibling tests.
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    syncInjuries({ api: async () => ({ data: { body: { notAnArray: true } } }) }),
+    /unexpected getNFLPlayerList response shape/,
+  );
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row on a bad response');
+  assert.equal(records[0].via, 'pool');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'unexpected getNFLPlayerList response shape', 'the shape-guard message is in detail');
+  assert.equal(detail.reason, 'bad_response', 'a malformed feed is bad_response (upstream contract drift)');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction on a bad response');
   fake.assertClean();
 });
 
