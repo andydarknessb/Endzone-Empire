@@ -360,6 +360,111 @@ test('#929: the bulk designation write is issued before the IR stash is read', a
   fake.assertClean();
 });
 
+// ---- #961: every syncInjuries run appends one data_sync_runs row ----------
+// A minimal happy path: one player goes healthy -> Questionable. That is not an
+// IR recovery, so flagRecoveredIrStashes returns [] without a query, and the run
+// is playersUpdated 1, irFlags 0. The data_sync_runs INSERT matches on the pool
+// (no side tag), which is the observable that proves it is written outside the
+// transaction, not on the checked-out client.
+const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
+const healthyToQuestionableApi = async () => ({
+  data: { body: [{ playerID: 'tank-91', injury: { designation: 'Questionable', description: 'Ankle' } }] },
+});
+
+test('#961 success: one ok=true data_sync_runs row with job "injuries" and the run counts', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 91, external_id: 'tank-91', injury_status: null }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({ api: healthyToQuestionableApi });
+
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 });
+  const records = dataSyncRuns(fake.calls);
+  // Red-tell for criterion 2: deleting the ok=true record call empties this.
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended');
+  assert.equal(records[0].via, 'pool', 'the record is written on the pool, outside the transaction');
+  assert.equal(records[0].params[0], 'injuries', 'the job is the literal "injuries"');
+  assert.equal(records[0].params[2], true, 'ok is true');
+  assert.deepEqual(JSON.parse(records[0].params[3]), { playersUpdated: 1, irFlags: 0 },
+    'detail carries the run counts');
+  // Recorded after the run committed, never mid-transaction.
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  const recordIdx = fake.calls.findIndex((c) => insert('data_sync_runs').test(c.text));
+  assert.ok(commitIdx >= 0 && commitIdx < recordIdx, 'the record follows COMMIT');
+  fake.assertClean();
+});
+
+test('#961 failure: one ok=false row carries the error message, and the run still rethrows', async (t) => {
+  const boom = new Error('scan blew up');
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => { throw boom; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // Red-tell for the rethrow half of criterion 3: swallowing the rethrow makes
+  // this reject-assertion red (syncInjuries would resolve instead).
+  await assert.rejects(syncInjuries({ api: healthyToQuestionableApi }), /scan blew up/);
+
+  const records = dataSyncRuns(fake.calls);
+  // Red-tell for the record half of criterion 3: deleting the failure record
+  // call empties this.
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended on failure');
+  assert.equal(records[0].params[0], 'injuries');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  assert.equal(JSON.parse(records[0].params[3]).message, 'scan blew up', 'the error message is in detail');
+  fake.assertClean();
+});
+
+test('#961 survives rollback: the failure row is written on the pool, after ROLLBACK', async (t) => {
+  // Criterion 5, the reason the ticket exists. The scan throws inside the
+  // transaction, so the run rolls back. Because the record is written on the
+  // pool AFTER the ROLLBACK, the failure row survives; a record moved inside the
+  // transaction and written on that client would be lost with the rollback.
+  // Red-tell: moving the record call inside the transaction on the client turns
+  // via to 'client' and lands it before ROLLBACK, reddening both asserts below.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => { throw new Error('scan blew up'); }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await assert.rejects(syncInjuries({ api: healthyToQuestionableApi }), /scan blew up/);
+
+  const rollbackIdx = fake.calls.findIndex((c) => c.text === 'ROLLBACK');
+  const recordIdx = fake.calls.findIndex((c) => insert('data_sync_runs').test(c.text));
+  assert.ok(rollbackIdx >= 0, 'the run rolled back');
+  assert.equal(fake.calls[recordIdx].via, 'pool', 'the record is written on the pool, not the rolled-back client');
+  assert.ok(rollbackIdx < recordIdx, 'the record is written after the ROLLBACK');
+  fake.assertClean();
+});
+
+test('#961 best-effort: a record write that throws changes neither outcome nor return value', async (t) => {
+  // The table may not exist yet in a given environment (the migration is a
+  // maintainer step). A thrown record write must not turn a correct run into a
+  // rejection. Red-tell: removing the swallow in services/dataSyncRuns makes
+  // syncInjuries reject here instead of returning the result.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 91, external_id: 'tank-91', injury_status: null }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => { throw new Error('relation "data_sync_runs" does not exist'); }],
+  ]).install(t);
+
+  const result = await syncInjuries({ api: healthyToQuestionableApi });
+
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 }, 'the run returns its real result');
+  assert.equal(dataSyncRuns(fake.calls).length, 1, 'the record write was attempted once');
+  fake.assertClean();
+});
+
 test('#929: playersUpdated counts feed matches, not written rows (3 matches, 1 no-op -> 3)', async (t) => {
   // Three feed matches; tank-81 equals its stored row (a no-op the statement
   // drops), the other two differ. playersUpdated is the length of the

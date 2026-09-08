@@ -13,6 +13,7 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { fantasySideWhereSql } = require('./leagueType');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
+const { recordDataSyncRun } = require('./dataSyncRuns');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -1096,6 +1097,46 @@ function normalizeInjuryStatus(raw) {
  * flag rows commit with the designation updates before best-effort push.
  */
 async function syncInjuries({ api = tank01Get } = {}) {
+  // #961: every run appends exactly one data_sync_runs row so a failed injury
+  // sync stops being invisible. startedAt is captured before the upstream fetch
+  // (mirroring the ADP precedent) so the record spans the slowest part of the
+  // run. syncInjuries has TWO outcomes and no refusal: it returns, or it throws.
+  // An empty or fully unmatched feed is a legitimate ok=true run with
+  // playersUpdated 0 (the loop leaves unmatched rows untouched), not a refusal.
+  const startedAt = new Date();
+  let result;
+  try {
+    result = await runInjurySync(api);
+  } catch (error) {
+    // Every throw is recorded before it is rethrown: the two before the
+    // transaction opens (api() itself, and the 502 response-shape guard) and
+    // anything the transaction throws (rolled back and rethrown from
+    // runInjurySync's inner catch). The record is written on the POOL, outside
+    // that transaction, so a rolled-back run still leaves its failure row.
+    // reason splits the two pre-transaction shape/upstream failures (502) from
+    // everything else; both carry the error message.
+    await recordDataSyncRun({
+      job: 'injuries',
+      startedAt,
+      ok: false,
+      detail: { reason: error.statusCode === 502 ? 'bad_response' : 'sync_failed', message: error.message },
+    });
+    throw error;
+  }
+  // Success is recorded OUTSIDE the try: a best-effort record that somehow threw
+  // must not be re-caught and rewritten as a failure. The recorder swallows its
+  // own errors, so this never throws; if the swallow were removed, this run's
+  // correct result would surface the record's error instead.
+  await recordDataSyncRun({
+    job: 'injuries',
+    startedAt,
+    ok: true,
+    detail: { playersUpdated: result.playersUpdated, irFlags: result.irFlags },
+  });
+  return result;
+}
+
+async function runInjurySync(api) {
   const response = await api('/getNFLPlayerList');
   const entries = tank01Body(response.data) || [];
   if (!Array.isArray(entries)) {
