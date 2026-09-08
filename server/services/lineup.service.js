@@ -830,23 +830,49 @@ async function getLineup({ leagueId, userId, week }) {
 
     await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek, league });
 
+    // A SETTLED week is read AS PLAYED, never through the current roster
+    // (CONTEXT.md, Settle pass, and #982). The roster join is right for a live
+    // week and wrong for a settled one: it drops the players who played the
+    // week and have since left, which is why the redraft path had to put the
+    // departed STARTERS back with `spentStartingSlots` and best ball, which
+    // skips that call, put nobody back at all.
+    const asPlayed = await isFinalWeekForTeam(client, {
+      leagueId, teamId: team.id, season, week: targetWeek,
+    });
+    const rosterJoin = asPlayed ? '' : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+         AND "team_players"."player_id" = "lineup_entries"."player_id"`;
+    // `rowsHeldAsPlayed` reads `player_id` while everything downstream keys on
+    // `players.id`; the schedule-key guard above turns a caller reaching for
+    // the wrong one into a throw rather than an empty exclusion set, so the
+    // settled read selects the column the helper actually reads.
+    const asPlayedColumn = asPlayed ? `,
+              "lineup_entries"."player_id"` : '';
     const entriesResult = await client.query(
       `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-              "players"."injury_status", "lineup_entries"."slot", "lineup_entries"."ir_attested"
+              "players"."injury_status", "lineup_entries"."slot", "lineup_entries"."ir_attested"${asPlayedColumn}
        FROM "lineup_entries"
-       JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-         AND "team_players"."player_id" = "lineup_entries"."player_id"
+       ${rosterJoin}
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
          AND "lineup_entries"."week" = $3
        ORDER BY "players"."position", "players"."name"`,
       [team.id, season, targetWeek]
     );
-    const spent = league.best_ball
+    const entries = asPlayed
+      ? await rowsHeldAsPlayed(client, {
+        league, teamId: team.id, season, week: targetWeek, rows: entriesResult.rows,
+      })
+      : entriesResult.rows;
+    // No `spent` list on a settled week. It exists to put back the rows the
+    // roster join removed and to keep their starting slots occupied for
+    // validation; with the join gone those rows arrive on their own, and a
+    // settled week is not editable, so there is nothing to validate. Computing
+    // both would list a departed starter twice.
+    const spent = asPlayed || league.best_ball
       ? []
       : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
 
-    const playerIds = entriesResult.rows.map((row) => row.id);
+    const playerIds = entries.map((row) => row.id);
     // Load lazily because scoring.service imports lineup.service. Passing the
     // League and these roster ids selects the scoring-aware weekly engine,
     // rather than the pool-wide extrapolator or a season-level estimate.
@@ -859,7 +885,7 @@ async function getLineup({ leagueId, userId, week }) {
         playerIds,
       })
       : new Map();
-    for (const entry of entriesResult.rows) {
+    for (const entry of entries) {
       const projection = weeklyByPlayer.get(entry.id);
       const points = Number(projection?.points);
       entry.projected_points = projection?.points == null || !Number.isFinite(points)
@@ -870,9 +896,9 @@ async function getLineup({ leagueId, userId, week }) {
     const locked = await lockedPlayerIds(client, {
       season,
       week: targetWeek,
-      players: entriesResult.rows.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
+      players: entries.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
     });
-    const byeByTeam = await computeByeWeeks(entriesResult.rows.map((row) => row.nfl_team), season);
+    const byeByTeam = await computeByeWeeks(entries.map((row) => row.nfl_team), season);
     await client.query('COMMIT');
 
     const settings = parseLineupSettings(league);
@@ -885,7 +911,7 @@ async function getLineup({ leagueId, userId, week }) {
       rosterSlots: settings.rosterSlots,
       benchSlots: settings.benchSlots,
       irSlots: settings.irSlots,
-      entries: annotateLineupEntries([...entriesResult.rows, ...spent], { locked, byeByTeam, selectedWeek: targetWeek }),
+      entries: annotateLineupEntries([...entries, ...spent], { locked, byeByTeam, selectedWeek: targetWeek }),
     };
   } catch (error) {
     await client.query('ROLLBACK');
