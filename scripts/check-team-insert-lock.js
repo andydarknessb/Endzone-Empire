@@ -75,14 +75,96 @@ const TEAM_INSERT_SOURCE = 'INSERT\\s+INTO\\s+"?teams"?';
 const TEAM_INSERT = new RegExp(TEAM_INSERT_SOURCE, 'gi');
 const hasTeamInsert = (source) => new RegExp(TEAM_INSERT_SOURCE, 'i').test(source);
 
-// A League-row lock: a `FROM "leagues" ... FOR UPDATE` within a single SQL
-// string. `[^`]*?` keeps the two halves inside one template literal (no
-// backtick between them), so a `FROM "leagues"` in one statement and a `FOR
-// UPDATE` on some other table in a later statement cannot be mistaken for a
-// leagues lock. Matches every real variant: the bare `WHERE "id" = $1 FOR
-// UPDATE`, the commissionerPredicate form, and the `... AND "draft_status" =
-// 'active' FOR UPDATE` reset form, single- or multi-line.
-const LEAGUE_LOCK = /FROM\s+"leagues"[^`]*?FOR\s+UPDATE/i;
+// A League-row lock, WITHIN ONE SQL statement: `FROM "leagues" ... FOR UPDATE`.
+// It is only ever tested against a single statement (see sqlStatements /
+// containsLeagueLock), never against a raw source span - an earlier version
+// tested a `[^`]*?` span and could match a `FROM "leagues"` read in one
+// statement against a `FOR UPDATE` on another table in a later one whenever no
+// backtick sat between them (quoted SQL, or two statements in one template).
+// Matches every real variant: the bare `WHERE "id" = $1 FOR UPDATE`, the
+// commissionerPredicate form, and the `... AND "draft_status" = 'active' FOR
+// UPDATE` reset form, single- or multi-line.
+const LEAGUE_LOCK = /FROM\s+"leagues"[\s\S]*?FOR\s+UPDATE/i;
+
+/**
+ * A copy of comment-stripped source with the BODY of every string, single- and
+ * double-quoted and template, replaced by spaces (delimiters, newlines and
+ * length preserved). Braces inside a string or SQL (`'{}'::jsonb`, a message
+ * `'done }'`, a template's `${...}` payload) must not count as structural
+ * braces, or one stray brace would unbalance function-body matching and mis-scope
+ * a perfectly locked insert. Indices stay aligned with the unmasked source, so a
+ * range found here slices the SQL back out of the unmasked copy.
+ *
+ * Regex literals are NOT masked (telling `/` division from a regex opener needs
+ * a full tokenizer). A regex literal carrying an UNBALANCED brace could still
+ * mis-scope, but that fails CLOSED (a spurious violation a human sees), never
+ * open, and no such literal exists on a Team-insert path today.
+ */
+function maskLiterals(source) {
+  const out = source.split('');
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const c = source[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const quote = c;
+      let j = i + 1;
+      while (j < n) {
+        if (source[j] === '\\') {
+          out[j] = ' ';
+          if (j + 1 < n && source[j + 1] !== '\n') out[j + 1] = ' ';
+          j += 2;
+          continue;
+        }
+        if (source[j] === quote) break;
+        if (quote !== '`' && source[j] === '\n') break; // unterminated: not a string opener
+        if (source[j] !== '\n') out[j] = ' ';
+        j += 1;
+      }
+      i = j + 1;
+      continue;
+    }
+    i += 1;
+  }
+  return out.join('');
+}
+
+/**
+ * The SQL statements in a stretch of source: the body of each string/template
+ * literal, split on `;` so two statements crammed into one literal are judged
+ * apart. This is what scopes LEAGUE_LOCK to a single statement - the lock and a
+ * `FOR UPDATE` on some other table must live in the SAME statement to count.
+ */
+function sqlStatements(source) {
+  const statements = [];
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const c = source[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const quote = c;
+      let j = i + 1;
+      let body = '';
+      while (j < n) {
+        if (source[j] === '\\') { body += ' '; j += 2; continue; }
+        if (source[j] === quote) break;
+        if (quote !== '`' && source[j] === '\n') break;
+        body += source[j];
+        j += 1;
+      }
+      for (const piece of body.split(';')) statements.push(piece);
+      i = j + 1;
+      continue;
+    }
+    i += 1;
+  }
+  return statements;
+}
+
+/** True when some single SQL statement in `scopeSource` is a League-row lock. */
+function containsLeagueLock(scopeSource) {
+  return sqlStatements(scopeSource).some((statement) => LEAGUE_LOCK.test(statement));
+}
 
 // Keywords whose `(...) {` is a control block, not a function body.
 const CONTROL_KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch', 'with']);
@@ -199,22 +281,51 @@ function findTeamInserts(rawSource) {
 }
 
 /**
- * Every Team-insert site NOT preceded by a League-row lock in the same
- * enclosing function, as `{ line }`. This is the RULE half. A site with no
- * enclosing function (top-level) is a violation: no lock can be proven for it.
+ * The enclosing function's OWN body text from its `{` up to `index`, with the
+ * bodies of any nested functions blanked. A League lock hidden inside a nested
+ * inline helper (`const lock = async () => { ... FOR UPDATE ... }`) that happens
+ * to sit textually before the insert must NOT count: the helper may never run,
+ * or run in another transaction. Only a lock the enclosing function itself takes
+ * before the insert is the invariant (see the module header's operationalization
+ * note). Ranges and indices come from the masked copy; the SQL is sliced from
+ * the unmasked copy, and the two are the same length.
+ */
+function ownScopeBeforeInsert(unmasked, ranges, fn, index) {
+  const chars = unmasked.slice(fn.open, index).split('');
+  for (const range of ranges) {
+    const isFn = range.open === fn.open && range.close === fn.close;
+    const nestedInFn = range.open > fn.open && range.close <= fn.close;
+    if (isFn || !nestedInFn) continue;
+    const from = Math.max(range.open, fn.open);
+    const to = Math.min(range.close, index - 1);
+    for (let p = from; p <= to; p += 1) chars[p - fn.open] = ' ';
+  }
+  return chars.join('');
+}
+
+/**
+ * Every Team-insert site NOT preceded by a League-row lock the SAME function
+ * takes, as `{ line }`. This is the RULE half. A site with no enclosing function
+ * (top-level) is a violation: no lock can be proven for it.
+ *
+ * Function-body ranges are found on the literal-masked copy (so a brace inside a
+ * string or SQL cannot mis-scope them), while the lock is read from the unmasked
+ * copy (which still carries the SQL). The two copies are the same length, so a
+ * range from one indexes cleanly into the other.
  */
 function unlockedTeamInserts(rawSource) {
   const source = stripComments(rawSource, '.js');
   // No insert, no function-body walk: most files have none, and building ranges
   // for them would be wasted work.
   if (!hasTeamInsert(source)) return [];
-  const ranges = functionBodyRanges(source);
+  const masked = maskLiterals(source);
+  const ranges = functionBodyRanges(masked);
   const violations = [];
   for (const match of source.matchAll(TEAM_INSERT)) {
     const index = match.index;
     const fn = enclosingFunction(ranges, index);
-    const scopeBeforeInsert = fn ? source.slice(fn.open, index) : '';
-    if (!fn || !LEAGUE_LOCK.test(scopeBeforeInsert)) {
+    const scope = fn ? ownScopeBeforeInsert(source, ranges, fn, index) : '';
+    if (!fn || !containsLeagueLock(scope)) {
       violations.push({ line: lineOf(source, index) });
     }
   }

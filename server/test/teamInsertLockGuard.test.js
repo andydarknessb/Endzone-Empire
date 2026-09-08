@@ -138,6 +138,60 @@ test('an arrow-function handler counts as an enclosing function', () => {
   assert.deepEqual(unlockedTeamInserts(unlocked), [{ line: 2 }]);
 });
 
+// The three evasions a risk review confirmed against the first cut, pinned so
+// they cannot creep back: the lock scope must be a single SQL statement, and the
+// lock must be one the enclosing function itself takes.
+
+test('a leagues READ (no lock) plus a FOR UPDATE on another table is a violation', () => {
+  // Quoted SQL, so no backtick sits between the two statements; the lock must
+  // still be judged per statement, not across the whole span.
+  const src = [
+    'async function addTeam(client, id) {',
+    "  await client.query('SELECT * FROM \"leagues\" WHERE id = $1');",
+    "  await client.query('SELECT * FROM \"teams\" WHERE id = $1 FOR UPDATE');",
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), [{ line: 4 }]);
+});
+
+test('two statements in one template do not combine into a leagues lock', () => {
+  const src = [
+    'async function addTeam(client, id) {',
+    '  await client.query(`SELECT * FROM "leagues" WHERE id = $1; SELECT * FROM "teams" WHERE id = $1 FOR UPDATE`);',
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), [{ line: 3 }]);
+});
+
+test('a lock inside a nested inline helper does not satisfy an outer insert', () => {
+  const src = [
+    'async function addTeam(client, id) {',
+    '  const lockIt = async () => {',
+    `    ${q(LEAGUE_LOCK)}`,
+    '  };',
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), [{ line: 5 }]);
+});
+
+test('an unbalanced brace inside a string does not mis-scope a locked insert', () => {
+  const src = [
+    'async function join(client, id) {',
+    `  ${q(LEAGUE_LOCK)}`,
+    "  logger.info('progress }');",
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
 test('a control block between lock and insert does not break scoping', () => {
   // `if (...) {` is not a function body, so the insert's enclosing function is
   // still the outer one where the lock lives.
