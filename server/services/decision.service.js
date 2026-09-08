@@ -562,10 +562,31 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
  * That also moves the lock's clock from the database's `now()` to the app's,
  * which is the clock `setLineup` has always judged a move by. The two agreeing
  * is the point; a second clock is a second way to disagree.
+ *
+ * Two things short-circuit all of that, both because there is no move to advise
+ * (#977). A SETTLED week has locked every player, so the pool is empty and the
+ * answer is already `delta: 0, swaps: []`; it costs one population read and
+ * nothing else. BEST BALL seats nobody, so there is no lineup to swap and its
+ * actual is its optimal over the whole pool, exactly as `weekHindsight` reads
+ * it. Neither branch moves a field on the wire.
  */
-async function liveWhatIf({ leagueId, teamId, season, week }) {
+async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
-  await materializeLineup(pool, { leagueId, teamId, season, week, league });
+  // A settled week has no actionable move left in it: every game has kicked
+  // off, so every player is locked, the candidate pool is empty and the answer
+  // is fixed at `delta: 0, swaps: []` (#977). Nothing below the population read
+  // can change that, so a settled week pays for none of it: no materialisation,
+  // no lock read, and no schedule or bye read behind the lock. The population
+  // read stays - `actualPoints` is summed from those rows.
+  //
+  // `isWeekFinal` is a query of its own, so a caller that already holds the
+  // settled fact passes it as `weekIsFinal` rather than making us buy it again.
+  const isFinal = weekIsFinal === undefined || weekIsFinal === null
+    ? await isWeekFinal({ leagueId, season, week })
+    : weekIsFinal === true;
+  if (!isFinal) {
+    await materializeLineup(pool, { leagueId, teamId, season, week, league });
+  }
 
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
@@ -578,26 +599,17 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
        AND "lineup_entries"."week" = $3`,
     [teamId, season, week]
   );
-  const locked = await lockedPlayerIds(pool, {
-    season,
-    week,
-    players: rows.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
-  });
-  for (const row of rows.rows) row.locked = locked.has(row.player_id);
-
   // Same in-progress `stats` jsonb the box-score sync refreshes every few
   // minutes, priced under the league's rules by the settle pass's pricer, not
   // the default-rules `fantasy_points` column (#739). Live cadence is
   // unchanged: the column and the jsonb move together.
   const rules = rulesForLeague(league);
-  let actualPoints = 0;
+  let startedPoints = 0;
   const pointsFor = new Map();
   const nameById = new Map();
-  const lockedById = new Map();
-  // Only unlocked players are candidates for the "what you could still do" pool;
-  // locked players stay wherever they are.
-  const candidatePool = [];
   const currentStarterIds = new Set();
+  // Every row that could ever occupy a starting slot: the whole pool minus IR.
+  const wholePool = [];
   for (const row of rows.rows) {
     // An IR occupant is never a swap candidate, locked or not (#741): nothing in
     // the product advises STARTING him (the start/sit advisor excludes IR, the
@@ -607,19 +619,59 @@ async function liveWhatIf({ leagueId, teamId, season, week }) {
     const points = calculateFantasyPoints(row.stats, rules);
     pointsFor.set(row.player_id, points);
     nameById.set(row.player_id, row.name);
-    lockedById.set(row.player_id, row.locked === true);
-    const isStarter = row.slot !== BENCH;
-    if (isStarter) {
-      actualPoints += points;
+    // Standard: only rows in a starting slot count toward the started total.
+    // Best ball keeps no started total (its actual is its optimal over the
+    // whole pool), so it never reads this and never sums a lineup nobody sets.
+    if (!league.best_ball && row.slot !== BENCH) {
+      startedPoints += points;
       currentStarterIds.add(row.player_id);
     }
+    wholePool.push({ playerId: row.player_id, position: row.position });
+  }
+
+  const settings = parseLineupSettings(league);
+
+  // Best ball seats nobody - the materialisation skips its optimizer seeding
+  // and a lineup save refuses any move outside bench and IR - so every row is
+  // BENCH and there is no lineup to advise about. Its actual IS its optimal
+  // over the whole pool (#635, ADR 0022/0023), the same branch and the same
+  // spelling `weekHindsight` carries, on a live week and a settled one alike
+  // (#977). The optimizer is a pure function over rows already in hand, so
+  // this costs no query - and it needs no lock, because nothing is movable.
+  if (league.best_ball) {
+    const bestBallTotal = optimalLineup(wholePool, settings.rosterSlots, pointsFor).total;
+    return {
+      teamId, week, actualPoints: bestBallTotal, optimalPoints: bestBallTotal, delta: 0, swaps: [],
+    };
+  }
+
+  if (isFinal) {
+    const settledPoints = round2(startedPoints);
+    return {
+      teamId, week, actualPoints: settledPoints, optimalPoints: settledPoints, delta: 0, swaps: [],
+    };
+  }
+
+  const locked = await lockedPlayerIds(pool, {
+    season,
+    week,
+    players: rows.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+  });
+  for (const row of rows.rows) row.locked = locked.has(row.player_id);
+
+  const actualPoints = round2(startedPoints);
+  const lockedById = new Map();
+  // Only unlocked players are candidates for the "what you could still do" pool;
+  // locked players stay wherever they are.
+  const candidatePool = [];
+  for (const row of rows.rows) {
+    if (row.slot === IR) continue;
+    lockedById.set(row.player_id, row.locked === true);
     if (row.locked !== true) {
       candidatePool.push({ playerId: row.player_id, position: row.position });
     }
   }
-  actualPoints = round2(actualPoints);
 
-  const settings = parseLineupSettings(league);
   // Optimal over the actionable pool. Locked starters are pinned by adding them
   // back as forced candidates so the optimizer keeps their slots realistic.
   const forced = rows.rows
