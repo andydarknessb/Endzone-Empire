@@ -237,7 +237,7 @@ const Body = () => (
       from the secondary, and the safest defensive back to stream this week.
     </P>
 
-    <H3>IDP Streamer Summary</H3>
+    <H2>IDP Streamer Summary</H2>
     <Table aria-labelledby="idp-streamer-summary">
       <THead>
         <TR><TH scope="col">Player</TH><TH scope="col">Pos</TH><TH scope="col">Team</TH><TH scope="col">Owned %</TH><TH scope="col">Projection</TH></TR>
