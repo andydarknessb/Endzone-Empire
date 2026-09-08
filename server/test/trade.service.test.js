@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
-const { TradeError, executeTrade, cancelTrade } = require('../services/trade.service');
+const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 
 // --- roster capacity at the trade site (#97) --------------------------------
@@ -396,5 +396,160 @@ test('cancelTrade: a clean ROLLBACK returns the healthy connection to the pool (
   // destroyed. Red-tell: destroying on every error path (release with an
   // Error unconditionally) makes this fail.
   assert.equal(world.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  world.assertClean();
+});
+
+// --- counterTrade: original 'countered' and the replacement in ONE txn (#1077)
+//
+// The bug: counterTrade committed the original's 'countered' update in one
+// transaction and then proposed the replacement in a SECOND, independent one.
+// A replacement refused for any reason (here: a player on neither roster) left
+// the original consumed as 'countered' with no replacement and no way back to
+// 'pending'. The fix routes both through a single withTransaction, so a refused
+// replacement rolls the whole counter back. These tests read the statement log
+// (the fakePool's `calls`) to prove the transaction boundary, since the fake
+// applies no writes of its own.
+
+// The original trade the counter answers: team 42 (owner 8) counters team 41's
+// (owner 7) pending offer. The replacement is proposed BY team 42 TO team 41,
+// so receivingTeamId = the original proposing team (41).
+const originalTrade = { id: 5, status: 'pending', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 };
+
+/**
+ * Handlers for the whole counter path in registration order (tried in order,
+ * so the specific WHERE-clause matchers precede any generic verb/table one):
+ *   - loadTrade's League read locks the League row via the immutable
+ *     league_id subquery; proposeTradeWith re-reads the League unlocked by id.
+ *     Both would match a generic `select('leagues')`, so the subquery form is
+ *     registered first and the plain `= $1` form second (#1077 trap 3).
+ *   - loadTrade's `IN ($1, $2)` team read, requireMember's
+ *     `league_id/owner_id` read and the propose's `id = $1 AND league_id = $2`
+ *     read each get their own matcher (#1077 trap 2 / #1054): requireMember is
+ *     destructured into trade.service, so only a fakePool handler answers it.
+ *   - `roster` is what the replacement's `team_players` read returns; [] makes
+ *     the countered-in player belong to neither roster and refuse the offer.
+ */
+function counterWorld({ roster }) {
+  return [
+    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1, league_id: 1 }] })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({
+      rows: [{ id: 1, transactions_locked: false, pickem_only: false, trade_deadline_week: null, current_week: 6 }],
+    })],
+    [select('trades'), () => ({ rows: [{ ...originalTrade }] })],
+    [select('trade_items'), () => ({ rows: [] })],
+    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, () => ({
+      rows: [
+        { id: 41, name: 'Sunday Ballers', owner_id: 7, locked: false, league_id: 1 },
+        { id: 42, name: 'Bob Squad', owner_id: 8, locked: false, league_id: 1 },
+      ],
+    })],
+    [/FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2/, () => ({
+      rows: [{ id: 42, name: 'Bob Squad', owner_id: 8, locked: false, league_id: 1 }],
+    })],
+    [/FROM "teams" WHERE "id" = \$1 AND "league_id" = \$2/, () => ({
+      rows: [{ id: 41, name: 'Sunday Ballers', owner_id: 7, locked: false, league_id: 1 }],
+    })],
+    [update('trades'), () => ({ rows: [], rowCount: 1 })],
+    [/^SELECT "player_id", "team_id" FROM "team_players"/, () => ({ rows: roster })],
+    [insert('trades'), (text, params) => ({
+      rows: [{
+        id: 99, league_id: params[0], proposing_team_id: params[1],
+        receiving_team_id: params[2], counter_of: params[3], status: 'pending',
+      }],
+    })],
+    [insert('trade_items'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+    // Post-commit push read (usersWanting on the ambient pool); nobody wants it.
+    [select('notification_prefs'), () => ({ rows: [] })],
+  ];
+}
+
+const at = (calls, re) => calls.findIndex((c) => re.test(c.text));
+
+test('counterTrade: a refused replacement rolls the whole counter back in one transaction (#1077)', async (t) => {
+  // The replacement names a player who is on neither roster (team_players
+  // answers with no rows), so the propose throws its 400 roster TradeError.
+  const world = createFakePool(counterWorld({ roster: [] })).install(t);
+
+  await assert.rejects(
+    counterTrade({ tradeId: 5, userId: 8, playerIds: [55, 66] }),
+    { statusCode: 400, message: "player 55 is not on either team's roster" }
+  );
+
+  // Red-tell: on integration today the counter runs in TWO transactions -
+  // BEGIN, the countered UPDATE, COMMIT, then a second BEGIN, the propose reads,
+  // INSERT, ROLLBACK - so the log holds a COMMIT (and two BEGINs). This
+  // assertion reddens there. The fix collapses it to one BEGIN and one ROLLBACK
+  // with no COMMIT, because the whole counter is one transaction that rolls back.
+  assert.equal(world.matching(/^COMMIT$/).length, 0, 'no COMMIT: the refused counter committed nothing');
+  assert.equal(world.matching(/^BEGIN$/).length, 1, 'exactly one BEGIN: one transaction for the whole counter');
+  assert.equal(world.matching(/^ROLLBACK$/).length, 1, 'exactly one ROLLBACK');
+
+  // The original was marked 'countered' before the rollback, and nothing ever
+  // wrote it back to 'pending' (a compensating write was rejected in triage):
+  // the rollback is what restores it.
+  const counteredAt = at(world.calls, /^UPDATE "trades" SET "status" = 'countered'/);
+  const rollbackAt = at(world.calls, /^ROLLBACK$/);
+  assert.ok(counteredAt >= 0, 'the original was marked countered');
+  assert.ok(counteredAt < rollbackAt, 'the countered UPDATE precedes the ROLLBACK');
+  assert.equal(world.matching(/^UPDATE "trades" SET "status" = 'pending'/).length, 0, 'no compensating pending write');
+
+  world.assertClean();
+});
+
+test('counterTrade: an accepted replacement commits the countered update and the new offer together (control)', async (t) => {
+  // Player 55 is on the counterer's team (42), player 66 on the other (41), so
+  // the replacement moves one each way and the propose inserts a trades row.
+  const roster = [{ player_id: 55, team_id: 42 }, { player_id: 66, team_id: 41 }];
+  const world = createFakePool(counterWorld({ roster })).install(t);
+
+  const result = await counterTrade({ tradeId: 5, userId: 8, playerIds: [55, 66] });
+
+  // One transaction, committed: no rollback anywhere on the happy path.
+  assert.equal(world.matching(/^BEGIN$/).length, 1, 'exactly one BEGIN');
+  assert.equal(world.matching(/^COMMIT$/).length, 1, 'exactly one COMMIT');
+  assert.equal(world.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK');
+
+  // Both the countered UPDATE and the new INSERT land between BEGIN and COMMIT.
+  const beginAt = at(world.calls, /^BEGIN$/);
+  const commitAt = at(world.calls, /^COMMIT$/);
+  const counteredAt = at(world.calls, /^UPDATE "trades" SET "status" = 'countered'/);
+  const insertAt = at(world.calls, /^INSERT INTO "trades"/);
+  assert.ok(beginAt < counteredAt && counteredAt < commitAt, 'the countered UPDATE is inside the transaction');
+  assert.ok(beginAt < insertAt && insertAt < commitAt, 'the new offer INSERT is inside the transaction');
+
+  // The new offer records its origin and is returned as proposeTrade returns it.
+  const insertCall = world.calls.find((c) => /^INSERT INTO "trades"/.test(c.text));
+  assert.equal(insertCall.params[3], 5, 'counter_of is the original trade id');
+  assert.equal(result.id, 99, 'the inserted new trade row is returned');
+  assert.equal(result.counter_of, 5, 'the returned row carries counter_of');
+
+  world.assertClean();
+});
+
+// --- proposeTrade: the thin wrapper still refuses and still commits ----------
+// The refactor moved the propose body into a client-taking inner function;
+// these prove the public wrapper's behaviour, message and status are unchanged.
+
+test('proposeTrade: duplicate player ids are still refused with 400 (unchanged behaviour)', async (t) => {
+  createFakePool(counterWorld({ roster: [] })).install(t);
+  await assert.rejects(
+    proposeTrade({ leagueId: 1, userId: 8, receivingTeamId: 41, playerIds: [55, 55] }),
+    { statusCode: 400, message: 'duplicate players in trade' }
+  );
+});
+
+test('proposeTrade: a valid offer still commits through the wrapper and returns the row (control)', async (t) => {
+  // The proposer is team 42 (owner 8) sending to team 41; 55 is his, 66 is
+  // theirs, so the offer moves one each way.
+  const roster = [{ player_id: 55, team_id: 42 }, { player_id: 66, team_id: 41 }];
+  const world = createFakePool(counterWorld({ roster })).install(t);
+
+  const result = await proposeTrade({ leagueId: 1, userId: 8, receivingTeamId: 41, playerIds: [55, 66] });
+
+  assert.equal(world.matching(/^BEGIN$/).length, 1, 'one BEGIN');
+  assert.equal(world.matching(/^COMMIT$/).length, 1, 'the wrapper still commits');
+  assert.equal(world.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK on the happy path');
+  assert.equal(result.id, 99, 'the inserted trade row is returned');
   world.assertClean();
 });
