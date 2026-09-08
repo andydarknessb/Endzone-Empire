@@ -57,15 +57,50 @@ export const SORT_FIELDS_BY_KEY = SORT_FIELDS.reduce((acc, field) => {
   return acc;
 }, Object.create(null));
 
-/** The desktop sortable columns, in the fixed left-to-right order the table
- * renders them (Position and Actions are the two non-sortable columns and are
- * not sort fields, so they aren't here). This is its OWN ordered list, not
- * SORT_FIELDS' array order filtered by desktopColumn: SORT_FIELDS' order only
- * has to stay meaningful for the mobile "Sort by" Select and must be free to
- * change for that reason without moving desktop columns (issue #163). Every key
- * here is a real SORT_FIELDS key whose entry has desktopColumn: true, and every
- * desktopColumn entry appears here - sortFields.test.js pins both directions. */
-export const DESKTOP_SORT_COLUMN_KEYS = ['name', 'bye_week', 'adp', 'position_rank', 'proj'];
+/** The FULL desktop column sequence, in the fixed left-to-right order the table
+ * renders them: sortable columns and the two non-sortable ones (Position and
+ * Actions) alike. This is its OWN ordered list, not SORT_FIELDS' array order
+ * filtered by desktopColumn: SORT_FIELDS' order only has to stay meaningful for
+ * the mobile "Sort by" Select and must be free to change for that reason
+ * without moving desktop columns (issue #163).
+ *
+ * It is one list rather than a sortable list plus per-column special cases
+ * because the header used to render Position as a SIDE EFFECT of hitting the
+ * 'name' key (`{key === 'name' && <TableCell>Position</TableCell>}`), so
+ * Position's column index was pinned to name's rather than to its own, and the
+ * header suite (which only asserted the order of the SORTABLE buttons) stayed
+ * green while Position slid away from the body's Position cell (issue #1003).
+ * Every entry here is either:
+ *   { sortKey }            - a sortable column; sortKey is a real SORT_FIELDS
+ *                            key whose entry has desktopColumn: true
+ *   { label, align? }      - a non-sortable column, rendered as plain header
+ *                            text at that index
+ * sortFields.test.js pins that the sortKey entries and the desktopColumn flag
+ * agree in both directions. */
+export const DESKTOP_COLUMNS = [
+  { sortKey: 'name' },
+  { label: 'Position' },
+  { sortKey: 'bye_week' },
+  { sortKey: 'adp' },
+  { sortKey: 'position_rank' },
+  { sortKey: 'proj' },
+  { label: 'Actions', align: 'center' },
+];
+
+/** How many desktop columns the table renders - the colSpan any full-width row
+ * (the empty state, the loading-more spinner) must use. Derived here rather
+ * than written as a literal at each of those rows, which is how two
+ * `colSpan={7}` literals came to sit next to a header row nobody had counted
+ * (issue #1003). */
+export const DESKTOP_COLUMN_COUNT = DESKTOP_COLUMNS.length;
+
+/** The desktop SORTABLE columns' keys, in that same order. Derived from
+ * DESKTOP_COLUMNS so the sortable order and the full column sequence cannot
+ * disagree: there is one place to reorder a desktop column, and moving one
+ * there moves its header. */
+export const DESKTOP_SORT_COLUMN_KEYS = DESKTOP_COLUMNS
+  .filter((column) => column.sortKey)
+  .map((column) => column.sortKey);
 
 /** The server `?sort=` field name for a pool sort key. Total by construction:
  * an unknown key returns the default sort's wire name rather than throwing, so

@@ -35,7 +35,7 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../common/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
-import { SORT_FIELDS, SORT_FIELDS_BY_KEY, DESKTOP_SORT_COLUMN_KEYS } from './sortFields';
+import { SORT_FIELDS, SORT_FIELDS_BY_KEY, DESKTOP_COLUMNS, DESKTOP_COLUMN_COUNT } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
@@ -666,30 +666,41 @@ function PlayerPoolTable({
         >
           <TableHead>
             <TableRow>
-              {/* The sortable headers map DESKTOP_SORT_COLUMN_KEYS in its own
-                  fixed order (issue #951), each looked up by key rather than by
-                  SORT_FIELDS' array position, so reordering SORT_FIELDS (its
-                  order only has to stay meaningful for the mobile "Sort by"
-                  Select) can't silently reorder these headers out of step with
-                  the TableBody's own independently-fixed column sequence below.
-                  Position and Actions are the two non-sortable columns and
-                  aren't sort fields: Position sits after the Name header, and
-                  Actions is last. */}
-              {DESKTOP_SORT_COLUMN_KEYS.map((key) => (
-                <React.Fragment key={key}>
-                  <SortableHeaderCell field={SORT_FIELDS_BY_KEY[key]} sort={sort} dir={dir} onSort={onSort} />
-                  {key === 'name' && <TableCell sx={headCellSx}>Position</TableCell>}
-                </React.Fragment>
+              {/* The header row maps DESKTOP_COLUMNS - the FULL desktop column
+                  sequence, sortable and non-sortable alike - in its own fixed
+                  order (issue #951), each sortable column looked up by key
+                  rather than by SORT_FIELDS' array position, so reordering
+                  SORT_FIELDS (its order only has to stay meaningful for the
+                  mobile "Sort by" Select) can't silently reorder these headers
+                  out of step with the TableBody's own column sequence below.
+
+                  Position and Actions are the two non-sortable columns. Each
+                  now carries its OWN index in DESKTOP_COLUMNS rather than
+                  riding on a neighbour: Position used to render as a side
+                  effect of hitting the 'name' key, so reordering the sortable
+                  keys dragged Position along with name and desynced it from the
+                  body's Position cell on a green suite (issue #1003). */}
+              {DESKTOP_COLUMNS.map((column) => (
+                column.sortKey ? (
+                  <SortableHeaderCell
+                    key={column.sortKey}
+                    field={SORT_FIELDS_BY_KEY[column.sortKey]}
+                    sort={sort}
+                    dir={dir}
+                    onSort={onSort}
+                  />
+                ) : (
+                  <TableCell key={column.label} sx={headCellSx} align={column.align}>
+                    {column.label}
+                  </TableCell>
+                )
               ))}
-              <TableCell sx={headCellSx} align="center">
-                Actions
-              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {players.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} sx={{ color: 'text.secondary', textAlign: 'center' }}>
+                <TableCell colSpan={DESKTOP_COLUMN_COUNT} sx={{ color: 'text.secondary', textAlign: 'center' }}>
                   {search ? `No available players matching “${search}”` : 'No available players'}
                 </TableCell>
               </TableRow>
@@ -770,7 +781,7 @@ function PlayerPoolTable({
             })}
             {loadingMore && (
               <TableRow>
-                <TableCell colSpan={7} sx={{ textAlign: 'center', py: 2 }}>
+                <TableCell colSpan={DESKTOP_COLUMN_COUNT} sx={{ textAlign: 'center', py: 2 }}>
                   <CircularProgress size={20} />
                 </TableCell>
               </TableRow>
