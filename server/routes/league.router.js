@@ -878,7 +878,6 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // own vocabulary.
     const opponentByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
 
-    await client.query('BEGIN');
     // A SETTLED matchup is read AS PLAYED, never through the current roster
     // (CONTEXT.md, Settle pass): the score printed beside these lists was
     // computed over the as-played population, so joining team_players here
@@ -888,6 +887,13 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // flag is the settled test, the same fact the settle pass switches on;
     // isFinalWeekForTeam would ask it again with an extra query.
     const asPlayed = matchup.final === true;
+    // A settled week's materialization is a no-op (its own finality guard
+    // returns immediately) and the reads that follow write nothing, so a
+    // settled request buys no transaction: no BEGIN, no finality probes to
+    // wrap, no COMMIT (#978). The live path is unchanged - it still needs the
+    // transaction, since materializeLineup's copy-forward insert loop must
+    // not be observed half-written.
+    if (!asPlayed) await client.query('BEGIN');
     // One schedule read for the request rather than one per lineup read: the
     // settled path asks four times (bench and starters, home and away).
     const kickoffCache = new Map();
@@ -912,9 +918,15 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
            AND ${slotPredicate}
          ORDER BY "lineup_entries"."slot", "players"."name"`;
     const teamLineup = async (teamId) => {
-      await materializeLineup(client, {
-        leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueRow,
-      });
+      // Skipped on the settled path: materializeLineup's own finality guard
+      // would return immediately anyway, but this ticket's point is that a
+      // settled request never opens the transaction that call would run
+      // inside, so it must not be called at all (#978).
+      if (!asPlayed) {
+        await materializeLineup(client, {
+          leagueId, teamId, season: matchup.season, week: matchup.week, league: leagueRow,
+        });
+      }
       const lineupRows = await client.query(
         lineupSql('"lineup_entries"."slot" = $4'),
         [teamId, matchup.season, matchup.week, 'BENCH']
@@ -938,7 +950,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     };
     const homeRaw = await teamLineup(matchup.home_team_id);
     const awayRaw = await teamLineup(matchup.away_team_id);
-    await client.query('COMMIT');
+    if (!asPlayed) await client.query('COMMIT');
 
     // The NFL games either roster plays in this week (#884). The view joins
     // through lineup_entries, which the transaction above just materialized
@@ -1070,8 +1082,11 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     if (viewerTeamId) {
       try {
         const { liveWhatIf } = require('../services/decision.service');
+        // The route already holds the settled fact on `matchup.final`; passing
+        // it as `weekIsFinal` buys liveWhatIf out of its own isWeekFinal COUNT
+        // read on a settled request (#978, #1017).
         viewerWhatIf = await liveWhatIf({
-          leagueId, teamId: viewerTeamId, season: matchup.season, week: matchup.week,
+          leagueId, teamId: viewerTeamId, season: matchup.season, week: matchup.week, weekIsFinal: asPlayed,
         });
       } catch (whatIfErr) {
         console.error('live what-if unavailable', whatIfErr.message);
