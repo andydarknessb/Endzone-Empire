@@ -26,9 +26,14 @@ const { optimalLineup, parseLineupSettings } = require('./lineup.service');
  * same optimalLineup/parseLineupSettings pair inline over the as-played rows
  * to split a settled best-ball card into starters and bench. It keys rows on
  * `row.id` (not `player_id`) and coalesces a statless row to 0, so folding it
- * in needs a small adapter and is its own ticket (a follow-up tracks it), not
- * #954. The originating issue's census of "five implementations" is stale;
- * with that branch it is six.
+ * in needs a small adapter and is its own ticket, not #954; follow-up #1038
+ * tracks it. By the governing ruling's criterion (reads the counted roster
+ * with the tenure exclusion applied) there are FOUR such sites: the three
+ * above plus this one. The ruling (issuecomment-5563961587) had already
+ * replaced the issue body's "five implementations" with those three;
+ * league.router's box score was excluded then for carrying no tenure
+ * exclusion, and #976/#1020 have since put that read behind rowsHeldAsPlayed,
+ * which is what turns the #1006 branch into a genuine fourth.
  * Three further reads take a lineup population WITHOUT the tenure exclusion -
  * the live/current-roster question, not this one - and are not counted-roster
  * sites at all: decision.service `liveWhatIf`, expectedFinal.service, and the
@@ -63,9 +68,15 @@ function round2(x) {
  * @param {object}   args
  * @param {Array}    args.rows    the held-as-played lineup rows, as fetched:
  *                                each `{ player_id, slot, stats, position?, name? }`.
- *                                `position` is required only where an optimal
- *                                lineup is read (best ball, and hindsight);
- *                                `name` is carried through to `optimalStarters`.
+ *                                `position` feeds the optimal lineup, which is
+ *                                COMPUTED on every call. Only best ball and
+ *                                hindsight READ that result, and only they
+ *                                supply `position`; the standard settle branch
+ *                                selects none (its SQL already narrowed the rows
+ *                                to starters), so the optimal lineup it computes
+ *                                is empty and discarded, and only `teamScore` is
+ *                                meaningful for that caller. `name` is carried
+ *                                through to `optimalStarters`.
  * @param {object}   args.league  the league row; `best_ball` and the roster
  *                                slots (via parseLineupSettings) are read.
  * @param {function} args.price   `(stats) => points`, the league's pricer. Kept
@@ -81,6 +92,10 @@ function round2(x) {
  *   optimal lineup over the whole held pool; a standard league scores only the
  *   rows in a starting slot. `excluded` lists the IR rows dropped, in input
  *   order. Hindsight reads every field; the settle pass reads `teamScore`.
+ *   `optimalPoints`, `optimalStarters` and `pointsLeftOnBench` are meaningful
+ *   only for a caller that supplies `position` (best ball and hindsight); for
+ *   the standard settle branch, which supplies none, they are the empty-lineup
+ *   values (0 / [] / 0) and must not be read - only `teamScore` is.
  */
 function countedRoster({ rows, league, price }) {
   const bestBall = !!league.best_ball;
