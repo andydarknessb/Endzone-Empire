@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, render, screen, within } from '@testing-library/react';
 import LiveDraftBanner from './LiveDraftBanner';
-import { OVERDUE_AFTER_MS } from '../../shared/lib';
+import { OVERDUE_AFTER_MS } from '../../shared/lib/onTheClock';
 
 const activeLeague = { draft_status: 'active' };
 const bulldogs = { teamId: 2, teamName: 'Bulldogs' };

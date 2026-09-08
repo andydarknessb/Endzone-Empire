@@ -6,7 +6,7 @@ import {
 // The one pick-clock vocabulary (#754): the sim keeps its own engine seconds
 // and its own display rule (timer only on the user's turn), but the format
 // and the urgency threshold are the shared ones, not a private copy.
-import { formatRemaining, isUrgent } from '../../shared/lib';
+import { formatRemaining, isUrgent } from '../../shared/lib/onTheClock';
 
 /**
  * The persistent draft-room header: where the draft is, who's on the clock,

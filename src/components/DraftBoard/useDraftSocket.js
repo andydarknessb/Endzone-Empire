@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { MEMBERSHIP_UNKNOWN, MEMBERSHIP_NON_MEMBER, membershipAfterJoinAck } from './draftMembership';
-import { isTeamOnTheClock } from '../../shared/lib';
+import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 import {
   emptyDraftModel,
   applyBoardSnapshot,

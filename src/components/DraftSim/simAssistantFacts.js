@@ -13,7 +13,7 @@
  * from all three of its report paths (overallGrade, rosterConstruction and
  * analyzeDraft), so this module's read of a pick can never disagree with the
  * post-draft report's. (The urgency threshold isn't this module's concern at
- * all: SimAssistantPanel.jsx calls shared/lib's onTheClock.js's isUrgent() directly,
+ * all: SimAssistantPanel.jsx calls shared/lib/onTheClock.js's isUrgent() directly,
  * the #754 shared threshold SimStatusBar.jsx also imports.)
  *
  * NET VS ADP SIGN. pickValues()'s draftValueScore is `marketAdp - actualPick`

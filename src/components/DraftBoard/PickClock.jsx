@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { Box, Typography } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import useCountdownTicking, { alignedToSecond } from '../../hooks/useCountdownTicking';
-import { OVERDUE_AFTER_MS, formatRemaining, isUrgent, remainingSeconds } from '../../shared/lib';
+import { OVERDUE_AFTER_MS, formatRemaining, isUrgent, remainingSeconds } from '../../shared/lib/onTheClock';
 
 // Subtle pulse for the timer once time is running low. Starts on the render
 // that first shows the urgent count and, because every tick lands on the

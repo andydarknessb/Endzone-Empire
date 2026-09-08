@@ -9,12 +9,15 @@
  * island for nothing. The On-the-clock derivation `deriveOnTheClock` the model
  * uses to turn a draft snapshot into the `{ team, state, deadlineAt }`
  * pick-clock value the room, the presenter and the mock draft all speak (#754)
- * now lives in the shared layer itself, as `onTheClock` in `src/shared/lib`, imported
- * through `src/shared/lib`'s index like every other shared consumer (#997);
- * it is no longer a reach below the island, so the ADR 0029 conflict this
- * docblock used to record is closed. The model reaches nothing else below the
- * island either - no fetch, no socket, no React - so it stays pure and
- * testable by plain function call. Everything else in this folder is internal.
+ * now lives in the shared layer itself, `src/shared/lib/onTheClock` (#997),
+ * imported by its file path rather than through `shared/lib`'s barrel index
+ * (that barrel re-exports `useEndpoint`, and pulling it in from the Draft
+ * room would make the room's harness coverage think the room reaches a live
+ * API client through this entity, which it does not); it is no longer a
+ * reach below the island, so the ADR 0029 conflict this docblock used to
+ * record is closed. The model reaches nothing else below the island either -
+ * no fetch, no socket, no React - so it stays pure and testable by plain
+ * function call. Everything else in this folder is internal.
  */
 export {
   pickFromSnapshotRow,
