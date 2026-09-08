@@ -859,8 +859,9 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const leagueRow = leagueResult.rows[0];
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
     const {
-      materializeLineup, rowsHeldAsPlayed, optimalLineup, parseLineupSettings,
+      materializeLineup, rowsHeldAsPlayed,
     } = require('../services/lineup.service');
+    const { countedRoster } = require('../services/countedRoster.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
     const { availabilityFor } = require('../services/projectionModel');
@@ -1078,12 +1079,17 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       // producer-read handler stays unregistered).
       if (leagueRow.best_ball && asPlayed) {
         const rows = [...raw.starterRows, ...raw.benchRows];
-        const candidates = rows.map((row) => ({ playerId: row.id, position: row.position }));
-        const pointsFor = new Map(
-          rows.map((row) => [row.id, row.stats ? calculateFantasyPoints(row.stats, rules) : 0])
-        );
-        const { rosterSlots } = parseLineupSettings(leagueRow);
-        const chosen = new Set(optimalLineup(candidates, rosterSlots, pointsFor).starters.map((p) => p.playerId));
+        // #1038: rows.id and rows.player_id are the same value on every row
+        // that reaches this branch (lineupSql joins players.id to
+        // lineup_entries.player_id at equality, :915), so countedRoster's
+        // player_id-keyed optimalStarters can be matched back against these
+        // rows' `id` without an adapter.
+        const { optimalStarters } = countedRoster({
+          rows,
+          league: leagueRow,
+          price: (stats) => (stats ? calculateFantasyPoints(stats, rules) : 0),
+        });
+        const chosen = new Set(optimalStarters.map((p) => p.playerId));
         return {
           starters: rows.filter((row) => chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
           bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
