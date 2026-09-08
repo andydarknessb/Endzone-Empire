@@ -104,6 +104,72 @@ test('claimTarget admits an unrostered player during the blanket waiver window',
   fake.assertClean();
 });
 
+test('claimTarget refuses a frozen league (entry gate)', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{ id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: true, waivers_clear_at: null }],
+    })],
+  ]).install(t);
+
+  await assert.rejects(
+    () => claimTarget({ leagueId: 1, userId: 8, playerId: 500 }),
+    { statusCode: 409, message: 'transactions are locked by the commissioner' }
+  );
+  fake.assertClean();
+});
+
+// The entry gate (claimTarget, above) and the write-time gate (processWaivers,
+// #944 above) must agree on the SAME frozen league row: a claim submitted
+// before a freeze cannot be told "you may try" at the door and then refused
+// only once it is too late to matter, and the reverse (told "no" at the door
+// but the write-time gate somehow admits it) is the drift #966 exists to rule
+// out. Both read the freeze through rosterGate.service's isLeagueFrozen, so
+// this is a seam test on that agreement, not a coincidence of two hand-rolled
+// checks that happen to match today.
+test('claimTarget and processWaivers agree on the same frozen league row (#966)', async (t) => {
+  const frozenLeague = {
+    id: 1, pickem_only: false, waiver_type: 'priority', roster_limit: 16, ir_slots: 2,
+    current_season: 2026, current_week: 6, waiver_period_hours: 24,
+    transactions_locked: true, waivers_clear_at: null,
+  };
+
+  const entryFake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [frozenLeague] })],
+  ]).install(t);
+  let entryRejection;
+  try {
+    await claimTarget({ leagueId: 1, userId: 8, playerId: 500 });
+    assert.fail('claimTarget should have refused a frozen league');
+  } catch (err) {
+    entryRejection = err;
+  }
+  entryFake.assertClean();
+
+  const writeFake = createFakePool([
+    [select('leagues'), () => ({ rows: [frozenLeague] })],
+    [select('waiver_claims'), () => ({ rows: [
+      { id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0, status: 'pending', created_at: '2026-07-11T00:00:00Z' },
+    ] })],
+    [select('teams'), () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1, locked: false }] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+  ]).install(t);
+  let writeRejection;
+  try {
+    await processWaivers({ leagueId: 1 });
+    assert.fail('processWaivers should have refused a frozen league');
+  } catch (err) {
+    writeRejection = err;
+  }
+  writeFake.assertClean();
+
+  assert.equal(entryRejection.statusCode, writeRejection.statusCode);
+  assert.equal(entryRejection.message, writeRejection.message);
+  assert.equal(entryRejection.statusCode, 409);
+  assert.equal(entryRejection.message, 'transactions are locked by the commissioner');
+});
+
 // --- roster capacity at the claim site (#97) --------------------------------
 // Thin: proves the site consults the IR policy module's roster capacity, not
 // the static roster limit. The capacity formula itself is tested at the

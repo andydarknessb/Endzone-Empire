@@ -691,7 +691,11 @@ _Avoid_: roster lock
 
 **Roster lock**:
 A commissioner freeze on one team's roster moves, or on the whole league's.
-Unrelated to lineup locks.
+Stops every roster write: a free agent add, a drop, an undo-drop, a waiver
+award, and trade execution, both entering (proposing or accepting a trade,
+submitting a claim) and completing (an accepted trade, an already-submitted
+claim). The commissioner's own forced transaction is the one explicit
+override. Unrelated to lineup locks.
 _Avoid_: lineup lock
 
 **Free agent**:

@@ -10,7 +10,7 @@ const { rosterCapacity } = require('./irPolicy.service');
 // a freeze refusal shaped like one would destroy every accepted trade whose
 // review window ended during a freeze. As a DraftError it falls to the "log and
 // retry next tick" branch, and the trade stays accepted.
-const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
+const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
@@ -107,7 +107,11 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new TradeError(404, 'league not found');
-    if (league.transactions_locked) {
+    // An entry gate: tells the proposer before he fills in an offer. Execution
+    // still runs the write-time gate below (executeTrade); this delegates to
+    // the gate's fail-closed freeze read (#966) so the two cannot drift on
+    // what the column means.
+    if (isLeagueFrozen(league)) {
       throw new TradeError(409, 'transactions are locked by the commissioner');
     }
     assertBeforeDeadline(league);

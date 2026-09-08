@@ -10,7 +10,7 @@ const lineupService = require('./lineup.service');
 // circular require back into this module (#944; see waiverStatus.js). Kept in
 // this module's exports below so existing importers are untouched.
 const { isOnWaivers } = require('./waiverStatus');
-const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
+const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
 
 class WaiverError extends Error {
   constructor(statusCode, message) {
@@ -125,7 +125,11 @@ async function claimTarget({ leagueId, userId, playerId }) {
   const league = leagueResult.rows[0];
   if (!league) throw new WaiverError(404, 'league not found');
   assertFantasyLeagueRow(league);
-  if (league.transactions_locked) {
+  // An entry gate: tells the manager before he fills in a claim. The actual
+  // award still runs the write-time gate below, in submitClaim/processWaivers;
+  // this delegates to the gate's own fail-closed freeze read (#966) so the
+  // two cannot drift on what the column means.
+  if (isLeagueFrozen(league)) {
     throw new WaiverError(409, 'transactions are locked by the commissioner');
   }
 
@@ -159,7 +163,10 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
     assertFantasyLeagueRow(league); // no waivers in a pick'em-only league
-    if (league.transactions_locked) {
+    // An entry gate (#966): the award itself runs through processWaivers's
+    // own write-time gate; this delegates to the gate's fail-closed freeze
+    // read so the two cannot drift on what the column means.
+    if (isLeagueFrozen(league)) {
       throw new WaiverError(409, 'transactions are locked by the commissioner');
     }
 
