@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Container, Paper, Typography, TextField, Button, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -18,7 +19,7 @@ function ForgotPassword() {
       const res = await apiClient.post('/api/auth/forgot-password', { email: email.trim() });
       setNotice(res.data.message || 'If that email exists, a reset link has been sent.');
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setSubmitting(false);
     }

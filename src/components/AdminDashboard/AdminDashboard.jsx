@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { isPickemOnly, shortLeagueTypeLabel } from '../../lib/leagueType';
 
 // Turns a whole number of seconds into a short humanized string, e.g. "3h 42m".
@@ -125,7 +126,7 @@ function AdminDashboard() {
       if (err.response?.status === 403) {
         setForbidden(true);
       } else {
-        setError(err.response?.data?.error || err.message);
+        setError(readHttpFailure(err).message || err.message);
       }
     } finally {
       setLoading(false);
@@ -161,7 +162,7 @@ function AdminDashboard() {
         [job]: {
           running: false,
           result: null,
-          error: err.response?.data?.error || err.message,
+          error: readHttpFailure(err).message || err.message,
         },
       }));
     }

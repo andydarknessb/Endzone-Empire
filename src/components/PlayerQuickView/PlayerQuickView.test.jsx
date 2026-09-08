@@ -104,6 +104,16 @@ test('renders header (name, position) after a successful fetch', async () => {
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/7/summary', undefined);
 });
 
+// #972: the summary fetch reads a failure through readHttpFailure. This
+// envelope is shape (a) - the `error` field is the sentence, no `code` - so
+// the server's own copy must render, not a generic fallback.
+test('a fetch failure renders the server error in an alert', async () => {
+  apiClient.get.mockRejectedValue({ response: { data: { error: 'Player summary is temporarily unavailable.' } } });
+  renderQuickView();
+
+  expect(await screen.findByText('Player summary is temporarily unavailable.')).toBeInTheDocument();
+});
+
 test('exposes an accessible loading status and marks the content busy', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderQuickView();

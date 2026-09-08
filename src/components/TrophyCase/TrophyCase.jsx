@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { Card, Badge } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 // One inline stroke glyph per trophy type on the 20px grid (1.6 stroke, round
 // caps, currentColor), replacing the emoji map this module used to export.
@@ -139,7 +140,7 @@ function TrophyCase({ leagueId }) {
       } catch (err) {
         if (!cancelled) {
           setTrophies([]);
-          setError(err.response?.data?.error || err.message);
+          setError(readHttpFailure(err).message || err.message);
         }
       } finally {
         if (!cancelled) setLoading(false);

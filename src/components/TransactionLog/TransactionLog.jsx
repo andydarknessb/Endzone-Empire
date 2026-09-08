@@ -33,6 +33,7 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import RuleIcon from '@mui/icons-material/Rule';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
@@ -255,7 +256,7 @@ function TransactionLog() {
       const res = await apiClient.get(`/api/league/${leagueId}/transactions`);
       setTransactions(res.data);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
     }

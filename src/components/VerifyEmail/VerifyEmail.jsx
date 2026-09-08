@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Container, Paper, Typography, Alert, CircularProgress } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -16,7 +17,7 @@ function VerifyEmail() {
         await apiClient.post('/api/auth/verify-email', { token });
         setStatus('done');
       } catch (err) {
-        setError(err.response?.data?.error || err.message);
+        setError(readHttpFailure(err).message || err.message);
         setStatus('failed');
       }
     };

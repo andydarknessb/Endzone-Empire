@@ -8,6 +8,7 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import DraftCentralCard from '../DraftCentral/DraftCentralCard';
 import LeagueCard from '../common/LeagueCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
@@ -115,7 +116,7 @@ function LeagueManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const report = (err) => setError(err.response?.data?.error || err.message);
+  const report = (err) => setError(readHttpFailure(err).message || err.message);
 
   // Switching type re-caps the team count: a 40-manager pick'em pool cannot
   // become a 40-team fantasy league. Min teams is hidden while the type is
@@ -191,7 +192,7 @@ function LeagueManagement() {
       fetchLeagues();
     } catch (err) {
       report(err);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
 
@@ -208,7 +209,7 @@ function LeagueManagement() {
       fetchLeagues();
     } catch (err) {
       report(err);
-      notify(err.response?.data?.error || err.message, { severity: 'error' });
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
 

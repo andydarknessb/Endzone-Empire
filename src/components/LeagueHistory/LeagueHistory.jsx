@@ -40,6 +40,7 @@ import { teamStandingFromRow } from '../../entities/standings';
 import { visuallyHidden } from '@mui/utils';
 import { GRADE_COLORS } from '../DraftGradesCard/DraftGradesCard';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
@@ -461,7 +462,7 @@ function LeagueHistory() {
       const res = await apiClient.get(`/api/league/${leagueId}/history`);
       setSeasons(Array.isArray(res.data?.seasons) ? res.data.seasons : []);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
       setSeasons([]);
     } finally {
       setLoading(false);
