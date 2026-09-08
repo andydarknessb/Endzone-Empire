@@ -665,3 +665,160 @@ test('a settled matchup excludes a player acquired after his own kickoff (#976)'
   // Not bought by emptying the team: the rest of the week is still listed.
   assert.deepEqual(listed.sort(), [801, 802, 804]);
 });
+
+// ---------------------------------------------------------------------------
+// #978: a settled matchup's materialization is a no-op (its own finality
+// guard returns immediately), so the reads that followed it wrapped a
+// transaction around zero writes - a BEGIN, two finality probes and a COMMIT
+// per page view, for nothing. A settled request now skips both the
+// transaction and materializeLineup outright; an open matchup is unchanged.
+// ---------------------------------------------------------------------------
+
+// The expected body captured from the handler as it stood on this PR's parent
+// commit (80cdafd9, #1020, already on origin/integration when this branch was
+// cut): this ticket only removes the transaction bracket and the
+// materializeLineup calls around the settled reads, so the settled response
+// body itself must be byte-for-byte the same before and after.
+const SETTLED_EXPECTED_BODY = {
+  viewerTeamId: 11,
+  viewerWhatIf: null,
+  matchup: {
+    id: 7,
+    league_id: LEAGUE_ID,
+    season: SEASON,
+    week: WEEK,
+    home_team_id: HOME,
+    away_team_id: AWAY,
+    home_score: '30.00',
+    away_score: '5.00',
+    final: true,
+    home_team_name: 'Gridiron Ghosts',
+    away_team_name: 'Sunday Scaries',
+    home_team_avatar_url: null,
+    away_team_avatar_url: null,
+    home_team_avatar_static_url: null,
+    away_team_avatar_static_url: null,
+    status: 'final',
+    first_kickoff_at: null,
+    synced_at: null,
+  },
+  nflGameIds: [],
+  home: {
+    teamId: HOME,
+    name: 'Gridiron Ghosts',
+    starters: [
+      {
+        id: 801, name: 'Kept Starter', position: 'QB', nfl_team: 'KC', injury_status: null, slot: 'QB',
+        stats: { passingYards: 250 }, points: 10, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+      {
+        id: 802, name: 'Dropped Starter', position: 'RB', nfl_team: 'DAL', injury_status: null, slot: 'RB',
+        stats: { rushingYards: 200 }, points: 20, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+    ],
+    bench: [
+      {
+        id: 804, name: 'Settled Bench TE', position: 'TE', nfl_team: 'KC', injury_status: null, slot: 'BENCH',
+        stats: null, points: 0, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+    ],
+    expectedFinal: null,
+    playersRemaining: null,
+  },
+  away: {
+    teamId: AWAY,
+    name: 'Sunday Scaries',
+    starters: [
+      {
+        id: 811, name: 'Away Starter', position: 'RB', nfl_team: 'SF', injury_status: null, slot: 'RB',
+        stats: { rushingYards: 50 }, points: 5, projected: null,
+        availability: { available: true, reason: null }, opponent: 'OPP', game_state: null, game_clock: null, photo_url: null,
+      },
+    ],
+    bench: [],
+    expectedFinal: null,
+    playersRemaining: null,
+  },
+};
+
+test('a settled matchup opens no transaction and never calls materializeLineup, and the body is unchanged (#978)', async (t) => {
+  const materializeMock = t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const answer = (pool, text, params) => {
+    let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
+    if (/"team_players"/.test(text)) rows = rows.filter((p) => SETTLED_ROSTER_TODAY.has(p.id));
+    const selectsPlayerId = /"lineup_entries"\."player_id",/.test(text);
+    return { rows: rows.map((p) => (selectsPlayerId ? { ...p, player_id: p.id } : { ...p, player_id: undefined })) };
+  };
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...SETTLED_MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    ...tenureHandlers({
+      schedule: SETTLED_KICKOFFS, tenures: SETTLED_TENURES, heldSince: SETTLED_HELD_SINCE,
+    }),
+    [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => answer(SETTLED_BENCH, text, params)],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => answer(SETTLED_STARTERS, text, params)],
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  // No BEGIN, no COMMIT: a settled request never opens the transaction.
+  assert.deepEqual(fake.matching(/^BEGIN$/), []);
+  assert.deepEqual(fake.matching(/^COMMIT$/), []);
+  // materializeLineup is never called on the settled path, not just a no-op
+  // inside its own finality guard.
+  assert.equal(materializeMock.mock.callCount(), 0);
+  // The response body is exactly what the handler produced before this
+  // ticket: only the transaction bracket around it is gone.
+  assert.deepEqual(res.body, SETTLED_EXPECTED_BODY);
+});
+
+test('an open matchup still opens a transaction and materializes each team once (#978)', async (t) => {
+  const materializeMock = t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: PROJECTIONS }));
+  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(decisionService, 'liveWhatIf', async () => null);
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
+    [select('matchups'), () => ({ rows: [{ ...MATCHUP_ROW }] })],
+    [select('leagues'), () => ({ rows: [{ id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false }] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
+    [/FROM "nfl_games"/, () => ({ rows: SCHEDULE })],
+    [/FROM "live_game_states"/, () => ({ rows: LIVE })],
+    [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/"lineup_entries"\."slot" = \$4/, (text, params) => ({
+      rows: params[0] === HOME ? HOME_BENCH : [],
+    })],
+    [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => ({
+      rows: params[0] === HOME ? HOME_STARTERS : AWAY_STARTERS,
+    })],
+    [/"lineup_entries"\."team_id", "lineup_entries"\."player_id"/, (text) => {
+      const rows = [
+        ...[...HOME_STARTERS, ...HOME_BENCH].map((p) => ({ team_id: HOME, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+        ...AWAY_STARTERS.map((p) => ({ team_id: AWAY, player_id: p.id, slot: p.slot, nfl_team: p.nfl_team, injury_status: p.injury_status, stats: p.stats })),
+      ];
+      return { rows: /NOT IN \('BENCH'/.test(text) ? rows.filter((r) => r.slot !== 'BENCH') : rows };
+    }],
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
+    .set('Authorization', authed(42));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  assert.equal(fake.matching(/^BEGIN$/).length, 1);
+  assert.equal(fake.matching(/^COMMIT$/).length, 1);
+  assert.equal(materializeMock.mock.callCount(), 2, 'once per team');
+});
