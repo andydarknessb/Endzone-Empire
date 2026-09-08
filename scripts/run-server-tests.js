@@ -20,14 +20,14 @@
  *              set in the default mode, and again in `--all`, so a server change
  *              cannot go green here yet red in CI's client job.
  *   pg         the *.pg.test.js files are in the fast set and pass through it,
- *              but each self-skips unless a Postgres env flag is set: the
- *              umbrella `PG_TESTS`, or the file's own flag (BACKTEST_PG_TESTS,
- *              DISCOVERY_PG_TESTS, DRAFT_ROUNDS_PG_TESTS,
- *              HISTORY_STANDINGS_PG_TESTS, HOLDOUT_PG_TESTS,
- *              LINEUP_FOLLOWS_ROSTER_PG_TESTS, PICKEM_HISTORY_PG_TESTS,
- *              PICKEM_SEASON_RESULT_PG_TESTS, PICKEM_SEASON_RESULT_IMPORT_PG_TESTS,
- *              PICKEM_SEASON_RESULT_OPERATOR_PG_TESTS, ROSTER_TENURES_PG_TESTS,
- *              TEAM_NAMES_PG_TESTS). With none set they run as a fast no-op.
+ *              but each self-skips unless a Postgres env flag holds exactly
+ *              the string `1`: the umbrella `PG_TESTS`, or the file's own
+ *              `*_PG_TESTS` flag. The per-file names are not enumerated here,
+ *              because any such list goes stale as files are added; read the
+ *              `const ENABLED` line at the top of the file you want, which is
+ *              the authority. Every gate is a `=== '1'` comparison, so
+ *              `=true` or `=0` skips silently. With none set they run as a
+ *              fast no-op.
  *
  * The sweep files build large cartesian-product fixtures (cells x seasons x
  * weeks x salts x players); they are CPU-bound, not hung, so they are worth

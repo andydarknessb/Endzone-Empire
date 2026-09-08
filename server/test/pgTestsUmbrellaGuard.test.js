@@ -3,7 +3,7 @@
  *
  * migration-smoke runs every server/test/*.pg.test.js from one directory-wide
  * step (`npm run test:pg`), gated by a single umbrella variable, PG_TESTS=1,
- * rather than ten hand-listed npm scripts each setting its own variable. That
+ * rather than eleven hand-listed npm scripts each setting its own variable. That
  * arrangement only holds if every pg test file actually honours PG_TESTS: a
  * file whose ENABLED check reads only its own *_PG_TESTS variable would be
  * globbed into the run and then silently self-skip, gating itself out of CI
@@ -37,7 +37,8 @@ function honoursUmbrella(source) {
 test('every server/test/*.pg.test.js references PG_TESTS', () => {
   const files = pgFiles();
   // The scan must actually reach the tree, or this would pass by finding
-  // nothing; twelve pg files exist today.
+  // nothing; the tree holds well over ten pg test files today. The threshold
+  // below is a floor proving the scan reached the tree, not a count of files.
   assert.ok(files.length >= 10, `expected to find the pg test files; got ${files.length}`);
 
   const offenders = files.filter(
