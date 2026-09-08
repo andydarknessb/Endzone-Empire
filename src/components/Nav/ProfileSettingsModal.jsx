@@ -5,6 +5,7 @@ import {
 } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import TeamAvatarUploader from '../common/TeamAvatarUploader';
@@ -107,7 +108,7 @@ function ProfileSettingsModal({ open, onClose }) {
           setPendingAvatar(null);
           setUploaderKey((k) => k + 1);
         } catch (err) {
-          avatarErr = err.response?.data?.error || err.message;
+          avatarErr = readHttpFailure(err).message || err.message;
         }
       }
 
@@ -122,7 +123,7 @@ function ProfileSettingsModal({ open, onClose }) {
           publishTeamProfileUpdate({ leagueId: selectedLeague.id, teamId, name: savedName });
           setNewTeamName('');
         } catch (err) {
-          nameErr = err.response?.data?.error || err.message;
+          nameErr = readHttpFailure(err).message || err.message;
         }
       }
 

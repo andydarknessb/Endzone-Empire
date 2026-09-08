@@ -161,6 +161,21 @@ test('a commissioner sees the enable switch instead, and turning it on saves', a
   );
 });
 
+// #972: a rejected settings save reads the failure through readHttpFailure.
+// This envelope is shape (a) - the `error` field is the sentence - so the
+// server's own copy must render, not a generic fallback.
+test('a rejected settings save renders the server error', async () => {
+  const user = userEvent.setup();
+  mockRequests({ settings: { enabled: false, mode: 'straight', isCommissioner: true } });
+  apiClient.put.mockRejectedValue({ response: { data: { error: 'Pick\'em settings could not be saved.' } } });
+  renderPage();
+
+  const toggle = await screen.findByRole('checkbox', { name: /Enable Pick'em for this league/i });
+  await user.click(toggle);
+
+  expect(await screen.findByText('Pick\'em settings could not be saved.')).toBeInTheDocument();
+});
+
 test('the board defaults to the league\'s current week and renders the slate', async () => {
   mockRequests();
   renderPage();

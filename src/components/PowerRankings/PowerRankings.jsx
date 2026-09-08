@@ -28,6 +28,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import LeaderboardOutlinedIcon from '@mui/icons-material/LeaderboardOutlined';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import TeamAvatar from '../common/TeamAvatar';
@@ -171,7 +172,7 @@ function PowerRankings() {
         setNotComputed(true);
         setPayload(null);
       } else {
-        setError(err.response?.data?.error || err.message);
+        setError(readHttpFailure(err).message || err.message);
       }
     } finally {
       setLoading(false);

@@ -4,6 +4,7 @@ import { Alert, Box, Button, Container, Paper, Skeleton, Tab, Tabs, Typography }
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
+import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import LeagueOfficials from './LeagueOfficials';
 import ScoringRulesView from './ScoringRulesView';
@@ -22,8 +23,6 @@ const TAB_VALUES = TAB_ITEMS.map(([value]) => value);
 
 const tabId = (value) => `league-rules-tab-${value}`;
 const panelId = (value) => `league-rules-tabpanel-${value}`;
-
-const errorMessage = (error) => error?.response?.data?.error || error?.message || 'Request failed';
 
 // Read-only view of the league's rule book. Every member can see this; only
 // the commissioner can change any of it (CommissionerTools on the dashboard).
@@ -57,7 +56,9 @@ export default function LeagueRules() {
     apiClient
       .get('/api/scoring/rules')
       .then((res) => { if (active) setDefaults(res.data.defaults); })
-      .catch((requestError) => { if (active) setDefaultsError(errorMessage(requestError)); });
+      .catch((requestError) => {
+        if (active) setDefaultsError(readHttpFailure(requestError).message || requestError.message || 'Request failed');
+      });
     return () => { active = false; };
   }, [defaultsReload, leagueKnown, pickemOnly]);
 

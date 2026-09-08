@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
@@ -39,7 +40,7 @@ function PlayerDetail() {
         const res = await apiClient.get(`/api/players/${playerId}/summary`);
         setSummary(res.data);
       } catch (err) {
-        setError(err.response?.data?.error || err.message);
+        setError(readHttpFailure(err).message || err.message);
       } finally {
         setLoading(false);
       }

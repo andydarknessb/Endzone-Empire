@@ -26,6 +26,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 import { isPickemOnly, LEAGUE_TYPE } from '../../lib/leagueType';
 import LeagueTypeChips from '../common/LeagueTypeChips';
 
@@ -82,7 +83,7 @@ function LeagueDiscovery() {
       const res = await apiClient.get(buildUrl());
       setLeagues(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
     }
@@ -125,7 +126,7 @@ function LeagueDiscovery() {
       setRequestStatus((prev) => ({ ...prev, [joinTarget.id]: 'pending' }));
       setJoinTarget(null);
     } catch (err) {
-      setJoinError(err.response?.data?.error || err.message);
+      setJoinError(readHttpFailure(err).message || err.message);
     }
   };
 

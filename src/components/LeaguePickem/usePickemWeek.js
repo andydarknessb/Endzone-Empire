@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import apiClient from '../../api/apiClient';
 import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
-
-const message = (error) =>
-  error?.response?.data?.error || error?.message || 'Request failed';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 /**
  * One week of Pick'em: the slate, my picks, and the picks of everyone else
@@ -31,7 +29,7 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
     return apiClient
       .get(`/api/pickem/league/${leagueId}/week/${week}`)
       .then((res) => setData(res.data))
-      .catch((requestError) => setError(message(requestError)))
+      .catch((requestError) => setError(readHttpFailure(requestError).message || requestError.message || 'Request failed'))
       .finally(() => setLoading(false));
   }, [leagueId, week, enabled]);
 
@@ -60,10 +58,11 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
         return { ok: true };
       } catch (requestError) {
         const body = requestError?.response?.data || {};
+        const readFailure = readHttpFailure(requestError);
         const failure = {
           ok: false,
-          message: body.error || message(requestError),
-          code: body.code || null,
+          message: readFailure.message || requestError.message || 'Request failed',
+          code: readFailure.code || body.code || null,
           gameKeys: Array.isArray(body.gameKeys) ? body.gameKeys : [],
         };
         setSaveError(failure);

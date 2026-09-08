@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Container, Paper, Typography, TextField, Button, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -22,7 +23,7 @@ function ResetPassword() {
       await apiClient.post('/api/auth/reset-password', { token, password });
       setDone(true);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(readHttpFailure(err).message || err.message);
     } finally {
       setSubmitting(false);
     }
