@@ -329,12 +329,37 @@ async function processWaivers({ leagueId }) {
       byPlayer.get(claim.player_id).push(claim);
     }
 
-    const finish = (claim, status, note) =>
-      client.query(
+    // Every terminal claim status goes through the write-time roster gate
+    // (#990). A freeze must stop a claim being permanently invalidated, not
+    // only stop it being awarded: `invalid` is terminal and nothing revives
+    // it, so a batch in which every due claim independently fails
+    // `claimFailureReason` used to destroy those claims inside the very
+    // window the league was supposed to be standing still. Gating the helper
+    // rather than the one `invalid` call site means a terminal status added
+    // later inherits the refusal too. The League row is held FOR UPDATE from
+    // the top of this transaction, so the gate's League read is a re-lock of
+    // a row we already own and the answer is the same at every point in the
+    // loop - which is what lets the gate be asked here, per claim, with no
+    // second read of the freeze and no batch-level check. Team id and player
+    // id come off the claim row rather than the in-memory teams map, and the
+    // bypass set is the award site's, so on this path the gate enforces the
+    // freeze alone. The gate's DraftError propagates out unwrapped (409 and
+    // its code intact); it is never caught per claim and converted into a
+    // finish(claim, 'invalid'), which is the defect itself.
+    const finish = async (claim, status, note) => {
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: claim.team_id,
+        direction: 'acquire',
+        playerId: claim.player_id,
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+      });
+      return client.query(
         `UPDATE "waiver_claims" SET "status" = $1, "note" = $2, "processed_at" = now(), "updated_at" = now()
          WHERE "id" = $3`,
         [status, note || null, claim.id]
       );
+    };
 
     const results = [];
     for (const [playerId, claims] of byPlayer) {
