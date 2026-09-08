@@ -28,6 +28,7 @@ const { normalizeNflTeam } = require('./nflTeam');
 // ADR 0024). They read `player_stats.stats`, never the stored
 // `fantasy_points` column, which is the DEFAULT-rules price.
 const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
+const { countedRoster } = require('./countedRoster.service');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -501,40 +502,21 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
   // Price each row through the settle pass's pricer under THIS league's rules,
   // not the stored default-rules `fantasy_points` column (#739). A row with no
   // `player_stats` match prices at 0, as the old COALESCE did.
+  //
+  // The IR classification, the started-total test (its dependence on the IR
+  // drop happening first, #741), the pricing loop and the rounding are all the
+  // counted-roster module's job now (#954); this reader owns the population
+  // read above and the shape of what it returns. `actualPoints` is the module's
+  // `teamScore` - the score of record for this team - so hindsight and the
+  // settle pass cannot disagree.
   const rules = rulesForLeague(league);
-  let startedPoints = 0;
-  const pointsFor = new Map();
-  const players = [];
-  const nameById = new Map();
-  for (const row of asPlayed) {
-    // An IR occupant is never a candidate starter, in any league type (#741):
-    // nothing in the product advises STARTING him (the start/sit advisor
-    // excludes IR), and the settle pass never counts him. Skip him before he can
-    // enter the optimal-lineup pool or the started total.
-    if (row.slot === IR) continue;
-    const points = calculateFantasyPoints(row.stats, rules);
-    nameById.set(row.player_id, row.name);
-    // Standard: only rows in a starting slot count toward the started total;
-    // benched rows stay candidates for the optimal lineup. This test is only
-    // `row.slot !== BENCH`, so it depends on the IR skip above having already
-    // dropped IR rows; relocate or guard that skip and an IR row would count
-    // here again, reintroducing this ticket's defect. Best ball keeps no started
-    // total (its actual is its optimal over the whole pool).
-    if (!league.best_ball && row.slot !== BENCH) {
-      startedPoints += points;
-    }
-    pointsFor.set(row.player_id, points);
-    players.push({ playerId: row.player_id, position: row.position });
-  }
+  const price = (stats) => calculateFantasyPoints(stats, rules);
+  const { teamScore, optimalPoints, optimalStarters, pointsLeftOnBench } =
+    countedRoster({ rows: asPlayed, league, price });
 
-  const settings = parseLineupSettings(league);
-  const optimal = optimalLineup(players, settings.rosterSlots, pointsFor);
-  const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
-  const optimalPoints = optimal.total;
-  const actualPoints = league.best_ball ? optimalPoints : round2(startedPoints);
-  const pointsLeftOnBench = Math.max(0, round2(optimalPoints - actualPoints));
-
-  return { teamId, week, actualPoints, optimalPoints, pointsLeftOnBench, optimalStarters };
+  return {
+    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters,
+  };
 }
 
 /**
