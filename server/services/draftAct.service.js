@@ -4,34 +4,23 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { logger } = require('../modules/logger');
 const sentry = require('../modules/sentry');
 
-// The board-fact methods a DRAFT ACT may legitimately name in its `broadcasts`
-// set. runDraftAct validates requested names against this set before COMMIT so a
-// typo fails loudly rather than silently in the contained fan-out. It is also the
-// artifact a future slice reads to decide what a Draft act may emit, so the test
-// is OWNERSHIP - which module owns the fact, and whether a lifecycle act can
-// legitimately produce it - NOT whether a converted body happens to request it
-// yet (only pause is converted so far, and it requests just stateChanged; that a
-// name is unused today does not make it dead permission):
-//   - stateChanged: a lifecycle act changes draft state by definition.
-//   - rosterChanged: a lifecycle act genuinely changes rosters - undo removes
-//     picks and their roster rows, and reset wipes every team_players row in the
-//     league - so the name is a real claim, not dead permission.
-//   - pickLanded: EXCLUDED. ADR 0025's 2026-09-03 amendment reserves it: "It is
-//     the only code that calls pickLanded" is the Pick module (pick.service.js).
-//     A Draft act is not a Pick.
-//   - draftCompleted: EXCLUDED. A draft's completion is DECIDED by the Pick that
-//     ends it, so it is the completing Pick's fact - adjacent to the pickLanded
-//     reservation, not a separate category. This is an ownership claim, so it
-//     holds even for a future slice that has no current caller.
-//   - scoresUpdated: EXCLUDED. The scoring service's fact - its live-score push
-//     (ADR 0025's 2026-09-02 amendment); not a Draft concern.
-// Narration is not here either: it travels through the act body's `activity` and
-// is emitted via activityAppended. Adding a new board fact means adding it here,
-// deliberately, with its reason.
+// The board-fact methods a Draft act (CONTEXT.md) may legitimately name in its
+// `broadcasts` set. runDraftAct validates requested names against this set
+// before COMMIT so a typo fails loudly rather than silently in the contained
+// fan-out. It is also the artifact a future slice reads to decide what a Draft
+// act may emit, so the test is OWNERSHIP - which module owns the board fact
+// (CONTEXT.md), and whether a lifecycle act can legitimately produce it - NOT
+// whether a converted body happens to request it yet (only pause is converted
+// so far, and it requests just stateChanged; that a name is unused today does
+// not make it dead permission). Full ownership list and reasons, for all five
+// board facts: ADR 0025's 2026-09-07 amendment. In short: a Draft act owns
+// stateChanged and rosterChanged; pickLanded and draftCompleted are the Pick
+// module's, and scoresUpdated is the scoring service's.
 const BOARD_FACTS = new Set(['stateChanged', 'rosterChanged']);
 
 /**
- * The Draft act module (#947, part of #938). It owns an ordering constraint
+ * The Draft act module (#947, part of #938; see CONTEXT.md's Draft act
+ * entry). It owns an ordering constraint
  * re-spelled across the repo - per the ticket, ten sites, five of them Express
  * handlers in draft.router.js that hand-roll their own transaction (measured:
  * draft.router.js had 7 pool.connect/BEGIN/COMMIT at 682fe470, 6 after this

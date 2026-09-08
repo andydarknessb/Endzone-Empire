@@ -159,3 +159,37 @@ for. `addFreeAgent` is not a Pick, so it never calls `pickLanded`,
 `activityAppended` or `draftCompleted`; it emits `rosterChanged` only,
 exactly as the team router did before the split. "No room fan-out" in the
 earlier paragraph meant "no Pick fan-out". See #801 and #782 ruling 2.
+
+## Amendment (2026-09-07, #993): who owns each board fact
+
+The Draft act module (`server/services/draftAct.service.js`, #947, #967)
+validates a board fact against a `BOARD_FACTS` allowlist before it commits.
+This amendment records, in one place, which module owns each of the five
+board facts named across this ADR and why a Draft act may name only the
+first two:
+
+- `stateChanged`: owned by the Draft act module. A lifecycle act changes
+  draft state by definition, so this is the act's own fact.
+- `rosterChanged`: owned by the Draft act module, and separately by the Pick
+  module and by `addFreeAgent`. A lifecycle act genuinely changes rosters:
+  undo removes picks and their roster rows, and reset wipes every
+  team_players row in the league, so the name is a real claim for the act
+  module, not dead permission. It is not an exclusive grant: the Pick module
+  and the free-agent add each fire it for their own roster-changing commits
+  (the 2026-09-03 amendments above), and none of the three needs the others'
+  permission to do so.
+- `pickLanded`: owned by the Pick module (`pick.service.js`), per the
+  2026-09-03 amendment above ("It is the only code that calls `pickLanded`").
+  A Draft act is not a Pick, so it may not name this fact.
+- `draftCompleted`: owned by the Pick module, as the completing Pick's fact.
+  A draft's completion is decided by the Pick that ends it, adjacent to the
+  `pickLanded` reservation rather than a separate category, so a Draft act
+  may not name this fact either.
+- `scoresUpdated`: owned by the scoring service, per the 2026-09-02 amendment
+  above. It is the live-score push, not a Draft concern, so a Draft act may
+  not name it.
+
+A Draft act may therefore emit only `stateChanged` and `rosterChanged`: the
+other three are each some other module's fact to report, not a gap in the
+act module's coverage. See CONTEXT.md's Draft act and board fact entries for
+the glossary wording this amendment backs.

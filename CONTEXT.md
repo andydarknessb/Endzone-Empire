@@ -394,6 +394,29 @@ receives, so it carries Team identity and no account identifier.
 _Avoid_: system message, chat message, Pick history (which is Pick-only and
 lives in the Draft board)
 
+**Draft act**:
+A lifecycle operation on a Draft that serializes on the League row, runs the
+caller's mutations on that locked client, commits, and only then fans out to
+the room in one order. `runDraftAct` (`server/services/draftAct.service.js`)
+is the only way to perform one; a caller supplies an act body and never opens
+its own connection, takes its own lock, or chooses the fan-out order. Pause,
+resume, autodraft toggle, undo and reset are Draft acts; a Pick is not one
+(pick.service.js owns landing a Pick on its own commit-and-fan-out, ADR 0025).
+_Avoid_: administrative act (Pick correction is that, not a Draft act),
+transaction (the lock and commit are how it works, not what it is)
+
+**board fact**:
+A room broadcast that reports Draft state rather than narration: a named
+method on the Draft room broadcast adapter (ADR 0025) that a Draft act may
+list in its `broadcasts`, as opposed to narration, which travels through the
+act's `activity` and is always emitted as `activityAppended`. Which module
+owns which board fact is a standing ownership ruling, not a matter of what a
+given caller happens to request; see ADR 0025's 2026-09-07 amendment for the
+full list and reasons. A Draft act may only emit `stateChanged` and
+`rosterChanged`.
+_Avoid_: event, broadcast (unqualified; the adapter has other room traffic),
+domain event
+
 **Presenter**:
 This term carries two senses, numbered below. A reader tells them apart by
 what the word describes and never by which directory the file sits in, by
