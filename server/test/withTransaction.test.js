@@ -79,7 +79,13 @@ test('(c) work throws and ROLLBACK rejects: original rethrown with rollbackError
 test('(d) pool.connect() rejects: the rejection propagates untouched and no client is created', async () => {
   const connectError = new Error('connection refused by pooler');
   let workRan = false;
-  const fakePool = { connect: async () => { throw connectError; } };
+  let poolQueried = false;
+  const fakePool = {
+    connect: async () => { throw connectError; },
+    // No client was created, so no transaction could open: a BEGIN would only
+    // appear if the wrapper wrongly queried the pool. It must not touch it.
+    query: () => { poolQueried = true; throw new Error('pool.query must not be called'); },
+  };
 
   // Only the message proves the original connect error survived: a TypeError
   // about release/query on an undefined client (the #1053 trap) would also
@@ -89,6 +95,7 @@ test('(d) pool.connect() rejects: the rejection propagates untouched and no clie
     /connection refused by pooler/,
   );
   assert.equal(workRan, false, 'work never runs when connect rejects');
+  assert.equal(poolQueried, false, 'no BEGIN: nothing is queried when no client was created');
 });
 
 test('(e) work throws a non-extensible value and ROLLBACK rejects: the destroy path is still taken', async (t) => {
@@ -112,4 +119,67 @@ test('(e) work throws a non-extensible value and ROLLBACK rejects: the destroy p
   // null, and releases bare - reddening this releaseArgs()[0] instanceof Error.
   assert.ok(fake.releaseArgs()[0] instanceof Error, 'the destroy path is taken even when the thrown value cannot carry rollbackError');
   fake.assertClean();
+});
+
+test('(f) ROLLBACK rejects with a FALSY value: the destroy still fires and the original error survives', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  // node-postgres always rejects with an Error, but the wrapper is a contract
+  // #1061 hands to ~81 sites; a ROLLBACK rejecting with null/undefined/0/'' must
+  // still destroy the connection (it FAILED regardless of the value's
+  // truthiness) and must never let `null.message` replace the original error.
+  const fake = createFakePool([
+    [/^SELECT/, () => { throw new Error('work boom'); }, 'client'],
+    [/^ROLLBACK$/, () => { throw null; }, 'client'], // eslint-disable-line no-throw-literal
+  ]);
+
+  await assert.rejects(
+    withTransaction(fake, async (client) => { await client.query('SELECT 1'); }, { label: 'test' }),
+    (err) => {
+      // Red-tell (finding 2): an unguarded `${rbError.message}` throws on null
+      // and this becomes "Cannot read properties of null" instead of "work boom".
+      assert.equal(err.message, 'work boom', 'the original error surfaces, not a null-deref');
+      assert.equal(err.rollbackError, null, 'the falsy rollback rejection is still attached as-is');
+      return true;
+    }
+  );
+
+  // Red-tell (finding 1): keying the release on the rejection's truthiness
+  // (`rollbackError ? ... : undefined`) releases BARE for a null rejection and
+  // reddens this - a possibly-open transaction back in the pool (#839).
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a falsy-valued ROLLBACK rejection still destroys the connection');
+  fake.assertClean();
+});
+
+test('(g) client.release() throwing on the success path never masks the resolved value', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  // During #1061 a half-converted callback can still own its own release, so the
+  // wrapper's release can hit "client already released" and throw. That throw
+  // must not turn a committed result into a rejection.
+  const client = {
+    query: async () => ({ rows: [] }),
+    release: () => { throw new Error('release boom'); },
+  };
+  const pool = { connect: async () => client };
+
+  const result = await withTransaction(pool, async () => 'committed-value', { label: 'test' });
+  assert.equal(result, 'committed-value', 'a throwing release does not mask the resolved value');
+});
+
+test('(h) client.release() throwing on the error path never masks the original error', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const client = {
+    query: async (sql) => {
+      if (sql === 'SELECT 1') throw new Error('work boom');
+      return { rows: [] }; // BEGIN / ROLLBACK auto-answer cleanly
+    },
+    release: () => { throw new Error('release boom'); },
+  };
+  const pool = { connect: async () => client };
+
+  // Red-tell (finding 3): an unguarded release lets 'release boom' replace
+  // 'work boom' on the way out.
+  await assert.rejects(
+    withTransaction(pool, async (c) => { await c.query('SELECT 1'); }, { label: 'test' }),
+    /work boom/,
+  );
 });
