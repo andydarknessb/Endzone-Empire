@@ -34,11 +34,17 @@ const { optimalLineup, parseLineupSettings } = require('./lineup.service');
  * league.router's box score was excluded then for carrying no tenure
  * exclusion, and #976/#1020 have since put that read behind rowsHeldAsPlayed,
  * which is what turns the #1006 branch into a genuine fourth.
- * Three further reads take a lineup population WITHOUT the tenure exclusion -
- * the live/current-roster question, not this one - and are not counted-roster
- * sites at all: decision.service `liveWhatIf`, expectedFinal.service, and the
- * matchup box-score reader in league.router. Folding any in would change
- * behaviour. (#1010 tracks the join drift the settle sites carry.)
+ * Two reads take a lineup population WITHOUT the tenure exclusion - the
+ * live/current-roster question, not this one - and are not counted-roster
+ * sites at all: decision.service `liveWhatIf` and expectedFinal.service. The
+ * matchup box-score reader in league.router belongs to that group in its LIVE
+ * (non-final) mode ONLY: for a settled matchup (`asPlayed = matchup.final`,
+ * league.router.js:891) it drops the current-roster join (:905) and runs both
+ * starter and bench rows through rowsHeldAsPlayed (:943-947), so there it IS
+ * the tenure-excluded population - which is exactly what makes its best-ball
+ * sub-branch (:1079) the fourth counted-roster site named above. Folding the
+ * live reads in would change behaviour. (#1010 tracks the join drift the
+ * settle sites carry.)
  *
  * The two settle branches feed DIFFERENT rows on purpose, and this module does
  * not reconcile them (#1010): the standard branch's SQL inner-joins
@@ -67,7 +73,7 @@ function round2(x) {
  *
  * @param {object}   args
  * @param {Array}    args.rows    the held-as-played lineup rows, as fetched:
- *                                each `{ player_id, slot, stats, position?, name? }`.
+ *                                each `{ player_id, slot?, stats, position?, name? }`.
  *                                `position` feeds the optimal lineup, which is
  *                                COMPUTED on every call. Only best ball and
  *                                hindsight READ that result, and only they
@@ -75,8 +81,21 @@ function round2(x) {
  *                                selects none (its SQL already narrowed the rows
  *                                to starters), so the optimal lineup it computes
  *                                is empty and discarded, and only `teamScore` is
- *                                meaningful for that caller. `name` is carried
- *                                through to `optimalStarters`.
+ *                                meaningful for that caller.
+ *                                `slot` is likewise optional and its ABSENCE is
+ *                                load-bearing: the standard settle branch selects
+ *                                no slot, so its rows count toward the started
+ *                                total only because `undefined !== 'BENCH'`, and
+ *                                the IR partition takes nobody because
+ *                                `undefined !== 'IR'` (best ball and hindsight DO
+ *                                select slot, to drop IR and, for standard
+ *                                hindsight, to keep benched rows out of the
+ *                                started total). A caller that supplies `slot`
+ *                                where the standard branch does not - or an
+ *                                adapter that filters on it - would move the
+ *                                settle-pass total; #1038's adapter must feed
+ *                                this branch the same slot-less rows the SQL does.
+ *                                `name` is carried through to `optimalStarters`.
  * @param {object}   args.league  the league row; `best_ball` and the roster
  *                                slots (via parseLineupSettings) are read.
  * @param {function} args.price   `(stats) => points`, the league's pricer. Kept
