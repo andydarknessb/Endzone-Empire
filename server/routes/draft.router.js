@@ -240,8 +240,12 @@ router.post('/league/:id/order', async (req, res) => {
     // A refusal above already sent the response; only the success path reaches here.
     if (!res.headersSent) res.json({ leagueId, order: finalOrder });
   } catch (error) {
+    // Guarded because a refusal now responds inside `work` before the wrapper's
+    // COMMIT: if that COMMIT of the read-only refusal transaction rejects (a dead
+    // connection mid-request), the wrapper rethrows here with the response
+    // already sent, and an unguarded res.status would throw ERR_HTTP_HEADERS_SENT.
     console.error('Error setting draft order', error);
-    res.status(500).json({ error: 'failed to set draft order' });
+    if (!res.headersSent) res.status(500).json({ error: 'failed to set draft order' });
   }
 });
 
@@ -824,11 +828,15 @@ router.put('/league/:id/keepers', async (req, res) => {
     // in-transaction catch also carried a bare `ROLLBACK().catch(() => {})` that
     // swallowed a rejecting rollback (the #839 shape); withTransaction owns that
     // close now and destroys the connection instead, so the swallow is gone.
+    // A 23503 can only come from the INSERT on the success path, where no
+    // response has been sent yet. The trailing 500 is guarded for the same
+    // reason as the order handler: a refusal responds inside `work`, so a
+    // rejecting post-refusal COMMIT must not drive an ERR_HTTP_HEADERS_SENT throw.
     if (error.code === '23503') {
       return res.status(400).json({ error: 'unknown team or player in keepers list' });
     }
     console.error('Error saving keepers', error);
-    res.status(500).json({ error: 'failed to save keepers' });
+    if (!res.headersSent) res.status(500).json({ error: 'failed to save keepers' });
   }
 });
 
