@@ -93,7 +93,13 @@ async function runDraftAct({ leagueId, userId }, actBody) {
     const league = leagueResult.rows[0] || null;
     // 2. Teams in rotation order (draft_position seed order, the same order the
     // rest of the draft rotates through), for a body that resolves the on-clock
-    // team or rewrites the order.
+    // team or rewrites the order. INVARIANT: this snapshot takes NO per-row lock,
+    // so a body that gates or deletes per Team (reset, undo) is complete for the
+    // whole act only because every Team-insert serializes behind this same League
+    // lock (joinLeague locks the League row FOR UPDATE before its INSERT); a Team
+    // created mid-act would be neither gated nor wiped. server/test/
+    // teamInsertLockGuard.test.js guards that (#1043) so a new join or add-team
+    // path cannot silently reopen the gap.
     const teamsResult = await client.query(
       `SELECT "id", "owner_id", "autodraft", "draft_position"
          FROM "teams" WHERE "league_id" = $1
