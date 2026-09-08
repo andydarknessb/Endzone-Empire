@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { awardPickemChampions, reconcilePickemChampionTrophies } = require('./trophy.service');
 
 const OUTCOME = Object.freeze({
@@ -363,21 +364,6 @@ async function repeatedRequest({ db, fingerprint, current, operation, metadata }
   });
 }
 
-async function inTransaction(db, work) {
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-    const value = await work(client);
-    await client.query('COMMIT');
-    return value;
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
 async function dryRunOperatorChange({ db, operation, metadata, planned, validateCurrent }) {
   await requirePickemLeague({ db, leagueId: metadata.leagueId });
   const before = await resultOf({ db, leagueId: metadata.leagueId, season: metadata.season });
@@ -403,7 +389,15 @@ async function applyOperatorChange({
   validateCurrent,
   persist,
 }) {
-  return inTransaction(db, async (client) => {
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033), replacing this file's private inTransaction, which
+  // did the same job but swallowed rollback failures and always released bare.
+  // `db` is an injected pool-shaped object; the wrapper only calls connect() on
+  // it. The `retry` early return COMMITs (it follows a syncArchivedResult
+  // write), exactly as inTransaction's return did - a committing early return,
+  // not a ROLLBACK-before-write, so Ruling 2 does not touch it. validateCurrent
+  // throws on a stale read and the wrapper rolls back; no catch-side mapping.
+  return withTransaction(db, async (client) => {
     await requirePickemLeague({ db: client, leagueId: metadata.leagueId, lock: true });
     const before = await resultOf({ db: client, leagueId: metadata.leagueId, season: metadata.season });
     const retry = await repeatedRequest({
@@ -444,7 +438,7 @@ async function applyOperatorChange({
       audit,
       awarded,
     });
-  });
+  }, { label: 'pickem-result' });
 }
 
 async function insertAudit({ db, metadata, operation, before, after, fingerprint }) {

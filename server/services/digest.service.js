@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { deliverEmail } = require('./account.service');
 const { notify } = require('./activity.service');
 const { usersWanting } = require('./prefs.service');
@@ -217,10 +218,14 @@ async function sendLineupReminders() {
       const key = `${team.id}:${season}:${week}`;
       if (remindedTeamWeeks.has(key) || !wanted.has(team.owner_id)) continue;
 
-      const lineupClient = await pool.connect();
-      let entriesResult;
-      try {
-        await lineupClient.query('BEGIN');
+      // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+      // release rule (ADR 0033). This is the lineup transaction whose catch
+      // rethrows; the notify-only sub-transaction lower in this function logs
+      // and continues on failure and is a misfit left untouched (another child
+      // of #1061 owns it). No early return and no catch-side mapping.
+      const entriesResult = await withTransaction(
+        pool,
+        async (lineupClient) => {
         await materializeLineup(lineupClient, { leagueId, teamId: team.id, season, week, league });
         // `on_bye` is read off the LEFT JOIN, so the join predicate IS the
         // bye rule here. `nfl_games` keys teams by Tank01 abbreviation (DEN,
@@ -236,7 +241,7 @@ async function sendLineupReminders() {
         // team codes into one Team code; `nfl_games_season_week_team_code_unique`
         // (ADR 0011, #421) makes that second row a rejected insert, not a case
         // this query has to survive.
-        entriesResult = await lineupClient.query(
+        return lineupClient.query(
           `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
                   "players"."name", "players"."injury_status",
                   ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
@@ -251,13 +256,9 @@ async function sendLineupReminders() {
              AND "lineup_entries"."week" = $3`,
           [team.id, season, week]
         );
-        await lineupClient.query('COMMIT');
-      } catch (error) {
-        await lineupClient.query('ROLLBACK');
-        throw error;
-      } finally {
-        lineupClient.release();
-      }
+        },
+        { label: 'reminders' }
+      );
       const entries = entriesResult.rows.map((r) => ({
         slot: r.slot,
         name: r.name,

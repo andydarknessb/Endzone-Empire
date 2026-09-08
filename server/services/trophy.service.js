@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { computeStandings } = require('./season.service');
 const { notify } = require('./activity.service');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
@@ -70,11 +71,16 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) return [];
-  const awarded = [];
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The league lookup and its early return run on the
+  // ambient pool, before the transaction exists. Nothing here throws a refusal
+  // and there is no catch-side mapping; the post-commit owner notifications are
+  // best-effort and stay after the call, driven by what work returns.
+  const awarded = await withTransaction(
+    pool,
+    async (client) => {
+    const awarded = [];
 
     // Weekly high score
     const weekMatchups = await client.query(
@@ -226,13 +232,10 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
       }
     }
 
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+    return awarded;
+    },
+    { label: 'trophies' }
+  );
 
   await notifyAwardedOwners({ leagueId, awarded });
   return awarded;
