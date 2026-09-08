@@ -179,55 +179,71 @@ function round2(x) {
 }
 
 /**
+ * The schedule work itself, on a caller-supplied client. Owns no transaction:
+ * the exported generateRegularSeason decides which client this runs on and who
+ * BEGINs/COMMITs around it. `forUpdate` selects the league read text - the two
+ * texts that existed before #1073, unchanged: WITH `FOR UPDATE` when this owns
+ * the transaction (nothing else holds the row), WITHOUT it when nested inside a
+ * caller's transaction that already wrote and holds the league row.
+ */
+async function generateRegularSeasonInner(client, { leagueId }, { forUpdate }) {
+  const leagueResult = await client.query(
+    `SELECT * FROM "leagues" WHERE "id" = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    [leagueId]
+  );
+  const league = leagueResult.rows[0];
+  if (!league) throw new SeasonError(404, 'league not found');
+  // #194: season operations refuse a league still pre-draft or drafting (league
+  // phase, not a bare draft_status read). The draft-time caller is
+  // draftCompletion.completeDraft, which runs after the status flip.
+  if (!seasonOperationsAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
+  const teamsResult = await client.query(
+    `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
+    [leagueId]
+  );
+  const teamIds = teamsResult.rows.map((r) => r.id);
+  if (teamIds.length < 2) throw new SeasonError(409, 'need at least 2 teams to schedule a season');
+
+  let created = 0;
+  for (let week = 1; week <= league.regular_season_weeks; week++) {
+    const existing = await client.query(
+      `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
+      [leagueId, league.current_season, week]
+    );
+    if (existing.rows[0]) continue;
+    for (const pairing of roundRobinPairings(teamIds, week)) {
+      await client.query(
+        `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id")
+         VALUES ($1, $2, $3, $4, $5)`,
+        [leagueId, league.current_season, week, pairing.home, pairing.away]
+      );
+      created += 1;
+    }
+  }
+  return { created, weeks: league.regular_season_weeks };
+}
+
+/**
  * Generate the full regular-season schedule for a league (idempotent per
  * week: weeks that already have matchups are skipped). Runs in its own
  * transaction unless a client is supplied.
+ *
+ * With no client it owns the transaction through withTransaction (ADR 0033)
+ * and reads the league row FOR UPDATE. draftCompletion passes its own
+ * draft-completion client; the inner then runs on that client directly - NOT a
+ * nested withTransaction (the wrapper opens an independent transaction, not a
+ * savepoint, so nesting on one pool is forbidden), and the league read drops
+ * FOR UPDATE exactly as before. The exported signature is unchanged.
  */
 async function generateRegularSeason({ leagueId }, existingClient = null) {
-  const client = existingClient || (await pool.connect());
-  try {
-    if (!existingClient) await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1${existingClient ? '' : ' FOR UPDATE'}`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) throw new SeasonError(404, 'league not found');
-    // #194: season operations refuse a league still pre-draft or drafting (league
-    // phase, not a bare draft_status read). The draft-time caller is
-    // draftCompletion.completeDraft, which runs after the status flip.
-    if (!seasonOperationsAvailable(league)) throw new SeasonError(409, SEASON_BEFORE_DRAFT_MESSAGE);
-    const teamsResult = await client.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
-      [leagueId]
-    );
-    const teamIds = teamsResult.rows.map((r) => r.id);
-    if (teamIds.length < 2) throw new SeasonError(409, 'need at least 2 teams to schedule a season');
-
-    let created = 0;
-    for (let week = 1; week <= league.regular_season_weeks; week++) {
-      const existing = await client.query(
-        `SELECT 1 FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 LIMIT 1`,
-        [leagueId, league.current_season, week]
-      );
-      if (existing.rows[0]) continue;
-      for (const pairing of roundRobinPairings(teamIds, week)) {
-        await client.query(
-          `INSERT INTO "matchups" ("league_id", "season", "week", "home_team_id", "away_team_id")
-           VALUES ($1, $2, $3, $4, $5)`,
-          [leagueId, league.current_season, week, pairing.home, pairing.away]
-        );
-        created += 1;
-      }
-    }
-    if (!existingClient) await client.query('COMMIT');
-    return { created, weeks: league.regular_season_weeks };
-  } catch (error) {
-    if (!existingClient) await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    if (!existingClient) client.release();
+  if (existingClient) {
+    return generateRegularSeasonInner(existingClient, { leagueId }, { forUpdate: false });
   }
+  return withTransaction(
+    pool,
+    (client) => generateRegularSeasonInner(client, { leagueId }, { forUpdate: true }),
+    { label: 'generateRegularSeason' }
+  );
 }
 
 /** Standings for a league straight from the database. */
