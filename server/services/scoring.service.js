@@ -1784,6 +1784,7 @@ async function getSeasonPositionRank(playerId, position, season) {
  */
 async function generateMatchups({ leagueId, season, week }) {
   const client = await pool.connect();
+  let rollbackError = null;
   try {
     await client.query('BEGIN');
     // #194: this is the third path that inserts matchups, so it carries the
@@ -1837,10 +1838,21 @@ async function generateMatchups({ leagueId, season, week }) {
     await client.query('COMMIT');
     return { created };
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rbError) {
+      rollbackError = rbError;
+      error.rollbackError = rbError;
+      console.error(`[matchups] ROLLBACK failed after a transaction error: ${rbError.message}`);
+    }
     throw error;
   } finally {
-    client.release();
+    // A rejecting ROLLBACK leaves the transaction open on this socket; returning
+    // it to the pool would hand the next borrower an open transaction (#1055,
+    // #839). Release with an error so pg-pool destroys the connection instead;
+    // see advisoryLock.js and runInjurySync for the same rule. A clean ROLLBACK
+    // keeps its healthy connection: release with no argument, exactly as before.
+    client.release(rollbackError ? new Error(`matchup generation ROLLBACK failed; connection destroyed: ${rollbackError.message}`) : undefined);
   }
 }
 
@@ -1920,6 +1932,7 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
   let league;
   let scored = [];
   let openMatchups = [];
+  let rollbackError = null;
   try {
     await client.query('BEGIN');
     const leagueResult = await client.query(
@@ -2055,10 +2068,21 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
     await client.query('COMMIT');
     openMatchups = matchupsResult.rows.filter((m) => !(settle || m.final));
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rbError) {
+      rollbackError = rbError;
+      error.rollbackError = rbError;
+      console.error(`[scoring] ROLLBACK failed after a transaction error: ${rbError.message}`);
+    }
     throw error;
   } finally {
-    client.release();
+    // A rejecting ROLLBACK leaves the transaction open on this socket; returning
+    // it to the pool would hand the next borrower an open transaction (#1055,
+    // #839). Release with an error so pg-pool destroys the connection instead;
+    // see advisoryLock.js and runInjurySync for the same rule. A clean ROLLBACK
+    // keeps its healthy connection: release with no argument, exactly as before.
+    client.release(rollbackError ? new Error(`scoring pass ROLLBACK failed; connection destroyed: ${rollbackError.message}`) : undefined);
   }
 
   // Each side's status, expected final and players remaining ride the same
