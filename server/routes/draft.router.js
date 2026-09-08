@@ -1,6 +1,9 @@
 const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
+// A pooled transaction closes in one place (ADR 0033): these handlers open no
+// BEGIN/COMMIT/ROLLBACK and release no client of their own.
+const { withTransaction } = require('../modules/withTransaction');
 const { requireAuth } = require('../modules/auth');
 // The anonymous presenter board reads its own narrow snapshot (#788), so this
 // route no longer imports anything from the Socket.IO attach module.
@@ -152,30 +155,31 @@ router.put('/queue', requireFantasyLeague({ param: 'leagueId', from: 'body' }), 
       new Set(playerIds).size !== playerIds.length || playerIds.length > 100) {
     return res.status(400).json({ error: 'playerIds must be a list of unique integers (max 100)' });
   }
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const team = await requireMember(client, { leagueId, userId: req.user.id, forUpdate: true });
-    await client.query(`DELETE FROM "draft_queue" WHERE "team_id" = $1`, [team.id]);
-    for (let i = 0; i < playerIds.length; i++) {
-      await client.query(
-        `INSERT INTO "draft_queue" ("league_id", "team_id", "player_id", "rank")
-         VALUES ($1, $2, $3, $4)`,
-        [leagueId, team.id, playerIds[i], i + 1]
-      );
-    }
-    await client.query('COMMIT');
+    const team = await withTransaction(pool, async (client) => {
+      const team = await requireMember(client, { leagueId, userId: req.user.id, forUpdate: true });
+      await client.query(`DELETE FROM "draft_queue" WHERE "team_id" = $1`, [team.id]);
+      for (let i = 0; i < playerIds.length; i++) {
+        await client.query(
+          `INSERT INTO "draft_queue" ("league_id", "team_id", "player_id", "rank")
+           VALUES ($1, $2, $3, $4)`,
+          [leagueId, team.id, playerIds[i], i + 1]
+        );
+      }
+      return team;
+    }, { label: 'draftQueue' });
     res.json({ leagueId, teamId: team.id, queued: playerIds.length });
   } catch (error) {
-    await client.query('ROLLBACK');
+    // Ruling 3: the error-code mapping and logging that used to sit in the
+    // in-transaction catch move outward, unchanged. withTransaction rethrows the
+    // ORIGINAL error from work, so requireMember's refusal and the INSERT's 23503
+    // still map exactly as before.
     if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     if (error.code === '23503') {
       return res.status(400).json({ error: 'unknown player in queue' });
     }
     console.error('Error saving draft queue', error);
     res.status(500).json({ error: 'failed to save draft queue' });
-  } finally {
-    client.release();
   }
 });
 
@@ -188,55 +192,57 @@ router.post('/league/:id/order', async (req, res) => {
   if (!randomize && (!Array.isArray(order) || order.some((id) => !Number.isInteger(id)))) {
     return res.status(400).json({ error: 'provide order (array of team ids) or randomize: true' });
   }
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
-      [leagueId, req.user.id]
-    );
-    if (!leagueResult.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found or you are not the commissioner' });
-    }
-    if (leagueResult.rows[0].draft_status !== 'pending') {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'draft order is locked once the draft starts' });
-    }
-    const teamsResult = await client.query(
-      `SELECT "id" FROM "teams" WHERE "league_id" = $1`,
-      [leagueId]
-    );
-    const teamIds = teamsResult.rows.map((r) => r.id);
-    let finalOrder;
-    if (randomize) {
-      finalOrder = [...teamIds];
-      for (let i = finalOrder.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [finalOrder[i], finalOrder[j]] = [finalOrder[j], finalOrder[i]];
-      }
-    } else {
-      const valid = order.length === teamIds.length && teamIds.every((id) => order.includes(id));
-      if (!valid) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'order must contain every team in the league exactly once' });
-      }
-      finalOrder = order;
-    }
-    for (let i = 0; i < finalOrder.length; i++) {
-      await client.query(
-        `UPDATE "teams" SET "draft_position" = $1, "updated_at" = now() WHERE "id" = $2`,
-        [i + 1, finalOrder[i]]
+    // Each early refusal throws a DraftError (ADR 0008) - the shape #967 already
+    // converted this router's ROLLBACK-and-return pairs to. Every refusal reads
+    // only (the FOR UPDATE read included) before it throws, so withTransaction
+    // rolls the read-only transaction back - freeing the same lock a COMMIT would
+    // - and rethrows the DraftError, which the outer catch maps via
+    // isDraftRefusal exactly as /queue does. The success response is sent after
+    // the wrapper resolves.
+    const finalOrder = await withTransaction(pool, async (client) => {
+      const leagueResult = await client.query(
+        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
+        [leagueId, req.user.id]
       );
-    }
-    await client.query('COMMIT');
+      if (!leagueResult.rows[0]) {
+        throw new DraftError(403, 'league not found or you are not the commissioner');
+      }
+      if (leagueResult.rows[0].draft_status !== 'pending') {
+        throw new DraftError(409, 'draft order is locked once the draft starts');
+      }
+      const teamsResult = await client.query(
+        `SELECT "id" FROM "teams" WHERE "league_id" = $1`,
+        [leagueId]
+      );
+      const teamIds = teamsResult.rows.map((r) => r.id);
+      let finalOrder;
+      if (randomize) {
+        finalOrder = [...teamIds];
+        for (let i = finalOrder.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [finalOrder[i], finalOrder[j]] = [finalOrder[j], finalOrder[i]];
+        }
+      } else {
+        const valid = order.length === teamIds.length && teamIds.every((id) => order.includes(id));
+        if (!valid) {
+          throw new DraftError(400, 'order must contain every team in the league exactly once');
+        }
+        finalOrder = order;
+      }
+      for (let i = 0; i < finalOrder.length; i++) {
+        await client.query(
+          `UPDATE "teams" SET "draft_position" = $1, "updated_at" = now() WHERE "id" = $2`,
+          [i + 1, finalOrder[i]]
+        );
+      }
+      return finalOrder;
+    }, { label: 'draftOrder' });
     res.json({ leagueId, order: finalOrder });
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error setting draft order', error);
     res.status(500).json({ error: 'failed to set draft order' });
-  } finally {
-    client.release();
   }
 });
 
@@ -757,69 +763,78 @@ router.put('/league/:id/keepers', async (req, res) => {
   if (!Array.isArray(keepers)) {
     return res.status(400).json({ error: 'keepers must be an array' });
   }
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `SELECT "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
-              ${commissionerPredicate(2)} AS "is_commissioner"
-       FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId, req.user.id]
-    );
-    const league = leagueResult.rows[0];
-    if (!league || !league.is_commissioner) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'league not found or you are not the commissioner' });
-    }
-    if (league.draft_status !== 'pending') {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'keepers can only be edited before the draft starts' });
-    }
-    const lockAt = league.keeper_lock_at || league.draft_date;
-    if (lockAt && new Date(lockAt).getTime() <= Date.now()) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'the keeper deadline has passed' });
-    }
-    const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
-    const rosterResult = await client.query(
-      `SELECT "team_id", "player_id" FROM "team_players" WHERE "league_id" = $1`,
-      [leagueId]
-    );
-    const rosterByTeam = new Map();
-    for (const row of rosterResult.rows) {
-      if (!rosterByTeam.has(row.team_id)) rosterByTeam.set(row.team_id, new Set());
-      rosterByTeam.get(row.team_id).add(row.player_id);
-    }
-    const normalized = keepers.map((k) => ({ teamId: k.teamId, playerId: k.playerId, round: k.round }));
-    const errors = validateKeepers(normalized, {
-      teams: teamsResult.rows,
-      rosterByTeam,
-      keeperCount: league.keeper_count,
-      draftRosterSize: draftRosterSize(league),
-    });
-    if (errors.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: errors.join('; ') });
-    }
-    await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
-    for (const k of normalized) {
-      await client.query(
-        `INSERT INTO "keepers" ("league_id", "team_id", "player_id", "draft_round")
-         VALUES ($1, $2, $3, $4)`,
-        [leagueId, k.teamId, k.playerId, k.round]
+    // The four early refusals throw a DraftError (ADR 0008) - the shape #967
+    // converted this router's ROLLBACK-and-return pairs to. Each reads only (the
+    // FOR UPDATE read, teams, rosters) and validates in memory before it throws,
+    // so withTransaction rolls the read-only transaction back - freeing the same
+    // lock a COMMIT would - and rethrows the DraftError for the outer catch to map
+    // via isDraftRefusal. The DELETE/INSERT replace-all runs only past the last
+    // refusal; the success response is sent after the wrapper resolves.
+    const savedCount = await withTransaction(pool, async (client) => {
+      const leagueResult = await client.query(
+        `SELECT "draft_status", "roster_limit", "ir_slots", "keeper_count", "keeper_lock_at", "draft_date",
+                ${commissionerPredicate(2)} AS "is_commissioner"
+         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+        [leagueId, req.user.id]
       );
-    }
-    await client.query('COMMIT');
-    res.json({ leagueId, keepers: normalized.length });
+      const league = leagueResult.rows[0];
+      if (!league || !league.is_commissioner) {
+        throw new DraftError(403, 'league not found or you are not the commissioner');
+      }
+      if (league.draft_status !== 'pending') {
+        throw new DraftError(409, 'keepers can only be edited before the draft starts');
+      }
+      const lockAt = league.keeper_lock_at || league.draft_date;
+      if (lockAt && new Date(lockAt).getTime() <= Date.now()) {
+        throw new DraftError(409, 'the keeper deadline has passed');
+      }
+      const teamsResult = await client.query(`SELECT "id" FROM "teams" WHERE "league_id" = $1`, [leagueId]);
+      const rosterResult = await client.query(
+        `SELECT "team_id", "player_id" FROM "team_players" WHERE "league_id" = $1`,
+        [leagueId]
+      );
+      const rosterByTeam = new Map();
+      for (const row of rosterResult.rows) {
+        if (!rosterByTeam.has(row.team_id)) rosterByTeam.set(row.team_id, new Set());
+        rosterByTeam.get(row.team_id).add(row.player_id);
+      }
+      const normalized = keepers.map((k) => ({ teamId: k.teamId, playerId: k.playerId, round: k.round }));
+      const errors = validateKeepers(normalized, {
+        teams: teamsResult.rows,
+        rosterByTeam,
+        keeperCount: league.keeper_count,
+        draftRosterSize: draftRosterSize(league),
+      });
+      if (errors.length > 0) {
+        throw new DraftError(400, errors.join('; '));
+      }
+      await client.query(`DELETE FROM "keepers" WHERE "league_id" = $1`, [leagueId]);
+      for (const k of normalized) {
+        await client.query(
+          `INSERT INTO "keepers" ("league_id", "team_id", "player_id", "draft_round")
+           VALUES ($1, $2, $3, $4)`,
+          [leagueId, k.teamId, k.playerId, k.round]
+        );
+      }
+      return normalized.length;
+    }, { label: 'draftKeepers' });
+    res.json({ leagueId, keepers: savedCount });
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    // Ruling 3: the refusal mapping and the 23503 mapping both move outward,
+    // unchanged. The old in-transaction catch also carried a bare
+    // `ROLLBACK().catch(() => {})` that swallowed a rejecting rollback (the #839
+    // shape); withTransaction owns that close now and destroys the connection
+    // instead, so the swallow is gone. A DraftError refusal carries a numeric
+    // statusCode, so isDraftRefusal maps it first; a pg foreign-key violation
+    // carries `code` (not statusCode), so it falls through to its own branch, and
+    // that 23503 can only come from the INSERT on the success path.
+    if (isDraftRefusal(error)) return res.status(error.statusCode).json({ error: error.message });
     if (error.code === '23503') {
       return res.status(400).json({ error: 'unknown team or player in keepers list' });
     }
     console.error('Error saving keepers', error);
     res.status(500).json({ error: 'failed to save keepers' });
-  } finally {
-    client.release();
   }
 });
 
