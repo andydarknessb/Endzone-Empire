@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { meetsMinimum } = require('./leagueSize');
 const { DraftError } = require('./draft.service');
 const { startPlan } = require('./draftValidation.service');
@@ -34,17 +35,20 @@ const draftCompletion = require('./draftCompletion');
  * the first open pick's clock. Broadcasts the resulting draft:state on success.
  */
 async function startDraft({ leagueId, userId = null }) {
-  const client = await pool.connect();
-  // The lifecycle entries this start committed, broadcast only after COMMIT.
-  let committedActivities = [];
-  // The deadline the start armed, carried out to the caller (null for a
-  // keeper-complete or untimed start). The WORKER's scheduled-autostart caller
-  // arms an in-process expiry timer for it (#615); it is deliberately NOT armed
-  // here, because startDraft also runs on the manual-start API path, where in
-  // production no timer registry exists (ADR 0018).
-  let pickDeadlineAt = null;
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The post-COMMIT broadcast reads the committed
+  // lifecycle entries and the armed deadline from the callback's RETURN value
+  // rather than from `let`s set inside a try, exactly as scoreMatchups does
+  // (#1060). The old swallowed `ROLLBACK().catch(() => {})` is gone: the wrapper
+  // rolls back on a throw, and a rejecting ROLLBACK now surfaces (attached as
+  // error.rollbackError, the connection destroyed) rather than vanishing.
+  const { activities, pickDeadlineAt } = await withTransaction(pool, async (client) => {
+    // The deadline the start armed, carried out to the caller (null for a
+    // keeper-complete or untimed start). The WORKER's scheduled-autostart caller
+    // arms an in-process expiry timer for it (#615); it is deliberately NOT armed
+    // here, because startDraft also runs on the manual-start API path, where in
+    // production no timer registry exists (ADR 0018).
+    let pickDeadlineAt = null;
 
     const leagueResult = await client.query(
       `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
@@ -205,14 +209,8 @@ async function startDraft({ leagueId, userId = null }) {
       });
     }
 
-    await client.query('COMMIT');
-    committedActivities = activities;
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+    return { activities, pickDeadlineAt };
+  }, { label: 'draft-start' });
 
   // Only after a successful COMMIT, and through the one Draft room adapter
   // (#745), so the WORKER's scheduled autostart publishes these rather than
@@ -223,7 +221,7 @@ async function startDraft({ leagueId, userId = null }) {
   // a started draft.
   const broadcast = getDraftRoomBroadcast();
   await broadcast.stateChanged(leagueId);
-  for (const entry of committedActivities) await broadcast.activityAppended(leagueId, entry);
+  for (const entry of activities) await broadcast.activityAppended(leagueId, entry);
   return { leagueId, pickDeadlineAt };
 }
 
