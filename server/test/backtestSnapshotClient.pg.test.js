@@ -28,7 +28,8 @@
  * report as a visible SKIP, never as silent green.
  *
  * Seeds and deletes its own far-future season in the single migration-smoke
- * database, so scripts/run-pg-tests.js runs it before the holdout tests.
+ * database. See scripts/run-pg-tests.js for where this file sits in the run
+ * order.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

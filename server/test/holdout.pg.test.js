@@ -10,11 +10,15 @@
  * so a stray local run can never touch the shared production database
  * (server/knexfile.js loads .env; this file deliberately does not).
  *
- * Runs LAST among the pg files (scripts/run-pg-tests.js pins it there): these
- * tests insert ledger rows that by design cannot be deleted, and the
- * empty-ledger migrate/rollback/migrate smoke earlier in migration-smoke must
- * keep passing, so every file that seeds and deletes a far-future season in the
- * one shared database runs before this one.
+ * Runs LAST among the pg files (scripts/run-pg-tests.js pins it there). The
+ * reason is defensive and not established: these tests insert ledger rows
+ * that are permanent for the rest of the job, so a future pg file that
+ * asserted anything globally about ledger emptiness would break if it ran
+ * after this one. No such file exists today, so nothing is actually protected
+ * yet -- keeping this file last is cheap insurance. Its own
+ * `rolling back a NONEMPTY ledger refuses destructively` test below depends on
+ * rows left by earlier tests in this same file, not on any other pg file's
+ * position.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
