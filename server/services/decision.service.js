@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 // The two service objects are kept whole (rather than destructured) where the
 // call is a seam a test needs to replace: a destructured binding is captured at
 // require time and cannot be mocked afterwards.
@@ -972,26 +973,26 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
   const settings = parseLineupSettings(league);
   const projections = await getWeekProjections({ season: effectiveSeason, week: effectiveWeek });
 
-  const client = await pool.connect();
-  let starterRows;
-  try {
-    await client.query('BEGIN');
-    await materializeLineup(client, {
-      leagueId, teamId: team.id, season: effectiveSeason, week: effectiveWeek, league,
-    });
-    const result = await client.query(
-      `SELECT "player_id", "slot" FROM "lineup_entries"
-       WHERE "team_id" = $1 AND "season" = $2 AND "week" = $3 AND "slot" NOT IN ('BENCH', 'IR')`,
-      [team.id, effectiveSeason, effectiveWeek]
-    );
-    starterRows = result.rows;
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The pre-transaction reads and the 404 refusal
+  // above run on the ambient pool, before the transaction exists. This
+  // transaction only materializes the lineup and reads it back; no early
+  // return and no catch-side mapping.
+  const starterRows = await withTransaction(
+    pool,
+    async (client) => {
+      await materializeLineup(client, {
+        leagueId, teamId: team.id, season: effectiveSeason, week: effectiveWeek, league,
+      });
+      const result = await client.query(
+        `SELECT "player_id", "slot" FROM "lineup_entries"
+         WHERE "team_id" = $1 AND "season" = $2 AND "week" = $3 AND "slot" NOT IN ('BENCH', 'IR')`,
+        [team.id, effectiveSeason, effectiveWeek]
+      );
+      return result.rows;
+    },
+    { label: 'decision' }
+  );
 
   const currentStarters = starterRows.map((r) => ({
     playerId: r.player_id,

@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { notifyLeague } = require('./activity.service');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 
@@ -306,9 +307,15 @@ async function materializeNewWeekLineups({ leagueId, season, week, league }) {
  * (materializeNewWeekLineups), best-effort.
  */
 async function finalizeWeekAndAdvance({ leagueId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). Every refusal here throws a SeasonError inside
+  // work, so the wrapper rolls back and rethrows it untouched - no catch-side
+  // mapping to move outward. The post-commit lineup seed is best-effort work
+  // that must run after the connection is back in the pool, so it stays after
+  // the call, driven by the values work returns.
+  const { outcome, season, nextWeek, league } = await withTransaction(
+    pool,
+    async (client) => {
     const leagueResult = await client.query(
       `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
@@ -441,15 +448,12 @@ async function finalizeWeekAndAdvance({ leagueId }) {
       );
     }
 
-    await client.query('COMMIT');
-    await materializeNewWeekLineups({ leagueId, season, week: nextWeek, league });
-    return outcome;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+    return { outcome, season, nextWeek, league };
+    },
+    { label: 'season' }
+  );
+  await materializeNewWeekLineups({ leagueId, season, week: nextWeek, league });
+  return outcome;
 }
 
 /** Did this team already lose a (non-consolation) playoff game before `week`? */

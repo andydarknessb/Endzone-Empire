@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const encryptLib = require('../modules/encryption');
 const { deleteAvatarObjects } = require('./avatar.service');
 
@@ -90,10 +91,15 @@ async function exportUserData(userId) {
 }
 
 async function deleteUserAccount({ userId, confirmation }) {
-  const client = await pool.connect();
-  let avatars = [];
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). Every refusal (not found, confirmation mismatch,
+  // owns leagues) throws a PrivacyError before any write, rolled back and
+  // rethrown untouched by the wrapper - no catch-side mapping. The avatar
+  // objects are deleted from Storage AFTER the commit, so that cleanup stays
+  // after the call, driven by the rows work returns.
+  const avatars = await withTransaction(
+    pool,
+    async (client) => {
     const userResult = await client.query(
       `SELECT "id", "username" FROM "users"
        WHERE "id" = $1 AND "deleted_at" IS NULL FOR UPDATE`,
@@ -148,7 +154,7 @@ async function deleteUserAccount({ userId, confirmation }) {
       `SELECT "avatar_url", "avatar_static_url" FROM "teams" WHERE "owner_id" = $1`,
       [userId]
     );
-    avatars = avatarResult.rows;
+    const avatars = avatarResult.rows;
     await client.query(
       `UPDATE "teams" SET "avatar_url" = NULL, "avatar_static_url" = NULL
        WHERE "owner_id" = $1`,
@@ -203,13 +209,10 @@ async function deleteUserAccount({ userId, confirmation }) {
        VALUES ($1, 'deletion', 'completed', '{"method":"anonymization"}', now())`,
       [userId]
     );
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+    return avatars;
+    },
+    { label: 'privacy' }
+  );
 
   await Promise.all(avatars.map((avatar) => deleteAvatarObjects(avatar)));
   return { ok: true };
