@@ -5,7 +5,7 @@ const meta = {
   category: 'Streaming',
   author: 'Andy Darkness',
   excerpt:
-    'A Wednesday night kickoff in Seattle pits a rebuilding New England roster against a Seahawks team missing its RB2 for at least four games. Start/sit calls, the full injury picture, and the IDP streamers worth grabbing before this one kicks off.',
+    'A Super Bowl LX rematch opens the season Wednesday night at Lumen Field. The defending-champion Seahawks host a retooled Patriots squad in a 3.5-point game. Start/sit calls for both rosters, the Charbonnet injury fallout, and the IDP streamers to grab before kickoff.',
   readMinutes: 9,
   date: '2026-09-08',
 };

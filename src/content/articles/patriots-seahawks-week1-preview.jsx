@@ -24,7 +24,7 @@ function HeroBanner() {
       <title id="patsea-hero-title">Patriots at Seahawks Wednesday Night Preview</title>
       <desc id="patsea-hero-desc">
         An original editorial illustration of a football splitting two helmets under stadium lights,
-        with a Wednesday night sky and start/sit arrows framing the matchup.
+        with a Wednesday night sky and a Super Bowl rematch banner framing the matchup.
       </desc>
       <defs>
         <linearGradient id="patsea-sky" x1="0" y1="0" x2="0" y2="1">
@@ -42,7 +42,6 @@ function HeroBanner() {
       {[100, 200, 300, 400, 500, 600, 700].map((x) => (
         <line key={x} x1={x} y1="186" x2={x - 20} y2="300" stroke="rgba(255,255,255,0.08)" />
       ))}
-      {/* Stadium lights */}
       {[160, 320, 480, 640].map((x) => (
         <React.Fragment key={x}>
           <rect x={x - 3} y="20" width="6" height="60" fill="rgba(255,255,255,0.15)" />
@@ -50,18 +49,15 @@ function HeroBanner() {
           <ellipse cx={x} cy="90" rx="40" ry="80" fill="#ffd866" opacity="0.04" />
         </React.Fragment>
       ))}
-      {/* NE side */}
       <circle cx="240" cy="160" r="44" fill="#0a2342" stroke="#c8102e" strokeWidth="5" />
       <text x="240" y="168" textAnchor="middle" fill="#c8cdd4" fontFamily="system-ui, sans-serif" fontWeight="900" fontSize="28">NE</text>
-      {/* SEA side */}
       <circle cx="560" cy="160" r="44" fill="#002244" stroke="#69be28" strokeWidth="5" />
       <text x="560" y="168" textAnchor="middle" fill="#a5acb9" fontFamily="system-ui, sans-serif" fontWeight="900" fontSize="28">SEA</text>
-      {/* Football center */}
       <ellipse cx="400" cy="156" rx="30" ry="18" fill="#7b4126" />
       <path d="M383 152 L417 152" stroke="#f5e5cf" strokeWidth="2.5" />
-      {/* VS */}
       <text x="400" y="132" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontFamily="system-ui, sans-serif" fontWeight="800" fontSize="16">VS</text>
-      {/* Title bar */}
+      <path d="M394 190 L406 190 L404 200 L396 200Z" fill="#ffd866" opacity="0.5" />
+      <text x="400" y="214" textAnchor="middle" fill="#ffd866" fontFamily="system-ui, sans-serif" fontWeight="700" fontSize="10" opacity="0.7" letterSpacing="2">SB LX REMATCH</text>
       <rect x="80" y="220" width="640" height="64" rx="14" fill="rgba(3,12,20,0.82)" />
       <text x="400" y="248" textAnchor="middle" fill="#ffffff" fontFamily="system-ui, sans-serif" fontWeight="850" fontSize="22" letterSpacing="1">PATRIOTS AT SEAHAWKS</text>
       <text x="400" y="272" textAnchor="middle" fill="#c9d8e6" fontFamily="system-ui, sans-serif" fontWeight="650" fontSize="13" letterSpacing="3">WEDNESDAY NIGHT &middot; WEEK 1 &middot; START/SIT &middot; IDP</text>
@@ -76,10 +72,13 @@ const Body = () => (
     <HeroBanner />
 
     <Lead>
-      Wednesday night football opens Week 1 with New England traveling to Seattle, a game that
-      looks like a mismatch on paper but carries real fantasy decisions at running back, in the
-      IDP slot, and at one position most managers will get wrong. Here is the start/sit breakdown,
-      the injury board, and the IDP streamers worth grabbing before kickoff.
+      The 2026 NFL season opens with a Super Bowl LX rematch: New England at Seattle, Wednesday
+      night at Lumen Field. The defending-champion Seahawks returned the league&apos;s best defense
+      and added Cooper Kupp and Rashid Shaheed to an offense that already featured Jaxon
+      Smith-Njigba. The Patriots, after their first Super Bowl appearance in five years, retooled
+      with A.J. Brown and Romeo Doubs flanking Drake Maye. This is not a mismatch. It is a
+      3.5-point game with a 45.5 over/under, and fantasy managers need to pay close attention to
+      both sides. Here is the full start/sit breakdown, the injury board, and the IDP streamers.
     </Lead>
 
     <H2>The Matchup at a Glance</H2>
@@ -88,195 +87,206 @@ const Body = () => (
         <TR><TH scope="col">Category</TH><TH scope="col">Patriots</TH><TH scope="col">Seahawks</TH></TR>
       </THead>
       <TBody>
-        <TR><TD>2025 Record</TD><TD>4&ndash;13</TD><TD>10&ndash;7</TD></TR>
-        <TR><TD>Implied Total</TD><TD>17.5</TD><TD>24.5</TD></TR>
-        <TR><TD>Spread</TD><TD>+7</TD><TD>&minus;7</TD></TR>
-        <TR><TD>Key Absence</TD><TD>OL depth thin</TD><TD>Charbonnet (PUP)</TD></TR>
+        <TR><TD>2025 Result</TD><TD>Super Bowl LX runners-up</TD><TD>Super Bowl LX champions</TD></TR>
+        <TR><TD>Implied Total</TD><TD>~21</TD><TD>~24.5</TD></TR>
+        <TR><TD>Spread</TD><TD>+3.5</TD><TD>&minus;3.5</TD></TR>
+        <TR><TD>Key Absence</TD><TD>&mdash;</TD><TD>Charbonnet (PUP, torn ACL)</TD></TR>
       </TBody>
     </Table>
     <P>
-      Seattle is a seven-point home favorite with an implied total of 24.5, which puts the
-      over/under at 42. New England&apos;s rebuilding offensive line showed cracks all preseason and
-      allowed pressure on 38 percent of dropbacks in the three exhibition games. The Seahawks
-      lost Zach Charbonnet to the PUP list, guaranteeing at least four games without their
-      primary backup, which funnels early-down and goal-line work into fewer hands.
+      A 3.5-point spread in a Super Bowl rematch means Vegas sees this as a competitive game, not
+      a coronation. The 45.5 over/under is the highest of the Wednesday slate and suggests both
+      offenses will move the ball. Seattle&apos;s championship defense is real, but so is New
+      England&apos;s receiver upgrade: Brown and Doubs give Maye a pair of proven route runners he
+      did not have in last year&apos;s playoff run.
     </P>
 
     <H2>Start/Sit: Offense</H2>
 
     <H3>Start: Kenneth Walker III, RB, Seahawks</H3>
     <P>
-      With Charbonnet on PUP, Walker inherits close to a full workload including the goal-line
-      carries Charbonnet handled on roughly 30 percent of red-zone snaps a year ago. A home game
-      against a Patriots front seven that ranked 28th in rushing yards allowed per game last season
-      is the matchup you want for a bell-cow back. Walker is a locked-in RB1 this week with top-five
-      upside on volume alone.
+      Zach Charbonnet tore his ACL during the Seahawks&apos; divisional-round win over San Francisco
+      in January, had surgery on February 20, and opened the season on PUP. He cannot return before
+      Week 5 at the earliest. Walker inherits the full early-down and goal-line workload, with only
+      Jadarian Price, George Holani, and Emanuel Wilson behind him. A home game where the Seahawks
+      are favored means positive game script and a run-first approach. Walker is a locked-in RB1
+      this week with top-five upside on volume alone.
+    </P>
+
+    <H3>Start: A.J. Brown, WR, Patriots</H3>
+    <P>
+      Brown is the centerpiece of New England&apos;s offseason overhaul and steps in as Maye&apos;s
+      clear WR1. A 45.5 over/under and a competitive spread mean this game should stay close enough
+      for the Patriots to run their full playbook rather than abandon it early. Seattle&apos;s
+      defense is elite, but Brown has beaten elite coverage his entire career and commands targets
+      in contested situations. He is a top-12 WR play this week with a high floor in PPR formats.
     </P>
 
     <H3>Start: Jaxon Smith-Njigba, WR, Seahawks</H3>
     <P>
-      With DK Metcalf now in Pittsburgh, Smith-Njigba steps into the undisputed WR1 role in
-      Seattle. New England&apos;s secondary is young and rebuilding, and JSN is the clear top target
-      in an offense expected to play with a lead. Seven-point favorites throw enough to keep their
-      primary receiver busy, and there is no target competition ahead of him. Start him as a
-      high-floor WR2 with WR1 upside this week.
+      With DK Metcalf now in his second season in Pittsburgh, Smith-Njigba remains the top target
+      in a Seattle passing game that added Kupp and Shaheed around him this offseason. Sam Darnold
+      has a deep receiving corps for the first time in his career, but JSN is the chain-mover who
+      ate targets all through the 2025 championship run. At home in a game Seattle is expected to
+      control, JSN profiles as a high-floor WR2 with WR1 upside if the game stays competitive
+      enough to keep Darnold throwing.
     </P>
 
     <H3>Start: Drake Maye, QB, Patriots (superflex/2QB only)</H3>
     <P>
-      This is not a ranking call, it is a format call. In superflex and two-quarterback leagues where
-      Maye is your QB2, the game script actually helps him. Trailing teams throw, and New England
-      will almost certainly trail. Maye completed 66 percent of his passes as a rookie and the
-      Seahawks allowed the ninth-most passing yards per game in 2025. In one-QB leagues he is on
-      your bench.
+      This is a format call, not a ranking call. In superflex and two-QB leagues, a close game with
+      a 45.5 over/under means Maye throws 30-plus times into a shootout script rather than chasing
+      a blowout from behind. He has real weapons now in Brown and Doubs, which raises his ceiling
+      considerably from last season. In one-QB leagues he sits behind established options.
+    </P>
+
+    <H3>Flex: Romeo Doubs, WR, Patriots</H3>
+    <P>
+      New England signed Doubs to a four-year, $68 million deal this offseason, installing him as
+      the WR2 opposite Brown. The volume should be there in a game with a 45.5 total, but this is
+      his first game in a new offense against the defending champions&apos; secondary. Flex him in
+      12-team formats. Give him a week on the bench in shallower leagues while you see how the
+      target share develops among Brown, Doubs, and DeMario Douglas.
     </P>
 
     <H3>Sit: Rhamondre Stevenson, RB, Patriots</H3>
     <P>
-      The Patriots will likely trail early, which compresses rushing volume. Seattle&apos;s front
-      allowed the sixth-fewest rushing yards per game last season and returned its entire defensive
-      line. Stevenson is a flex at best in this spot, and a sit in 10-team formats. Corey Kiner,
-      acquired from Arizona via trade in the cutdown-day deals, is not worth a roster spot in
-      redraft outside of the deepest leagues.
+      Seattle fielded the NFL&apos;s best defense in 2025 en route to the championship, and they
+      returned the core of it. Leonard Williams, Byron Murphy II, and Ernest Jones IV are all back.
+      The Patriots may need to throw to keep pace, which compresses rushing volume even in a close
+      game. TreVeyon Henderson is in the mix for goal-line work. Stevenson is a flex at best and a
+      sit in 10-team formats.
     </P>
 
-    <H3>Flex: Noah Fant, TE, Seahawks</H3>
+    <H3>Sit: Cooper Kupp, WR, Seahawks</H3>
     <P>
-      Charbonnet&apos;s absence opens a handful of check-down targets that would normally go to the
-      backfield. Fant is not a high-ceiling play, but in a game Seattle controls he stays on the
-      field for two-tight-end sets and catches the short middle work that a lead back would
-      otherwise absorb. He is a backend TE1 this week with a safe floor of four catches, which
-      is enough to flex him in 12-team formats where the alternative is a dart throw.
-    </P>
-
-    <H3>Sit: Tyler Lockett, WR, Seahawks</H3>
-    <P>
-      Lockett managed a knee throughout camp and is expected to play under a snap count. Even
-      healthy, his role narrows in positive game script: Seattle will lean on the run with Walker
-      and feed JSN as the primary pass catcher. Lockett is a boom-or-bust WR3/flex this week
-      whose ceiling depends on a deep shot or two, not on volume. If you have a safer floor
-      option on your bench, start that instead.
+      Kupp arrived in Seattle this offseason and joins a receiving corps where Smith-Njigba and
+      Shaheed are already established in the system. At 33, after multiple injury-shortened seasons,
+      Week 1 in a new offense with a new quarterback is a wait-and-see situation. He may finish as
+      a WR2 by midseason, but this week he is a boom-or-bust flex whose target share has not been
+      proven in live action. Let someone else start him and show you the role first.
     </P>
 
     <H3>Sit: Hunter Henry, TE, Patriots</H3>
     <P>
-      Henry is the kind of tight end who quietly posts seven targets when the game is close. A
-      blowout loss compresses his route share as New England abandons the short middle of the field
-      for deeper shots to chase points. He is a low-end TE1 this week with a floor that drops to
-      three catches in a runaway.
+      Henry is a reliable option in close games, but New England&apos;s receiver overhaul pushes him
+      down the target pecking order. Brown and Doubs will command the primary share of Maye&apos;s
+      throws. Against Seattle&apos;s defense the passing volume should be adequate, but Henry&apos;s
+      slice of it shrinks. He is a backend TE1 with limited upside this week.
     </P>
 
-    <H2>Start/Sit: Summary Table</H2>
-    <Table aria-labelledby="start-sit-summary-table">
+    <H2>Start/Sit Summary</H2>
+    <Table aria-labelledby="start-sit-summary">
       <THead>
         <TR><TH scope="col">Player</TH><TH scope="col">Pos</TH><TH scope="col">Verdict</TH><TH scope="col">Reasoning</TH></TR>
       </THead>
       <TBody>
-        <TR><TD><S>Kenneth Walker III</S></TD><TD>RB</TD><TD>Start (RB1)</TD><TD>Near-full workload, plus game script, weak run D</TD></TR>
-        <TR><TD><S>Jaxon Smith-Njigba</S></TD><TD>WR</TD><TD>Start (WR2+)</TD><TD>WR1 role post-Metcalf trade, young secondary, game lead</TD></TR>
-        <TR><TD><S>Drake Maye</S></TD><TD>QB</TD><TD>Start (SF/2QB)</TD><TD>Garbage-time volume, pass-funnel game script</TD></TR>
-        <TR><TD>Noah Fant</TD><TD>TE</TD><TD>Flex</TD><TD>Charbonnet absence opens some check-down work</TD></TR>
-        <TR><TD>Rhamondre Stevenson</TD><TD>RB</TD><TD>Sit</TD><TD>Negative game script, elite run D opponent</TD></TR>
-        <TR><TD>Tyler Lockett</TD><TD>WR</TD><TD>WR3/Flex</TD><TD>Snap count, boom-or-bust deep threat only</TD></TR>
-        <TR><TD>Hunter Henry</TD><TD>TE</TD><TD>Sit</TD><TD>Blowout risk compresses route share</TD></TR>
+        <TR><TD><S>Kenneth Walker III</S></TD><TD>RB</TD><TD>Start (RB1)</TD><TD>Full workload, Charbonnet on PUP, positive game script</TD></TR>
+        <TR><TD><S>A.J. Brown</S></TD><TD>WR</TD><TD>Start (WR1)</TD><TD>NE&apos;s top target, competitive game, high O/U</TD></TR>
+        <TR><TD><S>Jaxon Smith-Njigba</S></TD><TD>WR</TD><TD>Start (WR2)</TD><TD>SEA&apos;s WR1, high-floor target share, home favorite</TD></TR>
+        <TR><TD><S>Drake Maye</S></TD><TD>QB</TD><TD>Start (SF/2QB)</TD><TD>Upgraded weapons, competitive game script, high O/U</TD></TR>
+        <TR><TD>Romeo Doubs</TD><TD>WR</TD><TD>Flex</TD><TD>$68M WR2, first game in new system</TD></TR>
+        <TR><TD>Rhamondre Stevenson</TD><TD>RB</TD><TD>Sit</TD><TD>Best run defense in NFL, Henderson in the mix</TD></TR>
+        <TR><TD>Cooper Kupp</TD><TD>WR</TD><TD>Sit</TD><TD>New offense, unproven target share, wait-and-see</TD></TR>
+        <TR><TD>Hunter Henry</TD><TD>TE</TD><TD>Sit</TD><TD>Pushed down target order by WR upgrades</TD></TR>
       </TBody>
     </Table>
 
     <H2>The Injury Board</H2>
     <P>
-      Reported statuses heading into Wednesday, attributed to the club or the reporter who
-      carried them. Where a return date has not been announced, that is stated plainly.
+      Reported statuses heading into Wednesday. Where a return date has not been announced, that
+      is stated plainly.
     </P>
 
     <H3>Seahawks</H3>
     <UL>
-      <LI><S>Zach Charbonnet, RB:</S> PUP list, out at least four games. The single biggest fantasy-relevant absence in this matchup. Kenneth Walker&apos;s workload expands immediately, and the next back in line is a committee piece, not a plug-and-play starter.</LI>
-      <LI><S>Abraham Lucas, OT:</S> returned to practice in the final week of preseason after missing time with a knee issue. Listed as questionable. If he sits, Seattle&apos;s right side becomes a pressure point the Patriots&apos; edge rushers can exploit.</LI>
-      <LI><S>Tyler Lockett, WR:</S> managed a knee throughout camp. Full participant in the final two practices and expected to play, but snap-count management is likely. His absence from any drive is a direct target bump for Smith-Njigba.</LI>
+      <LI><S>Zach Charbonnet, RB:</S> PUP list, out at least four games. Tore his ACL during the divisional-round playoff win over San Francisco in January, surgery February 20. Earliest possible return is Week 5. Kenneth Walker&apos;s workload expands immediately, with Jadarian Price, George Holani, and Emanuel Wilson as the depth pieces behind him.</LI>
+      <LI><S>Irvin Charles, WR:</S> injured reserve. Removes a depth receiver, though the top three of Smith-Njigba, Shaheed, and Kupp are unaffected.</LI>
+      <LI><S>Jake Bobo, WR:</S> injured reserve. Thins Seattle&apos;s receiver depth behind the top three, elevating Tory Horton into a larger role.</LI>
+      <LI><S>DeMarcus Lawrence, EDGE:</S> healthy and active. The 34-year-old reportedly considered retirement this offseason but returned after posting six sacks and 39 pressures in 2025. He anchors the pass rush alongside Uchenna Nwosu and Derick Hall.</LI>
     </UL>
 
     <H3>Patriots</H3>
     <UL>
-      <LI><S>Ja&apos;Lynn Polk, WR:</S> missed the final preseason game with a hamstring injury. Questionable for Wednesday. If he sits, the Patriots&apos; receiver depth thins further and Maye&apos;s target tree narrows to Henry and the backfield.</LI>
-      <LI><S>Cole Strange, OG:</S> limited in practice through August after offseason knee surgery. His availability determines whether the interior line can handle Seattle&apos;s interior pressure packages. No impact on fantasy skill positions directly, but a large impact on Maye&apos;s time to throw.</LI>
-      <LI><S>Christian Gonzalez, CB:</S> full participant all preseason. Healthy and expected to shadow Smith-Njigba, which is the one coverage variable that could limit JSN&apos;s ceiling. Gonzalez is a legitimate CB1 and this shadow assignment is worth monitoring in-game.</LI>
+      <LI><S>Jeremiah Webb, WR:</S> injured reserve. A depth loss that does not affect the top of the chart with Brown, Doubs, and DeMario Douglas healthy.</LI>
+      <LI><S>Corey Kiner, RB:</S> acquired from Arizona in a cutdown-day trade. Provides depth behind Stevenson and TreVeyon Henderson but is not a redraft-relevant name outside the deepest leagues.</LI>
     </UL>
 
     <H2>IDP Streamers</H2>
     <P>
-      Wednesday night is an IDP gold mine if you know where to look. Both offenses present
-      exploitable tendencies that inflate tackle counts and pass-rush production for specific
-      positions. These are the names available in most leagues that are worth grabbing before
-      kickoff.
+      A Super Bowl rematch between two playoff teams means extended competitive snaps for defensive
+      starters on both sides, which inflates IDP production. Seattle&apos;s championship defense is
+      the side to target because the Patriots will need to throw to keep pace, and pressured passing
+      creates sacks, tackles for loss, and takeaway opportunities.
     </P>
 
-    <H3>Boye Mafe, EDGE, Seahawks</H3>
+    <H3>Ernest Jones IV, LB, Seahawks</H3>
     <P>
-      Mafe led Seattle with 10.5 sacks in 2025 and draws a Patriots offensive line that allowed
-      pressure on 38 percent of preseason dropbacks. New England&apos;s rebuilt interior means the
-      right side will likely slide protection toward the strength, leaving Mafe in
-      one-on-one matchups on the weak side. In a game the Seahawks are expected to lead, New
-      England will be in obvious passing situations early in the second half. Mafe is a top-12
-      edge play this week.
+      Jones earned Pro Bowl honors anchoring the middle of Seattle&apos;s championship defense in
+      2025. He is the primary run-fit linebacker and the hook-zone defender in nickel, which means
+      he accumulates tackles against both the run and the short pass. Against a Patriots offense that
+      may lean on quick throws to handle Seattle&apos;s pass rush, Jones stays on the field and in
+      the tackle flow. He is a top-10 LB play this week with an LB1 floor.
     </P>
 
-    <H3>Tyrel Dodson, LB, Seahawks</H3>
+    <H3>DeMarcus Lawrence, EDGE, Seahawks</H3>
     <P>
-      Dodson quietly posted 130 tackles last season and is Seattle&apos;s primary run-fit linebacker.
-      The Patriots will try to establish the run early before game script takes it away, which
-      gives Dodson a window of high tackle volume in the first half. Even after New England
-      shifts to passing, Dodson stays on the field in the nickel package as the hook-zone
-      defender, which means underneath completions turn into assisted tackles. He is a safe
-      LB2 floor with LB1 upside if the game stays competitive.
+      Lawrence posted six sacks and 39 pressures in 2025 at age 33, then came back for one more
+      year after reportedly weighing retirement. The 34-year-old draws a Patriots offensive line
+      in its first live game protecting Maye behind a retooled roster. His ownership is below 50
+      percent in most IDP formats because of the age, but the production is still there and a home
+      game where New England has to throw makes him a high-floor edge streamer. Top-15 EDGE play.
     </P>
 
-    <H3>Anfernee Jennings, LB, Patriots</H3>
+    <H3>Derick Hall, EDGE, Seahawks</H3>
     <P>
-      Jennings is the streamer most managers will miss. He plays a hybrid edge/linebacker role in
-      New England&apos;s defense and benefits from a game script that puts Kenneth Walker on the field
-      for 25-plus carries. Every Walker run toward Jennings&apos; gap is a tackle opportunity, and
-      Walker&apos;s expanded workload means more total rushing attempts than a typical Seahawks game.
-      Jennings is available in over 70 percent of IDP leagues and profiles as a LB2 this week.
+      Hall is the younger complement to Lawrence and Nwosu on Seattle&apos;s deep edge rotation. In
+      a game where the Patriots need to pass to keep pace, Hall benefits from the attention Lawrence
+      draws on the opposite side. Available in over 60 percent of IDP leagues, he projects for
+      three to four tackles with sack upside in a game Seattle controls at home. A solid EDGE2
+      streamer this week.
     </P>
 
     <H3>Devon Witherspoon, CB, Seahawks</H3>
     <P>
-      Witherspoon is a tackle-machine corner who recorded 78 total tackles last year, an elite
-      number for the position. Against a Patriots offense that will lean on short passes and
-      checkdowns once the game script turns negative, Witherspoon will be making plays near the
-      line of scrimmage on screens and quick outs. He is a DB1 in leagues that reward tackles
-      from the secondary, and the safest defensive back to stream this week.
+      Witherspoon is a tackle-machine corner in a championship secondary. Against a Patriots offense
+      that will lean on Brown and Doubs in the short-to-intermediate range, Witherspoon will make
+      plays near the line on screens and quick outs. He is a DB1 in leagues that reward tackles
+      from the secondary and the safest defensive back to stream this week.
     </P>
 
     <H2>IDP Streamer Summary</H2>
     <Table aria-labelledby="idp-streamer-summary">
       <THead>
-        <TR><TH scope="col">Player</TH><TH scope="col">Pos</TH><TH scope="col">Team</TH><TH scope="col">Owned %</TH><TH scope="col">Projection</TH></TR>
+        <TR><TH scope="col">Player</TH><TH scope="col">Pos</TH><TH scope="col">Team</TH><TH scope="col">Why This Week</TH></TR>
       </THead>
       <TBody>
-        <TR><TD><S>Boye Mafe</S></TD><TD>EDGE</TD><TD>SEA</TD><TD>42%</TD><TD>5 tackles, 1.5 sacks, 3 pressures</TD></TR>
-        <TR><TD><S>Tyrel Dodson</S></TD><TD>LB</TD><TD>SEA</TD><TD>35%</TD><TD>8 tackles, 1 TFL</TD></TR>
-        <TR><TD><S>Anfernee Jennings</S></TD><TD>LB</TD><TD>NE</TD><TD>28%</TD><TD>7 tackles, 0.5 sack</TD></TR>
-        <TR><TD><S>Devon Witherspoon</S></TD><TD>CB</TD><TD>SEA</TD><TD>38%</TD><TD>6 tackles, 1 PD</TD></TR>
+        <TR><TD><S>Ernest Jones IV</S></TD><TD>LB</TD><TD>SEA</TD><TD>Pro Bowl LB, tackle machine, on field in nickel</TD></TR>
+        <TR><TD><S>DeMarcus Lawrence</S></TD><TD>EDGE</TD><TD>SEA</TD><TD>6 sacks in 2025, NE must pass, home game</TD></TR>
+        <TR><TD><S>Derick Hall</S></TD><TD>EDGE</TD><TD>SEA</TD><TD>Benefits from Lawrence attention, pass-heavy script</TD></TR>
+        <TR><TD><S>Devon Witherspoon</S></TD><TD>CB</TD><TD>SEA</TD><TD>Tackle-heavy corner vs. short-pass offense</TD></TR>
       </TBody>
     </Table>
 
     <H2>The Wednesday Night Edge</H2>
     <P>
-      Wednesday games are their own animal. The extra two days of preparation favor the home team,
-      and Seattle has historically performed well in midweek home games under the current coaching
-      staff. For fantasy purposes, the advice is straightforward: trust the home favorites, fade the
-      road team&apos;s floor-dependent players, and grab the IDP streamers before Tuesday night waivers
-      lock.
+      Wednesday openers favor the home team, and Seattle has the added advantage of being the
+      defending champions returning to their own stadium. For fantasy purposes, the 3.5-point
+      spread and 45.5 over/under tell you this game stays competitive: neither offense shuts down,
+      and both passing games stay engaged deep into the fourth quarter. That benefits skill players
+      on both sides but particularly benefits Seattle&apos;s defense, which gets extended snaps
+      against a Patriots offense forced to throw in an environment where the 12th Man will be at
+      full volume for the banner ceremony.
     </P>
     <Quote>
-      Charbonnet&apos;s PUP designation is not a rumor, it is a four-game fact. Walker&apos;s workload
-      expansion is the single most bankable edge in this matchup, and the IDP streamers on
-      Seattle&apos;s side of the ball benefit from the same game script that feeds him.
+      Charbonnet&apos;s torn ACL is a four-game absence at minimum. Walker&apos;s expanded workload
+      is the most bankable edge in this game. On the other side, Seattle&apos;s championship
+      defense against a second-year quarterback with new receivers is the IDP matchup of the week.
     </Quote>
     <P>
-      Set your lineups with the game script in mind. Seattle leads, Walker eats, Mafe rushes,
-      and the Patriots chase. Every start/sit call above flows from that single expectation.
+      Set your lineups with the spread in mind. This is not a blowout script. Both offenses will
+      be on the field, both passing games will be active, and the streamers on Seattle&apos;s
+      defense will eat.
     </P>
   </>
 );
