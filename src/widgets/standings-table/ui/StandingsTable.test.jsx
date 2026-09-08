@@ -4,6 +4,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
 import StandingsTable from '../index';
+import { teamStandingFromRow } from '../../../entities/standings';
 
 /**
  * The standings-table widget's own suite (#641 follow-ups T3/T4). The page test
@@ -197,24 +198,17 @@ test('standings-table: preseason masks the streak instead of printing the server
   expect(within(card).getAllByText('Not available').length).toBeGreaterThan(0);
 });
 
-// --- the Record cell (#958) -------------------------------------------------
+// --- the Record cell (#959) -------------------------------------------------
 
-test('standings-table: a tie-less Team renders a two-part record', async () => {
-  primeLeague();
-  mockGetByUrl({
-    '/api/scoring/league/1/standings': standingsResponse({
-      rows: standingsRows({ count: 12 }),
-    }),
-  });
-  renderTable();
-
-  const card = await screen.findByTestId('standings-table');
-  const youRow = await within(card).findByTestId('standings-table-you-row');
-  expect(within(youRow).getByText('12-0')).toBeInTheDocument();
-  expect(within(youRow).queryByText('12-0-0')).not.toBeInTheDocument();
-});
-
-test('standings-table: a Team with ties renders a three-part record', async () => {
+// The two record-FORMAT cases that stood here (a tie-less Team renders two
+// parts, a Team with ties renders three) are gone: the tie rule is no longer
+// this widget's to state. src/entities/standings owns it and asserts all four
+// cases as a table with no render (standingsModel.test.js), and each of the two
+// deletions is behind its own red-tell in this PR - the entity's tie-less row
+// goes red when the format is made unconditional, and its with-ties row goes
+// red when the tie part is always dropped. What is left here is the widget's
+// own job: the entity's value reaches the DOM.
+test("standings-table: the entity's record for a row reaches that row's cell", async () => {
   primeLeague();
   const rows = standingsRows({ count: 12 });
   rows[0] = { ...rows[0], wins: 8, losses: 2, ties: 2 };
@@ -225,12 +219,10 @@ test('standings-table: a Team with ties renders a three-part record', async () =
 
   const card = await screen.findByTestId('standings-table');
   const youRow = await within(card).findByTestId('standings-table-you-row');
-  expect(within(youRow).getByText('8-2-2')).toBeInTheDocument();
+  // Not a literal: whatever the entity computes for this row is what the cell
+  // must show, so the assertion cannot drift from the owner of the rule.
+  expect(within(youRow).getByText(teamStandingFromRow(rows[0]).record)).toBeInTheDocument();
 });
-
-// Red-tell (AC2): restoring the unconditional `${wins}-${losses}-${ties}`
-// format is exactly what turns the tie-less case above red, because it would
-// print '12-0-0' where the case asserts '12-0'.
 
 // --- the playoff cut -------------------------------------------------------
 

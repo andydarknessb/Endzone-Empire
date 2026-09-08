@@ -9,7 +9,7 @@ import {
   subscribeToTeamProfileUpdates,
 } from '../../../lib/teamProfileEvents';
 import { useLeagueMatchups, matchupStatusView } from '../../../entities/matchup';
-import { recordsFromStandings } from '../../../widgets/matchup-grid';
+import { recordsByTeamId } from '../../../entities/standings';
 
 /**
  * The Game Center page's data (ADR 0031, #897): everything the page composes
@@ -245,7 +245,7 @@ export function useGameCenter(leagueId) {
     [standings.data]
   );
   const records = useMemo(
-    () => (standingsRows.length ? Object.fromEntries(recordsFromStandings(standingsRows)) : null),
+    () => (standingsRows.length ? Object.fromEntries(recordsByTeamId(standingsRows)) : null),
     [standingsRows]
   );
   // The rank is the standings row's own when it carries one (the endpoint
