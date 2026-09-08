@@ -43,15 +43,18 @@ const { optimalLineup, parseLineupSettings } = require('./lineup.service');
  * starter and bench rows through rowsHeldAsPlayed (:943-947), so there it IS
  * the tenure-excluded population - which is exactly what makes its best-ball
  * sub-branch (:1079) the fourth counted-roster site named above. Folding the
- * live reads in would change behaviour. (#1010 tracks the join drift the
- * settle sites carry.)
+ * live reads in would change behaviour. (#1010 has since converged the two
+ * settle sites on LEFT JOIN; see below.)
  *
- * The two settle branches feed DIFFERENT rows on purpose, and this module does
- * not reconcile them (#1010): the standard branch's SQL inner-joins
- * player_stats and so drops a statless starter from the row set entirely, while
- * best ball and hindsight left-join and keep him priced at zero. The team total
- * is the same either way; only the row COUNT differs. Rows arrive as given -
- * this module never filters a statless row nor synthesises a zero-stat one.
+ * The two settle branches still feed DIFFERENT rows on purpose, and this module
+ * does not reconcile them: best ball selects every slot (bench included; IR
+ * dropped here in JS) while the standard branch excludes BENCH and IR in its
+ * SQL. What they no longer disagree on is a statless starter (#1010): both now
+ * LEFT JOIN player_stats and keep him, priced at zero, where the standard branch
+ * used to inner-join and drop him from the row set entirely. The team total
+ * agreed either way, which is why only that row's presence differed and the
+ * drift survived to become a ticket. Rows arrive as given - this module never
+ * filters a statless row nor synthesises a zero-stat one.
  *
  * IR is excluded here in JS for the best-ball settle branch and for hindsight,
  * which both select every slot. The standard settle branch instead excludes IR
