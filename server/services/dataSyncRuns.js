@@ -17,11 +17,14 @@ const pool = require('../modules/pool');
  * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
  * outcome of a run: the sync may have completed correctly, and a thrown
  * observability write would turn that into a caller-visible error and, for the
- * scheduler, stop it day-stamping (re-running the full sync every tick). This
- * also covers the carve-out window - the migration that creates data_sync_runs
- * is applied by the maintainer, so the table may not exist yet when this code
- * is live. Swallowing here (rather than at each call site) keeps every caller
- * uniformly best-effort with no chance of the asymmetry creeping back.
+ * scheduler, stop it day-stamping (re-running the full sync every tick). That
+ * is the whole and durable reason to swallow here (rather than at each call
+ * site): it keeps every caller uniformly best-effort with no chance of the
+ * asymmetry creeping back. (A now-expired second reason once rode along: when
+ * recordAdpRun first landed, the data_sync_runs migration had not yet been
+ * applied, so the table could be absent. It is applied now - present on the
+ * shared database, recorded in knex_migrations - so that window is history and
+ * is not a reason to keep or weaken the swallow.)
  *
  * It writes on the POOL, never a caller's transaction client, so a failure row
  * survives the ROLLBACK of the run it describes: a record written on a
@@ -36,7 +39,12 @@ async function recordDataSyncRun({ job, startedAt, ok, detail }) {
       [job, startedAt, ok, detail ? JSON.stringify(detail) : null]
     );
   } catch (err) {
-    console.error(`data_sync_runs record failed for ${job} (run outcome unaffected):`, err.message);
+    // Constant format string with job as a %s argument, not an interpolated
+    // template: interpolating a caller-supplied value trips semgrep's
+    // unsafe-formatstring rule, and this shared file would otherwise re-fire it
+    // on every future scan. Renders byte-identically to the old adp literal:
+    // "data_sync_runs record failed for adp (run outcome unaffected):".
+    console.error('data_sync_runs record failed for %s (run outcome unaffected):', job, err.message);
   }
 }
 
