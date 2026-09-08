@@ -120,7 +120,7 @@ const Body = () => (
       primary target busy. Start him as a WR1 with confidence.
     </P>
 
-    <H3>Start: Drake Maye, QB, Seahawks matchup (superflex/2QB only)</H3>
+    <H3>Start: Drake Maye, QB, Patriots (superflex/2QB only)</H3>
     <P>
       This is not a ranking call, it is a format call. In superflex and two-quarterback leagues where
       Maye is your QB2, the game script actually helps him. Trailing teams throw, and New England
@@ -136,6 +136,15 @@ const Body = () => (
       line. Stevenson is a flex at best in this spot, and a sit in 10-team formats. Corey Kiner,
       acquired from Arizona via trade in the cutdown-day deals, is not worth a roster spot in
       redraft outside of the deepest leagues.
+    </P>
+
+    <H3>Flex: Noah Fant, TE, Seahawks</H3>
+    <P>
+      Charbonnet&apos;s absence opens a handful of check-down targets that would normally go to the
+      backfield. Fant is not a high-ceiling play, but in a game Seattle controls he stays on the
+      field for two-tight-end sets and catches the short middle work that a lead back would
+      otherwise absorb. He is a backend TE1 this week with a safe floor of four catches, which
+      is enough to flex him in 12-team formats where the alternative is a dart throw.
     </P>
 
     <H3>Sit: Jaxon Smith-Njigba, WR, Seahawks (as a WR1)</H3>
