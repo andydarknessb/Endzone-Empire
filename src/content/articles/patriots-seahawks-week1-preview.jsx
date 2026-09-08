@@ -110,7 +110,7 @@ const Body = () => (
       Week 5 at the earliest. Walker inherits the full early-down and goal-line workload, with only
       Jadarian Price, George Holani, and Emanuel Wilson behind him. A home game where the Seahawks
       are favored means positive game script and a run-first approach. Walker is a locked-in RB1
-      this week with top-five upside on volume alone.
+      this week whose volume alone makes him a top play at the position.
     </P>
 
     <H3>Start: A.J. Brown, WR, Patriots</H3>
@@ -118,8 +118,9 @@ const Body = () => (
       Brown is the centerpiece of New England&apos;s offseason overhaul and steps in as Maye&apos;s
       clear WR1. A 45.5 over/under and a competitive spread mean this game should stay close enough
       for the Patriots to run their full playbook rather than abandon it early. Seattle&apos;s
-      defense is elite, but Brown has beaten elite coverage his entire career and commands targets
-      in contested situations. He is a top-12 WR play this week with a high floor in PPR formats.
+      defense is elite, but Brown has consistently won in contested-catch situations, including
+      against top-tier pass defenses. The competitive spread keeps New England in its full
+      playbook, which keeps Brown in the target flow.
     </P>
 
     <H3>Start: Jaxon Smith-Njigba, WR, Seahawks</H3>
@@ -169,10 +170,9 @@ const Body = () => (
 
     <H3>Sit: Hunter Henry, TE, Patriots</H3>
     <P>
-      Henry is a reliable option in close games, but New England&apos;s receiver overhaul pushes him
-      down the target pecking order. Brown and Doubs will command the primary share of Maye&apos;s
-      throws. Against Seattle&apos;s defense the passing volume should be adequate, but Henry&apos;s
-      slice of it shrinks. He is a backend TE1 with limited upside this week.
+      Brown and Doubs will command the primary share of Maye&apos;s throws, which pushes Henry
+      down the target order in a way he was not competing with last season. He is a backend TE1
+      this week with limited upside.
     </P>
 
     <H2>Start/Sit Summary</H2>
@@ -185,10 +185,10 @@ const Body = () => (
         <TR><TD><S>A.J. Brown</S></TD><TD>WR</TD><TD>Start (WR1)</TD><TD>NE&apos;s top target, competitive game, high O/U</TD></TR>
         <TR><TD><S>Jaxon Smith-Njigba</S></TD><TD>WR</TD><TD>Start (WR2)</TD><TD>SEA&apos;s WR1, high-floor target share, home favorite</TD></TR>
         <TR><TD><S>Drake Maye</S></TD><TD>QB</TD><TD>Start (SF/2QB)</TD><TD>Upgraded weapons, competitive game script, high O/U</TD></TR>
-        <TR><TD>Romeo Doubs</TD><TD>WR</TD><TD>Flex</TD><TD>$68M WR2, first game in new system</TD></TR>
-        <TR><TD>Rhamondre Stevenson</TD><TD>RB</TD><TD>Sit</TD><TD>Best run defense in NFL, Henderson in the mix</TD></TR>
-        <TR><TD>Cooper Kupp</TD><TD>WR</TD><TD>Sit</TD><TD>New offense, unproven target share, wait-and-see</TD></TR>
-        <TR><TD>Hunter Henry</TD><TD>TE</TD><TD>Sit</TD><TD>Pushed down target order by WR upgrades</TD></TR>
+        <TR><TD><S>Romeo Doubs</S></TD><TD>WR</TD><TD>Flex</TD><TD>$68M WR2, first game in new system</TD></TR>
+        <TR><TD><S>Rhamondre Stevenson</S></TD><TD>RB</TD><TD>Sit</TD><TD>Best run defense in NFL, Henderson in the mix</TD></TR>
+        <TR><TD><S>Cooper Kupp</S></TD><TD>WR</TD><TD>Sit</TD><TD>New offense, unproven target share, wait-and-see</TD></TR>
+        <TR><TD><S>Hunter Henry</S></TD><TD>TE</TD><TD>Sit</TD><TD>Pushed down target order by WR upgrades</TD></TR>
       </TBody>
     </Table>
 
@@ -233,18 +233,18 @@ const Body = () => (
     <P>
       Lawrence posted six sacks and 39 pressures in 2025 at age 33, then came back for one more
       year after reportedly weighing retirement. The 34-year-old draws a Patriots offensive line
-      in its first live game protecting Maye behind a retooled roster. His ownership is below 50
-      percent in most IDP formats because of the age, but the production is still there and a home
-      game where New England has to throw makes him a high-floor edge streamer. Top-15 EDGE play.
+      in its first live game protecting Maye behind a retooled roster. The age suppresses his
+      ownership in most IDP formats, but the production is current, not historical, and the
+      matchup is specific: a retooled Patriots line in its first real-game reps.
     </P>
 
     <H3>Derick Hall, EDGE, Seahawks</H3>
     <P>
-      Hall is the younger complement to Lawrence and Nwosu on Seattle&apos;s deep edge rotation. In
-      a game where the Patriots need to pass to keep pace, Hall benefits from the attention Lawrence
-      draws on the opposite side. Available in over 60 percent of IDP leagues, he projects for
-      three to four tackles with sack upside in a game Seattle controls at home. A solid EDGE2
-      streamer this week.
+      Hall is the younger complement to Lawrence and Nwosu on Seattle&apos;s deep edge rotation.
+      His value this week is structural: when Lawrence and Nwosu command double teams and chip
+      blocks from a retooled Patriots line, Hall gets clean one-on-one rushes on the interior
+      move. In a home game Seattle controls, those reps come on obvious passing downs in the
+      second half.
     </P>
 
     <H3>Devon Witherspoon, CB, Seahawks</H3>
@@ -284,9 +284,8 @@ const Body = () => (
       defense against a second-year quarterback with new receivers is the IDP matchup of the week.
     </Quote>
     <P>
-      Set your lineups with the spread in mind. This is not a blowout script. Both offenses will
-      be on the field, both passing games will be active, and the streamers on Seattle&apos;s
-      defense will eat.
+      Set your lineups with the spread in mind, grab the Seattle IDP streamers before Tuesday
+      night waivers lock, and trust Walker&apos;s workload.
     </P>
   </>
 );
