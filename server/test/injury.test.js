@@ -516,8 +516,15 @@ test('#1041 connect failure: pool.connect() rejecting records ok=false with reas
   const connectError = new Error('connection refused by pooler');
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
+  ]);
   const pool = require('../modules/pool');
+  // Mock query and connect separately, rather than fake.install(t) followed by
+  // a second t.mock.method(pool, 'connect', ...): node:test's MockTracker
+  // restores each mocked method to what it was at the time IT was mocked, in
+  // registration order, so mocking the same method twice leaves pool.connect
+  // pointed at this test's fake connect (not the real one) once the test ends
+  // and t.mock.reset() runs - a leak into whichever test happens to run next.
+  t.mock.method(pool, 'query', (sql, params) => fake.query(sql, params));
   t.mock.method(pool, 'connect', async () => { throw connectError; });
 
   // Criterion 2: assert on the rejection's message, not merely that it
