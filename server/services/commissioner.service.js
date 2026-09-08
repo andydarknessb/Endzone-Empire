@@ -12,7 +12,11 @@ const { placeOnWaiversUndoable } = require('./waiver.service');
 const { assertManualCorrectionWindow } = require('./correction.service');
 const { deleteAvatarObjects } = require('./avatar.service');
 const { commissionerPredicate } = require('./leagueRole.service');
-const { isIrEligible, rosterCapacity } = require('./irPolicy.service');
+const { isIrEligible } = require('./irPolicy.service');
+// The one write-time roster gate (#940). forceTransaction runs through it with
+// COMMISSIONER_OVERRIDE, the explicit bypass set that reproduces exactly what
+// this path did before it had a gate (#964).
+const { assertRosterWriteAllowed, COMMISSIONER_OVERRIDE } = require('./rosterGate.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 const { isPickemOnly } = require('./leagueType');
@@ -503,6 +507,21 @@ async function rolloverSeason({ leagueId, userId, keepers = [] }) {
 
     // Roster wipe with keeper exceptions, plus the rest of the fantasy reset.
     // A pick'em-only league has none of it (ADR 0002: no roster-shaped writes).
+    //
+    // EXEMPT from the write gate, deliberately (#964). The gate answers "may
+    // this Team acquire or release this player right now" - a question about
+    // one Team and one player. The rollover's roster write is a single
+    // league-wide statement that ends one season and begins another, not a
+    // roster move by anybody: it deletes every non-keeper row in the league in
+    // one DELETE, with no per-player decision to gate. Every gate the release
+    // direction has would also have to be bypassed to preserve today's
+    // behaviour - the freeze most of all, since this same UPDATE clears
+    // `transactions_locked` a few statements below, so a commissioner who froze
+    // the league to close out a season would find the rollover refusing the
+    // very write that unfreezes it. Gating it would therefore mean either
+    // changing behaviour or adding a call that checks nothing, per player, over
+    // a whole league's rosters. Neither is worth it, so this stays outside the
+    // gate and the reason is recorded here rather than left as an omission.
     const keeperPairs = [];
     if (!pickemOnly) {
       for (const k of keepers) {
@@ -656,11 +675,26 @@ async function setTeamFaab({ leagueId, userId, teamId, faabRemaining }) {
 }
 
 /**
- * Force an add or drop on any team's behalf. Bypasses waiver holds, the
- * league-wide transaction lock, and per-team locks (that's the point of an
- * override) but still respects the roster limit and the one-roster-per-league
- * constraint on adds; a forced add also clears any pending waiver hold/claims
- * for that player so it can't be won out from under the new roster spot.
+ * Force an add or drop on any team's behalf. The override is now an EXPLICIT
+ * bypass set handed to the one write gate (#964), never the absence of a check
+ * (#940 story 8): `COMMISSIONER_OVERRIDE` is `{freeze, team lock, waiver hold,
+ * position cap}`, and roster capacity is deliberately NOT in it, so a forced
+ * add gets no more room than any other add site (#97).
+ *
+ * That set was read out of this path's CODE, not out of the comment that used
+ * to sit here. The old comment named the waiver hold, the league-wide lock and
+ * the per-team lock and did not mention the position cap - which this path also
+ * never enforced. Reproducing the comment rather than the code would have
+ * silently ADDED a gate to the commissioner's override, so the position cap is
+ * in the bypass set and there is a test per entry proving the set equals what
+ * this path did before.
+ *
+ * A forced add also clears any pending waiver hold and claims for that player
+ * so it can't be won out from under the new roster spot.
+ *
+ * Lock order is League then Team, the one order on every roster path:
+ * requireCommissioner takes the League row FOR UPDATE, the teams read takes the
+ * Team row, and the gate's own re-locks of both are no-ops in that same order.
  */
 async function forceTransaction({ leagueId, userId, teamId, action, playerId }) {
   if (action !== 'add' && action !== 'drop') {
@@ -677,21 +711,30 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
     const team = teamResult.rows[0];
     if (!team) throw new CommissionerError(404, 'team not found in this league');
 
-    const playerResult = await client.query(`SELECT "id", "name" FROM "players" WHERE "id" = $1`, [playerId]);
+    // "position" rides along for the gate's position-cap check - which this
+    // path bypasses, but the argument is passed anyway so that removing
+    // POSITION_CAP from the override set is a one-token change that works,
+    // rather than one that silently checks a cap against `undefined`.
+    const playerResult = await client.query(
+      `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
+      [playerId]
+    );
     if (!playerResult.rows[0]) throw new CommissionerError(404, 'player not found');
     const playerName = playerResult.rows[0].name;
 
     if (action === 'add') {
-      const rosterCountResult = await client.query(
-        `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-        [teamId]
-      );
-      // The override bypasses locks and holds, but roster capacity still
-      // binds: a forced add gets no more room than any other add site (#97).
-      const capacity = await rosterCapacity(client, { league, teamId });
-      if (rosterCountResult.rows[0].n >= capacity) {
-        throw new CommissionerError(409, `roster capacity of ${capacity} reached`);
-      }
+      // The write gate with the explicit commissioner override. Capacity is
+      // the one gate it does NOT bypass, so this call is also what enforces
+      // the roster limit that used to be checked inline right here - same
+      // question, same 409, same message, now asked by the module that owns it.
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId,
+        direction: 'acquire',
+        playerId,
+        position: playerResult.rows[0].position,
+        bypass: COMMISSIONER_OVERRIDE,
+      });
       try {
         await client.query(
           `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
@@ -715,6 +758,19 @@ async function forceTransaction({ leagueId, userId, teamId, action, playerId }) 
         [leagueId, playerId]
       );
     } else {
+      // The release side runs through the same gate with the same explicit
+      // override. Every release-direction gate (the freeze and the Team lock)
+      // is in that set, so this call refuses nothing today - and that is the
+      // point: the override is stated in code rather than being the absence of
+      // a check, and a release rule added to the module later is inherited here
+      // by a deliberate decision instead of by an omission nobody notices.
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId,
+        direction: 'release',
+        playerId,
+        bypass: COMMISSIONER_OVERRIDE,
+      });
       const deleted = await client.query(
         `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2 RETURNING "id"`,
         [teamId, playerId]
