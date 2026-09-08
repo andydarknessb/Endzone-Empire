@@ -107,7 +107,24 @@ export const DESKTOP_SORT_COLUMN_KEYS = DESKTOP_COLUMNS
  * the fetch site (usePlayerPool.js) can never throw inside its own empty-catch
  * try and leave the pool silently empty (issue #951 / the review's error-mode
  * note). In practice `sort` is already validated to a real key upstream; this
- * totality is the guard for the case that validation is ever bypassed. */
+ * totality is the guard for the case that validation is ever bypassed.
+ *
+ * Total, but no longer SILENT (issue #1002). Every caller into this function
+ * holds a key; a value that isn't one is a caller bug, and the fallback was
+ * indistinguishable from a genuine ADP sort - `wireSortName('projected_points')`
+ * (a WIRE name handed in where a key belongs, the exact confusion #1002
+ * reconciled the Player Browser out of) returned 'adp' and the page quietly
+ * sorted by something the caller never asked for. The warn names the offending
+ * value so that shows up as a bug instead of as a preference. It is noisy only
+ * where it is a bug: a valid key never reaches it. */
 export function wireSortName(key) {
-  return (SORT_FIELDS_BY_KEY[key] || SORT_FIELDS_BY_KEY.adp).wire;
+  const field = SORT_FIELDS_BY_KEY[key];
+  if (!field) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `wireSortName: unknown pool sort key ${JSON.stringify(key)}; falling back to the default sort. Callers must pass a SORT_FIELDS key, not a wire name.`,
+    );
+    return SORT_FIELDS_BY_KEY.adp.wire;
+  }
+  return field.wire;
 }
