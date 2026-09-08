@@ -4,8 +4,13 @@
  *
  * Runs every server/test/*.pg.test.js file, so a new pg test is covered in the
  * migration-smoke CI job because it exists, not because someone remembered to
- * add a workflow step for it. Replaces ten hand-listed `npm run test:*-pg`
- * steps with one `npm run test:pg` (which sets PG_TESTS=1 for the whole run).
+ * add a workflow step for it. Replaces eleven hand-listed `npm run test:*-pg`
+ * steps with one `npm run test:pg`.
+ *
+ * That script does NOT set PG_TESTS. The only place PG_TESTS=1 comes from is
+ * the migration-smoke step in .github/workflows/ci.yml. Run `npm run test:pg`
+ * locally with no Postgres env flag exported and every file self-skips and the
+ * command exits 0, so a local green here is NOT evidence that any pg test ran.
  *
  * Three properties the old enumerated steps encoded, preserved here:
  *
@@ -25,7 +30,9 @@
  *      actually keeps it last.
  *
  *   3. Per-file env gates still work locally. Each file self-skips unless
- *      PG_TESTS=1 or its own *_PG_TESTS variable is set, so the existing
+ *      PG_TESTS or its own *_PG_TESTS variable holds exactly the string `1`.
+ *      Every gate is a `=== '1'` comparison, so `=true`, `=0` or a stale
+ *      value left in a shell skips silently. With `=1` the existing
  *      test:*-pg scripts keep running their file(s) on their own variable.
  *
  * No per-test --test-timeout is passed, matching the plain `node --test <file>`
