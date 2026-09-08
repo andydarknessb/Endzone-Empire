@@ -408,6 +408,44 @@ test('generateMatchups: an ordinary error keeps its healthy connection', async (
   fake.assertClean();
 });
 
+// #1060 Ruling 3: generateMatchups' two early-out paths used to run a bare
+// `await client.query('ROLLBACK'); return ...`. Inside withTransaction they are
+// plain returns, so the (read-only) transaction COMMITs - harmless, and it
+// releases the same locks a ROLLBACK would - and the connection returns to the
+// pool bare. A season-ops-available league row lets both reach the early-out.
+const OPEN_LEAGUE = { pickem_only: false, draft_status: 'complete', season_status: 'in_season' };
+
+test('generateMatchups: an existing week returns a COMMITted read-only transaction, released bare (#1060 Ruling 3)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [OPEN_LEAGUE] }), 'client'],
+    [select('matchups'), () => ({ rows: [{ exists: 1 }] }), 'client'],
+  ]).install(t);
+
+  const result = await generateMatchups({ leagueId: 1, season: 2025, week: 1 });
+  assert.deepEqual(result, { created: 0, reason: 'matchups already exist for this week' });
+  // Red-tell: restoring the bare `await client.query('ROLLBACK'); return ...`
+  // reddens the COMMIT assert and the ROLLBACK-count assert below.
+  assert.ok(fake.calls.some((c) => c.text === 'COMMIT'), 'the early-out COMMITs the read-only transaction');
+  assert.equal(fake.calls.filter((c) => c.text === 'ROLLBACK').length, 0, 'the early-out never ROLLBACKs');
+  assert.equal(fake.releaseArgs()[0], undefined, 'the connection returns to the pool bare');
+  fake.assertClean();
+});
+
+test('generateMatchups: fewer than two teams returns a COMMITted read-only transaction, released bare (#1060 Ruling 3)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [OPEN_LEAGUE] }), 'client'],
+    [select('matchups'), () => ({ rows: [] }), 'client'],
+    [select('teams'), () => ({ rows: [{ id: 1 }] }), 'client'],
+  ]).install(t);
+
+  const result = await generateMatchups({ leagueId: 1, season: 2025, week: 1 });
+  assert.deepEqual(result, { created: 0, reason: 'need at least 2 teams' });
+  assert.ok(fake.calls.some((c) => c.text === 'COMMIT'), 'the early-out COMMITs the read-only transaction');
+  assert.equal(fake.calls.filter((c) => c.text === 'ROLLBACK').length, 0, 'the early-out never ROLLBACKs');
+  assert.equal(fake.releaseArgs()[0], undefined, 'the connection returns to the pool bare');
+  fake.assertClean();
+});
+
 test('scoreMatchups: a rejecting ROLLBACK destroys the connection and keeps the original error', async (t) => {
   const errorLog = t.mock.method(console, 'error', () => {});
   const fake = createFakePool([
