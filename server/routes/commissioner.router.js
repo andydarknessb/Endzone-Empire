@@ -17,12 +17,18 @@ function intOrNull(value) {
   return /^\d+$/.test(String(value)) ? Number(value) : null;
 }
 
+// Refusal envelope (#973, ADR 0032): a coded refusal emits the code in its
+// own `code` field and the sentence a commissioner reads in `message`. It
+// used to put the code in `error` and the sentence in `message`, so any
+// client showing `error` as prose showed an internal identifier. A refusal
+// with no code keeps emitting the sentence in `error`; that shape carries no
+// code and is not part of the convergence.
 function handle(res, error, fallback) {
   if (error.statusCode) {
     return res.status(error.statusCode).json(
       error.code
         ? {
-            error: error.code,
+            code: error.code,
             message: error.message,
             ...(error.leagueId != null ? { leagueId: error.leagueId } : {}),
             ...(error.season != null ? { season: error.season } : {}),

@@ -161,14 +161,14 @@ router.post('/league/:id/correct-week', async (req, res) => {
     res.json(result);
   } catch (error) {
     if (error instanceof correction.CorrectionWindowError) {
-      return res.status(403).json({ error: error.code, message: error.message });
+      return res.status(403).json({ code: error.code, message: error.message });
     }
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     if (isTransientDatabaseError(error)) {
       const attempts = error.databaseAttempts || 1;
       res.set('Retry-After', '1');
       return res.status(500).json({
-        error: 'DATABASE_TEMPORARILY_UNAVAILABLE',
+        code: 'DATABASE_TEMPORARILY_UNAVAILABLE',
         message: `Score correction could not complete after ${attempts} database attempt${attempts === 1 ? '' : 's'}.`,
       });
     }

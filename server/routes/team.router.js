@@ -192,7 +192,7 @@ async function updateLineup(req, res) {
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json(
-        error.code ? { error: error.code, message: error.message } : { error: error.message }
+        error.code ? { code: error.code, message: error.message } : { error: error.message }
       );
     }
     console.error('Error setting lineup', error);
