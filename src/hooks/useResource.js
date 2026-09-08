@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import apiClient from '../api/apiClient';
+import { readHttpFailure } from '../lib/httpFailure';
 import {
   invalidate,
   isFresh,
@@ -60,7 +61,7 @@ export function useResource(key, url, { ttl } = {}) {
       .then((next) => { if (stillCurrent()) { setData(next); setLoading(false); } })
       .catch((err) => {
         if (stillCurrent()) {
-          setError(err?.response?.data?.error || err?.message || 'Request failed');
+          setError(readHttpFailure(err).message || err?.message || 'Request failed');
           setLoading(false);
         }
       });

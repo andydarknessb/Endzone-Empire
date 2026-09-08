@@ -281,6 +281,12 @@ test('a request in flight when the session is dropped still answers the mount th
 
 test.each([
   [{ response: { data: { error: 'thing not found' } } }, 'thing not found'],
+  // A code+message envelope with no `error` key (the global express error
+  // handler and the rate limiter emit this shape). The old hand-rolled read of
+  // `err.response.data.error` found no `error` key here and showed the generic
+  // 'Request failed'; reading through readHttpFailure surfaces the server's own
+  // sentence.
+  [{ response: { data: { code: 'DB_DOWN', message: 'the database is unavailable' } } }, 'the database is unavailable'],
   [new Error('Network Error'), 'Network Error'],
   [{}, 'Request failed'],
 ])('surfaces the best message a failure carries (%#)', async (failure, message) => {
