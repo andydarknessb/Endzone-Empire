@@ -12,18 +12,28 @@ const { optimalLineup, parseLineupSettings } = require('./lineup.service');
  * already fetched and already held-as-played, so a caller reads the population
  * once and then hands the rows here.
  *
- * Before #954 this logic was copied at the three sites that price a counted
- * roster. I enumerated the set by grepping `rowsHeldAsPlayed(` across
- * server/services (the population read every counted-roster site must go
- * through) and reading each hit; the three that price its result are:
+ * Before #954 this rule was copied at the sites that price a counted roster.
+ * I enumerated them at HEAD by grepping `rowsHeldAsPlayed(` across the server
+ * (the population read every counted-roster site goes through) and by reading
+ * each `optimalLineup(`/`parseLineupSettings(` hit. Three price its result and
+ * now call this module:
  *   - scoring.service `teamScore`, best-ball branch (the settle pass);
  *   - scoring.service `teamScore`, standard branch (the settle pass);
  *   - decision.service `weekHindsight`.
- * Four other sites read a lineup population WITHOUT the tenure exclusion - the
- * live/current-roster question, not this one - and are deliberately NOT here:
- * decision.service `liveWhatIf`, expectedFinal.service, and the matchup box
- * score in league.router. They price the current roster, so folding them in
- * would change behaviour (#1010 tracks the join drift the settle sites carry).
+ * A FOURTH genuine as-played derivation exists and is deliberately NOT
+ * converted here: league.router `buildTeam`, the `best_ball && asPlayed`
+ * branch (PR #1031 / #1006, landed after this extraction began). It runs the
+ * same optimalLineup/parseLineupSettings pair inline over the as-played rows
+ * to split a settled best-ball card into starters and bench. It keys rows on
+ * `row.id` (not `player_id`) and coalesces a statless row to 0, so folding it
+ * in needs a small adapter and is its own ticket (a follow-up tracks it), not
+ * #954. The originating issue's census of "five implementations" is stale;
+ * with that branch it is six.
+ * Three further reads take a lineup population WITHOUT the tenure exclusion -
+ * the live/current-roster question, not this one - and are not counted-roster
+ * sites at all: decision.service `liveWhatIf`, expectedFinal.service, and the
+ * matchup box-score reader in league.router. Folding any in would change
+ * behaviour. (#1010 tracks the join drift the settle sites carry.)
  *
  * The two settle branches feed DIFFERENT rows on purpose, and this module does
  * not reconcile them (#1010): the standard branch's SQL inner-joins
