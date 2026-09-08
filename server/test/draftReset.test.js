@@ -50,7 +50,18 @@ const app = express();
 app.use(express.json());
 app.use('/api/draft', require('../routes/draft.router'));
 
-const LEAGUE_LOOKUP = /^SELECT "id", "current_season" FROM "leagues" WHERE "id" = \$1 AND .* AND "draft_status" = 'active' FOR UPDATE$/;
+// The Draft act module's serializing lock on the League row (#967). It replaces
+// this suite's private LEAGUE_LOOKUP matcher, which spelled the route's own
+// `SELECT "id", "current_season" ... AND commissionerPredicate AND draft_status
+// = 'active' FOR UPDATE` and was, until this PR, the only thing in the suite
+// binding that reset locked before it wrote. That ordering is now structural -
+// runDraftAct takes the lock as its first statement after BEGIN, and
+// draftAct.service.test.js's "the FOR UPDATE lock precedes the first mutation"
+// owns it - so the private matcher is deleted rather than restated here. This
+// matcher is still load-bearing in THIS suite: drop it and the module's lock
+// read hits the fake pool's unregistered-query throw and every test below
+// reddens.
+const ACT_LOCK = /^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/;
 
 const doReset = () => request(app)
   .post(`/api/draft/league/${LEAGUE_ID}/reset`)
@@ -61,21 +72,30 @@ const doReset = () => request(app)
 // asked about rather than a fixed canned response.
 const ACTOR_TEAM = { id: 30, name: 'Commish FC' };
 
-function resetPool(finalSeasons = {}, wipeTeamIds = [30, 31]) {
+function resetPool(finalSeasons = {}, wipeTeamIds = [30, 31], { commissioner = true, active = true } = {}) {
   return createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [LEAGUE_LOOKUP, () => ({ rows: [{ id: LEAGUE_ID, current_season: SEASON }] })],
-    [select('matchups'), (text, params) => ({ rows: finalSeasons[params[1]] ? [{ exists: 1 }] : [] })],
-    // The teams whose rosters the wipe reaches, and the #965 write gate's own
-    // League and Team reads, League then Team. The gate is asked once per team
-    // rather than once per player, because a release's gate inputs are the
-    // League and the Team and nothing on that side accumulates. Its own
-    // explicit column lists mean it needs its own handlers: the select('teams')
-    // shape matcher below is blind to a select list and would answer the gate's
-    // Team read with the acting commissioner's Team row.
-    [/^SELECT "id" FROM "teams" WHERE "league_id" = \$1 ORDER BY "id"/, () => ({
-      rows: wipeTeamIds.map((id) => ({ id })),
+    // The act module locks the row generically and hands it to the body, which
+    // authorizes against it; `active` shapes the draft_status half of the
+    // refusal set the old guarded lock fused into an empty result.
+    [ACT_LOCK, () => ({ rows: [{ id: LEAGUE_ID, current_season: SEASON, draft_status: active ? 'active' : 'pending' }] })],
+    // The act module loads Teams in rotation order. These are also the teams
+    // whose rosters the wipe reaches: the body re-sorts them by id for the gate
+    // loop rather than issuing its own ORDER BY "id" read.
+    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({
+      rows: wipeTeamIds.map((id, i) => ({ id, owner_id: COMMISSIONER, autodraft: false, draft_position: i + 1 })),
     })],
+    // lookupTeam: the acting commissioner's Team, resolved by the act module.
+    [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [ACTOR_TEAM] })],
+    // isLeagueCommissioner's probe, the JS twin of the commissionerPredicate the
+    // route's own locked SELECT used to carry in its WHERE clause.
+    [/^SELECT 1 FROM "leagues"/, () => ({ rows: commissioner ? [{ '?column?': 1 }] : [] })],
+    [select('matchups'), (text, params) => ({ rows: finalSeasons[params[1]] ? [{ exists: 1 }] : [] })],
+    // The #965 write gate's own League and Team reads, League then Team. The gate
+    // is asked once per team rather than once per player, because a release's
+    // gate inputs are the League and the Team and nothing on that side
+    // accumulates. Its own explicit column lists keep it disjoint from the act
+    // module's two teams reads above.
     [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
       // Frozen and locked on purpose: this route bypasses both, and a fixture
       // that left them clear could not tell a bypass from a lucky pass.
@@ -89,10 +109,9 @@ function resetPool(finalSeasons = {}, wipeTeamIds = [30, 31]) {
     [remove('draft_picks'), () => ({ rows: [], rowCount: 0 })],
     [update('teams'), () => ({ rows: [], rowCount: 2 })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
-    // lookupTeam (the acting commissioner's Team) and the reset lifecycle append
-    // (#437). The append is append-only: the reset DELETEs picks/rosters, never
-    // draft_activity, so earlier Pick and lifecycle entries survive it.
-    [select('teams'), () => ({ rows: [ACTOR_TEAM] })],
+    // The reset lifecycle append (#437). Append-only: the reset DELETEs
+    // picks/rosters, never draft_activity, so earlier Pick and lifecycle entries
+    // survive it.
     [insert('draft_activity'), () => ({ rows: [{ id: 8, feed_seq: '40', created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 })],
   ]);
 }
@@ -210,5 +229,41 @@ test('POST reset: a refused reset never reaches the gate, because it never reach
     0,
     'the gate is not consulted for a write that never happens'
   );
+  fake.assertClean();
+});
+
+// --- the refusal set the act-module conversion split out of the WHERE clause -
+
+/**
+ * Before #967 the reset fused authorization into its locked SELECT: league
+ * absent, caller not a commissioner, or draft not active all produced one empty
+ * result and one 403. The act module locks generically and the body authorizes,
+ * so those three reasons are now three separate checks. They must still return
+ * the IDENTICAL status and body, which is the part of the conversion most likely
+ * to go quietly wrong, so each reason is pinned here.
+ */
+const REFUSAL = 'league not found, not commissioner, or draft not active';
+
+test('POST reset: a non-commissioner is refused with the one 403, and writes nothing', async (t) => {
+  const fake = resetPool({}, [30, 31], { commissioner: false }).install(t);
+
+  const res = await doReset();
+
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(res.body.error, REFUSAL);
+  assert.equal(fake.matching(/^DELETE/).length, 0, 'a refusal writes nothing');
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a refusal never commits');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the act module rolled it back');
+  fake.assertClean();
+});
+
+test('POST reset: a draft that is not active is refused with the SAME 403 and body', async (t) => {
+  const fake = resetPool({}, [30, 31], { active: false }).install(t);
+
+  const res = await doReset();
+
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(res.body.error, REFUSAL, 'the same body as the not-commissioner refusal');
+  assert.equal(fake.matching(/^DELETE/).length, 0);
   fake.assertClean();
 });

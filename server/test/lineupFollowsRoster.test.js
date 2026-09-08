@@ -508,21 +508,37 @@ const undoRouteLeague = {
 function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
   return createFakePool([
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    // The undo route now issues TWO SELECTs against "leagues": its own locked read
-    // and, since #948, onPickUndone's policy read. Two matchers, tried in
-    // registration order (helpers/fakePool.js:53), answer them separately rather
-    // than one shape-blind select() answering both. The FOR UPDATE-bearing pattern
-    // comes first and stays FOR UPDATE-bearing on purpose: it is the only thing in
-    // the repo binding that POST /league/:id/undo takes the League lock FOR UPDATE
-    // (the handler stays hand-rolled behind that lock per #967, deleting
-    // draft_picks/team_players/lineup rows). Drop FOR UPDATE from the route SELECT
-    // and this stops matching, so the route read hits the unregistered-query throw
-    // and both undo tests redden.
-    [/FROM "leagues" WHERE "id" = \$1 AND .* FOR UPDATE/, () => ({ rows: [undoRouteLeague] })],
+    // isLeagueCommissioner's probe, the JS twin of the commissionerPredicate the
+    // route's own locked SELECT used to carry in its WHERE clause (#967). Kept
+    // ahead of the two leagues matchers below: all three read FROM "leagues".
+    [/^SELECT 1 FROM "leagues" WHERE "id" = \$1 AND/, () => ({ rows: [{ '?column?': 1 }] })],
+    // The Draft act module's serializing lock on the League row (#967). It
+    // replaces this suite's private
+    // `/FROM "leagues" WHERE "id" = $1 AND .* FOR UPDATE/` matcher, which was,
+    // until this PR, the only thing in the repo binding that POST
+    // /league/:id/undo took the League lock before it deleted anything. That
+    // ordering is now structural - runDraftAct takes the lock as its first
+    // statement after BEGIN, and draftAct.service.test.js's "the FOR UPDATE lock
+    // precedes the first mutation" owns it - so the private matcher is deleted
+    // rather than restated. This matcher is still load-bearing HERE: drop it and
+    // the module's lock read hits the fake pool's unregistered-query throw and
+    // both undo tests redden.
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1 FOR UPDATE$/, () => ({ rows: [undoRouteLeague] })],
     // onPickUndone's policy read (#948): a second SELECT ... FROM "leagues", no
-    // FOR UPDATE, that the event issues before it re-arms. Disjoint from the
-    // locked read above (no "AND", no FOR UPDATE), so order between them is safe.
+    // FOR UPDATE, that the event issues before it re-arms.
     [/^SELECT "current_pick", "draft_type".* FROM "leagues"/, () => ({ rows: [undoRouteLeague] })],
+    // The act module loads Teams in rotation order, carrying `autodraft`. That
+    // is exactly the list the undo's on-clock resolution needs, so the route's
+    // own `SELECT "id", "autodraft" FROM "teams"` read is gone.
+    [/^SELECT "id", "owner_id", "autodraft", "draft_position" FROM "teams"/, () => ({
+      rows: [
+        { id: 10, owner_id: 1, autodraft: false, draft_position: 1 },
+        { id: 11, owner_id: 2, autodraft: false, draft_position: 2 },
+      ],
+    })],
+    // lookupTeam, the act module's acting-Team read. An undo appends no
+    // narration, but the module resolves the acting Team for every act.
+    [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [] })],
     [/^SELECT "pick_number", "team_id", "player_id", "is_keeper" FROM "draft_picks"/, () => ({
       rows: [
         { pick_number: 1, team_id: 10, player_id: 20, is_keeper: false },
@@ -531,7 +547,7 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
     })],
     // The #965 write gate, once per undone pick, with both release gates
     // bypassed. Its League and Team reads carry explicit column lists, so they
-    // need their own handlers rather than being answered by the two above.
+    // need their own handlers rather than being answered by the ones above.
     [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
       rows: [{ id: 3, transactions_locked: false }],
     })],
@@ -541,9 +557,6 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
     [/^DELETE FROM "draft_picks"/, () => ({ rows: [], rowCount: 1 })],
     [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
-    [/^SELECT "id", "autodraft" FROM "teams"/, () => ({
-      rows: [{ id: 10, autodraft: false }, { id: 11, autodraft: false }],
-    })],
     [/^UPDATE "leagues"/, () => ({ rows: [] })],
   ]);
 }
@@ -592,6 +605,24 @@ test('undone draft pick: every undone pick is cleaned up, not just the last', as
     removals.map((removal) => removal.params.slice(0, 2)),
     [[10, 20], [11, 21]]
   );
+  fake.assertClean();
+});
+
+// The undo's own refusal, preserved across the act-module conversion (#967):
+// undoTargets' complaint used to be a ROLLBACK-and-return 409 in the handler and
+// is now a DraftError the module rolls back. Same status, same body, no write.
+test('undo: an impossible count is a 409 that deletes nothing', async (t) => {
+  const fake = undoPickWorld().install(t);
+
+  const response = await request(app)
+    .post('/api/draft/league/3/undo')
+    .set('Authorization', authed())
+    .send({ count: 3 });
+
+  assert.equal(response.status, 409, JSON.stringify(response.body));
+  assert.ok(response.body.error, 'the refusal names a reason');
+  assert.equal(fake.matching(/^DELETE/).length, 0, 'a refused undo deletes nothing');
+  assert.equal(fake.matching(/^COMMIT$/).length, 0, 'a refusal never commits');
   fake.assertClean();
 });
 
