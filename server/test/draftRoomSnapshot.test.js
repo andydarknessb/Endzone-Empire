@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const { createFakePool, select } = require('./helpers/fakePool');
 const {
   MEMBER_LEAGUE_FIELDS,
+  MEMBER_TEAM_FIELDS,
+  MEMBER_PICK_FIELDS,
   PRESENTER_LEAGUE_FIELDS,
   PRESENTER_TEAM_FIELDS,
   PRESENTER_PICK_FIELDS,
@@ -196,6 +198,123 @@ test('memberSnapshot: each pick carries the autopick fact from the readPicks sel
   // projection (undefined) fails rather than passing a loose truthiness check.
   assert.strictEqual(snapshot.picks[0].auto, true);
   assert.strictEqual(snapshot.picks[1].auto, false);
+  fake.assertClean();
+});
+
+// #998: the member half of the pin. memberSnapshot returns the teams and pick
+// rows VERBATIM, so a member team's / pick's key set is exactly the SELECT list
+// of readTeams / readPicks - there is no `shape()` narrowing on this side, which
+// is why MEMBER_TEAM_FIELDS and MEMBER_PICK_FIELDS are the only thing standing
+// between a widened projection and a silently wider draft:state payload. Until
+// now nothing imported either list (#998), so the helper's header promise -
+// "a one-place edit fails a pin, loudly" - held for the presenter lists and was
+// false for these two.
+//
+// WHY THE FIXTURE IS DERIVED FROM THE SQL. fakePool answers rows verbatim, so a
+// hand-written fixture row would pin the FIXTURE, not the query: widening
+// readPicks would leave the fake's row unchanged and the assertion green. Every
+// key the fake returns is therefore read out of the real SELECT list, exactly as
+// the #833 `adp` and #949 `auto` tests above read one column out of it - so the
+// red-tell the helper's header promises is the real one: project one more column
+// in readPicks (or readTeams) without touching the pin and the key set gains a
+// field the pinned copy lacks.
+
+// The output names a bare-column / aliased SELECT list produces, in order:
+// `"t"."c" AS "x"` -> x, `"t"."c"` -> c. Paren-depth aware, so the COALESCE in
+// readPicks (which contains a comma) stays one item. fakePool hands the handler
+// whitespace-normalised SQL, so the string is single-line by the time it lands.
+function projectedNames(sql) {
+  const list = sql.slice(sql.indexOf('SELECT ') + 'SELECT '.length, sql.indexOf(' FROM '));
+  const items = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of list) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === ',' && depth === 0) { items.push(current); current = ''; } else current += ch;
+  }
+  items.push(current);
+  return items.map((item) => {
+    const trimmed = item.trim();
+    const aliased = /AS\s+"([^"]+)"$/.exec(trimmed);
+    if (aliased) return aliased[1];
+    const quoted = trimmed.match(/"([^"]+)"/g) || [];
+    assert.ok(quoted.length, `cannot name the projected column in: ${trimmed}`);
+    return quoted[quoted.length - 1].replace(/"/g, '');
+  });
+}
+
+// A row carrying exactly the columns the real SELECT projects. A column the
+// values map does not know about still arrives, under a value that says so, so a
+// widened projection widens the row rather than being silently dropped.
+const rowFromSelect = (sql, values) => Object.fromEntries(
+  projectedNames(sql).map((name) => [
+    name,
+    Object.prototype.hasOwnProperty.call(values, name) ? values[name] : `column added: ${name}`,
+  ])
+);
+
+// The teams fixture this pin uses answers only the columns readTeams asks for.
+// The wider teamRow used elsewhere in this file carries owner_id on purpose, to
+// prove the PRESENTER narrowing strips it; feeding that row here would pin the
+// fixture instead of the query, since the member side does not narrow at all.
+const memberTeamValues = (id, draftPosition) => {
+  const { owner_id: ownerId, ...rest } = teamRow(id, draftPosition);
+  void ownerId;
+  return rest;
+};
+
+test('memberSnapshot: every pick key set equals MEMBER_PICK_FIELDS and every team key set equals MEMBER_TEAM_FIELDS, exactly', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    [/FROM "teams"/, (text) => ({
+      rows: [
+        rowFromSelect(text, memberTeamValues(11, 1)),
+        rowFromSelect(text, memberTeamValues(12, 2)),
+      ],
+    })],
+    [/FROM "draft_picks"/, (text) => ({
+      rows: [
+        rowFromSelect(text, { ...pickRow(), adp: 3.2, auto: true }),
+        rowFromSelect(text, {
+          ...pickRow(), pick_number: 2, player_id: 502, name: 'Manual Pick', adp: null, auto: false,
+        }),
+      ],
+    })],
+  ]).install(t);
+
+  const snapshot = await memberSnapshot(LEAGUE_ID);
+
+  assert.equal(snapshot.picks.length, 2);
+  for (const pick of snapshot.picks) {
+    assert.deepEqual(Object.keys(pick).sort(), [...MEMBER_PICK_FIELDS].sort());
+  }
+  assert.equal(snapshot.teams.length, 2);
+  for (const team of snapshot.teams) {
+    assert.deepEqual(Object.keys(team).sort(), [...MEMBER_TEAM_FIELDS].sort());
+  }
+  // onTheClock is one of those team objects, so it carries the same key set.
+  assert.ok(snapshot.onTheClock, 'an active draft is on the clock');
+  assert.deepEqual(Object.keys(snapshot.onTheClock).sort(), [...MEMBER_TEAM_FIELDS].sort());
+  fake.assertClean();
+});
+
+// The `auto` entry #994 added to MEMBER_PICK_FIELDS is load-bearing under the pin
+// above rather than decorative: it is in the member key set only because
+// readPicks projects `AS "auto"`, and dropping either the projection or the pin
+// entry turns the exact-key-set assertion red.
+test('memberSnapshot: the pin entry `auto` is the one readPicks projects (#994)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [wideLeagueRow()] })],
+    [/FROM "teams"/, (text) => ({ rows: [rowFromSelect(text, memberTeamValues(11, 1))] })],
+    [/FROM "draft_picks"/, (text) => ({ rows: [rowFromSelect(text, { ...pickRow(), adp: 3.2, auto: true })] })],
+  ]).install(t);
+
+  const snapshot = await memberSnapshot(LEAGUE_ID);
+
+  assert.ok(MEMBER_PICK_FIELDS.includes('auto'), 'the pin lists auto');
+  assert.ok(Object.keys(snapshot.picks[0]).includes('auto'), 'the payload carries auto');
+  assert.strictEqual(snapshot.picks[0].auto, true);
   fake.assertClean();
 });
 
