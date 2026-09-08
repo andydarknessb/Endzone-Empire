@@ -22,7 +22,7 @@ function initialsFor(name) {
  * pool table scrolls underneath it. Renders nothing outside an active draft.
  *
  * The room's ONE timer display (#754). `onTheClock` is the On-the-clock value
- * (src/lib/onTheClock): the timer slot follows its state - `running` mounts
+ * (src/shared/lib's onTheClock module): the timer slot follows its state - `running` mounts
  * the PickClock leaf, which owns its own tick so this banner and the room
  * around it never re-render per second; `paused` and `untimed`/`idle` show a
  * static label instead. */

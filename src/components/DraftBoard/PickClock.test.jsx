@@ -2,7 +2,7 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import PickClock from './PickClock';
-import { OVERDUE_AFTER_MS } from '../../lib/onTheClock';
+import { OVERDUE_AFTER_MS } from '../../shared/lib';
 
 // A concrete theme so the urgent/overdue colours resolve to stable values we
 // can assert against, rather than depending on MUI's ambient default.

@@ -16,7 +16,7 @@ const SOUND_TOGGLE_LABEL = 'On-the-clock sound';
  * The room's one pick-clock display lives in LiveDraftBanner, rendered
  * separately so it can stay sticky on its own; the timer chip that used to
  * duplicate it here is gone (#754). `onTheClock` is the On-the-clock value
- * (src/lib/onTheClock); only its team is read here.
+ * (src/shared/lib's onTheClock module); only its team is read here.
  *
  * Two groups, not one (issue #123 acceptance criterion 6). Everything here
  * used to be a single flex row, so the mute toggle - a per-manager setting

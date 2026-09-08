@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { teamsInDraftOrder } from '../../../lib/draftTurns';
-import { isTeamOnTheClock } from '../../../lib/onTheClock';
+import { isTeamOnTheClock } from '../../../shared/lib';
 import AutodraftToggle from '../../../features/autodraft-toggle/ui/AutodraftToggle';
 
 /**

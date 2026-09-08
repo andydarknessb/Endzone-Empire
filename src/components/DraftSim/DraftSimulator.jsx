@@ -19,7 +19,7 @@ import {
 import { templateFor, SIM_BENCH_SLOTS } from '../../lib/draftSim/templates';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { turnSummaryFor, pickLabelFor } from '../../lib/draftTurns';
-import { deriveOnTheClock } from '../../lib/onTheClock';
+import { deriveOnTheClock } from '../../shared/lib';
 
 /**
  * The whole Draft Simulator, deliberately tree-agnostic: it imports no
