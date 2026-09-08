@@ -61,11 +61,29 @@ const doReset = () => request(app)
 // asked about rather than a fixed canned response.
 const ACTOR_TEAM = { id: 30, name: 'Commish FC' };
 
-function resetPool(finalSeasons = {}) {
+function resetPool(finalSeasons = {}, wipeTeamIds = [30, 31]) {
   return createFakePool([
     [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     [LEAGUE_LOOKUP, () => ({ rows: [{ id: LEAGUE_ID, current_season: SEASON }] })],
     [select('matchups'), (text, params) => ({ rows: finalSeasons[params[1]] ? [{ exists: 1 }] : [] })],
+    // The teams whose rosters the wipe reaches, and the #965 write gate's own
+    // League and Team reads, League then Team. The gate is asked once per team
+    // rather than once per player, because a release's gate inputs are the
+    // League and the Team and nothing on that side accumulates. Its own
+    // explicit column lists mean it needs its own handlers: the select('teams')
+    // shape matcher below is blind to a select list and would answer the gate's
+    // Team read with the acting commissioner's Team row.
+    [/^SELECT "id" FROM "teams" WHERE "league_id" = \$1 ORDER BY "id"/, () => ({
+      rows: wipeTeamIds.map((id) => ({ id })),
+    })],
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      // Frozen and locked on purpose: this route bypasses both, and a fixture
+      // that left them clear could not tell a bypass from a lucky pass.
+      rows: [{ id: LEAGUE_ID, transactions_locked: true }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
+      rows: [{ id: params[0], locked: true }],
+    })],
     [remove('team_players'), () => ({ rows: [], rowCount: 0 })],
     [remove('lineup_entries'), () => ({ rows: [], rowCount: 4 })],
     [remove('draft_picks'), () => ({ rows: [], rowCount: 0 })],
@@ -149,5 +167,48 @@ test('POST reset: appends a reset lifecycle activity with the commissioner Team,
   // so earlier Pick and lifecycle entries are not erased (#437 AC3).
   assert.equal(fake.matching(/^DELETE FROM "draft_activity"/).length, 0, 'reset must not delete Draft activity');
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
+  fake.assertClean();
+});
+
+// --- the reset's roster wipe runs through the write gate (#965) --------------
+
+test('POST reset: the gate is asked once per team, before the wipe, and a frozen league does not stop it', async (t) => {
+  // The ruling (#965): a commissioner freeze does not govern a draft-phase
+  // roster write. This route already refuses unless the draft is ACTIVE, and a
+  // reset must reach a locked team's roster too, so FREEZE and TEAM_LOCK are
+  // both bypassed. resetPool seeds the league FROZEN and every team LOCKED, so
+  // this succeeding is the proof the bypass set is what carries it - a fixture
+  // with both clear could not tell a bypass from a lucky pass.
+  const fake = resetPool({}, [30, 31, 32]).install(t);
+
+  const res = await doReset();
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  const gateLeagueReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateTeamReads = fake.calls.filter((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
+  assert.equal(gateLeagueReads.length, 3, 'one gate call per team in the league');
+  assert.deepEqual(gateTeamReads.map((c) => c.params[0]), [30, 31, 32], 'each team answered for itself');
+
+  // Before the write it guards, not after. A gate that ran below the DELETE
+  // would be a report, not a gate.
+  const lastGateAt = fake.calls.map((c) => c.text).lastIndexOf(gateTeamReads[2].text);
+  const wipeAt = fake.calls.findIndex((c) => /^DELETE FROM "team_players"/.test(c.text));
+  assert.ok(wipeAt >= 0, 'the wipe ran');
+  assert.ok(lastGateAt < wipeAt, 'every gate call precedes the wipe');
+  fake.assertClean();
+});
+
+test('POST reset: a refused reset never reaches the gate, because it never reaches a write', async (t) => {
+  // The settled-week refusal comes first (#192): nothing is gated because
+  // nothing is written.
+  const fake = resetPool({ [SEASON]: true }).install(t);
+
+  const res = await doReset();
+  assert.equal(res.status, 409);
+  assert.equal(
+    fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text)).length,
+    0,
+    'the gate is not consulted for a write that never happens'
+  );
   fake.assertClean();
 });

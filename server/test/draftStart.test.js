@@ -57,9 +57,14 @@ const TWO_KEEPERS = [
  * generateRegularSeason depends on exactly that. A static row would model a
  * database that forgets the UPDATE two statements earlier.
  */
-function draftStartPool({ league = baseLeague, keepers = [], teams = DEFAULT_TEAMS, market = 500 } = {}) {
+function draftStartPool({
+  league = baseLeague, keepers = [], teams = DEFAULT_TEAMS, market = 500, extra = [],
+} = {}) {
   const row = { ...league };
   return createFakePool([
+    // Handlers a single test needs in FRONT of the defaults; handlers are tried
+    // in order, so this is where a narrower matcher goes.
+    ...extra,
     [select('leagues'), () => ({ rows: [{ ...row }] })],
     // isLeagueCommissioner's owner-or-co-commissioner probe.
     [/^SELECT 1 FROM "leagues"/, () => ({ rows: [{ '?column?': 1 }] })],
@@ -287,5 +292,69 @@ test('startDraft that completes on keeper pre-fill appends draft_start then reac
   assert.notEqual(callsAtHandoff, null, 'completeDraft was reached');
   assert.ok(completedAt < callsAtHandoff, 'the flip precedes the completeDraft handoff');
   assert.equal(fake.matching(/^COMMIT$/).length, 1);
+  fake.assertClean();
+});
+
+// --- the keeper pre-fill runs through the write gate (#965) ------------------
+
+test('startDraft: each keeper pre-fill calls the gate, and its bypass set is exactly all five', async (t) => {
+  // The keeper pre-fill has always skipped roster capacity, the position cap,
+  // the waiver hold and both locks. #965 turns that from an omission into an
+  // explicit bypass set, so the assertion is not "it still works" (the tests
+  // above already say that) but "it asks the gate, and the gate evaluates
+  // nothing".
+  //
+  // Every check the gate could run is given a handler that would ANSWER it, so
+  // a zero below is a real absence rather than a query the fake could not
+  // match. Removing any token from the bypass set in draftStart.service.js
+  // turns the matching assertion red - and removing CAPACITY, the one the
+  // ticket names, makes the roster-count matcher non-zero.
+  const rosterCounts = [];
+  const positionCounts = [];
+  const waiverProbes = [];
+  const fake = draftStartPool({
+    league: { ...KEEPER_FILLED_LEAGUE, roster_limit: 2 },
+    keepers: TWO_KEEPERS,
+    teams: TWO_TEAMS,
+    extra: [
+      [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => {
+        positionCounts.push(1);
+        return { rows: [{ n: 99 }] };
+      }],
+      [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => {
+        rosterCounts.push(1);
+        return { rows: [{ n: 99 }] };
+      }],
+      [/^SELECT 1 FROM "waiver_players"/, () => {
+        waiverProbes.push(1);
+        return { rows: [{ 1: 1 }] };
+      }],
+      [/^SELECT COUNT\(\*\)::int AS n FROM "lineup_entries"/, () => ({ rows: [{ n: 0 }] })],
+    ],
+  }).install(t);
+  t.mock.method(draftCompletion, 'completeDraft', async () => ({ activity: null }));
+
+  await startDraft({ leagueId: 1, userId: 7 });
+
+  // Two keepers, so two gate calls: the League row and then the Team row, in
+  // that order, once per keeper. A gate hoisted out of the loop would read the
+  // League once.
+  const gateLeagueReads = fake.calls.filter((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateTeamReads = fake.calls.filter((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
+  assert.equal(gateLeagueReads.length, 2, 'one gate call per keeper');
+  assert.equal(gateTeamReads.length, 2, 'each with its Team lock, League first');
+  assert.deepEqual(
+    gateTeamReads.map((c) => c.params[0]),
+    [11, 12],
+    'each keeper is gated for ITS OWN team'
+  );
+
+  // CAPACITY: the documented skip (#97), now explicit. The count above would
+  // have refused at 99 against a roster_limit of 2 had it been evaluated.
+  assert.equal(rosterCounts.length, 0, 'the pre-fill still skips roster capacity');
+  // POSITION_CAP and WAIVER_HOLD: skipped today, skipped explicitly now.
+  assert.equal(positionCounts.length, 0, 'the pre-fill enforces no position cap');
+  assert.equal(waiverProbes.length, 0, 'the pre-fill asks no waiver hold');
+  assert.equal(fake.matching(insert('team_players')).length, 2, 'both keepers were rostered');
   fake.assertClean();
 });

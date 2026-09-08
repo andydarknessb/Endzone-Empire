@@ -24,6 +24,10 @@ const { draftRosterSize } = require('../services/rosterShape');
 const { removeLineupEntries } = require('../services/lineup.service');
 const { isLeagueCommissioner, commissionerPredicate } = require('../services/leagueRole.service');
 const { requireMember } = require('../services/leagueMembership.service');
+// The one write-time roster gate (#940). The undo and reset handlers below both
+// remove roster rows and ask the same module, with the bypasses that reproduce
+// what they have always done stated as an exact set (#965).
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('../services/rosterGate.service');
 const { requireFantasyLeague, fantasySideWhereSql } = require('../services/leagueType');
 const { lookupTeam } = require('../services/teamIdentity');
 const { appendLifecycleActivity, PAUSE, RESUME, RESET } = require('../services/draftActivity');
@@ -460,6 +464,28 @@ router.post('/league/:id/undo', async (req, res) => {
     }
     const targetRows = picksResult.rows.filter((p) => targets.includes(p.pick_number));
     for (const row of targetRows) {
+      // The write gate, once per undone pick, immediately before that pick's
+      // roster row goes (#965). Both release-direction gates are bypassed, and
+      // both are decisions:
+      //
+      // - FREEZE. Same reading as the Pick commit: a commissioner freeze is the
+      //   transaction lock and does not govern a draft-phase roster write. This
+      //   route already refuses unless the draft is ACTIVE, so every row it can
+      //   reach is a draft row.
+      // - TEAM_LOCK. This is a commissioner tool acting on other managers'
+      //   teams; a locked team's mispicked player must still be undoable, which
+      //   is the whole point of an override (#940 story 7).
+      //
+      // So the call refuses nothing today. It is here so this write inherits a
+      // release rule the module gains later by a stated decision rather than by
+      // an omission - which is the failure #940 exists to end.
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: row.team_id,
+        direction: 'release',
+        playerId: row.player_id,
+        bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
+      });
       await client.query(
         `DELETE FROM "draft_picks" WHERE "league_id" = $1 AND "pick_number" = $2`,
         [leagueId, row.pick_number]
@@ -577,6 +603,33 @@ router.post('/league/:id/reset', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(409).json({
         error: 'the draft cannot be reset because weeks of this season are already settled',
+      });
+    }
+    // The write gate, before the league-wide roster wipe (#965). The reset's
+    // write is one statement over every roster in the league, so the gate is
+    // asked once per TEAM rather than once per player - and that is exactly as
+    // strong here, not a shortcut: the gate's release-direction inputs are the
+    // League and the Team, and `playerId` is read only by the acquire bundle.
+    // #940's "once per player, never once for a batch" rule exists because a
+    // position cap accumulates across an acquire loop; nothing on the release
+    // side accumulates, so per team is the finest distinction the gate can
+    // make. Asking it 300 times to get the same 16 answers would be cost
+    // without meaning.
+    //
+    // Bypasses are the undo handler's, for the same two reasons: this route
+    // also refuses unless the draft is ACTIVE, and a reset must reach a locked
+    // team's roster.
+    const wipeTeams = await client.query(
+      `SELECT "id" FROM "teams" WHERE "league_id" = $1 ORDER BY "id"`,
+      [leagueId]
+    );
+    for (const team of wipeTeams.rows) {
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: team.id,
+        direction: 'release',
+        playerId: null,
+        bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
       });
     }
     await client.query(`DELETE FROM "team_players" WHERE "league_id" = $1`, [leagueId]);

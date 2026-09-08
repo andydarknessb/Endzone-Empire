@@ -56,6 +56,23 @@ function createDatabaseFixture() {
     release: jest.fn(),
     query: jest.fn(async (sql, values = []) => {
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      // The #940 write gate's own League read, League-then-Team (#962). It
+      // selects an explicit column list rather than *, so it needs its own
+      // branch: the gate refuses a row that cannot answer a gate input it
+      // evaluates, which for a drop is the freeze and the team lock.
+      if (sql.includes('SELECT "id", "transactions_locked"') && sql.includes('FROM "leagues"')) {
+        return {
+          rows: [{
+            id: league.id,
+            transactions_locked: false,
+            draft_status: 'complete',
+            roster_limit: 16,
+            ir_slots: 0,
+            position_caps: {},
+            waivers_clear_at: null,
+          }],
+        };
+      }
       if (sql.includes('SELECT * FROM "leagues"')) {
         return {
           rows: [{

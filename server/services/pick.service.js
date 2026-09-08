@@ -21,7 +21,11 @@ const sentry = require('../modules/sentry');
 // DraftError is the app-wide draft refusal (ADR 0008) and the roster-acquisition
 // checks are shared with draft.service.addFreeAgent (#782 ruling 2). draft.service
 // never requires this module back, so this top-level require closes no cycle.
-const { DraftError, assertRosterAcquisitionAllowed } = require('./draft.service');
+const { DraftError } = require('./draft.service');
+// The one write-time roster gate (#940). A Pick is a roster acquisition like
+// any other, so it asks the same module (#965) rather than calling the acquire
+// bundle directly.
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
 
 /**
  * A Pick lands in one place (#782, ADR 0025 amendment). `landPick` is the ONE
@@ -136,9 +140,35 @@ async function commitPick({ leagueId, userId, playerId, auto = false, byCommissi
     const position = playerResult.rows[0].position;
 
     // Roster capacity, position caps and the on-waivers gate, shared with the
-    // free-agent add path through draft.service (#782 ruling 2). For an active
-    // draft the waiver gate is a no-op (it fires only for a completed draft).
-    await assertRosterAcquisitionAllowed(client, { league, teamId: myTeam.id, playerId, position });
+    // free-agent add path through the one write gate (#782 ruling 2, #965). For
+    // an active draft the waiver gate is a no-op (it fires only for a completed
+    // draft), and it is left in the evaluated set rather than bypassed so this
+    // call stays the same question the free-agent add asks.
+    //
+    // Two gates are bypassed, and both are decisions rather than omissions:
+    //
+    // FREEZE. A commissioner freeze does NOT refuse a Pick during an active
+    // draft (#965). The freeze is the transaction lock: its own console copy
+    // calls it "adds, drops, waiver claims, and trades", every one of them a
+    // post-draft transaction, and a Pick is deliberately not one - it writes no
+    // `transactions` row, which is the same distinction #782 ruling 2 drew when
+    // it split a Pick from a free-agent add. The operational half matters more:
+    // a draft is a clock. Refusing picks mid-draft would not pause anything, it
+    // would let the Pick clock keep expiring, time every team out in turn and
+    // autodraft or stall the room with no manager able to act. The commissioner
+    // already has the switch for stopping a draft, and it is `draft_paused`.
+    // TEAM_LOCK. Checked inline above, for the manager branch only: a
+    // commissioner entering picks for an offline draft is deliberately not
+    // stopped by a team lock, and moving that check into the gate would refuse
+    // those. The inline check keeps both branches exactly as they were.
+    await assertRosterWriteAllowed(client, {
+      leagueId,
+      teamId: myTeam.id,
+      direction: 'acquire',
+      playerId,
+      position,
+      bypass: [ROSTER_GATE.FREEZE, ROSTER_GATE.TEAM_LOCK],
+    });
 
     let pickNumber = null;
     let draftComplete = false;

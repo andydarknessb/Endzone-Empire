@@ -307,8 +307,21 @@ const commissionerLeague = {
 function commissionerDropWorld({ kickedOff = [], interrupted = null, removals = [], holds = [] } = {}) {
   return createFakePool([
     [/^SELECT \*, .* AS "is_commissioner"/, () => ({ rows: [commissionerLeague] })],
+    // The #964 write gate's own reads, League then Team, with explicit column
+    // lists of their own. Every gate a release evaluates is in
+    // COMMISSIONER_OVERRIDE, so these rows only have to exist.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ id: 5, transactions_locked: true }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
+      rows: [{ id: params[0], locked: true }],
+    })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10, owner_id: 7, league_id: 5 }] })],
-    [/^SELECT "id", "name" FROM "players"/, () => ({ rows: [{ id: 21, name: 'Test Runner' }] })],
+    // "position" rides along for the gate's position-cap argument, which the
+    // commissioner override bypasses (#964).
+    [/^SELECT "id", "name", "position" FROM "players"/, () => ({
+      rows: [{ id: 21, name: 'Test Runner', position: 'RB' }],
+    })],
     [/^DELETE FROM "team_players"/, () => ({ rows: [{ id: 99 }], rowCount: 1 })],
     [/^SELECT "slot", "ir_attested" FROM "lineup_entries"/, () => ({
       rows: interrupted ? [interrupted] : [],
@@ -516,6 +529,15 @@ function undoPickWorld({ kickedOff = [], removals = [] } = {}) {
         { pick_number: 2, team_id: 11, player_id: 21, is_keeper: false },
       ],
     })],
+    // The #965 write gate, once per undone pick, with both release gates
+    // bypassed. Its League and Team reads carry explicit column lists, so they
+    // need their own handlers rather than being answered by the two above.
+    [/^SELECT "id", "transactions_locked",.* FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({
+      rows: [{ id: 3, transactions_locked: false }],
+    })],
+    [/^SELECT "id", "locked" FROM "teams" WHERE "id" = \$1 FOR UPDATE/, (text, params) => ({
+      rows: [{ id: params[0], locked: false }],
+    })],
     [/^DELETE FROM "draft_picks"/, () => ({ rows: [], rowCount: 1 })],
     [/^DELETE FROM "team_players"/, () => ({ rows: [], rowCount: 1 })],
     ...removalHandlers({ kickedOff, removals }),
@@ -542,6 +564,17 @@ test('undone draft pick: the undone player loses the current-week row the pick g
   // never drafted him.
   assert.equal(removals.length, 1);
   assertRemoval(removals[0], { teamId: 11, playerId: 21, currentWeekToo: true });
+  // The #965 write gate, once per undone pick, immediately before that pick's
+  // roster row goes, League then Team. Its bypass set on this route is
+  // {FREEZE, TEAM_LOCK} - a commissioner tool on an active draft - so it
+  // refuses nothing here; what this pins is that the call exists and sits
+  // ahead of the write, which is what makes a later release rule reach it.
+  const gateLeagueAt = fake.calls.findIndex((c) => /^SELECT "id", "transactions_locked".*FOR UPDATE/.test(c.text));
+  const gateTeamAt = fake.calls.findIndex((c) => /^SELECT "id", "locked" FROM "teams".*FOR UPDATE/.test(c.text));
+  const rosterDeleteAt = fake.calls.findIndex((c) => /^DELETE FROM "team_players"/.test(c.text));
+  assert.ok(gateLeagueAt >= 0 && gateTeamAt >= 0, 'the undo asks the gate');
+  assert.ok(gateLeagueAt < gateTeamAt, 'League is locked before Team');
+  assert.ok(gateTeamAt < rosterDeleteAt, 'the gate precedes the roster row it guards');
   fake.assertClean();
 });
 

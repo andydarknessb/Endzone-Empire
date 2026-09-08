@@ -6,6 +6,10 @@ const { isLeagueCommissioner } = require('./leagueRole.service');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { MARKET_FLOOR } = require('./adp.service');
 const { appendLifecycleActivity, DRAFT_START } = require('./draftActivity');
+// The one write-time roster gate (#940). The keeper pre-fill is a roster write
+// like any other and asks the same module, with the bypasses that reproduce
+// what it has always done stated as an exact set (#965).
+const { assertRosterWriteAllowed, ROSTER_GATE } = require('./rosterGate.service');
 // The one Draft room adapter (#745), injected the same way the Pick clock reads
 // it: in the WORKER (scheduled autostart) its transport is the Redis emitter, so
 // the draft_start activity and the state refresh below are published rather than
@@ -116,7 +120,42 @@ async function startDraft({ leagueId, userId = null }) {
     // bounded by validateKeepers (count and round within the draft roster
     // size, capacity's floor) and only run from draft_status 'pending', so
     // the pre-fill can never exceed capacity by construction.
+    //
+    // That skip is now an EXPLICIT bypass rather than an omission (#965), and
+    // so is every other one. The set is all five, which is to say this call
+    // refuses nothing today - deliberately, because a draft start must behave
+    // exactly as it did:
+    //
+    // - CAPACITY, the documented skip above. Keeper validation is the bound.
+    // - POSITION_CAP. Keepers are bounded by count and round, never by
+    //   position; enforcing a cap here would refuse a keeper set a
+    //   commissioner already approved, at draft start, with no way to proceed.
+    // - WAIVER_HOLD, a no-op in any case: the gate only asks it of a completed
+    //   draft, and this runs from 'pending'.
+    // - TEAM_LOCK. A commissioner-locked team still gets its keepers; the lock
+    //   stops that manager's own roster moves, not the league's draft starting.
+    // - FREEZE. Same reading as the Pick commit (#965, pick.service.js): the
+    //   freeze is the transaction lock and a draft-phase roster write is not a
+    //   transaction. It matters more here, because startDraft is also the
+    //   WORKER's scheduled autostart: a frozen league would silently fail to
+    //   start its scheduled draft, once per tick, with nobody watching.
+    //
+    // The value of the call is that the decision is written down and a future
+    // release-direction or acquire-direction rule is inherited here by choice.
     for (const keeperPick of plan.keeperPicks) {
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: keeperPick.teamId,
+        direction: 'acquire',
+        playerId: keeperPick.playerId,
+        bypass: [
+          ROSTER_GATE.FREEZE,
+          ROSTER_GATE.TEAM_LOCK,
+          ROSTER_GATE.CAPACITY,
+          ROSTER_GATE.POSITION_CAP,
+          ROSTER_GATE.WAIVER_HOLD,
+        ],
+      });
       await client.query(
         `INSERT INTO "draft_picks" ("league_id", "team_id", "player_id", "pick_number", "is_keeper")
          VALUES ($1, $2, $3, $4, true)`,
