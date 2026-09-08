@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const scoring = require('./scoring.service');
 const { logTransaction, notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
@@ -147,59 +148,59 @@ async function correctLeagueWeek({ leagueId, season, week }) {
   const changes = diffMatchupScores(before.rows, after.rows);
   if (changes.length === 0) return { leagueId, changes };
 
-  let client;
   try {
-    client = await pool.connect();
-  } catch (error) {
-    // Scores already committed above; replaying would lose the before-snapshot.
-    error.retrySafe = false;
-    throw error;
-  }
-  try {
-    await client.query('BEGIN');
-    await logTransaction(client, {
-      leagueId,
-      type: 'stat_correction',
-      detail: { season, week, changes },
-    });
-    await notifyLeague(client, {
-      leagueId,
-      type: 'stat_correction',
-      message: `Week ${week} scores were updated after an NFL stat correction.`,
-      data: { season, week, matchupIds: changes.map((c) => c.matchupId) },
-    });
-
-    const playoffFlips = changes.filter((c) => c.final && c.isPlayoff && c.winnerFlipped);
-    if (playoffFlips.length > 0) {
-      const ownerResult = await client.query(
-        `SELECT "owner_id" FROM "leagues" WHERE "id" = $1`,
-        [leagueId]
-      );
-      if (ownerResult.rows[0]) {
-        // Every commissioner, not the creator alone (#188). The alert asks its
-        // reader to rebuild the bracket with their commissioner tools, and a
-        // co-commissioner holds exactly those tools, so resolving the role as
-        // `leagues.owner_id` told the wrong (narrower) set of people. Nobody
-        // is in the loop to notice: this runs from the correction scheduler.
-        await notifyCommissioners(client, {
+    // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+    // release rule (ADR 0033). The connect try is gone: the wrapper propagates a
+    // pool.connect() failure untouched (no client to ROLLBACK or release), so
+    // this one catch now tags retrySafe=false for BOTH the connect failure and
+    // any in-transaction failure — exactly as the two catches did before.
+    await withTransaction(
+      pool,
+      async (client) => {
+        await logTransaction(client, {
           leagueId,
-          ownerId: ownerResult.rows[0].owner_id,
           type: 'stat_correction',
-          message:
-            `A stat correction flipped the result of ${playoffFlips.length} settled playoff ` +
-            `matchup(s) in week ${week}. Later rounds were NOT changed automatically. ` +
-            `Review the bracket with your commissioner tools.`,
-          data: { season, week, matchupIds: playoffFlips.map((c) => c.matchupId) },
+          detail: { season, week, changes },
         });
-      }
-    }
-    await client.query('COMMIT');
+        await notifyLeague(client, {
+          leagueId,
+          type: 'stat_correction',
+          message: `Week ${week} scores were updated after an NFL stat correction.`,
+          data: { season, week, matchupIds: changes.map((c) => c.matchupId) },
+        });
+
+        const playoffFlips = changes.filter((c) => c.final && c.isPlayoff && c.winnerFlipped);
+        if (playoffFlips.length > 0) {
+          const ownerResult = await client.query(
+            `SELECT "owner_id" FROM "leagues" WHERE "id" = $1`,
+            [leagueId]
+          );
+          if (ownerResult.rows[0]) {
+            // Every commissioner, not the creator alone (#188). The alert asks its
+            // reader to rebuild the bracket with their commissioner tools, and a
+            // co-commissioner holds exactly those tools, so resolving the role as
+            // `leagues.owner_id` told the wrong (narrower) set of people. Nobody
+            // is in the loop to notice: this runs from the correction scheduler.
+            await notifyCommissioners(client, {
+              leagueId,
+              ownerId: ownerResult.rows[0].owner_id,
+              type: 'stat_correction',
+              message:
+                `A stat correction flipped the result of ${playoffFlips.length} settled playoff ` +
+                `matchup(s) in week ${week}. Later rounds were NOT changed automatically. ` +
+                `Review the bracket with your commissioner tools.`,
+              data: { season, week, matchupIds: playoffFlips.map((c) => c.matchupId) },
+            });
+          }
+        }
+      },
+      { label: 'correction' }
+    );
   } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackError) {
-      error.rollbackError = rollbackError;
-    }
+    // Scores already committed above; replaying would replace the
+    // before-snapshot and could hide a correction from the audit log, so the
+    // whole correction is not retry-safe. On a rejecting ROLLBACK the wrapper
+    // has already attached error.rollbackError under that same name.
     error.retrySafe = false;
     // The corrected scores are already committed and a later run won't
     // re-detect them (its "before" snapshot is post-correction) — dump the
@@ -211,8 +212,6 @@ async function correctLeagueWeek({ leagueId, season, week }) {
       JSON.stringify(changes)
     );
     throw error;
-  } finally {
-    client.release();
   }
   return { leagueId, changes };
 }
