@@ -113,11 +113,13 @@ const Body = () => (
       upside on volume alone.
     </P>
 
-    <H3>Start: DK Metcalf, WR, Seahawks</H3>
+    <H3>Start: Jaxon Smith-Njigba, WR, Seahawks</H3>
     <P>
-      New England&apos;s secondary is young and rebuilding. Metcalf draws the easier coverage assignment
-      in a game Seattle is expected to lead, and seven-point favorites throw enough to keep their
-      primary target busy. Start him as a WR1 with confidence.
+      With DK Metcalf now in Pittsburgh, Smith-Njigba steps into the undisputed WR1 role in
+      Seattle. New England&apos;s secondary is young and rebuilding, and JSN is the clear top target
+      in an offense expected to play with a lead. Seven-point favorites throw enough to keep their
+      primary receiver busy, and there is no target competition ahead of him. Start him as a
+      high-floor WR2 with WR1 upside this week.
     </P>
 
     <H3>Start: Drake Maye, QB, Patriots (superflex/2QB only)</H3>
@@ -147,13 +149,13 @@ const Body = () => (
       is enough to flex him in 12-team formats where the alternative is a dart throw.
     </P>
 
-    <H3>Sit: Jaxon Smith-Njigba, WR, Seahawks (as a WR1)</H3>
+    <H3>Sit: Tyler Lockett, WR, Seahawks</H3>
     <P>
-      This is a sit-to-the-right-slot call, not a bench call. JSN is a fine WR2/flex this week, but
-      managers who are starting him as their WR1 should expect a modest target share. Seattle will
-      lead, which means more runs and fewer empty sets. Metcalf draws the downfield work in positive
-      game script; Smith-Njigba&apos;s volume is safer when the Seahawks are trailing, which is not
-      the expected script here.
+      Lockett managed a knee throughout camp and is expected to play under a snap count. Even
+      healthy, his role narrows in positive game script: Seattle will lean on the run with Walker
+      and feed JSN as the primary pass catcher. Lockett is a boom-or-bust WR3/flex this week
+      whose ceiling depends on a deep shot or two, not on volume. If you have a safer floor
+      option on your bench, start that instead.
     </P>
 
     <H3>Sit: Hunter Henry, TE, Patriots</H3>
@@ -171,11 +173,11 @@ const Body = () => (
       </THead>
       <TBody>
         <TR><TD><S>Kenneth Walker III</S></TD><TD>RB</TD><TD>Start (RB1)</TD><TD>Near-full workload, plus game script, weak run D</TD></TR>
-        <TR><TD><S>DK Metcalf</S></TD><TD>WR</TD><TD>Start (WR1)</TD><TD>Young secondary, favorable coverage, game lead</TD></TR>
+        <TR><TD><S>Jaxon Smith-Njigba</S></TD><TD>WR</TD><TD>Start (WR2+)</TD><TD>WR1 role post-Metcalf trade, young secondary, game lead</TD></TR>
         <TR><TD><S>Drake Maye</S></TD><TD>QB</TD><TD>Start (SF/2QB)</TD><TD>Garbage-time volume, pass-funnel game script</TD></TR>
         <TR><TD>Noah Fant</TD><TD>TE</TD><TD>Flex</TD><TD>Charbonnet absence opens some check-down work</TD></TR>
         <TR><TD>Rhamondre Stevenson</TD><TD>RB</TD><TD>Sit</TD><TD>Negative game script, elite run D opponent</TD></TR>
-        <TR><TD>Jaxon Smith-Njigba</TD><TD>WR</TD><TD>WR2/Flex</TD><TD>Volume is script-dependent, ceiling capped</TD></TR>
+        <TR><TD>Tyler Lockett</TD><TD>WR</TD><TD>WR3/Flex</TD><TD>Snap count, boom-or-bust deep threat only</TD></TR>
         <TR><TD>Hunter Henry</TD><TD>TE</TD><TD>Sit</TD><TD>Blowout risk compresses route share</TD></TR>
       </TBody>
     </Table>
@@ -197,7 +199,7 @@ const Body = () => (
     <UL>
       <LI><S>Ja&apos;Lynn Polk, WR:</S> missed the final preseason game with a hamstring injury. Questionable for Wednesday. If he sits, the Patriots&apos; receiver depth thins further and Maye&apos;s target tree narrows to Henry and the backfield.</LI>
       <LI><S>Cole Strange, OG:</S> limited in practice through August after offseason knee surgery. His availability determines whether the interior line can handle Seattle&apos;s interior pressure packages. No impact on fantasy skill positions directly, but a large impact on Maye&apos;s time to throw.</LI>
-      <LI><S>Christian Gonzalez, CB:</S> full participant all preseason. Healthy and expected to shadow Metcalf, which is the one coverage variable that could limit Metcalf&apos;s ceiling. Gonzalez is a legitimate CB1 and this shadow assignment is worth monitoring in-game.</LI>
+      <LI><S>Christian Gonzalez, CB:</S> full participant all preseason. Healthy and expected to shadow Smith-Njigba, which is the one coverage variable that could limit JSN&apos;s ceiling. Gonzalez is a legitimate CB1 and this shadow assignment is worth monitoring in-game.</LI>
     </UL>
 
     <H2>IDP Streamers</H2>
