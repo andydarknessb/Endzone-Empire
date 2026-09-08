@@ -313,3 +313,50 @@ test('a hoisted lock const referenced by a DIFFERENT, unlocked function does not
   ].join('\n');
   assert.deepEqual(unlockedTeamInserts(src), [{ line: 6 }]);
 });
+
+test('a bare mention of a lock const (not a query call) does not satisfy the rule', () => {
+  // The const must be EXECUTED (`.query(LOCK_SQL)`), not merely named. A function
+  // that stashes the SQL in an object and then inserts has taken no lock.
+  const src = [
+    `const LOCK_SQL = \`${LEAGUE_LOCK}\`;`,
+    'async function addTeam(client, id) {',
+    '  const note = { sql: LOCK_SQL };',
+    `  ${q(TEAM_INSERT)}`,
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), [{ line: 4 }]);
+});
+
+// The lexical-ancestor scope credits an ancestor's lock to an insert in a nested
+// function even when that function is DEFERRED and may run in another
+// transaction. This is the accepted cost of the outermost-scope trade (it is
+// what makes the callback/loop shapes above green). These pin the CURRENT GREEN
+// behaviour, and the module header names it, so the next person who tightens the
+// rule does it on purpose. See the "LIMIT OF A LEXICAL RULE" note in the checker.
+
+test('PINS ACCEPTED behaviour: a lock covers an insert in a RETURNED closure (deferred)', () => {
+  const src = [
+    'async function makeInserter(client) {',
+    `  ${q(LEAGUE_LOCK)}`,
+    '  return async () => {',
+    `    ${q(TEAM_INSERT)}`,
+    '  };',
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});
+
+test('PINS ACCEPTED behaviour: a lock covers an insert in a REGISTERED handler (deferred)', () => {
+  const src = [
+    'async function setup(client, bus) {',
+    `  ${q(LEAGUE_LOCK)}`,
+    "  bus.on('join', async () => {",
+    `    ${q(TEAM_INSERT)}`,
+    '  });',
+    '}',
+    '',
+  ].join('\n');
+  assert.deepEqual(unlockedTeamInserts(src), []);
+});

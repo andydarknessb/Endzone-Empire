@@ -17,17 +17,30 @@
  * instead of silently reopening the gap.
  *
  * WHAT IS ASSERTED, and its operationalization. The domain invariant is "in the
- * same transaction". Statically, the checkable proxy is "a League lock appears,
- * before the insert, in the insert's enclosing function or one of the functions
- * lexically enclosing it": joinLeague takes its own League lock in its own body
- * before its INSERT (its docstring notes the lock is a no-op when the caller's
- * transaction already holds it, but it takes it regardless). The lock counts
- * when it sits on the insert's own lexical-ancestor chain - so an insert nested
- * in a callback or a loop still sees a lock its enclosing function took. It does
- * NOT count when it sits inside some OTHER nested function (a helper that may
- * never run, or run in another transaction); that is reported as unlocked,
- * deliberately, as a "make the lock visible" prompt. The lock's SQL may be
- * inline or referenced by the name of a module const that holds it.
+ * same transaction". The static proxy is PURELY LEXICAL and does not reason
+ * about runtime: a League lock counts when its SQL appears, textually before the
+ * insert, in the insert's enclosing function OR any function lexically enclosing
+ * it (its ancestor chain) - either as inline SQL or as a `.query(NAME)` call on
+ * a const whose value is the lock. joinLeague is the shape it is built around:
+ * its own body takes the lock before its INSERT. An insert nested in a callback,
+ * a loop or a for-await inside the locking function is covered, because the lock
+ * sits on its ancestor chain. A lock inside a nested function that is NOT an
+ * ancestor of the insert (a sibling helper) does NOT count - reported as
+ * unlocked, deliberately, as a "make the lock visible" prompt.
+ *
+ * THE LIMIT OF A LEXICAL RULE, stated because this header is the guard's audit
+ * surface. "An ancestor holds the lock" is not the same as "the lock ran, in
+ * this transaction, before the insert". Two shapes read GREEN here that a
+ * runtime check would not vouch for: an insert inside a closure the locking
+ * function RETURNS, and an insert inside a handler the locking function
+ * REGISTERS on an event bus (server/modules holds the socket handlers, so this
+ * one is real, not hypothetical). Either can execute after the locking
+ * function's transaction has ended. This is the accepted cost of taking the
+ * scope from the OUTERMOST enclosing function - the same choice that lets the
+ * ordinary callback/loop/for-await shapes above be green instead of three false
+ * reds. teamInsertLockGuard.test.js pins both deferred shapes as GREEN so the
+ * next person changes the trade on purpose rather than by accident. If a future
+ * add-team path takes this deferred form, this guard will not catch it.
  *
  * WHY SOURCE-DERIVED, NOT HAND-LISTED. The precedents are the identity-comparison
  * guard (scripts/check-identity-comparisons.js) and the envelope-conformance
@@ -206,16 +219,25 @@ function lockConstNames(fileSource) {
   return names;
 }
 
+// The first-argument identifier of every `.query(` call: `client.query(FOO` ->
+// `FOO`. A single FIXED literal regex (no per-name `new RegExp`, which trips
+// semgrep's detect-non-literal-regexp and needlessly rebuilds a pattern per
+// const), matched with matchAll so it stays reentrant.
+const QUERY_CALL_ARG = /\.query\s*\(\s*([A-Za-z_$][\w$]*)/g;
+
 /**
  * True when `scopeSource` takes a League-row lock: either a single SQL statement
- * in it IS the lock, or it references the name of a const whose value is the
- * lock (`lockNames`, from lockConstNames over the whole file).
+ * in it IS the lock, or it EXECUTES a lock-const - passes a const whose value is
+ * the lock (`lockNames`, from lockConstNames over the whole file) as the first
+ * argument of a `.query(` call. It must be the query CALL, not a bare mention: a
+ * function that merely names the const (`const note = { sql: LOCK_SQL }`) and
+ * then inserts has taken no lock.
  */
 function containsLeagueLock(scopeSource, lockNames) {
   if (sqlStatements(scopeSource).some((statement) => LEAGUE_LOCK.test(statement))) return true;
-  if (lockNames) {
-    for (const name of lockNames) {
-      if (new RegExp(`\\b${name}\\b`).test(scopeSource)) return true;
+  if (lockNames && lockNames.size) {
+    for (const match of scopeSource.matchAll(QUERY_CALL_ARG)) {
+      if (lockNames.has(match[1])) return true;
     }
   }
   return false;
