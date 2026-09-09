@@ -552,8 +552,8 @@ const SECTIONS = [
   ['calendar', 'Season'],
   ['users', 'Roster settings'],
   ['trend', 'Scoring settings'],
-  ['trophy', 'Playoffs & schedule'],
-  ['swap', 'Waivers & trades'],
+  ['trophy', 'Playoffs &amp; schedule'],
+  ['swap', 'Waivers &amp; trades'],
   ['alert', 'System overrides'],
 ];
 
