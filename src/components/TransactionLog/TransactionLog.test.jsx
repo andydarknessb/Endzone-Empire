@@ -267,18 +267,6 @@ test('shows 30 rows initially and reveals more on demand', async () => {
   expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
 });
 
-test('clicking a player name opens the shared PlayerQuickView dialog', async () => {
-  mockTransactions([
-    txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } }),
-  ]);
-  renderScreen();
-
-  await screen.findByTestId('txn-1');
-  await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
-
-  expect(await screen.findByTestId('quickview-skeleton')).toBeInTheDocument();
-});
-
 // --- Pick'em-only leagues ---
 
 const pickemLeague = { id: 1, name: 'Office Pool', pickem_only: true };

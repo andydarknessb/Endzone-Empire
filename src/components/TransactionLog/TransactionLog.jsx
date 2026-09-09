@@ -36,9 +36,8 @@ import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
+import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { formatRelative } from '../../utils/formatRelative';
 
 const PAGE_SIZE = 30;
@@ -97,85 +96,15 @@ function dayLabel(dateLike) {
   });
 }
 
-function renderPlayerList(items, onOpenPlayer) {
-  return items.map((item, i) => (
-    <React.Fragment key={item.playerId}>
-      {i > 0 && ', '}
-      <PlayerNameLink name={item.playerName} playerId={item.playerId} onOpen={onOpenPlayer} />
-    </React.Fragment>
-  ));
-}
-
-function TransactionDescription({ txn, onOpenPlayer }) {
-  const detail = txn.detail || {};
-  switch (txn.type) {
-    case 'add':
-      return (
-        <>
-          added <PlayerNameLink name={txn.player_name} playerId={detail.playerId} onOpen={onOpenPlayer} />
-        </>
-      );
-    case 'drop':
-      return (
-        <>
-          dropped <PlayerNameLink name={txn.player_name} playerId={detail.playerId} onOpen={onOpenPlayer} />
-        </>
-      );
-    case 'waiver': {
-      const bidSuffix = typeof detail.bid === 'number' ? ` ($${detail.bid})` : '';
-      return (
-        <>
-          claimed <PlayerNameLink name={txn.player_name} playerId={detail.playerId} onOpen={onOpenPlayer} />
-          {bidSuffix}
-          {detail.droppedPlayerId && txn.dropped_player_name && (
-            <>
-              , dropped{' '}
-              <PlayerNameLink
-                name={txn.dropped_player_name}
-                playerId={detail.droppedPlayerId}
-                onOpen={onOpenPlayer}
-              />
-            </>
-          )}
-        </>
-      );
-    }
-    case 'trade': {
-      const items = Array.isArray(detail.items) ? detail.items : [];
-      // Older trade rows were logged before names/team ids were baked into
-      // detail — fall back to the generic sentence rather than rendering
-      // blanks for them.
-      if (items.length === 0 || !detail.receivingTeamName) {
-        return 'completed a trade';
-      }
-      const sent = items.filter((i) => i.fromTeamId === detail.proposingTeamId);
-      const received = items.filter((i) => i.toTeamId === detail.proposingTeamId);
-      return (
-        <>
-          traded {renderPlayerList(sent, onOpenPlayer)} to {detail.receivingTeamName} for{' '}
-          {renderPlayerList(received, onOpenPlayer)}
-        </>
-      );
-    }
-    case 'commissioner':
-      return 'commissioner action';
-    case 'stat_correction': {
-      const changed = Array.isArray(detail.changes) ? detail.changes.length : 0;
-      const week = detail.week;
-      return `NFL stat correction updated ${changed} matchup score${changed === 1 ? '' : 's'}${
-        week ? ` in week ${week}` : ''
-      }`;
-    }
-    default:
-      return '';
-  }
-}
-
 // One row of the activity timeline: a colored dot/icon keyed off the
 // transaction type, the team + action description, and a relative
-// timestamp aligned to the right.
-function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
+// timestamp aligned to the right. The description text is the Activity read
+// model's `sentence` (src/entities/activity, #1100): TransactionLog no
+// longer derives it inline, so it cannot drift from another surface reading
+// the same rows.
+function ActivityFeedItem({ txn, isLast }) {
   const { Icon, color } = TYPE_ICON_META[txn.type] || { Icon: HistoryOutlinedIcon, color: 'grey' };
+  const { sentence } = activityFromRow(txn);
   return (
     <TimelineItem data-testid={`txn-${txn.id}`}>
       <TimelineSeparator>
@@ -199,7 +128,7 @@ function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
                   {txn.team_name}{' '}
                 </Box>
               )}
-              <TransactionDescription txn={txn} onOpenPlayer={onOpenPlayer} />
+              {sentence}
             </Typography>
           </Box>
           <Tooltip title={new Date(txn.created_at).toLocaleString()}>
@@ -232,7 +161,6 @@ function TransactionLog() {
   const typeFilter = filterOptions.some((opt) => opt.value === selectedType) ? selectedType : 'all';
   const [teamFilter, setTeamFilter] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
     // Filters and rows are per league: an in-place league switch (hash edit
@@ -405,7 +333,6 @@ function TransactionLog() {
                       <ActivityFeedItem
                         key={txn.id}
                         txn={txn}
-                        onOpenPlayer={setQuickViewId}
                         isLast={i === group.items.length - 1}
                       />
                     ))}
@@ -421,13 +348,6 @@ function TransactionLog() {
           )}
         </>
       )}
-
-      <PlayerQuickView
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
-        leagueId={Number(leagueId)}
-      />
     </Container>
   );
 }
