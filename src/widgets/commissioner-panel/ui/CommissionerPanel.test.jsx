@@ -207,6 +207,15 @@ test('an empty queue states nothing rather than a zero', async () => {
 });
 
 // --- facts ----------------------------------------------------------------
+//
+// `commissionerFacts` itself (its full set of derivations - the fully
+// configured league, the null-deadline and unlocked-transactions cases, an
+// empty payload, a pick'em-only league) moved to `shared/lib` with its own
+// tests (ADR 0034): both this widget and `pages/commissioner-console` read
+// the one function from there now. What stays here is the ONE thing only
+// this widget's composition can answer: that it still passes the league
+// through and renders whatever the function returns as StatTiles, off the
+// page's own cached read.
 
 test('the fact grid states the league it was given, with no request of its own', async () => {
   mockGetByUrl({
@@ -229,24 +238,6 @@ test('the fact grid states the league it was given, with no request of its own',
   expect(getUrls()).toEqual(['/api/league/1']);
 });
 
-test('an unlocked league reads Open, and a null deadline reads None', async () => {
-  // `trade_deadline_week` is the one nullable source behind a fact: null is the
-  // answer, not an absence, and it must not read as week 0 (`Number(null)`).
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({
-      league: fullyConfiguredLeague({ transactions_locked: false, trade_deadline_week: null }),
-      teams: teamsWithLocks(12, 0),
-    }),
-  });
-  renderPanel();
-
-  await screen.findByTestId('commissioner-panel-facts');
-  expect(fact('transactions')).toHaveTextContent('Open');
-  expect(fact('trade-deadline')).toHaveTextContent('None');
-  expect(fact('trade-deadline')).not.toHaveTextContent('Week 0');
-  expect(fact('teams-locked')).toHaveTextContent('0 of 12');
-});
-
 test('a payload that carries none of the source fields renders no facts at all', async () => {
   mockGetByUrl({ '/api/league/1': leagueResponse({ teams: [{ teamId: 1, id: 1 }] }) });
   renderPanel();
@@ -255,22 +246,6 @@ test('a payload that carries none of the source fields renders no facts at all',
   expect(screen.queryByTestId('commissioner-panel-facts')).not.toBeInTheDocument();
   expect(screen.queryByTestId('commissioner-fact-transactions')).not.toBeInTheDocument();
   expect(screen.queryByTestId('commissioner-fact-roster')).not.toBeInTheDocument();
-});
-
-test("a pick'em-only league states no fantasy facts", async () => {
-  // Transactions, roster freezes, waivers, trades, lineup slots and scoring are
-  // all fantasy concepts; the legacy tools hide every one of them for a
-  // pick'em-only league, and so does the grid.
-  mockGetByUrl({
-    '/api/league/1': leagueResponse({
-      league: fullyConfiguredLeague({ pickem_only: true }),
-      teams: teamsWithLocks(20, 3),
-    }),
-  });
-  renderPanel();
-
-  await screen.findByTestId('commissioner-panel');
-  expect(screen.queryByTestId('commissioner-panel-facts')).not.toBeInTheDocument();
 });
 
 // --- copy -----------------------------------------------------------------
