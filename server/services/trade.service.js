@@ -598,22 +598,38 @@ async function processDueTrades() {
   );
   const outcomes = [];
   for (const row of due.rows) {
-    const client = await pool.connect();
+    // The swallow sits here at the call site: withTransaction owns
+    // connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the release rule (ADR 0033),
+    // and `work` returns which path it took so the outcome list is built the
+    // same way. The rosterChanged broadcast runs AFTER the wrapper resolves so
+    // it never holds the pooled connection open, matching respondToTrade and
+    // commissionerDecide. That is a hold-time/consistency move, NOT a Ruling 3
+    // requirement: the base broadcast already ran after COMMIT. The move does
+    // change one thing Ruling 3 otherwise forbids - it puts the broadcast on a
+    // path that can throw where the base's in-try broadcast was caught - so it
+    // is contained below (see the executed branch) rather than left to escape.
+    let result;
     try {
-      await client.query('BEGIN');
-      const { trade, league, items, teams } = await loadTrade(client, row.id);
-      if (trade.status === 'accepted') {
-        await executeTrade(client, { trade, league, items, teams });
-        await client.query('COMMIT');
-        await getDraftRoomBroadcast().rosterChanged(league.id);
-        outcomes.push({ tradeId: row.id, status: 'executed' });
-        continue;
-      }
-      await client.query('COMMIT');
-      outcomes.push({ tradeId: row.id, status: trade.status });
+      result = await withTransaction(
+        pool,
+        async (client) => {
+          const { trade, league, items, teams } = await loadTrade(client, row.id);
+          if (trade.status === 'accepted') {
+            await executeTrade(client, { trade, league, items, teams });
+            return { status: 'executed', leagueId: league.id };
+          }
+          return { status: trade.status };
+        },
+        { label: 'processDueTrades' }
+      );
     } catch (err) {
-      await client.query('ROLLBACK');
-      // A dead trade (roster changed under it) shouldn't be retried forever
+      // A dead trade (roster changed under it) shouldn't be retried forever. The
+      // cancel stays on the POOL, never on the client: by the time this catch
+      // runs the wrapper has already rolled back and returned (or, on a rejecting
+      // rollback, destroyed) the connection, so there is no open transaction of
+      // ours to write into. The original error survives the wrapper unchanged
+      // (any rollback failure rides along as err.rollbackError), so a TradeError
+      // is still recognisable here.
       if (err instanceof TradeError) {
         await pool.query(
           `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
@@ -623,8 +639,27 @@ async function processDueTrades() {
       } else {
         console.error('trade execution failed for trade %s:', row.id, err.message);
       }
-    } finally {
-      client.release();
+      continue;
+    }
+    if (result.status === 'executed') {
+      // Record the settled trade FIRST, regardless of the broadcast. Base pushed
+      // this outcome only after a successful broadcast, so a broadcast failure
+      // silently dropped the record for a trade it had already committed.
+      outcomes.push({ tradeId: row.id, status: 'executed' });
+      // Contained: getDraftRoomBroadcast() throws by design when no broadcast is
+      // registered in this process (a persistent process-config condition, #745;
+      // transport failures do NOT throw - the adapter swallows those and returns
+      // delivered:false). Base ran this inside the per-trade try and continued
+      // the loop on a throw; letting it escape here would abort the rest of the
+      // scheduler tick (processScheduledDrafts, syncAndScoreLiveWeeks,
+      // runRetention all run after processDueTrades), so it stays contained.
+      try {
+        await getDraftRoomBroadcast().rosterChanged(result.leagueId);
+      } catch (err) {
+        console.error('roster broadcast failed after executing trade %s:', row.id, err.message);
+      }
+    } else {
+      outcomes.push({ tradeId: row.id, status: result.status });
     }
   }
   return outcomes;
