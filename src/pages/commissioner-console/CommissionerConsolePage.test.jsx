@@ -149,6 +149,10 @@ test('a commissioner sees the h1, the breadcrumb, the facts and the Commissioner
   expect(screen.getByTestId('commissioner-console-fact-transactions')).toHaveTextContent('Locked');
   expect(screen.getByTestId('commissioner-console-fact-roster')).toHaveTextContent('9 starters · 5 bench · 1 IR');
 
+  // Re-parenting CommissionerTools (whose own "Commissioner Tools" is a
+  // fixed h3) off the panel's Card - which supplied the h2 it was written to
+  // nest under - must not leave the heading tree skipping from h1 to h3.
+  expect(screen.getByRole('heading', { level: 2, name: 'League administration' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 3, name: 'Commissioner Tools' })).toBeInTheDocument();
   const tools = screen.getByTestId('mock-commissioner-tools');
   expect(tools).toHaveAttribute('data-league-id', '42');

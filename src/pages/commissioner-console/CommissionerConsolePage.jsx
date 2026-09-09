@@ -2,6 +2,7 @@ import React from 'react';
 import { Link as RouterLink, Navigate, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { Box, Button, Container, Link, Typography } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Badge, Skeleton, StatTile } from '../../shared/ui';
 import AdvanceWeek from '../../features/advance-week';
 import CommissionerTools from '../../components/LeagueDashboard/CommissionerTools';
@@ -55,7 +56,6 @@ export default function CommissionerConsolePage() {
     teams,
     viewerTeamId,
     loading,
-    error,
     refetch,
     isCommissioner,
     isOwner,
@@ -87,8 +87,13 @@ export default function CommissionerConsolePage() {
       <Shell>
         <Box sx={{ display: 'grid', gap: 1.75, justifyItems: 'start' }}>
           <Typography component="h1" sx={H1_SX}>Commissioner console</Typography>
+          {/* The fixed sentence, never the raw `error` string: useResource
+              collapses the server's own message and the transport's
+              (`err.message`, e.g. "Network Error") into one value, so
+              showing it here would put an axios internal in front of a
+              commissioner. Matches LeagueDashboardPage's same call. */}
           <Typography role="alert" sx={{ fontSize: '14px', color: 'var(--dash-ink)' }}>
-            {error || 'We could not load this league right now.'}
+            We could not load this league right now.
           </Typography>
           <Button
             type="button"
@@ -168,6 +173,15 @@ export default function CommissionerConsolePage() {
       )}
 
       <Box sx={{ maxWidth: '720px', width: '100%' }}>
+        {/* A visually-hidden h2, so the heading tree stays h1 -> h2 -> h3
+            instead of skipping a level. CommissionerTools composes AS-IS
+            (cut ruling #617) and its own "Commissioner Tools" is a fixed
+            `component="h3"`, chosen because it used to sit directly under
+            the commissioner-panel widget's Card h2 (CommissionerPanel.jsx);
+            re-parenting it here drops that h2, and this label restores the
+            level it was written to nest under without touching the legacy
+            component or printing a second visible title above its own. */}
+        <Typography component="h2" sx={visuallyHidden}>League administration</Typography>
         {/* Why the co-commissioner card is missing from the tools below,
             stated only for the reader who cannot see it: the owner sees the
             card itself, so the sentence would be noise for them. */}
