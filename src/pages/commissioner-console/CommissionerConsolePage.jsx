@@ -230,6 +230,10 @@ function Breadcrumb({ leagueId, leagueName }) {
     <Box component="nav" aria-label="Breadcrumb" data-testid="commissioner-console-breadcrumb">
       <Box
         component="ol"
+        // A styleless list (listStyle: 'none' strips the UA default) drops
+        // its implicit `list` role in WebKit/VoiceOver, so the crumbs would
+        // read as ungrouped content there without this explicit role.
+        role="list"
         sx={{
           listStyle: 'none',
           m: 0,
