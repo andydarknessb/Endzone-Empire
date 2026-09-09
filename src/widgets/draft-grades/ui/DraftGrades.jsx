@@ -101,9 +101,16 @@ const NotAvailable = () => (
 
 // The two cells' shared box: padding, the hairline under the row, and the
 // normal body weight (a `th` defaults to bold, and the name span sets its own).
+// `py` is a measured 6.5px, not the theme's spacing multiplier (#1104 review:
+// the old py: 1.25 - GradeChip's fixed 26px plus the 1px border - measured
+// 47px in a real browser, not the 40px a one-line row is supposed to be. 26
+// (GradeChip, shared/ui, not resized here - other surfaces use it) + 13
+// (6.5 top + 6.5 bottom) + 1 (border) = 40, confirmed the same way: Chromium
+// via Playwright against the real dev server, getBoundingClientRect on a
+// collapsed non-viewer row, not arithmetic alone.
 const CELL_SX = {
   px: 1.5,
-  py: 1.25,
+  py: '6.5px',
   borderBottom: '1px solid var(--dash-line)',
   fontWeight: 400,
 };
