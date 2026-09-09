@@ -15,7 +15,7 @@ import { shouldShowStillFrame } from '../../lib/reducedMotionMedia';
  * both URLs through and the rule cannot drift between the two surfaces that use
  * it.
  */
-function TeamAvatar({ name, avatarUrl, avatarStaticUrl, size = 32 }) {
+function TeamAvatar({ name, avatarUrl, avatarStaticUrl, size = 32, 'data-testid': testId }) {
   const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const src = (shouldShowStillFrame(prefersReducedMotion, avatarStaticUrl) ? avatarStaticUrl : avatarUrl) || undefined;
   return (
@@ -29,6 +29,7 @@ function TeamAvatar({ name, avatarUrl, avatarStaticUrl, size = 32 }) {
       // it staying "img": TeamAvatar.test.jsx (three sites) and
       // PowerRankings.test.jsx (one site). See #327.
       aria-hidden="true"
+      data-testid={testId}
       src={src}
       imgProps={{ loading: 'lazy' }}
       sx={{
