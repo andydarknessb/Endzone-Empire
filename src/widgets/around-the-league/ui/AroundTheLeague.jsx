@@ -1,7 +1,8 @@
 import React from 'react';
 import { Box, Link as MuiLink, Typography, useMediaQuery, useTheme } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Skeleton, SplitBar } from '../../../shared/ui';
+import { Badge, Card, Skeleton, SplitBar } from '../../../shared/ui';
 import TeamAvatar from '../../../components/common/TeamAvatar';
 import useAroundTheLeague from '../model/useAroundTheLeague';
 
@@ -12,14 +13,33 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  * total before kickoff or the live score after, right-aligned tabular) over a
  * 5px SplitBar of the win probability; the viewer's own tile carries the
  * accent ring the recommended Quick Action tile uses (a `dash-accent-line`
- * border plus its matching 1px box-shadow ring, QuickActions.jsx).
+ * border plus its matching 1px box-shadow ring, QuickActions.jsx) AND the
+ * viewer's own row within that tile carries the visible `Badge variant="you"`
+ * pill, the League Dashboard island's shared viewer-row marker (#671,
+ * Badge.jsx): the ring is a border/box-shadow, colour and shape alone, so the
+ * pill is what makes the viewer's row identifiable in the accessibility tree
+ * rather than by colour only (WCAG 1.4.1), matching DraftGrades' and
+ * StandingsTable's viewer rows. It sits on whichever SIDE (home or away) is
+ * the viewer's own Team, never on both and never guessed from seating.
  *
  * Desktop lays the tiles in a fixed six-column grid (a league with more
  * matchups wraps to a second row); below `md` they become a horizontal
  * scroller of 200px tiles, both straight from the design source
  * (docs/design/league-dashboard-v2/build.mjs, aroundLeague()). Widgets never
  * import widgets (CONTEXT.md carry-over from ADR 0020): this tile is this
- * slice's own, not matchup-grid's.
+ * slice's own, not matchup-grid's. Unlike matchup-grid's cards, a tile here is
+ * not itself a link, so the scroller carries its own `tabIndex={0}`, an
+ * accessible name and a focus ring (the same shape nfl-game-strip's scroller
+ * uses, NflGameStrip.jsx) - without it a keyboard-only user at a narrow
+ * viewport could never bring tiles 3-6 into view.
+ *
+ * Each figure also carries a visually hidden label naming what it is
+ * ("Score" once the Matchup has started, "Projected" before it), because two
+ * different numbers share the same slot and the tile's own status is the
+ * only thing that says which one is on screen; a missing figure (the "-"
+ * placeholder) carries its own visually hidden "Not available" rather than
+ * announcing silence. Both follow DraftGrades' and matchup-preview's own
+ * NotAvailable/label convention.
  *
  * The widget owns its own reads (useAroundTheLeague): while they are in
  * flight it holds its layout with six skeleton tiles, and if either fails it
@@ -33,12 +53,14 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens already
  * registered in tokens.contrast.test.js: ink/dim/faint on the card surface
  * and on a `dash-surface2` tile (both pairs matchup-grid and the stat tiles
- * already certify), and SplitBar's own home/away segments on its
- * `dash-surface3` track. The accent ring is a border and a box-shadow, never
- * text, so it composes no new ink-on-surface pairing (the same reasoning
- * QuickActions.jsx's ActionTile ring records); the "Game Center" link
- * inherits the tail's own `dash-faint`-on-`dash-surface` color (Card.jsx)
- * rather than painting a new accent-on-surface pairing.
+ * already certify), the "You" pill's accent-on-accent-soft over a card (the
+ * same pairing DraftGrades' and StandingsTable's pill already composes), and
+ * SplitBar's own home/away segments on its `dash-surface3` track. The accent
+ * ring is a border and a box-shadow, never text, so it composes no new
+ * ink-on-surface pairing (the same reasoning QuickActions.jsx's ActionTile
+ * ring records); the "Game Center" link inherits the tail's own
+ * `dash-faint`-on-`dash-surface` color (Card.jsx) rather than painting a new
+ * accent-on-surface pairing.
  */
 
 const SKELETON_COUNT = 6;
@@ -54,6 +76,12 @@ export default function AroundTheLeague({ leagueId }) {
 
   if (status === 'hidden') return null;
   if (status === 'ready' && tiles.length === 0) return null;
+
+  // The scroller is only a real scroller once it holds the real tiles: while
+  // loading or on a failed read there is nothing below `md` to pan to, so it
+  // stays a plain (non-focusable) container rather than adding an empty tab
+  // stop.
+  const scrollable = compact && status === 'ready';
 
   const tail = (
     <>
@@ -79,6 +107,8 @@ export default function AroundTheLeague({ leagueId }) {
       <Box
         component={status === 'ready' ? 'ul' : 'div'}
         role={status === 'ready' ? 'list' : undefined}
+        tabIndex={scrollable ? 0 : undefined}
+        aria-label={scrollable ? "This week's matchups" : undefined}
         data-testid="around-the-league-body"
         data-layout={compact ? 'scroll' : 'grid'}
         sx={{
@@ -89,6 +119,9 @@ export default function AroundTheLeague({ leagueId }) {
           gridTemplateColumns: compact ? undefined : 'repeat(6, minmax(0, 1fr))',
           gap: '10px',
           overflowX: compact ? 'auto' : 'visible',
+          '&:focus-visible': scrollable
+            ? { outline: '2px solid var(--focus-ring)', outlineOffset: 2 }
+            : undefined,
         }}
       >
         {status === 'loading' &&
@@ -122,6 +155,7 @@ export default function AroundTheLeague({ leagueId }) {
 }
 
 function Tile({ tile }) {
+  const figureLabel = tile.started ? 'Score' : 'Projected';
   return (
     <Box
       data-testid="around-the-league-tile"
@@ -139,8 +173,8 @@ function Tile({ tile }) {
         boxShadow: tile.isViewer ? '0 0 0 1px var(--dash-accent-line)' : 'none',
       }}
     >
-      <TileRow side={tile.home} testId="around-the-league-tile-home" />
-      <TileRow side={tile.away} testId="around-the-league-tile-away" />
+      <TileRow side={tile.home} testId="around-the-league-tile-home" figureLabel={figureLabel} />
+      <TileRow side={tile.away} testId="around-the-league-tile-away" figureLabel={figureLabel} />
       <SplitBar
         homeName={tile.home.name}
         awayName={tile.away.name}
@@ -151,9 +185,9 @@ function Tile({ tile }) {
   );
 }
 
-function TileRow({ side, testId }) {
+function TileRow({ side, testId, figureLabel }) {
   return (
-    <Box data-testid={testId} sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+    <Box data-testid={testId} sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
       <TeamAvatar
         name={side.name}
         avatarUrl={side.avatarUrl}
@@ -175,20 +209,50 @@ function TileRow({ side, testId }) {
       >
         {side.name}
       </Typography>
-      <Typography
-        component="span"
-        data-testid="around-the-league-figure"
-        sx={{
-          flex: 'none',
-          fontSize: '13px',
-          fontWeight: 700,
-          fontVariantNumeric: 'tabular-nums',
-          color: 'var(--dash-ink)',
-        }}
-      >
-        {side.figure}
-      </Typography>
+      {side.isViewer && (
+        <Badge variant="you" sx={{ flex: 'none' }}>
+          You
+        </Badge>
+      )}
+      <Figure label={figureLabel} value={side.figure} />
     </Box>
+  );
+}
+
+// The right-aligned figure: a visually hidden label naming what it is (the
+// two states share one slot, so the label is the only thing that
+// disambiguates them for assistive tech), and a visually hidden "Not
+// available" standing in for the "-" placeholder, which is otherwise
+// announced as silence.
+function Figure({ label, value }) {
+  return (
+    <Typography
+      component="span"
+      data-testid="around-the-league-figure"
+      sx={{
+        flex: 'none',
+        fontSize: '13px',
+        fontWeight: 700,
+        fontVariantNumeric: 'tabular-nums',
+        color: 'var(--dash-ink)',
+      }}
+    >
+      <Box component="span" sx={visuallyHidden}>
+        {label}{' '}
+      </Box>
+      {value === '-' ? (
+        <>
+          <Box component="span" aria-hidden="true">
+            -
+          </Box>
+          <Box component="span" sx={visuallyHidden}>
+            Not available
+          </Box>
+        </>
+      ) : (
+        value
+      )}
+    </Typography>
   );
 }
 

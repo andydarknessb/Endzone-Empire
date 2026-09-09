@@ -27,7 +27,13 @@ import { matchupWinProbability } from '../../../lib/winProbability';
  *     by comparing each side's Team id against `viewerTeamId` (#112,
  *     CONTEXT.md Team identity) - never by which side (home/away) a Team
  *     happens to sit on, which is the red-tell a home/away shortcut would
- *     fail: a viewer seated away would then never ring.
+ *     fail: a viewer seated away would then never ring. It is computed
+ *     per side (each side's own `isViewer`) as well as at the tile level
+ *     (either side's), so the UI can ring the whole tile AND name WHICH
+ *     side is the viewer's own with a visible "You" pill (WCAG 1.4.1: the
+ *     ring alone is a colour/border cue, not identifiable to assistive
+ *     tech - the same rule Badge.jsx's `you` variant and DraftGrades'/
+ *     StandingsTable's viewer rows already carry).
  */
 
 /** A finite number from a wire value (pg DECIMAL strings included), else null. */
@@ -63,26 +69,31 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     awayExpectedFinal: away.expectedFinal,
   });
 
+  // Per-side, so the UI can name WHICH side is the viewer's own (the "You"
+  // pill sits on that side's row, never on both, and never guessed from
+  // home/away position - #112).
   const side = (s) => ({
     teamId: s.teamId ?? null,
     name: s.name ?? '',
     avatarUrl: s.avatarUrl ?? null,
     avatarStaticUrl: s.avatarStaticUrl ?? null,
     figure: scheduled ? formatPoints(s.expectedFinal) : formatPoints(s.score),
+    isViewer: viewerTeamId != null && s.teamId === viewerTeamId,
   });
 
-  const isViewer =
-    viewerTeamId != null && (home.teamId === viewerTeamId || away.teamId === viewerTeamId);
+  const homeSide = side(home);
+  const awaySide = side(away);
 
   return {
     id: m.id ?? null,
     week: m.week ?? null,
     status: m.status ?? null,
     started,
-    isViewer,
+    // The tile-level ring (#1103): true when either side is the viewer's.
+    isViewer: homeSide.isViewer || awaySide.isViewer,
     homeShare: probability.home,
-    home: side(home),
-    away: side(away),
+    home: homeSide,
+    away: awaySide,
   };
 }
 

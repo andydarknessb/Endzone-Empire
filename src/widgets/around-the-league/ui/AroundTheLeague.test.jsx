@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import apiClient from '../../../api/apiClient';
 import { invalidate } from '../../../lib/resourceCache';
@@ -30,11 +30,31 @@ function makeFakeSocket() {
   };
 }
 
+// Every media query the widget reads goes through useMediaQuery: the
+// theme's `md` breakpoint (a max-width) reads `mobile`. Set fresh every test
+// (rather than mutated once inside a test body) because CRA's jest preset
+// runs with `resetMocks: true`: a jest.fn() assigned to window.matchMedia
+// inside one test loses its implementation before the next test even
+// though the window (and so the property) persists across the whole file,
+// which would leave every later test's useMediaQuery call reading
+// `undefined.matches`. GameCenterPage.test.jsx uses this same shape.
+let mobile;
+
 beforeEach(() => {
   // The league read is a shared cached resource (ADR 0004) and is module
   // state that outlives a test, so it is cleared whole.
   invalidate(undefined, { reload: false });
   window.__ENDZONE_TEST_SOCKET_FACTORY__ = () => makeFakeSocket();
+  mobile = false;
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: /max-width/.test(query) ? mobile : false,
+    media: query,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
 });
 
 afterEach(() => {
@@ -159,6 +179,12 @@ describe('AroundTheLeague', () => {
     const rung = tiles().filter((el) => el.hasAttribute('data-viewer-tile'));
     expect(rung).toHaveLength(1);
     expect(rung[0]).toHaveAttribute('data-matchup-id', '3');
+
+    // The ring is a border/box-shadow (colour and shape alone), so the
+    // viewer's own row also carries a visible "You" pill: identifiable in
+    // the accessibility tree, not by colour only (WCAG 1.4.1), matching
+    // DraftGrades' and StandingsTable's viewer rows.
+    expect(within(rung[0]).getByText('You')).toBeInTheDocument();
   });
 
   it('shows scores and flips the tail to "Live" once a matchup has started', async () => {
@@ -220,6 +246,62 @@ describe('AroundTheLeague', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent("We could not load this week's matchups right now.");
     expect(screen.queryAllByTestId('around-the-league-tile')).toHaveLength(0);
+  });
+
+  it('reports aria-busy true while its reads are in flight and false once they settle', async () => {
+    let resolveMatchups;
+    const matchupsPromise = new Promise((resolve) => {
+      resolveMatchups = resolve;
+    });
+    apiClient.get.mockImplementation((url) => {
+      if (url === `/api/league/${LEAGUE_ID}`) return Promise.resolve(leagueResponse());
+      if (url === `/api/league/${LEAGUE_ID}/matchups`) return matchupsPromise;
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+
+    renderWidget();
+
+    const card = await screen.findByTestId('around-the-league');
+    expect(card).toHaveAttribute('aria-busy', 'true');
+
+    await act(async () => {
+      resolveMatchups({ data: SIX_MATCHUPS });
+      await matchupsPromise;
+    });
+
+    await screen.findAllByTestId('around-the-league-tile');
+    expect(card).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('labels each figure with what it is, for assistive tech reading a bare number', async () => {
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+    });
+
+    renderWidget();
+    const rendered = await screen.findAllByTestId('around-the-league-tile');
+    const started = rendered.find((el) => el.getAttribute('data-matchup-id') === '3');
+    const scheduled = rendered.find((el) => el.getAttribute('data-matchup-id') === '1');
+
+    expect(within(started).getAllByText('Score').length).toBeGreaterThan(0);
+    expect(within(scheduled).getAllByText('Projected').length).toBeGreaterThan(0);
+  });
+
+  it('is reachable by keyboard below md, where the tiles scroll sideways', async () => {
+    mobile = true;
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+    });
+
+    renderWidget();
+    await screen.findAllByTestId('around-the-league-tile');
+
+    const body = screen.getByTestId('around-the-league-body');
+    expect(body).toHaveAttribute('data-layout', 'scroll');
+    expect(body).toHaveAttribute('tabIndex', '0');
+    expect(body).toHaveAccessibleName();
   });
 
   it('never mounts for a pick\'em-only league', async () => {
