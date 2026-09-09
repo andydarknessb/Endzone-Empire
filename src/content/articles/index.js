@@ -23,6 +23,7 @@ import preseasonWeek1Recap from './preseason-week-1-recap.meta';
 import preseasonWeek2Recap from './preseason-week-2-recap.meta';
 import preseasonWeek3Recap from './preseason-week-3-recap.meta';
 import rookieDraftRoundGuide from './rookie-draft-round-guide.meta';
+import patriotsSeahawksWeek1Preview from './patriots-seahawks-week1-preview.meta';
 
 // One loader per article, keyed by slug. Literal import() calls so the
 // bundler can split one chunk per body.
@@ -36,6 +37,7 @@ const BODY_LOADERS = {
   'preseason-week-2-recap': () => import('./preseason-week-2-recap'),
   'preseason-week-3-recap': () => import('./preseason-week-3-recap'),
   'rookie-draft-round-guide': () => import('./rookie-draft-round-guide'),
+  'patriots-seahawks-week1-preview': () => import('./patriots-seahawks-week1-preview'),
 };
 
 // Newest first.
@@ -49,6 +51,7 @@ const ARTICLES = [
   preseasonWeek2Recap,
   preseasonWeek3Recap,
   rookieDraftRoundGuide,
+  patriotsSeahawksWeek1Preview,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
 const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date', 'author'];
