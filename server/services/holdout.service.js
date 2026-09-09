@@ -67,6 +67,7 @@
  */
 const crypto = require('crypto');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const model = require('./projectionModel');
 const projection = require('./projection.service');
 const { normalizeTeamKey } = require('./projectionFeatures');
@@ -444,9 +445,15 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
   const modelVersion = model.MODEL_VERSION;
   const identity = `${season}:${week}:${scoringHash}:${modelVersion}:scheduled`;
 
-  const conn = await client.connect();
-  try {
-    await conn.query('BEGIN');
+  // withTransaction owns BEGIN/COMMIT/ROLLBACK/release (ADR 0033). The wrapper
+  // runs nothing between its BEGIN and `work`, so `work`'s FIRST statement is
+  // the SET TRANSACTION - Postgres accepts it as the first statement of a
+  // transaction, which is exactly where this starts. Only the transaction
+  // bracket moves outward: no SQL text, no constant, and no hash input of the
+  // sealed holdout-confirm-2026 study changes.
+  return withTransaction(
+    client,
+    async (conn) => {
     // One snapshot of the database for every read below - schedule, cohort,
     // and the projection engine's feature bundle all agree.
     await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
@@ -589,7 +596,10 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
           `missing [${missing.sort().join(', ')}] - refusing to append arms to an existing capture`
         );
       }
-      await conn.query('ROLLBACK');
+      // Skip path: a plain return, no ROLLBACK. Only reads ran under the
+      // identity lock - nothing was written - so the wrapper COMMITs a
+      // read-only transaction and the advisory xact lock releases at
+      // transaction end exactly as the ROLLBACK used to release it.
       return {
         season, week, profileName,
         snapshotId: foundByKind.get('scheduled').id,
@@ -705,7 +715,6 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
       );
     }
 
-    await conn.query('COMMIT');
     return {
       season, week, profileName,
       snapshotId: armSnapshotIds.scheduled,
@@ -713,12 +722,9 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
       cohortSize: cohort.length,
       inserted: cohort.length,
     };
-  } catch (err) {
-    try { await conn.query('ROLLBACK'); } catch (rollbackErr) { /* connection already aborted */ }
-    throw err;
-  } finally {
-    conn.release();
-  }
+    },
+    { label: 'snapshotWeek' }
+  );
 }
 
 /**
