@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, GradeChip, Skeleton } from '../../../shared/ui';
+import { ToggleGradeDetails, useGradeDetails } from '../../../features/toggle-grade-details';
 import useDraftGrades from '../model/useDraftGrades';
 
 /**
@@ -12,6 +13,17 @@ import useDraftGrades from '../model/useDraftGrades';
  * reach, so a manager can see how the grade was earned. Projected roster
  * value used to sit here; it is not what the grade is based on and is null
  * at week 1 of a season, so it was showing a 0 beside every grade.
+ *
+ * Compact rows (#1104): every row is one 40px line (chip, Team name with the
+ * You pill on the viewer's row, Net vs ADP right-aligned) by default; the
+ * steal/reach line - the row's second line - renders on the viewer's own row
+ * only. The `toggle-grade-details` feature's text MUI Button in the footer
+ * ("Show steals and reaches" / "Hide steals and reaches" while open) turns
+ * that second line on for every row at once; `useGradeDetails` owns the
+ * boolean as page-local state, deliberately not persisted, so every mount
+ * starts collapsed. The control's `aria-expanded` follows the state and its
+ * `aria-controls` always names the table (`draft-grades-table-<leagueId>`),
+ * which is mounted either way. Skeleton rows hold the one-line shape.
  *
  * Composes `shared/ui` (ADR 0020): `Card` for the labelled region and header
  * (title + the "Net vs ADP" tail), `GradeChip` for the per-row letter chip.
@@ -52,7 +64,7 @@ import useDraftGrades from '../model/useDraftGrades';
 const NET_FORMAT = { maximumFractionDigits: 1 };
 
 export const EXPLAINER_COPY =
-  'Net vs ADP adds up how far each pick beat its market ADP. Higher is better: a steal fell to the Team later than its ADP, a reach went earlier.';
+  'Higher is better: a steal fell to the Team later than its ADP.';
 
 function formatNet(value) {
   const text = value.toLocaleString('en-US', NET_FORMAT);
@@ -120,6 +132,10 @@ function TableShell({ children, ...rest }) {
 export default function DraftGrades({ leagueId }) {
   const { phase, rows, viewerTeamId, teamCount } = useDraftGrades(leagueId);
   const explainerId = `draft-grades-explainer-${leagueId}`;
+  const tableId = `draft-grades-table-${leagueId}`;
+  // Page-local, never persisted (the feature's own docblock): every mount
+  // starts collapsed, showing the steal/reach line on the viewer's row only.
+  const [detailsExpanded, toggleDetails] = useGradeDetails();
 
   // The placeholder holds the shape the real table will take: one skeleton row
   // per Team in the league, read from the membership this widget already has,
@@ -168,9 +184,12 @@ export default function DraftGrades({ leagueId }) {
 
       {phase === 'ready' && (
         <>
-          <TableShell aria-label="Draft grades by Team" aria-describedby={explainerId}>
+          <TableShell id={tableId} aria-label="Draft grades by Team" aria-describedby={explainerId}>
             {rows.map((row) => {
               const isViewer = row.teamId === viewerTeamId;
+              // Collapsed, the second (steal/reach) line renders on the
+              // viewer's own row only; the toggle turns it on for every row.
+              const showPicks = isViewer || detailsExpanded;
               // A malformed net (a legacy/partial computed row) renders as
               // not available rather than "NaN".
               const hasNet = Number.isFinite(row.adpNet);
@@ -237,25 +256,30 @@ export default function DraftGrades({ leagueId }) {
                           </Box>
                           {isViewer && <Badge variant="you" sx={{ flex: 'none' }}>You</Badge>}
                         </Box>
-                        {/* Two lines, then ellipsis: a steal and a reach with
-                            long player names is the common case and used to run
-                            this rail card to twice the height of the standings
-                            beside it. */}
-                        <Box
-                          component="span"
-                          data-testid="draft-grades-picks"
-                          sx={{
-                            fontSize: '11.5px',
-                            color: 'var(--dash-dim)',
-                            fontWeight: 400,
-                            display: '-webkit-box',
-                            WebkitBoxOrient: 'vertical',
-                            WebkitLineClamp: 2,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {pickLine(row)}
-                        </Box>
+                        {/* The row's second line (#1104): the viewer's own row
+                            only while collapsed, every row once the toggle
+                            turns steal/reach details on. Two lines, then
+                            ellipsis: a steal and a reach with long player
+                            names is the common case. Unmounted rather than
+                            hidden when it should not show, so a row is one
+                            40px line by default. */}
+                        {showPicks && (
+                          <Box
+                            component="span"
+                            data-testid="draft-grades-picks"
+                            sx={{
+                              fontSize: '11.5px',
+                              color: 'var(--dash-dim)',
+                              fontWeight: 400,
+                              display: '-webkit-box',
+                              WebkitBoxOrient: 'vertical',
+                              WebkitLineClamp: 2,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {pickLine(row)}
+                          </Box>
+                        )}
                       </Box>
                     </Box>
                   </Box>
@@ -284,30 +308,58 @@ export default function DraftGrades({ leagueId }) {
               );
             })}
           </TableShell>
-          <Typography
-            id={explainerId}
-            data-testid="draft-grades-explainer"
-            sx={{ px: 2.25, py: 1.5, fontSize: '11.5px', color: 'var(--dash-dim)' }}
+          {/* The footer (#1104): the explainer sentence, one line, beside the
+              feature's toggle. `aria-describedby` on the table keeps pointing
+              at the explainer's own id regardless of the toggle's state. */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 1,
+              px: 2.25,
+              py: 1.5,
+            }}
           >
-            {EXPLAINER_COPY}
-          </Typography>
+            <Typography
+              id={explainerId}
+              data-testid="draft-grades-explainer"
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontSize: '11.5px',
+                color: 'var(--dash-dim)',
+              }}
+            >
+              {EXPLAINER_COPY}
+            </Typography>
+            <ToggleGradeDetails
+              expanded={detailsExpanded}
+              onClick={toggleDetails}
+              controls={tableId}
+              sx={{ flex: 'none' }}
+            />
+          </Box>
         </>
       )}
     </Card>
   );
 }
 
-// One skeleton row holds the two-line shape of a real row (chip, name, pick
-// line) so the placeholder and the loaded table are the same height.
+// One skeleton row holds the new one-line shape (#1104: chip, name; no
+// second line) so the placeholder and a collapsed loaded row are the same
+// height. It does not attempt to guess which row will be the viewer's.
 function SkeletonRow() {
   return (
     <Box component="tr">
       <Box component="th" scope="row" sx={{ ...CELL_SX, textAlign: 'left' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <Skeleton data-testid="draft-grades-skeleton" variant="circular" width={26} height={26} />
-          <Box sx={{ display: 'grid', gap: 0.25, flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
             <Skeleton data-testid="draft-grades-skeleton" variant="text" width="60%" height={14} />
-            <Skeleton data-testid="draft-grades-skeleton" variant="text" width="90%" height={12} />
           </Box>
         </Box>
       </Box>
