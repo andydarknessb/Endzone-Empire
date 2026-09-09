@@ -170,6 +170,20 @@ test('an unknown status keeps firing the detail fallback', async () => {
   expect(detailCalls()).toHaveLength(1);
 });
 
+// Red-tell: dropping the `hasStarted === false` gate on `kickoffLabel`
+// (useMatchupPreview.js) turns this case red and no other - an unknown
+// status asserts neither "not started" nor "started" (matchupStatusView's
+// `hasStarted === null` contract), so it must fall back to the caption even
+// when the row happens to carry a kickoff, and must not wear the started
+// row's status chip either.
+test('an unknown status with first_kickoff_at still falls back to "Projections update daily"', async () => {
+  renderCard(row({ status: null, first_kickoff_at: '2026-09-13T17:00:00.000Z' }));
+
+  await screen.findByTestId('matchup-side-viewer');
+  expect(screen.getByText('Projections update daily')).toBeInTheDocument();
+  expect(screen.queryByTestId('matchup-preview-status')).not.toBeInTheDocument();
+});
+
 // --- once started -------------------------------------------------------------
 
 const LIVE_ROW = row({
@@ -263,7 +277,10 @@ test('before kickoff the card keeps the projections and captions the margin', as
   expect(screen.getByTestId('matchup-projected-margin')).toHaveTextContent(
     'Projected margin · MyBallsHurts by 6.5'
   );
-  // Nothing about the game itself is asserted before it starts.
+  // Nothing about the game itself is asserted before it starts. The header's
+  // tail assertion here only holds because this fixture's row carries no
+  // first_kickoff_at (the fallback caption path); a row that does carry one
+  // wears the kickoff Badge instead, covered by the kickoff-tail tests below.
   expect(screen.queryByTestId('split-bar')).not.toBeInTheDocument();
   expect(screen.queryByTestId('matchup-side-score')).not.toBeInTheDocument();
   expect(screen.queryByTestId('matchup-preview-status')).not.toBeInTheDocument();
