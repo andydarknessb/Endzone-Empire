@@ -279,6 +279,34 @@ test('clicking a player name opens the shared PlayerQuickView dialog', async () 
   expect(await screen.findByTestId('quickview-skeleton')).toBeInTheDocument();
 });
 
+// Regression (#1112): TransactionLog used to find a player's link position
+// by matching its name against the flat sentence, which resolved the wrong
+// player whenever one name prefixed another. A waiver claiming "Josh Allen"
+// while dropping "Josh Allen Jr." must open the RIGHT player for each name.
+test('a dropped player whose name prefixes the added player\'s name opens its own quick view', async () => {
+  mockTransactions([
+    txn({
+      id: 1,
+      type: 'waiver',
+      team_name: "Alice's Team",
+      player_name: 'Josh Allen',
+      dropped_player_name: 'Josh Allen Jr.',
+      detail: { playerId: 1, droppedPlayerId: 2, bid: 5 },
+    }),
+  ]);
+  renderScreen();
+
+  await screen.findByTestId('txn-1');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Josh Allen Jr.' }));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/2/summary', expect.anything()));
+  await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+  await userEvent.click(screen.getByRole('button', { name: 'Josh Allen' }));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/1/summary', expect.anything()));
+});
+
 // --- Pick'em-only leagues ---
 
 const pickemLeague = { id: 1, name: 'Office Pool', pickem_only: true };
