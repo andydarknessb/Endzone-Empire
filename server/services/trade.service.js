@@ -90,91 +90,105 @@ function assertBeforeDeadline(league) {
   }
 }
 
-/**
- * Propose a multi-player trade. playerIds may belong to either team; each
- * item's direction is derived from current ownership. Validated: both teams
- * in the league, every player on one of the two rosters, deadline not passed.
- */
-async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
+function validatePlayerIds(playerIds) {
   if (!Array.isArray(playerIds) || playerIds.length === 0) {
     throw new TradeError(400, 'playerIds must be a non-empty array');
   }
   if (new Set(playerIds).size !== playerIds.length) {
     throw new TradeError(400, 'duplicate players in trade');
   }
-  const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
-    pool,
-    async (client) => {
-      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-      const league = leagueResult.rows[0];
-      if (!league) throw new TradeError(404, 'league not found');
-      // An entry gate: tells the proposer before he fills in an offer. Execution
-      // still runs the write-time gate below (executeTrade); this delegates to
-      // the gate's fail-closed freeze read (#966) so the two cannot drift on
-      // what the column means.
-      if (isLeagueFrozen(league)) {
-        throw new TradeError(409, 'transactions are locked by the commissioner');
-      }
-      assertBeforeDeadline(league);
+}
 
-      const myTeam = await requireMember(client, { leagueId, userId });
-      if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
-      if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
+/**
+ * The whole propose offer, performed on an ALREADY-OPEN transaction on the
+ * given `client` (ADR 0033: work that needs the caller's transaction takes the
+ * client). It BEGINs, COMMITs and ROLLBACKs nothing and never touches the
+ * ambient pool - the wrapper (proposeTrade) or the counter (counterTrade) owns
+ * the transaction and the post-commit push. Returns { trade, otherTeamOwnerId,
+ * myTeamName }; the trade row is what proposeTrade/counterTrade resolve to.
+ *
+ * counterTrade calls this on the SAME client that already marked the original
+ * 'countered', so the countered update and this new offer commit or roll back
+ * together (#1077). It is self-contained on purpose: it re-reads the League row
+ * unlocked, which is fine on a connection that already holds the FOR UPDATE
+ * lock from loadTrade - do not pass the locked row in to skip the read, or the
+ * two entry points stop sharing one code path.
+ */
+async function proposeTradeWith(client, { leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
+  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+  const league = leagueResult.rows[0];
+  if (!league) throw new TradeError(404, 'league not found');
+  // An entry gate: tells the proposer before he fills in an offer. Execution
+  // still runs the write-time gate below (executeTrade); this delegates to
+  // the gate's fail-closed freeze read (#966) so the two cannot drift on
+  // what the column means.
+  if (isLeagueFrozen(league)) {
+    throw new TradeError(409, 'transactions are locked by the commissioner');
+  }
+  assertBeforeDeadline(league);
 
-      const otherResult = await client.query(
-        `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
-        [receivingTeamId, leagueId]
-      );
-      if (!otherResult.rows[0]) throw new TradeError(404, 'receiving team not found in this league');
-      const otherTeam = otherResult.rows[0];
+  const myTeam = await requireMember(client, { leagueId, userId });
+  if (myTeam.locked) throw new TradeError(409, 'your team is locked by the commissioner');
+  if (myTeam.id === receivingTeamId) throw new TradeError(400, 'cannot trade with yourself');
 
-      const rosterResult = await client.query(
-        `SELECT "player_id", "team_id" FROM "team_players"
-         WHERE "team_id" IN ($1, $2)`,
-        [myTeam.id, otherTeam.id]
-      );
-      const ownership = new Map(rosterResult.rows.map((r) => [r.player_id, r.team_id]));
-
-      const tradeResult = await client.query(
-        `INSERT INTO "trades" ("league_id", "proposing_team_id", "receiving_team_id", "counter_of")
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [leagueId, myTeam.id, otherTeam.id, counterOf]
-      );
-      const trade = tradeResult.rows[0];
-
-      let sendsSomething = false;
-      let getsSomething = false;
-      for (const playerId of playerIds) {
-        const fromTeamId = ownership.get(playerId);
-        if (!fromTeamId) {
-          throw new TradeError(400, `player ${playerId} is not on either team's roster`);
-        }
-        const toTeamId = fromTeamId === myTeam.id ? otherTeam.id : myTeam.id;
-        if (fromTeamId === myTeam.id) sendsSomething = true;
-        else getsSomething = true;
-        await client.query(
-          `INSERT INTO "trade_items" ("trade_id", "player_id", "from_team_id", "to_team_id")
-           VALUES ($1, $2, $3, $4)`,
-          [trade.id, playerId, fromTeamId, toTeamId]
-        );
-      }
-      if (!sendsSomething || !getsSomething) {
-        throw new TradeError(400, 'a trade must move at least one player in each direction');
-      }
-
-      await notify(client, {
-        userId: otherTeam.owner_id,
-        leagueId,
-        type: 'trade_offer',
-        message: `${myTeam.name} sent you a trade offer`,
-        data: { tradeId: trade.id },
-      });
-      return { trade, otherTeamOwnerId: otherTeam.owner_id, myTeamName: myTeam.name };
-    },
-    { label: 'proposeTrade' }
+  const otherResult = await client.query(
+    `SELECT * FROM "teams" WHERE "id" = $1 AND "league_id" = $2`,
+    [receivingTeamId, leagueId]
   );
-  // Web push after commit, best-effort, pref-gated. Runs AFTER withTransaction
-  // resolves, so the connection is already back in the pool (Ruling 3).
+  if (!otherResult.rows[0]) throw new TradeError(404, 'receiving team not found in this league');
+  const otherTeam = otherResult.rows[0];
+
+  const rosterResult = await client.query(
+    `SELECT "player_id", "team_id" FROM "team_players"
+     WHERE "team_id" IN ($1, $2)`,
+    [myTeam.id, otherTeam.id]
+  );
+  const ownership = new Map(rosterResult.rows.map((r) => [r.player_id, r.team_id]));
+
+  const tradeResult = await client.query(
+    `INSERT INTO "trades" ("league_id", "proposing_team_id", "receiving_team_id", "counter_of")
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [leagueId, myTeam.id, otherTeam.id, counterOf]
+  );
+  const trade = tradeResult.rows[0];
+
+  let sendsSomething = false;
+  let getsSomething = false;
+  for (const playerId of playerIds) {
+    const fromTeamId = ownership.get(playerId);
+    if (!fromTeamId) {
+      throw new TradeError(400, `player ${playerId} is not on either team's roster`);
+    }
+    const toTeamId = fromTeamId === myTeam.id ? otherTeam.id : myTeam.id;
+    if (fromTeamId === myTeam.id) sendsSomething = true;
+    else getsSomething = true;
+    await client.query(
+      `INSERT INTO "trade_items" ("trade_id", "player_id", "from_team_id", "to_team_id")
+       VALUES ($1, $2, $3, $4)`,
+      [trade.id, playerId, fromTeamId, toTeamId]
+    );
+  }
+  if (!sendsSomething || !getsSomething) {
+    throw new TradeError(400, 'a trade must move at least one player in each direction');
+  }
+
+  await notify(client, {
+    userId: otherTeam.owner_id,
+    leagueId,
+    type: 'trade_offer',
+    message: `${myTeam.name} sent you a trade offer`,
+    data: { tradeId: trade.id },
+  });
+  return { trade, otherTeamOwnerId: otherTeam.owner_id, myTeamName: myTeam.name };
+}
+
+/**
+ * The pref-gated "new trade offer" web push, sent AFTER the transaction commits
+ * so the connection is already back in the pool (Ruling 3). Shared by
+ * proposeTrade and counterTrade so the copy is not duplicated. Best-effort: a
+ * failure here never fails the trade that already committed.
+ */
+async function sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId }) {
   try {
     const { usersWanting } = require('./prefs.service');
     const wanting = await usersWanting([otherTeamOwnerId], 'tradeOffers');
@@ -189,6 +203,22 @@ async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, coun
   } catch (err) {
     console.error('trade offer push failed:', err.message);
   }
+}
+
+/**
+ * Propose a multi-player trade. playerIds may belong to either team; each
+ * item's direction is derived from current ownership. Validated: both teams
+ * in the league, every player on one of the two rosters, deadline not passed.
+ * A thin wrapper: one transaction around proposeTradeWith, then the push.
+ */
+async function proposeTrade({ leagueId, userId, receivingTeamId, playerIds, counterOf = null }) {
+  validatePlayerIds(playerIds);
+  const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
+    pool,
+    (client) => proposeTradeWith(client, { leagueId, userId, receivingTeamId, playerIds, counterOf }),
+    { label: 'proposeTrade' }
+  );
+  await sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId });
   return trade;
 }
 
@@ -283,7 +313,16 @@ async function cancelTrade({ tradeId, userId }) {
 
 /** Receiving owner counters: original becomes 'countered', a mirrored new offer is created. */
 async function counterTrade({ tradeId, userId, playerIds }) {
-  const trade = await withTransaction(
+  validatePlayerIds(playerIds);
+  // ONE transaction (#1077): the original's 'countered' update and the whole
+  // replacement offer commit or roll back together. The replacement runs
+  // through proposeTradeWith on the SAME client, so a replacement refused for
+  // any reason (validation, deadline, freeze, lock, driver error) throws that
+  // same error and the countered update rolls back with it, leaving the
+  // original 'pending' with no new rows. Marking it 'countered' in its own
+  // committed transaction and then proposing in a second one - the shape this
+  // fixes - stranded the original whenever the replacement failed.
+  const { trade, otherTeamOwnerId, myTeamName } = await withTransaction(
     pool,
     async (client) => {
       const { trade, teams } = await loadTrade(client, tradeId);
@@ -294,21 +333,24 @@ async function counterTrade({ tradeId, userId, playerIds }) {
         `UPDATE "trades" SET "status" = 'countered', "updated_at" = now() WHERE "id" = $1`,
         [tradeId]
       );
-      return trade;
+      // Self-contained: proposeTradeWith re-reads the League row unlocked on
+      // this same connection, which already holds loadTrade's FOR UPDATE lock.
+      // Lock order is unchanged - League before trades - because these reads
+      // happen after loadTrade's on the one connection.
+      return proposeTradeWith(client, {
+        leagueId: trade.league_id,
+        userId,
+        receivingTeamId: trade.proposing_team_id,
+        playerIds,
+        counterOf: tradeId,
+      });
     },
     { label: 'counterTrade' }
   );
-  // New offer flows through proposeTrade for full validation, called AFTER
-  // this withTransaction resolves (Ruling 3 / the ticket's ruling 4): calling
-  // it from inside `work` would nest a second, independent pooled transaction
-  // on the same pool rather than a savepoint (withTransaction's misuse list).
-  return proposeTrade({
-    leagueId: trade.league_id,
-    userId,
-    receivingTeamId: trade.proposing_team_id,
-    playerIds,
-    counterOf: tradeId,
-  });
+  // The new offer's push, after the single transaction commits (Ruling 3),
+  // through the same helper proposeTrade uses so the copy is not duplicated.
+  await sendTradeOfferPush({ otherTeamOwnerId, myTeamName, leagueId: trade.league_id });
+  return trade;
 }
 
 /** A non-involved team owner votes to veto a trade in review. */
