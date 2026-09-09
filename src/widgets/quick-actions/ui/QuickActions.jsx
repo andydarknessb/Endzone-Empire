@@ -42,8 +42,14 @@ import useQuickActions from '../model/useQuickActions';
  * "Recommended" pill is the `Badge` `live` variant (accent text on the accent
  * tint), whose accent-on-accent-soft is registered over `dash-surface` too.
  * The icon on its `dash-surface2` plate is a graphic, so its accent/dim color
- * composes no new ink-on-surface pairing, and the trailing chevron is
- * decorative (`aria-hidden`): the row's accessible name is the label alone.
+ * composes no new ink-on-surface pairing. The trailing chevron is decorative
+ * (`aria-hidden`, and MUI's SvgIcon already marks every icon `aria-hidden`
+ * and `focusable="false"` on its own, so the plate icon needs no attribute of
+ * its own either); the row's accessible name is instead everything BOTH
+ * icons are excluded from - label, the "Recommended" text when present, and
+ * the full (untruncated - the ellipsis below is CSS-only) status line - which
+ * is deliberately richer than the label alone, so a screen-reader user
+ * navigating by link text hears the same status a sighted user reads.
  *
  * This widget has NO aria-busy: its one extra read (the viewer roster, for the
  * Set Lineup recommendation) is best effort and its result is absent-until-ready
