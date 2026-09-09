@@ -127,8 +127,68 @@ describe('activityFromRow: the one sentence per transaction type', () => {
       avatarUrl: null,
       avatarStaticUrl: null,
       sentence: '',
+      players: { added: [], dropped: [] },
       at: null,
     });
+  });
+});
+
+describe('activityFromRow: players, the structured references sentence flattens', () => {
+  test('add: the added player, no dropped side', () => {
+    const model = activityFromRow(byType('add'));
+    expect(model.players).toEqual({
+      added: [{ name: 'Justin Jefferson', playerId: 1 }],
+      dropped: [],
+    });
+  });
+
+  test('drop: the dropped player, no added side', () => {
+    const model = activityFromRow(byType('drop'));
+    expect(model.players).toEqual({
+      added: [],
+      dropped: [{ name: 'Zach Wilson', playerId: 9 }],
+    });
+  });
+
+  test('waiver: the claimed player and the dropped player stay on distinct sides', () => {
+    const model = activityFromRow(byType('waiver'));
+    expect(model.players).toEqual({
+      added: [{ name: 'Breece Hall', playerId: 7 }],
+      dropped: [{ name: 'Zach Wilson', playerId: 9 }],
+    });
+  });
+
+  // Red-tell: swapping which player was added vs. dropped in the fixture
+  // must turn only this assertion red.
+  test('red-tell: swapping the added and dropped player in a waiver row swaps only their sides', () => {
+    const swapped = activityFromRow({
+      ...byType('waiver'),
+      player_name: 'Zach Wilson',
+      dropped_player_name: 'Breece Hall',
+      detail: { playerId: 9, droppedPlayerId: 7, bid: 12 },
+    });
+    expect(swapped.players).toEqual({
+      added: [{ name: 'Zach Wilson', playerId: 9 }],
+      dropped: [{ name: 'Breece Hall', playerId: 7 }],
+    });
+    expect(swapped.players).not.toEqual(activityFromRow(byType('waiver')).players);
+  });
+
+  test('trade: received players land on added, sent players land on dropped', () => {
+    const model = activityFromRow(byType('trade'));
+    expect(model.players).toEqual({
+      added: [{ name: 'Player B', playerId: 2 }],
+      dropped: [{ name: 'Player A', playerId: 1 }],
+    });
+  });
+
+  test('a trade row with no rich detail carries no player references', () => {
+    const model = activityFromRow({ ...byType('trade'), detail: {} });
+    expect(model.players).toEqual({ added: [], dropped: [] });
+  });
+
+  test('commissioner: no player named, so both sides are empty', () => {
+    expect(activityFromRow(byType('commissioner')).players).toEqual({ added: [], dropped: [] });
   });
 });
 

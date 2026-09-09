@@ -38,6 +38,8 @@ import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
 import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
+import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import { formatRelative } from '../../utils/formatRelative';
 
 const PAGE_SIZE = 30;
@@ -96,15 +98,42 @@ function dayLabel(dateLike) {
   });
 }
 
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// The Activity read model's `sentence` (src/entities/activity, #1100) is a
+// flat string, but a player's name inside it has always been a clickable
+// PlayerNameLink that opens the shared PlayerQuickView (#1100 escalation:
+// dropping that cost the app-wide convention and its only test). Rather than
+// TransactionLog re-deriving its own per-type switch to know where a name
+// sits, it splits `sentence` on the model's own structured `players`
+// references and swaps each occurrence for a link — one generic pass that
+// works the same for every type, add through trade.
+function linkifySentence(sentence, players, onOpenPlayer) {
+  const refs = [...players.added, ...players.dropped].filter((p) => p.name && p.playerId != null);
+  if (refs.length === 0) return sentence;
+  const pattern = new RegExp(`(${refs.map((p) => escapeRegExp(p.name)).join('|')})`, 'g');
+  return sentence.split(pattern).map((part, i) => {
+    const ref = refs.find((p) => p.name === part);
+    return ref ? (
+      <PlayerNameLink key={`${ref.playerId}-${i}`} name={ref.name} playerId={ref.playerId} onOpen={onOpenPlayer} />
+    ) : (
+      part
+    );
+  });
+}
+
 // One row of the activity timeline: a colored dot/icon keyed off the
 // transaction type, the team + action description, and a relative
 // timestamp aligned to the right. The description text is the Activity read
 // model's `sentence` (src/entities/activity, #1100): TransactionLog no
 // longer derives it inline, so it cannot drift from another surface reading
-// the same rows.
-function ActivityFeedItem({ txn, isLast }) {
+// the same rows; player names inside it are linkified from the model's own
+// `players` references (see linkifySentence above).
+function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
   const { Icon, color } = TYPE_ICON_META[txn.type] || { Icon: HistoryOutlinedIcon, color: 'grey' };
-  const { sentence } = activityFromRow(txn);
+  const { sentence, players } = activityFromRow(txn);
   return (
     <TimelineItem data-testid={`txn-${txn.id}`}>
       <TimelineSeparator>
@@ -128,7 +157,7 @@ function ActivityFeedItem({ txn, isLast }) {
                   {txn.team_name}{' '}
                 </Box>
               )}
-              {sentence}
+              {linkifySentence(sentence, players, onOpenPlayer)}
             </Typography>
           </Box>
           <Tooltip title={new Date(txn.created_at).toLocaleString()}>
@@ -161,6 +190,7 @@ function TransactionLog() {
   const typeFilter = filterOptions.some((opt) => opt.value === selectedType) ? selectedType : 'all';
   const [teamFilter, setTeamFilter] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [quickViewId, setQuickViewId] = useState(null);
 
   useEffect(() => {
     // Filters and rows are per league: an in-place league switch (hash edit
@@ -333,6 +363,7 @@ function TransactionLog() {
                       <ActivityFeedItem
                         key={txn.id}
                         txn={txn}
+                        onOpenPlayer={setQuickViewId}
                         isLast={i === group.items.length - 1}
                       />
                     ))}
@@ -348,6 +379,13 @@ function TransactionLog() {
           )}
         </>
       )}
+
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(leagueId)}
+      />
     </Container>
   );
 }

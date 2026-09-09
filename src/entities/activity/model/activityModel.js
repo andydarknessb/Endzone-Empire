@@ -9,7 +9,7 @@
  *
  * The shape:
  *
- *   { id, type, teamName, avatarUrl, avatarStaticUrl, sentence, at }
+ *   { id, type, teamName, avatarUrl, avatarStaticUrl, sentence, players, at }
  *
  * `type` is one of add | drop | waiver | trade | commissioner (the transaction
  * types `GET /api/league/:id/transactions` documents) or stat_correction (an
@@ -22,6 +22,18 @@
  * caller renders `teamName` and `sentence` together exactly as the Activity
  * page's timeline row always has, and `teamName` stays independently usable
  * (the Team filter reads it alone, with no sentence to parse).
+ *
+ * `players` is the structured form of every player name `sentence` flattens
+ * into prose: `{ added: [{ name, playerId }], dropped: [{ name, playerId }] }`.
+ * `added` is who the row's Team gained (the `add`ed player, a waiver claim's
+ * target, a trade's received players); `dropped` is who it gave up (the
+ * `drop`ped player, a waiver claim's dropped player, a trade's sent players).
+ * The two stay separate specifically so a waiver row's claimed and dropped
+ * player are never confused for each other. A row that names no player
+ * (`commissioner`, `stat_correction`, or a trade logged before rich detail
+ * existed) carries both as empty arrays, never a throw. This is how a caller
+ * (`TransactionLog`) rebuilds `sentence` with clickable player names without
+ * re-deriving its own per-type switch to find them.
  *
  * `at` is the row's `created_at`, carried verbatim (an ISO string) so a caller
  * formats it however that surface always has (relative time, a day header).
@@ -75,6 +87,42 @@ function sentenceFor(row) {
 }
 
 /**
+ * The structured player references `sentence` flattens into prose for this
+ * row: `{ added, dropped }`, each a list of `{ name, playerId }` (see the
+ * module docblock for which side each transaction type's players land on).
+ * Mirrors `sentenceFor`'s own per-type guards exactly, so a name only ever
+ * appears here when it also appears in the sentence.
+ */
+function playersFor(row) {
+  const detail = row.detail || {};
+  switch (row.type) {
+    case 'add':
+      return { added: [{ name: row.player_name, playerId: detail.playerId }], dropped: [] };
+    case 'drop':
+      return { added: [], dropped: [{ name: row.player_name, playerId: detail.playerId }] };
+    case 'waiver': {
+      const added = [{ name: row.player_name, playerId: detail.playerId }];
+      const dropped =
+        detail.droppedPlayerId && row.dropped_player_name
+          ? [{ name: row.dropped_player_name, playerId: detail.droppedPlayerId }]
+          : [];
+      return { added, dropped };
+    }
+    case 'trade': {
+      const items = Array.isArray(detail.items) ? detail.items : [];
+      // Mirrors sentenceFor's own fallback: no rich detail, no names to link.
+      if (items.length === 0 || !detail.receivingTeamName) return { added: [], dropped: [] };
+      const ref = (i) => ({ name: i.playerName, playerId: i.playerId });
+      const sent = items.filter((i) => i.fromTeamId === detail.proposingTeamId);
+      const received = items.filter((i) => i.toTeamId === detail.proposingTeamId);
+      return { added: received.map(ref), dropped: sent.map(ref) };
+    }
+    default:
+      return { added: [], dropped: [] };
+  }
+}
+
+/**
  * One transaction row (`GET /api/league/:id/transactions`) as the client
  * knows it. A null row yields an empty-shaped model rather than throwing.
  */
@@ -87,6 +135,7 @@ export function activityFromRow(row) {
     avatarUrl: r.team_avatar_url ?? null,
     avatarStaticUrl: r.team_avatar_static_url ?? null,
     sentence: sentenceFor(r),
+    players: playersFor(r),
     at: r.created_at ?? null,
   };
 }
