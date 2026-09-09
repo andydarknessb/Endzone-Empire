@@ -167,7 +167,14 @@ const FUNCTION_TYPES = new Set([
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
+    // `dir` is one of the three hardcoded SCAN_ROOTS or a subdirectory reached
+    // from them, and `entry.name` comes from readdirSync over that fixed repo
+    // tree, never from a request or any attacker-controlled input; this is a
+    // CI/dev guard with no request path. The suppression carries its reason
+    // because a bare nosemgrep is, by this repo's rule and the one this very
+    // guard enforces, the same shape as a ruleless allowlist entry. Same line,
+    // same rule, same suppression as the sibling walk in animationSafetyGuard.js.
+    const full = path.join(dir, entry.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
     if (entry.isDirectory()) {
       if (entry.name === 'node_modules' || entry.name === 'build') continue;
       walk(full, out);
