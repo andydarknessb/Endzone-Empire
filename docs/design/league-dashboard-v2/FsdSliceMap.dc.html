@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=Inter:wght@400;600;800&amp;display=swap">
+  <style>
+
+[data-theme="dark"]{
+  --bg:#0b1015; --surface:#141b23; --surface2:#1b242f; --surface3:#222e3b;
+  --line:rgba(154,183,211,.12); --line-strong:rgba(154,183,211,.22);
+  --ink:#e8eef4; --dim:#93a4b5; --faint:#8a9bad;
+  --accent:#2fd97b; --accent-soft:rgba(47,217,123,.12); --accent-line:rgba(47,217,123,.35); --on-accent:#0b1015;
+  --grade-a:#2fd97b; --grade-b:#a8cc4a; --grade-c:#e5b04a; --grade-d:#e07a45; --grade-f:#e25c5c; --on-grade:#0b1015;
+  --grade-a-text:#2fd97b; --grade-b-text:#a8cc4a; --grade-c-text:#e5b04a; --grade-d-text:#e07a45; --grade-f-text:#f07f7f;
+  --home:#7eaaff; --home-soft:rgba(126,170,255,.16); --away:#7ee2a8; --away-soft:rgba(126,226,168,.16);
+  --danger:#ff6b6b; --danger-soft:rgba(255,107,107,.14); --warning:#f0b34e; --warning-soft:rgba(240,179,78,.14);
+  --pos-qb:#ff8a80; --pos-rb:#7ee2a8; --pos-wr:#7fb0ff; --pos-te:#f0b34e; --pos-k:#c4a2f5; --pos-def:#b0bec5; --pos-flex:#93a4b5; --on-pos:#0f1419;
+  --app-bar:#222c37; --app-bg:#0f1419; --app-ink:#e6edf3; --app-accent:#7fb0ff; --app-line:#2a3441;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45); --shadow-2:0 6px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg:#eef2f6; --surface:#ffffff; --surface2:#f4f7fa; --surface3:#e6ecf2;
+  --line:rgba(31,45,58,.12); --line-strong:rgba(31,45,58,.22);
+  --ink:#141b23; --dim:#55636f; --faint:#5e6a74;
+  --accent:#0f6a41; --accent-soft:rgba(15,106,65,.12); --accent-line:rgba(15,106,65,.32); --on-accent:#ffffff;
+  --grade-a:#2fd97b; --grade-b:#a8cc4a; --grade-c:#e5b04a; --grade-d:#e07a45; --grade-f:#e25c5c; --on-grade:#0b1015;
+  --grade-a-text:#0f7a45; --grade-b-text:#587611; --grade-c-text:#8a6212; --grade-d-text:#b0491f; --grade-f-text:#c62f2f;
+  --home:#1e5bb8; --home-soft:rgba(30,91,184,.10); --away:#1b7d4f; --away-soft:rgba(27,125,79,.08);
+  --danger:#c62828; --danger-soft:rgba(198,40,40,.10); --warning:#8a5a00; --warning-soft:rgba(138,90,0,.12);
+  --pos-qb:#c62828; --pos-rb:#15663f; --pos-wr:#1e5bb8; --pos-te:#9a5100; --pos-k:#6d28d9; --pos-def:#4b5c66; --pos-flex:#586472; --on-pos:#ffffff;
+  --app-bar:#ffffff; --app-bg:#f4f6f8; --app-ink:#1a2129; --app-accent:#2f6fed; --app-line:#dde2e7;
+  --shadow-1:0 1px 2px rgba(16,24,32,.08); --shadow-2:0 4px 12px rgba(16,24,32,.10);
+}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent);text-decoration:underline}
+.root{width:1200px;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.display{font-family:"Barlow Condensed",Impact,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;color:var(--ink);min-width:0;overflow:hidden}
+.tile{overflow:hidden}
+.card-h{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.card-t{font-family:"Barlow Condensed",Impact,sans-serif;font-size:17px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);margin:0}
+.card-c{font-size:12px;font-weight:600;color:var(--faint)}
+.card-tail{margin-left:auto;font-size:12px;color:var(--faint);display:flex;align-items:center;gap:8px}
+.tile{display:flex;flex-direction:column;gap:2px;padding:10px 12px;min-width:0;background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+.tile .l{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.tile .v{font-family:"Barlow Condensed",Impact,sans-serif;font-size:24px;font-weight:700;line-height:1.2;color:var(--ink);font-variant-numeric:tabular-nums}
+.tile.sm .v{font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .l{overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:.04em;border:1px solid var(--line);background:var(--surface2);color:var(--dim);white-space:nowrap;line-height:1.3}
+.chip.live{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+.chip.you{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);font-size:10.5px;font-weight:700;letter-spacing:.08em}
+.chip.warn{background:var(--warning-soft);color:var(--warning);border-color:var(--warning)}
+.chip.danger{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.success{background:var(--away-soft);color:var(--away);border-color:var(--away)}
+.dot{width:8px;height:8px;border-radius:999px;background:currentColor;flex:none}
+.pos{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:20px;padding:0 6px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--on-pos)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid var(--line-strong);color:var(--dim);background:transparent;white-space:nowrap;line-height:1.2}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.ink{color:var(--ink)}
+.btn.sm{height:32px;padding:0 12px;font-size:12.5px}
+.btn.lg{height:44px}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn.band{width:100%;justify-content:space-between;height:44px;background:var(--surface2);border-color:var(--line);color:var(--ink);padding:0 10px}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.hair{height:1px;background:var(--line)}
+.avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--surface3);color:var(--ink);font-weight:700;flex:none;font-size:12px}
+.split{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--surface3)}
+.row{display:flex;align-items:center}
+.stack{display:flex;flex-direction:column}
+.grow{flex:1 1 0;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12px;color:var(--faint)}
+.grade{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:999px;font-family:"Barlow Condensed",Impact,sans-serif;font-size:14px;font-weight:700;color:var(--on-grade);flex:none}
+table{border-collapse:collapse;width:100%;font-family:"Archivo","Helvetica Neue",Arial,sans-serif}
+th{text-align:left;padding:10px 12px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);white-space:nowrap;box-shadow:inset 0 -1px 0 var(--line);background:var(--surface)}
+td{padding:10px 12px;font-size:13.5px;color:var(--ink);white-space:nowrap;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+th.r,td.r{text-align:right}
+table.m th,table.m td{padding:10px 8px}
+td.muted{color:var(--dim)}
+tr.me td{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+tr.cut td{border-top:2px solid var(--line-strong)}
+.nav{height:56px;display:flex;align-items:center;gap:22px;padding:0 20px;background:var(--app-bar);color:var(--app-ink);border-bottom:1px solid var(--app-line);font-family:"Inter","Roboto","Helvetica","Arial",sans-serif}
+.nav .brand{font-weight:800;font-size:17px;color:var(--app-accent);display:flex;align-items:center;gap:8px}
+.nav .links{display:flex;gap:18px;font-size:13px;color:var(--app-ink)}
+.nav .links{height:56px;align-items:stretch}
+.nav .links span{display:flex;align-items:center}
+.nav .links .on{color:var(--app-accent);box-shadow:inset 0 -2px 0 var(--app-accent)}
+.nav .search{margin-left:auto;height:32px;width:170px;border:1px solid var(--app-line);border-radius:8px;display:flex;align-items:center;padding:0 10px;font-size:12px;color:var(--dim);gap:8px}
+.switch{width:34px;height:18px;border-radius:999px;background:var(--surface3);border:1px solid var(--line-strong);position:relative;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:var(--dim)}
+.switch.on{background:var(--accent-soft);border-color:var(--accent-line)}
+.switch.on::after{left:18px;background:var(--accent)}
+.field{height:38px;border:1px solid var(--line-strong);border-radius:9px;display:flex;align-items:center;padding:0 12px;font-size:13px;color:var(--ink);background:var(--surface);gap:8px;justify-content:space-between}
+.field .ph{color:var(--dim)}
+.sect{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--dim)}
+.sect.on{background:var(--accent-soft);color:var(--accent)}
+.fsd-box{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface2);font-size:12.5px;line-height:1.35}
+.fsd-box b{display:block;font-family:"Barlow Condensed",Impact,sans-serif;font-size:15px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;color:var(--ink)}
+.fsd-box.new{border-color:var(--accent-line);background:var(--accent-soft)}
+.fsd-box.changed{border-color:var(--warning);background:var(--warning-soft)}
+svg{display:block}
+  </style>
+</helmet>
+<div class="root" data-theme="{{theme}}" style="width: 1200px; min-height: 1240px; background: var(--bg); color: var(--ink);">
+<div style="padding:28px;display:grid;gap:22px">
+  <div class="row" style="gap:14px;align-items:baseline"><h1 class="display" style="margin:0;font-size:30px;font-weight:700;letter-spacing:.02em;text-transform:uppercase">League Dashboard v2 · FSD slice map</h1><span class="note">ADR 0020 island, extended. Green = new slice, amber = changed slice, plain = unchanged.</span></div>
+  <div class="row" style="gap:16px"><span class="chip live">New</span><span class="chip warn">Changed</span><span class="chip ">Unchanged</span></div>
+  
+    <div class="stack" style="gap:8px">
+      <span class="label">pages</span>
+      <div style="display:grid;grid-template-columns:repeat(2, minmax(0,1fr));gap:10px"><div class="fsd-box changed"><b>pages/league-dashboard</b>Composes the strip, hero, around-the-league, two 8/4 rows. Owns leagueId, week, viewerTeamId. Page-level test seam unchanged.</div><div class="fsd-box new"><b>pages/commissioner-console</b>Route /league/:id/commissioner. Section rail + 720px column. Mounts CommissionerTools as-is (cut ruling #617), join requests and destructive zone.</div></div>
+    </div>
+  
+    <div class="stack" style="gap:8px">
+      <span class="label">widgets</span>
+      <div style="display:grid;grid-template-columns:repeat(4, minmax(0,1fr));gap:10px"><div class="fsd-box changed"><b>commissioner-strip</b>Replaces commissioner-panel: facts, join count, advance-week, link to the console. No administration tree inside.</div><div class="fsd-box changed"><b>my-team-summary</b>Adds the starters list (entities/roster) and the lineup-status footer. Stretches to the hero row.</div><div class="fsd-box changed"><b>matchup-preview</b>Adds the first-kickoff tail and the three context tiles (H2H, streak, last meeting).</div><div class="fsd-box new"><b>around-the-league</b>Six compact matchup tiles from entities/matchup useLeagueMatchups; viewer tile ringed.</div><div class="fsd-box "><b>standings-table</b>Unchanged table; tail states the settled week and the playoff line.</div><div class="fsd-box changed"><b>draft-grades</b>Compact rows (40px); steal/reach on the viewer row, footer toggle for all rows.</div><div class="fsd-box new"><b>recent-activity</b>Rail card: eight rows from GET /api/league/:id/transactions; type Badge, Team, sentence, time.</div><div class="fsd-box changed"><b>quick-actions</b>Same card and h2; tiles become grouped rows in two columns (Play + Moves, League).</div></div>
+    </div>
+  
+    <div class="stack" style="gap:8px">
+      <span class="label">features</span>
+      <div style="display:grid;grid-template-columns:repeat(4, minmax(0,1fr));gap:10px"><div class="fsd-box "><b>advance-week</b>Unchanged; mounted by the strip and the console header.</div><div class="fsd-box "><b>copy-invite</b>Unchanged; header.</div><div class="fsd-box new"><b>decide-join-request</b>Approve / Deny one request; today inside CommissionerTools.</div><div class="fsd-box new"><b>toggle-grade-details</b>Show steals and reaches for every draft-grades row.</div></div>
+    </div>
+  
+    <div class="stack" style="gap:8px">
+      <span class="label">entities</span>
+      <div style="display:grid;grid-template-columns:repeat(4, minmax(0,1fr));gap:10px"><div class="fsd-box "><b>entities/matchup</b>useLeagueMatchups (ADR 0029). Around-the-league reads it.</div><div class="fsd-box "><b>entities/standings</b>useLeagueStandings. Unchanged.</div><div class="fsd-box new"><b>entities/roster</b>useTeamLineup(leagueId, week) over GET /api/team/lineup. Starters list.</div><div class="fsd-box new"><b>entities/activity</b>useLeagueTransactions over GET /api/league/:id/transactions.</div></div>
+    </div>
+  
+    <div class="stack" style="gap:8px">
+      <span class="label">shared</span>
+      <div style="display:grid;grid-template-columns:repeat(2, minmax(0,1fr));gap:10px"><div class="fsd-box changed"><b>shared/ui</b>Card, Badge, StatTile, GradeChip, PosChip, Skeleton. StatTile gains the compact (sm) value style used by the strip.</div><div class="fsd-box "><b>shared/lib</b>useEndpoint. Unchanged.</div></div>
+    </div>
+  <span class="note">Import rules as ADR 0020: page composes widgets; widgets never import widgets; entities and shared depend on nothing above them. Contrast pairings this canvas adds: none, every ink-on-surface pair is already registered; the commissioner strip paints faint and ink on surface2 tiles over a card.</span>
+</div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},"$preview":{"width":1200,"height":1240}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme === 'light' ? 'light' : 'dark' };
+  }
+}
+</script>
+</body>
+</html>
