@@ -308,12 +308,19 @@ export default function DraftGrades({ leagueId }) {
               );
             })}
           </TableShell>
-          {/* The footer (#1104): the explainer sentence, one line, beside the
-              feature's toggle. `aria-describedby` on the table keeps pointing
-              at the explainer's own id regardless of the toggle's state. */}
+          {/* The footer (#1104): the explainer sentence beside the feature's
+              toggle, one line at the card's usual widths. `aria-describedby`
+              on the table keeps pointing at the explainer's own id regardless
+              of the toggle's state. The explainer wraps rather than clips: a
+              narrow rail (or a zoomed/reflowed viewport) must not silently
+              drop the sentence a sighted reader cannot then recover (no
+              tooltip backs it) - `flex-wrap` lets the button drop to its own
+              line first, and only if that still is not enough does the
+              sentence itself wrap to a second line. */}
           <Box
             sx={{
               display: 'flex',
+              flexWrap: 'wrap',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: 1,
@@ -325,11 +332,8 @@ export default function DraftGrades({ leagueId }) {
               id={explainerId}
               data-testid="draft-grades-explainer"
               sx={{
-                flex: 1,
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                flex: '1 1 auto',
+                minWidth: '200px',
                 fontSize: '11.5px',
                 color: 'var(--dash-dim)',
               }}
