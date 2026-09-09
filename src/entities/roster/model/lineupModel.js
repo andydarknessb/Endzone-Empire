@@ -13,20 +13,28 @@
  * `entries` is every roster row for the week (starters, bench and IR
  * together, CONTEXT.md's Roster), each mapped to the one player shape:
  *
- *   { playerId, name, position, nflTeam, slot, opponent, projectedPoints,
- *     injuryStatus }
+ *   { playerId, name, position, nflTeam, slot, projectedPoints,
+ *     injuryStatus, spent }
+ *
+ * There is no `opponent` field: the wire row getLineup actually assembles
+ * (server/services/lineup.service.js) never carries one, so nothing here
+ * invents one. If a future route grows one, add it then.
  *
  * `starters` is the subset of `entries` whose `slot` is neither `BENCH` nor
- * `IR` (CONTEXT.md's Lineup: the subset of a roster a team starts). `bench`
- * and IR rows stay in `entries` only - a surface that wants them reads
- * `entries` and applies its own filter.
+ * `IR`, AND which is not `spent` (CONTEXT.md's Lineup entry: "a starting
+ * slot it occupies is spent for that week" - a spent row is a settled-week
+ * record of a departed starter, not a player a team starts today; getLineup
+ * seats it via `spentStartingSlots` purely to hold the slot count, and it
+ * carries no projection). `bench`, IR and spent rows stay in `entries`
+ * only - a surface that wants them reads `entries` and applies its own
+ * filter.
  *
  * `benchCount` counts entries in the `BENCH` slot; `questionable` counts
- * STARTERS (never bench or IR) whose injury status is not null - CONTEXT.md's
- * Injury designation: any non-null value ("Questionable", "Doubtful", "Out",
- * "IR") means the feed has flagged the player as something other than
- * healthy, and this model does not narrow that to the literal string
- * "Questionable".
+ * STARTERS (never bench, IR or spent) whose injury status is not null -
+ * CONTEXT.md's Injury designation: any non-null value ("Questionable",
+ * "Doubtful", "Out", "IR") means the feed has flagged the player as
+ * something other than healthy, and this model does not narrow that to the
+ * literal string "Questionable".
  */
 
 const BENCH = 'BENCH';
@@ -34,10 +42,11 @@ const IR = 'IR';
 
 /**
  * One lineup row (the wire's `id`, `name`, `position`, `nfl_team`, `slot`,
- * `opponent`, `projected_points`, `injury_status`) as the one player shape.
- * `projectedPoints` is coerced to a finite number or null: node-postgres can
- * hand a decimal back as a string, and a missing projection must stay null
- * rather than becoming 0 or NaN.
+ * `projected_points`, `injury_status`, plus `spent` on a spentStartingSlots
+ * row) as the one player shape. `projectedPoints` is coerced to a finite
+ * number or null: node-postgres can hand a decimal back as a string, a spent
+ * row carries no `projected_points` key at all, and a missing projection
+ * must stay null rather than becoming 0 or NaN.
  */
 function playerFromLineupEntry(row) {
   const r = row || {};
@@ -48,9 +57,9 @@ function playerFromLineupEntry(row) {
     position: r.position ?? null,
     nflTeam: r.nfl_team ?? null,
     slot: r.slot ?? null,
-    opponent: r.opponent ?? null,
     projectedPoints: Number.isFinite(points) ? points : null,
     injuryStatus: r.injury_status ?? null,
+    spent: !!r.spent,
   };
 }
 
@@ -63,10 +72,12 @@ export function lineupModel(body) {
   const b = body || {};
   const rawEntries = Array.isArray(b.entries) ? b.entries : [];
   const entries = rawEntries.map(playerFromLineupEntry);
-  // Starters are neither BENCH nor IR (CONTEXT.md's Lineup/Slot). Dropping
-  // this clause is the tested red-tell: it would seat bench and IR rows as
-  // starters, over-counting them everywhere the count matters.
-  const starters = entries.filter((e) => e.slot !== BENCH && e.slot !== IR);
+  // Starters are neither BENCH nor IR (CONTEXT.md's Lineup/Slot), and never
+  // spent: a spent row only holds a departed starter's slot count for a
+  // settled week (CONTEXT.md's Lineup entry) and starts nobody today.
+  // Dropping the BENCH/IR clause is the tested red-tell: it would seat bench
+  // and IR rows as starters, over-counting them everywhere the count matters.
+  const starters = entries.filter((e) => e.slot !== BENCH && e.slot !== IR && !e.spent);
   const benchCount = entries.filter((e) => e.slot === BENCH).length;
   const questionable = starters.filter((e) => e.injuryStatus != null).length;
   return {

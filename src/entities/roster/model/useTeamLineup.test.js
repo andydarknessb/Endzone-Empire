@@ -18,7 +18,7 @@ const body = {
   week: 4,
   currentWeek: 4,
   entries: [
-    { id: 1, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', slot: 'QB', opponent: 'MIA', projected_points: 24.3, injury_status: null },
+    { id: 1, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', slot: 'QB', projected_points: 24.3, injury_status: null },
   ],
 };
 

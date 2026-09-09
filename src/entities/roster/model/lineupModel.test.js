@@ -2,21 +2,37 @@ import { lineupModel } from './lineupModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
 // (server/services/lineup.service.js getLineup: id, name, position,
-// nfl_team, slot, opponent, projected_points, injury_status, plus the
-// annotation fields this model does not read).
+// nfl_team, slot, projected_points, injury_status, plus the annotation
+// fields this model does not read). getLineup never sends an `opponent`
+// field, so none is fixtured here.
 const row = (overrides = {}) => ({
   id: 1,
   name: 'Josh Allen',
   position: 'QB',
   nfl_team: 'BUF',
   slot: 'QB',
-  opponent: 'MIA',
   projected_points: 24.3,
   injury_status: null,
   bye_week: null,
   locked: false,
   onBye: false,
   valid_stash: false,
+  ...overrides,
+});
+
+// A spentStartingSlots row exactly as lineup.service.js builds it: a
+// departed starter's slot-holding record for a settled week, spread into
+// getLineup's entries alongside the real rows. It carries no
+// `projected_points` key at all (never `null` - simply absent).
+const spentRow = (overrides = {}) => ({
+  player_id: null,
+  id: 300,
+  name: 'Departed Starter',
+  position: 'WR',
+  nfl_team: 'MIA',
+  injury_status: null,
+  slot: 'WR',
+  spent: true,
   ...overrides,
 });
 
@@ -60,16 +76,17 @@ describe('lineupModel: the one shape from the lineup body', () => {
       expect(Number.isFinite(s.projectedPoints)).toBe(true);
     });
 
-    // One starter's full shape, camelCased off the wire's row.
+    // One starter's full shape, camelCased off the wire's row. No `opponent`
+    // key: getLineup never sends one.
     expect(model.starters[0]).toEqual({
       playerId: 1,
       name: 'Starter 1',
       position: 'QB',
       nflTeam: 'BUF',
       slot: 'QB',
-      opponent: 'MIA',
       projectedPoints: 10,
       injuryStatus: null,
+      spent: false,
     });
   });
 
@@ -80,6 +97,40 @@ describe('lineupModel: the one shape from the lineup body', () => {
     const model = lineupModel(body);
     expect(model.starters.some((s) => s.name.startsWith('Bench'))).toBe(false);
     expect(model.starters.some((s) => s.name === 'IR Guy')).toBe(false);
+  });
+
+  // A spentStartingSlots row (a departed starter's slot record for a settled
+  // week) is seated in `entries` alongside the nine real starters, but it
+  // occupies no starting seat today: nine real starters plus one spent row
+  // must still read nine starters, never ten (CONTEXT.md's Lineup entry).
+  test('a spent row (spentStartingSlots shape) is excluded from starters, never inflating the count', () => {
+    const withSpent = { ...body, entries: [...starterRows, ...benchRows, irRow, spentRow()] };
+    const model = lineupModel(withSpent);
+
+    expect(model.starters).toHaveLength(9);
+    expect(model.starters.some((s) => s.name === 'Departed Starter')).toBe(false);
+    // The spent row still survives onto `entries`, marked, for a caller that
+    // wants the full roster picture.
+    const spentEntry = model.entries.find((e) => e.name === 'Departed Starter');
+    expect(spentEntry).toEqual({
+      playerId: 300,
+      name: 'Departed Starter',
+      position: 'WR',
+      nflTeam: 'MIA',
+      slot: 'WR',
+      projectedPoints: null,
+      injuryStatus: null,
+      spent: true,
+    });
+  });
+
+  test('a spent starter carrying a Questionable injury_status is not counted in questionable', () => {
+    const withSpentQuestionable = {
+      ...body,
+      entries: [...starterRows, ...benchRows, irRow, spentRow({ injury_status: 'Questionable' })],
+    };
+    const model = lineupModel(withSpentQuestionable);
+    expect(model.questionable).toBe(0);
   });
 
   test('a starter with injury_status Questionable is counted in questionable', () => {
