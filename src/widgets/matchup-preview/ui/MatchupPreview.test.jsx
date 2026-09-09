@@ -269,6 +269,47 @@ test('before kickoff the card keeps the projections and captions the margin', as
   expect(screen.queryByTestId('matchup-preview-status')).not.toBeInTheDocument();
 });
 
+// --- the kickoff tail (#1102) ---------------------------------------------
+
+// Red-tell: rendering the kickoff tail regardless of `hasStarted` turns the
+// started-row case (further below) red and no other.
+test('a not-started row with first_kickoff_at renders the kickoff Badge with weekday and time', async () => {
+  renderCard(
+    row({ status: 'scheduled', first_kickoff_at: '2026-09-13T17:00:00.000Z' })
+  );
+
+  await screen.findByTestId('matchup-side-viewer');
+  const expected = new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date('2026-09-13T17:00:00.000Z'));
+  const badge = screen.getByTestId('matchup-preview-status');
+  expect(badge).toHaveTextContent(`Kicks off ${expected}`);
+  expect(badge).toHaveAttribute('data-variant', 'neutral');
+  expect(screen.queryByText('Projections update daily')).not.toBeInTheDocument();
+});
+
+test('a not-started row without first_kickoff_at falls back to "Projections update daily"', async () => {
+  renderCard(row({ status: 'scheduled', first_kickoff_at: null }));
+
+  await screen.findByTestId('matchup-side-viewer');
+  expect(screen.getByText('Projections update daily')).toBeInTheDocument();
+  expect(screen.queryByTestId('matchup-preview-status')).not.toBeInTheDocument();
+});
+
+test('a started row renders the status chip and no kickoff text', async () => {
+  renderCard(
+    row({ ...LIVE_ROW, status: 'live', first_kickoff_at: '2026-09-13T17:00:00.000Z' })
+  );
+
+  await screen.findByTestId('matchup-side-viewer');
+  const badge = screen.getByTestId('matchup-preview-status');
+  expect(badge).toHaveTextContent('LIVE');
+  expect(badge).not.toHaveTextContent(/Kicks off/);
+  expect(screen.queryByText('Projections update daily')).not.toBeInTheDocument();
+});
+
 test('a level projection reads as even rather than "by 0.0"', async () => {
   renderCard(
     row({ status: 'scheduled', home_expected_final: '104.0', away_expected_final: '104.0' })

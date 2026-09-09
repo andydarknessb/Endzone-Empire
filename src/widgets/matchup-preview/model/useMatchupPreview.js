@@ -129,6 +129,22 @@ import { matchupWinProbability } from '../../../lib/winProbability';
 // and `hasStarted` still come from the one entity predicate (ADR 0030).
 const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
+const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
+
+// "Sun 7:20 PM" from an ISO timestamp, in the viewer's locale and time zone;
+// null when the value is missing or not a date. The matchup-hero widget
+// (matchupHeroView.js) formats the same way for the same reason (#1102's
+// spec: "the same formatting the Game Center hero uses for its kickoff
+// line"); a widget never imports another widget's model (ADR 0020), so this
+// is restated here rather than reached for, the same call CHIP_VARIANTS above
+// already made.
+function formatKickoff(iso) {
+  if (iso == null || iso === '') return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, KICKOFF_FORMAT).format(date);
+}
+
 /** A finite number from a wire value (pg DECIMAL strings included), else null. */
 function finite(value) {
   if (value == null || value === '') return null;
@@ -351,6 +367,15 @@ export function useMatchupPreview(leagueId) {
     }
   }
 
+  // The kickoff tail (#1102): before the game has started, the header's tail
+  // reads the row's own `first_kickoff_at` (matchupFromListRow already maps
+  // it as `firstKickoffAt`, no new request) rather than the fallback caption.
+  // `hasStarted === false` only, the mirror of `projectedMargin` above: an
+  // unknown status asserts neither state, and a started Matchup keeps its
+  // status chip exactly as it is.
+  const kickoffLabel =
+    hasStarted === false ? formatKickoff(myMatchup?.firstKickoffAt) : null;
+
   const game = {
     hasStarted,
     chipLabel,
@@ -358,6 +383,7 @@ export function useMatchupPreview(leagueId) {
     chipDot: myMatchup?.status === 'live',
     winProbability,
     projectedMargin,
+    kickoffLabel,
   };
 
   // aria-busy while a layout-holding read is in flight: the list spine, and
