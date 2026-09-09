@@ -6,11 +6,12 @@ import { invalidate } from '../../../lib/resourceCache';
 import QuickActions from '../index';
 
 /**
- * quick-actions slice tests (T7). The page-level composition assertions (which
- * cards a league type renders, the group counts, the Set Lineup recommendation
- * round trip) stay in LeagueDashboardPage.test.jsx; what lives here is what
- * only this slice can answer: the track definition its groups share, and the
- * copy it prints for a league whose server would refuse the move.
+ * quick-actions slice tests (T7; rows in two columns #1106). The page-level
+ * composition assertions (which cards a league type renders, the group
+ * counts, the Set Lineup recommendation round trip) stay in
+ * LeagueDashboardPage.test.jsx; what lives here is what only this slice can
+ * answer: the row/column layout its groups share, and the copy it prints for
+ * a league whose server would refuse the move.
  *
  * Same seam as the sibling slices: the widget reads the league through the
  * shared apiClient (useLeague -> useResource) and its one extra read through
@@ -67,7 +68,7 @@ const renderWidget = (league = {}) => {
   return renderWithProviders(<QuickActions leagueId={1} />);
 };
 
-// The grid tracks are breakpoint-scoped, and a responsive sx value lands inside
+// A responsive sx value (the row's breakpoint-scoped min-height) lands inside
 // an `@media` rule whose CSSMediaRule carries no selectorText of its own. This
 // flattens every rule emitted under the element's generated class across
 // breakpoints, exactly as LeagueDashboardPage.test.jsx's `cssFor` does. It
@@ -103,60 +104,109 @@ const rulesUnder = (el) => {
   return found;
 };
 
-const grid = (label) => screen.getByTestId(`quick-actions-grid-${label}`);
 const tile = (key) => screen.getByTestId(`quick-action-${key}`);
 
-// --- tracks ---------------------------------------------------------------
+// --- rows -------------------------------------------------------------
 
-test('a two-card group keeps the shared tile width', async () => {
-  renderWidget();
+test('the eleven fantasy actions render as rows under their three h3 headings with hrefs and status copy', async () => {
+  renderWidget({ is_commissioner: true });
   await screen.findByTestId('quick-actions');
 
-  // Moves holds two cards, Play four. The whole point of the track definition
-  // is that this difference costs nothing: both groups lay their cards on the
-  // SAME repeating 180px-minimum track, so a tile is one width everywhere on
-  // the band.
-  expect(within(grid('moves')).getAllByRole('link')).toHaveLength(2);
-  expect(within(grid('play')).getAllByRole('link')).toHaveLength(4);
+  expect(screen.getByRole('heading', { level: 3, name: 'Play · 4' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'Moves · 2' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'League · 5' })).toBeInTheDocument();
+  expect(screen.getAllByRole('link')).toHaveLength(11);
 
-  // auto-FILL, not auto-fit. auto-fit collapses the tracks a group has no card
-  // for and distributes their space among the cards it does have, which would
-  // stretch Moves' two tiles to half the band each while Play's four stayed
-  // narrow. Red-tell: swapping this one keyword back to auto-fit turns this
-  // case red and no other.
-  const track = /repeat\(auto-fill,\s*minmax\(180px,\s*1fr\)\)/;
-  expect(cssFor(grid('moves'))).toMatch(track);
-  expect(cssFor(grid('play'))).toMatch(track);
-  expect(cssFor(grid('moves'))).not.toMatch(/auto-fit/);
+  const expectedRoutes = {
+    draft: /\/league\/1\/draft$/,
+    lineup: /\/league\/1\/lineup$/,
+    'game-center': /\/league\/1\/game-center$/,
+    pickem: /\/league\/1\/pickem$/,
+    waivers: /\/league\/1\/waivers$/,
+    trades: /\/league\/1\/trades$/,
+    activity: /\/league\/1\/activity$/,
+    'power-rankings': /\/league\/1\/power-rankings$/,
+    history: /\/league\/1\/history$/,
+    rules: /\/league\/1\/rules$/,
+    'draft-settings': /\/league\/1\/draft-settings$/,
+  };
+  Object.entries(expectedRoutes).forEach(([key, route]) => {
+    expect(tile(key).getAttribute('href')).toMatch(route);
+  });
 
-  // And the track is not a fixed count keyed to the group, which is what it
-  // replaced: three fixed tracks meant Play wrapped onto two rows while Moves
-  // left a third of its row empty.
-  expect(cssFor(grid('moves'))).not.toMatch(/repeat\(\s*\d/);
+  expect(within(tile('draft')).getByText('Draft complete · review the board')).toBeInTheDocument();
+  expect(within(tile('waivers')).getByText('Claim free agents and place bids')).toBeInTheDocument();
+  expect(within(tile('activity')).getByText('Recent roster and league moves')).toBeInTheDocument();
 });
 
-// --- surface --------------------------------------------------------------
+test('the Recommended Badge sits on the recommended row only', async () => {
+  renderWidget({ draft_status: 'active', season_status: 'regular' });
+  await screen.findByTestId('quick-actions');
 
-test('a tile is a card on the ground with its icon on a raised plate', async () => {
+  expect(within(tile('draft')).getByText('Recommended')).toBeInTheDocument();
+  ['lineup', 'game-center', 'pickem', 'waivers', 'trades', 'activity', 'power-rankings', 'history', 'rules'].forEach(
+    (key) => {
+      expect(within(tile(key)).queryByText('Recommended')).not.toBeInTheDocument();
+    }
+  );
+});
+
+test('a row is 40px tall at md and up and 48px tall below md, and its icon sits on a raised plate', async () => {
   renderWidget();
   await screen.findByTestId('quick-actions');
 
-  const own = rulesUnder(tile('waivers'))[''];
-  // Promoted from `dash-surface2` to `dash-surface` at the full card radius:
-  // both foregrounds it carries (ink title, dim status) are registered over
-  // `dash-surface` in tokens.contrast.test.js, so this composes no new pairing.
-  expect(own).toMatch(/background-color:\s*var\(--dash-surface\)/);
-  expect(own).toMatch(/border-radius:\s*var\(--dash-radius\)/);
-  // The plate is the one thing that stays on the tile surface.
+  // Flattened across breakpoints (cssFor loses which one a declaration came
+  // from, per its own docblock): both heights the responsive sx value emits
+  // must be present.
+  const css = cssFor(tile('waivers'));
+  expect(css).toMatch(/min-height:\s*40px/);
+  expect(css).toMatch(/min-height:\s*48px/);
+
+  // The plate is the one thing that stays on `dash-surface2`; the row itself
+  // sits flush on the Card's `dash-surface`, so it carries no background of
+  // its own.
   expect(rulesUnder(screen.getByTestId('quick-action-plate-waivers'))['']).toMatch(
     /background-color:\s*var\(--dash-surface2\)/
   );
+  expect(within(tile('waivers')).getByTestId('quick-action-chevron-waivers')).toBeInTheDocument();
+});
 
-  // Motion is tokenised: no hard-coded millisecond literal survives, and the
-  // hover lifts as the artboard's `.action:hover` does.
-  expect(own).toMatch(/var\(--transition-fast\)/);
-  expect(own).not.toMatch(/120ms/);
-  expect(rulesUnder(tile('waivers'))[':hover']).toMatch(/translateY\(-2px\)/);
+// --- columns ----------------------------------------------------------
+
+test('the desktop body groups Play and Moves in the first column and League in the second, by test id', async () => {
+  renderWidget();
+  await screen.findByTestId('quick-actions');
+
+  const column1 = screen.getByTestId('quick-actions-column-1');
+  const column2 = screen.getByTestId('quick-actions-column-2');
+
+  // Red-tell: moving Moves into the second column turns this case red and no
+  // other.
+  expect(within(column1).getByTestId('quick-actions-group-play')).toBeInTheDocument();
+  expect(within(column1).getByTestId('quick-actions-group-moves')).toBeInTheDocument();
+  expect(within(column2).getByTestId('quick-actions-group-league')).toBeInTheDocument();
+  expect(within(column2).queryByTestId('quick-actions-group-play')).not.toBeInTheDocument();
+  expect(within(column2).queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
+  expect(within(column1).queryByTestId('quick-actions-group-league')).not.toBeInTheDocument();
+});
+
+test("a pick'em-only trim still drops the fantasy rows, leaving Play alone in the first column", async () => {
+  renderWidget({ pickem_only: true, season_status: 'regular', current_week: 6 });
+  await screen.findByTestId('quick-actions');
+
+  expect(screen.getByRole('heading', { level: 3, name: 'Play · 1' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'League · 3' })).toBeInTheDocument();
+  expect(screen.queryByText(/^Moves ·/)).not.toBeInTheDocument();
+  ['draft', 'lineup', 'game-center', 'waivers', 'trades', 'power-rankings', 'draft-settings'].forEach((key) => {
+    expect(screen.queryByTestId(`quick-action-${key}`)).not.toBeInTheDocument();
+  });
+  expect(screen.getByTestId('quick-action-pickem')).toBeInTheDocument();
+
+  const column1 = screen.getByTestId('quick-actions-column-1');
+  const column2 = screen.getByTestId('quick-actions-column-2');
+  expect(within(column1).getByTestId('quick-actions-group-play')).toBeInTheDocument();
+  expect(within(column1).queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
+  expect(within(column2).getByTestId('quick-actions-group-league')).toBeInTheDocument();
 });
 
 // --- state-aware copy -----------------------------------------------------
