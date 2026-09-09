@@ -216,7 +216,7 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     );
     return claimResult.rows[0];
     },
-    { label: 'waivers' }
+    { label: 'waiver-claim' }
   );
 }
 
@@ -513,7 +513,7 @@ async function processWaivers({ leagueId }) {
 
     return { processed: dueResult.rows.length, results };
     },
-    { label: 'waivers' }
+    { label: 'waiver-process' }
   );
   await getDraftRoomBroadcast().rosterChanged(leagueId);
   return result;
