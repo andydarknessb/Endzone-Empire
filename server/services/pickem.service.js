@@ -594,7 +594,7 @@ async function putSettings({ leagueId, enabled, mode }) {
     });
     return { enabled: nextEnabled, mode: nextMode };
     },
-    { label: 'pickem' }
+    { label: 'pickem-settings' }
   );
 }
 
@@ -741,7 +741,7 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
     ]);
     return { saved: validated.picks.length, myPicks: validated.picks };
     },
-    { label: 'pickem' }
+    { label: 'pickem-picks' }
   );
 }
 

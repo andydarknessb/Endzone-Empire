@@ -83,3 +83,7 @@ Retries, timeouts and savepoints are out of scope. The wrapper owns the close,
 nothing more.
 
 Refs: #839, #1048, #1053, #1055, #1060, #1061.
+
+## Amendment (2026-09-09): labels are unique (#1068, #1081)
+
+A `withTransaction` label is unique to its call site: it exists only to name which transaction failed to close (#839), so the guard that ships with #1061's last conversion (#1068) also fails when one label appears at two call sites (#1081).
