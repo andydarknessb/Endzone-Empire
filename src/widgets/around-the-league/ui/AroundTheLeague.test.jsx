@@ -288,6 +288,48 @@ describe('AroundTheLeague', () => {
     expect(within(scheduled).getAllByText('Projected').length).toBeGreaterThan(0);
   });
 
+  it('labels the figure "Score", never "Projected", on an unknown status', async () => {
+    // ADR 0030: an unknown status asserts neither state. `tileView`'s figure
+    // is already the score there (a stored fact, matchup-grid's own
+    // convention), so the accessible label has to agree - keying it off
+    // `!started` would read this as scheduled and print a false "Projected"
+    // over a live number (the same class of defect #872 forbade for
+    // SplitBar's accessible name).
+    const unknownStatusMatchup = matchupRow(7, 1, 2, {
+      status: 'not-a-real-status',
+      home_score: '75.0',
+      away_score: '70.0',
+    });
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: [unknownStatusMatchup] },
+    });
+
+    renderWidget();
+    const [tile] = await screen.findAllByTestId('around-the-league-tile');
+
+    expect(within(tile).getByText('75.0')).toBeInTheDocument();
+    expect(within(tile).getByText('70.0')).toBeInTheDocument();
+    expect(within(tile).getAllByText('Score').length).toBeGreaterThan(0);
+    expect(within(tile).queryAllByText('Projected')).toHaveLength(0);
+  });
+
+  it('announces "Not available" for a figure with no value to show', async () => {
+    const noProjectionMatchup = matchupRow(8, 1, 2, {
+      home_expected_final: null,
+      away_expected_final: null,
+    });
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: [noProjectionMatchup] },
+    });
+
+    renderWidget();
+    const [tile] = await screen.findAllByTestId('around-the-league-tile');
+
+    expect(within(tile).getAllByText('Not available')).toHaveLength(2);
+  });
+
   it('is reachable by keyboard below md, where the tiles scroll sideways', async () => {
     mobile = true;
     mockGetByUrl({

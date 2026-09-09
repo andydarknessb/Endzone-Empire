@@ -89,6 +89,13 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     week: m.week ?? null,
     status: m.status ?? null,
     started,
+    // Exposed alongside `started` so a caller can name what the figure IS
+    // (its accessible label) using the same three-way ADR 0030 predicate the
+    // figure's own VALUE already uses, rather than `!started` - which
+    // collapses the unknown-status case into "not started" and would then
+    // print a live score under a "Projected" label (a false accessible
+    // name, the same class of defect #872 forbade for SplitBar).
+    scheduled,
     // The tile-level ring (#1103): true when either side is the viewer's.
     isViewer: homeSide.isViewer || awaySide.isViewer,
     homeShare: probability.home,

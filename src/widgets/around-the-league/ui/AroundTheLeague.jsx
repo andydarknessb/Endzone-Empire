@@ -155,7 +155,13 @@ export default function AroundTheLeague({ leagueId }) {
 }
 
 function Tile({ tile }) {
-  const figureLabel = tile.started ? 'Score' : 'Projected';
+  // Keyed off `scheduled` (ADR 0030's `hasStarted === false`), the same
+  // predicate the figure's own VALUE is keyed off (tileView.js), never off
+  // `!tile.started`: an unknown status is neither started nor scheduled, and
+  // the figure there is already the score (a stored fact), so the label
+  // must read "Score" too, not "Projected" - a false accessible name is the
+  // same class of defect #872 forbade for SplitBar.
+  const figureLabel = tile.scheduled ? 'Projected' : 'Score';
   return (
     <Box
       data-testid="around-the-league-tile"

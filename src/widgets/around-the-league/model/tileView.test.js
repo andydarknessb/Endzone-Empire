@@ -67,4 +67,38 @@ describe('aroundLeagueTileView', () => {
     expect(view.homeShare).toBeGreaterThan(0);
     expect(view.homeShare).toBeLessThan(1);
   });
+
+  it('reads the score, and is neither started nor scheduled, on an unknown status', () => {
+    // ADR 0030: an unknown status asserts neither state. `started` and
+    // `scheduled` must BOTH read false here - a caller keying a label off
+    // `!started` would wrongly treat this as scheduled and print "Projected"
+    // over what is actually the score (a stored fact, matchup-grid's own
+    // convention this tile matches).
+    const view = aroundLeagueTileView(
+      row({ status: 'not-a-real-status', home_score: '92.1', away_score: '88.7' })
+    );
+    expect(view.started).toBe(false);
+    expect(view.scheduled).toBe(false);
+    expect(view.home.figure).toBe('92.1');
+    expect(view.away.figure).toBe('88.7');
+  });
+
+  it('exposes `scheduled` distinctly from `started`, for a caller to label the figure', () => {
+    const scheduled = aroundLeagueTileView(row());
+    expect(scheduled.scheduled).toBe(true);
+    expect(scheduled.started).toBe(false);
+
+    const started = aroundLeagueTileView(row({ status: 'live' }));
+    expect(started.scheduled).toBe(false);
+    expect(started.started).toBe(true);
+  });
+
+  it('renders a dash for a figure with no value to show', () => {
+    const view = aroundLeagueTileView(
+      row({ home_expected_final: null, away_expected_final: null })
+    );
+    expect(view.scheduled).toBe(true);
+    expect(view.home.figure).toBe('-');
+    expect(view.away.figure).toBe('-');
+  });
 });
