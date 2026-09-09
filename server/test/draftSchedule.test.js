@@ -329,3 +329,55 @@ test('the row-locked recheck bails when the locked row changed under it (concurr
   assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
   assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read exactly once');
 });
+
+test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 didWrite gate)', async (t) => {
+  // The inverse-of-Ruling-2 hazard the withTransaction conversion introduces:
+  // moving the disagreement bail from a function-level `return` to a `return`
+  // inside `work` means control now falls THROUGH the wrapper to the post-commit
+  // reminder push. On a bail that push must still be skipped, or a tick whose
+  // recompute disagreed while the action is remind_24h would push a draft
+  // reminder to every owner in the league that the base never sent. runAction
+  // gates the push on the `didWrite` boolean `work` returns (false at the bail).
+  //
+  // The tick reads a league 10h out at reminder stage 0 -> remind_24h. While
+  // runAction waits on the lock a concurrent tick commits stage 1, so the FOR
+  // UPDATE re-read returns stage 1, scheduledDraftAction recomputes to null
+  // against the same injected `now`, disagrees, and `work` returns false.
+  //
+  // The owner-query matcher and the mocked push side are present so that the
+  // red-tell path completes rather than throwing on an unmatched query: deleting
+  // `didWrite && ` from the gate fires the owner query and the push, reddening
+  // BOTH assertions below. On the correct code neither runs.
+  const tenHoursOut = at(10 * HOUR);
+  const league = LEAGUE_ROW({ draft_date: tenHoursOut, draft_reminder_stage: 0, min_teams: 2, team_count: 5 });
+  const fresh = FRESH_ROW({ draft_date: tenHoursOut, draft_reminder_stage: 1, min_teams: 2, team_count: 5 });
+  const fake = createFakePool([
+    [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
+    [/^SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage"/, () => ({ rows: [fresh] })],
+    [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
+    // Present so the mutant's push block runs to completion instead of throwing
+    // on an unmatched owner query (which the per-league catch would swallow).
+    [/^SELECT "owner_id" FROM "teams" WHERE "league_id" = \$1/, () => ({ rows: [{ owner_id: 100 }, { owner_id: 101 }] })],
+  ]);
+  fake.install(t);
+  const prefs = require('../services/prefs.service');
+  const push = require('../services/push.service');
+  t.mock.method(prefs, 'usersWanting', async (ownerIds) => ownerIds);
+  const sent = [];
+  t.mock.method(push, 'sendPushToUsers', async (...args) => { sent.push(args); });
+
+  const actions = await processScheduledDrafts({ now: NOW });
+  // The tick's action is remind_24h; the bail returns without throwing, so the
+  // action is still recorded (the push is a best-effort tail, not the outcome).
+  assert.deepEqual(actions, [{ leagueId: LEAGUE_ID, action: 'remind_24h' }]);
+  // The two discriminating assertions. Deleting `didWrite && ` reddens both.
+  assert.equal(
+    fake.matching(/^SELECT "owner_id" FROM "teams" WHERE "league_id" = \$1/).length,
+    0,
+    'the disagreement bail issues no owner query'
+  );
+  assert.equal(sent.length, 0, 'no reminder push fired on the bail');
+  // The bail still took the lock and wrote nothing.
+  assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read once');
+  assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
+});

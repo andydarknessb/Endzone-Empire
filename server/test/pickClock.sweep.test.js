@@ -680,11 +680,16 @@ const ESC_TEAM = { id: 55, owner_id: 7, name: 'Stuck Team', autodraft: false, dr
 // write, with an EMPTY candidate pool so no pick can land and the escalation
 // runs. The FOR UPDATE re-read (escalate's own, on the checked-out client) is
 // listed before autoPick's non-locking league read so the locked read never
-// falls through to it. The pause+clear UPDATE is left to the caller to add,
-// since each test fails it differently.
-function escalationHandlers() {
+// falls through to it, and it returns `reReadLeague` so a caller can hand the
+// locked re-read a DIFFERENT state than autoPick's first read - which is what
+// the bail tests below need, since autoPick's own top guard declines a
+// null/future deadline before escalate is ever reached (so autoPick must see an
+// elapsed, active, unpaused row, while escalate's re-read shows the bail state).
+// The pause+clear UPDATE is left to the caller to add, since each test uses it
+// differently (some fail it, the bail tests never reach it).
+function escalationHandlers(reReadLeague = ESC_LEAGUE) {
   return [
-    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [ESC_LEAGUE] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [reReadLeague] })],
     [/FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [ESC_LEAGUE] })],
     [/EXTRACT\(MONTH FROM CURRENT_DATE\)/, () => ({ rows: [{ season: 2026 }] })],
     [/FROM "team_players" JOIN "players"/, () => ({ rows: [] })],
@@ -738,5 +743,58 @@ test('escalateNothingDraftable: a clean ROLLBACK returns the connection to the p
   assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'the transaction was rolled back');
   assert.equal(fake.matching(/^COMMIT$/).length, 0, 'no COMMIT on a thrown write');
   assert.equal(fake.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  fake.assertClean();
+});
+
+// The two CONVERTED read-only bails (#1071). The Ruling-4 pair above drives the
+// write path (the pause UPDATE throws); these two reach the bails themselves.
+// Each converted `return null` used to be a bare ROLLBACK; it now COMMITs the
+// read-only transaction, releasing the row lock the same way. The observable
+// difference is exactly that COMMIT-vs-ROLLBACK close, and the fake records
+// both, so the discriminating assertions are "COMMIT present, ROLLBACK zero" -
+// asserting only the null return and the absent pause UPDATE would pass against
+// the pre-conversion code and prove nothing about the conversion.
+//
+// Reachability: autoPick's own top guard declines a null/future deadline BEFORE
+// escalate is reached, so autoPick's first read is ESC_LEAGUE (elapsed, active,
+// unpaused, empty candidate pool) and only escalate's FOR UPDATE re-read carries
+// the bail state. That is precisely the concurrent-firing race the bails exist
+// for (a second escalation paused it, or a committed pick advanced+re-armed
+// during the lock wait), so the path is faithful, not contrived.
+
+test('escalateNothingDraftable: the draft_paused re-read bail resolves null and COMMITs the read-only transaction (#1071)', async (t) => {
+  // A concurrent escalation paused the draft while this firing waited on the
+  // lock: escalate's FOR UPDATE re-read shows draft_paused true, so the first
+  // bail returns null before any write.
+  const paused = { ...ESC_LEAGUE, draft_paused: true };
+  const fake = createFakePool(escalationHandlers(paused)).install(t);
+
+  const outcome = await pickClock.autoPick({ leagueId: LEAGUE_ID });
+
+  assert.equal(outcome, null, 'a paused re-read escalates to nothing');
+  assert.equal(fake.matching(/^COMMIT$/).length, 1, 'the read-only bail closes with COMMIT');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK: the conversion replaced it with a COMMIT');
+  assert.equal(fake.matching(/UPDATE "leagues" SET "draft_paused" = true/).length, 0, 'no pause write on the bail');
+  assert.equal(fake.matching(/INSERT INTO/).length, 0, 'no activity insert on the bail');
+  assert.equal(fake.releaseArgs()[0], undefined, 'the healthy connection is returned to the pool bare');
+  fake.assertClean();
+});
+
+test('escalateNothingDraftable: the future-deadline re-read bail resolves null and COMMITs the read-only transaction (#1071)', async (t) => {
+  // A concurrent firing committed a real pick and re-armed the next turn while
+  // this firing waited on the lock: escalate's FOR UPDATE re-read shows a future
+  // deadline, so the second bail returns null before any write. (autoPick's own
+  // read still shows the elapsed deadline that got it here.)
+  const rearmed = { ...ESC_LEAGUE, pick_deadline_at: new Date(Date.now() + 60 * 60 * 1000) };
+  const fake = createFakePool(escalationHandlers(rearmed)).install(t);
+
+  const outcome = await pickClock.autoPick({ leagueId: LEAGUE_ID });
+
+  assert.equal(outcome, null, 'a re-armed future deadline escalates to nothing');
+  assert.equal(fake.matching(/^COMMIT$/).length, 1, 'the read-only bail closes with COMMIT');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK: the conversion replaced it with a COMMIT');
+  assert.equal(fake.matching(/UPDATE "leagues" SET "draft_paused" = true/).length, 0, 'no pause write on the bail');
+  assert.equal(fake.matching(/INSERT INTO/).length, 0, 'no activity insert on the bail');
+  assert.equal(fake.releaseArgs()[0], undefined, 'the healthy connection is returned to the pool bare');
   fake.assertClean();
 });
