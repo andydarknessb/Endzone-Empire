@@ -9,7 +9,7 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
 /**
  * League Dashboard widget (#1103, the canvas's "Around the league" card): six
  * compact matchup tiles for the league's current week, below the hero. Each
- * tile is two team rows (a 28px avatar, the Team name, and the projected
+ * tile is two team rows (a 20px avatar, the Team name, and the projected
  * total before kickoff or the live score after, right-aligned tabular) over a
  * 5px SplitBar of the win probability; the viewer's own tile carries the
  * accent ring the recommended Quick Action tile uses (a `dash-accent-line`
@@ -198,7 +198,8 @@ function TileRow({ side, testId, figureLabel }) {
         name={side.name}
         avatarUrl={side.avatarUrl}
         avatarStaticUrl={side.avatarStaticUrl}
-        size={28}
+        size={20}
+        data-testid={`${testId}-avatar`}
       />
       <Typography
         component="span"

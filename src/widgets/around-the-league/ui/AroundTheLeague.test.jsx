@@ -330,6 +330,34 @@ describe('AroundTheLeague', () => {
     expect(within(tile).getAllByText('Not available')).toHaveLength(2);
   });
 
+  it('renders Team avatars at 20px in both home and away rows of each tile', async () => {
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS },
+    });
+
+    renderWidget();
+    const rendered = await screen.findAllByTestId('around-the-league-tile');
+
+    // Check each tile has two rows (home and away) with avatars sized at 20px
+    for (const tile of rendered) {
+      const homeAvatar = within(tile).getByTestId('around-the-league-tile-home-avatar');
+      const awayAvatar = within(tile).getByTestId('around-the-league-tile-away-avatar');
+
+      // The size prop compiles to width/height rules in an emotion class (via sx),
+      // which insertRule injects into the stylesheet. getComputedStyle cascades those
+      // class rules; the element's style attribute remains empty. Use getComputedStyle
+      // to read the actual rendered dimensions, not el.style.width.
+      const homeStyles = window.getComputedStyle(homeAvatar);
+      const awayStyles = window.getComputedStyle(awayAvatar);
+
+      expect(homeStyles.width).toBe('20px');
+      expect(homeStyles.height).toBe('20px');
+      expect(awayStyles.width).toBe('20px');
+      expect(awayStyles.height).toBe('20px');
+    }
+  });
+
   it('is reachable by keyboard below md, where the tiles scroll sideways', async () => {
     mobile = true;
     mockGetByUrl({
