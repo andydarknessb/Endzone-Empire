@@ -344,8 +344,10 @@ describe('AroundTheLeague', () => {
       const homeAvatar = within(tile).getByTestId('around-the-league-tile-home-avatar');
       const awayAvatar = within(tile).getByTestId('around-the-league-tile-away-avatar');
 
-      // The size prop is applied as width/height inline styles on the MUI Avatar
-      // Verify both home and away avatars render at 20px
+      // The size prop compiles to width/height rules in an emotion class (via sx),
+      // which insertRule injects into the stylesheet. getComputedStyle cascades those
+      // class rules; the element's style attribute remains empty. Use getComputedStyle
+      // to read the actual rendered dimensions, not el.style.width.
       const homeStyles = window.getComputedStyle(homeAvatar);
       const awayStyles = window.getComputedStyle(awayAvatar);
 
