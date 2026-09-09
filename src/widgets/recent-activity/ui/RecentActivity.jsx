@@ -25,9 +25,11 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  *
  * The card fetches exactly 8 rows (`useLeagueTransactions`'s own `limit`);
  * below the `md` breakpoint only the first 5 of those render, matching the
- * mockup's mobile artboard. Loading always holds 8 skeleton rows regardless
- * of breakpoint, so the card never re-flows narrower the instant a mobile
- * read lands.
+ * mockup's mobile artboard. The loading skeleton follows the SAME cap (5
+ * rows below `md`, 8 at and above it) rather than always holding 8, so
+ * loading never overshoots the row count the breakpoint is about to show -
+ * the shape `draft-grades/ui/DraftGrades.jsx` uses for the same reason
+ * ("so the rail does not jump ... when the grades land").
  *
  * The card is the region that owns its one read, so it carries `aria-busy`
  * while `status` is 'loading' (Skeleton.jsx: the loading state is announced
@@ -39,12 +41,14 @@ const MOBILE_LIMIT = 5;
 
 const ELLIPSIS_SX = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
+// padding/gap match the design source verbatim (docs/design/
+// league-dashboard-v2/build.mjs's recentActivity(): `padding:8px 18px`).
 const ROW_SX = (first) => ({
   display: 'flex',
   alignItems: 'center',
   gap: '10px',
   px: '18px',
-  py: '9px',
+  py: '8px',
   borderTop: first ? 0 : '1px solid var(--dash-line)',
 });
 
@@ -72,7 +76,7 @@ function ActivityRow({ row, first, now }) {
       <Badge variant={badge.variant} sx={{ flex: 'none' }}>
         {badge.label}
       </Badge>
-      <Box sx={{ display: 'grid', gap: '2px', flex: '1 1 0', minWidth: 0 }}>
+      <Box sx={{ display: 'grid', gap: '1px', flex: '1 1 0', minWidth: 0 }}>
         <Box
           component="span"
           data-testid="recent-activity-team"
@@ -127,14 +131,17 @@ export default function RecentActivity({ leagueId, now, headingLevel = 2, sx, ..
               display: 'inline-flex',
               alignItems: 'center',
               // The card's only interactive element, so its hit area needs to
-              // clear the touch-target floor on its own (LineupsCard's own
-              // "Full comparison" tail action, src/widgets/retro-scoreboard/
-              // ui/LineupsCard.jsx, is the same shape); a bare 12px text node
-              // would be well under it.
+              // clear the touch-target floor on its own. Matches LineupsCard's
+              // "Full comparison" tail action (src/widgets/retro-scoreboard/
+              // ui/LineupsCard.jsx) in full: the same minHeight/px shape, plus
+              // its border-radius and focus/hover treatment, not just the size.
               minHeight: mobile ? 44 : 30,
               px: '6px',
               mx: '-6px',
+              borderRadius: 'var(--radius-sm)',
               color: 'inherit',
+              '&:hover': { color: 'var(--dash-ink)' },
+              '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
             }}
           >
             All activity
@@ -148,7 +155,7 @@ export default function RecentActivity({ leagueId, now, headingLevel = 2, sx, ..
     >
       {status === 'loading' && (
         <Box aria-hidden="true">
-          {Array.from({ length: FETCH_LIMIT }, (_, i) => (
+          {Array.from({ length: mobile ? MOBILE_LIMIT : FETCH_LIMIT }, (_, i) => (
             <ActivitySkeletonRow key={i} first={i === 0} />
           ))}
         </Box>

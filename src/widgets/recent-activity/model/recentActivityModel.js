@@ -37,8 +37,13 @@ const TYPE_BADGE = {
  */
 export function activityBadge(type) {
   const known = TYPE_BADGE[type];
-  if (known) return known;
-  return { variant: 'neutral', label: type ? `${type[0].toUpperCase()}${type.slice(1)}` : 'Activity' };
+  // A copy, not the table entry itself: a caller that mutated the returned
+  // object would otherwise corrupt TYPE_BADGE process-wide.
+  if (known) return { ...known };
+  return {
+    variant: 'neutral',
+    label: typeof type === 'string' && type ? `${type[0].toUpperCase()}${type.slice(1)}` : 'Activity',
+  };
 }
 
 const MINUTE_MS = 60 * 1000;
@@ -61,9 +66,14 @@ const WEEK_MS = 7 * DAY_MS;
  * acceptance criteria both name one explicitly.
  *
  * `now` (epoch ms or a Date) is the clock the buckets are measured against;
- * it defaults to the render time and exists so a test can pin it.
+ * it defaults to the render time and exists so a test can pin it. `locale`
+ * threads through to the weekday/date `toLocaleDateString` calls exactly the
+ * way `scoring-feed/model/scoringFeedModel.js`'s `formatPlayTime` takes one:
+ * `undefined` in production (the viewer's own locale), pinned to a fixed
+ * value by a test so the asserted string does not depend on the machine
+ * running it.
  */
-export function formatActivityTime(at, now = Date.now()) {
+export function formatActivityTime(at, now = Date.now(), locale) {
   const date = at instanceof Date ? at : new Date(at);
   const nowMs = now instanceof Date ? now.getTime() : now;
   const diffMs = Math.max(0, nowMs - date.getTime());
@@ -72,10 +82,10 @@ export function formatActivityTime(at, now = Date.now()) {
   if (diffMs < HOUR_MS) return `${Math.floor(diffMs / MINUTE_MS)}m ago`;
   if (diffMs < DAY_MS) return `${Math.floor(diffMs / HOUR_MS)}h ago`;
   if (diffMs < 2 * DAY_MS) return 'Yesterday';
-  if (diffMs < WEEK_MS) return date.toLocaleDateString(undefined, { weekday: 'short' });
+  if (diffMs < WEEK_MS) return date.toLocaleDateString(locale, { weekday: 'short' });
 
   const sameYear = date.getFullYear() === new Date(nowMs).getFullYear();
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
     ...(sameYear ? {} : { year: 'numeric' }),

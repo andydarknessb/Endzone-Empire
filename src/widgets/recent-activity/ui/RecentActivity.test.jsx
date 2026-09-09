@@ -160,6 +160,14 @@ test('a row\'s relative time follows the widget\'s own helper (2h ago / Yesterda
   expect(within(commissionerRow).getByTestId('recent-activity-time')).toHaveTextContent('Yesterday');
 });
 
+test('the heading level follows headingLevel (ADR 0021)', async () => {
+  mockGet({ data: EIGHT_ROWS });
+  renderWidget({ headingLevel: 3 });
+
+  await screen.findAllByTestId('recent-activity-row');
+  expect(screen.getByRole('heading', { level: 3, name: 'Recent activity' })).toBeInTheDocument();
+});
+
 test('the tail links to /league/42/activity', async () => {
   mockGet({ data: EIGHT_ROWS });
   renderWidget();
@@ -178,12 +186,16 @@ test('below the md breakpoint the card shows five rows, not eight', async () => 
   expect(screen.getByText('5')).toBeInTheDocument(); // the card's count follows what's shown
 });
 
-test('the loading skeleton holds eight rows regardless of the md breakpoint', async () => {
+test('below the md breakpoint the loading skeleton also caps at five rows, not eight', async () => {
+  // The skeleton follows the same breakpoint cap as the loaded rows (should-
+  // fix from the formal review on PR #1121): 8 placeholders collapsing to 5
+  // real rows the instant a mobile read lands would itself be the re-flow
+  // the card's docblock says this design avoids.
   mobile = true;
   mockGet({ pending: true });
   renderWidget();
 
-  expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(8);
+  expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(5);
 });
 
 test('an empty response renders the empty-state sentence', async () => {
