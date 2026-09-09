@@ -13,19 +13,27 @@
 // `recentActivity()`) pins for it. A commissioner row's label is "Settings",
 // not "Commissioner": the badge names the ACTION (a settings change), and the
 // row's own Team column separately reads "Commissioner" for WHO made it.
+//
+// `stat_correction` is a sixth, documented row shape carried by the same
+// entity (an NFL stat-correction row, entities/activity's own module
+// docblock) that this card's mockup does not name a chip for. It gets an
+// explicit entry rather than falling through to `activityBadge`'s generic
+// fallback below, which would otherwise announce the raw enum
+// ("Stat_correction", underscore and all) in a design-pinned chip row.
 const TYPE_BADGE = {
   add: { variant: 'success', label: 'Add' },
   drop: { variant: 'danger', label: 'Drop' },
   trade: { variant: 'live', label: 'Trade' },
   waiver: { variant: 'neutral', label: 'Waiver' },
   commissioner: { variant: 'warning', label: 'Settings' },
+  stat_correction: { variant: 'neutral', label: 'Stat correction' },
 };
 
 /**
  * The Badge `{ variant, label }` for a transaction row's `type`. A type this
- * table does not carry (e.g. `stat_correction`, or a future server addition)
- * degrades to a neutral chip labelled with the type word itself, rather than
- * throwing or rendering blank.
+ * table does not carry (a future server addition) degrades to a neutral chip
+ * labelled with the type word itself, rather than throwing or rendering
+ * blank.
  */
 export function activityBadge(type) {
   const known = TYPE_BADGE[type];

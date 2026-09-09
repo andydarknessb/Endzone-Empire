@@ -123,7 +123,19 @@ export default function RecentActivity({ leagueId, now, headingLevel = 2, sx, ..
             component={RouterLink}
             to={`/league/${leagueId}/activity`}
             data-testid="recent-activity-all-link"
-            sx={{ color: 'inherit' }}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              // The card's only interactive element, so its hit area needs to
+              // clear the touch-target floor on its own (LineupsCard's own
+              // "Full comparison" tail action, src/widgets/retro-scoreboard/
+              // ui/LineupsCard.jsx, is the same shape); a bare 12px text node
+              // would be well under it.
+              minHeight: mobile ? 44 : 30,
+              px: '6px',
+              mx: '-6px',
+              color: 'inherit',
+            }}
           >
             All activity
           </Box>
@@ -159,7 +171,7 @@ export default function RecentActivity({ leagueId, now, headingLevel = 2, sx, ..
       )}
 
       {status === 'ready' && shown.length > 0 && (
-        <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+        <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
           {shown.map((row, i) => (
             <ActivityRow key={row.id ?? i} row={row} first={i === 0} now={now} />
           ))}

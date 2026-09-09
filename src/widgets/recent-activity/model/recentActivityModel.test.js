@@ -10,12 +10,16 @@ describe('activityBadge', () => {
     ['trade', 'live', 'Trade'],
     ['waiver', 'neutral', 'Waiver'],
     ['commissioner', 'warning', 'Settings'],
+    // A sixth, documented row shape (entities/activity's own docblock) the
+    // issue's mockup names no chip for; it gets a real label rather than
+    // falling through to the generic fallback below.
+    ['stat_correction', 'neutral', 'Stat correction'],
   ])('%s maps to variant %s, label %s', (type, variant, label) => {
     expect(activityBadge(type)).toEqual({ variant, label });
   });
 
   test('an unrecognized type degrades to a neutral chip labelled with the capitalized type', () => {
-    expect(activityBadge('stat_correction')).toEqual({ variant: 'neutral', label: 'Stat_correction' });
+    expect(activityBadge('birthday')).toEqual({ variant: 'neutral', label: 'Birthday' });
   });
 
   test('a null/undefined type degrades to a neutral "Activity" chip rather than throwing', () => {
