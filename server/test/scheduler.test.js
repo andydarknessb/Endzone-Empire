@@ -705,7 +705,21 @@ test('zombie guard: a league with no picks this season, or created after week 18
   assert.deepEqual(await scheduler.runPickemSeasonCompletion({ now: new Date('2027-01-11T06:00:00Z') }), []);
   assert.equal(noPicks.league.season_status, 'regular');
   assert.equal(noPicks.trophies.length, 0);
-  assert.ok(noPicks.calls.some((c) => c.text === 'ROLLBACK'), 'the guard is checked under the row lock');
+  // The zombie-guard bail is a read-only early return now (#1071): it opens the
+  // transaction, takes the row lock, then returns null - which COMMITs the empty
+  // transaction and releases the lock exactly as the old bare ROLLBACK did. The
+  // guard is still checked under the row lock (BEGIN + FOR UPDATE precede it) and
+  // still writes nothing (no season_status UPDATE); the close is now a COMMIT.
+  assert.ok(noPicks.calls.some((c) => c.text === 'BEGIN'), 'the guard runs inside a transaction');
+  assert.ok(
+    noPicks.calls.some((c) => /FROM "leagues" WHERE "id" = \$1 FOR UPDATE/.test(c.text)),
+    'the row is locked FOR UPDATE before the guard fires'
+  );
+  assert.ok(
+    !noPicks.calls.some((c) => /UPDATE "leagues" SET "season_status"/.test(c.text)),
+    'the guard bails before any write'
+  );
+  assert.ok(noPicks.calls.some((c) => c.text === 'COMMIT'), 'the read-only bail closes with COMMIT');
 
   const lateCreate = pickemSeasonWorld(t, {
     // Created in the dead window between week 18 and the next schedule sync:

@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 // Required as a module object (not destructured at load) so captureError stays a
 // mockable seam for the overdue-alarm and catch-routing tests (#768).
 const sentry = require('../modules/sentry');
@@ -593,9 +594,14 @@ async function autoPick({ leagueId }) {
  * fact moved on.
  */
 async function escalateNothingDraftable({ leagueId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033) - the close this #839-class lock-holder must get
+  // right. Nothing ran between the old checkout and BEGIN, so no statement newly
+  // reaches the wrapper's catch. Both early bails precede every write (only the
+  // FOR UPDATE re-read runs before them), so returning null COMMITs a read-only
+  // transaction and releases the row lock exactly as the old bare ROLLBACK did;
+  // the write path still returns { activity } as before.
+  return withTransaction(pool, async (client) => {
     const leagueResult = await client.query(
       `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
@@ -604,12 +610,13 @@ async function escalateNothingDraftable({ leagueId }) {
     // A concurrent firing may have already paused (another escalation) or
     // advanced the turn and re-armed (a committed Pick). Decline in either case.
     if (!league || league.draft_status !== 'active' || league.draft_paused) {
-      await client.query('ROLLBACK');
+      // Read-only so far: a plain return null COMMITs the empty transaction and
+      // releases the lock, the same release the bare ROLLBACK gave.
       return null;
     }
     const deadline = league.pick_deadline_at;
     if (deadline == null || msUntilDeadline(deadline) > 0) {
-      await client.query('ROLLBACK');
+      // Still read-only: same read-only COMMIT-and-release as the bail above.
       return null;
     }
     const teamsResult = await client.query(
@@ -638,14 +645,8 @@ async function escalateNothingDraftable({ leagueId }) {
       kind: STALLED,
       team: stuckTeam ? { id: stuckTeam.id, name: stuckTeam.name } : null,
     });
-    await client.query('COMMIT');
     return { activity };
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+  }, { label: 'draft-stall-escalation' });
 }
 
 // --- Hybrid expiry: in-process timers beside the stored deadline (#601) -------

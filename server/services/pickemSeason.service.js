@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const {
   REG_SEASON_WEEKS,
   winnerOf,
@@ -358,23 +359,28 @@ async function syncPickemOnlyWeeks({ now = new Date(), db = pool } = {}) {
  * guard: no picks were ever made this season).
  */
 async function completeOnePickemSeason({ league, season, seasonGames }) {
-  const client = await pool.connect();
-  let outcome = null;
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). Nothing ran between the old checkout and BEGIN, so
+  // no statement newly reaches the wrapper's catch. Both early bails precede
+  // every write (the FOR UPDATE re-read and the has-picks SELECT are the only
+  // statements before them), so returning null COMMITs a read-only transaction
+  // and releases the row lock exactly as the old bare ROLLBACK did; the write
+  // path returns the outcome object as before.
+  const outcome = await withTransaction(pool, async (client) => {
     const locked = await client.query(
       `SELECT "id", "current_season", "season_status" FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [league.id]
     );
     const row = locked.rows[0];
     if (!row || row.season_status === 'complete' || Number(row.current_season) !== season) {
-      await client.query('ROLLBACK');
+      // Read-only so far: a plain return null COMMITs the empty transaction and
+      // releases the lock, the same release the bare ROLLBACK gave.
       return null;
     }
     if (!(await hasPicksThisSeason(client, league.id, season))) {
       // Zombie guard: a league nobody ever picked in (created into a finished
       // season, or simply abandoned) never completes and never crowns anyone.
-      await client.query('ROLLBACK');
+      // Still read-only: same read-only COMMIT-and-release as the bail above.
       return null;
     }
     const { standings, mode } = await getCompletionStandings({
@@ -397,19 +403,17 @@ async function completeOnePickemSeason({ league, season, seasonGames }) {
         champions: champions.map((row) => ({ teamId: row.teamId, points: row.points, correct: row.correct })),
       },
     });
-    await client.query('COMMIT');
-    outcome = {
+    return {
       leagueId: league.id,
       season,
       champions,
       awarded: declaration.awarded,
     };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+  }, { label: 'pickem-season-completion' });
+  // A null outcome is an early bail (already complete, or the zombie guard): the
+  // old early `return null` exited before the post-commit block, so mirror that
+  // and skip the best-effort notify entirely.
+  if (!outcome) return null;
   // Post-commit, best-effort: a notify failure must never roll back the
   // completed season or its trophies, nor report the completion as failed.
   try {
