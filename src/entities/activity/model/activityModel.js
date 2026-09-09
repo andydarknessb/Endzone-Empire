@@ -9,7 +9,7 @@
  *
  * The shape:
  *
- *   { id, type, teamName, avatarUrl, avatarStaticUrl, sentence, players, at }
+ *   { id, type, teamName, avatarUrl, avatarStaticUrl, sentence, players, segments, at }
  *
  * `type` is one of add | drop | waiver | trade | commissioner (the transaction
  * types `GET /api/league/:id/transactions` documents) or stat_correction (an
@@ -34,6 +34,19 @@
  * existed) carries both as empty arrays, never a throw. This is how a caller
  * (`TransactionLog`) rebuilds `sentence` with clickable player names without
  * re-deriving its own per-type switch to find them.
+ *
+ * `segments` is `sentence` itself, pre-split into the pieces a caller needs
+ * to render it with clickable player names: an ordered list of
+ * `{ type: 'text', value }` and `{ type: 'player', name, playerId }` parts
+ * whose `value`/`name`s concatenate back to exactly `sentence`. It exists
+ * because matching player names back against the flat `sentence` string is
+ * unsound — a suffixed name ("Josh Allen" vs. "Josh Allen Jr.") or a Team
+ * name that happens to contain a player's surname ("Allen Army") makes text
+ * matching pick the wrong span, and two same-named players resolve to
+ * whichever one text search finds first (#1112). Each player is already a
+ * distinct part in this list, so a caller like `TransactionLog` places a
+ * `PlayerNameLink` at each `player` part and text at each `text` part,
+ * in order, and never re-derives positions from prose.
  *
  * `at` is the row's `created_at`, carried verbatim (an ISO string) so a caller
  * formats it however that surface always has (relative time, a day header).
@@ -122,6 +135,72 @@ function playersFor(row) {
   }
 }
 
+const text = (value) => ({ type: 'text', value });
+const player = (name, playerId) => ({ type: 'player', name, playerId });
+
+// A comma-joined run of player parts, exactly as `sentenceFor`'s own
+// `names(list).join(', ')` renders the same list as text.
+function playerListSegments(items) {
+  const segs = [];
+  items.forEach((item, i) => {
+    if (i > 0) segs.push(text(', '));
+    segs.push(player(item.playerName, item.playerId));
+  });
+  return segs;
+}
+
+/**
+ * `sentence`, pre-split into ordered text/player parts (see the module
+ * docblock). Mirrors `sentenceFor` part for part — same per-type guards, same
+ * literal words — so the two can never disagree about what the sentence
+ * says, only about whether a player's name is plain text or a linkable part.
+ */
+function segmentsFor(row) {
+  const detail = row.detail || {};
+  switch (row.type) {
+    case 'add':
+      return [text('added '), player(row.player_name, detail.playerId)];
+    case 'drop':
+      return [text('dropped '), player(row.player_name, detail.playerId)];
+    case 'waiver': {
+      const bidSuffix = typeof detail.bid === 'number' ? ` ($${detail.bid})` : '';
+      const segs = [text('claimed '), player(row.player_name, detail.playerId)];
+      if (bidSuffix) segs.push(text(bidSuffix));
+      if (detail.droppedPlayerId && row.dropped_player_name) {
+        segs.push(text(', dropped '), player(row.dropped_player_name, detail.droppedPlayerId));
+      }
+      return segs;
+    }
+    case 'trade': {
+      const items = Array.isArray(detail.items) ? detail.items : [];
+      if (items.length === 0 || !detail.receivingTeamName) return [text('completed a trade')];
+      const sent = items.filter((i) => i.fromTeamId === detail.proposingTeamId);
+      const received = items.filter((i) => i.toTeamId === detail.proposingTeamId);
+      return [
+        text('traded '),
+        ...playerListSegments(sent),
+        text(` to ${detail.receivingTeamName} for `),
+        ...playerListSegments(received),
+      ];
+    }
+    case 'commissioner':
+      return [text('commissioner action')];
+    case 'stat_correction': {
+      const changed = Array.isArray(detail.changes) ? detail.changes.length : 0;
+      const week = detail.week;
+      return [
+        text(
+          `NFL stat correction updated ${changed} matchup score${changed === 1 ? '' : 's'}${
+            week ? ` in week ${week}` : ''
+          }`
+        ),
+      ];
+    }
+    default:
+      return [text('')];
+  }
+}
+
 /**
  * One transaction row (`GET /api/league/:id/transactions`) as the client
  * knows it. A null row yields an empty-shaped model rather than throwing.
@@ -136,6 +215,7 @@ export function activityFromRow(row) {
     avatarStaticUrl: r.team_avatar_static_url ?? null,
     sentence: sentenceFor(r),
     players: playersFor(r),
+    segments: segmentsFor(r),
     at: r.created_at ?? null,
   };
 }

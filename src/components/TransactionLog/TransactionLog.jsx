@@ -98,30 +98,23 @@ function dayLabel(dateLike) {
   });
 }
 
-function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // The Activity read model's `sentence` (src/entities/activity, #1100) is a
 // flat string, but a player's name inside it has always been a clickable
 // PlayerNameLink that opens the shared PlayerQuickView (#1100 escalation:
-// dropping that cost the app-wide convention and its only test). Rather than
-// TransactionLog re-deriving its own per-type switch to know where a name
-// sits, it splits `sentence` on the model's own structured `players`
-// references and swaps each occurrence for a link — one generic pass that
-// works the same for every type, add through trade.
-function linkifySentence(sentence, players, onOpenPlayer) {
-  const refs = [...players.added, ...players.dropped].filter((p) => p.name && p.playerId != null);
-  if (refs.length === 0) return sentence;
-  const pattern = new RegExp(`(${refs.map((p) => escapeRegExp(p.name)).join('|')})`, 'g');
-  return sentence.split(pattern).map((part, i) => {
-    const ref = refs.find((p) => p.name === part);
-    return ref ? (
-      <PlayerNameLink key={`${ref.playerId}-${i}`} name={ref.name} playerId={ref.playerId} onOpen={onOpenPlayer} />
+// dropping that cost the app-wide convention and its only test). Matching
+// player names back against the flat sentence text is unsound (a suffixed
+// name, a Team name containing a surname, two same-named players — #1112),
+// so TransactionLog never does that: it renders the model's own `segments`
+// in order, a `PlayerNameLink` at each player part and plain text at each
+// text part, so a name is a link because it IS one, not because it matched.
+function renderSegments(segments, onOpenPlayer) {
+  return segments.map((seg, i) =>
+    seg.type === 'player' ? (
+      <PlayerNameLink key={`${seg.playerId}-${i}`} name={seg.name} playerId={seg.playerId} onOpen={onOpenPlayer} />
     ) : (
-      part
-    );
-  });
+      <React.Fragment key={i}>{seg.value}</React.Fragment>
+    )
+  );
 }
 
 // One row of the activity timeline: a colored dot/icon keyed off the
@@ -129,11 +122,12 @@ function linkifySentence(sentence, players, onOpenPlayer) {
 // timestamp aligned to the right. The description text is the Activity read
 // model's `sentence` (src/entities/activity, #1100): TransactionLog no
 // longer derives it inline, so it cannot drift from another surface reading
-// the same rows; player names inside it are linkified from the model's own
-// `players` references (see linkifySentence above).
+// the same rows; it renders from the model's own `segments` rather than
+// `sentence` so player names inside it stay clickable (see renderSegments
+// above).
 function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
   const { Icon, color } = TYPE_ICON_META[txn.type] || { Icon: HistoryOutlinedIcon, color: 'grey' };
-  const { sentence, players } = activityFromRow(txn);
+  const { segments } = activityFromRow(txn);
   return (
     <TimelineItem data-testid={`txn-${txn.id}`}>
       <TimelineSeparator>
@@ -157,7 +151,7 @@ function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
                   {txn.team_name}{' '}
                 </Box>
               )}
-              {linkifySentence(sentence, players, onOpenPlayer)}
+              {renderSegments(segments, onOpenPlayer)}
             </Typography>
           </Box>
           <Tooltip title={new Date(txn.created_at).toLocaleString()}>

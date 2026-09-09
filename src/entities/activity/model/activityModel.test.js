@@ -128,8 +128,121 @@ describe('activityFromRow: the one sentence per transaction type', () => {
       avatarStaticUrl: null,
       sentence: '',
       players: { added: [], dropped: [] },
+      segments: [{ type: 'text', value: '' }],
       at: null,
     });
+  });
+});
+
+// Renders segments back to a string the same way a caller would (text
+// verbatim, a player part as its name) — used to assert segments and
+// sentence never disagree about what the sentence says.
+const renderSegments = (segments) =>
+  segments.map((s) => (s.type === 'player' ? s.name : s.value)).join('');
+
+describe('activityFromRow: segments, sentence pre-split for clickable names', () => {
+  test.each(['add', 'drop', 'waiver', 'trade', 'commissioner'])(
+    '%s: segments render back to exactly the sentence',
+    (type) => {
+      const model = activityFromRow(byType(type));
+      expect(renderSegments(model.segments)).toBe(model.sentence);
+    }
+  );
+
+  test('an older trade row with no rich detail: segments render back to the fallback sentence', () => {
+    const model = activityFromRow({ ...byType('trade'), detail: {} });
+    expect(renderSegments(model.segments)).toBe(model.sentence);
+    expect(model.segments).toEqual([{ type: 'text', value: 'completed a trade' }]);
+  });
+
+  test('stat_correction: a text-only segment, matching the sentence', () => {
+    const model = activityFromRow({
+      type: 'stat_correction',
+      team_name: null,
+      detail: { week: 4, changes: [{ matchupId: 9 }, { matchupId: 11 }] },
+    });
+    expect(renderSegments(model.segments)).toBe(model.sentence);
+    expect(model.segments).toEqual([{ type: 'text', value: model.sentence }]);
+  });
+
+  test('add: one player part, carrying its playerId', () => {
+    const model = activityFromRow(byType('add'));
+    expect(model.segments).toEqual([
+      { type: 'text', value: 'added ' },
+      { type: 'player', name: 'Justin Jefferson', playerId: 1 },
+    ]);
+  });
+
+  // Regression (#1112): matching player names back against the flat sentence
+  // is unsound whenever one name is a prefix of another. A waiver claiming
+  // "Josh Allen" while dropping "Josh Allen Jr." must still link each name
+  // to its OWN playerId, not have the dropped link resolve to the added
+  // player because "Josh Allen" is found first.
+  test('waiver: a dropped player whose name prefixes the added player\'s name still links to its own id', () => {
+    const model = activityFromRow({
+      type: 'waiver',
+      team_name: "Alice's Team",
+      player_name: 'Josh Allen',
+      dropped_player_name: 'Josh Allen Jr.',
+      detail: { playerId: 1, droppedPlayerId: 2, bid: 5 },
+    });
+    expect(model.sentence).toBe('claimed Josh Allen ($5), dropped Josh Allen Jr.');
+    const playerParts = model.segments.filter((s) => s.type === 'player');
+    expect(playerParts).toEqual([
+      { type: 'player', name: 'Josh Allen', playerId: 1 },
+      { type: 'player', name: 'Josh Allen Jr.', playerId: 2 },
+    ]);
+    expect(renderSegments(model.segments)).toBe(model.sentence);
+  });
+
+  // Regression (#1112): a Team name embedded in a trade sentence can contain
+  // a player's surname ("Allen Army" contains "Allen"). The team name must
+  // stay plain text, never mistaken for a player part.
+  test('trade: a Team name containing a player surname stays plain text, not a player part', () => {
+    const model = activityFromRow({
+      type: 'trade',
+      team_name: "Alice's Team",
+      detail: {
+        proposingTeamId: 10,
+        receivingTeamName: 'Allen Army',
+        items: [
+          { playerId: 5, playerName: 'Allen', fromTeamId: 10, toTeamId: 20 },
+          { playerId: 6, playerName: 'Smith', fromTeamId: 20, toTeamId: 10 },
+        ],
+      },
+    });
+    expect(model.sentence).toBe('traded Allen to Allen Army for Smith');
+    expect(model.segments).toEqual([
+      { type: 'text', value: 'traded ' },
+      { type: 'player', name: 'Allen', playerId: 5 },
+      { type: 'text', value: ' to Allen Army for ' },
+      { type: 'player', name: 'Smith', playerId: 6 },
+    ]);
+  });
+
+  // Regression (#1112): the same player name on both sides of a trade (two
+  // different players who happen to share a name) must resolve to two
+  // distinct playerIds, not both to whichever occurrence text search finds
+  // first.
+  test('trade: the same player name sent and received keeps its own distinct id on each side', () => {
+    const model = activityFromRow({
+      type: 'trade',
+      team_name: 'Team A',
+      detail: {
+        proposingTeamId: 10,
+        receivingTeamName: 'Team X',
+        items: [
+          { playerId: 100, playerName: 'Foo Bar', fromTeamId: 10, toTeamId: 20 },
+          { playerId: 200, playerName: 'Foo Bar', fromTeamId: 20, toTeamId: 10 },
+        ],
+      },
+    });
+    expect(model.sentence).toBe('traded Foo Bar to Team X for Foo Bar');
+    const playerParts = model.segments.filter((s) => s.type === 'player');
+    expect(playerParts).toEqual([
+      { type: 'player', name: 'Foo Bar', playerId: 100 },
+      { type: 'player', name: 'Foo Bar', playerId: 200 },
+    ]);
   });
 });
 
