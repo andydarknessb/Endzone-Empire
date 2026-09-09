@@ -220,9 +220,10 @@ async function sendLineupReminders() {
 
       // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
       // release rule (ADR 0033). This is the lineup transaction whose catch
-      // rethrows; the notify-only sub-transaction lower in this function logs
-      // and continues on failure and is a misfit left untouched (another child
-      // of #1061 owns it). No early return and no catch-side mapping.
+      // rethrows; the notify-only sub-transaction lower in this function is the
+      // swallow-at-the-call-site shape (#1072), also routed through the wrapper
+      // with its log-and-continue in a catch here. No early return and no
+      // catch-side mapping.
       const entriesResult = await withTransaction(
         pool,
         async (lineupClient) => {
@@ -287,21 +288,27 @@ async function sendLineupReminders() {
       } catch (err) {
         console.error('lineup reminder push failed:', err.message);
       }
-      const client = await pool.connect();
+      // Notify-only, best-effort: the swallow sits here at the call site around
+      // withTransaction (ADR 0033, #1072). The ROLLBACK was unguarded before, so
+      // a rejecting rollback escaped this swallow and aborted the whole digest
+      // run; the wrapper now contains it (destroying the connection), which is
+      // the log-and-continue this catch always intended. A connect failure now
+      // reaches this catch too (the checkout moved inside the wrapper) and is
+      // swallowed the same way, which is correct for best-effort nudging.
       try {
-        await client.query('BEGIN');
-        await notify(client, {
-          userId: team.owner_id,
-          leagueId,
-          type: 'lineup_reminder',
-          message,
-        });
-        await client.query('COMMIT');
+        await withTransaction(
+          pool,
+          (client) =>
+            notify(client, {
+              userId: team.owner_id,
+              leagueId,
+              type: 'lineup_reminder',
+              message,
+            }),
+          { label: 'lineup-reminder-notify' }
+        );
       } catch (error) {
-        await client.query('ROLLBACK');
         console.error('lineup reminder notification failed:', error.message);
-      } finally {
-        client.release();
       }
       await deliverEmail({
         to: team.email,
@@ -408,21 +415,27 @@ async function sendPickemReminders() {
       } catch (err) {
         console.error("pick'em reminder push failed:", err.message);
       }
-      const client = await pool.connect();
+      // Notify-only, best-effort: the swallow sits here at the call site around
+      // withTransaction (ADR 0033, #1072). The ROLLBACK was unguarded before, so
+      // a rejecting rollback escaped this swallow and aborted the whole digest
+      // run; the wrapper now contains it (destroying the connection), which is
+      // the log-and-continue this catch always intended. A connect failure now
+      // reaches this catch too (the checkout moved inside the wrapper) and is
+      // swallowed the same way, which is correct for best-effort nudging.
       try {
-        await client.query('BEGIN');
-        await notify(client, {
-          userId: member.owner_id,
-          leagueId: league.id,
-          type: 'pickem_reminder',
-          message,
-        });
-        await client.query('COMMIT');
+        await withTransaction(
+          pool,
+          (client) =>
+            notify(client, {
+              userId: member.owner_id,
+              leagueId: league.id,
+              type: 'pickem_reminder',
+              message,
+            }),
+          { label: 'pickem-reminder-notify' }
+        );
       } catch (error) {
-        await client.query('ROLLBACK');
         console.error("pick'em reminder notification failed:", error.message);
-      } finally {
-        client.release();
       }
       await deliverEmail({
         to: member.email,

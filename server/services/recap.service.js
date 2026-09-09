@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { logTransaction, notifyLeague } = require('./activity.service');
 // The ONE pricer the settle pass uses. The waiver steal is priced under the
 // league's rules, the identical formula the score of record uses, not the
@@ -270,27 +271,33 @@ async function generateWeeklyRecap({ leagueId, season, week }) {
     [leagueId, season, week, JSON.stringify(data)]
   );
 
-  // Post to the league feed + notify members
-  const client = await pool.connect();
+  // Post to the league feed + notify members. Best-effort: the recap is already
+  // stored, so a feed/notify failure never fails the recap - the swallow sits
+  // here at the call site around withTransaction (ADR 0033, #1072). The ROLLBACK
+  // was unguarded before, so a rejecting rollback escaped this swallow; the
+  // wrapper now contains it (destroying the connection). A connect failure now
+  // reaches this catch too (the checkout moved inside the wrapper) and is
+  // swallowed the same way. Either way `data` is returned unchanged.
   try {
-    await client.query('BEGIN');
-    await logTransaction(client, {
-      leagueId,
-      type: 'recap',
-      detail: { season, week },
-    });
-    await notifyLeague(client, {
-      leagueId,
-      type: 'recap',
-      message: `The week ${week} recap is in: ${narrative.slice(0, 120)}${narrative.length > 120 ? '…' : ''}`,
-      data: { season, week },
-    });
-    await client.query('COMMIT');
+    await withTransaction(
+      pool,
+      async (client) => {
+        await logTransaction(client, {
+          leagueId,
+          type: 'recap',
+          detail: { season, week },
+        });
+        await notifyLeague(client, {
+          leagueId,
+          type: 'recap',
+          message: `The week ${week} recap is in: ${narrative.slice(0, 120)}${narrative.length > 120 ? '…' : ''}`,
+          data: { season, week },
+        });
+      },
+      { label: 'recap-notify' }
+    );
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('recap: feed/notification write failed:', error.message);
-  } finally {
-    client.release();
   }
   return data;
 }

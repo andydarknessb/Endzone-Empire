@@ -290,27 +290,34 @@ async function getStandings({ leagueId }) {
  * also load this module.
  */
 async function materializeNewWeekLineups({ leagueId, season, week, league }) {
-  let client = null;
   try {
     const { materializeLineup } = require('./lineup.service');
-    client = await pool.connect();
-    const nextMatchups = await client.query(
+    // The team read runs on the pool, outside the transaction, so the
+    // zero-teams return happens before any wrapper call (there is nothing to
+    // materialize, and nothing to open a transaction for).
+    const nextMatchups = await pool.query(
       `SELECT "home_team_id", "away_team_id" FROM "matchups"
        WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
       [leagueId, season, week]
     );
     const teamIds = [...new Set(nextMatchups.rows.flatMap((m) => [m.home_team_id, m.away_team_id]))];
     if (teamIds.length === 0) return;
-    await client.query('BEGIN');
-    for (const teamId of teamIds) {
-      await materializeLineup(client, { leagueId, teamId, season, week, league });
-    }
-    await client.query('COMMIT');
+    await withTransaction(
+      pool,
+      async (client) => {
+        for (const teamId of teamIds) {
+          await materializeLineup(client, { leagueId, teamId, season, week, league });
+        }
+      },
+      { label: 'materializeNewWeekLineups' }
+    );
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    // Everything here - the team read, the connection and the transaction alike
+    // - is best-effort (ADR 0033, #1072): a seed problem on one roster or no
+    // connection to spare must never undo or error a committed week advance, so
+    // the whole thing stays inside this swallow-and-log, the wrapper owning the
+    // close (a rejecting rollback destroys the connection instead of escaping).
     console.error('new-week lineups not materialized', { leagueId, week, error: error.message });
-  } finally {
-    if (client) client.release();
   }
 }
 

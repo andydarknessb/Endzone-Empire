@@ -598,22 +598,34 @@ async function processDueTrades() {
   );
   const outcomes = [];
   for (const row of due.rows) {
-    const client = await pool.connect();
+    // The swallow sits here at the call site: withTransaction owns
+    // connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the release rule (ADR 0033),
+    // and `work` returns which path it took so the outcome list is built the
+    // same way. The broadcast runs AFTER the wrapper resolves, so the connection
+    // is already back in the pool (Ruling 3), matching respondToTrade and
+    // commissionerDecide.
+    let result;
     try {
-      await client.query('BEGIN');
-      const { trade, league, items, teams } = await loadTrade(client, row.id);
-      if (trade.status === 'accepted') {
-        await executeTrade(client, { trade, league, items, teams });
-        await client.query('COMMIT');
-        await getDraftRoomBroadcast().rosterChanged(league.id);
-        outcomes.push({ tradeId: row.id, status: 'executed' });
-        continue;
-      }
-      await client.query('COMMIT');
-      outcomes.push({ tradeId: row.id, status: trade.status });
+      result = await withTransaction(
+        pool,
+        async (client) => {
+          const { trade, league, items, teams } = await loadTrade(client, row.id);
+          if (trade.status === 'accepted') {
+            await executeTrade(client, { trade, league, items, teams });
+            return { status: 'executed', leagueId: league.id };
+          }
+          return { status: trade.status };
+        },
+        { label: 'processDueTrades' }
+      );
     } catch (err) {
-      await client.query('ROLLBACK');
-      // A dead trade (roster changed under it) shouldn't be retried forever
+      // A dead trade (roster changed under it) shouldn't be retried forever. The
+      // cancel stays on the POOL, never on the client: by the time this catch
+      // runs the wrapper has already rolled back and returned (or, on a rejecting
+      // rollback, destroyed) the connection, so there is no open transaction of
+      // ours to write into. The original error survives the wrapper unchanged
+      // (any rollback failure rides along as err.rollbackError), so a TradeError
+      // is still recognisable here.
       if (err instanceof TradeError) {
         await pool.query(
           `UPDATE "trades" SET "status" = 'cancelled', "updated_at" = now() WHERE "id" = $1`,
@@ -623,8 +635,13 @@ async function processDueTrades() {
       } else {
         console.error('trade execution failed for trade %s:', row.id, err.message);
       }
-    } finally {
-      client.release();
+      continue;
+    }
+    if (result.status === 'executed') {
+      await getDraftRoomBroadcast().rosterChanged(result.leagueId);
+      outcomes.push({ tradeId: row.id, status: 'executed' });
+    } else {
+      outcomes.push({ tradeId: row.id, status: result.status });
     }
   }
   return outcomes;

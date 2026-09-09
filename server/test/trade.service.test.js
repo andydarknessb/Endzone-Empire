@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
-const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade } = require('../services/trade.service');
+const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, processDueTrades } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 
 // --- roster capacity at the trade site (#97) --------------------------------
@@ -551,5 +551,69 @@ test('proposeTrade: a valid offer still commits through the wrapper and returns 
   assert.equal(world.matching(/^COMMIT$/).length, 1, 'the wrapper still commits');
   assert.equal(world.matching(/^ROLLBACK$/).length, 0, 'no ROLLBACK on the happy path');
   assert.equal(result.id, 99, 'the inserted trade row is returned');
+  world.assertClean();
+});
+
+// --- processDueTrades: swallow-at-the-call-site through withTransaction (#1072)
+// The representative pair for this child (Ruling 4). Both cases send one due
+// trade through the loop and make loadTrade's `SELECT * FROM "trades"` come back
+// empty, so `work` throws the SAME early 404 TradeError after two reads and zero
+// writes; the only difference between them is whether the ROLLBACK that follows
+// rejects. processDueTrades swallows the throw (it returns outcomes, never
+// rethrows), so the pair also proves the two behaviours unique to this site: the
+// original error survives the wrapper (the outcome reason is the 404 message,
+// not the rollback failure) and the cancel runs on the POOL, never on the
+// wrapper's client (which is already gone by the time the catch runs).
+
+const dueTradeWorldHandlers = () => [
+  [/FROM "trades" WHERE "status" = 'accepted'/, () => ({ rows: [{ id: 5 }] })],
+  [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({ rows: [{ id: 1 }] })],
+  // Empty: the due row is gone by the time loadTrade locks it (the race a dead
+  // trade takes), so loadTrade throws TradeError(404, 'trade not found').
+  [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({ rows: [] })],
+  [update('trades'), () => ({ rows: [], rowCount: 0 })],
+];
+
+test('processDueTrades: a rejecting ROLLBACK destroys the connection, the original error survives, and the cancel runs on the pool (#1072)', async (t) => {
+  const world = createFakePool([
+    ...dueTradeWorldHandlers(),
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+  ]).install(t);
+
+  // Red-tell: forcing withTransaction's finally to release bare (never destroy)
+  // leaves this rejected transaction open on the released client, so
+  // assertClean() throws 'transaction left open' and releaseArgs()[0] is no
+  // longer an Error. Reverting the site to its own unguarded `client.query(
+  // 'ROLLBACK')` + bare release instead makes the whole call reject with
+  // 'rollback rejected' rather than resolving to a swallowed outcome.
+  const outcomes = await processDueTrades();
+
+  // Swallowed at the call site: the run resolves, and the original 404 message
+  // (not 'rollback rejected') is what the outcome carries.
+  assert.deepEqual(outcomes, [{ tradeId: 5, status: 'cancelled', reason: 'trade not found' }]);
+
+  // The rejecting ROLLBACK left the transaction open on the socket, so the
+  // wrapper released the client WITH an Error (destroy) and nothing was left open.
+  assert.ok(world.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+  world.assertClean();
+
+  // The cancel is issued on the pool, never on the wrapper's client: by the time
+  // the catch runs the connection has already been destroyed.
+  const cancel = world.calls.find((c) => /^UPDATE "trades" SET "status" = 'cancelled'/.test(c.text));
+  assert.ok(cancel, 'the dead trade is cancelled');
+  assert.equal(cancel.via, 'pool', 'the cancel runs on the pool, not the client');
+});
+
+test('processDueTrades: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
+  const world = createFakePool(dueTradeWorldHandlers()).install(t);
+
+  // Same early 404, but the ROLLBACK succeeds cleanly (fakePool's default
+  // auto-answer), so the connection is healthy and must be returned bare, not
+  // destroyed. Red-tell: making the wrapper's release unconditional (always
+  // release with an Error) reddens the releaseArgs assertion below.
+  const outcomes = await processDueTrades();
+
+  assert.deepEqual(outcomes, [{ tradeId: 5, status: 'cancelled', reason: 'trade not found' }]);
+  assert.equal(world.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
   world.assertClean();
 });
