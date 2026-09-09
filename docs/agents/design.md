@@ -42,7 +42,8 @@ Barlow Condensed for display type and scores, Archivo for body (both
 self-hosted in `src/assets/fonts`), 14px card radius, `dash-surface`
 cards with a `dash-line` hairline, and `shared/ui` Card, Badge and
 Skeleton. New league surfaces are drawn in this generation; the committed
-`docs/design/dashboard-concept.html` is its reference source (ADR 0020).
+`docs/design/dashboard-concept.html` (ADR 0020) and
+`docs/design/league-dashboard-v2/` (ADR 0034) are its reference sources.
 
 Position colors are a data encoding, not decoration: `pos-qb`, `pos-rb`,
 `pos-wr`, `pos-te`, `pos-k`, `pos-def`, `pos-idp` carry `text-inverse`
