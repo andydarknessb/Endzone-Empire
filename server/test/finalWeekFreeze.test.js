@@ -208,14 +208,21 @@ function createWorld({
       })),
     })],
     [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team", "player_stats"\."stats"/, (text, [teamId, season, week]) => ({
+      // Standard settle read now LEFT JOINs player_stats (#1010), so it keeps a
+      // lineup row that has no matching player_stats row and returns a SQL NULL
+      // for its stats, exactly as the best-ball read one block up does. The
+      // dropped `.filter(...)` modelled the old INNER join and nothing else: it
+      // took out both a week-8 statless starter and every row of any OTHER week
+      // (WEEK_8_STATS holds stats for week 8 only, so a non-8 read matched no
+      // player_stats row), which are the same phenomenon, no matching row. It is
+      // not load-bearing for the freeze this suite tests: the best-ball handler
+      // above keeps its non-8 rows with null stats and the freeze tests pass.
       rows: scoringRows(text, teamId, week)
         .filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR')
-        // an inner JOIN on player_stats drops a statless row
-        .filter((e) => (week === 8 ? WEEK_8_STATS.get(e.player_id) : null))
         .map((e) => ({
           player_id: e.player_id,
           nfl_team: FREEZE_NFL_TEAM,
-          stats: WEEK_8_STATS.get(e.player_id),
+          stats: week === 8 ? WEEK_8_STATS.get(e.player_id) || null : null,
         })),
     })],
     /*

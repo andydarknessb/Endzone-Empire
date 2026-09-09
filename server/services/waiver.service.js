@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { assertFantasyLeagueRow } = require('./leagueType');
 const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
@@ -156,9 +157,13 @@ async function claimTarget({ leagueId, userId, playerId }) {
 
 /** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). Every refusal throws a WaiverError inside work,
+  // which the wrapper rolls back and rethrows untouched, so there is no
+  // catch-side mapping to move outward.
+  return withTransaction(
+    pool,
+    async (client) => {
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
@@ -209,14 +214,10 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [leagueId, team.id, playerId, dropPlayerId || null, league.waiver_type === 'faab' ? bid : 0]
     );
-    await client.query('COMMIT');
     return claimResult.rows[0];
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+    },
+    { label: 'waiver-claim' }
+  );
 }
 
 /** Cancel one of the caller's pending claims. */
@@ -281,9 +282,18 @@ async function openPostDraftWaiverWindow(client, { leagueId }) {
 }
 
 async function processWaivers({ leagueId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The no-due-claims branch returns inside work,
+  // which COMMITs: it returns AFTER real writes (clearing expired
+  // waiver_players and the blanket window), exactly as the hand-rolled early
+  // COMMIT did - a committing early return, not a ROLLBACK-before-write, so
+  // it is untouched by Ruling 2. Both that branch and the full path broadcast
+  // rosterChanged after the commit, identically, so that one post-commit
+  // broadcast is hoisted below the call. Refusals (a frozen league from the
+  // roster gate) throw and the wrapper rolls back; no catch-side mapping.
+  const result = await withTransaction(
+    pool,
+    async (client) => {
     const leagueResult = await client.query(
       `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
@@ -311,12 +321,13 @@ async function processWaivers({ leagueId }) {
         [leagueId]
       );
       await spendExpiredBlanketWindow(client, leagueId);
-      await client.query('COMMIT');
-      // The scheduler also reaches this path when an empty blanket window
-      // expires. No roster write is needed, but the Player read model changed
-      // from waiver-only to free-agent and connected managers must refetch. This
-      // runs in the WORKER, so it rides the one Draft room adapter (#745).
-      await getDraftRoomBroadcast().rosterChanged(leagueId);
+      // Returning COMMITs these writes (the DELETE and spend above), exactly as
+      // the hand-rolled early COMMIT did. The scheduler also reaches this path
+      // when an empty blanket window expires: no roster write is needed, but the
+      // Player read model changed from waiver-only to free-agent and connected
+      // managers must refetch. That broadcast is post-commit work and is hoisted
+      // below the wrapper, shared with the full path (it runs in the WORKER, so
+      // it rides the one Draft room adapter, #745).
       return { processed: 0, results: [] };
     }
 
@@ -500,15 +511,12 @@ async function processWaivers({ leagueId }) {
     );
     await spendExpiredBlanketWindow(client, leagueId);
 
-    await client.query('COMMIT');
-    await getDraftRoomBroadcast().rosterChanged(leagueId);
     return { processed: dueResult.rows.length, results };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+    },
+    { label: 'waiver-process' }
+  );
+  await getDraftRoomBroadcast().rosterChanged(leagueId);
+  return result;
 }
 
 /** Why can't this claim execute right now? null = it can. */

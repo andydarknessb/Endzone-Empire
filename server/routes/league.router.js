@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const clock = require('../modules/clock');
 const { requireAuth } = require('../modules/auth');
 const { createRateLimiter } = require('../modules/rateLimit');
@@ -27,7 +28,7 @@ const {
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
-const { isMember, joinLeague } = require('../services/leagueMembership.service');
+const { isMember, joinLeague, MembershipError } = require('../services/leagueMembership.service');
 const { getMarketStatus } = require('../services/adp.service');
 const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
 const { assertFantasyLeague } = require('../services/leagueType');
@@ -79,69 +80,73 @@ router.post('/', async (req, res) => {
   // roster_limit default) — a commissioner customizes roster construction via
   // the Roster Settings tab after creation, any time before the draft starts.
   const inviteCode = crypto.randomBytes(4).toString('hex');
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `INSERT INTO "leagues" (
-         "name", "owner_id", "invite_code", "max_teams", "min_teams",
-         "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date",
-         "draft_timezone", "pickem_only"
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-      [
-        name, req.user.id, inviteCode, teams, minimum,
-        options.isPublic, options.joinApproval, options.bestBall,
-        options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
-        options.draftDate, options.draftTimezone, options.pickemOnly,
-      ]
-    );
-    let league = leagueResult.rows[0];
-    // The creator's Team is written by the one membership write, like every
-    // other join path: the league is fresh, so the count is 0 and the creator
-    // takes draft_position 1.
-    await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
-    if (options.pickemEnabled) {
-      // Direct insert on the SAME client, not pickem.putSettings: that helper
-      // opens its own pool connection and transaction, which would escape
-      // this rollback and could leave settings for a league that was never
-      // created.
-      await client.query(
-        `INSERT INTO "pickem_settings" ("league_id", "enabled", "mode")
-         VALUES ($1, true, $2)`,
-        [league.id, options.pickemMode]
-      );
-    }
-    if (options.pickemOnly) {
-      // A pick'em-only league follows the NFL calendar, not the commissioner
-      // advance-week action (which requires matchups and can never run here).
-      // Seed season/week from the schedule so a league created in NFL week 7
-      // starts at week 7, and one created in a later year does not inherit
-      // the stale current_season column default. The derivation is SHARED
-      // with the pick'em season lifecycle job (pickemSeason.service:
-      // newest season on file, smallest week still open under the rollover
-      // grace, every week closed means week 18), so a league's week cannot
-      // jump at its first tick. An empty schedule table keeps the column
-      // defaults.
-      const seed = await resolveNflSeasonPointer({ db: client });
-      if (seed) {
-        const seededResult = await client.query(
-          `UPDATE "leagues" SET "current_season" = $1, "current_week" = $2
-           WHERE "id" = $3 RETURNING *`,
-          [seed.season, seed.week, league.id]
+    const league = await withTransaction(
+      pool,
+      async (client) => {
+        const leagueResult = await client.query(
+          `INSERT INTO "leagues" (
+             "name", "owner_id", "invite_code", "max_teams", "min_teams",
+             "is_public", "join_approval", "best_ball", "scoring_preset", "scoring_rules", "draft_date",
+             "draft_timezone", "pickem_only"
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          [
+            name, req.user.id, inviteCode, teams, minimum,
+            options.isPublic, options.joinApproval, options.bestBall,
+            options.scoringPreset, options.scoringRules ? JSON.stringify(options.scoringRules) : null,
+            options.draftDate, options.draftTimezone, options.pickemOnly,
+          ]
         );
-        league = seededResult.rows[0];
-      }
-    }
-    await client.query('COMMIT');
+        let league = leagueResult.rows[0];
+        // The creator's Team is written by the one membership write, like every
+        // other join path: the league is fresh, so the count is 0 and the creator
+        // takes draft_position 1.
+        await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
+        if (options.pickemEnabled) {
+          // Direct insert on the SAME client, not pickem.putSettings: that helper
+          // opens its own pool connection and transaction, which would escape
+          // this rollback and could leave settings for a league that was never
+          // created.
+          await client.query(
+            `INSERT INTO "pickem_settings" ("league_id", "enabled", "mode")
+             VALUES ($1, true, $2)`,
+            [league.id, options.pickemMode]
+          );
+        }
+        if (options.pickemOnly) {
+          // A pick'em-only league follows the NFL calendar, not the commissioner
+          // advance-week action (which requires matchups and can never run here).
+          // Seed season/week from the schedule so a league created in NFL week 7
+          // starts at week 7, and one created in a later year does not inherit
+          // the stale current_season column default. The derivation is SHARED
+          // with the pick'em season lifecycle job (pickemSeason.service:
+          // newest season on file, smallest week still open under the rollover
+          // grace, every week closed means week 18), so a league's week cannot
+          // jump at its first tick. An empty schedule table keeps the column
+          // defaults.
+          const seed = await resolveNflSeasonPointer({ db: client });
+          if (seed) {
+            const seededResult = await client.query(
+              `UPDATE "leagues" SET "current_season" = $1, "current_week" = $2
+               WHERE "id" = $3 RETURNING *`,
+              [seed.season, seed.week, league.id]
+            );
+            league = seededResult.rows[0];
+          }
+        }
+        // Returning COMMITs the league INSERT, the membership write and any
+        // pick'em rows together (ADR 0033); a service refusal throws and rolls
+        // them all back.
+        return league;
+      },
+      { label: 'league-create' }
+    );
     res.status(201).json(league);
   } catch (error) {
-    await client.query('ROLLBACK');
     if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
     console.error('Error creating league', error);
     res.status(500).json({ error: 'failed to create league' });
-  } finally {
-    client.release();
   }
 });
 
@@ -150,30 +155,33 @@ router.post('/join', async (req, res) => {
   const { inviteCode, teamName } = req.body || {};
   if (!inviteCode) return res.status(400).json({ error: 'inviteCode is required' });
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "invite_code" = $1 FOR UPDATE`,
-      [inviteCode]
+    const { league, team } = await withTransaction(
+      pool,
+      async (client) => {
+        const leagueResult = await client.query(
+          `SELECT * FROM "leagues" WHERE "invite_code" = $1 FOR UPDATE`,
+          [inviteCode]
+        );
+        const league = leagueResult.rows[0];
+        // Read-only refusal before the membership write: throw so the wrapper
+        // rolls the FOR UPDATE read back instead of committing it (ADR 0033,
+        // #1065 Ruling 2). MembershipError carries the 404 the catch maps
+        // through serviceErrorBody; the membership module owns the joinLeague
+        // write immediately below, so its coded error is the fitting one.
+        if (!league) throw new MembershipError(404, 'no league with that invite code');
+        // The code is this path's only gate; admission (joinable, not already a
+        // member, not full) and the Team write belong to the membership module.
+        const { team } = await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
+        return { league, team };
+      },
+      { label: 'league-join' }
     );
-    const league = leagueResult.rows[0];
-    if (!league) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'no league with that invite code' });
-    }
-    // The code is this path's only gate; admission (joinable, not already a
-    // member, not full) and the Team write belong to the membership module.
-    const { team } = await joinLeague(client, { leagueId: league.id, userId: req.user.id, teamName });
-    await client.query('COMMIT');
     res.status(201).json({ league, team });
   } catch (error) {
-    await client.query('ROLLBACK');
     if (error.statusCode) return res.status(error.statusCode).json(serviceErrorBody(error));
     console.error('Error joining league', error);
     res.status(500).json({ error: 'failed to join league' });
-  } finally {
-    client.release();
   }
 });
 
@@ -859,8 +867,9 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const leagueRow = leagueResult.rows[0];
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
     const {
-      materializeLineup, rowsHeldAsPlayed, optimalLineup, parseLineupSettings,
+      materializeLineup, rowsHeldAsPlayed,
     } = require('../services/lineup.service');
+    const { countedRoster } = require('../services/countedRoster.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
     const { availabilityFor } = require('../services/projectionModel');
@@ -1078,12 +1087,17 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       // producer-read handler stays unregistered).
       if (leagueRow.best_ball && asPlayed) {
         const rows = [...raw.starterRows, ...raw.benchRows];
-        const candidates = rows.map((row) => ({ playerId: row.id, position: row.position }));
-        const pointsFor = new Map(
-          rows.map((row) => [row.id, row.stats ? calculateFantasyPoints(row.stats, rules) : 0])
-        );
-        const { rosterSlots } = parseLineupSettings(leagueRow);
-        const chosen = new Set(optimalLineup(candidates, rosterSlots, pointsFor).starters.map((p) => p.playerId));
+        // #1038: rows.id and rows.player_id are the same value on every row
+        // that reaches this branch (lineupSql joins players.id to
+        // lineup_entries.player_id at equality, :915), so countedRoster's
+        // player_id-keyed optimalStarters can be matched back against these
+        // rows' `id` without an adapter.
+        const { optimalStarters } = countedRoster({
+          rows,
+          league: leagueRow,
+          price: (stats) => (stats ? calculateFantasyPoints(stats, rules) : 0),
+        });
+        const chosen = new Set(optimalStarters.map((p) => p.playerId));
         return {
           starters: rows.filter((row) => chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),
           bench: rows.filter((row) => !chosen.has(row.id)).map((row) => toPlayer(row, pricedById.get(row.id) || null)),

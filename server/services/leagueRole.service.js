@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { logTransaction, notify } = require('./activity.service');
 const { MembershipError, requireMember } = require('./leagueMembership.service');
 const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
@@ -222,110 +223,102 @@ async function requireOwner(client, { leagueId, userId, forUpdate = false }) {
  * private: requireOwner and the creator check below both compare account ids.
  */
 async function grantCoCommissioner({ leagueId, userId, targetTeamId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
-    // Resolve the Team to the account behind it, privately. The username rides
-    // into the activity-log detail (the same projection the notification
-    // fan-out reads), never onto a shared payload.
-    const member = await client.query(
-      `SELECT "teams"."owner_id", "users"."username"
-         FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
-        WHERE "teams"."league_id" = $1 AND "teams"."id" = $2`,
-      [leagueId, targetTeamId]
-    );
-    if (!member.rows[0]) throw new MembershipError(400, 'that team is not a member of this league');
-    const { owner_id: targetUserId, username } = member.rows[0];
-    // Sanctioned direct owner_id comparison, the second of the three in the
-    // header: granting the role. The creator already holds it, so they can
-    // never be a grantee, and the comparison genuinely is about the owner
-    // rather than about the caller.
-    if (targetUserId === league.owner_id) {
-      throw new MembershipError(400, 'the league owner is already the commissioner');
-    }
+  return withTransaction(
+    pool,
+    async (client) => {
+      const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
+      // Resolve the Team to the account behind it, privately. The username rides
+      // into the activity-log detail (the same projection the notification
+      // fan-out reads), never onto a shared payload.
+      const member = await client.query(
+        `SELECT "teams"."owner_id", "users"."username"
+           FROM "teams" JOIN "users" ON "users"."id" = "teams"."owner_id"
+          WHERE "teams"."league_id" = $1 AND "teams"."id" = $2`,
+        [leagueId, targetTeamId]
+      );
+      if (!member.rows[0]) throw new MembershipError(400, 'that team is not a member of this league');
+      const { owner_id: targetUserId, username } = member.rows[0];
+      // Sanctioned direct owner_id comparison, the second of the three in the
+      // header: granting the role. The creator already holds it, so they can
+      // never be a grantee, and the comparison genuinely is about the owner
+      // rather than about the caller.
+      if (targetUserId === league.owner_id) {
+        throw new MembershipError(400, 'the league owner is already the commissioner');
+      }
 
-    const inserted = await client.query(
-      `INSERT INTO "league_commissioners" ("league_id", "user_id", "granted_by")
-       VALUES ($1, $2, $3) ON CONFLICT ("league_id", "user_id") DO NOTHING
-       RETURNING "user_id"`,
-      [leagueId, targetUserId, userId]
-    );
-    if (!inserted.rows[0]) throw new MembershipError(409, 'that user is already a co-commissioner');
+      const inserted = await client.query(
+        `INSERT INTO "league_commissioners" ("league_id", "user_id", "granted_by")
+         VALUES ($1, $2, $3) ON CONFLICT ("league_id", "user_id") DO NOTHING
+         RETURNING "user_id"`,
+        [leagueId, targetUserId, userId]
+      );
+      if (!inserted.rows[0]) throw new MembershipError(409, 'that user is already a co-commissioner');
 
-    await logTransaction(client, {
-      leagueId,
-      teamId: targetTeamId,
-      type: 'commissioner',
-      detail: { action: 'grant_co_commissioner', userId: targetUserId, username },
-    });
-    await notify(client, {
-      userId: targetUserId,
-      leagueId,
-      type: 'league',
-      message: `You were made a co-commissioner of ${league.name}`,
-    });
-    // Serialized, not raw: this is a PAYLOAD, and the roster leaves the server
-    // in one shape wherever it leaves from. `isCommissioner: true` because
-    // requireOwner already gated this and the owner is one; that is what makes
-    // the same call correct here and viewer-dependent on league detail.
-    const coCommissioners = serializeCoCommissioners(
-      await listCoCommissioners(client, leagueId),
-      { isCommissioner: true }
-    );
-    await client.query('COMMIT');
-    return { leagueId, userId: targetUserId, coCommissioners };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+      await logTransaction(client, {
+        leagueId,
+        teamId: targetTeamId,
+        type: 'commissioner',
+        detail: { action: 'grant_co_commissioner', userId: targetUserId, username },
+      });
+      await notify(client, {
+        userId: targetUserId,
+        leagueId,
+        type: 'league',
+        message: `You were made a co-commissioner of ${league.name}`,
+      });
+      // Serialized, not raw: this is a PAYLOAD, and the roster leaves the server
+      // in one shape wherever it leaves from. `isCommissioner: true` because
+      // requireOwner already gated this and the owner is one; that is what makes
+      // the same call correct here and viewer-dependent on league detail.
+      const coCommissioners = serializeCoCommissioners(
+        await listCoCommissioners(client, leagueId),
+        { isCommissioner: true }
+      );
+      return { leagueId, userId: targetUserId, coCommissioners };
+    },
+    { label: 'grant-commissioner' }
+  );
 }
 
 /** Owner removes a co-commissioner's powers. */
 async function revokeCoCommissioner({ leagueId, userId, targetUserId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
-    const removed = await client.query(
-      `DELETE FROM "league_commissioners"
-        WHERE "league_id" = $1 AND "user_id" = $2 RETURNING "user_id"`,
-      [leagueId, targetUserId]
-    );
-    if (!removed.rows[0]) throw new MembershipError(404, 'that user is not a co-commissioner');
+  return withTransaction(
+    pool,
+    async (client) => {
+      const league = await requireOwner(client, { leagueId, userId, forUpdate: true });
+      const removed = await client.query(
+        `DELETE FROM "league_commissioners"
+          WHERE "league_id" = $1 AND "user_id" = $2 RETURNING "user_id"`,
+        [leagueId, targetUserId]
+      );
+      if (!removed.rows[0]) throw new MembershipError(404, 'that user is not a co-commissioner');
 
-    // A co-commissioner is always a member (header invariant; removing a Team
-    // deletes the grant in the same transaction, see commissioner.service),
-    // so the revoked user's Team is there to name in the log.
-    const team = await requireMember(client, { leagueId, userId: targetUserId });
-    await logTransaction(client, {
-      leagueId,
-      teamId: team.id,
-      type: 'commissioner',
-      detail: { action: 'revoke_co_commissioner', userId: targetUserId },
-    });
-    await notify(client, {
-      userId: targetUserId,
-      leagueId,
-      type: 'league',
-      message: `You are no longer a co-commissioner of ${league.name}`,
-    });
-    // Serialized for the same reason as the grant above, and owner-gated the
-    // same way.
-    const coCommissioners = serializeCoCommissioners(
-      await listCoCommissioners(client, leagueId),
-      { isCommissioner: true }
-    );
-    await client.query('COMMIT');
-    return { leagueId, userId: targetUserId, coCommissioners };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+      // A co-commissioner is always a member (header invariant; removing a Team
+      // deletes the grant in the same transaction, see commissioner.service),
+      // so the revoked user's Team is there to name in the log.
+      const team = await requireMember(client, { leagueId, userId: targetUserId });
+      await logTransaction(client, {
+        leagueId,
+        teamId: team.id,
+        type: 'commissioner',
+        detail: { action: 'revoke_co_commissioner', userId: targetUserId },
+      });
+      await notify(client, {
+        userId: targetUserId,
+        leagueId,
+        type: 'league',
+        message: `You are no longer a co-commissioner of ${league.name}`,
+      });
+      // Serialized for the same reason as the grant above, and owner-gated the
+      // same way.
+      const coCommissioners = serializeCoCommissioners(
+        await listCoCommissioners(client, leagueId),
+        { isCommissioner: true }
+      );
+      return { leagueId, userId: targetUserId, coCommissioners };
+    },
+    { label: 'revoke-commissioner' }
+  );
 }
 
 module.exports = {

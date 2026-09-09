@@ -761,9 +761,9 @@ once one has actually happened. The standings table, a Matchup card, the
 Team summary and the Lineup screen all follow this rule, and so do Power
 Rankings and season history. Since #959 the rule is computed in ONE
 place, the standings entity (src/entities/standings): the standings table, the
-Team summary, a Matchup card and season history all read the formatted Record
-from there rather than deriving it, which is what stops another surface
-inventing another answer. The Lineup screen still derives its own.
+Team summary, a Matchup card, season history, the Lineup screen and Power
+Rankings all read the formatted Record from there rather than deriving it,
+which is what stops another surface inventing another answer.
 _Avoid_: standings (the ordered table built from every Team's Record, not one
 Team's own tally)
 
@@ -795,7 +795,10 @@ The scoring run that produces the score of record. It counts the week's lineup
 entries as played and excludes a player unless one of the team's tenures covered
 his game's kickoff: began at or before it and had not ended by it. A tenure
 that began after kickoff and one that ended before it are both excluded; a
-player with no game that week is never excluded. The same predicate governs a
+player with no game that week is never excluded. A statless starter, one in a
+starting slot with no `player_stats` row for that season and week, is in the
+counted roster and prices at zero: being started is what counts him, not
+whether the stats feed produced a row. The same predicate governs a
 re-score of a final week. In best ball a candidate must also have been held at
 the week's last kickoff: a player dropped after his own game but before the
 week's last kickoff does not score (ADR 0022). Hindsight reads the same

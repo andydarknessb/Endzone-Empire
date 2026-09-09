@@ -267,6 +267,14 @@ test('a successful capture commits header and every child in one transaction', a
     .map((needle) => texts.findIndex((s) => s.includes(needle)));
   assert.ok(order.every((i, n) => i !== -1 && (n === 0 || i > order[n - 1])),
     `tx bracket out of order: ${JSON.stringify(order)}`);
+  // #1073: withTransaction owns the BEGIN and runs nothing between it and
+  // work's first statement, so the SET TRANSACTION ISOLATION LEVEL REPEATABLE
+  // READ must be the FIRST client-side call after BEGIN - any query slipped in
+  // before it (a lost REPEATABLE READ snapshot) turns this red.
+  const beginIdx = texts.findIndex((s) => s === 'BEGIN');
+  assert.notEqual(beginIdx, -1, 'the wrapper issued a BEGIN');
+  assert.match(texts[beginIdx + 1], /^SET TRANSACTION ISOLATION LEVEL REPEATABLE READ/,
+    'the first client-side call after BEGIN is the SET TRANSACTION');
   assert.ok(db.conns.every((c) => c.released), 'the connection goes back to the pool');
   // Frozen capture-time context rides on every child row.
   const wr = db.committed.players.find((p) => p.player_id === 8);

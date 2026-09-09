@@ -351,11 +351,13 @@ function createWorld({
     [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team"/, (text, [teamId, season, week]) => ({
       rows: scoringRows(text, teamId, week)
         .filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR')
-        .filter((e) => WEEK_STATS.has(e.player_id)) // an inner JOIN drops a statless row
+        // Standard settle read now LEFT JOINs player_stats (#1010), so a
+        // statless starter is returned with a SQL NULL, not dropped; model that
+        // with `|| null` rather than a bare lookup that would yield undefined.
         .map((e) => ({
           player_id: e.player_id,
           nfl_team: NFL_TEAM.get(e.player_id),
-          stats: WEEK_STATS.get(e.player_id),
+          stats: WEEK_STATS.get(e.player_id) || null,
         })),
     })],
     [/^UPDATE "matchups" SET "home_score"/, (text, [homeScore, awayScore, id]) => {

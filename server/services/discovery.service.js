@@ -4,6 +4,7 @@
  * functions so they can be unit tested without a database.
  */
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { notify } = require('./activity.service');
 const { SCORING_PRESETS } = require('./scoring.service');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
@@ -383,74 +384,71 @@ async function previewLeagueByInviteCode({ code, userId }) {
  * get that far with an invalid one).
  */
 async function joinPublicLeague({ leagueId, userId, username, teamName }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
-    const league = leagueResult.rows[0];
-    if (!league) throw new DiscoveryError(404, 'league not found');
-    if (!league.is_public) throw new DiscoveryError(403, 'this league is not open for public join');
+  return withTransaction(
+    pool,
+    async (client) => {
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const league = leagueResult.rows[0];
+      if (!league) throw new DiscoveryError(404, 'league not found');
+      if (!league.is_public) throw new DiscoveryError(403, 'this league is not open for public join');
 
-    if (league.join_approval) {
-      // Admission is decided again when the request is approved; asking now
-      // keeps a member, or a manager facing a full or closed league, from
-      // filing a request that could never be approved.
-      await assertAdmissible(client, league, userId);
-      const { value: name, error: nameError } = validateTeamName(teamName);
-      if (nameError) throw new DiscoveryError(400, nameError);
-      // 'denied' resubmits normally; 'cancelled' (#111: a legacy pending
-      // request the Team-name migration cancelled outright rather than
-      // defaulting) resubmits the same way -- a manager files a fresh,
-      // validated request rather than being stuck forever on a request the
-      // migration refused to silently repair.
-      const upsert = await client.query(
-        `INSERT INTO "join_requests" ("league_id", "user_id", "team_name", "status")
-         VALUES ($1, $2, $3, 'pending')
-         ON CONFLICT ("league_id", "user_id")
-         DO UPDATE SET "status" = 'pending', "team_name" = EXCLUDED."team_name", "updated_at" = now()
-         WHERE "join_requests"."status" IN ('denied', 'cancelled')
-         RETURNING *`,
-        [leagueId, userId, name]
-      );
-      let joinRequest = upsert.rows[0];
-      if (!joinRequest) {
-        // Conflict existed but wasn't denied/cancelled (already pending): surface as-is
-        const existing = await client.query(
-          `SELECT * FROM "join_requests" WHERE "league_id" = $1 AND "user_id" = $2`,
-          [leagueId, userId]
+      if (league.join_approval) {
+        // Admission is decided again when the request is approved; asking now
+        // keeps a member, or a manager facing a full or closed league, from
+        // filing a request that could never be approved.
+        await assertAdmissible(client, league, userId);
+        const { value: name, error: nameError } = validateTeamName(teamName);
+        if (nameError) throw new DiscoveryError(400, nameError);
+        // 'denied' resubmits normally; 'cancelled' (#111: a legacy pending
+        // request the Team-name migration cancelled outright rather than
+        // defaulting) resubmits the same way -- a manager files a fresh,
+        // validated request rather than being stuck forever on a request the
+        // migration refused to silently repair.
+        const upsert = await client.query(
+          `INSERT INTO "join_requests" ("league_id", "user_id", "team_name", "status")
+           VALUES ($1, $2, $3, 'pending')
+           ON CONFLICT ("league_id", "user_id")
+           DO UPDATE SET "status" = 'pending', "team_name" = EXCLUDED."team_name", "updated_at" = now()
+           WHERE "join_requests"."status" IN ('denied', 'cancelled')
+           RETURNING *`,
+          [leagueId, userId, name]
         );
-        joinRequest = existing.rows[0];
-        if (!joinRequest || joinRequest.status !== 'pending') {
-          throw new DiscoveryError(409, 'unable to submit join request');
+        let joinRequest = upsert.rows[0];
+        if (!joinRequest) {
+          // Conflict existed but wasn't denied/cancelled (already pending): surface as-is
+          const existing = await client.query(
+            `SELECT * FROM "join_requests" WHERE "league_id" = $1 AND "user_id" = $2`,
+            [leagueId, userId]
+          );
+          joinRequest = existing.rows[0];
+          if (!joinRequest || joinRequest.status !== 'pending') {
+            throw new DiscoveryError(409, 'unable to submit join request');
+          }
         }
+        // Every commissioner, not the creator alone (#188). Approving or
+        // denying this request is commissioner-gated - listJoinRequests and
+        // decideJoinRequest below both authorize through commissionerPredicate
+        // - so a co-commissioner can action the queue and needs to hear that it
+        // filled up. Notifying `league.owner_id` resolved the commissioner role
+        // as the creator, which is the narrower rule and not the one that gates
+        // the power being alerted about.
+        await notifyCommissioners(client, {
+          leagueId,
+          ownerId: league.owner_id,
+          type: 'join_request',
+          message: `${username} requested to join ${league.name}`,
+          data: { requestId: joinRequest.id, userId },
+        });
+        // Returning COMMITs (ADR 0033): the pending branch's writes are the
+        // upsert and the notifications above, all committed together.
+        return { pending: true, joinRequest };
       }
-      // Every commissioner, not the creator alone (#188). Approving or
-      // denying this request is commissioner-gated - listJoinRequests and
-      // decideJoinRequest below both authorize through commissionerPredicate
-      // - so a co-commissioner can action the queue and needs to hear that it
-      // filled up. Notifying `league.owner_id` resolved the commissioner role
-      // as the creator, which is the narrower rule and not the one that gates
-      // the power being alerted about.
-      await notifyCommissioners(client, {
-        leagueId,
-        ownerId: league.owner_id,
-        type: 'join_request',
-        message: `${username} requested to join ${league.name}`,
-        data: { requestId: joinRequest.id, userId },
-      });
-      await client.query('COMMIT');
-      return { pending: true, joinRequest };
-    }
 
-    const { team } = await joinLeague(client, { leagueId, userId, teamName });
-    await client.query('COMMIT');
-    return { pending: false, league, team };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+      const { team } = await joinLeague(client, { leagueId, userId, teamName });
+      return { pending: false, league, team };
+    },
+    { label: 'public-join' }
+  );
 }
 
 /**
@@ -485,66 +483,62 @@ async function listJoinRequests({ leagueId, ownerId }) {
 
 /** Commissioner approves or denies a pending join request, transactionally. */
 async function decideJoinRequest({ leagueId, ownerId, requestId, approve }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
-      [leagueId, ownerId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
+  return withTransaction(
+    pool,
+    async (client) => {
+      const leagueResult = await client.query(
+        `SELECT * FROM "leagues" WHERE "id" = $1 AND ${commissionerPredicate(2)} FOR UPDATE`,
+        [leagueId, ownerId]
+      );
+      const league = leagueResult.rows[0];
+      if (!league) throw new DiscoveryError(403, 'league not found or you are not the commissioner');
 
-    const requestResult = await client.query(
-      `SELECT "join_requests".*, "users"."username" FROM "join_requests"
-       JOIN "users" ON "users"."id" = "join_requests"."user_id"
-       WHERE "join_requests"."id" = $1 AND "join_requests"."league_id" = $2 AND "join_requests"."status" = 'pending'
-       FOR UPDATE OF "join_requests"`,
-      [requestId, leagueId]
-    );
-    const joinRequest = requestResult.rows[0];
-    if (!joinRequest) throw new DiscoveryError(404, 'pending join request not found');
+      const requestResult = await client.query(
+        `SELECT "join_requests".*, "users"."username" FROM "join_requests"
+         JOIN "users" ON "users"."id" = "join_requests"."user_id"
+         WHERE "join_requests"."id" = $1 AND "join_requests"."league_id" = $2 AND "join_requests"."status" = 'pending'
+         FOR UPDATE OF "join_requests"`,
+        [requestId, leagueId]
+      );
+      const joinRequest = requestResult.rows[0];
+      if (!joinRequest) throw new DiscoveryError(404, 'pending join request not found');
 
-    if (!approve) {
+      if (!approve) {
+        await client.query(
+          `UPDATE "join_requests" SET "status" = 'denied', "updated_at" = now() WHERE "id" = $1`,
+          [joinRequest.id]
+        );
+        await notify(client, {
+          userId: joinRequest.user_id,
+          leagueId,
+          type: 'join_request',
+          message: `Your request to join ${league.name} was denied.`,
+          data: { requestId: joinRequest.id },
+        });
+        // Returning COMMITs the deny UPDATE + its notification (ADR 0033).
+        return { status: 'denied' };
+      }
+
+      // Admitted against the league as it is now, not as it was when the
+      // request was filed: a pending request cannot slip a team into a league
+      // that has since stopped being joinable or filled up, nor a second Team
+      // to a requester who joined another way meanwhile.
+      await joinLeague(client, { leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name });
       await client.query(
-        `UPDATE "join_requests" SET "status" = 'denied', "updated_at" = now() WHERE "id" = $1`,
+        `UPDATE "join_requests" SET "status" = 'approved', "updated_at" = now() WHERE "id" = $1`,
         [joinRequest.id]
       );
       await notify(client, {
         userId: joinRequest.user_id,
         leagueId,
         type: 'join_request',
-        message: `Your request to join ${league.name} was denied.`,
+        message: `Your request to join ${league.name} was approved!`,
         data: { requestId: joinRequest.id },
       });
-      await client.query('COMMIT');
-      return { status: 'denied' };
-    }
-
-    // Admitted against the league as it is now, not as it was when the
-    // request was filed: a pending request cannot slip a team into a league
-    // that has since stopped being joinable or filled up, nor a second Team
-    // to a requester who joined another way meanwhile.
-    await joinLeague(client, { leagueId, userId: joinRequest.user_id, teamName: joinRequest.team_name });
-    await client.query(
-      `UPDATE "join_requests" SET "status" = 'approved', "updated_at" = now() WHERE "id" = $1`,
-      [joinRequest.id]
-    );
-    await notify(client, {
-      userId: joinRequest.user_id,
-      leagueId,
-      type: 'join_request',
-      message: `Your request to join ${league.name} was approved!`,
-      data: { requestId: joinRequest.id },
-    });
-    await client.query('COMMIT');
-    return { status: 'approved' };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+      return { status: 'approved' };
+    },
+    { label: 'join-request' }
+  );
 }
 
 module.exports = {

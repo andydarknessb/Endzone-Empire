@@ -129,6 +129,55 @@ test('generateRegularSeason: a missing league is still a 404, not a phase refusa
   fake.assertClean();
 });
 
+// The representative #1053/#1055 pair for this child (#1073 Ruling 4).
+// generateRegularSeason's owned path routes through withTransaction; these two
+// tests pin the wrapper's close discipline at that site. The nested
+// (caller-client) path has no transaction of its own to close, so the owned
+// path is where the pair belongs.
+
+test('generateRegularSeason: a rejecting ROLLBACK destroys the connection and the original error survives (#1073 Ruling 4)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league({ draft_status: 'pending' })] })],
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+  ]).install(t);
+
+  // Work throws the 409 phase refusal after the league read and before any
+  // write; the ROLLBACK then rejects. withTransaction must rethrow the
+  // ORIGINAL SeasonError with the rollback failure attached, not the rollback
+  // rejection. Red-tell: reverting the owned path to a bare client.release()
+  // (bypassing the wrapper) makes fake.assertClean() throw "transaction left
+  // open", since a bare release returns a client whose ROLLBACK never cleared
+  // tx.open.
+  const promise = generateRegularSeason({ leagueId: 1 });
+  await assert.rejects(promise, (error) => {
+    assert.ok(error instanceof SeasonError);
+    assert.equal(error.statusCode, 409);
+    assert.equal(error.message, SEASON_BEFORE_DRAFT_MESSAGE);
+    assert.equal(error.rollbackError.message, 'rollback rejected',
+      'the rollback failure is attached to the original error, not swallowed');
+    return true;
+  });
+  fake.assertClean();
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+});
+
+test('generateRegularSeason: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league({ draft_status: 'pending' })] })],
+  ]).install(t);
+
+  // Same 409 refusal, but the ROLLBACK succeeds cleanly (fakePool's default TX
+  // auto-answer), so the connection is healthy and must be returned to the
+  // pool, not destroyed. Red-tell: making the wrapper's release unconditional
+  // (destroy on every error path) makes this fail.
+  await assert.rejects(
+    generateRegularSeason({ leagueId: 1 }),
+    (error) => error instanceof SeasonError && error.statusCode === 409
+  );
+  assert.equal(fake.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  fake.assertClean();
+});
+
 /* ------------------------------------------------------------------ *
  * finalizeWeekAndAdvance                                              *
  * ------------------------------------------------------------------ */

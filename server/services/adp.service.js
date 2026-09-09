@@ -1,9 +1,11 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { normalizeNameKey } = require('./nameMatch');
 const { IDP_POSITIONS } = require('./scoring.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { recordDataSyncRun } = require('./dataSyncRuns');
 
 const IDP_POSITION_SET = new Set(IDP_POSITIONS);
 
@@ -35,25 +37,15 @@ const MARKET_STALE_DAYS = 7;
  * started_at is captured before the upstream fetch, and finished_at is left to
  * the column DEFAULT (now()), the instant of the write.
  *
- * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
- * outcome of a run: the market may have been refreshed correctly, and a thrown
- * observability write would turn that into a 500 to the admin and stop the
- * scheduler from day-stamping (re-running the full sync every tick). This also
- * covers the carve-out window - the migration that creates data_sync_runs is
- * applied by the maintainer, so the table may not exist yet when this code is
- * live. Swallowing here (rather than at each call site) keeps every caller
- * uniformly best-effort with no chance of the asymmetry creeping back.
+ * A thin wrapper over the shared recorder (#961): the INSERT, its best-effort
+ * swallow, and the "record failed for adp" log all live in
+ * services/dataSyncRuns now, so the injury sync records the same way without a
+ * second copy of the rule. This spells the job literal 'adp' the way it always
+ * did; the recorder writes on the pool, outside any transaction, exactly as
+ * before. Behaviour is unchanged.
  */
 async function recordAdpRun({ startedAt, ok, detail }) {
-  try {
-    await pool.query(
-      `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "detail")
-       VALUES ($1, $2, $3, $4::jsonb)`,
-      ['adp', startedAt, ok, detail ? JSON.stringify(detail) : null]
-    );
-  } catch (err) {
-    console.error('data_sync_runs record failed for adp (run outcome unaffected):', err.message);
-  }
+  await recordDataSyncRun({ job: 'adp', startedAt, ok, detail });
 }
 
 /**
@@ -259,7 +251,9 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   // loaded system - the sweep then sends a spurious draft_no_market notification.
   // Wrapped in a transaction, a concurrent reader sees the old count or the new
   // one under MVCC and never 0. The transaction is opened only here, after the
-  // wipe guard has passed. recordAdpRun stays OUTSIDE it: the run record is
+  // wipe guard has passed, and withTransaction owns connect, BEGIN,
+  // COMMIT-or-guarded-ROLLBACK and the release rule (ADR 0033). recordAdpRun
+  // stays OUTSIDE it, in the catch around the wrapper: the run record is
   // best-effort observability and must not be rolled back with the market.
   //
   // SERIALIZED WITH syncInjuries (#904). Holding the wipe's row locks across the
@@ -285,28 +279,31 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   // timeout is unlikely to arise. Either way the xact scope releases the lock, so
   // there is no explicit unlock that could strand it behind Supavisor's
   // transaction pooling the way a session lock did in #839.
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
-    await client.query(`UPDATE "players" SET "adp" = NULL WHERE "adp" IS NOT NULL`);
-    if (updates.length > 0) {
-      await client.query(
-        `UPDATE "players" p SET "adp" = v.adp
-         FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS adp) v
-         WHERE p."id" = v.id`,
-        [updates.map((u) => u.id), updates.map((u) => u.adp)]
-      );
-    }
-    await client.query('COMMIT');
+    await withTransaction(
+      pool,
+      async (client) => {
+        await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
+        await client.query(`UPDATE "players" SET "adp" = NULL WHERE "adp" IS NOT NULL`);
+        if (updates.length > 0) {
+          await client.query(
+            `UPDATE "players" p SET "adp" = v.adp
+             FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS adp) v
+             WHERE p."id" = v.id`,
+            [updates.map((u) => u.id), updates.map((u) => u.adp)]
+          );
+        }
+      },
+      { label: 'adp' }
+    );
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    // Record the failed run (best-effort, outside the rolled-back transaction)
-    // so an admin sees the market write failed, then surface the error.
+    // Both a pool.connect() failure (propagated untouched) and an in-transaction
+    // failure (already rolled back, error.rollbackError attached when the
+    // ROLLBACK itself rejected) land here. Record the failed run (best-effort,
+    // outside the rolled-back transaction) so an admin sees the market write
+    // failed, then surface the ORIGINAL error the wrapper rethrew.
     await recordAdpRun({ startedAt, ok: false, detail: { reason: 'write_failed', message: err.message } });
     throw err;
-  } finally {
-    client.release();
   }
 
   await recordAdpRun({ startedAt, ok: true, detail: { adpPlayers: entries.length, matched: updates.length } });

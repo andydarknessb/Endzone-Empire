@@ -511,3 +511,55 @@ test('processWaivers: an unfrozen league still finishes an unawardable batch inv
   assert.equal(fake.matching(update('waiver_claims')).length, 2, 'both claims were finished');
   fake.assertClean();
 });
+
+// --- withTransaction routing (ADR 0033, #1066 Ruling 5) ---------------------
+// The representative pair for this child: submitClaim is the thinnest of the
+// nine sites now routed through withTransaction. Both cases hit the SAME early
+// throw (league not found, 404) after ONE read and ZERO writes, so the only
+// thing that differs between them is whether the ROLLBACK that follows
+// succeeds. That is what proves the site routes through the wrapper rather than
+// any of its own business logic; the wrapper's own tests carry the rest.
+const submitClaimEarlyThrowHandlers = () => [
+  [/^SELECT \* FROM "leagues"/, () => ({ rows: [] })],
+];
+
+test('submitClaim: a rejecting ROLLBACK destroys the connection and the original error survives (#1066 Ruling 5)', async (t) => {
+  const world = createFakePool([
+    ...submitClaimEarlyThrowHandlers(),
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+  ]).install(t);
+
+  // Red-tell: reverting submitClaim to its own bare `client.release()` (rather
+  // than routing through withTransaction) makes this reject with "rollback
+  // rejected" instead of the original 404, since the unhandled ROLLBACK
+  // rejection would replace the WaiverError.
+  const promise = submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: null, bid: 0 });
+  await assert.rejects(promise, { statusCode: 404, message: 'league not found' });
+  const error = await promise.catch((e) => e);
+  assert.equal(error.rollbackError.message, 'rollback rejected',
+    'the rollback failure is attached to the original error, not swallowed silently');
+
+  // A rejecting ROLLBACK leaves the transaction open on the socket, so
+  // withTransaction's finally releases the client WITH an Error: pg-pool
+  // destroys the connection and Postgres frees the session's locks on
+  // disconnect. Red-tell: making the release unconditional reddens this.
+  world.assertClean();
+  assert.ok(world.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+});
+
+test('submitClaim: a clean ROLLBACK returns the healthy connection to the pool (control)', async (t) => {
+  const world = createFakePool(submitClaimEarlyThrowHandlers()).install(t);
+
+  await assert.rejects(
+    submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: null, bid: 0 }),
+    { statusCode: 404, message: 'league not found' }
+  );
+
+  // Complementary control: the same early throw, but this time the ROLLBACK
+  // succeeds cleanly (fakePool's default auto-answer), so the connection is
+  // healthy and must be returned to the pool, not destroyed. Red-tell:
+  // destroying on every error path (release with an Error unconditionally)
+  // reddens this.
+  assert.equal(world.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  world.assertClean();
+});

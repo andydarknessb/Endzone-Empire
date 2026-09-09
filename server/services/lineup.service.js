@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 // DEFAULT_ROSTER_SLOTS lives in a pure leaf (no load-time require) so the client
 // parity test can read it without pulling pg into jsdom (#677); re-exported below
 // so every existing consumer resolves the identical reference unchanged.
@@ -821,104 +822,102 @@ async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }
  * with per-player locked, bye_week, and onBye metadata.
  */
 async function getLineup({ leagueId, userId, week }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId });
-    const season = league.current_season;
-    const targetWeek = week || league.current_week;
+  return withTransaction(
+    pool,
+    async (client) => {
+      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId });
+      const season = league.current_season;
+      const targetWeek = week || league.current_week;
 
-    await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek, league });
+      await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek, league });
 
-    // A SETTLED week is read AS PLAYED, never through the current roster
-    // (CONTEXT.md, Settle pass, and #982). The roster join is right for a live
-    // week and wrong for a settled one: it drops the players who played the
-    // week and have since left, which is why the redraft path had to put the
-    // departed STARTERS back with `spentStartingSlots` and best ball, which
-    // skips that call, put nobody back at all.
-    const asPlayed = await isFinalWeekForTeam(client, {
-      leagueId, teamId: team.id, season, week: targetWeek,
-    });
-    const rosterJoin = asPlayed ? '' : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+      // A SETTLED week is read AS PLAYED, never through the current roster
+      // (CONTEXT.md, Settle pass, and #982). The roster join is right for a live
+      // week and wrong for a settled one: it drops the players who played the
+      // week and have since left, which is why the redraft path had to put the
+      // departed STARTERS back with `spentStartingSlots` and best ball, which
+      // skips that call, put nobody back at all.
+      const asPlayed = await isFinalWeekForTeam(client, {
+        leagueId, teamId: team.id, season, week: targetWeek,
+      });
+      const rosterJoin = asPlayed ? '' : `JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
          AND "team_players"."player_id" = "lineup_entries"."player_id"`;
-    // `rowsHeldAsPlayed` reads `player_id` while everything downstream keys on
-    // `players.id`; the schedule-key guard above turns a caller reaching for
-    // the wrong one into a throw rather than an empty exclusion set, so the
-    // settled read selects the column the helper actually reads.
-    const asPlayedColumn = asPlayed ? `,
+      // `rowsHeldAsPlayed` reads `player_id` while everything downstream keys on
+      // `players.id`; the schedule-key guard above turns a caller reaching for
+      // the wrong one into a throw rather than an empty exclusion set, so the
+      // settled read selects the column the helper actually reads.
+      const asPlayedColumn = asPlayed ? `,
               "lineup_entries"."player_id"` : '';
-    const entriesResult = await client.query(
-      `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-              "players"."injury_status", "lineup_entries"."slot", "lineup_entries"."ir_attested"${asPlayedColumn}
-       FROM "lineup_entries"
-       ${rosterJoin}
-       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-       WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-         AND "lineup_entries"."week" = $3
-       ORDER BY "players"."position", "players"."name"`,
-      [team.id, season, targetWeek]
-    );
-    const entries = asPlayed
-      ? await rowsHeldAsPlayed(client, {
-        league, teamId: team.id, season, week: targetWeek, rows: entriesResult.rows,
-      })
-      : entriesResult.rows;
-    // No `spent` list on a settled week. It exists to put back the rows the
-    // roster join removed and to keep their starting slots occupied for
-    // validation; with the join gone those rows arrive on their own, and a
-    // settled week is not editable, so there is nothing to validate. Computing
-    // both would list a departed starter twice.
-    const spent = asPlayed || league.best_ball
-      ? []
-      : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
+      const entriesResult = await client.query(
+        `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
+                "players"."injury_status", "lineup_entries"."slot", "lineup_entries"."ir_attested"${asPlayedColumn}
+         FROM "lineup_entries"
+         ${rosterJoin}
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+           AND "lineup_entries"."week" = $3
+         ORDER BY "players"."position", "players"."name"`,
+        [team.id, season, targetWeek]
+      );
+      const entries = asPlayed
+        ? await rowsHeldAsPlayed(client, {
+          league, teamId: team.id, season, week: targetWeek, rows: entriesResult.rows,
+        })
+        : entriesResult.rows;
+      // No `spent` list on a settled week. It exists to put back the rows the
+      // roster join removed and to keep their starting slots occupied for
+      // validation; with the join gone those rows arrive on their own, and a
+      // settled week is not editable, so there is nothing to validate. Computing
+      // both would list a departed starter twice.
+      const spent = asPlayed || league.best_ball
+        ? []
+        : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
 
-    const playerIds = entries.map((row) => row.id);
-    // Load lazily because scoring.service imports lineup.service. Passing the
-    // League and these roster ids selects the scoring-aware weekly engine,
-    // rather than the pool-wide extrapolator or a season-level estimate.
-    const projectionService = require('./projection.service');
-    const weeklyByPlayer = playerIds.length > 0
-      ? await projectionService.getWeekProjections({
+      const playerIds = entries.map((row) => row.id);
+      // Load lazily because scoring.service imports lineup.service. Passing the
+      // League and these roster ids selects the scoring-aware weekly engine,
+      // rather than the pool-wide extrapolator or a season-level estimate.
+      const projectionService = require('./projection.service');
+      const weeklyByPlayer = playerIds.length > 0
+        ? await projectionService.getWeekProjections({
+          season,
+          week: targetWeek,
+          league,
+          playerIds,
+        })
+        : new Map();
+      for (const entry of entries) {
+        const projection = weeklyByPlayer.get(entry.id);
+        const points = Number(projection?.points);
+        entry.projected_points = projection?.points == null || !Number.isFinite(points)
+          ? null
+          : points;
+      }
+
+      const locked = await lockedPlayerIds(client, {
         season,
         week: targetWeek,
-        league,
-        playerIds,
-      })
-      : new Map();
-    for (const entry of entries) {
-      const projection = weeklyByPlayer.get(entry.id);
-      const points = Number(projection?.points);
-      entry.projected_points = projection?.points == null || !Number.isFinite(points)
-        ? null
-        : points;
-    }
+        players: entries.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
+      });
+      const byeByTeam = await computeByeWeeks(entries.map((row) => row.nfl_team), season);
 
-    const locked = await lockedPlayerIds(client, {
-      season,
-      week: targetWeek,
-      players: entries.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
-    });
-    const byeByTeam = await computeByeWeeks(entries.map((row) => row.nfl_team), season);
-    await client.query('COMMIT');
-
-    const settings = parseLineupSettings(league);
-    return {
-      leagueId: league.id,
-      teamId: team.id,
-      season,
-      week: targetWeek,
-      currentWeek: league.current_week,
-      rosterSlots: settings.rosterSlots,
-      benchSlots: settings.benchSlots,
-      irSlots: settings.irSlots,
-      entries: annotateLineupEntries([...entries, ...spent], { locked, byeByTeam, selectedWeek: targetWeek }),
-    };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+      // Returning COMMITs (ADR 0033). Every read above materialized the week
+      // and its reads happen in one transaction; the assembly below is pure.
+      const settings = parseLineupSettings(league);
+      return {
+        leagueId: league.id,
+        teamId: team.id,
+        season,
+        week: targetWeek,
+        currentWeek: league.current_week,
+        rosterSlots: settings.rosterSlots,
+        benchSlots: settings.benchSlots,
+        irSlots: settings.irSlots,
+        entries: annotateLineupEntries([...entries, ...spent], { locked, byeByTeam, selectedWeek: targetWeek }),
+      };
+    },
+    { label: 'get-lineup' }
+  );
 }
 
 /**
@@ -937,169 +936,167 @@ async function setLineup({ leagueId, userId, week, moves }) {
     }
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, forUpdate: true });
-    // No lineups in a pick'em-only league. Message-only like the best-ball
-    // refusal below: team.router renders coded errors as { error: code }, which
-    // the lineup screen would toast verbatim.
-    if (isPickemOnly(league)) throw new LineupError(409, PICKEM_ONLY_MESSAGE);
-    const season = league.current_season;
-    const targetWeek = week || league.current_week;
-    if (targetWeek < league.current_week) {
-      throw new LineupError(409, 'cannot edit a past week');
-    }
+  return withTransaction(
+    pool,
+    async (client) => {
+      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, forUpdate: true });
+      // No lineups in a pick'em-only league. Message-only like the best-ball
+      // refusal below: team.router renders coded errors as { error: code }, which
+      // the lineup screen would toast verbatim.
+      if (isPickemOnly(league)) throw new LineupError(409, PICKEM_ONLY_MESSAGE);
+      const season = league.current_season;
+      const targetWeek = week || league.current_week;
+      if (targetWeek < league.current_week) {
+        throw new LineupError(409, 'cannot edit a past week');
+      }
 
-    await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek, league });
+      await materializeLineup(client, { leagueId, teamId: team.id, season, week: targetWeek, league });
 
-    const entriesResult = await client.query(
-      `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
-              "lineup_entries"."ir_attested",
-              "players"."name", "players"."position", "players"."nfl_team",
-              "players"."injury_status"
-       FROM "lineup_entries"
-       JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
-         AND "team_players"."player_id" = "lineup_entries"."player_id"
-       JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-       WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
-         AND "lineup_entries"."week" = $3
-       FOR SHARE OF "players"`,
-      [team.id, season, targetWeek]
-    );
-    const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
-    // Snapshot the pre-save slots NOW: the repair below and the moves both
-    // mutate these rows in place, and the validation at the bottom forgives
-    // only the overflow that stood before this save touched anything.
-    const baseline = entriesResult.rows.map((r) => ({ player_id: r.player_id, slot: r.slot }));
-
-    const locked = await lockedPlayerIds(client, {
-      season,
-      week: targetWeek,
-      players: entriesResult.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
-    });
-    const settings = parseLineupSettings(league);
-    // A slot a surviving as-played row occupies is spent (#627): the row will
-    // settle, so it counts against the cap even though the roster-joined read
-    // above cannot see it. Fetched AFTER that read on purpose: a drop can
-    // commit mid-transaction (drops lock the league row, this transaction
-    // only the team row), and this order can only see the departing player in
-    // at least one of the two sets, never in neither. Skipped in best ball,
-    // whose validation covers IR rows alone. The rows are counted, never
-    // movable, and never in `baseline` (starting caps are absolute, #622), so
-    // they stay out of `byPlayer`; the repair below only learns how many
-    // seats each slot has left.
-    const spent = league.best_ball
-      ? []
-      : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
-    const changedByPlayer = new Map();
-    const markChanged = (entry) => changedByPlayer.set(entry.player_id, entry);
-    // Older first-week materializations placed every player on BENCH. Repair
-    // only that impossible state before applying the manager's requested
-    // moves; a partial or legal lineup remains entirely manager-controlled.
-    const allBenchOverflow = !league.best_ball
-      && entriesResult.rows.length > settings.benchSlots
-      && entriesResult.rows.every((entry) => entry.slot === BENCH);
-    if (allBenchOverflow) {
-      // The repair seats starters into the seats that are actually free: a
-      // spent slot's seat is already taken by the surviving row, and seating
-      // into it would have the validation below refuse the whole save for a
-      // collision the manager never asked for (#627).
-      const spentBySlot = {};
-      for (const row of spent) spentBySlot[row.slot] = (spentBySlot[row.slot] || 0) + 1;
-      const { starters } = optimalLineup(
-        entriesResult.rows
-          .filter((entry) => !locked.has(entry.player_id))
-          .map(({ player_id, position }) => ({ playerId: player_id, position })),
-        settings.rosterSlots.map((slot) => ({
-          ...slot,
-          count: Math.max(0, slot.count - (spentBySlot[slot.key] || 0)),
-        }))
+      const entriesResult = await client.query(
+        `SELECT "lineup_entries"."player_id", "lineup_entries"."slot",
+                "lineup_entries"."ir_attested",
+                "players"."name", "players"."position", "players"."nfl_team",
+                "players"."injury_status"
+         FROM "lineup_entries"
+         JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
+           AND "team_players"."player_id" = "lineup_entries"."player_id"
+         JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
+         WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
+           AND "lineup_entries"."week" = $3
+         FOR SHARE OF "players"`,
+        [team.id, season, targetWeek]
       );
-      for (const starter of starters) {
-        const entry = byPlayer.get(starter.playerId);
-        entry.slot = starter.slot;
+      const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
+      // Snapshot the pre-save slots NOW: the repair below and the moves both
+      // mutate these rows in place, and the validation at the bottom forgives
+      // only the overflow that stood before this save touched anything.
+      const baseline = entriesResult.rows.map((r) => ({ player_id: r.player_id, slot: r.slot }));
+
+      const locked = await lockedPlayerIds(client, {
+        season,
+        week: targetWeek,
+        players: entriesResult.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+      });
+      const settings = parseLineupSettings(league);
+      // A slot a surviving as-played row occupies is spent (#627): the row will
+      // settle, so it counts against the cap even though the roster-joined read
+      // above cannot see it. Fetched AFTER that read on purpose: a drop can
+      // commit mid-transaction (drops lock the league row, this transaction
+      // only the team row), and this order can only see the departing player in
+      // at least one of the two sets, never in neither. Skipped in best ball,
+      // whose validation covers IR rows alone. The rows are counted, never
+      // movable, and never in `baseline` (starting caps are absolute, #622), so
+      // they stay out of `byPlayer`; the repair below only learns how many
+      // seats each slot has left.
+      const spent = league.best_ball
+        ? []
+        : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
+      const changedByPlayer = new Map();
+      const markChanged = (entry) => changedByPlayer.set(entry.player_id, entry);
+      // Older first-week materializations placed every player on BENCH. Repair
+      // only that impossible state before applying the manager's requested
+      // moves; a partial or legal lineup remains entirely manager-controlled.
+      const allBenchOverflow = !league.best_ball
+        && entriesResult.rows.length > settings.benchSlots
+        && entriesResult.rows.every((entry) => entry.slot === BENCH);
+      if (allBenchOverflow) {
+        // The repair seats starters into the seats that are actually free: a
+        // spent slot's seat is already taken by the surviving row, and seating
+        // into it would have the validation below refuse the whole save for a
+        // collision the manager never asked for (#627).
+        const spentBySlot = {};
+        for (const row of spent) spentBySlot[row.slot] = (spentBySlot[row.slot] || 0) + 1;
+        const { starters } = optimalLineup(
+          entriesResult.rows
+            .filter((entry) => !locked.has(entry.player_id))
+            .map(({ player_id, position }) => ({ playerId: player_id, position })),
+          settings.rosterSlots.map((slot) => ({
+            ...slot,
+            count: Math.max(0, slot.count - (spentBySlot[slot.key] || 0)),
+          }))
+        );
+        for (const starter of starters) {
+          const entry = byPlayer.get(starter.playerId);
+          entry.slot = starter.slot;
+          entry.ir_attested = false;
+          markChanged(entry);
+        }
+      }
+      let resolvesLockedZeroBenchStash = false;
+      for (const move of moves) {
+        const entry = byPlayer.get(move.playerId);
+        if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
+        if (entry.slot === move.slot) continue;
+        if (league.best_ball
+            && (!BEST_BALL_MANAGED_SLOTS.has(entry.slot) || !BEST_BALL_MANAGED_SLOTS.has(move.slot))) {
+          throw new LineupError(409, 'best-ball managers may move players only between BENCH and IR');
+        }
+        const resolvesStaleIrStash = !league.best_ball
+          && entry.slot === IR
+          && move.slot === BENCH
+          && !isValidStash(entry);
+        resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
+          && locked.has(entry.player_id)
+          && league.bench_slots === 0;
+        if (!resolvesStaleIrStash && locked.has(entry.player_id)) {
+          throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
+        }
+        entry.slot = move.slot;
+        // A manager-initiated move ends any commissioner attestation on this
+        // player right here (#100), so the save rule below judges the
+        // post-move stash by the normal gate - moving an attested player out
+        // and back within one save cannot relaunder the override.
         entry.ir_attested = false;
         markChanged(entry);
       }
-    }
-    let resolvesLockedZeroBenchStash = false;
-    for (const move of moves) {
-      const entry = byPlayer.get(move.playerId);
-      if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
-      if (entry.slot === move.slot) continue;
-      if (league.best_ball
-          && (!BEST_BALL_MANAGED_SLOTS.has(entry.slot) || !BEST_BALL_MANAGED_SLOTS.has(move.slot))) {
-        throw new LineupError(409, 'best-ball managers may move players only between BENCH and IR');
+
+      const invalidStash = Array.from(byPlayer.values()).find(
+        (entry) => entry.slot === IR && !isValidStash(entry)
+      );
+      if (invalidStash) {
+        throw new LineupError(
+          400,
+          `${invalidStash.name} cannot remain in IR; current injury designation: ${injuryDesignationName(invalidStash.injury_status)}`
+        );
       }
-      const resolvesStaleIrStash = !league.best_ball
-        && entry.slot === IR
-        && move.slot === BENCH
-        && !isValidStash(entry);
-      resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
-        && locked.has(entry.player_id)
-        && league.bench_slots === 0;
-      if (!resolvesStaleIrStash && locked.has(entry.player_id)) {
-        throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
+
+      const validationSettings = resolvesLockedZeroBenchStash
+        ? { ...settings, benchSlots: 1 }
+        : settings;
+      const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
+      const errors = validateLineup(
+        entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
+        { ...validationSettings, baseline: entriesForLineupValidation(baseline, league), spent }
+      );
+      if (errors.length > 0) throw new LineupError(400, errors.join('; '));
+
+      const changed = [...changedByPlayer.values()];
+      for (const entry of changed) {
+        await client.query(
+          `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = false, "updated_at" = now()
+           WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
+          [entry.slot, team.id, season, targetWeek, entry.player_id]
+        );
       }
-      entry.slot = move.slot;
-      // A manager-initiated move ends any commissioner attestation on this
-      // player right here (#100), so the save rule below judges the
-      // post-move stash by the normal gate - moving an attested player out
-      // and back within one save cannot relaunder the override.
-      entry.ir_attested = false;
-      markChanged(entry);
-    }
-
-    const invalidStash = Array.from(byPlayer.values()).find(
-      (entry) => entry.slot === IR && !isValidStash(entry)
-    );
-    if (invalidStash) {
-      throw new LineupError(
-        400,
-        `${invalidStash.name} cannot remain in IR; current injury designation: ${injuryDesignationName(invalidStash.injury_status)}`
-      );
-    }
-
-    const validationSettings = resolvesLockedZeroBenchStash
-      ? { ...settings, benchSlots: 1 }
-      : settings;
-    const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
-    const errors = validateLineup(
-      entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
-      { ...validationSettings, baseline: entriesForLineupValidation(baseline, league), spent }
-    );
-    if (errors.length > 0) throw new LineupError(400, errors.join('; '));
-
-    const changed = [...changedByPlayer.values()];
-    for (const entry of changed) {
-      await client.query(
-        `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = false, "updated_at" = now()
-         WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
-        [entry.slot, team.id, season, targetWeek, entry.player_id]
-      );
-    }
-    // The attestation must not outlive the manager's move in weeks that were
-    // materialized ahead of time (#100): the weekly copy-forward would have
-    // planted the attested stash there already, and nothing later rewrites
-    // it. Earlier weeks keep their history.
-    const movedPlayerIds = [...new Set(changed.map((entry) => entry.player_id))];
-    if (movedPlayerIds.length > 0) {
-      await client.query(
-        `UPDATE "lineup_entries" SET "ir_attested" = false, "updated_at" = now()
-         WHERE "team_id" = $1 AND "season" = $2 AND "week" > $3
-           AND "player_id" = ANY($4::int[]) AND "ir_attested"`,
-        [team.id, season, targetWeek, movedPlayerIds]
-      );
-    }
-    await client.query('COMMIT');
-    return { leagueId, teamId: team.id, season, week: targetWeek, updated: changed.length };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+      // The attestation must not outlive the manager's move in weeks that were
+      // materialized ahead of time (#100): the weekly copy-forward would have
+      // planted the attested stash there already, and nothing later rewrites
+      // it. Earlier weeks keep their history.
+      const movedPlayerIds = [...new Set(changed.map((entry) => entry.player_id))];
+      if (movedPlayerIds.length > 0) {
+        await client.query(
+          `UPDATE "lineup_entries" SET "ir_attested" = false, "updated_at" = now()
+           WHERE "team_id" = $1 AND "season" = $2 AND "week" > $3
+             AND "player_id" = ANY($4::int[]) AND "ir_attested"`,
+          [team.id, season, targetWeek, movedPlayerIds]
+        );
+      }
+      // Returning COMMITs the slot UPDATEs above (ADR 0033). Every refusal in
+      // this body throws, so a rejected save rolls back rather than committing.
+      return { leagueId, teamId: team.id, season, week: targetWeek, updated: changed.length };
+    },
+    { label: 'set-lineup' }
+  );
 }
 
 /**

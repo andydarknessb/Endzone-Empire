@@ -778,13 +778,14 @@ function scoringWorld({ bestBall = false, entries }) {
       })),
     })],
     [/^SELECT "lineup_entries"\."player_id", "players"\."nfl_team", "player_stats"\."stats"/, (text, [teamId]) => ({
-      // An inner join on player_stats drops a player with no stats row.
+      // Standard settle read now LEFT JOINs player_stats (#1010): a player with
+      // no stats row is returned with a SQL NULL, not dropped. Model the NULL
+      // with `|| null` rather than a bare lookup that would yield undefined.
       rows: teamId !== 10 ? [] : rowsFor(text)
-        .filter((entry) => STATS.get(entry.playerId))
         .map((entry) => ({
           player_id: entry.playerId,
           nfl_team: SCORING_NFL_TEAM,
-          stats: STATS.get(entry.playerId),
+          stats: STATS.get(entry.playerId) || null,
         })),
     })],
     // Everyone here was held all along: these tests are about which entries

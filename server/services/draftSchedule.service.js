@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySideWhereSql } = require('./leagueType');
@@ -109,9 +110,16 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
   // deadlock on the same league row.
   if (action === 'start') return runStartAction(league);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). Nothing ran between the old checkout and BEGIN, so
+  // no statement newly reaches the wrapper's catch. The recompute-disagreement
+  // early return becomes a plain `return` inside `work`: it precedes every write
+  // (only the FOR UPDATE re-read and the no_market re-read run before it), so
+  // COMMITting the read-only transaction releases the row lock exactly as the
+  // old bare ROLLBACK did. `work` reports whether it took the write path so the
+  // post-commit push stays gated to that path, the way the old early `return`
+  // (which exited the function) never reached the push block.
+  const didWrite = await withTransaction(pool, async (client) => {
     // Re-read under a row lock so a concurrent join/start/reschedule can't race us.
     const fresh = await client.query(
       `SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage",
@@ -144,8 +152,10 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
     // above cleared MARKET_FLOOR, the recompute returns 'start', disagrees with
     // the carried 'no_market', and bails here: no flag, no notification.
     if (!row || scheduledDraftAction({ ...row, draft_status: row.draft_status }, row.team_count, now, effectiveMarketCount) !== action) {
-      await client.query('ROLLBACK');
-      return;
+      // Read-only so far: no write precedes this bail. A plain return COMMITs an
+      // empty transaction and releases the row lock, the same release the bare
+      // ROLLBACK gave; `false` tells the caller no write happened, so no push.
+      return false;
     }
 
     if (action === 'no_market') {
@@ -204,16 +214,13 @@ async function runAction(league, action, marketCount = Infinity, now = new Date(
         data: { url: `/#/league/${league.id}/draft`, draftDate: league.draft_date },
       });
     }
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+    return true;
+  }, { label: 'draft-schedule-tick' });
 
-  // Push happens after commit (best-effort, off the critical path).
-  if (action === 'remind_24h' || action === 'remind_1h') {
+  // Push happens after commit (best-effort, off the critical path). Only on the
+  // write path: on a recompute-disagreement the old code returned before ever
+  // reaching here, so `didWrite` gates it to preserve that.
+  if (didWrite && (action === 'remind_24h' || action === 'remind_1h')) {
     const owners = await pool.query(`SELECT "owner_id" FROM "teams" WHERE "league_id" = $1`, [league.id]);
     await pushDraftAlert(league.id, owners.rows.map((r) => r.owner_id), {
       title: 'Draft reminder',

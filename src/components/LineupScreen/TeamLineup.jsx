@@ -20,6 +20,7 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import TeamAvatarUploader from '../common/TeamAvatarUploader';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
 import { isPickemOnly } from '../../lib/leagueType';
+import { standingsFromResponse, findTeamStanding } from '../../entities/standings';
 import { LineupEditor } from './LineupScreen';
 
 function TeamSummary({ league, summary }) {
@@ -31,19 +32,16 @@ function TeamSummary({ league, summary }) {
   const isPreDraft = deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT;
   const isFaab = league.waiver_type === 'faab';
   const row = summary.row;
-  const gamesPlayed = row ? row.wins + row.losses + row.ties : 0;
+  const gamesPlayed = row ? row.gamesPlayed : 0;
   const parts = [];
 
   if (isPreDraft || (row && gamesPlayed === 0)) {
     parts.push('No record yet');
   } else if (row) {
-    // Record is conditional: wins-losses when the Team has no ties, and
-    // wins-losses-ties once a tie has happened, matching
-    // matchup-grid/lib/records.js and
-    // my-team-summary/model/useMyTeamSummary.js. A tie count is never
-    // printed as zero.
-    const record = row.ties > 0 ? `${row.wins}-${row.losses}-${row.ties}` : `${row.wins}-${row.losses}`;
-    parts.push(`Record: ${record}`);
+    // The Record arrives FORMATTED from the standings entity (src/entities/
+    // standings, #959/#1044): wins-losses when the Team has no ties,
+    // wins-losses-ties once a tie has happened. Nothing here re-derives it.
+    parts.push(`Record: ${row.record}`);
     parts.push(`Rank: #${row.rank}`);
   } else {
     parts.push('Record unavailable');
@@ -148,10 +146,10 @@ function TeamLineup() {
     apiClient.get(`/api/scoring/league/${selectedLeague}/standings`)
       .then((response) => {
         if (ignore) return;
-        const rows = Array.isArray(response.data?.standings) ? response.data.standings : [];
+        const { rows } = standingsFromResponse(response.data);
         setSummary({
           status: 'success',
-          row: rows.find((row) => row.teamId === activeTeamId) || null,
+          row: findTeamStanding(rows, activeTeamId),
         });
       })
       .catch(() => {

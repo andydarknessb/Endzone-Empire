@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { hashToken } = require('./account.service');
 const { logger } = require('../modules/logger');
 
@@ -60,57 +61,71 @@ async function rotateRefreshToken({ token }) {
   if (!token || typeof token !== 'string') {
     throw new TokenError(400, 'refreshToken is required');
   }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await client.query(
-      `SELECT * FROM "refresh_tokens" WHERE "token_hash" = $1 FOR UPDATE`,
-      [hashToken(token)]
-    );
-    const row = result.rows[0];
-    const verdict = classifyRefreshToken(row);
-    if (verdict === 'reuse') {
-      await client.query(
-        `UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
-         WHERE "family_id" = $1 AND "revoked" = false`,
-        [row.family_id]
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). work returns a discriminated result so no exit
+  // COMMITs or ROLLBACKs by hand:
+  //   - reuse: revoke the family and RETURN, so the wrapper COMMITs the revoke;
+  //     the caller throws the 401 after the commit (today's COMMIT-then-throw
+  //     order, preserved).
+  //   - invalid/race: THROW the same TokenErrors as before; the wrapper rolls
+  //     the read-only transaction back and rethrows them untouched. There is no
+  //     write to keep, so the old `instanceof TokenError` skip has nothing left
+  //     to do and is gone.
+  //   - rotate: mark used, issue the successor, and return the happy fields.
+  const outcome = await withTransaction(
+    pool,
+    async (client) => {
+      const result = await client.query(
+        `SELECT * FROM "refresh_tokens" WHERE "token_hash" = $1 FOR UPDATE`,
+        [hashToken(token)]
       );
-      await client.query('COMMIT');
-      logger.warn({ userId: row.user_id }, 'refresh token reuse detected; family revoked');
-      throw new TokenError(401, 'invalid refresh token');
-    }
-    if (verdict === 'invalid') {
-      await client.query('ROLLBACK');
-      throw new TokenError(401, 'invalid refresh token');
-    }
-    if (verdict === 'race') {
-      await client.query('ROLLBACK');
-      throw new TokenError(401, 'invalid refresh token', 'REFRESH_RACE');
-    }
-    await client.query(
-      `UPDATE "refresh_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
-      [row.id]
-    );
-    const refreshToken = await issueRefreshToken(
-      {
+      const row = result.rows[0];
+      const verdict = classifyRefreshToken(row);
+      if (verdict === 'reuse') {
+        await client.query(
+          `UPDATE "refresh_tokens" SET "revoked" = true, "updated_at" = now()
+           WHERE "family_id" = $1 AND "revoked" = false`,
+          [row.family_id]
+        );
+        return { verdict: 'reuse', userId: row.user_id };
+      }
+      if (verdict === 'invalid') {
+        throw new TokenError(401, 'invalid refresh token');
+      }
+      if (verdict === 'race') {
+        throw new TokenError(401, 'invalid refresh token', 'REFRESH_RACE');
+      }
+      await client.query(
+        `UPDATE "refresh_tokens" SET "used" = true, "updated_at" = now() WHERE "id" = $1`,
+        [row.id]
+      );
+      const refreshToken = await issueRefreshToken(
+        {
+          userId: row.user_id,
+          familyId: row.family_id,
+          authenticatedAt: row.authenticated_at,
+        },
+        client
+      );
+      return {
+        verdict: 'rotate',
         userId: row.user_id,
-        familyId: row.family_id,
+        refreshToken,
         authenticatedAt: row.authenticated_at,
-      },
-      client
-    );
-    await client.query('COMMIT');
-    return {
-      userId: row.user_id,
-      refreshToken,
-      authenticatedAt: row.authenticated_at,
-    };
-  } catch (error) {
-    if (!(error instanceof TokenError)) await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+      };
+    },
+    { label: 'refresh-token' }
+  );
+
+  if (outcome.verdict === 'reuse') {
+    logger.warn({ userId: outcome.userId }, 'refresh token reuse detected; family revoked');
+    throw new TokenError(401, 'invalid refresh token');
   }
+  return {
+    userId: outcome.userId,
+    refreshToken: outcome.refreshToken,
+    authenticatedAt: outcome.authenticatedAt,
+  };
 }
 
 /** Logout: revoke the presented token's whole family. Succeeds silently on unknown tokens. */

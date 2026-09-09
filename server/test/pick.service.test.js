@@ -605,3 +605,60 @@ test('landPick: the acquire bundle is still evaluated - a full roster is refused
   assert.deepEqual(recorder.calls, [], 'a refusal emits nothing');
   fake.assertClean();
 });
+
+// #1063 Ruling 5: commitPick is this child's representative site for the
+// #1053/#1055 pair. It proves commitPick actually routes its transaction through
+// withTransaction (ADR 0033) rather than hand-rolling the close - the wrapper's
+// own exhaustive close tests live in withTransaction.test.js. commitPick's first
+// statement after BEGIN is SELECT ... FROM "leagues" ... FOR UPDATE, so a
+// throwing client-side select('leagues') reaches the wrapper's catch. The plain
+// Error carries no `code`, so commitPick's 23505 catch passes it through
+// untouched, which is what lets the wrapper's attach-and-rethrow-original be
+// observed here. Driven through pickService.commitPick directly (not landPick):
+// the commit is the seam under test, without the room fan-out.
+test('commitPick: a rejecting ROLLBACK destroys the connection and keeps the original error (#1063 Ruling 5)', async (t) => {
+  const errorLog = t.mock.method(console, 'error', () => {});
+  const fake = createFakePool([
+    [select('leagues'), () => { throw new Error('boom'); }, 'client'],
+    [/^ROLLBACK$/, () => { throw new Error('rollback boom'); }, 'client'],
+  ]).install(t);
+
+  // Red-tell (criterion 2): bypassing the wrapper at this site - restoring a bare
+  // `await client.query('ROLLBACK'); throw error;` with a bare finally
+  // `client.release()` - returns the open-transaction client to the pool and
+  // reddens fake.assertClean() on 'transaction left open', and lets the rollback
+  // rejection replace the original, reddening the err.message check.
+  await assert.rejects(
+    pickService.commitPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    (err) => {
+      assert.equal(err.message, 'boom', 'the original error surfaces, not the rollback failure');
+      assert.equal(err.rollbackError.message, 'rollback boom', 'the rollback failure is attached to the original error');
+      return true;
+    }
+  );
+
+  fake.assertClean();
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+  assert.equal(errorLog.mock.callCount(), 1, 'the rollback failure is logged once');
+});
+
+test('commitPick: an ordinary error keeps its healthy connection (#1063 Ruling 5 control)', async (t) => {
+  const fake = createFakePool([
+    [select('leagues'), () => { throw new Error('boom'); }, 'client'],
+  ]).install(t);
+
+  await assert.rejects(
+    pickService.commitPick({ leagueId: LEAGUE_ID, userId: 7, playerId: 500 }),
+    (err) => {
+      assert.equal(err.message, 'boom');
+      assert.equal(err.rollbackError, undefined, 'a clean ROLLBACK attaches no rollbackError');
+      return true;
+    }
+  );
+
+  // Red-tell (criterion 2 control): making the wrapper's release unconditional
+  // (release(new Error(...)) on every path) reddens this releaseArgs()[0] check -
+  // a clean ROLLBACK returns the healthy connection to the pool bare.
+  assert.equal(fake.releaseArgs()[0], undefined, 'an ordinary error keeps its healthy connection');
+  fake.assertClean();
+});

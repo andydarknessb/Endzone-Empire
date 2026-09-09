@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { placeOnWaiversUndoable } = require('./waiver.service');
 const { logTransaction } = require('./activity.service');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
@@ -95,86 +96,86 @@ function shouldAutoEnableAutodraft(consecutiveTimeouts) {
  * the post-COMMIT `rosterChanged` fan-out.
  */
 async function commitFreeAgentAdd({ leagueId, userId, playerId }) {
-  const client = await pool.connect();
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
+  // this transaction's own catch now sits in a catch around the wrapper (#1063
+  // Ruling 3): the wrapper rethrows the ORIGINAL driver error untouched, so this
+  // is a move, not a rewrite.
   try {
-    await client.query('BEGIN');
+    return await withTransaction(pool, async (client) => {
+      const leagueResult = await client.query(
+        `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+        [leagueId]
+      );
+      const league = leagueResult.rows[0];
+      if (!league) throw new DraftError(404, 'league not found');
+      // A pick'em-only league has no draft and no rosters; say so rather than the
+      // generic "draft is not complete" (its draft_status is 'pending' forever).
+      assertFantasyLeagueRow(league);
+      // A free-agent add is a POST-draft acquisition: refuse until the draft is
+      // complete. The mirror of commitPick's active-only guard (#782 ruling 2).
+      if (league.draft_status !== 'complete') {
+        throw new DraftError(409, 'the draft is not complete');
+      }
 
-    const leagueResult = await client.query(
-      `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) throw new DraftError(404, 'league not found');
-    // A pick'em-only league has no draft and no rosters; say so rather than the
-    // generic "draft is not complete" (its draft_status is 'pending' forever).
-    assertFantasyLeagueRow(league);
-    // A free-agent add is a POST-draft acquisition: refuse until the draft is
-    // complete. The mirror of commitPick's active-only guard (#782 ruling 2).
-    if (league.draft_status !== 'complete') {
-      throw new DraftError(409, 'the draft is not complete');
-    }
+      const teamsResult = await client.query(
+        `SELECT "id", "name", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
+         WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
+        [leagueId]
+      );
+      const myTeam = teamsResult.rows.find((t) => t.owner_id === userId);
+      if (!myTeam) throw new DraftError(403, 'not a member of this league');
+      if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
 
-    const teamsResult = await client.query(
-      `SELECT "id", "name", "owner_id", "draft_position", "autodraft", "locked" FROM "teams"
-       WHERE "league_id" = $1 ORDER BY "draft_position" NULLS LAST, "id"`,
-      [leagueId]
-    );
-    const myTeam = teamsResult.rows.find((t) => t.owner_id === userId);
-    if (!myTeam) throw new DraftError(403, 'not a member of this league');
-    if (myTeam.locked) throw new DraftError(409, 'your team is locked by the commissioner');
+      const playerResult = await client.query(
+        `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
+        [playerId]
+      );
+      if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
-    const playerResult = await client.query(
-      `SELECT "id", "name", "position", "nfl_team" FROM "players" WHERE "id" = $1`,
-      [playerId]
-    );
-    if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
+      // The write-time roster gate (#944): it reads the freeze off the League row
+      // it re-locks FOR UPDATE (the League is already held from the SELECT above,
+      // so this is a no-op re-lock in League-first order), and runs the acquire
+      // bundle - capacity, the position cap and the on-waivers gate - that used to
+      // live in assertRosterAcquisitionAllowed here. Team lock is bypassed because
+      // this path already refused a locked team above (myTeam.locked), which fails
+      // earlier and keeps that refusal's ordering unchanged.
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: myTeam.id,
+        direction: 'acquire',
+        playerId,
+        position: playerResult.rows[0].position,
+        bypass: [ROSTER_GATE.TEAM_LOCK],
+      });
 
-    // The write-time roster gate (#944): it reads the freeze off the League row
-    // it re-locks FOR UPDATE (the League is already held from line 98, so this
-    // is a no-op re-lock in League-first order), and runs the acquire bundle -
-    // capacity, the position cap and the on-waivers gate - that used to live in
-    // assertRosterAcquisitionAllowed here. Team lock is bypassed because this
-    // path already refused a locked team above (myTeam.locked), which fails
-    // earlier and keeps that refusal's ordering unchanged.
-    await assertRosterWriteAllowed(client, {
-      leagueId,
-      teamId: myTeam.id,
-      direction: 'acquire',
-      playerId,
-      position: playerResult.rows[0].position,
-      bypass: [ROSTER_GATE.TEAM_LOCK],
-    });
+      await client.query(
+        `INSERT INTO "team_players" ("league_id", "team_id", "player_id")
+         VALUES ($1, $2, $3)`,
+        [leagueId, myTeam.id, playerId]
+      );
+      // A free-agent add lands on the bench, never back in an old stash (#94, user
+      // story 13); undoDrop is the one acquisition that restores a stash.
+      await lineupService.benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
+      // Free-agent pickups go in the league transaction log (draft picks don't).
+      await logTransaction(client, {
+        leagueId,
+        teamId: myTeam.id,
+        type: 'add',
+        detail: { playerId, playerName: playerResult.rows[0].name },
+      });
 
-    await client.query(
-      `INSERT INTO "team_players" ("league_id", "team_id", "player_id")
-       VALUES ($1, $2, $3)`,
-      [leagueId, myTeam.id, playerId]
-    );
-    // A free-agent add lands on the bench, never back in an old stash (#94, user
-    // story 13); undoDrop is the one acquisition that restores a stash.
-    await lineupService.benchAcquiredPlayer(client, { league, teamId: myTeam.id, playerId });
-    // Free-agent pickups go in the league transaction log (draft picks don't).
-    await logTransaction(client, {
-      leagueId,
-      teamId: myTeam.id,
-      type: 'add',
-      detail: { playerId, playerName: playerResult.rows[0].name },
-    });
-
-    await client.query('COMMIT');
-    return {
-      leagueId,
-      ...teamIdentityOf(myTeam),
-      player: playerResult.rows[0],
-    };
+      return {
+        leagueId,
+        ...teamIdentityOf(myTeam),
+        player: playerResult.rows[0],
+      };
+    }, { label: 'free-agent-add' });
   } catch (error) {
-    await client.query('ROLLBACK');
     if (error.code === '23505') {
       throw new DraftError(409, 'player is already rostered in this league');
     }
     throw error;
-  } finally {
-    client.release();
   }
 }
 
@@ -219,9 +220,10 @@ async function addFreeAgent({ leagueId, userId, playerId }) {
  * all), and the gate below is what takes both rows, League first.
  */
 async function dropPlayer({ leagueId, userId, playerId }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). No catch-side mapping here (the old catch only
+  // rolled back and rethrew), so the wrapper is the whole transaction.
+  return withTransaction(pool, async (client) => {
     // Demoted from FOR UPDATE (#962): see the lock-order note above. The Team
     // row is still locked a statement later, by the gate, in League-then-Team
     // order, so the drop is no less serialized than it was.
@@ -270,14 +272,8 @@ async function dropPlayer({ leagueId, userId, playerId }) {
       detail: { playerId },
     });
 
-    await client.query('COMMIT');
     return { leagueId, teamId: team.id, playerId };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  }, { label: 'drop-player' });
 }
 
 /**
@@ -292,62 +288,65 @@ async function dropPlayer({ leagueId, userId, playerId }) {
  * undo needs is therefore read before the hold is deleted.
  */
 async function undoDrop({ leagueId, userId, playerId }) {
-  const client = await pool.connect();
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). The 23505 -> DraftError mapping that used to sit in
+  // this transaction's own catch now sits in a catch around the wrapper (#1063
+  // Ruling 3); the wrapper rethrows the ORIGINAL driver error untouched.
   try {
-    await client.query('BEGIN');
+    return await withTransaction(pool, async (client) => {
+      const leagueResult = await client.query(
+        `SELECT "id", "roster_limit", "ir_slots", "position_caps", "current_season", "current_week"
+           FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
+        [leagueId]
+      );
+      const league = leagueResult.rows[0];
+      if (!league) throw new DraftError(404, 'league not found');
 
-    const leagueResult = await client.query(
-      `SELECT "id", "roster_limit", "ir_slots", "position_caps", "current_season", "current_week"
-         FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
-      [leagueId]
-    );
-    const league = leagueResult.rows[0];
-    if (!league) throw new DraftError(404, 'league not found');
+      const team = await requireMember(client, { leagueId, userId });
 
-    const team = await requireMember(client, { leagueId, userId });
+      // The write-time roster gate (#944) for the freeze and the Team lock: the
+      // undo was "the one path that checks neither lock" (#940), and now inherits
+      // both. It reads the freeze off the League row it re-locks FOR UPDATE (the
+      // League is already held from the SELECT above, League-first order), and
+      // refuses a frozen League or a locked Team before any hold is read or
+      // deleted. Capacity, the position cap and the waiver hold are bypassed:
+      // undoDrop owns its own restored-stash capacity (the interrupted stash
+      // grants a spot the generic gate would not credit), its own
+      // assertPositionCapNotReached below, and its own waiver-hold read above (the
+      // hold is what AUTHORIZES an undo).
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: team.id,
+        direction: 'acquire',
+        playerId,
+        bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+      });
 
-    // The write-time roster gate (#944) for the freeze and the Team lock: the
-    // undo was "the one path that checks neither lock" (#940), and now inherits
-    // both. It reads the freeze off the League row it re-locks FOR UPDATE (the
-    // League is already held from line 258, League-first order), and refuses a
-    // frozen League or a locked Team before any hold is read or deleted.
-    // Capacity, the position cap and the waiver hold are bypassed: undoDrop owns
-    // its own restored-stash capacity (the interrupted stash grants a spot the
-    // generic gate would not credit), its own assertPositionCapNotReached below,
-    // and its own waiver-hold read above (the hold is what AUTHORIZES an undo).
-    await assertRosterWriteAllowed(client, {
-      leagueId,
-      teamId: team.id,
-      direction: 'acquire',
-      playerId,
-      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
-    });
+      const holdResult = await client.query(
+        `SELECT 1 FROM "waiver_players"
+         WHERE "league_id" = $1 AND "player_id" = $2 AND "dropped_by_team_id" = $3`,
+        [leagueId, playerId, team.id]
+      );
+      if (!holdResult.rows[0]) {
+        throw new DraftError(409, 'too late to undo; submit a waiver claim instead');
+      }
 
-    const holdResult = await client.query(
-      `SELECT 1 FROM "waiver_players"
-       WHERE "league_id" = $1 AND "player_id" = $2 AND "dropped_by_team_id" = $3`,
-      [leagueId, playerId, team.id]
-    );
-    if (!holdResult.rows[0]) {
-      throw new DraftError(409, 'too late to undo; submit a waiver claim instead');
-    }
-
-    const rosterCountResult = await client.query(
-      `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-      [team.id]
-    );
-    // restoredPlayerIds makes the undo really an undo: the stash his drop
-    // interrupted still grants its spot on the way back in - but only while
-    // it is still a valid stash. If it stopped being one while he was on
-    // waivers, the undo benches him instead of restoring it ungated.
-    const capacity = await rosterCapacity(client, {
-      league,
-      teamId: team.id,
-      restoredPlayerIds: [playerId],
-    });
-    if (rosterCountResult.rows[0].n >= capacity) {
-      throw new DraftError(409, `roster capacity of ${capacity} reached`);
-    }
+      const rosterCountResult = await client.query(
+        `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
+        [team.id]
+      );
+      // restoredPlayerIds makes the undo really an undo: the stash his drop
+      // interrupted still grants its spot on the way back in - but only while
+      // it is still a valid stash. If it stopped being one while he was on
+      // waivers, the undo benches him instead of restoring it ungated.
+      const capacity = await rosterCapacity(client, {
+        league,
+        teamId: team.id,
+        restoredPlayerIds: [playerId],
+      });
+      if (rosterCountResult.rows[0].n >= capacity) {
+        throw new DraftError(409, `roster capacity of ${capacity} reached`);
+      }
     // Read before the waiver hold is deleted below: the hold carries the
     // record of what the drop interrupted, and there is no longer a
     // surviving lineup row to fall back on (#197).
@@ -374,55 +373,52 @@ async function undoDrop({ leagueId, userId, playerId }) {
     // benign: a designation that clears between the reads spends the credit
     // and benches him, one that qualifies restores the stash without the
     // credit, and a refusal is a 409 the manager retries.
-    const restored = await interruptedStash(client, { leagueId, teamId: team.id, playerId });
+      const restored = await interruptedStash(client, { leagueId, teamId: team.id, playerId });
 
-    const playerResult = await client.query(
-      `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
-      [playerId]
-    );
-    if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
+      const playerResult = await client.query(
+        `SELECT "id", "name", "position" FROM "players" WHERE "id" = $1`,
+        [playerId]
+      );
+      if (!playerResult.rows[0]) throw new DraftError(404, 'player not found');
 
-    await assertPositionCapNotReached(client, {
-      teamId: team.id,
-      positionCaps: league.position_caps,
-      position: playerResult.rows[0].position,
-    });
-
-    await client.query(
-      `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
-      [leagueId, playerId]
-    );
-    await client.query(
-      `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
-      [leagueId, team.id, playerId]
-    );
-    if (restored) {
-      // The row the undo returns him to no longer exists - the drop deleted
-      // it - so the undo recreates it in the recorded slot, carrying the
-      // attestation the drop interrupted.
-      await lineupService.restoreInterruptedStash(client, {
-        league, teamId: team.id, playerId, slot: restored.slot, irAttested: restored.irAttested,
+      await assertPositionCapNotReached(client, {
+        teamId: team.id,
+        positionCaps: league.position_caps,
+        position: playerResult.rows[0].position,
       });
-    } else {
-      await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
-    }
-    await logTransaction(client, {
-      leagueId,
-      teamId: team.id,
-      type: 'add',
-      detail: { playerId, playerName: playerResult.rows[0].name, undo: true },
-    });
 
-    await client.query('COMMIT');
-    return { leagueId, teamId: team.id, player: playerResult.rows[0] };
+      await client.query(
+        `DELETE FROM "waiver_players" WHERE "league_id" = $1 AND "player_id" = $2`,
+        [leagueId, playerId]
+      );
+      await client.query(
+        `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+        [leagueId, team.id, playerId]
+      );
+      if (restored) {
+        // The row the undo returns him to no longer exists - the drop deleted
+        // it - so the undo recreates it in the recorded slot, carrying the
+        // attestation the drop interrupted.
+        await lineupService.restoreInterruptedStash(client, {
+          league, teamId: team.id, playerId, slot: restored.slot, irAttested: restored.irAttested,
+        });
+      } else {
+        await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
+      }
+      await logTransaction(client, {
+        leagueId,
+        teamId: team.id,
+        type: 'add',
+        detail: { playerId, playerName: playerResult.rows[0].name, undo: true },
+      });
+
+      return { leagueId, teamId: team.id, player: playerResult.rows[0] };
+    }, { label: 'undo-drop' });
   } catch (error) {
-    await client.query('ROLLBACK');
     if (error.code === '23505') {
       throw new DraftError(409, 'player is already rostered in this league');
     }
     throw error;
-  } finally {
-    client.release();
   }
 }
 
@@ -453,10 +449,10 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
   }
 
   const { correctionTarget } = require('./draftValidation.service');
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). No catch-side mapping here (the old catch only
+  // rolled back and rethrew), so the wrapper is the whole transaction.
+  return withTransaction(pool, async (client) => {
     const leagueResult = await client.query(
       `SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`,
       [leagueId]
@@ -542,7 +538,6 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
       reason: trimmedReason,
     });
 
-    await client.query('COMMIT');
     return {
       leagueId,
       pickNumber: target.pick_number,
@@ -554,12 +549,7 @@ async function correctLatestPick({ leagueId, userId, expectedPickNumber = null, 
       // broadcast it to the room beside the paused draft:state.
       activity,
     };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  }, { label: 'correct-pick' });
 }
 
 module.exports = {

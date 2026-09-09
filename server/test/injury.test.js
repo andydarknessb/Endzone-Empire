@@ -360,6 +360,263 @@ test('#929: the bulk designation write is issued before the IR stash is read', a
   fake.assertClean();
 });
 
+// ---- #961: every syncInjuries run appends one data_sync_runs row ----------
+// A minimal happy path: one player goes healthy -> Questionable. That is not an
+// IR recovery, so flagRecoveredIrStashes returns [] without a query, and the run
+// is playersUpdated 1, irFlags 0. The data_sync_runs INSERT matches on the pool
+// (no side tag), which is the observable that proves it is written outside the
+// transaction, not on the checked-out client.
+const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
+const healthyToQuestionableApi = async () => ({
+  data: { body: [{ playerID: 'tank-91', injury: { designation: 'Questionable', description: 'Ankle' } }] },
+});
+
+test('#961 success: one ok=true data_sync_runs row with job "injuries" and the run counts', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 91, external_id: 'tank-91', injury_status: null }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({ api: healthyToQuestionableApi });
+
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 });
+  const records = dataSyncRuns(fake.calls);
+  // Red-tell for criterion 2: deleting the ok=true record call empties this.
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended');
+  assert.equal(records[0].via, 'pool', 'the record is written on the pool, outside the transaction');
+  assert.equal(records[0].params[0], 'injuries', 'the job is the literal "injuries"');
+  assert.equal(records[0].params[2], true, 'ok is true');
+  assert.deepEqual(JSON.parse(records[0].params[3]), { playersUpdated: 1, irFlags: 0 },
+    'detail carries the run counts');
+  // Recorded after the run committed, never mid-transaction.
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  const recordIdx = fake.calls.findIndex((c) => insert('data_sync_runs').test(c.text));
+  assert.ok(commitIdx >= 0 && commitIdx < recordIdx, 'the record follows COMMIT');
+  fake.assertClean();
+});
+
+test('#961 failure: one ok=false row carries the error message, and the run still rethrows', async (t) => {
+  const boom = new Error('scan blew up');
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => { throw boom; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // Red-tell for the rethrow half of criterion 3: swallowing the rethrow makes
+  // this reject-assertion red (syncInjuries would resolve instead).
+  await assert.rejects(syncInjuries({ api: healthyToQuestionableApi }), /scan blew up/);
+
+  const records = dataSyncRuns(fake.calls);
+  // Red-tell for the record half of criterion 3: deleting the failure record
+  // call empties this.
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended on failure');
+  assert.equal(records[0].params[0], 'injuries');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'scan blew up', 'the error message is in detail');
+  // A throw from inside the transaction is the database side. Red-tell:
+  // dropping the write_failed tag in the transaction catch drops this to
+  // sync_failed. Control: 'write_failed' here, 'fetch_failed'/'bad_response' in
+  // the two pre-transaction tests below.
+  assert.equal(detail.reason, 'write_failed', 'a scan failure is the database side');
+  // Ruling 1 control: this scan throws but the ROLLBACK succeeds cleanly, so
+  // the connection is healthy and must be returned to the pool, not destroyed.
+  // Red-tell: destroying on every error path (release with an Error
+  // unconditionally) makes this fail.
+  assert.equal(fake.releaseArgs()[0], undefined, 'an ordinary error keeps its healthy connection');
+  fake.assertClean();
+});
+
+test('#961 survives rollback: the failure row is written on the pool, after ROLLBACK', async (t) => {
+  // Criterion 5, the reason the ticket exists. The scan throws inside the
+  // transaction, so the run rolls back. Because the record is written on the
+  // pool AFTER the ROLLBACK, the failure row survives; a record moved inside the
+  // transaction and written on that client would be lost with the rollback.
+  // Red-tell: moving the record call inside the transaction on the client turns
+  // via to 'client' and lands it before ROLLBACK, reddening both asserts below.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => { throw new Error('scan blew up'); }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await assert.rejects(syncInjuries({ api: healthyToQuestionableApi }), /scan blew up/);
+
+  const rollbackIdx = fake.calls.findIndex((c) => c.text === 'ROLLBACK');
+  const recordIdx = fake.calls.findIndex((c) => insert('data_sync_runs').test(c.text));
+  assert.ok(rollbackIdx >= 0, 'the run rolled back');
+  assert.equal(fake.calls[recordIdx].via, 'pool', 'the record is written on the pool, not the rolled-back client');
+  assert.ok(rollbackIdx < recordIdx, 'the record is written after the ROLLBACK');
+  fake.assertClean();
+});
+
+test('#961 upstream failure: an api() throw records ok=false with reason "fetch_failed"', async (t) => {
+  // The upstream Tank01 call throws before the transaction opens. It carries no
+  // statusCode, so only a tag distinguishes it from a database failure - which
+  // is the whole point of splitting the reason (finding 1): "upstream or us" is
+  // the highest-value question the row answers, and this sync is quota-metered.
+  // Red-tell: dropping the fetch_failed tag in runInjurySync's api() catch drops
+  // this to sync_failed. Control: reason is 'fetch_failed' here, 'bad_response'
+  // in the shape-guard test, 'write_failed' in the in-transaction test.
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    syncInjuries({ api: async () => { throw new Error('Tank01 timed out'); } }),
+    /Tank01 timed out/,
+  );
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row on an upstream failure');
+  assert.equal(records[0].via, 'pool');
+  assert.equal(records[0].params[0], 'injuries');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'Tank01 timed out', 'the upstream error message is in detail');
+  assert.equal(detail.reason, 'fetch_failed', 'an upstream throw is fetch_failed, not merged with our failures');
+  // No transaction was opened: the failure is upstream of pool.connect().
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction on an upstream failure');
+  fake.assertClean();
+});
+
+test('#961 bad response: a non-array getNFLPlayerList body records ok=false with reason "bad_response"', async (t) => {
+  // Tank01 answered, but the body is not an array, so the 502 shape guard throws
+  // before the transaction. Red-tell: dropping the bad_response tag (or the
+  // guard) changes this reason. Control: 'bad_response' here vs 'fetch_failed'
+  // and 'write_failed' in the sibling tests.
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    syncInjuries({ api: async () => ({ data: { body: { notAnArray: true } } }) }),
+    /unexpected getNFLPlayerList response shape/,
+  );
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row on a bad response');
+  assert.equal(records[0].via, 'pool');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'unexpected getNFLPlayerList response shape', 'the shape-guard message is in detail');
+  assert.equal(detail.reason, 'bad_response', 'a malformed feed is bad_response (upstream contract drift)');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction on a bad response');
+  fake.assertClean();
+});
+
+test('#1041 connect failure: pool.connect() rejecting records ok=false with reason "write_failed", not "sync_failed"', async (t) => {
+  // The #839 shape: pool exhaustion or refusal makes pool.connect() itself
+  // throw, above the transaction try/catch/finally (no client exists yet to
+  // ROLLBACK or release). Before this fix that throw carried no
+  // syncFailureReason and fell through to the sync_failed fallback, even
+  // though it is unambiguously the database side. Control: 'write_failed'
+  // here matches the in-transaction test above; 'fetch_failed'/'bad_response'
+  // are the two upstream sibling tests.
+  const connectError = new Error('connection refused by pooler');
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]);
+  const pool = require('../modules/pool');
+  // Mock query and connect separately, rather than fake.install(t) followed by
+  // a second t.mock.method(pool, 'connect', ...): node:test's MockTracker
+  // restores each mocked method to what it was at the time IT was mocked, in
+  // registration order, so mocking the same method twice leaves pool.connect
+  // pointed at this test's fake connect (not the real one) once the test ends
+  // and t.mock.reset() runs - a leak into whichever test happens to run next.
+  t.mock.method(pool, 'query', (sql, params) => fake.query(sql, params));
+  t.mock.method(pool, 'connect', async () => { throw connectError; });
+
+  // Criterion 2: assert on the rejection's message, not merely that it
+  // rejected. A TypeError about `release` reaching the caller (the hazard the
+  // ticket exists to avoid) would also make this reject, so only the message
+  // proves the original connection error survived intact.
+  await assert.rejects(
+    syncInjuries({ api: healthyToQuestionableApi }),
+    /connection refused by pooler/,
+  );
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row on a connect failure');
+  assert.equal(records[0].via, 'pool');
+  assert.equal(records[0].params[0], 'injuries');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'connection refused by pooler', 'the connect error message is in detail');
+  // Red-tell: dropping the tag line in the new connect() guard (or the guard
+  // itself) drops this to 'sync_failed'.
+  assert.equal(detail.reason, 'write_failed', 'a connect failure is the database side, not unclassified');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction opens: connect() never returned a client');
+  // No client was ever acquired, so none is left unreleased.
+  fake.assertClean();
+});
+
+test('#1048 rollback rejects: the original error survives and still tags write_failed', async (t) => {
+  // The #839 hazard's sibling: a ROLLBACK that itself rejects. The bare
+  // `await client.query('ROLLBACK')` in the transaction catch used to let a
+  // rejecting ROLLBACK replace the scan's original error, so the caller would
+  // see "rollback rejected" instead of "scan blew up" and the write_failed tag
+  // would be lost along with it.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => { throw new Error('scan blew up'); }, 'client'],
+    [/^ROLLBACK$/, () => { throw new Error('rollback rejected'); }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // Red-tell: reverting the inner try/catch around ROLLBACK (leaving the bare
+  // `await client.query('ROLLBACK')`) makes this reject with "rollback
+  // rejected" instead, since the unhandled ROLLBACK rejection replaces boom.
+  const promise = syncInjuries({ api: healthyToQuestionableApi });
+  await assert.rejects(promise, /scan blew up/);
+  const error = await promise.catch((e) => e);
+  assert.equal(error.rollbackError.message, 'rollback rejected',
+    'the rollback failure is attached to the original error, not swallowed silently');
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row despite the rollback failure');
+  assert.equal(records[0].params[2], false, 'ok is false');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.message, 'scan blew up', 'the original error message survives the rollback failure');
+  assert.equal(detail.reason, 'write_failed', 'a rollback failure never changes the tag');
+
+  // A rejecting ROLLBACK leaves the transaction open on the socket, so the
+  // finally now releases the client WITH an Error: pg-pool destroys the
+  // connection and Postgres frees the session's locks (the players advisory
+  // lock included) on disconnect. The fake reports clean because the client was
+  // destroyed, not because the transaction closed. Red-tell: reverting the
+  // finally to a bare `client.release()` returns the open-transaction client to
+  // the pool, and this assertClean() goes red on "transaction left open".
+  fake.assertClean();
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+});
+
+test('#961 best-effort: a record write that throws changes neither outcome nor return value', async (t) => {
+  // The table may not exist yet in a given environment (the migration is a
+  // maintainer step). A thrown record write must not turn a correct run into a
+  // rejection. Red-tell: removing the swallow in services/dataSyncRuns makes
+  // syncInjuries reject here instead of returning the result.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 91, external_id: 'tank-91', injury_status: null }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => { throw new Error('relation "data_sync_runs" does not exist'); }],
+  ]).install(t);
+
+  const result = await syncInjuries({ api: healthyToQuestionableApi });
+
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 }, 'the run returns its real result');
+  assert.equal(dataSyncRuns(fake.calls).length, 1, 'the record write was attempted once');
+  fake.assertClean();
+});
+
 test('#929: playersUpdated counts feed matches, not written rows (3 matches, 1 no-op -> 3)', async (t) => {
   // Three feed matches; tank-81 equals its stored row (a no-op the statement
   // drops), the other two differ. playersUpdated is the length of the

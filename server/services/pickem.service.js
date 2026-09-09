@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
 const { logTransaction } = require('./activity.service');
 const { RECAPS_TABLE_SQL, isMissingRecapStorage } = require('../modules/recapStorage');
 const { isPickemOnly } = require('./leagueType');
@@ -544,9 +545,13 @@ async function putSettings({ leagueId, enabled, mode }) {
   if (mode !== undefined && !MODES.includes(mode)) {
     throw new PickemError(400, 'PICKEM_BAD_MODE', `mode must be one of: ${MODES.join(', ')}`);
   }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). Refusals throw a PickemError inside work and the
+  // wrapper rolls back and rethrows untouched, so no catch-side mapping moves
+  // outward. The bad-mode check above is pre-transaction and stays before it.
+  return withTransaction(
+    pool,
+    async (client) => {
     const league = await loadLeague(client, leagueId);
     if (isPickemOnly(league) && enabled === false) {
       throw new PickemError(
@@ -587,14 +592,10 @@ async function putSettings({ leagueId, enabled, mode }) {
       type: 'commissioner',
       detail: { action: 'pickem_settings', enabled: nextEnabled, mode: nextMode },
     });
-    await client.query('COMMIT');
     return { enabled: nextEnabled, mode: nextMode };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+    },
+    { label: 'pickem-settings' }
+  );
 }
 
 /** One week's derived slate. Never depends on live_game_states existing. */
@@ -686,9 +687,12 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
  * rejects the whole batch and names the offending games.
  */
 async function upsertPicks({ leagueId, userId, season, week, picks, now = new Date() }) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
+  // release rule (ADR 0033). Every refusal throws a PickemError inside work,
+  // rolled back and rethrown untouched by the wrapper; no catch-side mapping.
+  return withTransaction(
+    pool,
+    async (client) => {
     const settings = await getSettings(leagueId, client);
     if (!settings.enabled) {
       throw new PickemError(403, 'PICKEM_DISABLED', "Pick'em is not enabled for this league");
@@ -735,14 +739,10 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
       validated.picks.map((pick) => pick.pickedTeam),
       validated.picks.map((pick) => pick.confidence),
     ]);
-    await client.query('COMMIT');
     return { saved: validated.picks.length, myPicks: validated.picks };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+    },
+    { label: 'pickem-picks' }
+  );
 }
 
 /**

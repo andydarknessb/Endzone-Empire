@@ -3,12 +3,22 @@ import { screen, within, fireEvent, act } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
+import { recordsByTeamId } from '../../entities/standings';
 import PowerRankings from './PowerRankings';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
 }));
+
+// recordsByTeamId is mocked to forward to the real implementation by
+// default; the red-tell test below overrides it for one team to prove the
+// Record column reads the entity's lookup and never builds its own.
+jest.mock('../../entities/standings', () => {
+  const actual = jest.requireActual('../../entities/standings');
+  return { ...actual, recordsByTeamId: jest.fn(actual.recordsByTeamId) };
+});
+const realRecordsByTeamId = jest.requireActual('../../entities/standings').recordsByTeamId;
 
 let matchMediaMatches = false;
 beforeEach(() => {
@@ -23,6 +33,12 @@ beforeEach(() => {
     removeEventListener: jest.fn(),
     dispatchEvent: jest.fn(),
   }));
+  // react-scripts' Jest preset sets `resetMocks: true`, which wipes ANY
+  // mockImplementation (including the one the jest.mock factory above sets
+  // at module load) before every test, not just once. recordsByTeamId must
+  // be re-armed here, after that reset has already run, or every test but
+  // the one that sets its own override sees it return undefined.
+  recordsByTeamId.mockImplementation(realRecordsByTeamId);
 });
 
 const renderScreen = (leagueId = 1) =>
@@ -268,6 +284,50 @@ test('shows each team\'s real win-loss record fetched from the standings endpoin
 
   const aliceRow = await screen.findByTestId('power-ranking-row-1');
   expect(within(aliceRow).getByText('3-1')).toBeInTheDocument();
+});
+
+test('shows a tied team\'s record as three parts', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.includes('standings')
+      ? Promise.resolve({
+        data: {
+          league: { season_status: 'in_progress' },
+          standings: [{ teamId: 1, name: "Alice's Team", wins: 2, losses: 1, ties: 1 }],
+        },
+      })
+      : Promise.resolve({ data: powerRankingsResponse() })
+  );
+  renderScreen();
+
+  const aliceRow = await screen.findByTestId('power-ranking-row-1');
+  expect(within(aliceRow).getByText('2-1-1')).toBeInTheDocument();
+});
+
+// #1044/#1054 red-tell: the standings entity is the ONE place the Record
+// lookup is built. Forcing recordsByTeamId to hand back a Map with Team 1's
+// entry replaced by a string no wins/losses/ties combination would produce,
+// and seeing that exact string reach the DOM, is what proves the Record
+// column reads the entity's lookup and never builds its own (a hand-rolled
+// memo would derive the record from the raw row directly, bypass this mock
+// entirely, and print "3-1" here, since Alice's raw counts are still
+// wins:3/losses:1/ties:0).
+test('reads each Record straight from the standings entity rather than recomputing it', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.includes('standings')
+      ? Promise.resolve({ data: standingsResponse() })
+      : Promise.resolve({ data: powerRankingsResponse() })
+  );
+  recordsByTeamId.mockImplementation((rows) => {
+    const map = realRecordsByTeamId(rows);
+    map.set(1, 'ENTITY-SAYS-9-9-9');
+    return map;
+  });
+
+  renderScreen();
+
+  const aliceRow = await screen.findByTestId('power-ranking-row-1');
+  expect(within(aliceRow).getByText('ENTITY-SAYS-9-9-9')).toBeInTheDocument();
+  expect(within(aliceRow).queryByText('3-1')).not.toBeInTheDocument();
 });
 
 test('updates a mounted ranking immediately when Profile Settings publishes a team change', async () => {

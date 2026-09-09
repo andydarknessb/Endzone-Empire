@@ -7,10 +7,12 @@ const { createFakePool, select, insert, remove } = require('./helpers/fakePool')
 
 /**
  * PUT /api/draft/league/:id/keepers — the commissioner's replace-all keeper
- * save. Covered here for one thing only: the round bound it validates against
- * is the league's DRAFT roster size (starters + bench), not the IR-inclusive
- * roster_limit column (#96). The route is otherwise covered by
- * membership.rowSites.test.js and leagueType.test.js.
+ * save. Two things are covered here. First (#96): the round bound it validates
+ * against is the league's DRAFT roster size (starters + bench), not the
+ * IR-inclusive roster_limit column. Second (#1062): this handler is the child's
+ * representative site for the #1053/#1055 withTransaction pair, proving its
+ * transaction closes through the wrapper (ADR 0033). The route is otherwise
+ * covered by membership.rowSites.test.js and leagueType.test.js.
  */
 
 const previousSecret = process.env.JWT_SECRET;
@@ -92,5 +94,73 @@ test('PUT keepers: a zero-IR league still keeps through its whole roster limit',
   const res = await save(20);
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
+  fake.assertClean();
+});
+
+// #1062 Ruling 5: this handler is the child's representative site for the
+// #1053/#1055 pair. It proves the PUT keepers transaction now closes through
+// withTransaction (ADR 0033) rather than the old bare
+// `client.query('ROLLBACK').catch(() => {})` + bare `client.release()`. Both
+// cases drive an error out of the INSERT (a 23503, the fault the handler's
+// outer catch maps); they differ only in whether the ROLLBACK itself rejects.
+function keeperPoolInsertFails(rollbackThrows) {
+  const handlers = [
+    [/SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
+    [/FROM "leagues" WHERE "id" = \$1 FOR UPDATE/, () => ({ rows: [league()] })],
+    [select('teams'), () => ({ rows: [{ id: 11 }, { id: 12 }] })],
+    [select('team_players'), () => ({ rows: [] })],
+    [remove('keepers'), () => ({ rows: [], rowCount: 0 })],
+    [insert('keepers'), () => {
+      const err = new Error('insert or update on table "keepers" violates foreign key constraint');
+      err.code = '23503';
+      throw err;
+    }],
+  ];
+  if (rollbackThrows) {
+    handlers.push([/^ROLLBACK$/, () => { throw new Error('rollback boom'); }, 'client']);
+  }
+  return createFakePool(handlers);
+}
+
+test('PUT keepers: a rejecting ROLLBACK destroys the connection and the ORIGINAL error still maps', async (t) => {
+  const fake = keeperPoolInsertFails(true).install(t);
+
+  const res = await save(19);
+
+  // The 23503 mapping moved into the outer catch (Ruling 3): the response is the
+  // INSERT's original 23503 code mapping, NOT the 500 the rollback failure would
+  // produce if it had surfaced. That proves withTransaction rethrew the ORIGINAL
+  // error, not `rollback boom`.
+  //
+  // Ruling 5 also asks this case to assert the original error carries the
+  // attached `rollbackError`. That is unobservable at this layer: the handler's
+  // catch turns the thrown error into an HTTP response and never exposes the
+  // error object, so the attachment cannot be inspected through supertest. The
+  // wrapper's own test (withTransaction.test.js) asserts `err.rollbackError` on
+  // the rethrown error directly; here we assert the two route-observable
+  // consequences of that same path - the original error's mapping survives, and
+  // the connection was destroyed (releaseArgs below) - which together prove the
+  // site routes through the wrapper.
+  assert.equal(res.status, 400, JSON.stringify(res.body));
+  assert.match(res.body.error, /unknown team or player/);
+  // Red-tell (AC2): a rejecting ROLLBACK leaves the transaction open on the
+  // socket, so withTransaction destroys the connection - releases WITH an Error
+  // - and pg-pool drops it. Restoring a bare `client.release()` at this site
+  // returns the open-transaction client to the pool and reddens assertClean.
+  fake.assertClean();
+  assert.ok(fake.releaseArgs()[0] instanceof Error, 'a rejecting ROLLBACK destroys the connection');
+});
+
+test('PUT keepers: control - an ordinary INSERT error keeps its healthy connection', async (t) => {
+  const fake = keeperPoolInsertFails(false).install(t);
+
+  const res = await save(19);
+
+  assert.equal(res.status, 400, JSON.stringify(res.body));
+  assert.match(res.body.error, /unknown team or player/);
+  // Red-tell (AC2): the ROLLBACK succeeds, so the connection returns to the pool
+  // bare. Making withTransaction's release unconditional (release WITH an Error
+  // on every close) reddens this control.
+  assert.equal(fake.releaseArgs()[0], undefined, 'a clean ROLLBACK returns the connection to the pool bare');
   fake.assertClean();
 });
