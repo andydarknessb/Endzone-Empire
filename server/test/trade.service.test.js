@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, processDueTrades } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
+const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
 // --- roster capacity at the trade site (#97) --------------------------------
 // Thin: proves executeTrade consults the IR policy module's roster capacity
@@ -615,5 +616,50 @@ test('processDueTrades: a clean ROLLBACK returns the healthy connection to the p
 
   assert.deepEqual(outcomes, [{ tradeId: 5, status: 'cancelled', reason: 'trade not found' }]);
   assert.equal(world.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
+  world.assertClean();
+});
+
+test('processDueTrades: a throwing rosterChanged broadcast is contained, the trade still settles, and the sweep resolves (#1072)', async (t) => {
+  // A due trade that EXECUTES (empty items + ir_slots 0 keeps executeTrade
+  // trivial: no roster writes and no rosterCapacity read). This is the branch
+  // the ROLLBACK pair never reaches, and the only one that calls the broadcast.
+  const world = createFakePool([
+    [/FROM "trades" WHERE "status" = 'accepted' AND "review_ends_at"/, () => ({ rows: [{ id: 9 }] })],
+    [/FROM "leagues" WHERE "id" = \(SELECT "league_id"/, () => ({
+      rows: [{ id: 1, roster_limit: 16, ir_slots: 0, current_season: 2026, current_week: 6 }],
+    })],
+    [/^SELECT \* FROM "trades" WHERE "id" = \$1/, () => ({
+      rows: [{ id: 9, status: 'accepted', proposing_team_id: 41, receiving_team_id: 42, league_id: 1 }],
+    })],
+    [select('trade_items'), () => ({ rows: [] })],
+    [/FROM "teams" WHERE "id" IN \(\$1, \$2\)/, () => ({
+      rows: [{ id: 41, name: 'Sunday Ballers', owner_id: 7 }, { id: 42, name: 'Bob Squad', owner_id: 8 }],
+    })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" WHERE "team_id" = \$1/, () => ({ rows: [{ n: 0 }] })],
+    [select('players'), () => ({ rows: [] })],
+    [update('trades'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+
+  // Leave NO broadcast registered so getDraftRoomBroadcast() throws its
+  // deliberate "not initialised for this process" error (#745) - the persistent
+  // process-config condition, not a transient transport failure. Restore
+  // whatever was registered so the module's process-global state does not leak.
+  const prior = peekDraftRoomBroadcast();
+  setDraftRoomBroadcast(null);
+  t.after(() => setDraftRoomBroadcast(prior));
+
+  // Red-tell: without the try/catch around the broadcast, getDraftRoomBroadcast()
+  // throws out of processDueTrades (scheduler.js calls it bare), so this line
+  // rejects instead of resolving and the settled trade is never reported.
+  const outcomes = await processDueTrades();
+
+  // The broadcast threw, but the trade committed and its outcome is recorded
+  // (strictly better than base, which dropped the outcome when the broadcast
+  // threw), and the sweep resolved so the rest of the scheduler tick still runs.
+  assert.deepEqual(outcomes, [{ tradeId: 9, status: 'executed' }]);
+  assert.ok(world.matching(/^UPDATE "trades" SET "status" = 'executed'/).length === 1,
+    'the trade was executed inside the committed transaction');
   world.assertClean();
 });

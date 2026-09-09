@@ -601,9 +601,13 @@ async function processDueTrades() {
     // The swallow sits here at the call site: withTransaction owns
     // connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the release rule (ADR 0033),
     // and `work` returns which path it took so the outcome list is built the
-    // same way. The broadcast runs AFTER the wrapper resolves, so the connection
-    // is already back in the pool (Ruling 3), matching respondToTrade and
-    // commissionerDecide.
+    // same way. The rosterChanged broadcast runs AFTER the wrapper resolves so
+    // it never holds the pooled connection open, matching respondToTrade and
+    // commissionerDecide. That is a hold-time/consistency move, NOT a Ruling 3
+    // requirement: the base broadcast already ran after COMMIT. The move does
+    // change one thing Ruling 3 otherwise forbids - it puts the broadcast on a
+    // path that can throw where the base's in-try broadcast was caught - so it
+    // is contained below (see the executed branch) rather than left to escape.
     let result;
     try {
       result = await withTransaction(
@@ -638,8 +642,22 @@ async function processDueTrades() {
       continue;
     }
     if (result.status === 'executed') {
-      await getDraftRoomBroadcast().rosterChanged(result.leagueId);
+      // Record the settled trade FIRST, regardless of the broadcast. Base pushed
+      // this outcome only after a successful broadcast, so a broadcast failure
+      // silently dropped the record for a trade it had already committed.
       outcomes.push({ tradeId: row.id, status: 'executed' });
+      // Contained: getDraftRoomBroadcast() throws by design when no broadcast is
+      // registered in this process (a persistent process-config condition, #745;
+      // transport failures do NOT throw - the adapter swallows those and returns
+      // delivered:false). Base ran this inside the per-trade try and continued
+      // the loop on a throw; letting it escape here would abort the rest of the
+      // scheduler tick (processScheduledDrafts, syncAndScoreLiveWeeks,
+      // runRetention all run after processDueTrades), so it stays contained.
+      try {
+        await getDraftRoomBroadcast().rosterChanged(result.leagueId);
+      } catch (err) {
+        console.error('roster broadcast failed after executing trade %s:', row.id, err.message);
+      }
     } else {
       outcomes.push({ tradeId: row.id, status: result.status });
     }
