@@ -86,7 +86,11 @@ export default function CommissionerConsolePage() {
     return (
       <Shell>
         <Box sx={{ display: 'grid', gap: 1.75, justifyItems: 'start' }}>
-          <Typography component="h1" sx={H1_SX}>Commissioner console</Typography>
+          {/* "Console unavailable", not "Commissioner console": a viewer who
+              never got the league row cannot see the surface that heading
+              would claim to be showing. Mirrors LeagueDashboardPage's own
+              "League unavailable" for the same failed-read state. */}
+          <Typography component="h1" sx={H1_SX}>Console unavailable</Typography>
           {/* The fixed sentence, never the raw `error` string: useResource
               collapses the server's own message and the transport's
               (`err.message`, e.g. "Network Error") into one value, so
@@ -108,6 +112,17 @@ export default function CommissionerConsolePage() {
               fontFamily: 'var(--dash-font-body)',
               fontWeight: 600,
               fontSize: '13px',
+              // Without this, MUI's stock outlined hover paints
+              // palette.primary.main plus a primary-tinted wash - an
+              // unregistered pairing inside the dash shell (ADR 0034).
+              // AppThemeProvider's MuiButton override does not intercept it
+              // (disableElevation/borderRadius/transition only), so this
+              // page has to state it itself, matching LeagueDashboardPage's
+              // same button.
+              '&:hover': {
+                borderColor: 'var(--dash-accent-line)',
+                backgroundColor: 'transparent',
+              },
             }}
           >
             Try again
