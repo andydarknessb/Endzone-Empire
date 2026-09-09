@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { Avatar, Box, Typography } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, Skeleton } from '../../../shared/ui';
 import DecideJoinRequest from '../../../features/decide-join-request';
 import { initialsFor } from '../../../lib/initials';
@@ -28,10 +29,36 @@ import useJoinRequests from '../model/useJoinRequests';
  * to hold an avatar image, so this is never `TeamAvatar`), and acts on the
  * request by its `id`, never the requester's user id (which the server's own
  * `listJoinRequests` allowlist never even serves, per
- * joinRequestsQueue.route.test.js).
+ * joinRequestsQueue.route.test.js). The row's Team name is passed down to
+ * `decide-join-request` as `teamName`, which is what lets that feature's
+ * buttons carry it in their own accessible name (see that component's
+ * docblock).
+ *
+ * `role="list"`/`"listitem"` on the rows (a11y risk review, #1109): plain
+ * flex `div`s gave a screen-reader user no "list, N items" framing while
+ * moving through what is explicitly a queue, unlike this island's other
+ * row-shaped widgets (draft-grades, standings-table), which use a real
+ * `table`.
+ *
+ * `handleDecided` (a11y risk review): a successful decision triggers
+ * `refetch`, which re-runs the read and briefly renders the loading skeleton
+ * in place of every row - including the one whose button was just pressed -
+ * so nothing on screen otherwise confirms what happened. The `role="status"`
+ * region below is rendered unconditionally (a sibling of the loading/ready
+ * branches, never inside the `rows.map` those branches replace), so it stays
+ * mounted across that transition and its `aria-live` announcement survives
+ * it. `role="status"` already implies `aria-live="polite"` (ARIA), so no
+ * separate `aria-live` attribute is added.
  */
 export default function JoinRequests({ leagueId }) {
   const { showJoinQueue, status, rows, refetch } = useJoinRequests(leagueId);
+  const [announcement, setAnnouncement] = useState('');
+
+  const handleDecided = useCallback(({ approve, teamName } = {}) => {
+    const verb = approve ? 'Approved' : 'Denied';
+    setAnnouncement(teamName ? `${verb} ${teamName}'s join request.` : `${verb} the join request.`);
+    return refetch();
+  }, [refetch]);
 
   if (!showJoinQueue) return null;
 
@@ -45,6 +72,17 @@ export default function JoinRequests({ leagueId }) {
       sx={{ p: 0 }}
     >
       <Box sx={{ px: 2.25, py: 2.25, display: 'grid', gap: 1.5 }}>
+        {/* Unconditional - see docblock - so a decision's outcome is
+            announced even though the rows it describes are about to
+            disappear behind the reload it triggers. */}
+        <Box
+          role="status"
+          data-testid="join-requests-announcement"
+          sx={visuallyHidden}
+        >
+          {announcement}
+        </Box>
+
         {status === 'loading' && (
           <Box data-testid="join-requests-loading" aria-hidden="true" sx={{ display: 'grid', gap: 1 }}>
             <Skeleton variant="rounded" height={56} />
@@ -67,49 +105,59 @@ export default function JoinRequests({ leagueId }) {
           </Typography>
         )}
 
-        {status === 'ready' && rows.map((row) => {
-          const name = teamNameLabel(row.team_name);
-          return (
-            <Box
-              key={row.id}
-              data-testid={`join-requests-row-${row.id}`}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1.5,
-                flexWrap: 'wrap',
-                py: 1,
-                borderBottom: '1px solid var(--dash-line)',
-                '&:last-child': { borderBottom: 'none', pb: 0 },
-              }}
-            >
-              <Avatar
-                aria-hidden="true"
-                sx={{
-                  width: 36,
-                  height: 36,
-                  fontSize: 14,
-                  bgcolor: 'var(--dash-surface2)',
-                  color: 'var(--dash-ink)',
-                  flex: 'none',
-                }}
-              >
-                {initialsFor(name)}
-              </Avatar>
-              <Typography
-                sx={{
-                  flex: '1 1 200px',
-                  minWidth: 0,
-                  fontSize: '13.5px',
-                  color: 'var(--dash-ink)',
-                }}
-              >
-                {`${name} · requested ${formatRelative(row.created_at)}`}
-              </Typography>
-              <DecideJoinRequest leagueId={leagueId} requestId={row.id} onDecided={refetch} />
-            </Box>
-          );
-        })}
+        {status === 'ready' && rows.length > 0 && (
+          <Box role="list" sx={{ display: 'grid', gap: 1.5 }}>
+            {rows.map((row) => {
+              const name = teamNameLabel(row.team_name);
+              return (
+                <Box
+                  key={row.id}
+                  role="listitem"
+                  data-testid={`join-requests-row-${row.id}`}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                    flexWrap: 'wrap',
+                    pb: 1.5,
+                    borderBottom: '1px solid var(--dash-line)',
+                    '&:last-child': { borderBottom: 'none', pb: 0 },
+                  }}
+                >
+                  <Avatar
+                    aria-hidden="true"
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      fontSize: 14,
+                      bgcolor: 'var(--dash-surface2)',
+                      color: 'var(--dash-ink)',
+                      flex: 'none',
+                    }}
+                  >
+                    {initialsFor(name)}
+                  </Avatar>
+                  <Typography
+                    sx={{
+                      flex: '1 1 200px',
+                      minWidth: 0,
+                      fontSize: '13.5px',
+                      color: 'var(--dash-ink)',
+                    }}
+                  >
+                    {`${name} · requested ${formatRelative(row.created_at)}`}
+                  </Typography>
+                  <DecideJoinRequest
+                    leagueId={leagueId}
+                    requestId={row.id}
+                    teamName={name}
+                    onDecided={handleDecided}
+                  />
+                </Box>
+              );
+            })}
+          </Box>
+        )}
       </Box>
     </Card>
   );

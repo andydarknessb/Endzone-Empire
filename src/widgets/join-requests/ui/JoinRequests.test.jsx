@@ -88,7 +88,34 @@ test('two pending rows render their proposed names and relative times', async ()
   expect(screen.getByTestId('join-requests')).toHaveTextContent('Join requests');
 });
 
-test('Approve posts { approve: true } and the list re-reads', async () => {
+// a11y risk review (#1109): a bare "Approve"/"Deny" name would be identical
+// across every row (and would collide with CommissionerTools' own same-named
+// pair, mounted on the console by default alongside this widget). Each row's
+// pair has to be distinguishable from the other row's.
+test('each row carries its own Team name in its buttons’ accessible names, and the queue is a real list', async () => {
+  mockGetByUrl({
+    '/api/league/42': leagueResponse({ league: screenedPublicLeague() }),
+    '/api/league/42/join-requests': {
+      data: [
+        pendingRow({ id: 7, team_name: 'Gridiron Gang' }),
+        pendingRow({ id: 8, team_name: 'Sunday Ballers' }),
+      ],
+    },
+  });
+  renderWidget();
+
+  expect(await screen.findByRole('button', { name: "Approve Gridiron Gang's join request" })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Deny Gridiron Gang's join request" })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Approve Sunday Ballers's join request" })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: "Deny Sunday Ballers's join request" })).toBeInTheDocument();
+
+  expect(screen.getByRole('list')).toBeInTheDocument();
+  expect(screen.getAllByRole('listitem')).toHaveLength(2);
+});
+
+const approveButton = () => screen.getByRole('button', { name: "Approve Gridiron Gang's join request" });
+
+test('Approve posts { approve: true }, the list re-reads, and the outcome is announced', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({ league: screenedPublicLeague() }),
     '/api/league/42/join-requests': { data: [pendingRow()] },
@@ -99,7 +126,7 @@ test('Approve posts { approve: true } and the list re-reads', async () => {
   await screen.findByText(/Gridiron Gang/);
   const before = joinRequestUrls().length;
 
-  await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+  await userEvent.click(approveButton());
 
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(
     '/api/league/42/join-requests/7/decide',
@@ -108,9 +135,14 @@ test('Approve posts { approve: true } and the list re-reads', async () => {
   // The re-read: a second GET against the same endpoint, not merely a local
   // splice of the row out of state.
   await waitFor(() => expect(joinRequestUrls().length).toBeGreaterThan(before));
+  // The status region (a11y risk review): unconditional, so it survives the
+  // reload's loading/ready flip and still carries the outcome.
+  expect(screen.getByTestId('join-requests-announcement')).toHaveTextContent(
+    "Approved Gridiron Gang's join request."
+  );
 });
 
-test('a 409 refusal renders the server sentence inline and the row stays', async () => {
+test('a 409 refusal renders the server sentence inline, attributed to its row, and the row stays', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({ league: screenedPublicLeague() }),
     '/api/league/42/join-requests': { data: [pendingRow()] },
@@ -119,10 +151,14 @@ test('a 409 refusal renders the server sentence inline and the row stays', async
   renderWidget();
 
   await screen.findByText(/Gridiron Gang/);
-  await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+  await userEvent.click(approveButton());
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('league is full');
-  expect(screen.getByText(/Gridiron Gang/)).toBeInTheDocument();
+  expect(await screen.findByRole('alert')).toHaveTextContent("Gridiron Gang: league is full");
+  // The row itself: still in the list, not merely mentioned in the alert.
+  expect(screen.getByTestId('join-requests-row-7')).toHaveTextContent('Gridiron Gang');
+  // A failed decision announces nothing new (the widget's re-read never
+  // fires on a rejected POST), so the status region stays as it started.
+  expect(screen.getByTestId('join-requests-announcement')).toHaveTextContent('');
 });
 
 test('a private league fires no read', async () => {
@@ -168,7 +204,7 @@ test('red-tell: the Approve button never posts { approve: false }', async () => 
   renderWidget();
 
   await screen.findByText(/Gridiron Gang/);
-  await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+  await userEvent.click(approveButton());
 
   await waitFor(() => expect(apiClient.post).toHaveBeenCalled());
   expect(apiClient.post).not.toHaveBeenCalledWith(expect.any(String), { approve: false });
