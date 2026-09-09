@@ -43,6 +43,20 @@ jest.mock('../../components/LeagueDashboard/CommissionerTools', () => {
   };
 });
 
+// The join-requests widget (#1109) has its own dedicated test file
+// (src/widgets/join-requests/ui/JoinRequests.test.jsx) covering its rows, its
+// read gate and the decide round trip. What this page's own test can answer -
+// and the only thing mocking it out lets that file answer cleanly - is
+// whether the PAGE mounts it at all for a given league.
+jest.mock('../../widgets/join-requests', () => {
+  const ReactLib = require('react');
+  return {
+    __esModule: true,
+    default: ({ leagueId }) =>
+      ReactLib.createElement('div', { 'data-testid': 'mock-join-requests' }, `join requests ${leagueId}`),
+  };
+});
+
 beforeEach(() => {
   invalidate(undefined, { reload: false });
 });
@@ -235,6 +249,25 @@ test('the owner sees no co-commissioner explainer', async () => {
 
   await screen.findByRole('heading', { level: 3, name: 'Commissioner Tools' });
   expect(screen.queryByTestId('commissioner-console-co-commissioner-note')).not.toBeInTheDocument();
+});
+
+test('the join-requests card mounts for a public, screened league', async () => {
+  mockGetByUrl({
+    '/api/league/42': leagueResponse({ league: { is_public: true, join_approval: true } }),
+  });
+  renderPage();
+
+  expect(await screen.findByTestId('mock-join-requests')).toHaveTextContent('join requests 42');
+});
+
+test('the join-requests card is absent for a private league', async () => {
+  mockGetByUrl({
+    '/api/league/42': leagueResponse({ league: { is_public: false, join_approval: true } }),
+  });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 3, name: 'Commissioner Tools' });
+  expect(screen.queryByTestId('mock-join-requests')).not.toBeInTheDocument();
 });
 
 test("a pick'em-only league renders no advance-week control and no facts", async () => {

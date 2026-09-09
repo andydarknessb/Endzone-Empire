@@ -5,6 +5,7 @@ import { Box, Button, Container, Link, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Skeleton, StatTile } from '../../shared/ui';
 import AdvanceWeek from '../../features/advance-week';
+import JoinRequests from '../../widgets/join-requests';
 import CommissionerTools from '../../components/LeagueDashboard/CommissionerTools';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import useCommissionerConsole from './model/useCommissionerConsole';
@@ -47,6 +48,13 @@ const H1_SX = {
  * panel hands them today, plus the co-commissioner explainer sentence for a
  * non-owner (the owner sees the control the sentence explains the absence
  * of, so it would be noise for them).
+ *
+ * Above that tools column, the `join-requests` widget (#1109) mounts while
+ * `showJoinQueue` holds - a public, screened league - giving the commissioner
+ * a decision surface for the queue without opening the legacy tools' own
+ * Join Requests tab (left in place, out of scope to remove; the two are
+ * independent reads of the same endpoint, so a decision made in one is
+ * reflected in the other only on its own next read).
  */
 export default function CommissionerConsolePage() {
   const { leagueId } = useParams();
@@ -65,6 +73,7 @@ export default function CommissionerConsolePage() {
     phaseChipLabel,
     commissionerCount,
     facts,
+    showJoinQueue,
   } = useCommissionerConsole(leagueId);
 
   if (!league && loading) {
@@ -184,6 +193,19 @@ export default function CommissionerConsolePage() {
               value={fact.value}
             />
           ))}
+        </Box>
+      )}
+
+      {/* The join-requests widget (#1109): mounted above the tools column,
+          and only while the league is public with join approval on. The
+          widget's own model re-derives that same gate for its read (its
+          docblock explains why), so this is belt-and-suspenders rather than
+          the only thing standing between a private league and the request -
+          it is what keeps the widget, and the card frame it would otherwise
+          render around nothing, out of a private league's DOM at all. */}
+      {showJoinQueue && (
+        <Box sx={{ maxWidth: '720px', width: '100%' }}>
+          <JoinRequests leagueId={leagueId} />
         </Box>
       )}
 
