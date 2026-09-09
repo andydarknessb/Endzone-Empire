@@ -528,6 +528,28 @@ test('counterTrade: an accepted replacement commits the countered update and the
   world.assertClean();
 });
 
+test('counterTrade: a non-participant with an empty playerIds is refused with 400 before any database read (#1091)', async (t) => {
+  // User 9 owns neither team 41 nor 42 in counterWorld, so this pins the
+  // ORDER, not just the outcome: if validatePlayerIds moved off the top of
+  // counterTrade and back into proposeTradeWith (where it lived before
+  // #1084), this same call would instead reach loadTrade's ownership check
+  // first and answer 403 'only the receiving owner can counter' -- after a
+  // SELECT ... FROM "trades" had already run. The response alone cannot see
+  // that difference; asserting only the 400 and its message would stay green
+  // on both guard positions. The no-read assertions below are what would go
+  // red if the guard moved.
+  const world = createFakePool(counterWorld({ roster: [] })).install(t);
+
+  await assert.rejects(
+    counterTrade({ tradeId: 5, userId: 9, playerIds: [] }),
+    { statusCode: 400, message: 'playerIds must be a non-empty array' }
+  );
+
+  assert.equal(world.matching(select('trades')).length, 0, 'no trade row was read');
+  assert.equal(world.matching(/^BEGIN$/).length, 0, 'no transaction was opened');
+  world.assertClean();
+});
+
 // --- proposeTrade: the thin wrapper still refuses and still commits ----------
 // The refactor moved the propose body into a client-taking inner function;
 // these prove the public wrapper's behaviour, message and status are unchanged.
