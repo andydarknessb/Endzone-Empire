@@ -227,6 +227,34 @@ test('a recap row renders the recap sentence, the Recap chip, and an empty Team 
   expect(badge).toHaveTextContent('Recap');
 });
 
+// #1144: a stat_correction row is a teamless NFL data correction, not a
+// commissioner action - ratifying #1134's own generalisation with the
+// pinning test it shipped without. Reads `teamLabel` off the entity's read
+// model; the widget makes no transaction-type decision of its own.
+test('a teamless stat_correction row renders a blank Team column, not "Commissioner"', async () => {
+  mockGet({
+    data: [
+      row({
+        id: 10,
+        type: 'stat_correction',
+        team: null,
+        detail: { week: 4, changes: [{ matchupId: 9 }] },
+        agoMs: 60 * 60 * 1000,
+      }),
+    ],
+  });
+  renderWidget();
+
+  const rows = await screen.findAllByTestId('recent-activity-row');
+  expect(rows).toHaveLength(1);
+  const statCorrectionRow = rows[0];
+
+  expect(within(statCorrectionRow).getByTestId('recent-activity-team')).toHaveTextContent('');
+  const badge = within(statCorrectionRow).getByTestId('badge');
+  expect(badge).toHaveAttribute('data-variant', 'neutral');
+  expect(badge).toHaveTextContent('Stat correction');
+});
+
 test('a failed read renders one compact alert sentence and no rows', async () => {
   mockGet({ reject: { response: { status: 500 } } });
   renderWidget();

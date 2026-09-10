@@ -76,6 +76,7 @@ describe('activityFromRow: the one sentence per transaction type', () => {
     const model = activityFromRow(byType('add'));
     expect(model.sentence).toBe('added Justin Jefferson');
     expect(model.teamName).toBe("Dave's Team");
+    expect(model.teamLabel).toBe("Dave's Team");
   });
 
   test('drop names the player', () => {
@@ -113,13 +114,14 @@ describe('activityFromRow: the one sentence per transaction type', () => {
     expect(model.sentence).toBe('completed a trade');
   });
 
-  test('commissioner names no player, and a teamless row reads its Team as null', () => {
+  test('commissioner names no player, and a teamless row reads its Team as null but its label as "Commissioner"', () => {
     const model = activityFromRow(byType('commissioner'));
     expect(model.sentence).toBe('commissioner action');
     expect(model.teamName).toBeNull();
+    expect(model.teamLabel).toBe('Commissioner');
   });
 
-  test('recap with a week reads "Week N recap published", teamless', () => {
+  test('recap with a week reads "Week N recap published", teamless, with a blank Team label', () => {
     const model = activityFromRow({
       type: 'recap',
       team_name: null,
@@ -127,6 +129,7 @@ describe('activityFromRow: the one sentence per transaction type', () => {
     });
     expect(model.sentence).toBe('Week 4 recap published');
     expect(model.teamName).toBeNull();
+    expect(model.teamLabel).toBe('');
   });
 
   test('recap with no week reads "Recap published"', () => {
@@ -146,6 +149,7 @@ describe('activityFromRow: the one sentence per transaction type', () => {
       id: null,
       type: null,
       teamName: null,
+      teamLabel: '',
       avatarUrl: null,
       avatarStaticUrl: null,
       sentence: '',
@@ -153,6 +157,39 @@ describe('activityFromRow: the one sentence per transaction type', () => {
       segments: [{ type: 'text', value: '' }],
       at: null,
     });
+  });
+});
+
+// #1144 (the ruling on #1134's own generalisation, PR #1140): a teamless
+// stat_correction row is an NFL data correction, not a commissioner action,
+// so its Team label stays blank - ratifying, not reverting, the behavior
+// #1134 shipped without a pinning test.
+describe('activityFromRow: teamLabel, the Team column display (#1144)', () => {
+  test('a teamless stat_correction row renders a blank Team label, not "Commissioner"', () => {
+    const model = activityFromRow({
+      type: 'stat_correction',
+      team_name: null,
+      detail: { week: 4, changes: [{ matchupId: 9 }] },
+    });
+    expect(model.teamName).toBeNull();
+    expect(model.teamLabel).toBe('');
+  });
+
+  test('a row with a teamName renders that Team name as its label regardless of transaction type', () => {
+    ['add', 'drop', 'waiver', 'trade', 'stat_correction'].forEach((type) => {
+      const model = activityFromRow({ type, team_name: 'Some Team', detail: {} });
+      expect(model.teamLabel).toBe('Some Team');
+    });
+  });
+
+  // Red-tell: only `commissioner` reads "Commissioner" when teamless; every
+  // other teamless type (including a future, unrecognized one) reads blank.
+  test('red-tell: only a teamless commissioner row reads "Commissioner" - every other teamless type is blank', () => {
+    const teamless = (type) => activityFromRow({ type, team_name: null, detail: {} }).teamLabel;
+    expect(teamless('commissioner')).toBe('Commissioner');
+    expect(teamless('recap')).toBe('');
+    expect(teamless('stat_correction')).toBe('');
+    expect(teamless('foo_bar')).toBe('');
   });
 });
 
