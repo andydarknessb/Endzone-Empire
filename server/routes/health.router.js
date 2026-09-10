@@ -112,7 +112,7 @@ async function overdueClocks() {
   }
 }
 
-async function workerStatus() {
+async function workerStatus({ includeJobStatus = false } = {}) {
   const overdue = await overdueClocks();
   // Sweep liveness (#842): the worker stamps Redis after every draft sweep. A
   // missing or >60s-old stamp while a worker row exists means the process is
@@ -121,7 +121,7 @@ async function workerStatus() {
   const sweep = await draftSweepLiveness.readDraftSweepLiveness();
   try {
     const result = await pool.query(
-      `SELECT "worker_name", "last_seen_at", "last_error", "release_sha"
+      `SELECT "worker_name", "last_seen_at", "last_error", "release_sha", "job_status"
        FROM "worker_heartbeats" ORDER BY "worker_name"`
     );
     const now = Date.now();
@@ -135,6 +135,17 @@ async function workerStatus() {
       release: row.release_sha,
       stale: now - new Date(row.last_seen_at).getTime() > WORKER_STALE_MS,
     }));
+    const jobs = result.rows.find((row) => row.worker_name === 'jobs');
+    let jobStatus = null;
+    if (includeJobStatus && jobs?.job_status) {
+      try {
+        jobStatus = typeof jobs.job_status === 'string'
+          ? JSON.parse(jobs.job_status)
+          : jobs.job_status;
+      } catch (error) {
+        jobStatus = null;
+      }
+    }
     return {
       // #768, ruling 2: an Overdue clock fails THIS section (so /worker answers
       // 503). The composite / carries the section but keeps its own ok rule, so
@@ -147,6 +158,7 @@ async function workerStatus() {
       overdueClocks: overdue,
       lastDraftSweepAt: sweep.lastDraftSweepAt,
       draftSweepStale: sweep.draftSweepStale,
+      ...(includeJobStatus ? { jobStatus } : {}),
     };
   } catch (error) {
     return {
@@ -156,6 +168,7 @@ async function workerStatus() {
       lastDraftSweepAt: sweep.lastDraftSweepAt,
       draftSweepStale: sweep.draftSweepStale,
       unavailable: true,
+      ...(includeJobStatus ? { jobStatus: null } : {}),
     };
   }
 }
@@ -167,11 +180,30 @@ async function workerStatus() {
  * `scheduler` and `liveGameEngine` sections (#242).
  */
 function publishSchedulerStatus(status) {
-  return { ...status, lastTickError: classifyError(status.lastTickError) };
+  const source = status || {};
+  return {
+    lastAdpSync: source.lastAdpSync == null ? null : {
+      finishedAt: source.lastAdpSync.finishedAt ?? null,
+      ok: source.lastAdpSync.ok ?? null,
+      matched: source.lastAdpSync.matched ?? null,
+    },
+    lastSyncAt: source.lastSyncAt ?? null,
+    lastTickAt: source.lastTickAt ?? null,
+    lastTickError: classifyError(source.lastTickError),
+  };
 }
 
 function publishLiveGameEngineStatus(status) {
-  return { ...status, lastError: classifyError(status.lastError) };
+  const source = status || {};
+  return {
+    clockSource: source.clockSource ?? null,
+    configuredClockSource: source.configuredClockSource ?? null,
+    espnConsecutiveFailures: source.espnConsecutiveFailures ?? null,
+    lastError: classifyError(source.lastError),
+    lastRunAt: source.lastRunAt ?? null,
+    lastSourceUsed: source.lastSourceUsed ?? null,
+    quotaMode: source.quotaMode ?? null,
+  };
 }
 
 router.get('/livez', (req, res) => {
@@ -230,13 +262,14 @@ async function quotaStatus() {
 }
 
 router.get('/', async (req, res) => {
-  const [db, redis, worker, quota, holdout] = await Promise.all([
+  const [db, redis, workerResult, quota, holdout] = await Promise.all([
     databaseStatus(),
     redisStatus(),
-    workerStatus(),
+    workerStatus({ includeJobStatus: true }),
     quotaStatus(),
     holdoutStatus(),
   ]);
+  const { jobStatus, ...worker } = workerResult;
   const runtime = getRuntimeState();
   const ok = runtime.ready && db.ok && redis.ok;
   res.status(ok ? 200 : 503).json({
@@ -249,8 +282,10 @@ router.get('/', async (req, res) => {
     holdout,
     // Spread keeps each status's key set exactly as pinned; only the error
     // field is rewritten from a raw message to its category (#242).
-    scheduler: publishSchedulerStatus(await scheduler.getSchedulerStatus()),
-    liveGameEngine: publishLiveGameEngineStatus(liveGameEngine.getLiveGameEngineStatus()),
+    scheduler: publishSchedulerStatus(jobStatus?.scheduler || await scheduler.getSchedulerStatus()),
+    liveGameEngine: publishLiveGameEngineStatus(
+      jobStatus?.liveGameEngine || liveGameEngine.getLiveGameEngineStatus()
+    ),
     uptimeSec: Math.round(process.uptime()),
     release: process.env.RENDER_GIT_COMMIT || process.env.APP_RELEASE || null,
   });

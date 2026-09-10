@@ -27,6 +27,8 @@ async function heartbeat() {
   await recordWorkerHeartbeat({
     name: 'jobs',
     error: scheduler.lastTickError || live.lastError || null,
+    scheduler,
+    liveGameEngine: live,
   });
 }
 

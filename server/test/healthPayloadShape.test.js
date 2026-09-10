@@ -55,6 +55,7 @@ const wideWorkerRow = (over = {}) => ({
   last_seen_at: new Date().toISOString(),
   last_error: null,
   release_sha: 'abc1234',
+  job_status: null,
   a_column_added_next_quarter: NEXT_QUARTER,
   ...over,
 });
@@ -355,6 +356,42 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
     'lastError', 'lastRunAt', 'lastSourceUsed', 'quotaMode',
   ]);
   assert.ok(!JSON.stringify(res.body).includes('a_column_added_next_quarter'));
+  fake.assertClean();
+});
+
+test('GET / publishes worker-owned scheduler and live-game status', async (t) => {
+  delete process.env.REDIS_URL;
+  const fake = healthPool({
+    workers: [wideWorkerRow({
+      worker_name: 'jobs',
+      job_status: {
+        scheduler: {
+          lastTickAt: '2026-09-10T00:40:00.000Z',
+          lastTickError: null,
+          lastSyncAt: '2026-09-10T00:35:00.000Z',
+          lastAdpSync: { finishedAt: '2026-09-10T00:03:00.000Z', ok: true, matched: 204 },
+        },
+        liveGameEngine: {
+          lastRunAt: '2026-09-10T00:40:30.000Z',
+          lastError: null,
+          clockSource: 'espn',
+          configuredClockSource: 'espn',
+          lastSourceUsed: 'espn',
+          espnConsecutiveFailures: 0,
+          quotaMode: 'ok',
+        },
+      },
+    })],
+  }).install(t);
+  stubHoldout(t);
+
+  const res = await request(app).get('/api/health');
+
+  assert.equal(res.body.scheduler.lastTickAt, '2026-09-10T00:40:00.000Z');
+  assert.equal(res.body.scheduler.lastSyncAt, '2026-09-10T00:35:00.000Z');
+  assert.equal(res.body.liveGameEngine.lastRunAt, '2026-09-10T00:40:30.000Z');
+  assert.equal(res.body.liveGameEngine.lastSourceUsed, 'espn');
+  assert.equal(JSON.stringify(res.body.worker).includes('jobStatus'), false);
   fake.assertClean();
 });
 

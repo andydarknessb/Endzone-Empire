@@ -3,6 +3,7 @@ import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
+import supabase from '../../api/supabaseClient';
 import { invalidate } from '../../lib/resourceCache';
 import { computeDefaultWeek } from '../../lib/matchupWeek';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
@@ -16,6 +17,15 @@ import { SYNC_CADENCE_MS, syncLineText, weekGlanceFacts } from './model/useGameC
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn() },
+}));
+
+jest.mock('../../api/supabaseClient', () => ({
+  __esModule: true,
+  default: {
+    from: jest.fn(),
+    channel: jest.fn(),
+    removeChannel: jest.fn(),
+  },
 }));
 
 const renderPage = (leagueId = 1) =>
@@ -44,6 +54,7 @@ const row = (overrides = {}) => {
     away_team_name: 'Away Team',
     home_score: 0,
     away_score: 0,
+    nfl_game_ids: [],
     ...overrides,
   };
 };
@@ -120,7 +131,21 @@ function makeFakeSocket() {
 }
 
 let socket;
+let liveGamePush;
 let mobile;
+
+function installLiveGames(rows) {
+  const inFn = jest.fn().mockResolvedValue({ data: rows, error: null });
+  supabase.from.mockReturnValue({ select: jest.fn().mockReturnValue({ in: inFn }) });
+  const channelObj = {
+    on: jest.fn((_event, _filter, handler) => {
+      liveGamePush = (payload) => act(() => handler(payload));
+      return channelObj;
+    }),
+    subscribe: jest.fn(() => channelObj),
+  };
+  supabase.channel.mockReturnValue(channelObj);
+}
 
 const emitScores = (payload) => act(() => { socket.fire('scores:updated', payload); });
 
@@ -151,6 +176,44 @@ beforeEach(() => {
 afterEach(() => {
   delete window.__ENDZONE_TEST_SOCKET_FACTORY__;
   jest.clearAllMocks();
+});
+
+test('live NFL game updates move the Game Center game strip without reload', async () => {
+  installLiveGames([{
+    tank01_game_id: 'g1',
+    week: 1,
+    game_status: 'in_progress',
+    away_team: 'GB',
+    home_team: 'CHI',
+    current_score_away: 10,
+    current_score_home: 7,
+    quarter: 'Q2',
+    time_remaining: '8:12',
+  }]);
+  mockApi({ matchups: [viewerRow({ nfl_game_ids: ['g1'] })], viewerTeamId: 10 });
+
+  renderPage();
+
+  const strip = await screen.findByTestId('game-center-nfl-games');
+  expect(strip).toHaveTextContent('GB 10-CHI 7');
+  expect(strip).toHaveTextContent('Q2 8:12');
+
+  liveGamePush({
+    new: {
+      tank01_game_id: 'g1',
+      week: 1,
+      game_status: 'in_progress',
+      away_team: 'GB',
+      home_team: 'CHI',
+      current_score_away: 17,
+      current_score_home: 7,
+      quarter: 'Q2',
+      time_remaining: '3:04',
+    },
+  });
+
+  expect(strip).toHaveTextContent('GB 17-CHI 7');
+  expect(strip).toHaveTextContent('Q2 3:04');
 });
 
 const cards = () => screen.queryAllByTestId('matchup-card');
@@ -336,7 +399,6 @@ test('the hero footer carries the earliest kickoff among the week\'s scheduled M
   const facts = await screen.findByTestId('matchup-hero-footer-facts');
   const expected = new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(earlier));
   expect(facts).toHaveTextContent(`Next kickoff ${expected}`);
-  // Games in progress is not on the wire, so the page asserts nothing.
   expect(facts).not.toHaveTextContent(/in progress/);
 });
 

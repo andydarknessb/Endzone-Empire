@@ -1,15 +1,17 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import apiClient from '../../../api/apiClient';
 import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { matchupFromListRow, applyScoreEvent, applyIdentityPatch } from './matchupModel';
+import { useLiveGameStates } from './useLiveGameStates';
 
 /**
  * A league's Matchups as read models (ADR 0029: the thin hook on the entity's
  * index that composes a fetch with the live feeds over the pure module).
  *
- * It composes three sources onto the one model:
+ * It composes the score and identity sources onto the one model, and exposes
+ * the league's real NFL game-state feed alongside it:
  *   - a plain fetch of the Matchup list (NOT the resource cache: this is the
  *     only mount of this URL on the page, so ADR 0004's admission rule is not
  *     met), mapped through `matchupFromListRow`;
@@ -34,6 +36,12 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
   const [error, setError] = useState(null);
   const onScoresRef = useRef(onScores);
   onScoresRef.current = onScores;
+
+  const gameIds = useMemo(
+    () => Array.from(new Set(matchups.flatMap((matchup) => matchup.nflGameIds || []))),
+    [matchups]
+  );
+  const liveGames = useLiveGameStates(`league-${leagueId}`, gameIds);
 
   // `silent` separates the first load from a background refresh. The first load
   // drives `loading`, which Game Center renders as a full-page skeleton; a
@@ -82,7 +90,7 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
     setMatchups((prev) => prev.map((model) => applyIdentityPatch(model, update)));
   }), [leagueId]);
 
-  return { matchups, loading, error, refetch: loadMatchups };
+  return { matchups, liveGames, loading, error, refetch: loadMatchups };
 }
 
 export default useLeagueMatchups;

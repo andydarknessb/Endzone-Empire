@@ -92,7 +92,7 @@ async function listMatchups(t, { matchups, starters = STARTERS, projections = PR
   });
   t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   const fake = createFakePool([
-    [select('matchups'), () => ({ rows: matchups.map((m) => ({ ...m })) })],
+    [/FROM "matchups" JOIN "teams" home/, () => ({ rows: matchups.map((m) => ({ ...m })) })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [/FROM "lineup_entries"/, () => ({ rows: starters })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
@@ -105,6 +105,7 @@ async function listMatchups(t, { matchups, starters = STARTERS, projections = PR
     .get(`/api/league/${LEAGUE_ID}/matchups`)
     .set('Authorization', authed(42));
   assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(fake.matching(/view_matchup_nfl_games/).length, 1);
   return { body: res.body, fake };
 }
 
@@ -207,7 +208,7 @@ test('each list row carries its status: scheduled, live, played and final at a f
   for (let w = 1; w <= 18; w++) for (const team of ['KC', 'BUF', 'DAL', 'LAC', 'NYG', 'PHI']) byes.push({ nfl_team: team, week: w });
 
   const fake = createFakePool([
-    [select('matchups'), () => ({ rows: matchups.map((m) => ({ ...m })) })],
+    [/FROM "matchups" JOIN "teams" home/, () => ({ rows: matchups.map((m) => ({ ...m })) })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [/FROM "lineup_entries"/, () => ({ rows: starters })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: byes })],
