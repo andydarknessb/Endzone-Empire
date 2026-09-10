@@ -11,6 +11,12 @@
  * (`src/api/supabaseClient`) for the shared live game state subscription used
  * by Matchup Detail and Game Center. Everything else in this folder is
  * internal.
+ *
+ * Since #1137 (ADR 0031's below-island clause) the entity also models the
+ * Scoring play: `playsFromScoreEvent`, `matchupPlaySide` and `playLabel`
+ * (model/play.js), the domain shape that used to live below the island at
+ * `src/lib/scoringEvents`. Both hooks' `onScores` callback receives modelled
+ * plays now, never the raw wire array.
  */
 export {
   matchupFromListRow,
@@ -19,6 +25,7 @@ export {
   applyIdentityPatch,
   matchupStatusView,
 } from './model/matchupModel';
+export { playsFromScoreEvent, matchupPlaySide, playLabel } from './model/play';
 export { useLeagueMatchups } from './model/useLeagueMatchups';
 export { useMatchup } from './model/useMatchup';
 export { useLiveGameStates } from './model/useLiveGameStates';

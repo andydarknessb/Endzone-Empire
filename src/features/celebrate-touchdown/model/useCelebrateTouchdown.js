@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import apiClient from '../../../api/apiClient';
-import { classifyPlays } from '../../../lib/scoringEvents';
+import { classifyPlays } from './classifyPlays';
 
 /**
  * The celebrate-touchdown feature's model (ADR 0031, #903): everything the
@@ -22,18 +22,21 @@ import { classifyPlays } from '../../../lib/scoringEvents';
  *     field (#903 review; `CelebrationsCaption` renders it).
  *
  * The page calls `handlePlays(plays, { myStarterIds, oppStarterIds })` from
- * the entity hook's `onScores` with the event's whole `plays` array; only
+ * the entity hook's `onScores` with the event's modelled `plays` array; only
  * touchdown plays reach the celebration gate here (a moment play such as a
  * sack has `isTouchdown === false` and belongs to the retro field, not to a
- * cutscene or a toast). The routing itself is `classifyPlays`
- * (src/lib/scoringEvents, the sanctioned reach below the island that ADR 0031
- * names): a play by a player in neither starting lineup is ignored.
+ * cutscene or a toast). The routing itself is `classifyPlays`, this
+ * feature's own private model (`./classifyPlays`, #1137: it and
+ * `MAX_CUTSCENES` were `src/lib/scoringEvents` until ADR 0031's below-island
+ * clause fired on that module's sixth island consumer; `classifyPlays` has
+ * exactly one caller, this feature, so it folded in here rather than
+ * becoming public entity surface the way `playLabel` did): a play by a
+ * player in neither starting lineup is ignored.
  *
  * `handlePlays` is stable across renders, so a page may hand it to a
  * ref-reading feed callback without re-subscribing. The hook reaches below
- * the island for one thing besides the classifier, the plain fetch client
- * the preference is read through (the same module `shared/lib/useEndpoint`
- * reads).
+ * the island for one thing, the plain fetch client the preference is read
+ * through (the same module `shared/lib/useEndpoint` reads).
  *
  * @returns {{
  *   cutscene: object|null,        the cutscene at the head of the queue (its `_cid` keys a fresh mount)

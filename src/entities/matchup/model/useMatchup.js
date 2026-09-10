@@ -6,6 +6,7 @@ import { readHttpFailure } from '../../../lib/httpFailure';
 import {
   matchupFromDetailBody, applyScoreEvent, applyIdentityPatch, pairStartersBySlot,
 } from './matchupModel';
+import { playsFromScoreEvent } from './play';
 import { useLiveGameStates } from './useLiveGameStates';
 
 /**
@@ -41,9 +42,10 @@ function applyStarterDeltas(lineup, deltaById) {
  *   - the Team identity feed (teamProfileEvents), applied through
  *     `applyIdentityPatch`, scoped to this league.
  *
- * The whole score event (including its `plays`) is handed to an optional
- * `onScores` callback so a reader can keep its own play-driven concerns -
- * Matchup Detail's cutscenes, toasts, ticker, retro field and its optimistic
+ * The score event, its `plays` run through the entity's Play model
+ * (`playsFromScoreEvent`, #1137), is handed to an optional `onScores`
+ * callback so a reader can keep its own play-driven concerns - Matchup
+ * Detail's cutscenes, toasts, ticker, retro field and its optimistic
  * per-starter point bumps - without a second socket. The callback is read
  * through a ref so passing a fresh one never re-subscribes the feed.
  *
@@ -62,11 +64,11 @@ function applyStarterDeltas(lineup, deltaById) {
  * an empty order and returns no rows, exactly as Matchup Detail waits on the
  * league for its bench line). The optimistic per-starter point bumps live here
  * too now, applied to the paired lineups on each score event, so the rows track
- * the live score without a refetch; the whole score event (including its `plays`)
- * is still handed to an optional `onScores` callback so a reader can keep its own
- * play-driven concerns - cutscenes, toasts, ticker, the retro field - without a
- * second socket. The callback is read through a ref so passing a fresh one never
- * re-subscribes the feed.
+ * the live score without a refetch; the score event, its `plays` run through
+ * the entity's Play model, is still handed to an optional `onScores` callback
+ * so a reader can keep its own play-driven concerns - cutscenes, toasts,
+ * ticker, the retro field - without a second socket. The callback is read
+ * through a ref so passing a fresh one never re-subscribes the feed.
  *
  * @param {number|string} leagueId
  * @param {number|string} matchupId
@@ -126,17 +128,20 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
         // Optimistically bump the scoring players' displayed points by the
         // reported delta so the paired rows track the live score without a
         // refetch. Kept on the lineup state here (not the reader) so the rows the
-        // hook exposes already carry the bump.
-        const plays = (event && event.plays) || [];
+        // hook exposes already carry the bump. The plays are read through the
+        // entity's Play model (#1137) so a wire quirk (isTouchdown sent as
+        // something other than a real boolean, say) never reaches the delta
+        // math or the callback below.
+        const plays = playsFromScoreEvent(event);
         if (plays.length) {
           const deltaById = new Map();
           for (const p of plays) {
-            deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
+            deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + p.pointsDelta);
           }
           setHome((prev) => applyStarterDeltas(prev, deltaById));
           setAway((prev) => applyStarterDeltas(prev, deltaById));
         }
-        onScoresRef.current?.(event);
+        onScoresRef.current?.({ ...event, plays });
       },
       // A reconnect refetches to recover the deltas missed while offline, but
       // silently: the box score already on screen stays up.

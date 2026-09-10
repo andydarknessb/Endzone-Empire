@@ -752,6 +752,15 @@ nothing is added to them after the fact, so re-scoring a final week counts
 only the players who were there when the games were played.
 _Avoid_: game (a game is an NFL game), fixture
 
+**Scoring play**:
+One scoring event for one player in one NFL game as the live sync detected
+it, carrying the player, his Team code and his opponent's, the event type,
+whether it is a touchdown, and the points it added; distinct from a
+Matchup's score (the total) and from a non-touchdown moment the retro
+scoreboard flashes.
+_Avoid_: play (unqualified), event, scoring event (the server module's name
+for the same thing)
+
 **Record**:
 A Team's season tally of wins, losses and ties, drawn from its finalized
 regular-season Matchups; a playoff Matchup is not counted toward it. It

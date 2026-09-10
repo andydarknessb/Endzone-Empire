@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getSpriteColors, getNameColors } from '../../../lib/nflTeamColors';
-import { playLabel } from '../../../lib/scoringEvents';
+import { playLabel } from '../../../entities/matchup';
 import { Sprite, RefereeSprite, GoalPostSprite } from '../../../shared/ui';
 import './TecmoCutscene.css';
 

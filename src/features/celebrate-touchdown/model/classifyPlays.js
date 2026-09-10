@@ -1,8 +1,4 @@
-// Pure logic that turns the typed touchdown `plays` on a scores:updated payload
-// into what the live matchup UI should actually show: full-screen cutscenes for
-// the viewer's own starters, lightweight toasts for the opponent, and a single
-// summary toast when a sync drops more touchdowns at once than anyone wants to
-// sit through. Kept free of React/DOM so the trigger rules are unit-testable.
+import { matchupPlaySide } from '../../../entities/matchup';
 
 // At most this many cutscenes play back-to-back; the rest collapse into one
 // summary toast so a big sync window never becomes an unskippable reel.
@@ -12,6 +8,16 @@ const round1 = (n) => Math.round(n * 10) / 10;
 
 /**
  * Classify a batch of touchdown plays for the matchup currently on screen.
+ *
+ * This is this feature's own private model code (#1137): it and
+ * `MAX_CUTSCENES` used to live at `src/lib/scoringEvents`, below the island,
+ * until ADR 0031's below-island clause fired on that module's sixth island
+ * consumer. `classifyPlays` has exactly one caller - this feature - and so
+ * failed the deletion test that would have promoted it to public entity
+ * surface the way `playLabel` was; it folded in here instead. Side
+ * attribution now reads through the entity's `matchupPlaySide`
+ * (`entities/matchup`) rather than re-deriving `.has()` checks against the
+ * two starter id sets itself.
  *
  * @param {Array} plays        typed TD events from scores:updated (may be empty/undefined)
  * @param {object} opts
@@ -38,9 +44,10 @@ export function classifyPlays(plays, opts = {}) {
 
   for (const play of plays || []) {
     if (!play || play.playerId == null) continue;
-    if (myStarterIds.has(play.playerId)) {
+    const side = matchupPlaySide(play, { myStarterIds, oppStarterIds });
+    if (side === 'own') {
       ownTds.push(play);
-    } else if (oppStarterIds.has(play.playerId)) {
+    } else if (side === 'opponent') {
       toasts.push({ ...play, side: 'opponent', tone: 'negative' });
     }
     // else: not in this matchup — ignore.
@@ -66,29 +73,4 @@ export function classifyPlays(plays, opts = {}) {
   }
 
   return { cutscenes, summaryToast, toasts };
-}
-
-// Labels for non-touchdown "moment" plays (retro-scoreboard flash banner
-// only — these never reach playLabel's TD-cutscene callers today, but the
-// mapping lives here so it stays next to the touchdown label logic).
-const MOMENT_LABELS = {
-  fieldGoal: 'FIELD GOAL',
-  extraPoint: 'EXTRA POINT',
-  sack: 'SACK',
-  interception: 'INTERCEPTED',
-  fumble: 'FUMBLE RECOVERED',
-  puntReturn: 'PUNT RETURN',
-};
-
-/**
- * A short label for the cutscene / ticker line, e.g. "rushing TD". Plays
- * explicitly marked non-touchdown (`isTouchdown === false`) get their own
- * plain-English label instead of a "TD" suffix.
- */
-export function playLabel(play) {
-  const type = play && play.type ? play.type : 'scoring';
-  if (play && play.isTouchdown === false) {
-    return MOMENT_LABELS[type] || type.toUpperCase();
-  }
-  return `${type} TD`;
 }

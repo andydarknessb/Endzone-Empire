@@ -4,6 +4,7 @@ import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { matchupFromListRow, applyScoreEvent, applyIdentityPatch } from './matchupModel';
+import { playsFromScoreEvent } from './play';
 import { useLiveGameStates } from './useLiveGameStates';
 
 /**
@@ -20,11 +21,12 @@ import { useLiveGameStates } from './useLiveGameStates';
  *   - the Team identity feed (teamProfileEvents), applied through
  *     `applyIdentityPatch`, scoped to this league.
  *
- * The whole score event (including its `plays`) is handed to an optional
- * `onScores` callback so a reader can keep its own concern - Game Center's
- * league-wide play ticker filters by the week on screen - without a second
- * socket. The callback is read through a ref so passing a fresh one never
- * re-subscribes the feed.
+ * The score event, its `plays` run through the entity's Play model
+ * (`playsFromScoreEvent`, #1137), is handed to an optional `onScores`
+ * callback so a reader can keep its own concern - Game Center's league-wide
+ * play ticker filters by the week on screen - without a second socket. The
+ * callback is read through a ref so passing a fresh one never re-subscribes
+ * the feed.
  *
  * @param {number|string} leagueId
  * @param {{ onScores?: (event: object) => void }} [options]
@@ -76,7 +78,7 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
             return entry ? applyScoreEvent(model, entry) : model;
           }));
         }
-        onScoresRef.current?.(event);
+        onScoresRef.current?.({ ...event, plays: playsFromScoreEvent(event) });
       },
       // A reconnect refetches to recover the deltas missed while offline, but
       // silently: the scoreboard already on screen stays up (F1).
