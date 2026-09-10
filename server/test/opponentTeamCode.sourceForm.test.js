@@ -10,14 +10,17 @@ const path = require('node:path');
  * Team code (CONTEXT.md, Team code), never the schedule's raw Tank01
  * spelling.
  *
- * SCOPE. Three sites read `nfl_games.opponent` and put it straight onto a
- * wire payload's `opponent:` field, the same three the issue's triage named:
- * the matchup-detail starter row (league.router.js), the lineup entry
- * (lineup.service.js) and the scoring play (scoring.service.js). This is a
- * targeted read of exactly those files' opponent-map construction, not a
- * repo-wide sweep - other `opponent:` object keys exist for unrelated
- * concepts (a projection factor's name, the schedule writer's own INSERT, a
- * public recent-games row) that this ticket does not touch.
+ * SCOPE. Four sites read `nfl_games.opponent` and put it straight onto a
+ * wire payload's `opponent:` field: the matchup-detail starter row and the
+ * lineup entry the issue's triage named (league.router.js, lineup.service.js),
+ * the scoring play that was already correct (scoring.service.js), and the
+ * public player profile's recentGames row (publicRead.service.js) - a fourth
+ * site triage missed, caught on PR review (#1136 review round 1): its query
+ * already folds both sides of the LEFT JOIN to find the row, then shipped the
+ * VALUE raw. This is a targeted read of exactly those four files' opponent
+ * assignments, not a repo-wide sweep - other `opponent:` object keys exist
+ * for unrelated concepts (a projection factor's name, the schedule writer's
+ * own INSERT) that this ticket does not touch.
  */
 const SERVER_DIR = path.join(__dirname, '..');
 
@@ -109,6 +112,13 @@ test('scoring.service.js: both scoring-play opponent assignments fold before lea
   for (const line of assignments) {
     assert.match(line, /normalizeNflTeam\(/, `unfolded opponent assignment: ${line.trim()}`);
   }
+});
+
+test('publicRead.service.js: the recentGames row folds its opponent value before it leaves the server', () => {
+  const source = read('services/publicRead.service.js');
+  const assignments = source.split('\n').filter((line) => /^\s*opponent:/.test(line));
+  assert.equal(assignments.length, 1, `expected exactly 1 opponent: assignment, found ${assignments.length}`);
+  assert.match(assignments[0], /normalizeNflTeam\(/, `unfolded opponent assignment: ${assignments[0].trim()}`);
 });
 
 test('negative control: the pre-#1136 shape (key folded, value raw) is caught by the check above', () => {
