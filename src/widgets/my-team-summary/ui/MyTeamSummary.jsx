@@ -2,7 +2,7 @@ import React, { useId } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, PosChip, Skeleton, TeamAvatar } from '../../../shared/ui';
+import { Card, Badge, PosChip, Skeleton, TeamAvatar, injuryView } from '../../../shared/ui';
 import useMyTeamSummary from '../model/useMyTeamSummary';
 
 /**
@@ -430,20 +430,6 @@ function CheckIcon() {
   );
 }
 
-// The wire's four injury-designation codes (irPolicy.service.js), expanded
-// ONLY for the accessible description below - the visible label stays the
-// abbreviation ("the injury Badge is specified to read the injury status
-// abbreviation", #1101 review). Mirrors shared/ui/InjuryTag's own DESIGNATIONS
-// map, duplicated rather than imported: this row never switches Badge variant
-// by code (always `warning`, per the design canvas), so it does not compose
-// InjuryTag itself, only borrows its code-to-name mapping.
-const INJURY_DESIGNATION_NAME = {
-  Q: 'Questionable',
-  D: 'Doubtful',
-  O: 'Out',
-  IR: 'Injured reserve',
-};
-
 // A starter's injury designation beside his name: the wire's own abbreviation
 // (Q/D/O/IR, players.injury_status) on a Badge, always the `warning` variant
 // - this row never switches to `danger` the way InjuryTag does elsewhere, per
@@ -451,9 +437,10 @@ const INJURY_DESIGNATION_NAME = {
 // registered `warning` variant over `dash-surface`" (#1101). Renders nothing
 // for a healthy starter (a null/empty status). The accessible description
 // expands the code to its full designation ("Injury status: Questionable"),
-// the same InjuryTag convention (its docblock: "so a screen reader hears the
-// word and not a letter") - a bare "Injury status: O" would leave a listener
-// unable to tell "Out" from "Questionable" by ear.
+// reading the name off shared/ui's exported `injuryView` (#1165) rather than
+// a private map - this row still does not compose InjuryTag itself (it never
+// switches Badge variant by code; InjuryTag does), only borrows its
+// code-to-name mapping via `injuryView`, ignoring `.variant`.
 function StarterInjuryBadge({ status }) {
   const code = status ? String(status).trim() : '';
   if (!code) return null;
@@ -463,7 +450,7 @@ function StarterInjuryBadge({ status }) {
   // Badge reading the injury status abbreviation when the starter carries
   // one" - any non-null status, not only a recognized one - so the fallback
   // announces the raw code rather than silently dropping the flag.
-  const name = INJURY_DESIGNATION_NAME[code.toUpperCase()] || code;
+  const name = injuryView(code)?.name || code;
   return (
     <Badge
       variant="warning"

@@ -548,6 +548,21 @@ test('a questionable starter carries a warning Badge reading the wire abbreviati
   expect(within(badge).getByText('Injury status: Questionable')).toBeInTheDocument();
 });
 
+test('an unrecognized injury code still renders the warning Badge with the raw code', async () => {
+  // #1165: the row's fallback for a code injuryView does not recognize is the
+  // raw trimmed code, not a dropped flag - the #1101 n1 ruling that "when the
+  // starter carries one" means any non-null status, not only a recognized one.
+  mountWith({
+    [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'PUP Guy', slot: 'QB', injury_status: 'PUP' })]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  const badge = within(row).getByTestId('starter-injury-badge');
+  expect(badge).toHaveAttribute('data-variant', 'warning');
+  expect(badge).toHaveTextContent('PUP');
+  expect(within(badge).getByText('Injury status: PUP')).toBeInTheDocument();
+});
+
 test('a healthy starter carries no injury Badge', async () => {
   mountWith({ [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, injury_status: null })]) });
 
