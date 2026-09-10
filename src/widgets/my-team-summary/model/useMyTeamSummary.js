@@ -1,14 +1,16 @@
 import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
+import { useTeamLineup } from '../../../entities/roster';
+import { isPickemOnly } from '../../../lib/leagueType';
 import { ordinal } from '../lib/ordinal';
 
 /**
  * Data model for the my-team summary widget (League Dashboard hero-left,
- * ticket #639). The widget owns its own reads; this hook is where they live so
- * the UI stays a thin presenter.
+ * ticket #639, extended by #1101's starters section). The widget owns its own
+ * reads; this hook is where they live so the UI stays a thin presenter.
  *
- * Four sources, each answering "which of these is me" by Team id against the
+ * Five sources, each answering "which of these is me" by Team id against the
  * viewer's own team id (`viewerTeamId`), never an account identifier (#112,
  * CONTEXT.md team identity):
  *
@@ -40,6 +42,15 @@ import { ordinal } from '../lib/ordinal';
  *     placeholders.
  *   - The waiver/roster tile reads the league row and the viewer's own `teams[]`
  *     entry, both already in the league cache above, so it costs no request.
+ *   - The starters section reads the ROSTER ENTITY's lineup
+ *     (src/entities/roster, `useTeamLineup`, #1101), keyed by the league's
+ *     current week exactly like standings above. It is a plain read (this
+ *     widget is its only mount on this page) and is skipped entirely for a
+ *     pick'em-only viewer, who has no roster to read: `useTeamLineup`'s own
+ *     null-leagueId contract means the request never fires. The section is
+ *     independent of the card's SPINE (standings): a slow or failed lineup
+ *     read never blocks or errors the tiles above it, and a slow standings
+ *     read never blocks the starters section either.
  */
 
 // Both plain reads below use the shared useEndpoint (src/shared/lib, #669) and
@@ -81,6 +92,36 @@ function capacityFact(league, team) {
       : ['Roster', numberOrNull(team.roster_count), numberOrNull(league.roster_limit)];
   if (have == null || cap == null) return null;
   return { label, text: `${have}/${cap}` };
+}
+
+// The starters section (#1101) shows this many rows before folding the rest
+// into the "and N more" note.
+const STARTERS_SHOWN = 5;
+
+/**
+ * The league's total starting-slot INSTANCES: `roster_slots[].count` summed,
+ * the footer's denominator ("Lineup set/incomplete · <filled> of <this>").
+ * `roster_slots` rides on the league row as jsonb (server/routes/league.router.js),
+ * so it normally arrives already parsed; a string is tolerated defensively,
+ * mirroring the quick-actions widget's own `rosterSlotsOf` (useQuickActions.js).
+ * Missing or malformed data reads as zero slots rather than throwing.
+ */
+function totalStartingSlots(league) {
+  const raw = league?.roster_slots;
+  let slots;
+  if (Array.isArray(raw)) {
+    slots = raw;
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      slots = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      slots = [];
+    }
+  } else {
+    slots = [];
+  }
+  return slots.reduce((sum, s) => sum + (Number(s?.count) || 0), 0);
 }
 
 export function useMyTeamSummary(leagueId) {
@@ -176,6 +217,49 @@ export function useMyTeamSummary(leagueId) {
     if (odds != null) playoffOdds = { percent: Math.round(odds * 100) };
   }
 
+  // Starters section (#1101): the first five starters from entities/roster,
+  // an "and N more · M questionable" note, and a lineup-completeness footer.
+  // A pick'em-only viewer has no roster at all, so the lineup read never fires
+  // for one (`useTeamLineup`'s null-leagueId contract) and the section never
+  // mounts. `lineup.starters` already excludes bench, IR and spent rows
+  // (lineupModel, CONTEXT.md's Lineup entry: a spent slot starts nobody
+  // today), so this never re-derives the starter set with its own filter -
+  // that is the tested red-tell (a re-derived filter is how the spent-slot
+  // rule gets lost).
+  const pickemOnly = isPickemOnly(league);
+  const { lineup, loading: lineupLoading } = useTeamLineup(
+    !pickemOnly && leagueId != null ? leagueId : null,
+    league?.current_week ?? null,
+  );
+
+  let starters = null;
+  if (!pickemOnly) {
+    if (lineupLoading) {
+      // The week is often already known (the league row landed before the
+      // lineup read settles), so the loading header can still read "Starters
+      // · Week N" instead of a bare "Starters".
+      starters = { status: 'loading', week: league?.current_week ?? null };
+    } else if (lineup) {
+      const questionableCount = lineup.questionable;
+      starters = {
+        status: 'ready',
+        week: league?.current_week ?? null,
+        rows: lineup.starters.slice(0, STARTERS_SHOWN),
+        moreCount: Math.max(0, lineup.starters.length - STARTERS_SHOWN),
+        // The single source of the questionable count: lineupModel computes
+        // it once off the starters (CONTEXT.md's "computed in ONE place"
+        // pattern), so this note never invents its own answer.
+        questionableCount,
+        filled: lineup.starters.length,
+        totalSlots: totalStartingSlots(league),
+        lineupHref: leagueId != null ? `/league/${leagueId}/lineup` : null,
+      };
+    }
+    // A failed read (or one that resolved with no lineup at all) leaves
+    // `starters` null: the section is simply absent, and the card's tiles
+    // above are untouched since they come from an unrelated read.
+  }
+
   return {
     league,
     identity,
@@ -187,6 +271,7 @@ export function useMyTeamSummary(leagueId) {
     proj,
     playoffOdds,
     capacity: capacityFact(league, viewerTeam),
+    starters,
   };
 }
 

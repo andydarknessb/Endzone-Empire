@@ -282,3 +282,184 @@ test('the Team name box breaks inside itself rather than over its neighbour', as
   // words on it is told to break (#916/#917/#919/#921).
   expect(rulesUnder(heading)['']).toMatch(/overflow-wrap:\s*anywhere/);
 });
+
+// --- Starters section (#1101) ----------------------------------------------
+//
+// Fixture fidelity (the #1097/#1101 ruling): every fixture below is shaped
+// exactly as GET /api/team/lineup delivers a row (server/services/
+// lineup.service.js getLineup), mirroring lineupModel.test.js's own `row()`
+// helper - never a hand-built object invented to suit an assertion.
+
+const lineupRow = (overrides = {}) => ({
+  id: 1,
+  name: 'Player',
+  position: 'WR',
+  nfl_team: 'BUF',
+  slot: 'WR',
+  projected_points: 10,
+  injury_status: null,
+  opponent: 'KC',
+  bye_week: null,
+  locked: false,
+  onBye: false,
+  valid_stash: false,
+  ...overrides,
+});
+
+const lineupResponse = (entries = []) => ({
+  data: { week: 3, season: 2026, teamId: 1, entries },
+});
+
+// The standard 9-instance starting shape (mirrors LeagueDashboardPage.test.jsx's
+// quickActionsStandardSlots and the server's DEFAULT_ROSTER_SLOTS).
+const NINE_SLOT_LEAGUE = [
+  { key: 'QB', count: 1 },
+  { key: 'RB', count: 2 },
+  { key: 'WR', count: 2 },
+  { key: 'TE', count: 1 },
+  { key: 'FLEX', count: 1 },
+  { key: 'K', count: 1 },
+  { key: 'DEF', count: 1 },
+];
+
+// Nine real starters: five shown, four more, exactly one of the four
+// questionable (WR Three). Bench and IR rows ride alongside them in `entries`
+// exactly as the wire always sends them (Roster: starters, bench and IR
+// together) - proving the section reads `lineup.starters`, never a
+// bench/IR-inflated re-derivation from `lineup.entries` (#1101's red-tell: a
+// wrong count here, not a sixth visible row, is what a re-derived filter
+// would produce, since starters.length feeds both the note and the footer).
+const nineStarters = () => [
+  lineupRow({ id: 1, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', slot: 'QB', projected_points: 24.3, opponent: 'KC' }),
+  lineupRow({ id: 2, name: 'RB One', position: 'RB', nfl_team: 'SF', slot: 'RB', projected_points: 18.2, opponent: 'LAR' }),
+  lineupRow({ id: 3, name: 'RB Two', position: 'RB', nfl_team: 'DAL', slot: 'RB', projected_points: 15.5, opponent: 'NYG' }),
+  lineupRow({ id: 4, name: 'WR One', position: 'WR', nfl_team: 'MIA', slot: 'WR', projected_points: 14.1, opponent: 'NYJ' }),
+  lineupRow({ id: 5, name: 'WR Two', position: 'WR', nfl_team: 'CIN', slot: 'WR', projected_points: 13.0, opponent: 'BAL' }),
+  lineupRow({ id: 6, name: 'WR Three', position: 'WR', nfl_team: 'SEA', slot: 'FLEX', projected_points: 11.4, opponent: 'ARI', injury_status: 'Q' }),
+  lineupRow({ id: 7, name: 'TE One', position: 'TE', nfl_team: 'KC', slot: 'TE', projected_points: 9.8, opponent: 'BUF' }),
+  lineupRow({ id: 8, name: 'DEF One', position: 'DEF', nfl_team: 'PHI', slot: 'DEF', projected_points: 8.0, opponent: 'DAL' }),
+  lineupRow({ id: 9, name: 'K One', position: 'K', nfl_team: 'DET', slot: 'K', projected_points: 7.5, opponent: 'GB' }),
+];
+
+const benchAndIrRows = () => [
+  lineupRow({ id: 100, name: 'Bench Guy', slot: 'BENCH', projected_points: 5, opponent: 'SEA' }),
+  lineupRow({ id: 101, name: 'IR Guy', slot: 'IR', projected_points: 2, opponent: null }),
+];
+
+const LINEUP_URL = '/api/team/lineup?leagueId=1&week=3';
+
+test('five starter rows render name, opponent line and projection from a nine-starter fixture, plus the "and N more" note', async () => {
+  mountWith({ [LINEUP_URL]: lineupResponse([...nineStarters(), ...benchAndIrRows()]) });
+
+  const rows = await screen.findAllByTestId('starter-row');
+  expect(rows).toHaveLength(5);
+  expect(within(rows[0]).getByText('Josh Allen')).toBeInTheDocument();
+  expect(within(rows[0]).getByText('BUF vs KC')).toBeInTheDocument();
+  expect(within(rows[0]).getByTestId('starter-projection')).toHaveTextContent('24.3');
+  expect(within(rows[0]).getByTestId('pos-chip')).toHaveTextContent('QB');
+
+  expect(screen.getByTestId('my-team-starters-more')).toHaveTextContent(
+    'and 4 more starters · 1 questionable'
+  );
+
+  // Red-tell: bench and IR never leak into the section, whether as one of the
+  // five visible rows or folded into the "more" count.
+  expect(screen.queryByText('Bench Guy')).not.toBeInTheDocument();
+  expect(screen.queryByText('IR Guy')).not.toBeInTheDocument();
+});
+
+test('"and 1 more starter" is singular, with zero questionable stated plainly', async () => {
+  mountWith({ [LINEUP_URL]: lineupResponse(nineStarters().slice(0, 6).map((s) => ({ ...s, injury_status: null }))) });
+
+  expect(await screen.findByTestId('my-team-starters-more')).toHaveTextContent(
+    'and 1 more starter · 0 questionable'
+  );
+});
+
+test('footer reads "Lineup set · 9 of 9" for a full nine-starter lineup against a nine-slot league', async () => {
+  mountWith({
+    league: { roster_slots: NINE_SLOT_LEAGUE },
+    [LINEUP_URL]: lineupResponse(nineStarters()),
+  });
+
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup set · 9 of 9');
+});
+
+test('footer reads "Lineup incomplete · 7 of 9" for a seven-starter fixture against a nine-slot league', async () => {
+  mountWith({
+    league: { roster_slots: NINE_SLOT_LEAGUE },
+    [LINEUP_URL]: lineupResponse(nineStarters().slice(0, 7)),
+  });
+
+  expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup incomplete · 7 of 9');
+});
+
+// The 2026-09-10 ruling: null means absence (a bye or an unsynced slate),
+// never "unknown", so the second line renders the team code alone with no
+// invented label.
+test('a null opponent renders the team code alone, with no "vs" clause', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse([
+      lineupRow({ id: 1, name: 'Bye Guy', slot: 'QB', nfl_team: 'BUF', opponent: null, projected_points: 0 }),
+    ]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  expect(within(row).getByTestId('starter-opponent-line')).toHaveTextContent('BUF');
+  expect(within(row).queryByText(/vs/)).not.toBeInTheDocument();
+});
+
+test('a questionable starter carries a warning Badge reading the wire abbreviation', async () => {
+  mountWith({
+    [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, name: 'Hurt Guy', slot: 'QB', injury_status: 'Q' })]),
+  });
+
+  const row = await screen.findByTestId('starter-row');
+  const badge = within(row).getByTestId('starter-injury-badge');
+  expect(badge).toHaveAttribute('data-variant', 'warning');
+  expect(badge).toHaveTextContent('Q');
+});
+
+test('a healthy starter carries no injury Badge', async () => {
+  mountWith({ [LINEUP_URL]: lineupResponse([lineupRow({ id: 1, injury_status: null })]) });
+
+  const row = await screen.findByTestId('starter-row');
+  expect(within(row).queryByTestId('starter-injury-badge')).not.toBeInTheDocument();
+});
+
+test('loading holds five skeleton rows', async () => {
+  mountWith({ [LINEUP_URL]: { pending: true } });
+
+  await screen.findByTestId('my-team-starters');
+  expect(screen.getAllByTestId('my-team-starters-skeleton')).toHaveLength(5);
+  expect(screen.queryByTestId('starter-row')).not.toBeInTheDocument();
+});
+
+test('a failed lineup read hides the starters section while the tiles still render', async () => {
+  mountWith({ [LINEUP_URL]: { reject: { response: { status: 500 } } } });
+
+  await screen.findByTestId('stat-draft-grade');
+  expect(screen.queryByTestId('my-team-starters')).not.toBeInTheDocument();
+});
+
+test('a pick-em-only viewer never mounts the starters section, and the lineup is never fetched', async () => {
+  mountWith({ league: { pickem_only: true } });
+
+  await screen.findByTestId('my-team-summary');
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/team/lineup'));
+  expect(screen.queryByTestId('my-team-starters')).not.toBeInTheDocument();
+});
+
+test('the Set Lineup control links to /league/42/lineup', async () => {
+  setResource(['league', 42], leagueDetail({}));
+  mockGetByUrl({
+    '/api/scoring/league/42/standings': standingsResponse(),
+    '/api/league/42/draft-grades': draftGradesResponse(),
+    '/api/scoring/league/42/power-rankings': powerRankingsResponse(),
+    '/api/team/lineup?leagueId=42&week=3': lineupResponse(nineStarters()),
+  });
+  renderWithProviders(<MyTeamSummary leagueId={42} />);
+
+  const link = await screen.findByRole('link', { name: 'Set Lineup' });
+  expect(link.getAttribute('href')).toBe('/league/42/lineup');
+});
