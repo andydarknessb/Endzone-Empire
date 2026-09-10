@@ -12,7 +12,7 @@ MUI `<Button>` is the house button component; plain `.btn` classes are legacy
 (#309).
 
 ## Language
-Bold marks a headword; a term referenced in running prose is a capitalised plain word matching the headword by name.
+Bold marks a headword and the Sense markers; a term in running prose is a capitalised plain word, and a capitalised term matching a headword refers to that entry.
 
 ### League and membership
 
