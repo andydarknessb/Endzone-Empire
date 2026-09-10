@@ -264,3 +264,23 @@ test('a failed read renders one compact alert sentence and no rows', async () =>
   expect(alert).toHaveTextContent('We could not load recent activity right now.');
   expect(screen.queryByTestId('recent-activity-row')).not.toBeInTheDocument();
 });
+
+test('a row with at: null has an empty time slot and contains neither "1969" nor "Invalid Date"', async () => {
+  const rowWithoutTime = {
+    id: 11,
+    type: 'add',
+    team_name: 'MyBallsHurts',
+    player_name: 'Test Player',
+    created_at: null,
+    detail: {},
+  };
+  mockGet({ data: [rowWithoutTime] });
+  renderWidget();
+
+  const rows = await screen.findAllByTestId('recent-activity-row');
+  expect(rows).toHaveLength(1);
+  const timeSlot = within(rows[0]).getByTestId('recent-activity-time');
+  expect(timeSlot.textContent).toBe('');
+  expect(rows[0]).not.toHaveTextContent(/1969/);
+  expect(rows[0]).not.toHaveTextContent(/Invalid Date/);
+});

@@ -80,7 +80,18 @@ const WEEK_MS = 7 * DAY_MS;
  * running it.
  */
 export function formatActivityTime(at, now = Date.now(), locale) {
+  // Guard against null, undefined, empty string, and invalid dates
+  if (at == null || at === '' || (at instanceof Date && Number.isNaN(at.getTime()))) {
+    return null;
+  }
+
   const date = at instanceof Date ? at : new Date(at);
+
+  // Return null if the parsed date is invalid
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
   const nowMs = now instanceof Date ? now.getTime() : now;
   const diffMs = Math.max(0, nowMs - date.getTime());
 
