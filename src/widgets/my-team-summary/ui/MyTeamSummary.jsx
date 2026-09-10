@@ -370,8 +370,17 @@ function StatValueSkeleton() {
 // Primary button look, copied from matchup-preview's own PRIMARY_SX (that
 // widget's Set Lineup button): the registered "dashboard primary button label
 // on accent" pairing (tokens.contrast.test.js), so composing it here is not a
-// new pairing. Each Set-Lineup button on this page keeps its own small sx
-// object rather than sharing one across widgets, matching that precedent.
+// new pairing.
+//
+// This is now a FOURTH independent copy (matchup-hero, matchup-preview,
+// bench-what-if) of the same sx object, which the "matching that precedent"
+// reasoning this comment used to give is no longer good cover for: ADR 0031's
+// 2026-09-10 amendment (#1146, PR #1160) puts a presentational duplication
+// like this one in `shared/ui` at its SECOND island consumer, past which this
+// one already sits (#1101 formal review, n2). Left as a fourth copy here
+// rather than promoted in this PR - the note carried no cycle of its own -
+// but the next touch to any of these four should extract a shared
+// `shared/ui` primary-button treatment instead of adding a fifth.
 const BUTTON_BASE = {
   textTransform: 'none',
   fontSize: '13px',
@@ -448,6 +457,12 @@ const INJURY_DESIGNATION_NAME = {
 function StarterInjuryBadge({ status }) {
   const code = status ? String(status).trim() : '';
   if (!code) return null;
+  // An unrecognized code (none of the four the wire actually sends) still
+  // renders the Badge, unlike InjuryTag, which renders nothing for one
+  // (#1101 formal review, n1): the ticket's own instruction is "a warning
+  // Badge reading the injury status abbreviation when the starter carries
+  // one" - any non-null status, not only a recognized one - so the fallback
+  // announces the raw code rather than silently dropping the flag.
   const name = INJURY_DESIGNATION_NAME[code.toUpperCase()] || code;
   return (
     <Badge

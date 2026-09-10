@@ -285,10 +285,25 @@ test('the Team name box breaks inside itself rather than over its neighbour', as
 
 // --- Starters section (#1101) ----------------------------------------------
 //
-// Fixture fidelity (the #1097/#1101 ruling): every fixture below is shaped
-// exactly as GET /api/team/lineup delivers a row (server/services/
-// lineup.service.js getLineup), mirroring lineupModel.test.js's own `row()`
-// helper - never a hand-built object invented to suit an assertion.
+// Fixture fidelity (the #1097/#1101 ruling, tightened by the #1101 formal
+// review's f3/f4): every fixture below is shaped as GET /api/team/lineup
+// actually delivers a row (server/services/lineup.service.js getLineup),
+// mirroring lineupModel.test.js's own `row()`/`spentRow()` helpers - never a
+// hand-built object invented to suit an assertion. Two things a hand-arranged
+// fixture gets wrong if it isn't careful:
+//
+//   - The envelope: getLineup returns `{leagueId, teamId, season, week,
+//     currentWeek, rosterSlots, benchSlots, irSlots, entries}` (:993-1002),
+//     not just `{week, season, teamId, entries}`.
+//   - The order: the entries query ends `ORDER BY "players"."position",
+//     "players"."name"` (:941), so BENCH and IR rows interleave among
+//     starters by name within a position group - they are never grouped
+//     separately "starters first, bench last" the way a hand-arranged array
+//     naturally falls out. `spentStartingSlots` rows carry no such ordering
+//     and are concatenated after every other row (:1002), unsorted.
+//     `wireOrder`/`wireEntries` below reproduce both halves so a fixture that
+//     accidentally groups starters together can't hide a bug an interleaved
+//     one would catch.
 
 const lineupRow = (overrides = {}) => ({
   id: 1,
@@ -298,6 +313,7 @@ const lineupRow = (overrides = {}) => ({
   slot: 'WR',
   projected_points: 10,
   injury_status: null,
+  ir_attested: false,
   opponent: 'KC',
   bye_week: null,
   locked: false,
@@ -306,8 +322,23 @@ const lineupRow = (overrides = {}) => ({
   ...overrides,
 });
 
-const lineupResponse = (entries = []) => ({
-  data: { week: 3, season: 2026, teamId: 1, entries },
+// A spentStartingSlots row exactly as lineup.service.js builds it (mirrors
+// lineupModel.test.js's own `spentRow`): a departed starter's slot-holding
+// record, carrying no `projected_points` key at all and none of the
+// `annotateLineupEntries` fields lineupModel never reads (`locked`, `onBye`,
+// `valid_stash`, `bye_week`) - omitted here for the same reason that test
+// file omits them, not by oversight.
+const spentRow = (overrides = {}) => ({
+  player_id: null,
+  id: 300,
+  name: 'Departed Starter',
+  position: 'WR',
+  nfl_team: 'MIA',
+  injury_status: null,
+  slot: 'WR',
+  spent: true,
+  opponent: 'NYJ',
+  ...overrides,
 });
 
 // The standard 9-instance starting shape (mirrors LeagueDashboardPage.test.jsx's
@@ -322,13 +353,35 @@ const NINE_SLOT_LEAGUE = [
   { key: 'DEF', count: 1 },
 ];
 
+const lineupResponse = (entries = [], overrides = {}) => ({
+  data: {
+    leagueId: 1,
+    teamId: 1,
+    season: 2026,
+    week: 3,
+    currentWeek: 3,
+    rosterSlots: NINE_SLOT_LEAGUE,
+    benchSlots: 6,
+    irSlots: 1,
+    entries,
+    ...overrides,
+  },
+});
+
+// getLineup's own ORDER BY on the non-spent rows (players.position,
+// players.name) - a realistic fixture interleaves BENCH/IR among starters by
+// name within a position group instead of grouping starters first.
+const wireOrder = (rows) =>
+  [...rows].sort((a, b) => (a.position === b.position ? a.name.localeCompare(b.name) : a.position.localeCompare(b.position)));
+
+// `[...entries, ...spent]` (lineup.service.js:1002): the position/name-sorted
+// living rows, then any spent rows appended after, unsorted.
+const wireEntries = (livingRows, spentRows = []) => [...wireOrder(livingRows), ...spentRows];
+
 // Nine real starters: five shown, four more, exactly one of the four
-// questionable (WR Three). Bench and IR rows ride alongside them in `entries`
-// exactly as the wire always sends them (Roster: starters, bench and IR
-// together) - proving the section reads `lineup.starters`, never a
-// bench/IR-inflated re-derivation from `lineup.entries` (#1101's red-tell: a
-// wrong count here, not a sixth visible row, is what a re-derived filter
-// would produce, since starters.length feeds both the note and the footer).
+// questionable (WR Three). Positions are real player positions (a FLEX
+// starter is still a WR/RB/TE by position - only his `slot` reads FLEX), so
+// `wireEntries` sorts this set the way the real query would.
 const nineStarters = () => [
   lineupRow({ id: 1, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', slot: 'QB', projected_points: 24.3, opponent: 'KC' }),
   lineupRow({ id: 2, name: 'RB One', position: 'RB', nfl_team: 'SF', slot: 'RB', projected_points: 18.2, opponent: 'LAR' }),
@@ -341,38 +394,62 @@ const nineStarters = () => [
   lineupRow({ id: 9, name: 'K One', position: 'K', nfl_team: 'DET', slot: 'K', projected_points: 7.5, opponent: 'GB' }),
 ];
 
+// Eight of the nine, missing the FLEX starter - used by the spent-slot test,
+// which seats a spent row in FLEX instead of a ninth living starter.
+const eightStartersNoFlex = () => nineStarters().filter((s) => s.slot !== 'FLEX');
+
 const benchAndIrRows = () => [
-  lineupRow({ id: 100, name: 'Bench Guy', slot: 'BENCH', projected_points: 5, opponent: 'SEA' }),
-  lineupRow({ id: 101, name: 'IR Guy', slot: 'IR', projected_points: 2, opponent: null }),
+  lineupRow({ id: 100, name: 'Bench Guy', position: 'RB', slot: 'BENCH', projected_points: 5, opponent: 'SEA' }),
+  lineupRow({ id: 101, name: 'IR Guy', position: 'WR', slot: 'IR', projected_points: 2, opponent: null }),
 ];
 
 const LINEUP_URL = '/api/team/lineup?leagueId=1&week=3';
 
 test('five starter rows render name, opponent line and projection from a nine-starter fixture, plus the "and N more" note', async () => {
-  mountWith({ [LINEUP_URL]: lineupResponse([...nineStarters(), ...benchAndIrRows()]) });
+  // A spent row rides alongside the nine real starters, exactly as the wire
+  // always sends one (spentStartingSlots) - the #1101 formal review's f4
+  // red-tell: a re-derivation of `starters`/`filled`/`moreCount` off
+  // `lineup.entries` with a naive `slot !== 'BENCH' && slot !== 'IR'` filter
+  // (never excluding `spent`) would count it as a tenth starter, turning
+  // "and 4 more" into "and 5 more". Reading `lineup.starters`, which already
+  // excludes it, keeps the note exactly right.
+  mountWith({
+    [LINEUP_URL]: lineupResponse(
+      wireEntries([...nineStarters(), ...benchAndIrRows()], [
+        spentRow({ id: 300, name: 'Departed Starter', position: 'RB', nfl_team: 'MIA', slot: 'RB' }),
+      ])
+    ),
+  });
 
   const rows = await screen.findAllByTestId('starter-row');
   expect(rows).toHaveLength(5);
-  expect(within(rows[0]).getByText('Josh Allen')).toBeInTheDocument();
-  expect(within(rows[0]).getByText('BUF vs KC')).toBeInTheDocument();
-  expect(within(rows[0]).getByTestId('starter-projection')).toHaveTextContent('24.3');
+  // Ordering is the wire's own (position, name), not a hand-picked "first
+  // five", so Josh Allen's row is found by content rather than assumed to be
+  // rows[0].
+  const joshRow = rows.find((r) => within(r).queryByText('Josh Allen'));
+  expect(joshRow).toBeTruthy();
+  expect(within(joshRow).getByText('BUF vs KC')).toBeInTheDocument();
+  expect(within(joshRow).getByTestId('starter-projection')).toHaveTextContent('24.3');
   // The bare number has no column header, so a hidden label names it for a
   // screen reader.
-  expect(within(rows[0]).getByText('24.3 projected points')).toBeInTheDocument();
-  expect(within(rows[0]).getByTestId('pos-chip')).toHaveTextContent('QB');
+  expect(within(joshRow).getByText('24.3 projected points')).toBeInTheDocument();
+  expect(within(joshRow).getByTestId('pos-chip')).toHaveTextContent('QB');
 
   expect(screen.getByTestId('my-team-starters-more')).toHaveTextContent(
     'and 4 more starters · 1 questionable'
   );
 
-  // Red-tell: bench and IR never leak into the section, whether as one of the
-  // five visible rows or folded into the "more" count.
+  // Red-tell: bench, IR and the spent row never leak into the section,
+  // whether as one of the five visible rows or folded into the "more" count.
   expect(screen.queryByText('Bench Guy')).not.toBeInTheDocument();
   expect(screen.queryByText('IR Guy')).not.toBeInTheDocument();
+  expect(screen.queryByText('Departed Starter')).not.toBeInTheDocument();
 });
 
 test('"and 1 more starter" is singular, with zero questionable stated plainly', async () => {
-  mountWith({ [LINEUP_URL]: lineupResponse(nineStarters().slice(0, 6).map((s) => ({ ...s, injury_status: null }))) });
+  mountWith({
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters().slice(0, 6).map((s) => ({ ...s, injury_status: null })))),
+  });
 
   expect(await screen.findByTestId('my-team-starters-more')).toHaveTextContent(
     'and 1 more starter · 0 questionable'
@@ -382,7 +459,7 @@ test('"and 1 more starter" is singular, with zero questionable stated plainly', 
 test('footer reads "Lineup set · 9 of 9" for a full nine-starter lineup against a nine-slot league', async () => {
   mountWith({
     league: { roster_slots: NINE_SLOT_LEAGUE },
-    [LINEUP_URL]: lineupResponse(nineStarters()),
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())),
   });
 
   expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup set · 9 of 9');
@@ -394,13 +471,50 @@ test('footer reads "Lineup set · 9 of 9" for a full nine-starter lineup against
 test('footer reads "Lineup incomplete · 7 of 9" for a seven-starter fixture against a nine-slot league, with no check mark', async () => {
   mountWith({
     league: { roster_slots: NINE_SLOT_LEAGUE },
-    [LINEUP_URL]: lineupResponse(nineStarters().slice(0, 7)),
+    [LINEUP_URL]: lineupResponse(wireEntries(nineStarters().slice(0, 7))),
   });
 
   expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup incomplete · 7 of 9');
   // A check mark beside "incomplete" would tell a sighted manager the
   // opposite of what the text says.
   expect(screen.queryByTestId('my-team-lineup-check')).not.toBeInTheDocument();
+});
+
+// #1101 formal review, f1: the footer's "is this manager set" answer must
+// agree with CONTEXT.md's Lineup entry rule, not just with `lineup.starters`.
+// Eight living starters plus one spent FLEX: `lineup.starters.length` is only
+// 8 (lineupModel excludes the spent row from `starters`), but that slot is
+// settled for the week and can never be refilled by any save - so it is not
+// a hole to fill, and the footer must read the lineup as fully set.
+test('a spent starting slot counts as filled, not empty', async () => {
+  mountWith({
+    league: { roster_slots: NINE_SLOT_LEAGUE },
+    [LINEUP_URL]: lineupResponse(
+      wireEntries(eightStartersNoFlex(), [
+        spentRow({ id: 300, name: 'Departed Flex', position: 'WR', nfl_team: 'SEA', slot: 'FLEX', opponent: 'ARI' }),
+      ])
+    ),
+  });
+
+  const status = await screen.findByTestId('my-team-lineup-status');
+  expect(status).toHaveTextContent('Lineup set · 9 of 9');
+  expect(screen.getByTestId('my-team-lineup-check')).toBeInTheDocument();
+});
+
+// #1101 formal review, f2: a league whose `roster_slots` this widget cannot
+// read must not default to "0 slots needed", which reads as trivially
+// satisfied and paints the reassuring "Lineup set" claim over an unknown
+// config. `leagueDetail`'s default league row (used when a test passes no
+// `league` override, as most of this suite does) carries no `roster_slots`
+// at all, so this is also proof every other test above was never silently
+// running against a false "of 0" - none has, all having asserted a real
+// denominator.
+test('a missing roster_slots config falls back to the standard 9-slot shape, not "of 0"', async () => {
+  mountWith({ [LINEUP_URL]: lineupResponse(wireEntries(nineStarters())) });
+
+  const status = await screen.findByTestId('my-team-lineup-status');
+  expect(status).toHaveTextContent('Lineup set · 9 of 9');
+  expect(status).not.toHaveTextContent('of 0');
 });
 
 // The 2026-09-10 ruling: null means absence (a bye or an unsynced slate),

@@ -3,6 +3,8 @@ import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
 import { useTeamLineup } from '../../../entities/roster';
 import { isPickemOnly } from '../../../lib/leagueType';
+import { lineupAttention } from '../../../lib/lineupAttention';
+import { DEFAULT_ROSTER_SLOTS } from '../../../lib/draftSim/templates';
 import { ordinal } from '../lib/ordinal';
 
 /**
@@ -99,14 +101,24 @@ function capacityFact(league, team) {
 const STARTERS_SHOWN = 5;
 
 /**
- * The league's total starting-slot INSTANCES: `roster_slots[].count` summed,
- * the footer's denominator ("Lineup set/incomplete · <filled> of <this>").
- * `roster_slots` rides on the league row as jsonb (server/routes/league.router.js),
- * so it normally arrives already parsed; a string is tolerated defensively,
- * mirroring the quick-actions widget's own `rosterSlotsOf` (useQuickActions.js).
- * Missing or malformed data reads as zero slots rather than throwing.
+ * The league's starting-slot config, parsed defensively (`roster_slots` rides
+ * on the league row as jsonb - server/routes/league.router.js - so it
+ * normally arrives already parsed; a string is tolerated the same way the
+ * quick-actions widget's own `rosterSlotsOf` tolerates one, useQuickActions.js),
+ * then resolved exactly the way `server/services/decision.service.js:141`
+ * resolves the identical absent-config case: `rosterSlots && length > 0 ?
+ * rosterSlots : DEFAULT_ROSTER_SLOTS`, never an empty array.
+ *
+ * This matters beyond a friendlier guess: `totalSlots` is this array's summed
+ * `count`, and it is the footer's DENOMINATOR ("Lineup set/incomplete ·
+ * <filled> of <this>"). An empty-array default would make `totalSlots` 0, and
+ * since "set" is `filled >= totalSlots`, ANY filled count - including a
+ * missing-config league nobody has actually set up - clears `9 >= 0` and
+ * paints the reassuring "Lineup set" claim with its check mark. A degraded
+ * default must never land on the reassuring end of a claim (#1101 formal
+ * review, f2), so this falls back to the real 9-slot standard shape instead.
  */
-function totalStartingSlots(league) {
+function resolvedRosterSlots(league) {
   const raw = league?.roster_slots;
   let slots;
   if (Array.isArray(raw)) {
@@ -121,7 +133,7 @@ function totalStartingSlots(league) {
   } else {
     slots = [];
   }
-  return slots.reduce((sum, s) => sum + (Number(s?.count) || 0), 0);
+  return slots.length > 0 ? slots : DEFAULT_ROSTER_SLOTS;
 }
 
 export function useMyTeamSummary(leagueId) {
@@ -240,7 +252,35 @@ export function useMyTeamSummary(leagueId) {
       // · Week N" instead of a bare "Starters".
       starters = { status: 'loading', week: league?.current_week ?? null };
     } else if (lineup) {
-      const questionableCount = lineup.questionable;
+      const rosterSlots = resolvedRosterSlots(league);
+      const totalSlots = rosterSlots.reduce((sum, s) => sum + (Number(s?.count) || 0), 0);
+      // "Is this starting slot filled" is shared with the quick-actions widget
+      // (src/lib/lineupAttention.js) rather than answered a second way here:
+      // that module's own docblock names two independently-derived answers to
+      // exactly this question as the failure the extraction exists to prevent
+      // (#1101 formal review, f1). Fed `lineup.entries`, not `lineup.starters`:
+      // a spent row keeps its ORIGINAL starting slot as its `slot` key
+      // (spentStartingSlots), and CONTEXT.md's Lineup entry rule is that a
+      // spent slot is settled for the week and "no save ... may seat a
+      // replacement beside it" - so it must count as FILLED here, the same
+      // way `lineupModel` excludes it from `starters` without treating the
+      // exclusion as a hole to fill. (`lineup.starters` alone would undercount
+      // by one for every spent slot, which is exactly the false "Lineup
+      // incomplete" this rule exists to stop.)
+      //
+      // Known gap, left as a comment rather than fixed silently: quick-actions
+      // reads a DIFFERENT wire for this same rule, `/api/team/roster`, whose
+      // query joins from `team_players` and so drops a departed starter's row
+      // entirely once he leaves the roster - unlike `/api/team/lineup`, which
+      // deliberately keeps the spent record (lineup.service.js's
+      // `spentStartingSlots`). The two widgets can still disagree on a spent
+      // slot because they read different inputs, even though they now share
+      // the same rule. Reconciling the data source is a quick-actions change
+      // and is out of this ticket's scope.
+      const { emptyStarterSlots } = lineupAttention({
+        rosterSlots,
+        entries: lineup.entries.map((e) => ({ slot: e.slot })),
+      });
       starters = {
         status: 'ready',
         week: league?.current_week ?? null,
@@ -249,9 +289,9 @@ export function useMyTeamSummary(leagueId) {
         // The single source of the questionable count: lineupModel computes
         // it once off the starters (CONTEXT.md's "computed in ONE place"
         // pattern), so this note never invents its own answer.
-        questionableCount,
-        filled: lineup.starters.length,
-        totalSlots: totalStartingSlots(league),
+        questionableCount: lineup.questionable,
+        filled: Math.max(0, totalSlots - emptyStarterSlots),
+        totalSlots,
         lineupHref: leagueId != null ? `/league/${leagueId}/lineup` : null,
       };
     }
