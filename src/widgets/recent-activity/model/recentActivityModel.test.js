@@ -105,4 +105,24 @@ describe('formatActivityTime', () => {
   test('accepts a Date for `now` as well as epoch ms', () => {
     expect(formatActivityTime(hoursAgo(2).toISOString(), new Date(NOW))).toBe('2h ago');
   });
+
+  test('null input returns null', () => {
+    expect(formatActivityTime(null, NOW)).toBeNull();
+  });
+
+  test('undefined input returns null', () => {
+    expect(formatActivityTime(undefined, NOW)).toBeNull();
+  });
+
+  test('empty string input returns null', () => {
+    expect(formatActivityTime('', NOW)).toBeNull();
+  });
+
+  test('invalid date string returns null', () => {
+    expect(formatActivityTime('not-a-date', NOW)).toBeNull();
+  });
+
+  test('invalid Date object returns null', () => {
+    expect(formatActivityTime(new Date('invalid'), NOW)).toBeNull();
+  });
 });
