@@ -1,6 +1,6 @@
 # Game Center and Matchup Detail join the island
 
-Status: accepted (2026-09-05)
+Status: accepted (2026-09-05); scope superseded by ADR 0034 (2026-09-09); amended 2026-09-10
 
 ADR 0017 opened a local Feature-Sliced Design island, ADR 0020 grew it to
 cover the League Dashboard, and ADR 0029 gave it an `entities` layer whose
@@ -70,3 +70,15 @@ Rulings recorded on the spec that shape the slices:
   where they are; a slice imports them as the entity imports `src/api`, the
   sanctioned reach below the island, until a second island consumer earns them
   a `shared/lib` home.
+
+## Amendment (2026-09-10, #1131): the below-island clause fired
+
+Two of the Consequences bullet's helpers have reached their second island
+consumer thresholds and been ruled. The win-probability arithmetic fired
+the below-island clause with PR #1120 and now lives in `src/shared/lib` as a
+public index export. The play classifier fired the clause too, reaching six
+island consumers across four slices, and is ruled to live in `entities/matchup`
+as `playLabel`, a Scoring play domain model (#1137: `classifyPlays` folds into
+`features/celebrate-touchdown` and its one caller is that feature). The default
+week rule is unmeasured and unruled; the next reader should treat that silence
+as an open question, not a ruling.

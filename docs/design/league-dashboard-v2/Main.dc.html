@@ -1,0 +1,613 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=Inter:wght@400;600;800&amp;display=swap">
+  <style>
+
+[data-theme="dark"]{
+  --bg:#0b1015; --surface:#141b23; --surface2:#1b242f; --surface3:#222e3b;
+  --line:rgba(154,183,211,.12); --line-strong:rgba(154,183,211,.22);
+  --ink:#e8eef4; --dim:#93a4b5; --faint:#8a9bad;
+  --accent:#2fd97b; --accent-soft:rgba(47,217,123,.12); --accent-line:rgba(47,217,123,.35); --on-accent:#0b1015;
+  --grade-a:#2fd97b; --grade-b:#a8cc4a; --grade-c:#e5b04a; --grade-d:#e07a45; --grade-f:#e25c5c; --on-grade:#0b1015;
+  --grade-a-text:#2fd97b; --grade-b-text:#a8cc4a; --grade-c-text:#e5b04a; --grade-d-text:#e07a45; --grade-f-text:#f07f7f;
+  --home:#7eaaff; --home-soft:rgba(126,170,255,.16); --away:#7ee2a8; --away-soft:rgba(126,226,168,.16);
+  --danger:#ff6b6b; --danger-soft:rgba(255,107,107,.14); --warning:#f0b34e; --warning-soft:rgba(240,179,78,.14);
+  --pos-qb:#ff8a80; --pos-rb:#7ee2a8; --pos-wr:#7fb0ff; --pos-te:#f0b34e; --pos-k:#c4a2f5; --pos-def:#b0bec5; --on-pos:#0f1419;
+  --app-bar:#222c37; --app-bg:#0f1419; --app-ink:#e6edf3; --app-accent:#7eaaff; --app-line:#2a3441;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45); --shadow-2:0 6px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg:#eef2f6; --surface:#ffffff; --surface2:#f4f7fa; --surface3:#e6ecf2;
+  --line:rgba(31,45,58,.12); --line-strong:rgba(31,45,58,.22);
+  --ink:#141b23; --dim:#55636f; --faint:#5e6a74;
+  --accent:#0f6a41; --accent-soft:rgba(15,106,65,.12); --accent-line:rgba(15,106,65,.32); --on-accent:#ffffff;
+  --grade-a:#2fd97b; --grade-b:#a8cc4a; --grade-c:#e5b04a; --grade-d:#e07a45; --grade-f:#e25c5c; --on-grade:#0b1015;
+  --grade-a-text:#0f7a45; --grade-b-text:#587611; --grade-c-text:#8a6212; --grade-d-text:#b0491f; --grade-f-text:#c62f2f;
+  --home:#1e5bb8; --home-soft:rgba(30,91,184,.10); --away:#1b7d4f; --away-soft:rgba(27,125,79,.08);
+  --danger:#c62828; --danger-soft:rgba(198,40,40,.10); --warning:#8a5a00; --warning-soft:rgba(138,90,0,.12);
+  --pos-qb:#c62828; --pos-rb:#15663f; --pos-wr:#1e5bb8; --pos-te:#9a5100; --pos-k:#6d28d9; --pos-def:#4b5c66; --on-pos:#ffffff;
+  --app-bar:#ffffff; --app-bg:#f4f6f8; --app-ink:#1a2129; --app-accent:#1e5bb8; --app-line:#dde2e7;
+  --shadow-1:0 1px 2px rgba(16,24,32,.08); --shadow-2:0 4px 12px rgba(16,24,32,.10);
+}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent);text-decoration:underline}
+.root{width:1440px;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.display{font-family:"Barlow Condensed",Impact,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;color:var(--ink);min-width:0;overflow:hidden}
+.tile{overflow:hidden}
+.card-h{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.card-t{font-family:"Barlow Condensed",Impact,sans-serif;font-size:17px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);margin:0}
+.card-c{font-size:12px;font-weight:600;color:var(--faint)}
+.card-tail{margin-left:auto;font-size:12px;color:var(--faint);display:flex;align-items:center;gap:8px}
+.tile{display:flex;flex-direction:column;gap:2px;padding:10px 12px;min-width:0;background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+.tile .l{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.tile .v{font-family:"Barlow Condensed",Impact,sans-serif;font-size:24px;font-weight:700;line-height:1.2;color:var(--ink);font-variant-numeric:tabular-nums}
+.tile.sm .v{font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .l{overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:.04em;border:1px solid var(--line);background:var(--surface2);color:var(--dim);white-space:nowrap;line-height:1.3}
+.chip.live{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+.chip.you{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);font-size:10.5px;font-weight:700;letter-spacing:.08em}
+.chip.warn{background:var(--warning-soft);color:var(--warning);border-color:var(--warning)}
+.chip.danger{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.success{background:var(--away-soft);color:var(--away);border-color:var(--away)}
+.dot{width:8px;height:8px;border-radius:999px;background:currentColor;flex:none}
+.pos{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:20px;padding:0 6px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--on-pos)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid var(--line-strong);color:var(--dim);background:transparent;white-space:nowrap;line-height:1.2}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.ink{color:var(--ink)}
+.btn.sm{height:32px;padding:0 12px;font-size:12.5px}
+.btn.lg{height:44px}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn.band{width:100%;justify-content:space-between;height:44px;background:var(--surface2);border-color:var(--line);color:var(--ink);padding:0 10px}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.hair{height:1px;background:var(--line)}
+.avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--surface3);color:var(--ink);font-weight:700;flex:none;font-size:12px}
+.split{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--surface3)}
+.row{display:flex;align-items:center}
+.stack{display:flex;flex-direction:column}
+.grow{flex:1 1 0;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12px;color:var(--faint)}
+.grade{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:999px;font-family:"Barlow Condensed",Impact,sans-serif;font-size:14px;font-weight:700;color:var(--on-grade);flex:none}
+table{border-collapse:collapse;width:100%;font-family:"Archivo","Helvetica Neue",Arial,sans-serif}
+th{text-align:left;padding:10px 12px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);white-space:nowrap;box-shadow:inset 0 -1px 0 var(--line);background:var(--surface)}
+td{padding:10px 12px;font-size:13.5px;color:var(--ink);white-space:nowrap;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+th.r,td.r{text-align:right}
+table.m th,table.m td{padding:10px 8px}
+td.muted{color:var(--dim)}
+tr.me td{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+tr.cut td{border-top:2px solid var(--line-strong)}
+.nav{height:56px;display:flex;align-items:center;gap:22px;padding:0 20px;background:var(--app-bar);color:var(--app-ink);border-bottom:1px solid var(--app-line);font-family:"Inter","Roboto","Helvetica","Arial",sans-serif}
+.nav .brand{font-weight:800;font-size:17px;color:var(--app-accent);display:flex;align-items:center;gap:8px}
+.nav .links{display:flex;gap:18px;font-size:13px;color:var(--app-ink)}
+.nav .links{height:56px;align-items:stretch}
+.nav .links span{display:flex;align-items:center}
+.nav .links .on{color:var(--app-accent);box-shadow:inset 0 -2px 0 var(--app-accent)}
+.nav .search{margin-left:auto;height:32px;width:170px;border:1px solid var(--app-line);border-radius:8px;display:flex;align-items:center;padding:0 10px;font-size:12px;color:var(--dim);gap:8px}
+.switch{width:34px;height:18px;border-radius:999px;background:var(--surface3);border:1px solid var(--line-strong);position:relative;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:var(--dim)}
+.switch.on{background:var(--accent-soft);border-color:var(--accent-line)}
+.switch.on::after{left:18px;background:var(--accent)}
+.field{height:38px;border:1px solid var(--line-strong);border-radius:9px;display:flex;align-items:center;padding:0 12px;font-size:13px;color:var(--ink);background:var(--surface);gap:8px;justify-content:space-between}
+.field .ph{color:var(--dim)}
+.sect{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--dim)}
+.sect.on{background:var(--accent-soft);color:var(--accent)}
+.fsd-box{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface2);font-size:12.5px;line-height:1.35}
+.fsd-box b{display:block;font-family:"Barlow Condensed",Impact,sans-serif;font-size:15px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;color:var(--ink)}
+.fsd-box.new{border-color:var(--accent-line);background:var(--accent-soft)}
+.fsd-box.changed{border-color:var(--warning);background:var(--warning-soft)}
+svg{display:block}
+  </style>
+</helmet>
+<div class="root" data-theme="{{theme}}" style="width: 1440px; min-height: 2300px; background: var(--bg); color: var(--ink);">
+<div class="nav"><span class="brand"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="var(--app-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 4 5.5V10c0 3.5 2.5 6 6 7 3.5-1 6-3.5 6-7V5.5z"/></svg>Endzone Empire</span><span class="links"><span>Home</span><span class="on">League</span><span>Discover</span><span>Players</span><span>Roster</span><span>Mock Draft</span></span><span class="search"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg>Search players...</span><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--app-ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 2h-13z"/><path d="M8.5 17.5a1.5 1.5 0 0 0 3 0"/></svg><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--app-ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M5 15l1.5-1.5M13.5 6.5 15 5"/></svg><span class="avatar" style="width:32px;height:32px;background:var(--app-accent);color:#fff;font-size:14px">A</span></div>
+<div style="position:relative;max-width:1200px;margin:0 auto;padding:28px 24px 40px;display:grid;grid-template-columns:minmax(0,1fr);gap:22px">
+  <div class="row" style="gap:14px;flex-wrap:wrap;align-items:baseline">
+  <h1 class="display" style="margin:0;font-size:34px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--ink);line-height:1.05">Great Lakes Gridiron</h1>
+  <span class="row" style="gap:8px;flex-wrap:wrap"><span class="chip live">Week 3 · In season</span><span class="chip ">12 Teams</span><span class="chip ">Draft Complete</span></span>
+  <span class="row" style="margin-left:auto;gap:10px"><span class="btn sm"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="9" height="9" rx="1.5"/><path d="M13 7V5.5A1.5 1.5 0 0 0 11.5 4h-6A1.5 1.5 0 0 0 4 5.5v6A1.5 1.5 0 0 0 5.5 13H7"/></svg>Invite <code style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink)">7K3D9Q</code></span></span>
+</div>
+  <section class="card" style="padding:12px 18px;display:flex;align-items:center;gap:14px">
+  <div class="stack" style="gap:2px;flex:none;min-width:130px">
+    <h2 class="card-t">Commissioner</h2>
+    <span class="note">Commissioners only · 2</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5, minmax(0, 1fr));gap:8px;flex:1 1 0;min-width:0"><div class="tile sm"><span class="l">Transactions</span><span class="v">Open</span></div><div class="tile sm"><span class="l">Teams locked</span><span class="v">0 of 12</span></div><div class="tile sm"><span class="l">Trade deadline</span><span class="v">Week 11</span></div><div class="tile sm"><span class="l">Waivers</span><span class="v">Priority · 48h</span></div><div class="tile sm"><span class="l">Trade review</span><span class="v">24h</span></div></div>
+  <span class="row" style="gap:8px;flex:none">
+    <span class="chip warn">Join requests · 2</span>
+    <span class="btn sm ink"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10h12m0 0-4-4m4 4-4 4"/></svg>Advance to Week 4</span>
+    <span class="btn sm"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M5 15l1.5-1.5M13.5 6.5 15 5"/></svg>League administration</span>
+  </span>
+</section>
+  <div style="display:grid;grid-template-columns:5fr 7fr;gap:22px;align-items:stretch">
+    <section class="card" style="padding:20px;display:flex;flex-direction:column;gap:16px;height:100%">
+  <div class="row" style="gap:14px">
+    <span class="avatar" style="width:48px;height:48px;font-size:19px">DW</span>
+    <div class="stack" style="gap:4px;min-width:0">
+      <span class="row" style="gap:8px;flex-wrap:wrap"><h2 class="display" style="margin:0;font-size:24px;font-weight:700;letter-spacing:.02em;line-height:1.1">Dockworkers</h2><span class="chip you">You</span></span>
+      <span style="font-size:12.5px;color:var(--faint)">2-0 · 2nd of 12 · 258.1 PF</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4, minmax(0, 1fr));gap:10px">
+    <div class="tile "><span class="l">Draft grade</span><span class="v"><span style="color:var(--grade-b-text)">B</span></span></div>
+    <div class="tile "><span class="l">Proj. finish</span><span class="v">4th <small style="font-size:13px;font-weight:600;font-family:Archivo,sans-serif;color:var(--dim)">+1</small></span></div>
+    <div class="tile "><span class="l">Playoff odds</span><span class="v">71%</span></div>
+    <div class="tile "><span class="l">Roster</span><span class="v">16/16</span></div>
+  </div>
+  <div class="stack" style="gap:0;flex:1 1 auto">
+    <div class="row" style="gap:8px;padding-bottom:6px"><span class="label">Starters · Week 3</span><span class="note" style="margin-left:auto">Proj. 112.4</span></div>
+    
+    <div class="row" style="gap:10px;padding:7px 0;border-top:1px solid var(--line)">
+      <span class="pos" style="background:var(--pos-qb)">QB</span>
+      <span class="grow stack" style="gap:1px">
+        <span class="ellip" style="font-size:13.5px;font-weight:600">Jared Goff</span>
+        <span class="note ellip">DET vs GB · Sun 4:25</span>
+      </span>
+      <span class="num" style="font-size:13.5px;font-weight:700">19.2</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 0;border-top:1px solid var(--line)">
+      <span class="pos" style="background:var(--pos-rb)">RB</span>
+      <span class="grow stack" style="gap:1px">
+        <span class="ellip" style="font-size:13.5px;font-weight:600">Bijan Robinson</span>
+        <span class="note ellip">ATL @ CAR · Sun 1:00</span>
+      </span>
+      <span class="num" style="font-size:13.5px;font-weight:700">17.8</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 0;border-top:1px solid var(--line)">
+      <span class="pos" style="background:var(--pos-rb)">RB</span>
+      <span class="grow stack" style="gap:1px">
+        <span class="ellip" style="font-size:13.5px;font-weight:600">Josh Jacobs</span>
+        <span class="note ellip">GB @ DET · Sun 4:25</span>
+      </span>
+      <span class="num" style="font-size:13.5px;font-weight:700">15.1</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 0;border-top:1px solid var(--line)">
+      <span class="pos" style="background:var(--pos-wr)">WR</span>
+      <span class="grow stack" style="gap:1px">
+        <span class="ellip" style="font-size:13.5px;font-weight:600">Justin Jefferson</span>
+        <span class="note ellip">MIN vs CHI · Mon 8:15</span>
+      </span>
+      <span class="num" style="font-size:13.5px;font-weight:700">18.9</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 0;border-top:1px solid var(--line)">
+      <span class="pos" style="background:var(--pos-wr)">WR</span>
+      <span class="grow stack" style="gap:1px">
+        <span class="ellip" style="font-size:13.5px;font-weight:600">Amon-Ra St. Brown <span class="chip warn" style="padding:1px 6px;font-size:10px;margin-left:4px">Q</span></span>
+        <span class="note ellip">DET vs GB · Sun 4:25</span>
+      </span>
+      <span class="num" style="font-size:13.5px;font-weight:700">16.4</span>
+    </div>
+    <span class="note" style="padding-top:8px">and 4 more starters · 1 questionable</span>
+  </div>
+  <div class="row" style="gap:10px;padding-top:12px;border-top:1px solid var(--line)">
+    <span class="row" style="gap:6px;font-size:12.5px;color:var(--dim)"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 8 14.5 16 6"/></svg>Lineup set · 9 of 9</span>
+    <span style="margin-left:auto"><span class="btn primary">Set Lineup</span></span>
+  </div>
+</section>
+    <section class="card" style="display:flex;flex-direction:column;height:100%">
+  <div class="card-h"><h2 class="card-t">Week 3 Matchup</h2><span class="card-tail"><span class="chip ">Kicks off Sun 1:00 PM</span></span></div>
+  <div style="padding:18px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;flex:1 1 auto">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:12px">
+      <div class="stack" style="align-items:center;text-align:center;gap:6px;min-width:0">
+    <span class="avatar" style="width:44px;height:44px;font-size:18px">DW</span>
+    <span class="ellip" style="font-size:14px;font-weight:600;max-width:100%">Dockworkers</span>
+    <span class="display num" style="font-size:30px;font-weight:700;line-height:1.1">112.4</span>
+    <span class="label">Projected</span>
+  </div>
+      <span class="display" style="justify-self:center;font-size:16px;font-weight:600;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:6px 12px">VS</span>
+      <div class="stack" style="align-items:center;text-align:center;gap:6px;min-width:0">
+    <span class="avatar" style="width:44px;height:44px;font-size:18px">FB</span>
+    <span class="ellip" style="font-size:14px;font-weight:600;max-width:100%">Frostbite</span>
+    <span class="display num" style="font-size:30px;font-weight:700;line-height:1.1">118.9</span>
+    <span class="label">Projected</span>
+  </div>
+    </div>
+    <div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 10px;align-items:baseline">
+      <span class="num" style="font-size:13px;font-weight:700">44%</span><span class="label" style="justify-self:center">Win probability</span><span class="num" style="font-size:13px;font-weight:700">56%</span>
+      <div style="grid-column:1 / -1"><div class="split" style="height:8px"><div style="width:44%;background:var(--home)"></div><div style="flex:1;background:var(--away)"></div></div></div>
+    </div>
+    <p style="margin:0;font-size:12px;text-align:center;color:var(--faint)">Projected margin · Frostbite by 6.5</p>
+    <div style="display:grid;grid-template-columns:repeat(3, minmax(0,1fr));gap:8px">
+      <div class="tile sm"><span class="l">Head to head</span><span class="v">1-1</span></div><div class="tile sm"><span class="l">Their streak</span><span class="v">W2 · 271.8 PF</span></div><div class="tile sm"><span class="l">Last meeting</span><span class="v">L 98.2-104.6</span></div>
+    </div>
+  </div>
+  <div class="row" style="gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid var(--line)">
+    <span class="btn ">Compare rosters</span><span class="btn primary">Set Lineup</span>
+  </div>
+</section>
+  </div>
+  <section class="card">
+  <div class="card-h"><h2 class="card-t">Around the league</h2><span class="card-c">6 matchups</span><span class="card-tail">Projected · <a>Game Center</a></span></div>
+  <div style="padding:14px 18px;display:grid;grid-template-columns:repeat(6, minmax(0,1fr));gap:10px">
+    <div class="tile" style="padding:10px 12px;gap:6px;border-color:var(--accent-line);box-shadow:0 0 0 1px var(--accent-line);">
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">DW</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Dockworkers</span><span class="num" style="font-size:13px;font-weight:700">112.4</span></div>
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">FB</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Frostbite</span><span class="num" style="font-size:13px;font-weight:700">118.9</span></div>
+      <div class="split" style="height:5px"><div style="width:44%;background:var(--home)"></div><div style="flex:1;background:var(--away)"></div></div>
+    </div>
+    <div class="tile" style="padding:10px 12px;gap:6px;">
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">IR</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Iron Range</span><span class="num" style="font-size:13px;font-weight:700">109.0</span></div>
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">LL</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Lakeshore Lions</span><span class="num" style="font-size:13px;font-weight:700">104.6</span></div>
+      <div class="split" style="height:5px"><div style="width:55%;background:var(--home)"></div><div style="flex:1;background:var(--away)"></div></div>
+    </div>
+    <div class="tile" style="padding:10px 12px;gap:6px;">
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">PP</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Portage Pirates</span><span class="num" style="font-size:13px;font-weight:700">101.3</span></div>
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">SS</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Superior Storm</span><span class="num" style="font-size:13px;font-weight:700">107.7</span></div>
+      <div class="split" style="height:5px"><div style="width:43%;background:var(--home)"></div><div style="flex:1;background:var(--away)"></div></div>
+    </div>
+    <div class="tile" style="padding:10px 12px;gap:6px;">
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">CK</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Copper Kings</span><span class="num" style="font-size:13px;font-weight:700">98.5</span></div>
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">NO</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Northwoods Owls</span><span class="num" style="font-size:13px;font-weight:700">96.2</span></div>
+      <div class="split" style="height:5px"><div style="width:52%;background:var(--home)"></div><div style="flex:1;background:var(--away)"></div></div>
+    </div>
+    <div class="tile" style="padding:10px 12px;gap:6px;">
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">DD</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Duluth Draft Dodgers</span><span class="num" style="font-size:13px;font-weight:700">95.1</span></div>
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">SQ</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Sault Sasquatch</span><span class="num" style="font-size:13px;font-weight:700">92.8</span></div>
+      <div class="split" style="height:5px"><div style="width:53%;background:var(--home)"></div><div style="flex:1;background:var(--away)"></div></div>
+    </div>
+    <div class="tile" style="padding:10px 12px;gap:6px;">
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">TB</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Thunder Bay Trawlers</span><span class="num" style="font-size:13px;font-weight:700">90.4</span></div>
+      <div class="row" style="gap:8px"><span class="avatar" style="width:20px;height:20px;font-size:8px">MM</span><span class="ellip grow" style="font-size:12.5px;font-weight:600">Mackinac Mules</span><span class="num" style="font-size:13px;font-weight:700">84.7</span></div>
+      <div class="split" style="height:5px"><div style="width:58%;background:var(--home)"></div><div style="flex:1;background:var(--away)"></div></div>
+    </div></div>
+</section>
+  <div style="display:grid;grid-template-columns:minmax(0,8fr) 4fr;gap:22px;align-items:start">
+    <section class="card">
+  <div class="card-h"><h2 class="card-t">Standings</h2><span class="card-c">12</span><span class="card-tail">Through Week 2 · playoff line after 6</span></div>
+  <table class="">
+    <thead><tr><th class="r">Rank</th><th>Team</th><th class="r">Record</th><th class="r">PCT</th><th class="r">PF</th><th class="r">PA</th><th class="r">STRK</th></tr></thead>
+    <tbody>
+    <tr class=" ">
+      <td class="r muted">1</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">FB</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Frostbite</span></span></span></span></td>
+      <td class="r">2-0</td>
+      <td class="r">1.000</td><td class="r">271.8</td><td class="r">221.4</td>
+      <td class="r">W2</td>
+    </tr>
+    <tr class="me ">
+      <td class="r muted">2</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">DW</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Dockworkers</span><span class="chip you">You</span></span></span></span></td>
+      <td class="r">2-0</td>
+      <td class="r">1.000</td><td class="r">258.1</td><td class="r">230.0</td>
+      <td class="r">W2</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">3</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">IR</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Iron Range</span></span></span></span></td>
+      <td class="r">2-0</td>
+      <td class="r">1.000</td><td class="r">244.7</td><td class="r">212.9</td>
+      <td class="r">W2</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">4</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">LL</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Lakeshore Lions</span></span></span></span></td>
+      <td class="r">1-1</td>
+      <td class="r">.500</td><td class="r">239.9</td><td class="r">236.5</td>
+      <td class="r">W1</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">5</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">PP</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Portage Pirates</span></span></span></span></td>
+      <td class="r">1-1</td>
+      <td class="r">.500</td><td class="r">231.2</td><td class="r">228.7</td>
+      <td class="r">L1</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">6</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">SS</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Superior Storm</span></span></span></span></td>
+      <td class="r">1-1</td>
+      <td class="r">.500</td><td class="r">226.4</td><td class="r">241.0</td>
+      <td class="r">W1</td>
+    </tr>
+    <tr class=" cut">
+      <td class="r muted">7</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">CK</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Copper Kings</span></span></span></span></td>
+      <td class="r">1-1</td>
+      <td class="r">.500</td><td class="r">224.0</td><td class="r">233.6</td>
+      <td class="r">L1</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">8</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">NO</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Northwoods Owls</span></span></span></span></td>
+      <td class="r">1-1</td>
+      <td class="r">.500</td><td class="r">219.6</td><td class="r">224.8</td>
+      <td class="r">L1</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">9</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">DD</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Duluth Draft Dodgers</span></span></span></span></td>
+      <td class="r">1-1</td>
+      <td class="r">.500</td><td class="r">212.3</td><td class="r">240.1</td>
+      <td class="r">W1</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">10</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">SQ</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Sault Sasquatch</span></span></span></span></td>
+      <td class="r">0-2</td>
+      <td class="r">.000</td><td class="r">204.5</td><td class="r">250.2</td>
+      <td class="r">L2</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">11</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">TB</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Thunder Bay Trawlers</span></span></span></span></td>
+      <td class="r">0-2</td>
+      <td class="r">.000</td><td class="r">198.8</td><td class="r">246.3</td>
+      <td class="r">L2</td>
+    </tr>
+    <tr class=" ">
+      <td class="r muted">12</td>
+      <td><span class="row" style="gap:10px;min-width:0"><span class="avatar" style="width:28px;height:28px;font-size:11px">MM</span><span class="stack" style="gap:2px;min-width:0"><span class="row" style="gap:8px"><span class="ellip" style="font-weight:600;max-width:260px">Mackinac Mules</span></span></span></span></td>
+      <td class="r">0-2</td>
+      <td class="r">.000</td><td class="r">187.2</td><td class="r">253.0</td>
+      <td class="r">L2</td>
+    </tr></tbody>
+  </table>
+</section>
+    <section class="card">
+  <div class="card-h"><h2 class="card-t">Draft Grades</h2><span class="card-tail">Net vs ADP</span></div>
+  
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-a)">A</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Frostbite</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+118.2</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line);background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)">
+      <span class="grade" style="background:var(--grade-b)">B</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Dockworkers</span><span class="chip you">You</span></span>
+        <span class="note ellip">Steal: Matthew Golden (pick 126, ADP 96.2) · Reach: Tyler Warren (pick 67, ADP 71.2)</span>
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+95.6</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-b)">B</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Iron Range</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+92.3</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-b)">B</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Lakeshore Lions</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+89.2</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-b)">B</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Portage Pirates</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+82.1</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-c)">C</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Superior Storm</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+77.3</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-c)">C</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Copper Kings</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+72.3</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-c)">C</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Northwoods Owls</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+65.0</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-d)">D</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Duluth Draft Dodgers</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">+9.6</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-d)">D</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Sault Sasquatch</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">-12.9</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-f)">F</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Thunder Bay Trawlers</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">-31.5</span>
+    </div>
+    <div class="row" style="gap:10px;padding:7px 18px;border-top:1px solid var(--line);">
+      <span class="grade" style="background:var(--grade-f)">F</span>
+      <span class="grow stack" style="gap:2px;min-width:0">
+        <span class="row" style="gap:8px"><span class="ellip" style="font-size:13.5px">Mackinac Mules</span></span>
+        
+      </span>
+      <span class="num" style="font-size:13px;font-weight:600">-44.0</span>
+    </div>
+  <div class="row" style="padding:10px 18px;border-top:1px solid var(--line);gap:8px">
+    <span class="note">Higher is better: a steal fell to the Team later than its ADP.</span>
+    <a style="margin-left:auto;font-size:12.5px;font-weight:600;white-space:nowrap">Show steals and reaches</a>
+  </div>
+</section>
+  </div>
+  <div style="display:grid;grid-template-columns:minmax(0,8fr) 4fr;gap:22px;align-items:start">
+    <section class="card">
+  <div class="card-h"><h2 class="card-t">Quick Actions</h2></div>
+  <div style="padding-bottom:8px"><div style="display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:0 8px"><div>
+    <div class="stack" style="gap:2px">
+      <span class="label display" style="font-size:12px;font-weight:700;letter-spacing:.08em;padding:12px 18px 6px">Play · 4</span>
+      
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M3 8h14M8 8v8"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Draft Room</span></span><span class="note ellip">Draft complete · review the board</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--accent);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h12M4 10h12M4 14h12"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Set Lineup</span><span class="chip live">Recommended</span></span><span class="note ellip">Week 3 lineup set · 1 questionable</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="10" rx="1.5"/><path d="M7 17.5h6"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Game Center</span></span><span class="note ellip">Week 3 live scores</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="12" height="14" rx="1.5"/><path d="m7 10 2 2 4-4"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Pick'em</span></span><span class="note ellip">Week 3 picks lock at kickoff</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+    </div>
+    <div class="stack" style="gap:2px">
+      <span class="label display" style="font-size:12px;font-weight:700;letter-spacing:.08em;padding:12px 18px 6px">Moves · 2</span>
+      
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11m0 0-3-3m3 3-3 3M16 13H5m0 0 3-3m-3 3 3 3"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Waivers</span></span><span class="note ellip">Claims process Wed 3:00 AM</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="7" r="2.5"/><circle cx="13.5" cy="8" r="2"/><path d="M3 16a4.5 4.5 0 0 1 9 0M12 16a3.5 3.5 0 0 1 5-3"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Trades</span></span><span class="note ellip">1 offer awaiting your review</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+    </div></div><div>
+    <div class="stack" style="gap:2px">
+      <span class="label display" style="font-size:12px;font-weight:700;letter-spacing:.08em;padding:12px 18px 6px">League · 5</span>
+      
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h3l2-5 4 10 2-5h3"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Activity</span></span><span class="note ellip">Recent roster and league moves</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14l4.5-5 3 3L17 6"/><path d="M13 6h4v4"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Power Rankings</span></span><span class="note ellip">See where your team stacks up</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h8v4a4 4 0 0 1-8 0z"/><path d="M6 6H3.5a2.5 2.5 0 0 0 2.5 3M14 6h2.5A2.5 2.5 0 0 1 14 9M10 12v3M7 16h6"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">History</span></span><span class="note ellip">Past seasons and champions</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h5a2 2 0 0 1 2 2v10a1.5 1.5 0 0 0-1.5-1.5H4zM16 4h-5a2 2 0 0 0-2 2v10a1.5 1.5 0 0 1 1.5-1.5H16z"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">League Rules</span></span><span class="note ellip">Scoring and roster settings</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+      <div class="row" style="gap:12px;padding:7px 18px;min-height:40px">
+        <span style="width:30px;height:30px;border-radius:8px;background:var(--surface2);display:grid;place-items:center;color:var(--dim);flex:none"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M5 15l1.5-1.5M13.5 6.5 15 5"/></svg></span>
+        <span class="grow stack" style="gap:0;min-width:0"><span class="row" style="gap:8px"><span class="display" style="font-size:14px;font-weight:700;letter-spacing:.01em">Draft Settings</span></span><span class="note ellip">Configure the upcoming draft</span></span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg>
+      </div>
+    </div></div></div></div>
+</section>
+    <section class="card">
+  <div class="card-h"><h2 class="card-t">Recent activity</h2><span class="card-c">8</span><span class="card-tail"><a>All activity</a></span></div>
+  
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip ">Waiver</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Frostbite</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Claimed Rashid Shaheed, dropped Dontayvion Wicks</span>
+      </span>
+      <span class="note" style="flex:none">2h ago</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip live">Trade</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Iron Range</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Sent Josh Jacobs to Lakeshore Lions for David Montgomery</span>
+      </span>
+      <span class="note" style="flex:none">5h ago</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip success">Add</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Dockworkers</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Added Tank Bigsby from free agents</span>
+      </span>
+      <span class="note" style="flex:none">Yesterday</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip danger">Drop</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Mackinac Mules</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Dropped Kenny Pickett</span>
+      </span>
+      <span class="note" style="flex:none">Yesterday</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip ">Waiver</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Copper Kings</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Claimed J.K. Dobbins at priority 3</span>
+      </span>
+      <span class="note" style="flex:none">Mon</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip warn">Settings</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Commissioner</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Commissioner set the waiver clear period to 48h</span>
+      </span>
+      <span class="note" style="flex:none">Mon</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip ">Lineup</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Sault Sasquatch</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Moved Jayden Daniels to the bench after kickoff lock</span>
+      </span>
+      <span class="note" style="flex:none">Sun</span>
+    </div>
+    <div class="row" style="gap:10px;padding:8px 18px;border-top:1px solid var(--line)">
+      <span class="chip success">Add</span>
+      <span class="grow stack" style="gap:1px;min-width:0">
+        <span class="ellip" style="font-size:13px;font-weight:600">Portage Pirates</span>
+        <span class="ellip" style="font-size:12.5px;color:var(--dim)">Added Minnesota Vikings D/ST</span>
+      </span>
+      <span class="note" style="flex:none">Sun</span>
+    </div>
+</section>
+  </div>
+</div>
+<span style="position:absolute;right:24px;bottom:24px;width:56px;height:56px;border-radius:999px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;box-shadow:var(--shadow-2)"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5v7a1.5 1.5 0 0 1-1.5 1.5H8l-4 3z"/></svg></span>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},"$preview":{"width":1440,"height":2300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme === 'light' ? 'light' : 'dark' };
+  }
+}
+</script>
+</body>
+</html>

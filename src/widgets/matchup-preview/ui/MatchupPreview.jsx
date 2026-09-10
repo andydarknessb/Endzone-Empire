@@ -18,14 +18,20 @@ import useMatchupPreview from '../model/useMatchupPreview';
  *
  *   - BEFORE kickoff (and on an unknown status, which asserts neither state):
  *     the display slot holds each side's projected total under a "Projected"
- *     label, plus one caption naming which way the projections lean.
+ *     label, plus one caption naming which way the projections lean. The
+ *     header's tail (#1102) is a neutral Badge reading "Kicks off" plus the
+ *     row's own `first_kickoff_at`, weekday and time, formatted the same way
+ *     the Game Center hero formats its kickoff line (restated in the model
+ *     rather than imported, ADR 0020); a row that carries no kickoff falls
+ *     back to the "Projections update daily" caption it always has.
  *   - ONCE STARTED: the display slot holds the live score, the projection is
  *     demoted to an "Expected final" stat tile beside a Players remaining tile,
- *     the header carries the status Badge, and a SplitBar under the pairing
- *     shows the win probability. That bar is fed by `matchupWinProbability`,
- *     the same helper Game Center's hero reads, so the two surfaces cannot
- *     disagree; it is never given a points ratio, whose accessible name
- *     ("Win probability", #872) would then be a false claim.
+ *     the header carries the status Badge exactly as before #1102, and a
+ *     SplitBar under the pairing shows the win probability. That bar is fed by
+ *     `matchupWinProbability`, the same helper Game Center's hero reads, so
+ *     the two surfaces cannot disagree; it is never given a points ratio,
+ *     whose accessible name ("Win probability", #872) would then be a false
+ *     claim.
  *
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Every
  * ink-on-surface pairing it renders is already registered in
@@ -61,7 +67,11 @@ export default function MatchupPreview({ leagueId }) {
       title={title}
       // Once the week has started the status is the header's news; the
       // projection note is not (the projections have stopped being the
-      // headline figure). The Badge renders as a span so it nests legally
+      // headline figure). Before kickoff (#1102) the tail is instead a
+      // neutral Badge naming the row's own kickoff time when one is known,
+      // so a manager sees when the game starts rather than a generic
+      // caption; a row with no kickoff falls back to that caption exactly as
+      // it always has. The Badge renders as a span so it nests legally
       // inside the header's own inline tail slot.
       tail={
         started && game.chipLabel != null ? (
@@ -72,6 +82,10 @@ export default function MatchupPreview({ leagueId }) {
             dot={game.chipDot}
           >
             {game.chipLabel}
+          </Badge>
+        ) : !started && game.kickoffLabel != null ? (
+          <Badge component="span" data-testid="matchup-preview-status" variant="neutral">
+            {`Kicks off ${game.kickoffLabel}`}
           </Badge>
         ) : (
           'Projections update daily'

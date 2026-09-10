@@ -29,10 +29,16 @@ test('formats Expected final to one decimal and Players remaining as an integer,
   expect(formatExpectedFinal('123.9')).toBe('123.9');
   expect(formatExpectedFinal(null)).toBeNull();
   expect(formatExpectedFinal('n/a')).toBeNull();
+  // Empty string and undefined should render as null (unknown), not "0.0"
+  expect(formatExpectedFinal('')).toBeNull();
+  expect(formatExpectedFinal(undefined)).toBeNull();
   expect(formatPlayersRemaining(4)).toBe('4');
   expect(formatPlayersRemaining('6')).toBe('6');
   expect(formatPlayersRemaining(0)).toBe('0');
   expect(formatPlayersRemaining(null)).toBeNull();
+  // Empty string and undefined should render as null (unknown), not zero
+  expect(formatPlayersRemaining('')).toBeNull();
+  expect(formatPlayersRemaining(undefined)).toBeNull();
 });
 
 test('derives both sides from the entity model: names, scores, figures and complementary percentages', () => {

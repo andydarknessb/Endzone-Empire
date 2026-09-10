@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
 import { cssVarsForMode } from '../../../theme/tokens';
 import apiClient from '../../../api/apiClient';
@@ -338,7 +339,48 @@ test.each([
   // change height when the read lands: grade chip, name line, pick line, net.
   const firstRow = card.querySelector('tr');
   /* eslint-enable testing-library/no-node-access */
-  expect(within(firstRow).getAllByTestId('draft-grades-skeleton')).toHaveLength(4);
+  // One-line shape (#1104): chip, name, net - no second-line skeleton, since
+  // a collapsed row shows the pick line on the viewer's row only and the
+  // skeleton does not know yet which row that will be.
+  expect(within(firstRow).getAllByTestId('draft-grades-skeleton')).toHaveLength(3);
+});
+
+// --- compact rows and the toggle-grade-details feature (#1104) ------------
+
+test('collapsed, only the viewer\'s row shows a pick line; expanded, every row does', async () => {
+  const twelveTeams = Array.from({ length: 12 }, (_, i) => team(i + 1, `Team ${i + 1}`));
+  const twelveGrades = twelveTeams.map((t, i) =>
+    gradeRow(t.teamId, 'B', 50 - i, { steal: { playerId: i, name: `Player ${i}`, pickNumber: i + 1, marketAdp: i + 5 } })
+  );
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(twelveTeams, 1),
+    '/api/league/1/draft-grades': gradesResponse(twelveGrades),
+  });
+  renderWidget();
+
+  const card = await screen.findByTestId('draft-grades');
+  await within(card).findAllByRole('row');
+
+  // Collapsed (the default, page-local, not persisted): exactly one
+  // draft-grades-picks line, the viewer's own row.
+  expect(within(card).getAllByTestId('draft-grades-picks')).toHaveLength(1);
+  const viewerRow = within(card).getByTestId('draft-grades-row-1');
+  expect(within(viewerRow).getByTestId('draft-grades-picks')).toBeInTheDocument();
+
+  const toggle = within(card).getByRole('button', { name: 'Show steals and reaches' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  const table = within(card).getByRole('table');
+  expect(toggle).toHaveAttribute('aria-controls', table.id);
+
+  await userEvent.click(toggle);
+
+  // Expanded: every row now carries its pick line, and the control's label
+  // and aria-expanded flip.
+  expect(within(card).getAllByTestId('draft-grades-picks')).toHaveLength(12);
+  expect(within(card).getByRole('button', { name: 'Hide steals and reaches' })).toHaveAttribute(
+    'aria-expanded',
+    'true'
+  );
 });
 
 // --- accessibility decisions that survive the rebuild ---------------------
@@ -365,4 +407,41 @@ test('the rebuilt table keeps the row header, the hidden column label and the ex
   const table = within(card).getByRole('table', { name: 'Draft grades by Team' });
   const explainer = within(card).getByTestId('draft-grades-explainer');
   expect(table).toHaveAttribute('aria-describedby', explainer.id);
+});
+
+// --- the tail's tooltip carries the fuller definition (#1118) -------------
+
+test('the header tail is a focusable AbbreviationTooltip naming the steal and the reach as superlatives', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(FOUR_TEAMS),
+    '/api/league/1/draft-grades': gradesResponse(FOUR_GRADES),
+  });
+  renderWidget();
+
+  const card = await screen.findByTestId('draft-grades');
+  // Red-tell (#1118): reverting the tail to the bare "Net vs ADP" string
+  // drops this element (no aria-label, no tabIndex) and turns this
+  // assertion red and no other.
+  const tail = within(card).getByLabelText(
+    /^Net vs ADP: .*the reach the pick taken furthest ahead of it\.$/
+  );
+  expect(tail).toHaveAttribute('tabIndex', '0');
+});
+
+test('the footer names the steal and the reach as superlatives, matching neither the tail nor each other on the old "a steal fell" phrasing', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(FOUR_TEAMS),
+    '/api/league/1/draft-grades': gradesResponse(FOUR_GRADES),
+  });
+  renderWidget();
+
+  const card = await screen.findByTestId('draft-grades');
+  const explainer = within(card).getByTestId('draft-grades-explainer');
+  expect(explainer).toHaveTextContent(/the steal fell furthest past its ADP/);
+  // Red-tell (#1118): restoring #1104's footer sentence ("a steal fell to
+  // the Team later than its ADP") turns exactly this assertion red.
+  expect(explainer.textContent).not.toMatch(/a steal fell/);
+
+  const tail = within(card).getByLabelText(/^Net vs ADP:/);
+  expect(tail.getAttribute('aria-label')).not.toMatch(/a steal fell/);
 });

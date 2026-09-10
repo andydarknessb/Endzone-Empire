@@ -1,5 +1,5 @@
 import { matchupStatusView } from '../../../entities/matchup';
-import { matchupWinProbability } from '../../../lib/winProbability';
+import { matchupWinProbability, formatKickoff, formatPoints, finite } from '../../../shared/lib';
 import { lookupRecord } from '../lib/records';
 
 /**
@@ -32,12 +32,11 @@ import { lookupRecord } from '../lib/records';
  *     warning for Awaiting final, the plain chip for Scheduled. The label is
  *     the entity predicate's.
  *
- * Win probability is the same arithmetic the hero uses (src/lib/winProbability,
- * a sanctioned reach below the island per ADR 0031): a side whose Expected
- * final is unknown is treated as having nothing left to add.
+ * Win probability, the kickoff format and the points figure all come from
+ * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer: a side
+ * whose Expected final is unknown is treated as having nothing left to add,
+ * and an empty points string reads as unknown (the dash), not `0.0`.
  */
-
-const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
 
 // The status chip's Badge variant per server status, the design source's
 // statusChip(): `.chip.live` is the danger red with the dot, `.chip.final` the
@@ -45,30 +44,10 @@ const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
 // Scheduled. The label is the entity predicate's; an unknown status has none.
 const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
-/**
- * "Sun 7:20 PM" for an ISO instant, in the viewer's own zone. `timeZone` and
- * `locale` exist only so a test can pin the output; production callers omit
- * them and get the browser's runtime defaults. An absent or unparseable
- * instant reads as null, so a card falls back to its week line.
- */
-export function formatKickoff(iso, { timeZone, locale } = {}) {
-  if (iso == null || iso === '') return null;
-  const date = iso instanceof Date ? iso : new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  const options = timeZone ? { ...KICKOFF_FORMAT, timeZone } : KICKOFF_FORMAT;
-  return new Intl.DateTimeFormat(locale, options).format(date);
-}
-
-/** A points figure to one decimal ("92.1"), or a dash when unknown. */
-export function formatPoints(value) {
-  const n = value == null ? NaN : Number(value);
-  return Number.isFinite(n) ? n.toFixed(1) : '-';
-}
-
 /** Players remaining as a whole number, or a dash when unknown. */
 export function formatCount(value) {
-  const n = value == null ? NaN : Number(value);
-  return Number.isFinite(n) ? String(n) : '-';
+  const n = finite(value);
+  return n != null ? String(n) : '-';
 }
 
 function joinNote(parts) {

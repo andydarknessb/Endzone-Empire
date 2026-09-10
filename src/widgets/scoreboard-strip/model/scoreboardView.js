@@ -1,5 +1,5 @@
 import { matchupStatusView } from '../../../entities/matchup';
-import { matchupWinProbability } from '../../../lib/winProbability';
+import { matchupWinProbability, finite } from '../../../shared/lib';
 
 /**
  * The scoreboard strip's view model (widget `scoreboard-strip`, ADR 0031,
@@ -10,9 +10,8 @@ import { matchupWinProbability } from '../../../lib/winProbability';
  * when the bar shows, which chip variant a status takes) are table-testable
  * here without a DOM.
  *
- * Reaches below the island for one thing, the win probability arithmetic in
- * `src/lib/winProbability` (ADR 0031: the helpers only these pages used stay
- * where they are and a slice imports them as the entity imports `src/api`).
+ * The win probability arithmetic comes from `shared/lib` (ADR 0031, #1120),
+ * the island's shared bottom layer.
  */
 
 /** A score as the strip prints it: one decimal, a missing score reading 0.0. */
@@ -22,12 +21,14 @@ export function formatScore(value) {
 
 /** An Expected final as the strip prints it: one decimal, or null when unknown. */
 export function formatExpectedFinal(value) {
-  return value != null && Number.isFinite(Number(value)) ? Number(value).toFixed(1) : null;
+  const n = finite(value);
+  return n != null ? n.toFixed(1) : null;
 }
 
 /** Players remaining as the model reports it: the integer count, or null when unknown. */
 export function formatPlayersRemaining(value) {
-  return value != null && Number.isFinite(Number(value)) ? String(Number(value)) : null;
+  const n = finite(value);
+  return n != null ? String(n) : null;
 }
 
 // The record lookup the page passes down (ADR 0031: Team record does not join

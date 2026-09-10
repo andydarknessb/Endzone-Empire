@@ -1,0 +1,191 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=Inter:wght@400;600;800&amp;display=swap">
+  <style>
+
+[data-theme="dark"]{
+  --bg:#0b1015; --surface:#141b23; --surface2:#1b242f; --surface3:#222e3b;
+  --line:rgba(154,183,211,.12); --line-strong:rgba(154,183,211,.22);
+  --ink:#e8eef4; --dim:#93a4b5; --faint:#8a9bad;
+  --accent:#2fd97b; --accent-soft:rgba(47,217,123,.12); --accent-line:rgba(47,217,123,.35); --on-accent:#0b1015;
+  --grade-a:#2fd97b; --grade-b:#a8cc4a; --grade-c:#e5b04a; --grade-d:#e07a45; --grade-f:#e25c5c; --on-grade:#0b1015;
+  --grade-a-text:#2fd97b; --grade-b-text:#a8cc4a; --grade-c-text:#e5b04a; --grade-d-text:#e07a45; --grade-f-text:#f07f7f;
+  --home:#7eaaff; --home-soft:rgba(126,170,255,.16); --away:#7ee2a8; --away-soft:rgba(126,226,168,.16);
+  --danger:#ff6b6b; --danger-soft:rgba(255,107,107,.14); --warning:#f0b34e; --warning-soft:rgba(240,179,78,.14);
+  --pos-qb:#ff8a80; --pos-rb:#7ee2a8; --pos-wr:#7fb0ff; --pos-te:#f0b34e; --pos-k:#c4a2f5; --pos-def:#b0bec5; --on-pos:#0f1419;
+  --app-bar:#222c37; --app-bg:#0f1419; --app-ink:#e6edf3; --app-accent:#7eaaff; --app-line:#2a3441;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45); --shadow-2:0 6px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg:#eef2f6; --surface:#ffffff; --surface2:#f4f7fa; --surface3:#e6ecf2;
+  --line:rgba(31,45,58,.12); --line-strong:rgba(31,45,58,.22);
+  --ink:#141b23; --dim:#55636f; --faint:#5e6a74;
+  --accent:#0f6a41; --accent-soft:rgba(15,106,65,.12); --accent-line:rgba(15,106,65,.32); --on-accent:#ffffff;
+  --grade-a:#2fd97b; --grade-b:#a8cc4a; --grade-c:#e5b04a; --grade-d:#e07a45; --grade-f:#e25c5c; --on-grade:#0b1015;
+  --grade-a-text:#0f7a45; --grade-b-text:#587611; --grade-c-text:#8a6212; --grade-d-text:#b0491f; --grade-f-text:#c62f2f;
+  --home:#1e5bb8; --home-soft:rgba(30,91,184,.10); --away:#1b7d4f; --away-soft:rgba(27,125,79,.08);
+  --danger:#c62828; --danger-soft:rgba(198,40,40,.10); --warning:#8a5a00; --warning-soft:rgba(138,90,0,.12);
+  --pos-qb:#c62828; --pos-rb:#15663f; --pos-wr:#1e5bb8; --pos-te:#9a5100; --pos-k:#6d28d9; --pos-def:#4b5c66; --on-pos:#ffffff;
+  --app-bar:#ffffff; --app-bg:#f4f6f8; --app-ink:#1a2129; --app-accent:#1e5bb8; --app-line:#dde2e7;
+  --shadow-1:0 1px 2px rgba(16,24,32,.08); --shadow-2:0 4px 12px rgba(16,24,32,.10);
+}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent);text-decoration:underline}
+.root{width:1440px;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.display{font-family:"Barlow Condensed",Impact,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;color:var(--ink);min-width:0;overflow:hidden}
+.tile{overflow:hidden}
+.card-h{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.card-t{font-family:"Barlow Condensed",Impact,sans-serif;font-size:17px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);margin:0}
+.card-c{font-size:12px;font-weight:600;color:var(--faint)}
+.card-tail{margin-left:auto;font-size:12px;color:var(--faint);display:flex;align-items:center;gap:8px}
+.tile{display:flex;flex-direction:column;gap:2px;padding:10px 12px;min-width:0;background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+.tile .l{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.tile .v{font-family:"Barlow Condensed",Impact,sans-serif;font-size:24px;font-weight:700;line-height:1.2;color:var(--ink);font-variant-numeric:tabular-nums}
+.tile.sm .v{font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .l{overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:.04em;border:1px solid var(--line);background:var(--surface2);color:var(--dim);white-space:nowrap;line-height:1.3}
+.chip.live{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+.chip.you{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);font-size:10.5px;font-weight:700;letter-spacing:.08em}
+.chip.warn{background:var(--warning-soft);color:var(--warning);border-color:var(--warning)}
+.chip.danger{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.success{background:var(--away-soft);color:var(--away);border-color:var(--away)}
+.dot{width:8px;height:8px;border-radius:999px;background:currentColor;flex:none}
+.pos{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:20px;padding:0 6px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--on-pos)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid var(--line-strong);color:var(--dim);background:transparent;white-space:nowrap;line-height:1.2}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.ink{color:var(--ink)}
+.btn.sm{height:32px;padding:0 12px;font-size:12.5px}
+.btn.lg{height:44px}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn.band{width:100%;justify-content:space-between;height:44px;background:var(--surface2);border-color:var(--line);color:var(--ink);padding:0 10px}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.hair{height:1px;background:var(--line)}
+.avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--surface3);color:var(--ink);font-weight:700;flex:none;font-size:12px}
+.split{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--surface3)}
+.row{display:flex;align-items:center}
+.stack{display:flex;flex-direction:column}
+.grow{flex:1 1 0;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12px;color:var(--faint)}
+.grade{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:999px;font-family:"Barlow Condensed",Impact,sans-serif;font-size:14px;font-weight:700;color:var(--on-grade);flex:none}
+table{border-collapse:collapse;width:100%;font-family:"Archivo","Helvetica Neue",Arial,sans-serif}
+th{text-align:left;padding:10px 12px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);white-space:nowrap;box-shadow:inset 0 -1px 0 var(--line);background:var(--surface)}
+td{padding:10px 12px;font-size:13.5px;color:var(--ink);white-space:nowrap;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+th.r,td.r{text-align:right}
+table.m th,table.m td{padding:10px 8px}
+td.muted{color:var(--dim)}
+tr.me td{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+tr.cut td{border-top:2px solid var(--line-strong)}
+.nav{height:56px;display:flex;align-items:center;gap:22px;padding:0 20px;background:var(--app-bar);color:var(--app-ink);border-bottom:1px solid var(--app-line);font-family:"Inter","Roboto","Helvetica","Arial",sans-serif}
+.nav .brand{font-weight:800;font-size:17px;color:var(--app-accent);display:flex;align-items:center;gap:8px}
+.nav .links{display:flex;gap:18px;font-size:13px;color:var(--app-ink)}
+.nav .links{height:56px;align-items:stretch}
+.nav .links span{display:flex;align-items:center}
+.nav .links .on{color:var(--app-accent);box-shadow:inset 0 -2px 0 var(--app-accent)}
+.nav .search{margin-left:auto;height:32px;width:170px;border:1px solid var(--app-line);border-radius:8px;display:flex;align-items:center;padding:0 10px;font-size:12px;color:var(--dim);gap:8px}
+.switch{width:34px;height:18px;border-radius:999px;background:var(--surface3);border:1px solid var(--line-strong);position:relative;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:var(--dim)}
+.switch.on{background:var(--accent-soft);border-color:var(--accent-line)}
+.switch.on::after{left:18px;background:var(--accent)}
+.field{height:38px;border:1px solid var(--line-strong);border-radius:9px;display:flex;align-items:center;padding:0 12px;font-size:13px;color:var(--ink);background:var(--surface);gap:8px;justify-content:space-between}
+.field .ph{color:var(--dim)}
+.sect{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--dim)}
+.sect.on{background:var(--accent-soft);color:var(--accent)}
+.fsd-box{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface2);font-size:12.5px;line-height:1.35}
+.fsd-box b{display:block;font-family:"Barlow Condensed",Impact,sans-serif;font-size:15px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;color:var(--ink)}
+.fsd-box.new{border-color:var(--accent-line);background:var(--accent-soft)}
+.fsd-box.changed{border-color:var(--warning);background:var(--warning-soft)}
+svg{display:block}
+  </style>
+</helmet>
+<div class="root" data-theme="{{theme}}" style="width: 1440px; min-height: 1420px; background: var(--bg); color: var(--ink);">
+<div class="nav"><span class="brand"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="var(--app-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 4 5.5V10c0 3.5 2.5 6 6 7 3.5-1 6-3.5 6-7V5.5z"/></svg>Endzone Empire</span><span class="links"><span>Home</span><span class="on">League</span><span>Discover</span><span>Players</span><span>Roster</span><span>Mock Draft</span></span><span class="search"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg>Search players...</span><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--app-ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 2h-13z"/><path d="M8.5 17.5a1.5 1.5 0 0 0 3 0"/></svg><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--app-ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M5 15l1.5-1.5M13.5 6.5 15 5"/></svg><span class="avatar" style="width:32px;height:32px;background:var(--app-accent);color:#fff;font-size:14px">A</span></div>
+<div style="max-width:1200px;margin:0 auto;padding:28px 24px 40px;display:grid;grid-template-columns:minmax(0,1fr);gap:22px">
+  <div class="stack" style="gap:10px">
+  <span class="row" style="gap:6px;font-size:12.5px;color:var(--faint)"><a>Great Lakes Gridiron</a><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--faint)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg><span>Commissioner</span></span>
+  <div class="row" style="gap:14px;flex-wrap:wrap;align-items:baseline">
+    <h1 class="display" style="margin:0;font-size:34px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;line-height:1.05">Commissioner console</h1>
+    <span class="chip live">Week 3 · In season</span><span class="chip ">Commissioners · 2</span>
+    <span style="margin-left:auto"><span class="btn sm ink"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10h12m0 0-4-4m4 4-4 4"/></svg>Advance to Week 4</span></span>
+  </div>
+  
+</div>
+  <div style="display:grid;grid-template-columns:repeat(7, minmax(0,1fr));gap:8px"><div class="tile sm"><span class="l">Transactions</span><span class="v">Open</span></div><div class="tile sm"><span class="l">Teams locked</span><span class="v">0 of 12</span></div><div class="tile sm"><span class="l">Trade deadline</span><span class="v">Week 11</span></div><div class="tile sm"><span class="l">Waivers</span><span class="v">Priority · 48h</span></div><div class="tile sm"><span class="l">Trade review</span><span class="v">24h</span></div><div class="tile sm"><span class="l">Roster</span><span class="v">9 starters · 6 bench · 1 IR</span></div><div class="tile sm"><span class="l">Scoring</span><span class="v">Half PPR</span></div></div>
+  <div style="display:grid;grid-template-columns:240px minmax(0,1fr);gap:22px;align-items:start">
+    <nav class="card" style="padding:8px;display:grid;gap:2px;position:sticky;top:22px">
+      <span class="sect on"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M5 15l1.5-1.5M13.5 6.5 15 5"/></svg>General settings</span><span class="sect "><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="14" height="12" rx="1.5"/><path d="M3 8.5h14M7 3v3M13 3v3"/></svg>Season</span><span class="sect "><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="7" r="2.5"/><circle cx="13.5" cy="8" r="2"/><path d="M3 16a4.5 4.5 0 0 1 9 0M12 16a3.5 3.5 0 0 1 5-3"/></svg>Roster settings</span><span class="sect "><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14l4.5-5 3 3L17 6"/><path d="M13 6h4v4"/></svg>Scoring settings</span><span class="sect "><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h8v4a4 4 0 0 1-8 0z"/><path d="M6 6H3.5a2.5 2.5 0 0 0 2.5 3M14 6h2.5A2.5 2.5 0 0 1 14 9M10 12v3M7 16h6"/></svg>Playoffs &amp; schedule</span><span class="sect "><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11m0 0-3-3m3 3-3 3M16 13H5m0 0 3-3m-3 3 3 3"/></svg>Waivers &amp; trades</span><span class="sect "><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5 17 16H3z"/><path d="M10 8v4M10 14v.5"/></svg>System overrides</span>
+      <div class="hair" style="margin:6px 4px"></div>
+      <span class="sect" style="color:var(--warning)"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="7" r="2.5"/><circle cx="13.5" cy="8" r="2"/><path d="M3 16a4.5 4.5 0 0 1 9 0M12 16a3.5 3.5 0 0 1 5-3"/></svg>Join requests<span class="chip warn" style="margin-left:auto;padding:1px 7px">2</span></span>
+      <span class="sect" style="color:var(--danger)"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5 17 16H3z"/><path d="M10 8v4M10 14v.5"/></svg>Destructive actions</span>
+    </nav>
+    <div style="max-width:720px;display:grid;gap:22px">
+      <section class="card">
+  <div class="card-h"><h2 class="card-t">Join requests</h2><span class="card-c">2</span><span class="card-tail"><span class="chip warn">Needs you</span></span></div>
+  
+    <div class="row" style="gap:12px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:nowrap">
+      <span class="avatar" style="width:32px;height:32px">BB</span>
+      <span class="grow stack" style="gap:2px;min-width:160px"><span style="font-size:13.5px;font-weight:600">Bayfield Buccaneers</span><span class="note">Proposed Team name · requested 2h ago</span></span>
+      <span class="row" style="gap:8px;"><span class="btn sm">Deny</span><span class="btn sm primary">Approve</span></span>
+    </div>
+  
+    <div class="row" style="gap:12px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:nowrap">
+      <span class="avatar" style="width:32px;height:32px">KK</span>
+      <span class="grow stack" style="gap:2px;min-width:160px"><span style="font-size:13.5px;font-weight:600">Keweenaw Kraken</span><span class="note">Proposed Team name · requested yesterday</span></span>
+      <span class="row" style="gap:8px;"><span class="btn sm">Deny</span><span class="btn sm primary">Approve</span></span>
+    </div>
+</section>
+      <section class="card">
+  <div class="card-h"><h2 class="card-t">General settings</h2></div>
+  <div style="padding:18px;display:grid;grid-template-columns:minmax(0,1fr);gap:18px">
+    <div class="row" style="gap:12px">
+      <span class="switch"></span>
+      <span class="grow stack" style="gap:2px"><span style="font-size:13.5px;font-weight:600">Lock transactions</span><span class="note">Applies immediately. Freezes adds, drops, waiver claims and trades for the entire league.</span></span>
+    </div>
+    <div class="hair"></div>
+    <div class="stack" style="gap:10px">
+      <span style="font-size:13.5px;font-weight:600">Co-commissioners</span>
+      <span class="note">Co-commissioners get every commissioner power except deleting the league and managing this list.</span>
+      <div class="row" style="gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface2)"><span class="avatar" style="width:28px;height:28px;font-size:11px">IR</span><span class="grow ellip" style="font-size:13.5px;font-weight:600">Iron Range</span><span class="chip ">Co-commissioner</span><span class="btn sm">Remove</span></div>
+      <div class="row" style="gap:10px;flex-wrap:wrap"><span class="field" style="flex:1 1 220px"><span class="ph">Add a co-commissioner</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--dim)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7.5 10 12.5 15 7.5"/></svg></span><span class="btn ink">Promote</span></div>
+    </div>
+    <div class="hair"></div>
+    <div class="stack" style="gap:10px">
+      <span style="font-size:13.5px;font-weight:600">Team limits</span>
+      <div class="row" style="gap:10px"><span class="field" style="flex:1;min-width:0"><span>Min teams</span><span class="num">8</span></span><span class="field" style="flex:1;min-width:0"><span>Max teams</span><span class="num">12</span></span></div>
+    </div>
+    <div class="row" style="gap:10px;justify-content:flex-end"><span class="btn ">Discard</span><span class="btn primary">Save changes</span></div>
+  </div>
+</section>
+      <section class="card" style="border-color:var(--danger)">
+  <div class="card-h" style="border-bottom-color:var(--danger-soft)"><h2 class="card-t" style="color:var(--danger)">Destructive actions</h2><span class="card-tail"><span class="chip danger">Owner only</span></span></div>
+  <div style="padding:18px;display:grid;grid-template-columns:minmax(0,1fr);gap:16px">
+    <div class="row" style="gap:12px;flex-wrap:wrap"><span class="grow stack" style="gap:2px;min-width:200px"><span style="font-size:13.5px;font-weight:600">Remove a team</span><span class="note">Teams can't be removed once the draft has started. Removing one would rewrite the draft, rosters and schedule.</span></span><span class="btn sm danger">Remove a team</span></div>
+    <div class="hair"></div>
+    <div class="row" style="gap:12px;flex-wrap:wrap"><span class="grow stack" style="gap:2px;min-width:200px"><span style="font-size:13.5px;font-weight:600">Delete this league</span><span class="note">Deletes every team, roster, matchup and trophy. Cannot be undone.</span></span><span class="btn sm danger">Delete league</span></div>
+  </div>
+</section>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},"$preview":{"width":1440,"height":1420}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme === 'light' ? 'light' : 'dark' };
+  }
+}
+</script>
+</body>
+</html>
