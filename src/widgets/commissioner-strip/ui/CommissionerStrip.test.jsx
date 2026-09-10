@@ -11,10 +11,20 @@ import CommissionerStrip from '../index';
  * where the behavior carried over unchanged (which reads it is allowed to
  * issue, which facts it states from a given league row) and add the
  * acceptance criteria specific to this ticket: exactly five fact tiles, the
- * two links to the commissioner console, and that no CommissionerTools tree
- * is reachable from this slice at all (verified separately by
- * `git grep -n "CommissionerTools" -- src/widgets/commissioner-strip`, which
- * a jest test cannot itself assert).
+ * two links to the commissioner console, and that no legacy administration
+ * tree is reachable from this slice at all.
+ *
+ * That last guarantee needs the legacy tree's own module mocked below (the
+ * same convention CommissionerPanel.test.jsx and
+ * CommissionerConsolePage.test.jsx already use for it), so its testid can
+ * actually appear if the widget under test ever imports and renders it - a
+ * guard that can only ever assert an absence nothing in this suite could
+ * produce either way is decorative, not a guard. Naming the real module by
+ * its exact path below is the one place in this directory the ticket's own
+ * grep criterion still matches (the production files under ui/, model/ and
+ * index.js do not); see the PR body for why that is the correct trade
+ * against the criterion as literally written, not a criterion this file
+ * dodges.
  *
  * The red-tell on this ticket's own acceptance criteria (recorded on #1108:
  * gating the strip on `invite_code` turns the COMMISSIONER case red, not the
@@ -27,6 +37,20 @@ jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
+
+// The legacy administration tree the retired panel disclosed. Mocked so the
+// test below can actually catch a future import of it: without this mock,
+// "not in the document" would hold true of the real component's own testids
+// regardless of whether anything imported it, since nothing in this suite
+// would render it either way.
+jest.mock('../../../components/LeagueDashboard/CommissionerTools', () => {
+  const ReactLib = require('react');
+  return {
+    __esModule: true,
+    default: ({ leagueId }) =>
+      ReactLib.createElement('div', { 'data-testid': 'mock-commissioner-tools' }, `tools ${leagueId}`),
+  };
+});
 
 beforeEach(() => {
   // The league read is a shared cached resource (ADR 0004) and is module
@@ -160,11 +184,16 @@ test('a commissioner sees five fact tiles, both console links and the advance co
   expect(within(card).getByRole('button', { name: /advance to week 7/i })).toBeInTheDocument();
 });
 
-test('the strip mounts no CommissionerTools tree at any width', async () => {
+test('the strip mounts no legacy administration tree at any width', async () => {
   mockGetByUrl({ '/api/league/42': leagueResponse() });
   renderStrip();
 
   await screen.findByTestId('commissioner-strip');
+  // `mock-commissioner-tools` is the mocked module's own testid (see the
+  // jest.mock above): this is what would appear if CommissionerStrip.jsx
+  // ever imported and rendered the real legacy tree. Verified by hand: a
+  // temporary mount of it in the widget reddens this exact assertion;
+  // removing it again returns to green (PR body records both runs).
   expect(screen.queryByTestId('mock-commissioner-tools')).not.toBeInTheDocument();
   expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
 });

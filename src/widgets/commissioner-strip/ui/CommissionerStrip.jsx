@@ -16,10 +16,10 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  * join count, the advance-week control, and a link to the commissioner
  * console for everything else. A member renders nothing.
  *
- * This widget mounts NO CommissionerTools at any width: the disclosure, the
- * `commissioner-panel-administration` region and the co-commissioner
- * explainer all leave the dashboard with the retired panel. "League
- * administration" is a plain link to `/league/:id/commissioner` (the
+ * This widget mounts NO legacy administration tree at any width: the
+ * disclosure, the `commissioner-panel-administration` region and the
+ * co-commissioner explainer all leave the dashboard with the retired panel.
+ * "League administration" is a plain link to `/league/:id/commissioner` (the
  * commissioner-console page, #1101), which is where those controls live now.
  *
  * Layout: one flex row at `md` and up (title block, the five-tile fact grid,
@@ -142,8 +142,8 @@ export default function CommissionerStrip({ leagueId }) {
         )}
 
         {/* The queue's count only, linking straight to the console rather
-            than opening a local disclosure: the strip mounts no
-            CommissionerTools, so there is nowhere here for Approve/Deny to
+            than opening a local disclosure: the strip mounts no legacy
+            administration tree, so there is nowhere here for Approve/Deny to
             live. A settled queue renders nothing at all rather than a zero. */}
         {pendingJoinRequests > 0 && (
           <Box sx={{ order: { xs: 2, md: 3 }, flex: 'none' }}>

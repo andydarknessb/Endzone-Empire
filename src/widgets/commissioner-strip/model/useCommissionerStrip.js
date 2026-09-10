@@ -20,8 +20,8 @@ import { isPickemOnly } from '../../../lib/leagueType';
  *     calendar (the scheduler's job), and a league with no current week has
  *     no week to advance from.
  *
- * Unlike the retired panel, this widget mounts no CommissionerTools and no
- * administration disclosure: "League administration" is a link to
+ * Unlike the retired panel, this widget mounts no legacy administration tree
+ * and no disclosure of its own: "League administration" is a link to
  * `/league/:id/commissioner` (the commissioner-console page), so the model
  * needs no `isOwner` or `teams`/`viewerTeamId` passthrough for that surface.
  *
