@@ -99,6 +99,7 @@ function lineupWorld({ entries, kickedOff }) {
       rows: kickedOff.map((nfl_team) => ({ nfl_team })),
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
+    [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132)
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]);
 }

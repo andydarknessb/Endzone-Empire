@@ -103,6 +103,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     [/^SELECT "players"\."id"/, () => ({ rows: entries })],
     [/^SELECT "players"\."position"/, () => ({ rows: [spentEntry] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132)
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
@@ -135,7 +136,56 @@ test('getLineup returns league-scored current-week projections and preserves una
     locked: true,
     onBye: false,
     valid_stash: false,
+    opponent: null,
   });
+  fake.assertClean();
+});
+
+test("getLineup carries each entry's week opponent, DEF units included, absent for a bye (#1132)", async (t) => {
+  const entries = [
+    { id: 1, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', injury_status: null, slot: 'WR', ir_attested: false },
+    // A DEF unit's nfl_team is a full team name, not the schedule's Tank01
+    // code (ADR 0011); the join must fold it the same way the kickoff and
+    // bye lookups already do.
+    { id: 2, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos', injury_status: null, slot: 'DEF', ir_attested: false },
+    // BUF has no row in the week's schedule below: a bye, or an unsynced
+    // slate, and never a stale week's opponent or an empty string.
+    { id: 3, name: 'Stefon Diggs', position: 'WR', nfl_team: 'BUF', injury_status: null, slot: 'BENCH', ir_attested: false },
+    { id: 4, name: 'Bench Viking', position: 'RB', nfl_team: 'MIN', injury_status: null, slot: 'BENCH', ir_attested: false },
+  ];
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ id }) => ({ player_id: id })),
+    })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
+    // weekOpponents (#1132): one row per team with a game that week, no BUF row.
+    [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({
+      rows: [{ nfl_team: 'MIN', opponent: 'GB' }, { nfl_team: 'DEN', opponent: 'KC' }],
+    })],
+  ]).install(t);
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(1).opponent, 'GB', "a starter whose team has a game row carries that row's opponent");
+  assert.equal(byId.get(2).opponent, 'KC', 'a DEF unit named by full team name resolves the same way');
+  assert.equal(byId.get(3).opponent, null, 'a team with no row that week carries opponent: null');
+  assert.equal(byId.get(4).opponent, 'GB', 'bench entries carry it too');
+  assert.equal(
+    fake.matching(/^SELECT "nfl_team", "opponent" FROM "nfl_games"/).length,
+    1,
+    'one schedule read for the opponent join, not one per entry'
+  );
   fake.assertClean();
 });
 
@@ -1892,6 +1942,7 @@ function lineupWorld(t, {
       rows: Object.keys(L_SCHEDULE).map((nfl_team) => ({ nfl_team })),
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: byeRows })],
+    [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132)
   ]).install(t);
 }
 
