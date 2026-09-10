@@ -175,8 +175,18 @@ services:
         value: "600000"
       - key: LIVE_IDLE_CHECK_MS
         value: "60000"
-      # Scheduler ticks (5 min each) between Tank01 box-score syncs in a live
-      # window; doubles itself while quota is degraded. 6 = every ~30 min.
+      # Live box (ADR 0035): the in-progress box score is read from ESPN's
+      # summary endpoint by the clock engine's loop, for every game whose score
+      # or clock moved since the last poll. Tank01 is the fallback after 3
+      # consecutive ESPN failures on the box's own counter, at LIVE_FAST_POLL_MS
+      # and standard priority; ESPN is retried every tick. "tank01" pins the
+      # paid path without a deploy, mirroring LIVE_CLOCK_SOURCE.
+      - key: LIVE_BOX_SOURCE
+        value: espn
+      # Scheduler ticks (5 min each) between Tank01 stat syncs in a live window;
+      # doubles itself while quota is degraded. 6 = every ~30 min. With the
+      # Live box on ESPN this sync only does Final box work (finals not yet
+      # ingested), so it is no longer the live-scoring cadence.
       - key: SYNC_EVERY_TICKS
         value: "6"
       - key: SPORTSDB_API_KEY

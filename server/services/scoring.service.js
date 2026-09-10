@@ -678,8 +678,17 @@ async function loadWeekMaps({ season, week }) {
  *   including the Final box landing, must not replay a touchdown cutscene)
  */
 async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPlays = false }) {
-  const { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam } = maps;
+  const { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam, finalSyncedGameIds } = maps;
   const live = liveBox || tank01BoxSource.fromBox(box);
+  // Final guard (#1186, ADR 0035): once the Final box has landed for a game
+  // (final_stats_synced_at set), no Live box write is accepted for it. A late
+  // ESPN poll cannot overwrite the numbers a settled week prices from. The
+  // caller supplies the set (the engine reads it off live_game_states); a
+  // caller without one, the Final box path included, is not guarded here.
+  if (live.gameId && finalSyncedGameIds && finalSyncedGameIds.has(String(live.gameId))) {
+    console.log('applyGameBoxScore: Final box already landed for %s; skipping a %s Live box', live.gameId, live.source);
+    return { updated: 0, plays: [], skipped: 'final-box-landed' };
+  }
   let updated = 0;
   const plays = [];
 
