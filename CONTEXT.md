@@ -774,6 +774,31 @@ false. A moment play holds the retro scoreboard longer than a touchdown dash
 does and is never routed to touchdown cutscenes or toasts. The canonical term for this subset.
 _Avoid_: moment (unqualified), non-touchdown event
 
+**Live box**:
+The box score of an NFL game in progress as the live sync last read it: each
+player's stats, the team-defense line and the game's Score summary lines,
+refreshed every poll and priced into live scoring. Read from ESPN, falling
+back to Tank01 when ESPN fails (ADR 0035). Nothing in it outlives the Final
+box.
+_Avoid_: box score (unqualified), live stats, in-game box
+
+**Final box**:
+The box score of a final NFL game, read once from Tank01 when the game goes
+final and never re-read; it replaces the Live box and is the game's stats from
+then on, apart from the per-defender yardage nflverse patches at week end.
+Distinct from the Score of record, which is a week's settled total, not a
+game's stats.
+_Avoid_: score of record (for a game's stats), official box, box of record
+
+**Score summary line**:
+One entry in an NFL game's scoring summary as the feed states it: the kind of
+score, its period and clock, and the scorer and yardage in text. The live sync
+reads touchdown lengths, field-goal distances and two-point conversions from
+these lines; a Scoring play is what the sync emits afterwards from a player's
+stat change, never the line itself.
+_Avoid_: scoring play (for a feed entry), scoringPlays (the feed's key, in
+prose)
+
 **Record**:
 A Team's season tally of wins, losses and ties, drawn from its finalized
 regular-season Matchups; a playoff Matchup is not counted toward it. It
