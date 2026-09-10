@@ -267,7 +267,10 @@ folded through `fn_normalize_nfl_team` in SQL or `nflTeam.js` in JavaScript:
 WAS for Washington, never WSH. It is the only vocabulary in which two team
 columns may be compared or a map may be keyed. The one exception is a pairing
 where both sides are known to hold a single writer's raw spelling, and such a
-site must say so and name its partner.
+site must say so and name its partner. It is also the only vocabulary a team
+or opponent code may leave the server in: a player, a starter row, a lineup
+entry or a scoring play always carries a Team code, never the raw spelling
+underneath it (#1136).
 _Avoid_: abbreviation, abbr, team (unqualified), nfl_team (the column, whose
 contents are raw)
 
@@ -275,9 +278,12 @@ contents are raw)
 Whatever a team column actually holds before folding, which no column
 declares: Tank01's own spelling in `nfl_games` (WSH), a full team name for a
 DEF unit in `players` (Washington Commanders), a pre-relocation code in a
-historical row (SD, OAK, STL). Raw codes are written and displayed, never
-joined on or keyed by. Uniqueness on `nfl_games` is enforced on the team code,
-not the raw code (ADR 0011).
+historical row (SD, OAK, STL). Raw codes are written, and displayed only
+where the raw row itself is the subject, a schedule or sync admin view; a
+team or opponent code that leaves the server on a player, a starter, a
+lineup entry or a scoring play is a Team code, never this (#1136). Never
+joined on or keyed by. Uniqueness on `nfl_games` is enforced on the team
+code, not the raw code (ADR 0011).
 _Avoid_: team code (unqualified) when describing what a column contains
 
 ### Draft

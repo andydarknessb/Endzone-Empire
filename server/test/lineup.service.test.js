@@ -141,7 +141,7 @@ test('getLineup returns league-scored current-week projections and preserves una
   fake.assertClean();
 });
 
-test("getLineup carries each entry's week opponent, DEF units included, absent for a bye (#1132)", async (t) => {
+test("getLineup carries each entry's week opponent, DEF units included, absent for a bye (#1132), folded to a Team code (#1136)", async (t) => {
   const entries = [
     { id: 1, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', injury_status: null, slot: 'WR', ir_attested: false },
     // A DEF unit's nfl_team is a full team name, not the schedule's Tank01
@@ -152,6 +152,10 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
     // slate, and never a stale week's opponent or an empty string.
     { id: 3, name: 'Stefon Diggs', position: 'WR', nfl_team: 'BUF', injury_status: null, slot: 'BENCH', ir_attested: false },
     { id: 4, name: 'Bench Viking', position: 'RB', nfl_team: 'MIN', injury_status: null, slot: 'BENCH', ir_attested: false },
+    // MIA's opponent this week is Washington, raw-coded WSH in the schedule
+    // row below. Red-tell (#1136): removing the fold on weekOpponents' value
+    // turns exactly this assertion red, leaving it 'WSH' instead of 'WAS'.
+    { id: 5, name: 'Miami Guy', position: 'WR', nfl_team: 'MIA', injury_status: null, slot: 'BENCH', ir_attested: false },
   ];
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
   const fake = createFakePool([
@@ -170,7 +174,11 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
     // weekOpponents (#1132): one row per team with a game that week, no BUF row.
     [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({
-      rows: [{ nfl_team: 'MIN', opponent: 'GB' }, { nfl_team: 'DEN', opponent: 'KC' }],
+      rows: [
+        { nfl_team: 'MIN', opponent: 'GB' },
+        { nfl_team: 'DEN', opponent: 'KC' },
+        { nfl_team: 'MIA', opponent: 'WSH' },
+      ],
     })],
   ]).install(t);
 
@@ -181,6 +189,7 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
   assert.equal(byId.get(2).opponent, 'KC', 'a DEF unit named by full team name resolves the same way');
   assert.equal(byId.get(3).opponent, null, 'a team with no row that week carries opponent: null');
   assert.equal(byId.get(4).opponent, 'GB', 'bench entries carry it too');
+  assert.equal(byId.get(5).opponent, 'WAS', "a raw-coded WSH opponent value folds to WAS, never the schedule's own spelling");
   assert.equal(
     fake.matching(/^SELECT "nfl_team", "opponent" FROM "nfl_games"/).length,
     1,
