@@ -400,7 +400,12 @@ export default function LeagueDashboardPage() {
               still 609). `contain: 'paint'` does (measured 320): per the CSS
               Containment spec it guarantees nothing paints outside this box's
               border box, which is exactly the guarantee `document.
-              documentElement.scrollWidth`'s own computation needs here. */}
+              documentElement.scrollWidth`'s own computation needs here. The
+              same property also makes this box the containing block for any
+              absolutely or fixed positioned descendant (there is none inside
+              AroundTheLeague today - checked - but a future tooltip, popover
+              or menu inside it would position against THIS box rather than
+              the page, which is worth knowing before adding one). */}
           <Box
             component="section"
             data-testid="slot-around-the-league"

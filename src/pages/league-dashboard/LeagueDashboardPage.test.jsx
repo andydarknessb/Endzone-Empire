@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
-import { invalidate } from '../../lib/resourceCache';
+import { invalidate, read } from '../../lib/resourceCache';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import LeagueDashboardPage from './index';
 
@@ -2091,6 +2091,46 @@ test('cutover: a team-profile rename writes through to the standings and draft-g
   expect(within(gradesRow7).queryByText('Skattebo Stans')).not.toBeInTheDocument();
 
   // The write-through made no request: still exactly one league GET.
+  expect(cutoverLeagueGetCount()).toBe(1);
+});
+
+// The sibling test above proves the write-through's `teamName` half (what
+// THIS page's own widgets render). This test proves the other half: the raw
+// `name` column, which nothing on this page renders any more (ADR 0034
+// retired the only widget that did, the commissioner panel, in this same
+// ticket) but which is still patched by the SAME subscription
+// (LeagueDashboardPage.jsx's `withRawName` call, the first of the two
+// `applyTeamProfileUpdate` calls) and is still read on a DIFFERENT page:
+// `pages/commissioner-console/model/useCommissionerConsole.js` reads the
+// identical shared `useLeague` cache entry (its own docblock: "the same
+// entry"), and `components/LeagueDashboard/CommissionerTools.jsx` renders
+// that raw `name` in its removable-teams list. Dropping the `withRawName`
+// call leaves that console list stale after a live rename with nothing in
+// this repo turning red - this test is what closes that gap. It reads the
+// shared cache entry directly (`resourceCache`'s own `read`, the same module
+// `useLeague.js` itself calls) rather than mounting CommissionerTools here,
+// since that mount is gone from this page for good.
+test('cutover: a team-profile rename also patches the raw name column in the shared league cache (read by the commissioner console on a different page, #1107)', async () => {
+  mockGetByUrl(cutoverLiveIdentityMocks);
+  renderPage();
+
+  await screen.findByTestId('standings-table');
+  // Team 7's raw `name` column starts as the fixture's own decoy value,
+  // distinct from its canonical `teamName` ('Skattebo Stans').
+  const teamsInCache = () => read(['league', 1])?.data?.teams ?? [];
+  expect(teamsInCache().find((t) => t.teamId === 7)?.name).toBe('raw-7');
+
+  // Another manager's session publishes a rename for Team 7.
+  act(() => {
+    publishTeamProfileUpdate({ leagueId: 1, teamId: 7, name: 'Renamed Seven' });
+  });
+
+  // The shared cache entry's raw `name` column is patched too, with no
+  // second league GET (the write-through, like its teamName sibling, makes
+  // no request).
+  await waitFor(() => {
+    expect(teamsInCache().find((t) => t.teamId === 7)?.name).toBe('Renamed Seven');
+  });
   expect(cutoverLeagueGetCount()).toBe(1);
 });
 
