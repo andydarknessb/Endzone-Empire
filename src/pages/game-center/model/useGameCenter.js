@@ -14,7 +14,7 @@ import { recordsByTeamId } from '../../../entities/standings';
 /**
  * The Game Center page's data (ADR 0031, #897): everything the page composes
  * its widgets from, derived in one place so the page stays a layout. Four
- * reads, two feeds, and the page's own week state:
+ * reads, three feeds, and the page's own week state:
  *
  *   - The league, the viewer's Team id and the league's current week, through
  *     the shared league cache (useLeague / ADR 0004). `viewerTeamId` is the
@@ -38,6 +38,9 @@ import { recordsByTeamId } from '../../../entities/standings';
  *     scoring play's `playerId` resolves to the fantasy Team that owns the
  *     player. Real ownership, not a guess. The Team identity feed patches a
  *     rename into the roster rows so a held play never names a stale Team.
+ *   - The real NFL game-state feed, through the Matchup entity, so the page's
+ *     game strip receives clock, status and real score changes over Supabase
+ *     Realtime.
  *
  * The week on screen is the page's own state. Its default is the legacy
  * page's rule, unchanged (src/lib/matchupWeek's computeDefaultWeek: the
@@ -199,7 +202,7 @@ export function useGameCenter(leagueId) {
     if (adds.length) setPlays((prev) => [...adds, ...prev].slice(0, PLAYS_LIMIT));
   }, []);
 
-  const { matchups, loading, error } = useLeagueMatchups(leagueId, { onScores: handleScores });
+  const { matchups, liveGames, loading, error } = useLeagueMatchups(leagueId, { onScores: handleScores });
 
   // Best-effort roster load: only needed to attribute a play to a Team, so a
   // failure here never takes down the rest of the screen.
@@ -300,6 +303,17 @@ export function useGameCenter(leagueId) {
     return best ? best.iso : null;
   }, [weekMatchups]);
 
+  const games = useMemo(
+    () => liveGames.filter((game) => inWeek(week, game.week)),
+    [liveGames, week]
+  );
+  const gamesInProgress = useMemo(
+    () => (games.length > 0
+      ? games.filter((game) => game.game_status === 'in_progress').length
+      : null),
+    [games]
+  );
+
   // playerId -> the fantasy Team that rosters the player.
   const playerTeams = useMemo(() => {
     const map = new Map();
@@ -352,6 +366,8 @@ export function useGameCenter(leagueId) {
     ranks,
     syncedAt,
     nextKickoffAt,
+    games,
+    gamesInProgress,
     items,
     glance,
   };

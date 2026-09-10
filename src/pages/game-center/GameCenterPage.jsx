@@ -6,6 +6,7 @@ import { Skeleton } from '../../shared/ui';
 import PickWeek from '../../features/pick-week';
 import MatchupHero from '../../widgets/matchup-hero';
 import MatchupGrid from '../../widgets/matchup-grid';
+import NflGameStrip from '../../widgets/nfl-game-strip';
 import { ScoringFeedList, ScoringStrip } from '../../widgets/scoring-feed';
 import { useGameCenter, syncLineText } from './model/useGameCenter';
 import WeekGlance from './ui/WeekGlance';
@@ -22,7 +23,8 @@ import WeekGlance from './ui/WeekGlance';
  *     ("Scores synced 3:42 PM · next pass in 8 min", from the week's
  *     `syncedAt`; omitted while the week has no sync), and the week picker
  *     (features/pick-week) on the right, full width below the `sm` breakpoint;
- *   - the live ticker strip (widgets/scoring-feed);
+ *   - the live scoring ticker strip (widgets/scoring-feed) and the real NFL
+ *     game strip (widgets/nfl-game-strip);
  *   - a two-column grid, `minmax(0, 1fr) 340px` at `md` and up and a single
  *     column below it: the viewer's Matchup as the hero (widgets/matchup-hero)
  *     and the "League matchups" heading over the rest of the week's Matchups
@@ -71,6 +73,8 @@ export default function GameCenterPage() {
     ranks,
     syncedAt,
     nextKickoffAt,
+    games,
+    gamesInProgress,
     items,
     glance,
   } = useGameCenter(leagueId);
@@ -160,6 +164,11 @@ export default function GameCenterPage() {
           <Box sx={{ mb: '18px' }}>
             <ScoringStrip items={items} now={now} />
           </Box>
+          {games.length > 0 && (
+            <Box sx={{ mb: '18px' }}>
+              <NflGameStrip games={games} data-testid="game-center-nfl-games" />
+            </Box>
+          )}
 
           <Box
             data-testid="game-center-body"
@@ -178,7 +187,7 @@ export default function GameCenterPage() {
                   records={records}
                   ranks={ranks}
                   leagueId={leagueId}
-                  gamesInProgress={null}
+                  gamesInProgress={gamesInProgress}
                   nextKickoffAt={nextKickoffAt}
                 />
               )}

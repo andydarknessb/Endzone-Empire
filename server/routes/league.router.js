@@ -674,7 +674,15 @@ router.get('/:id/matchups', async (req, res) => {
               home."name" AS "home_team_name", away."name" AS "away_team_name",
               home."avatar_url" AS "home_team_avatar_url", away."avatar_url" AS "away_team_avatar_url",
               home."avatar_static_url" AS "home_team_avatar_static_url",
-              away."avatar_static_url" AS "away_team_avatar_static_url"
+              away."avatar_static_url" AS "away_team_avatar_static_url",
+              COALESCE(
+                (
+                  SELECT array_agg(DISTINCT "matchup_games"."tank01_game_id" ORDER BY "matchup_games"."tank01_game_id")
+                  FROM "view_matchup_nfl_games" "matchup_games"
+                  WHERE "matchup_games"."fantasy_matchup_id" = "matchups"."id"
+                ),
+                ARRAY[]::text[]
+              ) AS "nfl_game_ids"
        FROM "matchups"
        JOIN "teams" home ON home."id" = "matchups"."home_team_id"
        JOIN "teams" away ON away."id" = "matchups"."away_team_id"
