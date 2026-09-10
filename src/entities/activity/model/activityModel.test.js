@@ -1,4 +1,4 @@
-import { activityFromRow, activitiesFromResponse } from './activityModel';
+import { activityFromRow, activitiesFromResponse, genericSentenceFor } from './activityModel';
 
 // One wire row per type, exactly as GET /api/league/:id/transactions joins it
 // (league.router.js: teams + players + dropped_player left-joined onto the
@@ -193,6 +193,15 @@ describe('activityFromRow: segments, sentence pre-split for clickable names', ()
     expect(model.segments).toEqual([{ type: 'text', value: 'Week 4 recap published' }]);
   });
 
+  // Both recapSentence branches must be covered through segmentsFor, not
+  // just sentenceFor: the two builders share the helper, but a regression in
+  // segmentsFor's own no-week handling would otherwise go undetected here.
+  test('recap with no week: a text-only segment reading "Recap published"', () => {
+    const model = activityFromRow({ type: 'recap', team_name: null, detail: {} });
+    expect(renderSegments(model.segments)).toBe(model.sentence);
+    expect(model.segments).toEqual([{ type: 'text', value: 'Recap published' }]);
+  });
+
   test('an unrecognized type: a text-only segment matching the generic sentence', () => {
     const model = activityFromRow({ type: 'foo_bar', team_name: null, detail: {} });
     expect(model.segments).toEqual([{ type: 'text', value: 'Foo bar activity' }]);
@@ -367,9 +376,14 @@ describe('activitiesFromResponse: the whole feed, limited client-side', () => {
 // (#1134). The server and client share no code today (ADR 0008's "Introduce
 // a shared constants module" option, rejected for the same reason: separate
 // bundles, no build-layout change as a side effect of a bug fix), so this is
-// a hard-coded copy, kept in sync by hand. It exists so the NEXT server-side
-// type is caught here, in a red test, rather than discovered as a blank row
-// in production the way `recap` was.
+// a hard-coded copy, kept in sync by hand. It does NOT itself catch a new
+// server-side type - this suite only iterates its own list, so an eighth
+// server type with nothing touched here stays green. The tripwire is
+// `server/test/activity.service.test.js`'s exact-shape assertion on
+// `TRANSACTION_TYPES`, which turns the server suite red first; this list
+// (and the rendering cases below) is the required follow-through once that
+// happens, proving the new type renders a real sentence rather than shipping
+// as a blank row the way `recap` did.
 const SERVER_TRANSACTION_TYPES = [
   'add',
   'commissioner',
@@ -390,8 +404,11 @@ describe('activityFromRow: every server transaction type renders a real sentence
       detail: { season: 2026, week: 4, changes: [], items: [] },
     });
     expect(model.sentence).not.toBe('');
-    // The generic fallback always ends in the literal word "activity"; none
-    // of the seven real types' sentences do.
-    expect(model.sentence.toLowerCase().endsWith('activity')).toBe(false);
+    // Discriminate on behavior, not wording: a known type's sentence must
+    // differ from what the generic fallback would produce for that same
+    // type, not merely avoid a particular suffix (a real sentence that
+    // happens to end in "activity" would otherwise fail this with no
+    // defect present).
+    expect(model.sentence).not.toBe(genericSentenceFor(type));
   });
 });

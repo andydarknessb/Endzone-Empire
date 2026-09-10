@@ -79,7 +79,7 @@ function recapSentence(detail) {
  * type (a wholly missing/null row, `activityFromRow(null)`) stays the empty
  * string - that shape predates this ticket and is pinned by its own test.
  */
-function genericSentenceFor(type) {
+export function genericSentenceFor(type) {
   if (typeof type !== 'string' || !type) return '';
   const spaced = type.replace(/_/g, ' ');
   return `${spaced.charAt(0).toUpperCase()}${spaced.slice(1)} activity`;
