@@ -704,7 +704,7 @@ wrong about its occupant, recorded on the lineup entry by the force-set
 path and, when an undoable drop interrupts it, copied onto the dropped
 player's waiver hold for the life of that hold so the undo can put it back.
 A waiver-claim drop is not undoable and copies nothing. A stash is
-**valid** when its occupant is IR-eligible or the entry is attested; a valid
+valid when its occupant is IR-eligible or the entry is attested; a valid
 stash grants capacity, is never flagged or nagged, and carries forward across
 weeks. The attestation ends the moment the manager makes any slot move on
 that player - from that week forward, never retroactively - after which the
