@@ -30,3 +30,7 @@ export { finite, formatPoints } from './numeric';
 // alongside TeamAvatar in `shared/ui` once both crossed the second-island-
 // consumer threshold.
 export { initialsFor } from './initials';
+// The roster-slots parse (#1165, ADR 0031's second-island-consumer clause),
+// promoted once quick-actions, my-team-summary and the Matchup page each
+// carried their own parse-and-tolerate body for `league.roster_slots`.
+export { parseRosterSlots } from './rosterSlots';

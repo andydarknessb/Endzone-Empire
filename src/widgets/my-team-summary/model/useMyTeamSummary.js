@@ -1,4 +1,4 @@
-import { useEndpoint } from '../../../shared/lib';
+import { useEndpoint, parseRosterSlots } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
 import { useTeamLineup } from '../../../entities/roster';
@@ -104,10 +104,11 @@ const STARTERS_SHOWN = 5;
  * The league's starting-slot config, parsed defensively (`roster_slots` rides
  * on the league row as jsonb - server/routes/league.router.js - so it
  * normally arrives already parsed; a string is tolerated the same way the
- * quick-actions widget's own `rosterSlotsOf` tolerates one, useQuickActions.js),
- * then resolved exactly the way `server/services/decision.service.js:141`
- * resolves the identical absent-config case: `rosterSlots && length > 0 ?
- * rosterSlots : DEFAULT_ROSTER_SLOTS`, never an empty array.
+ * quick-actions widget's own `rosterSlotsOf` tolerates one, useQuickActions.js)
+ * via shared/lib's `parseRosterSlots` (#1165), then resolved exactly the way
+ * `server/services/decision.service.js:141` resolves the identical
+ * absent-config case: `rosterSlots && length > 0 ? rosterSlots :
+ * DEFAULT_ROSTER_SLOTS`, never an empty array.
  *
  * This matters beyond a friendlier guess: `totalSlots` is this array's summed
  * `count`, and it is the footer's DENOMINATOR ("Lineup set/incomplete ·
@@ -119,20 +120,7 @@ const STARTERS_SHOWN = 5;
  * review, f2), so this falls back to the real 9-slot standard shape instead.
  */
 function resolvedRosterSlots(league) {
-  const raw = league?.roster_slots;
-  let slots;
-  if (Array.isArray(raw)) {
-    slots = raw;
-  } else if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw);
-      slots = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      slots = [];
-    }
-  } else {
-    slots = [];
-  }
+  const slots = parseRosterSlots(league?.roster_slots);
   return slots.length > 0 ? slots : DEFAULT_ROSTER_SLOTS;
 }
 
