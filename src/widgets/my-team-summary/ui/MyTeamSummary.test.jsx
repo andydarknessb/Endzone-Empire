@@ -356,6 +356,9 @@ test('five starter rows render name, opponent line and projection from a nine-st
   expect(within(rows[0]).getByText('Josh Allen')).toBeInTheDocument();
   expect(within(rows[0]).getByText('BUF vs KC')).toBeInTheDocument();
   expect(within(rows[0]).getByTestId('starter-projection')).toHaveTextContent('24.3');
+  // The bare number has no column header, so a hidden label names it for a
+  // screen reader.
+  expect(within(rows[0]).getByText('24.3 projected points')).toBeInTheDocument();
   expect(within(rows[0]).getByTestId('pos-chip')).toHaveTextContent('QB');
 
   expect(screen.getByTestId('my-team-starters-more')).toHaveTextContent(
@@ -383,15 +386,21 @@ test('footer reads "Lineup set · 9 of 9" for a full nine-starter lineup against
   });
 
   expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup set · 9 of 9');
+  // The check mark is a "done" affirmation: it belongs beside "Lineup set"
+  // and only there.
+  expect(screen.getByTestId('my-team-lineup-check')).toBeInTheDocument();
 });
 
-test('footer reads "Lineup incomplete · 7 of 9" for a seven-starter fixture against a nine-slot league', async () => {
+test('footer reads "Lineup incomplete · 7 of 9" for a seven-starter fixture against a nine-slot league, with no check mark', async () => {
   mountWith({
     league: { roster_slots: NINE_SLOT_LEAGUE },
     [LINEUP_URL]: lineupResponse(nineStarters().slice(0, 7)),
   });
 
   expect(await screen.findByTestId('my-team-lineup-status')).toHaveTextContent('Lineup incomplete · 7 of 9');
+  // A check mark beside "incomplete" would tell a sighted manager the
+  // opposite of what the text says.
+  expect(screen.queryByTestId('my-team-lineup-check')).not.toBeInTheDocument();
 });
 
 // The 2026-09-10 ruling: null means absence (a bye or an unsynced slate),
@@ -418,6 +427,11 @@ test('a questionable starter carries a warning Badge reading the wire abbreviati
   const badge = within(row).getByTestId('starter-injury-badge');
   expect(badge).toHaveAttribute('data-variant', 'warning');
   expect(badge).toHaveTextContent('Q');
+  // The visible label stays the abbreviation, but the accessible description
+  // expands it to the full designation (InjuryTag's own convention): "Injury
+  // status: Q" would leave a screen-reader user unable to tell Out from
+  // Questionable by ear.
+  expect(within(badge).getByText('Injury status: Questionable')).toBeInTheDocument();
 });
 
 test('a healthy starter carries no injury Badge', async () => {

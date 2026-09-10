@@ -392,11 +392,18 @@ const PRIMARY_SX = {
 };
 
 // The footer's check mark, the same path MatchupGrid's LeaderCheck draws.
-// Decorative: the visible copy ("Lineup set"/"Lineup incomplete") already
-// carries the meaning, so this is aria-hidden.
+// Decorative and aria-hidden: the visible copy ("Lineup set"/"Lineup
+// incomplete") already carries the meaning to a screen reader. The caller
+// renders this ONLY for a set lineup - showing it beside "Lineup incomplete"
+// would tell a sighted manager the opposite of what the text says.
 function CheckIcon() {
   return (
-    <Box component="span" aria-hidden="true" sx={{ display: 'flex', color: 'var(--dash-ink)' }}>
+    <Box
+      component="span"
+      aria-hidden="true"
+      data-testid="my-team-lineup-check"
+      sx={{ display: 'flex', color: 'var(--dash-ink)' }}
+    >
       <svg
         width={16}
         height={16}
@@ -414,15 +421,34 @@ function CheckIcon() {
   );
 }
 
+// The wire's four injury-designation codes (irPolicy.service.js), expanded
+// ONLY for the accessible description below - the visible label stays the
+// abbreviation ("the injury Badge is specified to read the injury status
+// abbreviation", #1101 review). Mirrors shared/ui/InjuryTag's own DESIGNATIONS
+// map, duplicated rather than imported: this row never switches Badge variant
+// by code (always `warning`, per the design canvas), so it does not compose
+// InjuryTag itself, only borrows its code-to-name mapping.
+const INJURY_DESIGNATION_NAME = {
+  Q: 'Questionable',
+  D: 'Doubtful',
+  O: 'Out',
+  IR: 'Injured reserve',
+};
+
 // A starter's injury designation beside his name: the wire's own abbreviation
 // (Q/D/O/IR, players.injury_status) on a Badge, always the `warning` variant
 // - this row never switches to `danger` the way InjuryTag does elsewhere, per
 // the design canvas: "No new contrast pairing: the injury Badge is the
 // registered `warning` variant over `dash-surface`" (#1101). Renders nothing
-// for a healthy starter (a null/empty status).
+// for a healthy starter (a null/empty status). The accessible description
+// expands the code to its full designation ("Injury status: Questionable"),
+// the same InjuryTag convention (its docblock: "so a screen reader hears the
+// word and not a letter") - a bare "Injury status: O" would leave a listener
+// unable to tell "Out" from "Questionable" by ear.
 function StarterInjuryBadge({ status }) {
   const code = status ? String(status).trim() : '';
   if (!code) return null;
+  const name = INJURY_DESIGNATION_NAME[code.toUpperCase()] || code;
   return (
     <Badge
       variant="warning"
@@ -435,7 +461,7 @@ function StarterInjuryBadge({ status }) {
       }}
     >
       <span aria-hidden="true">{code}</span>
-      <span style={visuallyHidden}>{`Injury status: ${code}`}</span>
+      <span style={visuallyHidden}>{`Injury status: ${name}`}</span>
     </Badge>
   );
 }
@@ -492,7 +518,17 @@ function StarterRow({ starter }) {
           color: 'var(--dash-ink)',
         }}
       >
-        {Number.isFinite(starter.projectedPoints) ? starter.projectedPoints.toFixed(1) : '-'}
+        {/* The bare number has no column header to give it meaning in the
+            accessibility tree, so a hidden label names it; the visible glyph
+            stays a plain number (the mockup's tabular column). */}
+        <span aria-hidden="true">
+          {Number.isFinite(starter.projectedPoints) ? starter.projectedPoints.toFixed(1) : '-'}
+        </span>
+        <span style={visuallyHidden}>
+          {Number.isFinite(starter.projectedPoints)
+            ? `${starter.projectedPoints.toFixed(1)} projected points`
+            : 'Projection not available'}
+        </span>
       </Box>
     </Box>
   );
@@ -515,6 +551,7 @@ function StarterRowSkeleton() {
  */
 function StartersSection({ starters }) {
   const loading = starters.status === 'loading';
+  const isLineupSet = !loading && starters.filled >= starters.totalSlots;
   return (
     <Box
       data-testid="my-team-starters"
@@ -569,13 +606,17 @@ function StartersSection({ starters }) {
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <CheckIcon />
+              {/* The check mark is a "done" affirmation, not a neutral bullet:
+                  showing it next to "Lineup incomplete" would tell a sighted
+                  manager the opposite of what the text says, so it renders
+                  only once the lineup actually is set. */}
+              {isLineupSet && <CheckIcon />}
               <Typography
                 component="span"
                 data-testid="my-team-lineup-status"
                 sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}
               >
-                {starters.filled >= starters.totalSlots ? 'Lineup set' : 'Lineup incomplete'}
+                {isLineupSet ? 'Lineup set' : 'Lineup incomplete'}
                 {` · ${starters.filled} of ${starters.totalSlots}`}
               </Typography>
             </Box>
