@@ -1315,7 +1315,11 @@ test('draft-grades card: heading, Net vs ADP tail, 12 rows in rank order with Te
 
   const card = await screen.findByTestId('draft-grades');
   expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
-  expect(within(card).getByText('Net vs ADP')).toBeInTheDocument();
+  // Scoped to the tail's own aria-labelled span (#1118: an AbbreviationTooltip),
+  // not a bare getByText: every row's number cell also carries a visually
+  // hidden "Net vs ADP" column label, so an unscoped query is ambiguous once
+  // real rows (rather than loading skeletons) have rendered.
+  expect(within(card).getByText('Net vs ADP', { selector: '[aria-label]' })).toBeInTheDocument();
   // The card never renders the (null) roster value column: no "0", no "-"
   // where a number should be, and no leftover roster-value bar.
   expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
@@ -1377,7 +1381,9 @@ test('draft-grades card: heading, Net vs ADP tail, 12 rows in rank order with Te
   // The card explains the number it shows, and the table points at that
   // explanation so table-mode readers meet it too.
   const explainer = within(card).getByTestId('draft-grades-explainer');
-  expect(explainer).toHaveTextContent('Higher is better: a steal fell to the Team later than its ADP.');
+  expect(explainer).toHaveTextContent(
+    'Higher is better: the steal fell furthest past its ADP, the reach went furthest ahead of it.'
+  );
   const table = within(card).getByRole('table');
   expect(table).toHaveAttribute('aria-describedby', explainer.id);
 

@@ -26,6 +26,9 @@ export const STAT_DEFINITIONS = Object.freeze({
   Bye: 'Bye week: the week this player\'s NFL team does not play, so they can\'t score.',
   '17-game pace': 'Historical pace: last completed season\'s per-game production, extrapolated '
     + 'across seventeen games. Not a forecast or a weekly projection.',
+  'Net vs ADP': 'Net vs ADP: adds up how far each pick beat its market ADP. Higher is better. '
+    + 'The steal is the pick that fell furthest past its ADP, the reach the pick taken furthest '
+    + 'ahead of it.',
 });
 
 function AbbreviationTooltip({ term, label = term }) {
