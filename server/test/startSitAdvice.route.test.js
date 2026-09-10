@@ -65,7 +65,13 @@ const projectionFor = (playerId, median, extra = {}) => ({
 function guardAgainstDefenseIteration(map) {
   const forbidden = new Set(['entries', 'keys', 'forEach', Symbol.iterator]);
   return new Proxy(map, {
-    get(target, prop, receiver) {
+    // Reflect.get(target, prop) WITHOUT a receiver argument: a Map's internal
+    // slot methods (like the `size` getter) reject an incompatible receiver,
+    // so forwarding the Proxy itself as receiver makes an untouched read
+    // (e.g. `guarded.size`) throw a native TypeError instead of either
+    // working or tripping this guard's own message. Reading straight off
+    // `target` keeps every un-forbidden property exactly as plain as before.
+    get(target, prop) {
       if (forbidden.has(prop)) {
         throw new Error(
           `getPositionDefense's map was iterated via .${String(prop)}() - a second ` +
@@ -74,7 +80,7 @@ function guardAgainstDefenseIteration(map) {
             'canonical map directly with .get()/.has() instead'
         );
       }
-      const value = Reflect.get(target, prop, receiver);
+      const value = Reflect.get(target, prop);
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });

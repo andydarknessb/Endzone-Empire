@@ -531,15 +531,19 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   // League-wide scan for the positions actually requested. `fn_normalize_nfl_team`
   // on both sides is what lets DEF units (stored with a full team name) join
   // the schedule at all, and collapses the WSH/WAS alias split. The `defense`
-  // key this scan produces is therefore a Team code (CONTEXT.md). Contrast
-  // `getPositionDefense` (projection.service.js), whose equivalent opponent
-  // key stays a Raw team code instead, because its caller
-  // (`decision.service.startSitAdvice`) looks it up with an opponent read
-  // straight out of `nfl_games`, unfolded. Folding `opponent` to a Team code
+  // key this scan produces is therefore a Team code (CONTEXT.md).
+  // `getPositionDefense` (projection.service.js) folds its equivalent
+  // opponent key the same way (#1154, Cory's 2026-09-10 ruling reversing
+  // ADR 0011's prior "remains deliberate" raw-key consequence), and its
+  // caller (`decision.service.startSitAdvice`) now reads that canonical map
+  // directly rather than looking it up with an unfolded opponent - the two
+  // sites are consistent, not a contrast. Folding `opponent` to a Team code
   // could double-count a team-week only if `nfl_games` held two Raw team
-  // codes for one team; `nfl_games_season_week_team_code_unique` (ADR 0011,
-  // #421) rejects the second at insert, so the fold is safe by constraint,
-  // not by observation.
+  // codes for one team; ADR 0011 records a unique index on
+  // `fn_normalize_nfl_team(nfl_team)` meant to reject the second at insert
+  // for exactly this reason, though this codebase has no standing to confirm
+  // that index is live on the shared database (migrations are a carve-out
+  // applied by the maintainer) - the fold here has been in place regardless.
   //
   // The ORDER BY is a CORRECTNESS requirement, not a nicety. Postgres gives no
   // row order without one, so an unordered `LIMIT` both picks an arbitrary

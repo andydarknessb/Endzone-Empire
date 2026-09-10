@@ -224,10 +224,14 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
  * already lives with: a legacy `WAS` row sitting beside a `WSH` row for one
  * team-week now combines into one bucket where the raw key would have kept
  * them apart. That is the fix, not a new risk - two aliases for the same
- * defense are meant to combine into one arithmetically correct average, and
- * since #421 `nfl_games_season_week_team_code_unique` (ADR 0011) also
- * rejects an aliased row at insert, so this fold cannot double-count a
- * single game under two spellings.
+ * defense are MEANT to combine into one arithmetically correct average, not
+ * to accidentally double one game's points under two spellings. ADR 0011
+ * records `nfl_games_season_week_team_code_unique`, a unique index on
+ * `(season, week, fn_normalize_nfl_team(nfl_team))` added for #421 to reject
+ * that second spelling at insert - this codebase has no standing to confirm
+ * the index is live on the shared database (migrations are a carve-out the
+ * maintainer applies), so this docblock cites it as recorded in the ADR, not
+ * as an applied fact this fold depends on.
  */
 async function getPositionDefense({ season, uptoWeek }) {
   const result = await pool.query(
