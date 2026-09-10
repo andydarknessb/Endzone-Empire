@@ -525,8 +525,19 @@ const powerRankingsResponse = (viewerRank = 6) => ({
   },
 });
 
+// GET /api/team/lineup?leagueId=1&week=3 (#1101's starters section). Kept
+// empty here: this block's own tests exercise the tile row only, and the
+// starters section's content is covered in full by the widget's own suite
+// (src/widgets/my-team-summary). An empty fixture still wires the endpoint
+// into every test below so the widget's new read is never left to the
+// dispatcher's unmatched-URL default.
+const lineupResponse = () => ({ data: { week: 3, season: 2026, teamId: 1, entries: [] } });
+
 test('my-team card shows the viewer Team name from teams[] with a You badge and a named avatar', async () => {
-  mockGetByUrl({ '/api/league/1': myTeamLeague() });
+  mockGetByUrl({
+    '/api/league/1': myTeamLeague(),
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
+  });
   renderPage();
 
   const card = await screen.findByTestId('my-team-summary');
@@ -544,6 +555,7 @@ test('my-team card: draft-grades fixture fills the grade and roster-value tiles'
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/league/1/draft-grades': draftGradesResponse(),
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
@@ -561,6 +573,7 @@ test('my-team card: a null roster value renders the placeholder, not 0, while th
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/league/1/draft-grades': draftGradesResponse({ rosterValue: null }),
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
@@ -575,6 +588,7 @@ test('my-team card: a 404 from draft-grades leaves the grade and value tiles as 
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/league/1/draft-grades': { reject: { response: { status: 404 } } },
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
@@ -596,6 +610,7 @@ test('my-team card: no Proj. finish tile until power-rankings has been computed 
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/scoring/league/1/power-rankings': { reject: { response: { status: 404 } } },
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
@@ -610,6 +625,7 @@ test('my-team card: a power-rankings fixture placing the viewer 6th reads "6th"'
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/scoring/league/1/power-rankings': powerRankingsResponse(6),
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
@@ -622,6 +638,7 @@ test('my-team card: the secondary line shows record and rank once games have bee
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/scoring/league/1/standings': standingsResponse({ wins: 3, losses: 1, ties: 0, rank: 2 }),
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
@@ -649,6 +666,7 @@ test('my-team card: while standings are pending the card holds its layout with s
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/scoring/league/1/standings': { pending: true },
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
@@ -665,6 +683,7 @@ test('my-team card: a standings 500 shows a compact error inside the card while 
   mockGetByUrl({
     '/api/league/1': myTeamLeague(),
     '/api/scoring/league/1/standings': { reject: { response: { status: 500, data: { error: 'boom' } } } },
+    '/api/team/lineup?leagueId=1&week=3': lineupResponse(),
   });
   renderPage();
 
