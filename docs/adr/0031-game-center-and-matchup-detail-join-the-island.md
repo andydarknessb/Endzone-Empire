@@ -73,13 +73,12 @@ Rulings recorded on the spec that shape the slices:
 
 ## Amendment (2026-09-10, #1131): the below-island clause fired
 
-The Consequences bullet's three helpers have reached their second island
-consumer thresholds or have been ruled. The win-probability arithmetic fired
+Two of the Consequences bullet's helpers have reached their second island
+consumer thresholds and been ruled. The win-probability arithmetic fired
 the below-island clause with PR #1120 and now lives in `src/shared/lib` as a
-public index export (the second consumer was the Matchup Detail page). The play
-classifier fired the clause too, reaching six island consumers across four
-slices, and is ruled to live in `entities/matchup` as `playLabel`, a Scoring
-play domain model, by ADR 0029 (#1137: `classifyPlays` folds into
+public index export. The play classifier fired the clause too, reaching six
+island consumers across four slices, and is ruled to live in `entities/matchup`
+as `playLabel`, a Scoring play domain model (#1137: `classifyPlays` folds into
 `features/celebrate-touchdown` and its one caller is that feature). The default
 week rule is unmeasured and unruled; the next reader should treat that silence
 as an open question, not a ruling.
