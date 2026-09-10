@@ -309,6 +309,8 @@ test('one h1, the breadcrumb, and an explicit h2 over every region', async () =>
   expect(screen.getByRole('heading', { level: 2, name: 'Week at a glance' })).toBeInTheDocument();
 
   const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
+  const breadcrumbList = within(nav).getByRole('list');
+  expect(breadcrumbList).toHaveAttribute('role', 'list');
   expect(within(nav).getByRole('link', { name: 'Leagues' })).toHaveAttribute('href', '/league');
   expect(within(nav).getByRole('link', { name: 'Sunday Ballers' })).toHaveAttribute('href', '/league/1');
   expect(within(nav).getByText('Game Center')).toHaveAttribute('aria-current', 'page');
@@ -470,7 +472,9 @@ test('the glance tile\'s top score is the highest score in the week, never an Ex
   mockApi({ matchups: glanceWeek() });
   renderPage();
 
-  await screen.findByTestId('week-glance');
+  const glanceCard = await screen.findByTestId('week-glance');
+  const glanceList = within(glanceCard).getByRole('list');
+  expect(glanceList).toHaveAttribute('role', 'list');
   expect(within(glanceRow('top-score')).getByTestId('week-glance-text')).toHaveTextContent('Alpha');
   expect(within(glanceRow('top-score')).getByTestId('week-glance-value')).toHaveTextContent('101.3');
   expect(within(glanceRow('closest')).getByTestId('week-glance-text')).toHaveTextContent('Alpha · Beta');

@@ -271,6 +271,8 @@ test('renders the header, both teams\' starters with points, and the strip\'s sc
   expect(screen.getByRole('heading', { level: 2, name: 'Bench' })).toBeInTheDocument();
 
   const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
+  const breadcrumbList = within(nav).getByRole('list');
+  expect(breadcrumbList).toHaveAttribute('role', 'list');
   expect(within(nav).getByRole('link', { name: 'Sunday Ballers' })).toHaveAttribute('href', '/league/1');
   expect(within(nav).getByRole('link', { name: 'Game Center' })).toHaveAttribute('href', '/league/1/game-center');
   // The current page ends the trail, as the Game Center breadcrumb ends on
