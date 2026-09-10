@@ -2,8 +2,7 @@ import React from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, Skeleton, SplitBar, StatTile } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Badge, Card, Skeleton, SplitBar, StatTile, TeamAvatar } from '../../../shared/ui';
 import useMatchupPreview from '../model/useMatchupPreview';
 
 /**

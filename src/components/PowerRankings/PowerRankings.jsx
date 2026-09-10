@@ -32,7 +32,10 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { recordsByTeamId } from '../../entities/standings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import TeamAvatar from '../common/TeamAvatar';
+// Concrete module path, not the shared/ui barrel: a legacy consumer (ADR
+// 0031's #1146 amendment) - the index would pull the whole kit, and
+// shared/lib's useEndpoint through it, into this bundle.
+import TeamAvatar from '../../shared/ui/TeamAvatar';
 
 function OddsCell({ value, label }) {
   const pct = Math.round((value || 0) * 1000) / 10;

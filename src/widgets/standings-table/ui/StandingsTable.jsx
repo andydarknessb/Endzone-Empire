@@ -1,8 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Card, Badge, Skeleton } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Card, Badge, Skeleton, TeamAvatar } from '../../../shared/ui';
 import useStandingsTable from '../model/useStandingsTable';
 
 // The three columns that do not fit a 390px card. PF and PA come back at xs as

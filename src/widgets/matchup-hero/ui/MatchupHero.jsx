@@ -2,9 +2,8 @@ import React from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, StatTile, SplitBar } from '../../../shared/ui';
+import { Card, Badge, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
 import { formatKickoff } from '../../../shared/lib';
-import TeamAvatar from '../../../components/common/TeamAvatar';
 import { teamNameLabel } from '../../../lib/teamIdentity';
 import { matchupHeroView, ordinal } from '../model/matchupHeroView';
 

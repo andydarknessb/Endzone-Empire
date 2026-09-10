@@ -2,8 +2,7 @@ import React from 'react';
 import { Box, Link as MuiLink, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, Skeleton, SplitBar } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Badge, Card, Skeleton, SplitBar, TeamAvatar } from '../../../shared/ui';
 import useAroundTheLeague from '../model/useAroundTheLeague';
 
 /**

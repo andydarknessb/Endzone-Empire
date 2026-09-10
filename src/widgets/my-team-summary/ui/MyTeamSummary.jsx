@@ -1,8 +1,7 @@
 import React, { useId } from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Card, Badge, Skeleton } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Card, Badge, Skeleton, TeamAvatar } from '../../../shared/ui';
 import useMyTeamSummary from '../model/useMyTeamSummary';
 
 /**

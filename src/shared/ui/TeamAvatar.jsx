@@ -1,6 +1,11 @@
 import React from 'react';
 import { Avatar, useMediaQuery } from '@mui/material';
-import { initialsFor } from '../../lib/initials';
+// Concrete module path, not the shared/lib barrel: the barrel's first export
+// is useEndpoint, and pulling it into every TeamAvatar consumer's import
+// graph is what broke the Draft harness-coverage guard and the bundle budget
+// (ADR 0031's #1146 amendment, post-review fix) - TeamAvatar needs only
+// initialsFor, not the rest of shared/lib.
+import { initialsFor } from '../lib/initials';
 import { shouldShowStillFrame } from '../../lib/reducedMotionMedia';
 
 /**
@@ -14,6 +19,14 @@ import { shouldShowStillFrame } from '../../lib/reducedMotionMedia';
  * site here (including DraftPresenter) gets correct behavior just by passing
  * both URLs through and the rule cannot drift between the two surfaces that use
  * it.
+ *
+ * Part of `shared/ui` (#1146, ADR 0031's amendment extending the second-
+ * island-consumer clause to presentational components): reached seven island
+ * widget consumers, past the threshold, and moved here from
+ * `src/components/common/TeamAvatar` as the one canonical implementation for
+ * both island and legacy consumers. `shouldShowStillFrame` stays a below-
+ * island reach into `src/lib/reducedMotionMedia` — generic plumbing GifMessage
+ * also depends on, not yet promoted.
  */
 function TeamAvatar({ name, avatarUrl, avatarStaticUrl, size = 32, 'data-testid': testId }) {
   const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');

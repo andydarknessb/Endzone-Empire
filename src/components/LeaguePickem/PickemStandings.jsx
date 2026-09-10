@@ -14,7 +14,10 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import TeamAvatar from '../common/TeamAvatar';
+// Concrete module path, not the shared/ui barrel: a legacy consumer (ADR
+// 0031's #1146 amendment) - the index would pull the whole kit, and
+// shared/lib's useEndpoint through it, into this bundle.
+import TeamAvatar from '../../shared/ui/TeamAvatar';
 import { usePickemStandings } from '../../hooks/usePickemStandings';
 import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 
