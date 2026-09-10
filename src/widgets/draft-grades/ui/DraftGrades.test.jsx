@@ -408,3 +408,40 @@ test('the rebuilt table keeps the row header, the hidden column label and the ex
   const explainer = within(card).getByTestId('draft-grades-explainer');
   expect(table).toHaveAttribute('aria-describedby', explainer.id);
 });
+
+// --- the tail's tooltip carries the fuller definition (#1118) -------------
+
+test('the header tail is a focusable AbbreviationTooltip naming the steal and the reach as superlatives', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(FOUR_TEAMS),
+    '/api/league/1/draft-grades': gradesResponse(FOUR_GRADES),
+  });
+  renderWidget();
+
+  const card = await screen.findByTestId('draft-grades');
+  // Red-tell (#1118): reverting the tail to the bare "Net vs ADP" string
+  // drops this element (no aria-label, no tabIndex) and turns this
+  // assertion red and no other.
+  const tail = within(card).getByLabelText(
+    /^Net vs ADP: .*the reach the pick taken furthest ahead of it\.$/
+  );
+  expect(tail).toHaveAttribute('tabIndex', '0');
+});
+
+test('the footer names the steal and the reach as superlatives, matching neither the tail nor each other on the old "a steal fell" phrasing', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(FOUR_TEAMS),
+    '/api/league/1/draft-grades': gradesResponse(FOUR_GRADES),
+  });
+  renderWidget();
+
+  const card = await screen.findByTestId('draft-grades');
+  const explainer = within(card).getByTestId('draft-grades-explainer');
+  expect(explainer).toHaveTextContent(/the steal fell furthest past its ADP/);
+  // Red-tell (#1118): restoring #1104's footer sentence ("a steal fell to
+  // the Team later than its ADP") turns exactly this assertion red.
+  expect(explainer.textContent).not.toMatch(/a steal fell/);
+
+  const tail = within(card).getByLabelText(/^Net vs ADP:/);
+  expect(tail.getAttribute('aria-label')).not.toMatch(/a steal fell/);
+});

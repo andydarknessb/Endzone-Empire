@@ -3,6 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, GradeChip, Skeleton } from '../../../shared/ui';
 import { ToggleGradeDetails, useGradeDetails } from '../../../features/toggle-grade-details';
+import AbbreviationTooltip from '../../../components/common/AbbreviationTooltip';
 import useDraftGrades from '../model/useDraftGrades';
 
 /**
@@ -26,8 +27,10 @@ import useDraftGrades from '../model/useDraftGrades';
  * which is mounted either way. Skeleton rows hold the one-line shape.
  *
  * Composes `shared/ui` (ADR 0020): `Card` for the labelled region and header
- * (title + the "Net vs ADP" tail), `GradeChip` for the per-row letter chip.
- * Colors come only from `--dash-*` tokens.
+ * (title + the "Net vs ADP" tail, an `AbbreviationTooltip` per #1118 - a
+ * focusable tab stop ahead of the table, carrying the fuller definition),
+ * `GradeChip` for the per-row letter chip. Colors come only from `--dash-*`
+ * tokens.
  *
  * The table is plain `table`/`tbody`/`tr`/`th`/`td` elements, NOT MUI's Table
  * primitives, and that is load-bearing rather than a style preference. The app
@@ -64,7 +67,7 @@ import useDraftGrades from '../model/useDraftGrades';
 const NET_FORMAT = { maximumFractionDigits: 1 };
 
 export const EXPLAINER_COPY =
-  'Higher is better: a steal fell to the Team later than its ADP.';
+  'Higher is better: the steal fell furthest past its ADP, the reach went furthest ahead of it.';
 
 function formatNet(value) {
   const text = value.toLocaleString('en-US', NET_FORMAT);
@@ -155,7 +158,7 @@ export default function DraftGrades({ leagueId }) {
     <Card
       data-testid="draft-grades"
       title="Draft Grades"
-      tail="Net vs ADP"
+      tail={<AbbreviationTooltip term="Net vs ADP" />}
       aria-busy={phase === 'loading'}
       sx={{ p: 0 }}
     >
@@ -320,8 +323,9 @@ export default function DraftGrades({ leagueId }) {
               on the table keeps pointing at the explainer's own id regardless
               of the toggle's state. The explainer wraps rather than clips: a
               narrow rail (or a zoomed/reflowed viewport) must not silently
-              drop the sentence a sighted reader cannot then recover (no
-              tooltip backs it) - `flex-wrap` lets the button drop to its own
+              drop the sentence a sighted reader cannot then recover (the tail's
+              tooltip carries the fuller definition, not this footer) -
+              `flex-wrap` lets the button drop to its own
               line first, and only if that still is not enough does the
               sentence itself wrap to a second line. */}
           <Box

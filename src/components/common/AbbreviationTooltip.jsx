@@ -26,6 +26,12 @@ export const STAT_DEFINITIONS = Object.freeze({
   Bye: 'Bye week: the week this player\'s NFL team does not play, so they can\'t score.',
   '17-game pace': 'Historical pace: last completed season\'s per-game production, extrapolated '
     + 'across seventeen games. Not a forecast or a weekly projection.',
+  // Unlike the acronym entries above, the term itself is already plain
+  // words, so this definition does not restate "Net vs ADP" as a prefix
+  // (the aria-label composed in AbbreviationTooltip below already carries
+  // the term once, and repeating it here would say it twice).
+  'Net vs ADP': 'Adds up how far each pick beat its market ADP. Higher is better. The steal is '
+    + 'the pick that fell furthest past its ADP, the reach the pick taken furthest ahead of it.',
 });
 
 function AbbreviationTooltip({ term, label = term }) {
