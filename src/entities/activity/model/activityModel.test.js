@@ -119,6 +119,28 @@ describe('activityFromRow: the one sentence per transaction type', () => {
     expect(model.teamName).toBeNull();
   });
 
+  test('recap with a week reads "Week N recap published", teamless', () => {
+    const model = activityFromRow({
+      type: 'recap',
+      team_name: null,
+      detail: { season: 2026, week: 4 },
+    });
+    expect(model.sentence).toBe('Week 4 recap published');
+    expect(model.teamName).toBeNull();
+  });
+
+  test('recap with no week reads "Recap published"', () => {
+    const model = activityFromRow({ type: 'recap', team_name: null, detail: { season: 2026 } });
+    expect(model.sentence).toBe('Recap published');
+  });
+
+  // Red-tell: removing the `recap` case from either builder makes this fail
+  // the same way `foo_bar` does below (#1134).
+  test('an unrecognized type never renders blank: it reads a generic sentence built from the type', () => {
+    const model = activityFromRow({ type: 'foo_bar', team_name: null, detail: {} });
+    expect(model.sentence).toBe('Foo bar activity');
+  });
+
   test('a null row yields an empty-shaped model rather than throwing', () => {
     expect(activityFromRow(null)).toEqual({
       id: null,
@@ -163,6 +185,17 @@ describe('activityFromRow: segments, sentence pre-split for clickable names', ()
     });
     expect(renderSegments(model.segments)).toBe(model.sentence);
     expect(model.segments).toEqual([{ type: 'text', value: model.sentence }]);
+  });
+
+  test('recap: a text-only segment, matching the sentence', () => {
+    const model = activityFromRow({ type: 'recap', team_name: null, detail: { week: 4 } });
+    expect(renderSegments(model.segments)).toBe(model.sentence);
+    expect(model.segments).toEqual([{ type: 'text', value: 'Week 4 recap published' }]);
+  });
+
+  test('an unrecognized type: a text-only segment matching the generic sentence', () => {
+    const model = activityFromRow({ type: 'foo_bar', team_name: null, detail: {} });
+    expect(model.segments).toEqual([{ type: 'text', value: 'Foo bar activity' }]);
   });
 
   test('add: one player part, carrying its playerId', () => {
@@ -327,5 +360,38 @@ describe('activitiesFromResponse: the whole feed, limited client-side', () => {
   test('a non-array body is an empty feed', () => {
     expect(activitiesFromResponse(null)).toEqual([]);
     expect(activitiesFromResponse(undefined, { limit: 3 })).toEqual([]);
+  });
+});
+
+// Partner of `TRANSACTION_TYPES` in `server/services/activity.service.js`
+// (#1134). The server and client share no code today (ADR 0008's "Introduce
+// a shared constants module" option, rejected for the same reason: separate
+// bundles, no build-layout change as a side effect of a bug fix), so this is
+// a hard-coded copy, kept in sync by hand. It exists so the NEXT server-side
+// type is caught here, in a red test, rather than discovered as a blank row
+// in production the way `recap` was.
+const SERVER_TRANSACTION_TYPES = [
+  'add',
+  'commissioner',
+  'drop',
+  'recap',
+  'stat_correction',
+  'trade',
+  'waiver',
+];
+
+describe('activityFromRow: every server transaction type renders a real sentence (#1134 contract)', () => {
+  test.each(SERVER_TRANSACTION_TYPES)('%s renders a non-empty, non-generic sentence', (type) => {
+    const model = activityFromRow({
+      type,
+      team_name: 'Some Team',
+      player_name: 'Some Player',
+      dropped_player_name: 'Some Other Player',
+      detail: { season: 2026, week: 4, changes: [], items: [] },
+    });
+    expect(model.sentence).not.toBe('');
+    // The generic fallback always ends in the literal word "activity"; none
+    // of the seven real types' sentences do.
+    expect(model.sentence.toLowerCase().endsWith('activity')).toBe(false);
   });
 });

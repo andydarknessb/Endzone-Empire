@@ -14,6 +14,9 @@ describe('activityBadge', () => {
     // issue's mockup names no chip for; it gets a real label rather than
     // falling through to the generic fallback below.
     ['stat_correction', 'neutral', 'Stat correction'],
+    // A seventh (#1134): a league-wide recap row, also given an explicit
+    // entry rather than leaning on the fallback below happening to agree.
+    ['recap', 'neutral', 'Recap'],
   ])('%s maps to variant %s, label %s', (type, variant, label) => {
     expect(activityBadge(type)).toEqual({ variant, label });
   });

@@ -12,10 +12,15 @@
  *   { id, type, teamName, avatarUrl, avatarStaticUrl, sentence, players, segments, at }
  *
  * `type` is one of add | drop | waiver | trade | commissioner (the transaction
- * types `GET /api/league/:id/transactions` documents) or stat_correction (an
+ * types `GET /api/league/:id/transactions` documents), stat_correction (an
  * NFL stat-correction row, carried for parity with the Activity page's
- * existing handling of them). `teamName` is null on a commissioner action
- * with no team (an account-level admin action, not a Team's own move).
+ * existing handling of them), or recap (a generated weekly recap being
+ * published, #1134 - league-wide, like commissioner, so it carries no team
+ * either). `teamName` is null on a commissioner or recap row (neither has a
+ * Team's own move behind it). A type this module does not recognize (the
+ * server declares the full list as `TRANSACTION_TYPES`,
+ * `server/services/activity.service.js`) renders a generic sentence built
+ * from the type itself rather than an empty one - see `genericSentenceFor`.
  *
  * `sentence` NEVER repeats the Team name: it is the action alone ("added
  * Justin Jefferson", "claimed Breece Hall ($12), dropped Zach Wilson"), so a
@@ -55,10 +60,37 @@
  */
 
 /**
+ * `recap`'s sentence, shared verbatim between `sentenceFor` and `segmentsFor`
+ * (it is plain text either way, so there is nothing for `segmentsFor` to
+ * split): "Week N recap published" when the row's `detail.week` is a number,
+ * "Recap published" when it is absent (an older or malformed row).
+ */
+function recapSentence(detail) {
+  return typeof detail.week === 'number' ? `Week ${detail.week} recap published` : 'Recap published';
+}
+
+/**
+ * The generic sentence for a type neither builder has a case for: a future
+ * server addition (#1134 - `recap` was exactly this before it got its own
+ * case above). Capitalized, with underscores turned to spaces the way
+ * `recentActivityModel.js`'s `activityBadge` fallback already reads a raw
+ * type, plus the word "activity" so the result reads as a sentence rather
+ * than a bare label: `foo_bar` -> "Foo bar activity". A non-string or empty
+ * type (a wholly missing/null row, `activityFromRow(null)`) stays the empty
+ * string - that shape predates this ticket and is pinned by its own test.
+ */
+function genericSentenceFor(type) {
+  if (typeof type !== 'string' || !type) return '';
+  const spaced = type.replace(/_/g, ' ');
+  return `${spaced.charAt(0).toUpperCase()}${spaced.slice(1)} activity`;
+}
+
+/**
  * The one-line action a transaction row describes, with no Team name in it
- * (see the module docblock). A row of an unrecognized type reads as an empty
- * sentence rather than throwing, the same fallback TransactionLog's switch
- * always had.
+ * (see the module docblock). A row of an unrecognized type reads as a
+ * generic sentence built from the type (`genericSentenceFor`) rather than
+ * throwing or rendering blank (#1134); only a wholly missing type (a null
+ * row) still reads as empty, unchanged from before this ticket.
  */
 function sentenceFor(row) {
   const detail = row.detail || {};
@@ -87,6 +119,8 @@ function sentenceFor(row) {
     }
     case 'commissioner':
       return 'commissioner action';
+    case 'recap':
+      return recapSentence(detail);
     case 'stat_correction': {
       const changed = Array.isArray(detail.changes) ? detail.changes.length : 0;
       const week = detail.week;
@@ -95,7 +129,7 @@ function sentenceFor(row) {
       }`;
     }
     default:
-      return '';
+      return genericSentenceFor(row.type);
   }
 }
 
@@ -185,6 +219,8 @@ function segmentsFor(row) {
     }
     case 'commissioner':
       return [text('commissioner action')];
+    case 'recap':
+      return [text(recapSentence(detail))];
     case 'stat_correction': {
       const changed = Array.isArray(detail.changes) ? detail.changes.length : 0;
       const week = detail.week;
@@ -197,7 +233,7 @@ function segmentsFor(row) {
       ];
     }
     default:
-      return [text('')];
+      return [text(genericSentenceFor(row.type))];
   }
 }
 

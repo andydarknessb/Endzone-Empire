@@ -66,10 +66,16 @@ function ActivitySkeletonRow({ first }) {
   );
 }
 
-/** One transaction row: type Badge, Team name (or "Commissioner") + sentence, relative time. */
+/**
+ * One transaction row: type Badge, Team name (or "Commissioner") + sentence,
+ * relative time. A teamless row defaults its Team column to "Commissioner"
+ * only when it actually IS a commissioner action; a `recap` row is also
+ * teamless (a league-wide event, #1134) but reads as no Team at all rather
+ * than misreporting itself as a commissioner action.
+ */
 function ActivityRow({ row, first, now }) {
   const badge = activityBadge(row.type);
-  const teamLabel = row.teamName || 'Commissioner';
+  const teamLabel = row.teamName || (row.type === 'commissioner' ? 'Commissioner' : '');
 
   return (
     <Box component="li" data-testid="recent-activity-row" data-type={row.type} sx={ROW_SX(first)}>

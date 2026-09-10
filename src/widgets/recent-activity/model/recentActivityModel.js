@@ -20,6 +20,11 @@
 // explicit entry rather than falling through to `activityBadge`'s generic
 // fallback below, which would otherwise announce the raw enum
 // ("Stat_correction", underscore and all) in a design-pinned chip row.
+//
+// `recap` is a seventh (a generated weekly recap being published, #1134):
+// the fallback below happens to read "Recap" too since the raw type has no
+// underscore, but it gets the same explicit treatment as stat_correction
+// rather than leaning on that coincidence.
 const TYPE_BADGE = {
   add: { variant: 'success', label: 'Add' },
   drop: { variant: 'danger', label: 'Drop' },
@@ -27,6 +32,7 @@ const TYPE_BADGE = {
   waiver: { variant: 'neutral', label: 'Waiver' },
   commissioner: { variant: 'warning', label: 'Settings' },
   stat_correction: { variant: 'neutral', label: 'Stat correction' },
+  recap: { variant: 'neutral', label: 'Recap' },
 };
 
 /**
