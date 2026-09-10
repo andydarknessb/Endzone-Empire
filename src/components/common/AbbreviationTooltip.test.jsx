@@ -18,9 +18,12 @@ test.each([
 
 // #1145: AbbreviationTooltip composes its accessible name as `${label}:
 // ${definition}`, so a definition that opens with its own term gets that
-// term announced twice ("Projected: Projected fantasy points: ..."). This
-// checks every STAT_DEFINITIONS entry against the rule, not just the two
-// that were caught doubling, so the next entry added can't reintroduce it.
+// term announced twice ("Projected: Projected fantasy points: ..."). Three
+// entries restated their term this way (Projected and Bye were live and
+// audible; Expected final had no consumer yet but would have doubled the
+// moment one was added). This checks every STAT_DEFINITIONS entry against
+// the rule, not just those three, so the next entry added can't
+// reintroduce it.
 test.each(Object.keys(STAT_DEFINITIONS))('%s does not restate its own term at the start of its definition', (term) => {
   const definition = STAT_DEFINITIONS[term];
 
