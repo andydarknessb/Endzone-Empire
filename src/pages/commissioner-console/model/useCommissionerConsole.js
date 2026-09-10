@@ -20,6 +20,18 @@ import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE_META } from '../../../lib
  * advance-week control: a pick'em-only league advances on the NFL calendar,
  * and a league with no current week has no week to advance from.
  *
+ * `showJoinQueue` (#1109) is the same three-clause gate `useCommissionerPanel`
+ * states for the League Dashboard strip's copy of this queue
+ * (`is_commissioner && is_public && join_approval`): it decides whether the
+ * page mounts the `join-requests` widget at all, above the tools column, and
+ * it is computed - like the redirect just above it - before this page has
+ * confirmed anything about the viewer, which is why `is_commissioner` is
+ * still one of its three clauses rather than two. The widget's own model
+ * re-derives the identical three-clause expression for its read (see
+ * `useJoinRequests`'s docblock, which is also where the narrower, two-clause
+ * gate CommissionerTools' GeneralSettingsPanel checks - correctly, given
+ * where IT is composed - is explained).
+ *
  * The phase chip label is the same derivation `LeagueDashboardPage` uses:
  * "Week N · <phase label>" while the season is being played, the bare phase
  * label otherwise, from the client League-phase helper and never a stored
@@ -47,6 +59,7 @@ export function useCommissionerConsole(leagueId) {
     pickemOnly,
     currentWeek,
     showAdvance: !pickemOnly && currentWeek != null,
+    showJoinQueue: !!league?.is_commissioner && !!league?.is_public && !!league?.join_approval,
     seasonLive,
     phaseChipLabel,
     // The creator plus every co-commissioner grant, the same count
