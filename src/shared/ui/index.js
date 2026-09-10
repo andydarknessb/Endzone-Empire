@@ -27,3 +27,7 @@ export { Sprite, RefereeSprite, GoalPostSprite, FIXED as SPRITE_FIXED } from './
 // threshold, and moved here as the one canonical implementation island and
 // legacy `src/components` consumers both import.
 export { default as TeamAvatar } from './TeamAvatar';
+// The dashboard button treatment (#1166, ADR 0031's #1146 amendment): the one
+// canonical `.btn` / `.btn.primary` / `.btn.ghost` implementation the five
+// island sites that used to each define their own copy now compose.
+export { default as DashButton } from './DashButton';

@@ -1,8 +1,8 @@
 import React, { useId } from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, PosChip, Skeleton, TeamAvatar, injuryView } from '../../../shared/ui';
+import { Card, Badge, DashButton, PosChip, Skeleton, TeamAvatar, injuryView } from '../../../shared/ui';
 import useMyTeamSummary from '../model/useMyTeamSummary';
 
 /**
@@ -367,39 +367,6 @@ function StatValueSkeleton() {
 
 // --- Starters section (#1101) ----------------------------------------------
 
-// Primary button look, copied from matchup-preview's own PRIMARY_SX (that
-// widget's Set Lineup button): the registered "dashboard primary button label
-// on accent" pairing (tokens.contrast.test.js), so composing it here is not a
-// new pairing.
-//
-// This is now a FOURTH independent copy (matchup-hero, matchup-preview,
-// bench-what-if) of the same sx object, which the "matching that precedent"
-// reasoning this comment used to give is no longer good cover for: ADR 0031's
-// 2026-09-10 amendment (#1146, PR #1160) puts a presentational duplication
-// like this one in `shared/ui` at its SECOND island consumer, past which this
-// one already sits (#1101 formal review, n2). Left as a fourth copy here
-// rather than promoted in this PR - the note carried no cycle of its own -
-// but the next touch to any of these four should extract a shared
-// `shared/ui` primary-button treatment instead of adding a fifth.
-const BUTTON_BASE = {
-  textTransform: 'none',
-  fontSize: '13px',
-  fontWeight: 600,
-  lineHeight: 1.2,
-  borderRadius: '9px',
-  padding: '8px 14px',
-  minWidth: 0,
-  minHeight: 36,
-};
-const PRIMARY_SX = {
-  ...BUTTON_BASE,
-  color: 'var(--dash-on-accent)',
-  backgroundColor: 'var(--dash-accent)',
-  border: '1px solid var(--dash-accent)',
-  transition: 'filter var(--transition-fast)',
-  '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
-};
-
 // The footer's check mark, the same path MatchupGrid's LeaderCheck draws.
 // Decorative and aria-hidden: the visible copy ("Lineup set"/"Lineup
 // incomplete") already carries the meaning to a screen reader. The caller
@@ -622,9 +589,9 @@ function StartersSection({ starters }) {
                 {` · ${starters.filled} of ${starters.totalSlots}`}
               </Typography>
             </Box>
-            <Button component={RouterLink} to={starters.lineupHref} disableElevation sx={PRIMARY_SX}>
+            <DashButton component={RouterLink} to={starters.lineupHref}>
               Set Lineup
-            </Button>
+            </DashButton>
           </Box>
         </>
       )}
