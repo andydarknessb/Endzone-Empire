@@ -161,6 +161,10 @@ function normalizeEspnEvent(event, { season, week }) {
     // A finished or unstarted game reports '0:00'; Tank01 reported '' there,
     // and the UI renders the clock verbatim, so keep it null off the field.
     timeRemaining: gameStatus === 'in_progress' ? clock : null,
+    // ESPN's event id: the key of the summary endpoint the Live box reads
+    // (ADR 0035, #1182). Stored on live_game_states so a worker restart
+    // mid-game does not have to rebuild it from the scoreboard.
+    espnEventId: event && event.id != null ? String(event.id) : null,
   };
 }
 

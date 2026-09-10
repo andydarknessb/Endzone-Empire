@@ -254,11 +254,11 @@ const UPSERT_SQL = `
   INSERT INTO "live_game_states"
     ("tank01_game_id", "season", "week", "home_team", "away_team", "game_status",
      "start_time", "current_score_home", "current_score_away", "quarter",
-     "time_remaining", "last_updated")
+     "time_remaining", "last_updated", "espn_event_id")
   SELECT * FROM unnest(
     $1::text[], $2::int[], $3::int[], $4::text[], $5::text[],
     $6::text[]::game_status_type[], $7::timestamptz[], $8::int[], $9::int[],
-    $10::text[], $11::text[], $12::timestamptz[]
+    $10::text[], $11::text[], $12::timestamptz[], $13::text[]
   )
   ON CONFLICT ("tank01_game_id") DO UPDATE SET
     "season" = EXCLUDED."season",
@@ -272,6 +272,7 @@ const UPSERT_SQL = `
     "quarter" = EXCLUDED."quarter",
     "time_remaining" = EXCLUDED."time_remaining",
     "last_updated" = EXCLUDED."last_updated",
+    "espn_event_id" = COALESCE(EXCLUDED."espn_event_id", "live_game_states"."espn_event_id"),
     "updated_at" = now()
   RETURNING "tank01_game_id", "game_status"
 `;
@@ -368,6 +369,9 @@ async function upsertRows(rows) {
     rows.map((r) => r.quarter),
     rows.map((r) => r.timeRemaining),
     rows.map(() => now),
+    // A Tank01 fallback row carries no ESPN id; the COALESCE in UPSERT_SQL
+    // keeps the stored one rather than nulling it (#1182).
+    rows.map((r) => (r.espnEventId != null ? String(r.espnEventId) : null)),
   ]);
 
   // Enqueue recap generation for freshly-final games. The queue bounds the

@@ -118,8 +118,15 @@ test('normalizeEspnEvent: a real final event maps to our row shape', () => {
       currentScoreAway: 20,
       quarter: 'Final',
       timeRemaining: null, // '0:00' is noise once a game is over
+      espnEventId: '401772510', // ESPN's event id, the summary endpoint's key (#1182)
     }
   );
+});
+
+test('normalizeEspnEvent: the first event of a real week carries its ESPN event id (#1182)', () => {
+  const event = fixture.events[0];
+  const row = normalizeEspnEvent(event, { season: 2025, week: 1 });
+  assert.equal(row.espnEventId, String(event.id));
 });
 
 test('normalizeEspnEvent: an in-progress event carries the clock through', () => {

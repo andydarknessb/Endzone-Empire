@@ -7,7 +7,9 @@ const {
   nextPollPlan,
   activeClockSource,
   configuredClockSource,
+  upsertRows,
 } = require('../modules/liveGameEngine');
+const { createFakePool, select, insert } = require('./helpers/fakePool');
 
 // --- mapTank01Status ---------------------------------------------------------
 
@@ -311,4 +313,65 @@ test('clock source defaults to ESPN and can be pinned to Tank01', () => {
     if (original === undefined) delete process.env.LIVE_CLOCK_SOURCE;
     else process.env.LIVE_CLOCK_SOURCE = original;
   }
+});
+
+// --- upsertRows: espn_event_id (#1182) ---------------------------------------
+
+const ESPN_ROW = {
+  tank01GameId: '20260913_BUF@NYJ',
+  season: 2026,
+  week: 2,
+  homeTeam: 'NYJ',
+  awayTeam: 'BUF',
+  gameStatus: 'in_progress',
+  startTime: new Date('2026-09-13T17:00:00Z'),
+  currentScoreHome: 10,
+  currentScoreAway: 14,
+  quarter: 'Q3',
+  timeRemaining: '8:42',
+  espnEventId: '401772999',
+};
+
+function upsertWorld(t) {
+  const fake = createFakePool([
+    [select('live_game_states'), () => ({ rows: [] })],
+    [insert('live_game_states'), (text, params) => ({
+      rows: params[0].map((id) => ({ tank01_game_id: id, game_status: 'in_progress' })),
+    })],
+  ]);
+  fake.install(t);
+  return fake;
+}
+
+test('upsertRows: an ESPN row writes espn_event_id (#1182)', async (t) => {
+  const fake = upsertWorld(t);
+  await upsertRows([ESPN_ROW]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.ok(call, 'the upsert ran');
+  assert.match(call.text, /"espn_event_id"/, 'the insert names the column');
+  const idParam = call.params.find((p) => Array.isArray(p) && p.includes('401772999'));
+  assert.deepEqual(idParam, ['401772999'], 'the ESPN event id rides the unnest arrays');
+});
+
+test('upsertRows: a Tank01 fallback row leaves an existing espn_event_id in place (#1182)', async (t) => {
+  const fake = upsertWorld(t);
+  const tank01Row = normalizeLiveGameEntry(
+    {
+      away: 'BUF', home: 'NYJ', gameID: '20260913_BUF@NYJ', awayPts: '14', homePts: '10',
+      gameClock: '8:42', lineScore: { period: 'Q3', gameClock: '8:42' },
+      gameStatus: 'In Progress', gameStatusCode: '1',
+    },
+    { season: 2026, week: 2 }
+  );
+  await upsertRows([tank01Row]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.match(
+    call.text,
+    /"espn_event_id" = COALESCE\(EXCLUDED\."espn_event_id", "live_game_states"\."espn_event_id"\)/,
+    'a null from the Tank01 path never overwrites a stored ESPN id'
+  );
+  // The Tank01 row has no ESPN id, so its array slot is null (not '' or 'undefined').
+  const arrays = call.params.filter(Array.isArray);
+  const nullSlots = arrays.filter((arr) => arr.length === 1 && arr[0] === null);
+  assert.ok(nullSlots.length >= 1, 'the espn_event_id array carries null for a Tank01 row');
 });
