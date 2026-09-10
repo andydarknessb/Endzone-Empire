@@ -126,3 +126,47 @@ test('with nothing cached at all, the error surfaces', async () => {
   const boom = stubTransport(null, { fail: new Error('upstream 502') });
   await assert.rejects(() => news.getLatestNews({ transport: boom }), /upstream 502/);
 });
+
+// ---- #1188: game-day cadence --------------------------------------------------
+
+test('on a game day the cache TTL is one hour; otherwise six', () => {
+  const prevDay = process.env.NEWS_CACHE_TTL_GAME_DAY_MS;
+  const prev = process.env.NEWS_CACHE_TTL_MS;
+  delete process.env.NEWS_CACHE_TTL_GAME_DAY_MS;
+  delete process.env.NEWS_CACHE_TTL_MS;
+  try {
+    assert.equal(news.cacheTtlMs({ gameDay: true }), 60 * 60 * 1000);
+    assert.equal(news.cacheTtlMs({ gameDay: false }), 6 * 60 * 60 * 1000);
+    assert.equal(news.cacheTtlMs(), 6 * 60 * 60 * 1000);
+    process.env.NEWS_CACHE_TTL_GAME_DAY_MS = '1234';
+    assert.equal(news.cacheTtlMs({ gameDay: true }), 1234, 'env-tunable');
+  } finally {
+    if (prevDay === undefined) delete process.env.NEWS_CACHE_TTL_GAME_DAY_MS; else process.env.NEWS_CACHE_TTL_GAME_DAY_MS = prevDay;
+    if (prev === undefined) delete process.env.NEWS_CACHE_TTL_MS; else process.env.NEWS_CACHE_TTL_MS = prev;
+  }
+});
+
+test('a game-day fetch is cached for the game-day TTL, so the second load inside it costs nothing and a load past it refetches', async () => {
+  news.__resetNewsCache();
+  const prevDay = process.env.NEWS_CACHE_TTL_GAME_DAY_MS;
+  process.env.NEWS_CACHE_TTL_GAME_DAY_MS = '1'; // one millisecond: the window lapses at once
+  try {
+    const transport = stubTransport(ITEMS);
+    await news.getLatestNews({ transport, gameDay: true });
+    await new Promise((r) => setTimeout(r, 5));
+    await news.getLatestNews({ transport, gameDay: true });
+    assert.equal(transport.calls, 2, 'the game-day TTL, not the six-hour one, governed the cache');
+  } finally {
+    if (prevDay === undefined) delete process.env.NEWS_CACHE_TTL_GAME_DAY_MS; else process.env.NEWS_CACHE_TTL_GAME_DAY_MS = prevDay;
+  }
+});
+
+test('isGameDay reads nfl_games for the ET day and memoises the answer for that day', async () => {
+  news.__resetNewsCache();
+  let queries = 0;
+  const db = { query: async () => { queries += 1; return { rows: [{ '?column?': 1 }] }; } };
+  const now = new Date('2026-09-13T17:00:00Z');
+  assert.equal(await news.isGameDay({ now, db }), true);
+  assert.equal(await news.isGameDay({ now, db }), true);
+  assert.equal(queries, 1, 'one read per day');
+});

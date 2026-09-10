@@ -353,7 +353,9 @@ function createTank01Client({ store = pgStore, transport, now = () => new Date()
    * @throws {QuotaExhaustedError} 503 when this priority is out of budget
    */
   async function get(path, { params, priority = 'standard', transport: callTransport } = {}) {
-    if (callTransport) return callTransport.get(path, { params });
+    // The injected transport sees the priority too, so a test can assert which
+    // priority a caller asked for (the Final box must be 'essential', #1186).
+    if (callTransport) return callTransport.get(path, { params, priority });
 
     const state = await getQuotaState();
     if (!priorityAllowed(priority, state.mode)) {

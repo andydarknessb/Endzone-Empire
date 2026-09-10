@@ -62,6 +62,22 @@ function captureError(error, context = {}, options = {}) {
   });
 }
 
+/**
+ * Report a message (not an error) to Sentry with `context` as scope extras. The
+ * Live box source switch (#1184, ADR 0035) is a state change worth a breadcrumb
+ * in the error tracker, not an exception; nothing pages on it. A no-op without
+ * a DSN, and never counted in getErrorStats.
+ */
+function captureMessage(message, context = {}) {
+  if (!sentry || typeof sentry.captureMessage !== 'function') return;
+  const send = () => sentry.captureMessage(String(message));
+  if (typeof sentry.withScope !== 'function') return send();
+  return sentry.withScope((scope) => {
+    for (const [key, value] of Object.entries(context)) scope.setExtra(key, value);
+    send();
+  });
+}
+
 async function flushSentry(timeoutMs = 2000) {
   if (sentry && typeof sentry.flush === 'function') await sentry.flush(timeoutMs);
 }
@@ -77,6 +93,7 @@ function getErrorStats() {
 
 module.exports = {
   captureError,
+  captureMessage,
   flushSentry,
   getErrorStats,
   initSentry,

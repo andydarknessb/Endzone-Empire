@@ -51,9 +51,8 @@ let lastCorrectionDay = null;
 // in-process, idempotent, repeat-safe pattern as the stat-correction pass.
 let lastNflverseDay = null;
 let lastRetentionDay = null;
-// Tank01 injury refresh uses the same successful-run day stamp: failures retry
-// next tick, while an ineligible designation already committed cannot re-flag.
-let lastInjurySyncDay = null;
+// The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
+// here (#1188): see runDailyInjurySync.
 // ADP market refresh (#747): same successful-run day stamp. No credential gate -
 // FFC is free and keyless, so it runs all year. A thrown run does not stamp, so
 // the next tick retries; a thin-market run (recorded ok = false, market left
@@ -174,14 +173,90 @@ async function runRetention() {
   }
 }
 
+/** Cadence of the injury sync inside a game window (#1188); env-tunable, doubled while quota is degraded. */
+function injuryGameWindowMs(quotaMode) {
+  const parsed = Number(process.env.INJURY_GAME_WINDOW_MS);
+  const base = Number.isFinite(parsed) && parsed > 0 ? parsed : 15 * 60 * 1000;
+  return quotaMode === 'degraded' ? base * 2 : base;
+}
+
+/**
+ * The last successful injury sync, read from data_sync_runs rather than a
+ * module variable (#1188): the in-memory day stamp reset on every worker
+ * restart, so "daily" ran 3.4 times a day. Null when no successful run exists
+ * or the read fails (which then runs the sync: the safe direction).
+ */
+async function lastInjurySyncAt() {
+  try {
+    const res = await pool.query(
+      `SELECT "finished_at" FROM "data_sync_runs"
+        WHERE "job" = 'injuries' AND "ok" = true
+        ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
+    );
+    const row = res.rows[0];
+    return row && row.finished_at ? new Date(row.finished_at) : null;
+  } catch (err) {
+    console.warn('runDailyInjurySync: data_sync_runs read failed, treating as never run:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Is an NFL game window open right now? From first kickoff minus 90 minutes
+ * until the last game of the slate goes final, read off live_game_states
+ * (#1188). A slate three days out is not a window; a slate whose every game is
+ * final is not either.
+ */
+async function inGameWindow() {
+  try {
+    const res = await pool.query(
+      `SELECT 1 FROM "live_game_states"
+        WHERE "game_status" <> 'final'
+          AND "start_time" IS NOT NULL
+          AND "start_time" <= now() + interval '90 minutes'
+          AND "start_time" >= now() - interval '12 hours'
+        LIMIT 1`
+    );
+    return Boolean(res.rows[0]);
+  } catch (err) {
+    console.warn('runDailyInjurySync: game-window read failed, treating as outside a window:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Pure: should the injury sync run now? Once per local day outside a game
+ * window; every `windowMs` inside one (#1188).
+ *
+ * @param {{ now: Date, lastRunAt: ?Date, inWindow: boolean, windowMs: number }} args
+ */
+function injurySyncDue({ now, lastRunAt, inWindow, windowMs }) {
+  if (!lastRunAt) return true;
+  if (inWindow) return now.getTime() - lastRunAt.getTime() >= windowMs;
+  return lastRunAt.toLocaleDateString('en-CA') !== now.toLocaleDateString('en-CA');
+}
+
+/**
+ * Tank01 injury refresh: daily, and every INJURY_GAME_WINDOW_MS during a game
+ * window. The once-a-day gate reads the last successful `injuries` run from
+ * data_sync_runs (written by syncInjuries itself), so a worker restart cannot
+ * re-run it (#1188). A thrown run records ok=false and does not move the gate,
+ * so the next tick retries.
+ */
 async function runDailyInjurySync({ now = new Date() } = {}) {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
-  const today = now.toLocaleDateString('en-CA');
-  if (lastInjurySyncDay === today) return null;
+  const [lastRunAt, inWindow] = await Promise.all([lastInjurySyncAt(), inGameWindow()]);
+  let quotaMode = 'ok';
+  if (inWindow) {
+    try {
+      quotaMode = (await require('./tank01Client').getQuotaState()).mode;
+    } catch (err) {
+      quotaMode = 'ok';
+    }
+  }
+  if (!injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) })) return null;
   const scoring = require('../services/scoring.service');
-  const result = await scoring.syncInjuries();
-  lastInjurySyncDay = today;
-  return result;
+  return scoring.syncInjuries();
 }
 
 /**
@@ -517,6 +592,8 @@ module.exports = {
   syncAndScoreLiveWeeks,
   syncEveryTicks,
   runDailyInjurySync,
+  injurySyncDue,
+  injuryGameWindowMs,
   runDailyAdpSync,
   runHoldoutSnapshots,
   runPickemWeekSync,
