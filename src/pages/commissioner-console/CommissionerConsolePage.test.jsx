@@ -1,10 +1,11 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { invalidate } from '../../lib/resourceCache';
+import { publishTeamProfileUpdate, TEAM_PROFILE_UPDATED_EVENT } from '../../lib/teamProfileEvents';
 import CommissionerConsolePage from './index';
 
 /**
@@ -26,6 +27,14 @@ jest.mock('../../components/LeagueDashboard/CommissionerTools', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
+    // `data-teams` carries the raw `teams` prop as JSON (teamId/name/teamName/
+    // avatar fields, whatever the panel hands the real component today) so a
+    // live-identity test (#1172) can pin the write-through this page's own
+    // subscription is responsible for - the raw `name` CommissionerTools
+    // renders in its removable-Teams row and `Remove <name>` control, and the
+    // canonical `teamName` its other tabs read - without reaching into that
+    // component's own heavy fetch/tab machinery, which its dedicated test
+    // file already covers.
     default: ({ leagueId, league, teams, viewerTeamId, isOwner, onRefresh }) =>
       ReactLib.createElement(
         'div',
@@ -34,6 +43,7 @@ jest.mock('../../components/LeagueDashboard/CommissionerTools', () => {
           'data-league-id': leagueId,
           'data-league-name': league?.name,
           'data-teams-count': Array.isArray(teams) ? teams.length : -1,
+          'data-teams': JSON.stringify(teams ?? []),
           'data-viewer-team-id': viewerTeamId,
           'data-is-owner': String(isOwner),
           'data-has-refresh': typeof onRefresh === 'function' ? 'yes' : 'no',
@@ -101,6 +111,21 @@ const teamsWithLocks = (n, lockedCount) =>
     id: i + 1,
     teamName: `Team ${i + 1}`,
     locked: i < lockedCount,
+  }));
+
+// Carries both Team-name shapes the live-identity tests (#1172) pin: the raw
+// `name` column CommissionerTools renders (the removable-Teams row, the
+// `Remove <name>` control) and the canonical `teamName` other consumers read,
+// deliberately distinct so a write-through that only patches one shape is
+// caught. Also carries the avatar columns the same event updates.
+const teamsWithIdentity = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    teamId: i + 1,
+    id: i + 1,
+    name: `raw-${i + 1}`,
+    teamName: `Team ${i + 1}`,
+    avatar_url: `avatar-${i + 1}.png`,
+    avatar_static_url: `avatar-${i + 1}-static.png`,
   }));
 
 // The GET /api/league/:id payload. `league` merges over a fully-configured
@@ -322,4 +347,94 @@ test('a failed league read renders a titled dead end, one alert, and a control t
       apiClient.get.mock.calls.filter(([url]) => url === '/api/league/42').length
     ).toBeGreaterThan(before)
   );
+});
+
+// --- live Team identity (#1172) --------------------------------------------
+//
+// The dashboard (LeagueDashboardPage.jsx) only keeps teams[] current while
+// IT is mounted; once the viewer is on this console instead, that
+// subscription is gone. useCommissionerConsole owns its own League-scoped
+// copy so CommissionerTools - which renders the raw `name` column in its
+// removable-Teams row and `Remove <name>` control - never shows a stale
+// rename. `data-teams` on the mocked stand-in carries the exact `teams` prop
+// the real component would render from, so these tests pin the write-through
+// this page's own subscription is responsible for without reaching into
+// CommissionerTools' own heavy fetch/tab machinery.
+const teamsPropOf = (tools) => JSON.parse(tools.getAttribute('data-teams'));
+
+test('a Team-profile rename for this League patches the raw name, canonical teamName and avatar fields with no second league GET', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ teams: teamsWithIdentity(3) }) });
+  renderPage();
+
+  const tools = await screen.findByTestId('mock-commissioner-tools');
+  expect(teamsPropOf(tools).find((t) => t.teamId === 2)).toMatchObject({
+    name: 'raw-2',
+    teamName: 'Team 2',
+    avatar_url: 'avatar-2.png',
+    avatar_static_url: 'avatar-2-static.png',
+  });
+
+  const before = apiClient.get.mock.calls.filter(([url]) => url === '/api/league/42').length;
+
+  act(() => {
+    publishTeamProfileUpdate({
+      leagueId: 42,
+      teamId: 2,
+      name: 'Renamed Two',
+      avatarUrl: 'renamed-two.png',
+      avatarStaticUrl: 'renamed-two-static.png',
+    });
+  });
+
+  await waitFor(() => {
+    expect(teamsPropOf(screen.getByTestId('mock-commissioner-tools')).find((t) => t.teamId === 2)).toMatchObject({
+      name: 'Renamed Two',
+      teamName: 'Renamed Two',
+      avatar_url: 'renamed-two.png',
+      avatar_static_url: 'renamed-two-static.png',
+    });
+  });
+
+  // Team 1 and Team 3 are untouched.
+  const teams = teamsPropOf(screen.getByTestId('mock-commissioner-tools'));
+  expect(teams.find((t) => t.teamId === 1)).toMatchObject({ name: 'raw-1', teamName: 'Team 1' });
+  expect(teams.find((t) => t.teamId === 3)).toMatchObject({ name: 'raw-3', teamName: 'Team 3' });
+
+  // The write-through made no request: still the same league GET count.
+  expect(apiClient.get.mock.calls.filter(([url]) => url === '/api/league/42').length).toBe(before);
+});
+
+test('a Team-profile update for another League does not change the console', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ teams: teamsWithIdentity(3) }) });
+  renderPage();
+
+  const tools = await screen.findByTestId('mock-commissioner-tools');
+  const before = teamsPropOf(tools);
+
+  act(() => {
+    publishTeamProfileUpdate({ leagueId: 999, teamId: 2, name: 'Should not appear' });
+  });
+
+  expect(teamsPropOf(screen.getByTestId('mock-commissioner-tools'))).toEqual(before);
+  expect(screen.queryByText(/Should not appear/)).not.toBeInTheDocument();
+});
+
+test('the subscription is cleaned up on unmount', async () => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ teams: teamsWithIdentity(3) }) });
+  const addSpy = jest.spyOn(window, 'addEventListener');
+  const removeSpy = jest.spyOn(window, 'removeEventListener');
+
+  const { unmount } = renderPage();
+  await screen.findByTestId('mock-commissioner-tools');
+
+  const addCall = addSpy.mock.calls.find(([eventName]) => eventName === TEAM_PROFILE_UPDATED_EVENT);
+  expect(addCall).toBeDefined();
+  const [, handler] = addCall;
+
+  unmount();
+
+  expect(removeSpy).toHaveBeenCalledWith(TEAM_PROFILE_UPDATED_EVENT, handler);
+
+  addSpy.mockRestore();
+  removeSpy.mockRestore();
 });
