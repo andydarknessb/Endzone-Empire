@@ -296,7 +296,8 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     try {
       const scoring = require('./scoring.service');
       const maps = await scoring.loadWeekMaps({ season: state.season, week: state.week });
-      await scoring.applyGameBoxScore({ box, season: state.season, week: state.week, maps });
+      const liveBox = require('./tank01BoxSource').fromBox(box);
+      await scoring.applyGameBoxScore({ liveBox, season: state.season, week: state.week, maps });
       await scoring.markFinalStatsSynced(tank01GameId);
     } catch (err) {
       console.error('gameRecap: final stat ingest failed for %s:', tank01GameId, err.message);

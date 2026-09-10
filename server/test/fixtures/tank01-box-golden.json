@@ -1,0 +1,726 @@
+{
+  "_comment": "Golden for the Box source seam (#1183). expected was captured from applyGameBoxScore at origin/integration 705a7598 (pre-refactor) with pool.query stubbed; upserts are [playerId, season, week, stats, fantasyPoints] in write order. Regenerating this file is a behaviour change and needs a review, not a rerun.",
+  "box": {
+    "gameID": "20260913_JAC@WSH",
+    "gameStatus": "Live - In Progress",
+    "gameStatusCode": "1",
+    "home": "WSH",
+    "away": "JAC",
+    "playerStats": {
+      "999999": {
+        "playerID": "999999",
+        "teamAbv": "JAC",
+        "Rushing": {
+          "rushYds": "40"
+        }
+      },
+      "3915511": {
+        "playerID": "3915511",
+        "teamAbv": "JAC",
+        "Defense": {
+          "totalTackles": "9",
+          "soloTackles": "6",
+          "sacks": "1.5",
+          "defensiveInterceptions": "1",
+          "forcedFumbles": "1",
+          "fumblesRecovered": "1",
+          "passDeflections": "2",
+          "qbHits": "3",
+          "tfl": "2",
+          "defTD": "1",
+          "interceptionTDs": "1",
+          "twoPointConversionReturn": "1",
+          "fumblesLost": "0"
+        }
+      },
+      "4360438": {
+        "playerID": "4360438",
+        "teamAbv": "WSH",
+        "Punting": {
+          "puntReturns": "3",
+          "puntReturnYds": "58",
+          "puntReturnTD": "1"
+        }
+      },
+      "4430878": {
+        "playerID": "4430878",
+        "teamAbv": "JAC",
+        "Receiving": {
+          "recYds": "122",
+          "recTD": "1",
+          "receptions": "8",
+          "targets": "11"
+        },
+        "Rushing": {
+          "rushYds": "-3",
+          "rushTD": "0",
+          "carries": "1"
+        },
+        "Defense": {
+          "fumblesLost": "0"
+        }
+      },
+      "4431452": {
+        "playerID": "4431452",
+        "teamAbv": "WSH",
+        "Passing": {
+          "passYds": "287",
+          "passTD": "2",
+          "int": "1",
+          "passAttempts": "38",
+          "passCompletions": "26"
+        },
+        "Rushing": {
+          "rushYds": "23",
+          "rushTD": "1",
+          "carries": "5"
+        },
+        "fumblesLost": "1"
+      },
+      "4569923": {
+        "playerID": "4569923",
+        "teamAbv": "WSH",
+        "Kicking": {
+          "fgMade": "2",
+          "fgAttempts": "3",
+          "xpMade": "3",
+          "xpAttempts": "4"
+        }
+      }
+    },
+    "DST": {
+      "home": {
+        "teamAbv": "WSH",
+        "sacks": "3",
+        "defensiveInterceptions": "2",
+        "fumblesRecovered": "1",
+        "defTD": "1",
+        "safeties": "0",
+        "ptsAllowed": "17",
+        "ydsAllowed": "312"
+      },
+      "away": {
+        "teamAbv": "JAC",
+        "sacks": "2",
+        "defensiveInterceptions": "1",
+        "fumblesRecovered": "0",
+        "defTD": "0",
+        "safeties": "1",
+        "ptsAllowed": "31",
+        "ydsAllowed": "402"
+      }
+    },
+    "teamStats": {
+      "home": {
+        "teamAbv": "WSH",
+        "blockedFG": "1",
+        "blockedXP": "0",
+        "blockedPunt": "0"
+      },
+      "away": {
+        "teamAbv": "JAC",
+        "blockedFG": "0",
+        "blockedXP": "1",
+        "blockedPunt": "1"
+      }
+    },
+    "allPlayByPlay": [
+      {
+        "playerStats": {
+          "4569923": {
+            "Kicking": {
+              "fgMade": "1",
+              "fgYds": "47"
+            }
+          }
+        }
+      },
+      {
+        "playerStats": {
+          "4569923": {
+            "Kicking": {
+              "fgMade": "1",
+              "fgYds": "23"
+            }
+          }
+        }
+      },
+      {
+        "playerStats": {
+          "4569923": {
+            "Kicking": {
+              "fgMade": "0",
+              "fgYds": "52"
+            }
+          }
+        }
+      },
+      {
+        "playerStats": {
+          "4430878": {
+            "Receiving": {
+              "recTD": "1",
+              "recYds": "45"
+            }
+          },
+          "4431452": {
+            "Passing": {
+              "passTD": "1",
+              "passYds": "45"
+            }
+          }
+        }
+      },
+      {
+        "playerStats": {
+          "4431452": {
+            "Passing": {
+              "passTD": "1",
+              "passYds": "8"
+            }
+          }
+        }
+      },
+      {
+        "playerStats": {
+          "4431452": {
+            "Rushing": {
+              "rushTD": "1",
+              "rushYds": "2"
+            }
+          }
+        }
+      },
+      {
+        "noPlayerStats": true
+      }
+    ]
+  },
+  "maps": {
+    "idByExternal": [
+      [
+        "4431452",
+        11
+      ],
+      [
+        "4430878",
+        12
+      ],
+      [
+        "4569923",
+        13
+      ],
+      [
+        "3915511",
+        14
+      ],
+      [
+        "4360438",
+        15
+      ]
+    ],
+    "metaById": [
+      [
+        11,
+        {
+          "id": 11,
+          "name": "Jayden Daniels",
+          "position": "QB",
+          "nfl_team": "WSH"
+        }
+      ],
+      [
+        12,
+        {
+          "id": 12,
+          "name": "Brian Thomas Jr.",
+          "position": "WR",
+          "nfl_team": "JAC"
+        }
+      ],
+      [
+        13,
+        {
+          "id": 13,
+          "name": "Andy Borregales",
+          "position": "K",
+          "nfl_team": "WSH"
+        }
+      ],
+      [
+        14,
+        {
+          "id": 14,
+          "name": "Devin Lloyd",
+          "position": "LB",
+          "nfl_team": "JAC"
+        }
+      ],
+      [
+        15,
+        {
+          "id": 15,
+          "name": "Return Man",
+          "position": "WR",
+          "nfl_team": "WSH"
+        }
+      ]
+    ],
+    "defByTeamCode": [
+      [
+        "WAS",
+        {
+          "id": 91,
+          "name": "Washington Commanders",
+          "nfl_team": "Washington Commanders"
+        }
+      ],
+      [
+        "JAX",
+        {
+          "id": 92,
+          "name": "Jacksonville Jaguars",
+          "nfl_team": "Jacksonville Jaguars"
+        }
+      ]
+    ],
+    "prevById": [
+      [
+        11,
+        {
+          "passingYards": 150,
+          "passingTDs": 1,
+          "rushingTDs": 0,
+          "usageTargets": 0,
+          "usagePassAttempts": 20,
+          "gameTeam": "WSH",
+          "gameOpponent": "JAC"
+        }
+      ],
+      [
+        13,
+        {
+          "fieldGoal": 1,
+          "extraPoint": 1,
+          "fieldGoalDistances": [
+            47
+          ]
+        }
+      ],
+      [
+        14,
+        {
+          "soloTackle": 2,
+          "idpSackYards": 7,
+          "idpSafety": 0
+        }
+      ],
+      [
+        91,
+        {
+          "sack": 1,
+          "interceptionReturn": 0,
+          "gameTeam": "WSH",
+          "gameOpponent": "JAC"
+        }
+      ]
+    ],
+    "opponentByTeam": [
+      [
+        "WSH",
+        "JAC"
+      ],
+      [
+        "JAC",
+        "WSH"
+      ]
+    ]
+  },
+  "expected": {
+    "updated": 7,
+    "plays": [
+      {
+        "playerId": 15,
+        "name": "Return Man",
+        "position": "WR",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "return",
+        "tdDelta": 1,
+        "pointsDelta": 6,
+        "isTouchdown": true
+      },
+      {
+        "playerId": 15,
+        "name": "Return Man",
+        "position": "WR",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "puntReturn",
+        "tdDelta": 3,
+        "pointsDelta": 6,
+        "isTouchdown": false
+      },
+      {
+        "playerId": 12,
+        "name": "Brian Thomas Jr.",
+        "position": "WR",
+        "nflTeam": "JAX",
+        "opponent": "WAS",
+        "type": "receiving",
+        "tdDelta": 1,
+        "pointsDelta": 21.9,
+        "isTouchdown": true
+      },
+      {
+        "playerId": 11,
+        "name": "Jayden Daniels",
+        "position": "QB",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "passing",
+        "tdDelta": 1,
+        "pointsDelta": 13.78,
+        "isTouchdown": true
+      },
+      {
+        "playerId": 11,
+        "name": "Jayden Daniels",
+        "position": "QB",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "rushing",
+        "tdDelta": 1,
+        "pointsDelta": 13.78,
+        "isTouchdown": true
+      },
+      {
+        "playerId": 13,
+        "name": "Andy Borregales",
+        "position": "K",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "fieldGoal",
+        "tdDelta": 1,
+        "pointsDelta": 5,
+        "isTouchdown": false
+      },
+      {
+        "playerId": 13,
+        "name": "Andy Borregales",
+        "position": "K",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "extraPoint",
+        "tdDelta": 2,
+        "pointsDelta": 5,
+        "isTouchdown": false
+      },
+      {
+        "playerId": 91,
+        "name": "Washington Commanders",
+        "position": "DEF",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "defensive",
+        "tdDelta": 1,
+        "pointsDelta": 20,
+        "isTouchdown": true
+      },
+      {
+        "playerId": 91,
+        "name": "Washington Commanders",
+        "position": "DEF",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "sack",
+        "tdDelta": 2,
+        "pointsDelta": 20,
+        "isTouchdown": false
+      },
+      {
+        "playerId": 91,
+        "name": "Washington Commanders",
+        "position": "DEF",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "interception",
+        "tdDelta": 2,
+        "pointsDelta": 20,
+        "isTouchdown": false
+      },
+      {
+        "playerId": 91,
+        "name": "Washington Commanders",
+        "position": "DEF",
+        "nflTeam": "WAS",
+        "opponent": "JAX",
+        "type": "fumble",
+        "tdDelta": 1,
+        "pointsDelta": 20,
+        "isTouchdown": false
+      },
+      {
+        "playerId": 92,
+        "name": "Jacksonville Jaguars",
+        "position": "DEF",
+        "nflTeam": "JAX",
+        "opponent": "WAS",
+        "type": "sack",
+        "tdDelta": 2,
+        "pointsDelta": 6,
+        "isTouchdown": false
+      },
+      {
+        "playerId": 92,
+        "name": "Jacksonville Jaguars",
+        "position": "DEF",
+        "nflTeam": "JAX",
+        "opponent": "WAS",
+        "type": "interception",
+        "tdDelta": 1,
+        "pointsDelta": 6,
+        "isTouchdown": false
+      }
+    ],
+    "upserts": [
+      [
+        14,
+        2026,
+        2,
+        {
+          "passingYards": 0,
+          "passingTDs": 0,
+          "interceptions": 0,
+          "rushingYards": 0,
+          "rushingTDs": 0,
+          "receivingYards": 0,
+          "receivingTDs": 0,
+          "receptions": 0,
+          "fumbles": 0,
+          "fieldGoal": 0,
+          "fieldGoalMissed": 0,
+          "extraPoint": 0,
+          "extraPointMissed": 0,
+          "returnTDs": 0,
+          "puntReturns": 0,
+          "puntReturnYards": 0,
+          "soloTackle": 6,
+          "assistedTackle": 3,
+          "idpSack": 1.5,
+          "idpInterception": 1,
+          "forcedFumble": 1,
+          "idpFumbleRecovery": 1,
+          "passDeflection": 2,
+          "qbHit": 3,
+          "tacklesForLoss": 2,
+          "idpDefensiveTD": 0,
+          "twoPointReturn": 1,
+          "idpSackYards": 7,
+          "idpSafety": 0
+        },
+        29.5
+      ],
+      [
+        15,
+        2026,
+        2,
+        {
+          "passingYards": 0,
+          "passingTDs": 0,
+          "interceptions": 0,
+          "rushingYards": 0,
+          "rushingTDs": 0,
+          "receivingYards": 0,
+          "receivingTDs": 0,
+          "receptions": 0,
+          "fumbles": 0,
+          "fieldGoal": 0,
+          "fieldGoalMissed": 0,
+          "extraPoint": 0,
+          "extraPointMissed": 0,
+          "returnTDs": 1,
+          "puntReturns": 3,
+          "puntReturnYards": 58,
+          "soloTackle": 0,
+          "assistedTackle": 0,
+          "idpSack": 0,
+          "idpInterception": 0,
+          "forcedFumble": 0,
+          "idpFumbleRecovery": 0,
+          "passDeflection": 0,
+          "qbHit": 0,
+          "tacklesForLoss": 0,
+          "idpDefensiveTD": 0,
+          "twoPointReturn": 0
+        },
+        6
+      ],
+      [
+        12,
+        2026,
+        2,
+        {
+          "passingYards": 0,
+          "passingTDs": 0,
+          "interceptions": 0,
+          "rushingYards": -3,
+          "rushingTDs": 0,
+          "receivingYards": 122,
+          "receivingTDs": 1,
+          "receptions": 8,
+          "fumbles": 0,
+          "fieldGoal": 0,
+          "fieldGoalMissed": 0,
+          "extraPoint": 0,
+          "extraPointMissed": 0,
+          "returnTDs": 0,
+          "puntReturns": 0,
+          "puntReturnYards": 0,
+          "soloTackle": 0,
+          "assistedTackle": 0,
+          "idpSack": 0,
+          "idpInterception": 0,
+          "forcedFumble": 0,
+          "idpFumbleRecovery": 0,
+          "passDeflection": 0,
+          "qbHit": 0,
+          "tacklesForLoss": 0,
+          "idpDefensiveTD": 0,
+          "twoPointReturn": 0,
+          "fieldGoalDistances": [],
+          "passingTDLengths": [],
+          "rushingTDLengths": [],
+          "receivingTDLengths": [
+            45
+          ]
+        },
+        21.9
+      ],
+      [
+        11,
+        2026,
+        2,
+        {
+          "passingYards": 287,
+          "passingTDs": 2,
+          "interceptions": 1,
+          "rushingYards": 23,
+          "rushingTDs": 1,
+          "receivingYards": 0,
+          "receivingTDs": 0,
+          "receptions": 0,
+          "fumbles": 1,
+          "fieldGoal": 0,
+          "fieldGoalMissed": 0,
+          "extraPoint": 0,
+          "extraPointMissed": 0,
+          "returnTDs": 0,
+          "puntReturns": 0,
+          "puntReturnYards": 0,
+          "soloTackle": 0,
+          "assistedTackle": 0,
+          "idpSack": 0,
+          "idpInterception": 0,
+          "forcedFumble": 0,
+          "idpFumbleRecovery": 0,
+          "passDeflection": 0,
+          "qbHit": 0,
+          "tacklesForLoss": 0,
+          "idpDefensiveTD": 0,
+          "twoPointReturn": 0,
+          "fieldGoalDistances": [],
+          "passingTDLengths": [
+            45,
+            8
+          ],
+          "rushingTDLengths": [
+            2
+          ],
+          "receivingTDLengths": [],
+          "usagePassAttempts": 20,
+          "usageTargets": 0,
+          "gameTeam": "WSH",
+          "gameOpponent": "JAC"
+        },
+        23.78
+      ],
+      [
+        13,
+        2026,
+        2,
+        {
+          "passingYards": 0,
+          "passingTDs": 0,
+          "interceptions": 0,
+          "rushingYards": 0,
+          "rushingTDs": 0,
+          "receivingYards": 0,
+          "receivingTDs": 0,
+          "receptions": 0,
+          "fumbles": 0,
+          "fieldGoal": 2,
+          "fieldGoalMissed": 1,
+          "extraPoint": 3,
+          "extraPointMissed": 1,
+          "returnTDs": 0,
+          "puntReturns": 0,
+          "puntReturnYards": 0,
+          "soloTackle": 0,
+          "assistedTackle": 0,
+          "idpSack": 0,
+          "idpInterception": 0,
+          "forcedFumble": 0,
+          "idpFumbleRecovery": 0,
+          "passDeflection": 0,
+          "qbHit": 0,
+          "tacklesForLoss": 0,
+          "idpDefensiveTD": 0,
+          "twoPointReturn": 0,
+          "fieldGoalDistances": [
+            47,
+            23
+          ],
+          "passingTDLengths": [],
+          "rushingTDLengths": [],
+          "receivingTDLengths": []
+        },
+        10
+      ],
+      [
+        91,
+        2026,
+        2,
+        {
+          "sack": 3,
+          "interceptionReturn": 2,
+          "fumbleRecovery": 1,
+          "defensiveTD": 1,
+          "safety": 0,
+          "blockedKick": 2,
+          "pointsAllowed": 17,
+          "yardsAllowed": 312,
+          "gameTeam": "WSH",
+          "gameOpponent": "JAC"
+        },
+        21
+      ],
+      [
+        92,
+        2026,
+        2,
+        {
+          "sack": 2,
+          "interceptionReturn": 1,
+          "fumbleRecovery": 0,
+          "defensiveTD": 0,
+          "safety": 1,
+          "blockedKick": 1,
+          "pointsAllowed": 31,
+          "yardsAllowed": 402
+        },
+        6
+      ]
+    ]
+  }
+}
