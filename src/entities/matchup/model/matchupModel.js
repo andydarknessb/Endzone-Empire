@@ -41,6 +41,9 @@ export function matchupFromListRow(row) {
     week: r.week ?? null,
     final: !!r.final,
     status: r.status ?? null,
+    nflGameIds: Array.isArray(r.nfl_game_ids)
+      ? r.nfl_game_ids.map(String)
+      : Array.isArray(r.nflGameIds) ? r.nflGameIds.map(String) : [],
     // The earliest kickoff among either side's starters, and when the live
     // score pass last touched the week (#892); ISO strings or null.
     firstKickoffAt: r.first_kickoff_at ?? null,

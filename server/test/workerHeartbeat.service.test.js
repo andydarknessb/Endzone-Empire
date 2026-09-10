@@ -2,21 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
-
 const pool = require('../modules/pool');
 const { recordWorkerHeartbeat } = require('../services/workerHeartbeat.service');
 const healthRouter = require('../routes/health.router');
 
-/**
- * The worker's release SHA, observable end to end: written by the heartbeat,
- * surfaced by /api/health/worker. Before this, a green web deploy was fully
- * compatible with the worker still running old code - invisible until a
- * holdout capture had already committed under the wrong protocol.
- */
-
 function stashReleaseEnv(t) {
-  // Destructured because eslint's testing-library plugin misreads a plain
-  // assignment from anything render-shaped as a component render.
   const { RENDER_GIT_COMMIT: prevSha, APP_RELEASE: prevApp } = process.env;
   t.after(() => {
     if (prevSha !== undefined) process.env.RENDER_GIT_COMMIT = prevSha;
@@ -38,7 +28,9 @@ test('heartbeat rows carry the worker release SHA from the environment', async (
   await recordWorkerHeartbeat({ name: 'jobs', error: null });
   assert.equal(calls.length, 1);
   assert.match(calls[0].sql, /"release_sha"/);
-  assert.deepEqual(calls[0].params, ['jobs', null, 'abc123def4567890']);
+  assert.deepEqual(calls[0].params, [
+    'jobs', null, 'abc123def4567890', JSON.stringify({ scheduler: null, liveGameEngine: null }),
+  ]);
 });
 
 test('a heartbeat without release env records release null rather than fabricating provenance', async (t) => {
@@ -51,15 +43,40 @@ test('a heartbeat without release env records release null rather than fabricati
     return { rows: [] };
   });
   await recordWorkerHeartbeat({ name: 'jobs', error: 'tick failed' });
-  assert.deepEqual(calls[0].params, ['jobs', 'tick failed', null]);
+  assert.deepEqual(calls[0].params, [
+    'jobs', 'tick failed', null, JSON.stringify({ scheduler: null, liveGameEngine: null }),
+  ]);
+});
+
+test('recordWorkerHeartbeat persists the worker job snapshots', async (t) => {
+  stashReleaseEnv(t);
+  process.env.RENDER_GIT_COMMIT = 'release-test';
+  let query;
+  t.mock.method(pool, 'query', async (text, params) => {
+    query = { text, params };
+    return { rows: [] };
+  });
+
+  await recordWorkerHeartbeat({
+    name: 'jobs',
+    error: null,
+    scheduler: { lastTickAt: '2026-09-10T00:40:00.000Z' },
+    liveGameEngine: { lastRunAt: '2026-09-10T00:40:30.000Z' },
+  });
+
+  assert.match(query.text, /"job_status"/);
+  assert.equal(query.params[0], 'jobs');
+  assert.equal(query.params[1], null);
+  assert.equal(query.params[2], 'release-test');
+  assert.deepEqual(JSON.parse(query.params[3]), {
+    scheduler: { lastTickAt: '2026-09-10T00:40:00.000Z' },
+    liveGameEngine: { lastRunAt: '2026-09-10T00:40:30.000Z' },
+  });
 });
 
 test('GET /api/health/worker surfaces each worker release SHA', async (t) => {
   const app = express();
   app.use('/api/health', healthRouter);
-  // /worker now runs two reads: the heartbeat query and the overdue-clock probe
-  // over "leagues" (#768). Route by SQL so the heartbeat shape is not fed to the
-  // overdue mapper (a catch-all would read as one bogus overdue clock and 503).
   t.mock.method(pool, 'query', async (sql) => {
     if (/FROM "leagues"/.test(String(sql))) return { rows: [] };
     return {
@@ -68,6 +85,7 @@ test('GET /api/health/worker surfaces each worker release SHA', async (t) => {
         last_seen_at: new Date().toISOString(),
         last_error: null,
         release_sha: 'abc123def4567890',
+        job_status: null,
       }],
     };
   });

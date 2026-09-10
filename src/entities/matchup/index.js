@@ -8,8 +8,9 @@
  * the existing generic Team profile helper (`src/lib/teamProfileEvents`, which
  * the issue mandated) and a plain fetch (`src/api/apiClient`, the same module
  * `shared/lib/useEndpoint` reads) - plus, since #885, the anon Supabase client
- * (`src/api/supabaseClient`) for the one live game state subscription a
- * Matchup holds. Everything else in this folder is internal.
+ * (`src/api/supabaseClient`) for the shared live game state subscription used
+ * by Matchup Detail and Game Center. Everything else in this folder is
+ * internal.
  *
  * Since #1137 (ADR 0031's below-island clause) the entity also models the
  * Scoring play: `playsFromScoreEvent`, `matchupPlaySide` and `playLabel`
@@ -27,3 +28,4 @@ export {
 export { playsFromScoreEvent, matchupPlaySide, playLabel } from './model/play';
 export { useLeagueMatchups } from './model/useLeagueMatchups';
 export { useMatchup } from './model/useMatchup';
+export { useLiveGameStates } from './model/useLiveGameStates';
