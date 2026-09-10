@@ -115,16 +115,32 @@ test('each row carries its own Team name in its buttons’ accessible names, and
 
 const approveButton = () => screen.getByRole('button', { name: "Approve Gridiron Gang's join request" });
 
-test('Approve posts { approve: true }, the list re-reads, and the outcome is announced', async () => {
-  mockGetByUrl({
-    '/api/league/42': leagueResponse({ league: screenedPublicLeague() }),
-    '/api/league/42/join-requests': { data: [pendingRow()] },
+test('Approve posts { approve: true }, the list re-reads, and the announcement survives the post-decision loading window', async () => {
+  // The join-requests GET resolves normally on its first call (the initial
+  // load); the second call - the re-read a successful decision triggers - is
+  // held open on a deferred promise, so the widget's `loading` status is
+  // actually observed rather than skipped past. Without this, a mocked GET
+  // that resolves before any assertion runs would let the announcement
+  // region be gated on `status === 'ready'` (making it disappear for exactly
+  // the window it exists to cover) without the test ever going red - the
+  // formal review's F1.
+  let resolveRefetch;
+  let joinRequestsCalls = 0;
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/league/42' || url.endsWith('/api/league/42')) {
+      return Promise.resolve(leagueResponse({ league: screenedPublicLeague() }));
+    }
+    if (url.endsWith('/join-requests')) {
+      joinRequestsCalls += 1;
+      if (joinRequestsCalls === 1) return Promise.resolve({ data: [pendingRow()] });
+      return new Promise((resolve) => { resolveRefetch = resolve; });
+    }
+    return Promise.resolve({ data: [] });
   });
   apiClient.post.mockResolvedValue({ data: { status: 'approved' } });
   renderWidget();
 
   await screen.findByText(/Gridiron Gang/);
-  const before = joinRequestUrls().length;
 
   await userEvent.click(approveButton());
 
@@ -132,11 +148,20 @@ test('Approve posts { approve: true }, the list re-reads, and the outcome is ann
     '/api/league/42/join-requests/7/decide',
     { approve: true }
   ));
-  // The re-read: a second GET against the same endpoint, not merely a local
-  // splice of the row out of state.
-  await waitFor(() => expect(joinRequestUrls().length).toBeGreaterThan(before));
-  // The status region (a11y risk review): unconditional, so it survives the
-  // reload's loading/ready flip and still carries the outcome.
+  // The re-read fired - a second GET against the same endpoint, not merely a
+  // local splice of the row out of state - and is still on the wire: the
+  // widget is mid-reload, `status` is 'loading', and every row (including the
+  // one whose button was just pressed) is gone from the DOM, replaced by the
+  // loading placeholder.
+  await screen.findByTestId('join-requests-loading');
+  expect(joinRequestsCalls).toBe(2);
+  expect(screen.getByTestId('join-requests-announcement')).toHaveTextContent(
+    "Approved Gridiron Gang's join request."
+  );
+
+  resolveRefetch({ data: [] });
+  await waitFor(() => expect(screen.queryByTestId('join-requests-loading')).not.toBeInTheDocument());
+  // The announcement still holds once the reload lands, too.
   expect(screen.getByTestId('join-requests-announcement')).toHaveTextContent(
     "Approved Gridiron Gang's join request."
   );

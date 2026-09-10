@@ -23,11 +23,14 @@ import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE_META } from '../../../lib
  * `showJoinQueue` (#1109) is the same three-clause gate `useCommissionerPanel`
  * states for the League Dashboard strip's copy of this queue
  * (`is_commissioner && is_public && join_approval`): it decides whether the
- * page mounts the `join-requests` widget at all, above the tools column. The
- * widget's own model re-derives the identical expression for its read (see
- * `useJoinRequests`'s docblock) - each surface that reads this queue owns its
- * own gate, matching how CommissionerTools' GeneralSettingsPanel and
- * useCommissionerPanel already state it independently of each other.
+ * page mounts the `join-requests` widget at all, above the tools column, and
+ * it is computed - like the redirect just above it - before this page has
+ * confirmed anything about the viewer, which is why `is_commissioner` is
+ * still one of its three clauses rather than two. The widget's own model
+ * re-derives the identical three-clause expression for its read (see
+ * `useJoinRequests`'s docblock, which is also where the narrower, two-clause
+ * gate CommissionerTools' GeneralSettingsPanel checks - correctly, given
+ * where IT is composed - is explained).
  *
  * The phase chip label is the same derivation `LeagueDashboardPage` uses:
  * "Week N · <phase label>" while the season is being played, the bare phase

@@ -14,9 +14,20 @@ import { useLeague } from '../../../hooks/useLeague';
  * (`league.is_commissioner && league.is_public && league.join_approval`): a
  * private league takes no join requests, and a public league that does not
  * screen joins admits them without ever queueing one. It is re-derived here
- * rather than shared, matching how CommissionerTools' own GeneralSettingsPanel
- * and useCommissionerPanel each already state it independently - each surface
- * that reads this queue owns its own gate.
+ * rather than shared, the way `useCommissionerPanel` re-derives its own copy
+ * too - each surface that reads this queue owns its own gate.
+ *
+ * CommissionerTools' own GeneralSettingsPanel (CommissionerTools.jsx:562)
+ * checks only two of these three clauses, `is_public && join_approval`, not
+ * `useCommissionerPanel`'s three - correctly, not as a fourth copy drifting
+ * from the other three: GeneralSettingsPanel is composed on a page (this one,
+ * and the League Dashboard's commissioner strip) only after that page has
+ * already confirmed the viewer is a commissioner, so `is_commissioner` would
+ * be a redundant clause there. This HOOK is not in that position: it mounts
+ * inside the very widget the page uses to decide what to show a commissioner
+ * with, so it re-derives all three, the same reasoning `useCommissionerPanel`
+ * gives for its own copy (a mount that cannot assume its caller already
+ * checked).
  *
  * The join-requests read is NOT `shared/lib`'s `useEndpoint`: this widget
  * needs a real re-read after a decision (the ticket's own contract - "the
