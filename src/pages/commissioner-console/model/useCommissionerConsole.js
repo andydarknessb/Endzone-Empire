@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { useLeague } from '../../../hooks/useLeague';
 import { commissionerFacts } from '../../../shared/lib';
 import { isPickemOnly } from '../../../lib/leagueType';
 import { isLeagueCreator } from '../../../lib/teamIdentity';
 import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE_META } from '../../../lib/leaguePhase';
+import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 
 /**
  * Data model for the `commissioner-console` page slice (ADR 0034, #1107). It
@@ -36,9 +38,50 @@ import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE_META } from '../../../lib
  * "Week N · <phase label>" while the season is being played, the bare phase
  * label otherwise, from the client League-phase helper and never a stored
  * status field.
+ *
+ * Live Team identity (#1172): while the console is mounted it owns its own
+ * League-scoped subscription to Team-profile updates, patching a rename or
+ * re-avatar into the shared league membership with no request, the same way
+ * `LeagueDashboardPage` does for its own mount
+ * (`src/pages/league-dashboard/LeagueDashboardPage.jsx`). That page's
+ * subscription only covers the dashboard being on screen; once the viewer is
+ * on this console instead, the dashboard's effect is unmounted and its cache
+ * writes stop, so the console has to keep the row current itself rather than
+ * ride the dashboard's leftover freshness. `CommissionerTools` composes off
+ * this hook's `teams` as-is and renders the raw `name` column (the
+ * removable-Teams row, the `Remove <name>` control's accessible name), so -
+ * exactly as the dashboard's own comment explains for its widgets - BOTH the
+ * raw `name` key and the canonical `teamName` key are patched, not just the
+ * one CommissionerTools happens to read today. The two-call shape (default
+ * key map, then `name: 'teamName'`) duplicates the dashboard's effect on
+ * purpose rather than sharing a helper: settled on #1172 rather than
+ * extracting one in the same change that landed the dashboard's own guard.
  */
 export function useCommissionerConsole(leagueId) {
-  const { league, teams, viewerTeamId, loading, error, refetch } = useLeague(leagueId);
+  const { league, teams, viewerTeamId, loading, error, refetch, updateTeams } = useLeague(leagueId);
+
+  useEffect(
+    () =>
+      subscribeToTeamProfileUpdates((update) => {
+        if (Number(update.leagueId) !== Number(leagueId)) return;
+        updateTeams((prev) =>
+          prev.map((team) => {
+            const withRawName = applyTeamProfileUpdate(team, update, {
+              id: 'teamId',
+              avatarUrl: 'avatar_url',
+              avatarStaticUrl: 'avatar_static_url',
+            });
+            return applyTeamProfileUpdate(withRawName, update, {
+              id: 'teamId',
+              name: 'teamName',
+              avatarUrl: 'avatar_url',
+              avatarStaticUrl: 'avatar_static_url',
+            });
+          })
+        );
+      }),
+    [leagueId, updateTeams]
+  );
 
   const pickemOnly = isPickemOnly(league);
   const currentWeek = league?.current_week ?? null;
