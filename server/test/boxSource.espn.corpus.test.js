@@ -145,6 +145,31 @@ test('corpus: a Safety Score summary line credits the scoring defense', () => {
   assert.equal(box.scoreSummaryLines[0].kind, 'Safety');
 });
 
+// --- phase two (#1187): twoPointReturn -----------------------------------------
+
+test('phase two: a defensive two-point return that SUCCEEDS credits twoPointReturn to the named defender', () => {
+  const box = apply(byLabel('phase two: defensive two-point return SUCCEEDS'));
+  const fitz = box.players.find((p) => p.stats.twoPointReturn === 1);
+  assert.ok(fitz, 'M.Fitzpatrick (MIA) gets the return');
+  assert.equal(box.players.filter((p) => p.stats.twoPointReturn > 0).length, 1);
+  assert.equal(box.playTextFindings.length, 1);
+  assert.equal(box.playTextFindings[0].twoPointReturnBy, fitz.externalId);
+});
+
+test('phase two: a defensive two-point attempt that FAILS credits nobody (the negative)', () => {
+  const box = apply(byLabel('phase two: defensive two-point attempt FAILS'));
+  assert.equal(box.players.filter((p) => p.stats.twoPointReturn > 0).length, 0);
+  assert.equal(box.playTextFindings.length, 0, 'a fumble recovered on a two-point try is not a Live box takeaway either');
+});
+
+test('phase two: a Defensive PAT Conversion Score summary line credits the named defender', () => {
+  const box = apply(byLabel('phase two: blocked PAT returned for two'));
+  const bell = box.players.find((p) => p.stats.twoPointReturn === 1);
+  assert.ok(bell, 'Markquese Bell (DAL) gets the return');
+  assert.equal(box.scoreSummaryLines[0].scorerExternalId, bell.externalId);
+  assert.equal(box.players.filter((p) => p.stats.twoPointReturn > 0).length, 1);
+});
+
 test('corpus: the whole corpus produces exactly the expected takeaway totals', () => {
   let recoveries = 0;
   let blocks = 0;
@@ -157,7 +182,12 @@ test('corpus: the whole corpus produces exactly the expected takeaway totals', (
     }
     for (const p of box.players) forced += p.stats.forcedFumble;
   }
-  assert.equal(recoveries, 5, 'IND, PIT, TEN, SF, DAL recoveries; none from blocks or own recoveries');
+  assert.equal(recoveries, 5, 'IND, PIT, TEN, SF, DAL recoveries; none from blocks, own recoveries or two-point tries');
   assert.equal(blocks, 4, 'two blocked FGs, one blocked punt, one blocked PAT');
   assert.equal(forced, 7, 'K.Moore, K.Gainwell, M.McCrary-Ball, N.Bosa, K.Hamilton, J.Bosa, J.Houston; none for Q.Williams (ambiguous) or Aborted');
+  let twoPointReturns = 0;
+  for (const line of corpus.lines) {
+    for (const p of apply(line).players) twoPointReturns += p.stats.twoPointReturn;
+  }
+  assert.equal(twoPointReturns, 2, 'M.Fitzpatrick and Markquese Bell; not C.Gray');
 });

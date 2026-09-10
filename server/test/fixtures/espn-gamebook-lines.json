@@ -1,5 +1,5 @@
 {
-  "_comment": "Real ESPN summary excerpts (2025 season weeks 1-4), one Gamebook line each, with the header competitors and the defensive box rosters (names only) the play-text pass needs. Corpus for the narrow play-text pass (#1184) and the phase-two parser (#1187). Fetched 2026-09-10 from site.api.espn.com; text is verbatim.",
+  "_comment": "Real ESPN summary excerpts (2025 season weeks 1-18), one Gamebook line each, with the header competitors and the defensive box rosters (names only) the play-text passes need. Corpus for the narrow play-text pass (#1184) and the phase-two parser (#1187). Fetched 2026-09-10 from site.api.espn.com; text is verbatim.",
   "lines": [
     {
       "eventId": "401772719",
@@ -7318,6 +7318,1448 @@
             },
             "team": {
               "abbreviation": "TB"
+            }
+          }
+        ],
+        "drives": {
+          "previous": []
+        }
+      }
+    },
+    {
+      "eventId": "401772892",
+      "label": "phase two: defensive two-point return SUCCEEDS (M.Fitzpatrick, MIA) in play text",
+      "shortName": "MIA vs NO",
+      "summary": {
+        "header": {
+          "id": "401772892",
+          "competitions": [
+            {
+              "id": "401772892",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final",
+                  "shortDetail": "Final"
+                },
+                "isTBDFlex": false
+              },
+              "competitors": [
+                {
+                  "id": "15",
+                  "homeAway": "home",
+                  "score": "21",
+                  "team": {
+                    "id": "15",
+                    "abbreviation": "MIA"
+                  }
+                },
+                {
+                  "id": "18",
+                  "homeAway": "away",
+                  "score": "17",
+                  "team": {
+                    "id": "18",
+                    "abbreviation": "NO"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "NO"
+              },
+              "statistics": [
+                {
+                  "name": "fumbles",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4360689",
+                        "displayName": "Tyler Shough"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "defensive",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "14958",
+                        "displayName": "Demario Davis"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035663",
+                        "displayName": "Terrell Burgess"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4683813",
+                        "displayName": "Jonas Sanker"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "13971",
+                        "displayName": "Cameron Jordan"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4428988",
+                        "displayName": "Bryan Bresee"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3115383",
+                        "displayName": "Davon Godchaux"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241993",
+                        "displayName": "Pete Werner"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360949",
+                        "displayName": "Jordan Howden"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4076951",
+                        "displayName": "Nathan Shepherd"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4433975",
+                        "displayName": "Kool-Aid McKinstry"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3918310",
+                        "displayName": "Carl Granderson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241986",
+                        "displayName": "Chase Young"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3122797",
+                        "displayName": "Isaac Yiadom"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4369835",
+                        "displayName": "Alontae Taylor"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4428350",
+                        "displayName": "Quincy Riley"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4683215",
+                        "displayName": "Danny Stutsman"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4361194",
+                        "displayName": "Isaiah Stalbird"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4040945",
+                        "displayName": "Dillon Radunz"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4240475",
+                        "displayName": "Chris Rumph II"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4569559",
+                        "displayName": "Devaughn Vele"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3931399",
+                        "displayName": "Justin Reid"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "interceptions",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4433975",
+                        "displayName": "Kool-Aid McKinstry"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "kicking",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "5208518",
+                        "displayName": "Charlie Smyth"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "MIA"
+              },
+              "statistics": [
+                {
+                  "name": "fumbles",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4241479",
+                        "displayName": "Tua Tagovailoa"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3057956",
+                        "displayName": "Zach Sieler"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "defensive",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4043130",
+                        "displayName": "Jordyn Brooks"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035232",
+                        "displayName": "Tyrel Dodson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3925345",
+                        "displayName": "Minkah Fitzpatrick"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4240401",
+                        "displayName": "Ifeatu Melifonwu"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3858271",
+                        "displayName": "Ashtyn Davis"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3943270",
+                        "displayName": "Rasul Douglas"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035686",
+                        "displayName": "Jack Jones"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4431586",
+                        "displayName": "Chop Robinson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4837188",
+                        "displayName": "Jordan Phillips"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3057956",
+                        "displayName": "Zach Sieler"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4431664",
+                        "displayName": "Dante Trader Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3116733",
+                        "displayName": "Bradley Chubb"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3932901",
+                        "displayName": "Elijah Campbell"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3929785",
+                        "displayName": "Nick Westbrook-Ikhine"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3961466",
+                        "displayName": "Matthew Judon"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4051069",
+                        "displayName": "Caleb Johnson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4243371",
+                        "displayName": "Riley Patterson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035299",
+                        "displayName": "Benito Jones"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360746",
+                        "displayName": "Ethan Bonner"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4683276",
+                        "displayName": "Zeek Biggers"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4894654",
+                        "displayName": "Kenneth Grant"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035857",
+                        "displayName": "Cameron Goode"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4259804",
+                        "displayName": "Willie Gay Jr."
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "interceptions",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3943270",
+                        "displayName": "Rasul Douglas"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "kicking",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4243371",
+                        "displayName": "Riley Patterson"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [],
+        "drives": {
+          "previous": [
+            {
+              "plays": [
+                {
+                  "id": "4017728924015",
+                  "type": {
+                    "id": "67",
+                    "text": "Passing Touchdown",
+                    "abbreviation": "TD"
+                  },
+                  "text": "(No Huddle, Shotgun) T.Shough pass short right to D.Vele for 15 yards, TOUCHDOWN. TWO-POINT CONVERSION ATTEMPT. T.Shough pass to D.Vele is intercepted. ATTEMPT FAILS. DEFENSIVE TWO-POINT ATTEMPT. M.Fitzpatrick intercepted the try attempt. ATTEMPT SUCCEEDS.",
+                  "scoringPlay": true,
+                  "period": {
+                    "number": 4
+                  },
+                  "clock": {
+                    "displayValue": "1:17"
+                  },
+                  "start": {
+                    "team": {
+                      "id": "18"
+                    }
+                  },
+                  "end": {
+                    "team": {
+                      "id": "18"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eventId": "401772898",
+      "label": "phase two: defensive two-point attempt FAILS (C.Gray, TEN) in play text, the negative",
+      "shortName": "CLE vs TEN",
+      "summary": {
+        "header": {
+          "id": "401772898",
+          "competitions": [
+            {
+              "id": "401772898",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final",
+                  "shortDetail": "Final"
+                },
+                "isTBDFlex": false
+              },
+              "competitors": [
+                {
+                  "id": "5",
+                  "homeAway": "home",
+                  "score": "29",
+                  "team": {
+                    "id": "5",
+                    "abbreviation": "CLE"
+                  }
+                },
+                {
+                  "id": "10",
+                  "homeAway": "away",
+                  "score": "31",
+                  "team": {
+                    "id": "10",
+                    "abbreviation": "TEN"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "TEN"
+              },
+              "statistics": [
+                {
+                  "name": "fumbles",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4429834",
+                        "displayName": "Cedric Gray"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "defensive",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4429834",
+                        "displayName": "Cedric Gray"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035369",
+                        "displayName": "Jeffery Simmons"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4036134",
+                        "displayName": "Amani Hooker"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4685617",
+                        "displayName": "Kevin Winston Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3926229",
+                        "displayName": "Cody Barton"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4570469",
+                        "displayName": "Marcus Harris"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3115914",
+                        "displayName": "Jihad Ward"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4367567",
+                        "displayName": "Julius Chestnut"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3040572",
+                        "displayName": "Xavier Woods"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4695280",
+                        "displayName": "Micah Robinson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3843843",
+                        "displayName": "Arden Key"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4036660",
+                        "displayName": "Darrell Baker Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4259181",
+                        "displayName": "James Lynch"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4431613",
+                        "displayName": "James Williams Sr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429058",
+                        "displayName": "Jaylen Harrell"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4240920",
+                        "displayName": "Dan Moore Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3047495",
+                        "displayName": "Sebastian Joseph-Day"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4573318",
+                        "displayName": "Dorian Mausi"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4428617",
+                        "displayName": "T'Vondre Sweat"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "interceptions",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3040572",
+                        "displayName": "Xavier Woods"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "kicking",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3124084",
+                        "displayName": "Joey Slye"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "CLE"
+              },
+              "statistics": [
+                {
+                  "name": "fumbles",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "5081397",
+                        "displayName": "Dylan Sampson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4877203",
+                        "displayName": "Gage Larvadain"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "defensive",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4876017",
+                        "displayName": "Carson Schwesinger"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4036261",
+                        "displayName": "Devin Bush"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4242208",
+                        "displayName": "Grant Delpit"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3122132",
+                        "displayName": "Myles Garrett"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4569620",
+                        "displayName": "Ronnie Hickman"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3915535",
+                        "displayName": "Denzel Ward"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4567403",
+                        "displayName": "Mohamoud Diabate"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "16837",
+                        "displayName": "Shelby Harris"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4695783",
+                        "displayName": "Myles Harden"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4379397",
+                        "displayName": "Tyson Campbell"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4873232",
+                        "displayName": "Mason Graham"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4033855",
+                        "displayName": "Sam Kamara"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "2969961",
+                        "displayName": "Rayshawn Jenkins"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4700660",
+                        "displayName": "Sam Webb"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3913293",
+                        "displayName": "Rex Sunahara"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4369863",
+                        "displayName": "Cedric Tillman"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4570119",
+                        "displayName": "Alex Wright"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "5081397",
+                        "displayName": "Dylan Sampson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4258620",
+                        "displayName": "Andre Szmyt"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4600415",
+                        "displayName": "Mike Hall Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4427963",
+                        "displayName": "Isaiah McGuire"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "interceptions",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4036261",
+                        "displayName": "Devin Bush"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "kicking",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4258620",
+                        "displayName": "Andre Szmyt"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [],
+        "drives": {
+          "previous": [
+            {
+              "plays": [
+                {
+                  "id": "4017728984183",
+                  "type": {
+                    "id": "68",
+                    "text": "Rushing Touchdown",
+                    "abbreviation": "TD"
+                  },
+                  "text": "(Shotgun) S.Sanders scrambles up the middle for 7 yards, TOUCHDOWN. TWO-POINT CONVERSION ATTEMPT. S.Sanders rushes up the middle. ATTEMPT FAILS. DEFENSIVE TWO-POINT ATTEMPT. C.Gray recovered a fumble. ATTEMPT FAILS.",
+                  "scoringPlay": true,
+                  "period": {
+                    "number": 4
+                  },
+                  "clock": {
+                    "displayValue": "4:27"
+                  },
+                  "start": {
+                    "team": {
+                      "id": "5"
+                    }
+                  },
+                  "end": {
+                    "team": {
+                      "id": "5"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eventId": "401772921",
+      "label": "phase two: blocked PAT returned for two, a Defensive PAT Conversion Score summary line (DAL)",
+      "shortName": "DAL vs GB",
+      "summary": {
+        "header": {
+          "id": "401772921",
+          "competitions": [
+            {
+              "id": "401772921",
+              "status": {
+                "type": {
+                  "id": "3",
+                  "name": "STATUS_FINAL",
+                  "state": "post",
+                  "completed": true,
+                  "description": "Final",
+                  "detail": "Final/OT",
+                  "shortDetail": "Final/OT",
+                  "altDetail": "OT"
+                },
+                "isTBDFlex": false
+              },
+              "competitors": [
+                {
+                  "id": "6",
+                  "homeAway": "home",
+                  "score": "40",
+                  "team": {
+                    "id": "6",
+                    "abbreviation": "DAL"
+                  }
+                },
+                {
+                  "id": "9",
+                  "homeAway": "away",
+                  "score": "40",
+                  "team": {
+                    "id": "9",
+                    "abbreviation": "GB"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "boxscore": {
+          "teams": [],
+          "players": [
+            {
+              "team": {
+                "abbreviation": "GB"
+              },
+              "statistics": [
+                {
+                  "name": "fumbles",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4036378",
+                        "displayName": "Jordan Love"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "defensive",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4379416",
+                        "displayName": "Quay Walker"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4428863",
+                        "displayName": "Evan Williams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4430438",
+                        "displayName": "Edgerrin Cooper"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241470",
+                        "displayName": "Xavier McKinney"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4240542",
+                        "displayName": "Nate Hobbs"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4259493",
+                        "displayName": "Keisean Nixon"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4046523",
+                        "displayName": "Rashan Gary"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4239947",
+                        "displayName": "Isaiah McDuffie"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429142",
+                        "displayName": "Nazir Stackhouse"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4430965",
+                        "displayName": "Carrington Valentine"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4688930",
+                        "displayName": "Javon Bullard"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4361423",
+                        "displayName": "Micah Parsons"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4567224",
+                        "displayName": "Colby Wooden"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "16339",
+                        "displayName": "Brandon McManus"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4373423",
+                        "displayName": "Karl Brooks"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3932335",
+                        "displayName": "Zayne Anderson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4361791",
+                        "displayName": "Devonte Wyatt"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4362840",
+                        "displayName": "Kingsley Enagbare"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "interceptions",
+                  "keys": [],
+                  "athletes": []
+                },
+                {
+                  "name": "kicking",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "16339",
+                        "displayName": "Brandon McManus"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "team": {
+                "abbreviation": "DAL"
+              },
+              "statistics": [
+                {
+                  "name": "fumbles",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4240608",
+                        "displayName": "James Houston"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "defensive",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "4372576",
+                        "displayName": "Jack Sanborn"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241394",
+                        "displayName": "Kenneth Murray Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4428584",
+                        "displayName": "Reddy Steward"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3122135",
+                        "displayName": "Donovan Wilson"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4035840",
+                        "displayName": "Osa Odighizuwa"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4248911",
+                        "displayName": "DaRon Bland"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4683848",
+                        "displayName": "Donovan Ezeiruaku"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4685400",
+                        "displayName": "Shemar James"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4040966",
+                        "displayName": "Trevon Diggs"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3121415",
+                        "displayName": "Malik Hooker"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4567399",
+                        "displayName": "Kaiir Elam"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "16734",
+                        "displayName": "Jadeveon Clowney"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4360590",
+                        "displayName": "Juanyeh Thomas"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4240608",
+                        "displayName": "James Houston"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "2980100",
+                        "displayName": "Dante Fowler Jr."
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "3122752",
+                        "displayName": "Kenny Clark"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "17474",
+                        "displayName": "C.J. Goodwin"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4241921",
+                        "displayName": "Markquese Bell"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4372096",
+                        "displayName": "Luke Schoonmaker"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4383396",
+                        "displayName": "Hunter Luepke"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4427816",
+                        "displayName": "Marist Liufau"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4567242",
+                        "displayName": "Sam Williams"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4426347",
+                        "displayName": "Mazi Smith"
+                      },
+                      "stats": []
+                    },
+                    {
+                      "athlete": {
+                        "id": "4429996",
+                        "displayName": "Marshawn Kneeland"
+                      },
+                      "stats": []
+                    }
+                  ]
+                },
+                {
+                  "name": "interceptions",
+                  "keys": [],
+                  "athletes": []
+                },
+                {
+                  "name": "kicking",
+                  "keys": [],
+                  "athletes": [
+                    {
+                      "athlete": {
+                        "id": "3953687",
+                        "displayName": "Brandon Aubrey"
+                      },
+                      "stats": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "scoringPlays": [
+          {
+            "scoringType": {
+              "name": "two-point-conversion",
+              "displayName": "Two Point Conversion",
+              "abbreviation": "2PTC"
+            },
+            "text": "Markquese Bell Defensive PAT Conversion",
+            "period": {
+              "number": 2
+            },
+            "clock": {
+              "value": 637,
+              "displayValue": "10:37"
+            },
+            "team": {
+              "abbreviation": "DAL"
             }
           }
         ],

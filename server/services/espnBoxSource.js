@@ -246,6 +246,7 @@ function readPlayerBox(summary, teams, roster, teamDefense) {
 const TD_PASS_RE = /^(.+?) (\d+) Yd pass from (.+?)(?: \(|$)/;
 const TD_RUSH_RE = /^(.+?) (\d+) Yd (?:Rush|Run)\b/;
 const FG_RE = /^(.+?) (\d+) Yd Field Goal/;
+const DEFENSIVE_PAT_RE = /^(.+?) Defensive PAT Conversion\b/;
 
 /**
  * Pass 2: `scoringPlays[]` -> Score summary lines, and the per-value bonus
@@ -282,6 +283,12 @@ function readScoreSummaryLines(summary, roster, teamDefense) {
       push(scorer, 'fieldGoalDistances', yards);
     } else if (/\bSafety\b/i.test(kind || '') || (sp.scoringType && sp.scoringType.name === 'safety')) {
       if (teamCode && teamDefense[teamCode]) teamDefense[teamCode].safety += 1;
+    } else if ((m = DEFENSIVE_PAT_RE.exec(text))) {
+      // Phase two (#1187): a blocked PAT returned for two points is its own
+      // Score summary line ("Markquese Bell Defensive PAT Conversion", GB at
+      // DAL 2025 week 17) and appears nowhere in the play text with a type.
+      scorer = roster.findByDisplayName(m[1].trim());
+      if (scorer) scorer.stats.twoPointReturn += 1;
     }
     lines.push({
       kind,
@@ -306,6 +313,10 @@ const FORCED_BY_RE = /FUMBLES \(([^)]+)\)/;
 // `extra point is BLOCKED`, and the summary-style `PAT blocked`.
 const BLOCKED_RE = /\bis BLOCKED\b|\bPAT blocked\b|extra point is Blocked/i;
 const KICK_PLAY_RE = /\b(?:kicks|punts) \d+ yards\b/;
+// Phase two (#1187): a failed two-point try the defense returns for two reads
+// `DEFENSIVE TWO-POINT ATTEMPT. <X.Name> ... ATTEMPT SUCCEEDS.`; the same
+// sentence ending `ATTEMPT FAILS.` is a return that did not score.
+const DEFENSIVE_TWO_POINT_RE = /DEFENSIVE TWO-POINT ATTEMPT\. ([A-Za-z'.-]+) (.*?)ATTEMPT (SUCCEEDS|FAILS)/;
 
 /**
  * Pure: which team had the ball when the play started, as the fumbling side.
@@ -346,7 +357,7 @@ function scanPlays(summary, teams, roster, teamDefense) {
     for (const play of Array.isArray(drive && drive.plays) ? drive.plays : []) {
       const text = String((play && play.text) || '');
       if (!text) continue;
-      const finding = { text, fumbleRecoveredBy: null, recoveringPlayer: null, forcedBy: null, forcingTeam: null, blockedKickBy: null };
+      const finding = { text, fumbleRecoveredBy: null, recoveringPlayer: null, forcedBy: null, forcingTeam: null, blockedKickBy: null, twoPointReturnBy: null };
       const possession = fumblingTeam(play, teams, idToCode);
       const opponentOf = (code) => {
         const other = teams.find((t) => t.teamCode !== code);
@@ -393,7 +404,17 @@ function scanPlays(summary, teams, roster, teamDefense) {
         }
       }
 
-      if (finding.fumbleRecoveredBy || finding.forcedBy || finding.blockedKickBy) findings.push(finding);
+      const twoPt = DEFENSIVE_TWO_POINT_RE.exec(text);
+      if (twoPt && twoPt[3] === 'SUCCEEDS' && possession) {
+        const defTeam = opponentOf(possession);
+        const p = defTeam ? roster.findByGamebookName(defTeam, twoPt[1]) : null;
+        if (p) {
+          p.stats.twoPointReturn += 1;
+          finding.twoPointReturnBy = p.externalId;
+        }
+      }
+
+      if (finding.fumbleRecoveredBy || finding.forcedBy || finding.blockedKickBy || finding.twoPointReturnBy) findings.push(finding);
     }
   }
   return findings;
