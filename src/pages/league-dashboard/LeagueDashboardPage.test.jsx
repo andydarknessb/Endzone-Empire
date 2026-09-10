@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
-import { invalidate } from '../../lib/resourceCache';
+import { invalidate, read } from '../../lib/resourceCache';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 import LeagueDashboardPage from './index';
 
@@ -341,14 +341,15 @@ test('page shell: the standings track has a zero minimum and the rail track keep
 });
 
 test('page shell: a member\'s null-rendering wrappers collapse instead of buying a gap', async () => {
-  // A member's commissioner slot renders an empty wrapper (the widget returns
-  // null for a non-commissioner by #644's design). In the shell's 22px stack an
-  // empty wrapper still takes a turn, which is where the blank bands came from.
+  // A member's commissioner slot renders an empty wrapper (the strip returns
+  // null for a non-commissioner, CommissionerStrip.jsx's own gate). In the
+  // shell's 22px stack an empty wrapper still takes a turn, which is where the
+  // blank bands came from.
   mockGetByUrl({ '/api/league/1': inSeasonLeague() });
   renderPage();
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
-  const slot = screen.getByTestId('slot-commissioner-panel');
+  const slot = screen.getByTestId('slot-commissioner-strip');
   expect(slot).toBeEmptyDOMElement();
   expect(rulesUnder(slot)[':empty']).toMatch(/display:\s*none/);
 });
@@ -447,10 +448,109 @@ test('lays out the hero and main grid regions as empty landmarks', async () => {
   renderPage();
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
-  // The frame the six widget tickets fill: two layout regions, present and empty
-  // now, each holding the slots a later ticket swaps its widget into.
+  // The frame the widget tickets fill: two layout regions, each holding the
+  // slots the widget tickets composed their own widgets into.
   expect(screen.getByTestId('dashboard-hero')).toBeInTheDocument();
   expect(screen.getByTestId('dashboard-main')).toBeInTheDocument();
+});
+
+// --- v2 composition and layout (#1110) --------------------------------------
+
+// A fantasy in-season commissioner league: exercises every top-level slot at
+// once (the strip renders content for a commissioner, unlike the plain-member
+// fixtures above), so the DOM-order chain below is a real ordering claim, not
+// an accident of several slots being absent.
+const layoutV2League = (overrides = {}) =>
+  leagueDetail({
+    league: {
+      draft_status: 'complete',
+      season_status: 'regular',
+      current_week: 3,
+      is_commissioner: true,
+      ...overrides,
+    },
+    teams: buildTeams(12),
+    viewerTeamId: 1,
+  });
+
+test('v2 slot order: strip, recap, hero, around-the-league, main, second row, trophy', async () => {
+  mockGetByUrl({ '/api/league/1': layoutV2League() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const strip = await screen.findByTestId('slot-commissioner-strip');
+  const recap = screen.getByTestId('slot-recap');
+  const hero = screen.getByTestId('dashboard-hero');
+  const aroundTheLeague = screen.getByTestId('slot-around-the-league');
+  const main = screen.getByTestId('dashboard-main');
+  const secondRow = screen.getByTestId('dashboard-second-row');
+  const trophy = screen.getByTestId('slot-trophy-case');
+
+  expect(precedes(strip, recap)).toBe(true);
+  expect(precedes(recap, hero)).toBe(true);
+  expect(precedes(hero, aroundTheLeague)).toBe(true);
+  expect(precedes(aroundTheLeague, main)).toBe(true);
+  expect(precedes(main, secondRow)).toBe(true);
+  expect(precedes(secondRow, trophy)).toBe(true);
+
+  // The second row holds Quick Actions in the wide track and Recent activity
+  // in the rail track, DOM order matching visual order.
+  const quickActions = within(secondRow).getByTestId('dashboard-quick-actions');
+  const recentActivity = within(secondRow).getByTestId('slot-recent-activity');
+  expect(precedes(quickActions, recentActivity)).toBe(true);
+
+  // Main holds standings beside a rail of Draft Grades only.
+  const standings = within(main).getByTestId('slot-standings');
+  const draftGrades = within(main).getByTestId('slot-draft-grades');
+  expect(precedes(standings, draftGrades)).toBe(true);
+});
+
+test("a member renders no strip slot content and the wrapper collapses", async () => {
+  mockGetByUrl({ '/api/league/1': layoutV2League({ is_commissioner: false }) });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const strip = screen.getByTestId('slot-commissioner-strip');
+  expect(strip).toBeEmptyDOMElement();
+  expect(screen.queryByTestId('commissioner-strip')).not.toBeInTheDocument();
+});
+
+test("pick'em-only branch mounts the strip, pick'em standings and Quick Actions, and none of the fantasy slots", async () => {
+  mockGetByUrl({
+    '/api/league/1': pickemOnlyLeague({ is_commissioner: true }),
+  });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  // The strip renders for the commissioner even on a pick'em-only league
+  // (CommissionerStrip's own scope: it states no fantasy facts there, but it
+  // still mounts).
+  expect(await screen.findByTestId('commissioner-strip')).toBeInTheDocument();
+  expect(screen.getByTestId('dashboard-pickem-standings')).toBeInTheDocument();
+  expect(screen.getByTestId('quick-actions')).toBeInTheDocument();
+
+  // None of the fantasy-only slots mount.
+  expect(screen.queryByTestId('dashboard-hero')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-around-the-league')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('dashboard-main')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('dashboard-second-row')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-recent-activity')).not.toBeInTheDocument();
+});
+
+// Red-tell (pre-launch ruling #3): the hero-rule assertion below is the one
+// this ticket adds since none bound `align-items` before it. Measured by
+// hand: dropping `alignItems: 'stretch'` from the hero grid's sx turns this
+// ONE test red (`npm test -- src/pages/league-dashboard`: 1 failed, 66
+// passed, 67 total) and no other - restoring it returns the suite to green
+// (67 passed, 67 total). Bound the same way the existing "zero minimum" tests
+// bind a grid-track rule (cssFor + a regex over the emitted declaration), per
+// the ruling.
+test('hero grid binds align-items: stretch so My Team and the matchup card share the row height', async () => {
+  mockGetByUrl({ '/api/league/1': inSeasonLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  expect(cssFor(screen.getByTestId('dashboard-hero'))).toMatch(/align-items:\s*stretch/);
 });
 
 // ==========================================================================
@@ -1078,7 +1178,7 @@ test('matchup card: exactly one matchups-list GET is made, and it carries the cu
   expect(listGets[0][0]).toContain('week=1');
 });
 
-test('matchup card: with no current week the card reads "No matchup this week" and requests no matchups list', async () => {
+test('matchup card: with no current week the card reads "No matchup this week" and requests no week-scoped matchups list', async () => {
   mockGetByUrl({
     '/api/league/1': mpLeague({
       league: { draft_status: 'complete', season_status: 'regular', current_week: null },
@@ -1088,8 +1188,16 @@ test('matchup card: with no current week the card reads "No matchup this week" a
 
   const card = await screen.findByTestId('matchup-preview');
   expect(await within(card).findByText('No matchup this week')).toBeInTheDocument();
-  // No week, so the null-url convention keeps the spine read from ever firing.
-  expect(apiClient.get.mock.calls.some(([u]) => u.includes('/matchups'))).toBe(false);
+  // No week, so the null-url convention keeps THIS widget's own week-scoped
+  // spine read from ever firing. Scoped to the `?week=` list URL, not a bare
+  // '/matchups' substring: around-the-league (#1103, composed on this page
+  // since #1110) reads every week unconditionally through its own entity hook
+  // and is unaffected by this league having no current week, so a bare
+  // substring match would catch its GET too and assert something untrue of
+  // this card.
+  expect(
+    apiClient.get.mock.calls.some(([u]) => typeof u === 'string' && u.includes('/matchups?week='))
+  ).toBe(false);
 });
 
 test('matchup card: while the matchups list is pending the card holds layout with skeletons and is aria-busy', async () => {
@@ -1760,319 +1868,6 @@ test("quick-actions: a pick'em-only in-season fixture shows only Pick'em, Activi
 });
 
 // ==========================================================================
-// commissioner-panel widget (#644) + advance-week feature, the rail slot below
-// draft grades. Commissioner-only: the panel renders only when the league
-// payload's `is_commissioner` flag is true (the same field useQuickActions
-// gates its commissionerOnly card on), never on invite_code, which the shell
-// gates CopyInvite on and which is a different question. Same test seam as the
-// sections above: this ticket registers advance-week on `apiClient.post` and
-// its own fixture builders without editing anything already here.
-//
-// SLUG every fixture identifier with `commissionerPanel` (namespace fence,
-// #643 addendum). SCOPE per-widget value assertions with within(card); the
-// MUI confirm dialog portals to document.body, so its text is reached with a
-// page-level `screen`/`within(dialog)`, deliberately outside the card.
-//
-// AC3 is a CROSS-WIDGET assertion measured across the page dispatcher, not the
-// card: my-team-summary and standings-table share one week-keyed standings read
-// (#641), so one page load is ONE standings GET and a successful advance is TWO
-// total, via the league refetch re-keying week 1 -> 2. The advance action does
-// no standings read of its own; adding one to "make the count come out" is the
-// exact mistake the release review warned against.
-
-const commissionerPanelTeams = (n) =>
-  Array.from({ length: n }, (_, i) => ({
-    teamId: i + 1,
-    id: i + 1,
-    name: `Team ${i + 1}`,
-    teamName: `Team ${i + 1}`,
-    avatar_url: null,
-    avatar_static_url: null,
-  }));
-
-// A fantasy league in season whose viewer (teamId 1) is the commissioner.
-const commissionerPanelLeague = (overrides = {}) =>
-  leagueDetail({
-    league: {
-      draft_status: 'complete',
-      season_status: 'regular',
-      current_week: 1,
-      is_commissioner: true,
-      ...overrides,
-    },
-    teams: commissionerPanelTeams(12),
-    viewerTeamId: 1,
-  });
-
-// The same league seen by a plain member: is_commissioner false. It still
-// carries an invite_code to prove the panel gates on the flag and not on the
-// code the shell's CopyInvite reads (release-review finding: the two gates
-// disagree).
-const commissionerPanelMemberLeague = (overrides = {}) =>
-  commissionerPanelLeague({ is_commissioner: false, invite_code: 'member123', ...overrides });
-
-// A pick'em-only league whose viewer is the commissioner: the panel renders,
-// but week advancement is the scheduler's job, so no advance control.
-const commissionerPanelPickemLeague = (overrides = {}) =>
-  leagueDetail({
-    league: {
-      pickem_only: true,
-      draft_status: 'pending',
-      season_status: 'regular',
-      current_week: 6,
-      is_commissioner: true,
-      ...overrides,
-    },
-    teams: commissionerPanelTeams(20),
-    viewerTeamId: 1,
-  });
-
-const commissionerPanelAdvanceUrl = '/api/scoring/league/1/advance-week';
-
-test('commissioner-panel: a member sees no panel, no chip, no advance button, and no legacy tool heading', async () => {
-  mockGetByUrl({ '/api/league/1': commissionerPanelMemberLeague() });
-  renderPage();
-
-  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
-  expect(screen.queryByTestId('commissioner-panel')).not.toBeInTheDocument();
-  // The panel's card title is the only rendered "Commissioner" text on the
-  // page; a member never sees it (verified absence, release review).
-  expect(screen.queryByText('Commissioner')).not.toBeInTheDocument();
-  // The panel's pill, whatever its count. It reads "Commissioners only · N"
-  // (N = co-commissioners + 1) since "Only you see this" stopped being true the
-  // moment a league could have a second commissioner; the count itself is the
-  // widget's own assertion, this one is about a member never seeing the pill.
-  expect(screen.queryByText(/Commissioners only/)).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
-  // A legacy commissioner-tools heading (mounted only behind the disclosure,
-  // and only in a commissioner panel) is absent entirely.
-  expect(screen.queryByRole('heading', { name: 'Commissioner Tools' })).not.toBeInTheDocument();
-});
-
-test('commissioner-panel: week 1 renders the chip, the consequence sentence, and an Advance to Week 2 button; Cancel posts nothing', async () => {
-  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  expect(within(card).getByText(/Commissioners only/)).toBeInTheDocument();
-  // The sentence names the current week and the next one (scoped to the card;
-  // the dialog restates the same consequence, portaled out of the card).
-  expect(
-    within(card).getByText("Advancing closes Week 1 matchups and opens Week 2. You'll be asked to confirm.")
-  ).toBeInTheDocument();
-
-  const advanceButton = within(card).getByRole('button', { name: 'Advance to Week 2' });
-  await userEvent.click(advanceButton);
-
-  // The confirm dialog restates the consequence (naming both weeks).
-  const dialog = await screen.findByRole('dialog');
-  expect(within(dialog).getByText(/closes Week 1 matchups and opens Week 2/i)).toBeInTheDocument();
-
-  await userEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  // Cancel posts nothing.
-  expect(apiClient.post).not.toHaveBeenCalled();
-});
-
-test('commissioner-panel: Confirm posts once to advance-week; the league refetch to week 2 causes a second standings GET (1 -> 2) and offers Advance to Week 3', async () => {
-  apiClient.post.mockResolvedValue({ data: {} });
-  mockGetByUrl({
-    '/api/league/1': commissionerPanelLeague({ current_week: 1 }),
-    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
-  });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  // One page load = one standings GET: my-team-summary and standings-table
-  // dedupe onto the shared week-keyed read (#641).
-  await waitFor(() => expect(standingsTableGetCount()).toBe(1));
-
-  await userEvent.click(within(card).getByRole('button', { name: 'Advance to Week 2' }));
-  const dialog = await screen.findByRole('dialog');
-
-  // The league now reports week 2, so the post-advance refetch re-keys the
-  // shared standings read; re-point the dispatcher before confirming.
-  mockGetByUrl({
-    '/api/league/1': commissionerPanelLeague({ current_week: 2 }),
-    '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
-  });
-  await userEvent.click(within(dialog).getByRole('button', { name: /confirm/i }));
-
-  // Exactly one POST, to the advance-week URL, with no body (as the legacy path).
-  await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
-  expect(apiClient.post).toHaveBeenCalledWith(commissionerPanelAdvanceUrl);
-
-  // The action's only job was to land the league refetch; the standings read
-  // follows from the week key changing. Second GET, not a third.
-  await waitFor(() => expect(standingsTableGetCount()).toBe(2));
-
-  // The panel now offers the following week.
-  expect(await within(card).findByRole('button', { name: 'Advance to Week 3' })).toBeInTheDocument();
-});
-
-test('commissioner-panel: a 409 from advance-week shows the server message verbatim in an alert region and leaves the button usable', async () => {
-  // The exact draft-not-finished sentence the phase gate returns (server's
-  // SEASON_BEFORE_DRAFT_MESSAGE). The panel must render what the server sent,
-  // not a message of its own built from the status code.
-  const serverMessage =
-    'the draft has not finished; schedule and scoring are available once it completes';
-  apiClient.post.mockRejectedValue({ response: { status: 409, data: { error: serverMessage } } });
-  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  await userEvent.click(within(card).getByRole('button', { name: 'Advance to Week 2' }));
-  const dialog = await screen.findByRole('dialog');
-  await userEvent.click(within(dialog).getByRole('button', { name: /confirm/i }));
-
-  const alert = await within(card).findByRole('alert');
-  expect(alert).toHaveTextContent(serverMessage);
-  // The button stays usable so the commissioner can retry once the draft ends.
-  expect(within(card).getByRole('button', { name: 'Advance to Week 2' })).toBeEnabled();
-});
-
-test('commissioner-panel: an advance-week failure in a code+message envelope (no error key) shows the server sentence, not the generic fallback', async () => {
-  // A code+message envelope with no `error` key (the shape the global express
-  // error handler and the rate limiter emit). The old hand-rolled read of
-  // `err.response.data.error` found no `error` key here and, with no err.message
-  // on the rejected object, showed the generic 'Could not advance the week.';
-  // reading through readHttpFailure surfaces the server's own sentence.
-  const serverMessage = 'scoring is locked while the weekly sync runs; try again in a minute';
-  apiClient.post.mockRejectedValue({
-    response: { status: 409, data: { code: 'SYNC_IN_PROGRESS', message: serverMessage } },
-  });
-  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  await userEvent.click(within(card).getByRole('button', { name: 'Advance to Week 2' }));
-  const dialog = await screen.findByRole('dialog');
-  await userEvent.click(within(dialog).getByRole('button', { name: /confirm/i }));
-
-  const alert = await within(card).findByRole('alert');
-  expect(alert).toHaveTextContent(serverMessage);
-  expect(alert).not.toHaveTextContent('Could not advance the week.');
-});
-
-test("commissioner-panel: a pick'em-only commissioner sees the panel but no advance control", async () => {
-  mockGetByUrl({ '/api/league/1': commissionerPanelPickemLeague() });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  expect(within(card).getByText(/Commissioners only/)).toBeInTheDocument();
-  // Week advancement in a pick'em-only league is the scheduler's job.
-  expect(within(card).queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
-});
-
-test('commissioner-panel: below md it is the first section under the header, mounted exactly once', async () => {
-  // Below md the rail stacks under the standings, which put the commissioner's
-  // own console roughly three screens down, under a 12-row standings card and a
-  // 12-row draft-grades card.
-  viewport = 390;
-  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  // Exactly one mount, so DOM order IS visual order: no CSS `order`, and no
-  // second disclosure to drift out of sync with the first.
-  expect(screen.getAllByTestId('commissioner-panel')).toHaveLength(1);
-  expect(screen.getAllByTestId('slot-commissioner-panel')).toHaveLength(1);
-
-  expect(precedes(card, screen.getByTestId('slot-standings'))).toBe(true);
-  expect(precedes(screen.getByTestId('dashboard-hero'), card)).toBe(false);
-  // Directly under the header means ahead of the recap band too.
-  expect(precedes(card, screen.getByTestId('slot-recap'))).toBe(true);
-});
-
-test('commissioner-panel: at md and up it is back in the rail, still mounted exactly once', async () => {
-  // 1024px: past the md flip, where the rail is a real column beside the
-  // standings and the panel belongs at its foot.
-  viewport = 1024;
-  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  expect(screen.getAllByTestId('commissioner-panel')).toHaveLength(1);
-  expect(screen.getByTestId('dashboard-rail')).toContainElement(card);
-  expect(precedes(screen.getByTestId('slot-standings'), card)).toBe(true);
-});
-
-test("commissioner-panel: a pick'em commissioner below md gets the same single top-level mount", async () => {
-  // A pick'em league has no rail at all, so its panel normally sits at the
-  // bottom of the page; below md it moves to the same place a fantasy league's
-  // does, and the bottom branch stands down so there is still one mount.
-  viewport = 390;
-  mockGetByUrl({ '/api/league/1': commissionerPanelPickemLeague() });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  expect(screen.getAllByTestId('commissioner-panel')).toHaveLength(1);
-  expect(precedes(card, screen.getByTestId('dashboard-quick-actions'))).toBe(true);
-});
-
-test('commissioner-panel: expanding League administration mounts the legacy commissioner tools', async () => {
-  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  // Collapsed by default: the legacy tools are not mounted, so their heading is
-  // absent until the disclosure is opened.
-  expect(within(card).queryByRole('heading', { name: 'Commissioner Tools' })).not.toBeInTheDocument();
-
-  await userEvent.click(within(card).getByRole('button', { name: /league administration/i }));
-
-  // One of the legacy tools' known headings now renders (CommissionerTools's own
-  // "Commissioner Tools" header), composed as-is with the props the legacy page
-  // gives it.
-  expect(await within(card).findByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
-});
-
-test('commissioner-panel: the League administration disclosure wires aria-expanded/aria-controls to the region it mounts (#694)', async () => {
-  mockGetByUrl({ '/api/league/1': commissionerPanelLeague({ current_week: 1 }) });
-  renderPage();
-
-  const card = await screen.findByTestId('commissioner-panel');
-  const toggle = within(card).getByRole('button', { name: /league administration/i });
-
-  // Collapsed: aria-expanded is false, aria-controls is ABSENT (not merely
-  // empty) because the region only exists while open - a static reference
-  // would dangle collapsed - and no element with the region's id is mounted.
-  // Checked by id, not only by data-testid: a testid-only check would miss
-  // the id itself dropping or drifting while the (test-only) testid held.
-  expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  expect(toggle).not.toHaveAttribute('aria-controls');
-  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
-  // The ruling's collapsed clause is stated in terms of the region's id
-  // specifically; the testid check above is not a substitute for it.
-  // eslint-disable-next-line testing-library/no-node-access
-  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
-
-  await userEvent.click(toggle);
-
-  // Expanded: aria-controls now names the mounted region's id, and that
-  // region contains the legacy tools' own heading.
-  expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  expect(toggle).toHaveAttribute('aria-controls', 'commissioner-panel-administration');
-  const region = await screen.findByTestId('commissioner-panel-administration');
-  // Tie aria-controls to the region it actually names, not just to a matching
-  // literal: this is what would catch the region's id drifting or vanishing
-  // while its data-testid (a test-only hook) stayed put.
-  expect(region).toHaveAttribute('id', toggle.getAttribute('aria-controls'));
-  expect(within(region).getByRole('heading', { name: 'Commissioner Tools' })).toBeInTheDocument();
-
-  await userEvent.click(toggle);
-
-  // Collapsed again: back to the same wiring, the region unmounted and the
-  // reference gone.
-  expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  expect(toggle).not.toHaveAttribute('aria-controls');
-  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
-  // See the first collapsed phase above: checked by id, not only by testid.
-  // eslint-disable-next-line testing-library/no-node-access
-  expect(document.getElementById('commissioner-panel-administration')).not.toBeInTheDocument();
-});
-
-// ==========================================================================
 // Route cutover + parity (#645), the ninth slice. This section proves the
 // composition the cutover adds: the four legacy surfaces (chat launcher, recap,
 // trophy case, pick'em standings) mount under the same conditions the legacy
@@ -2100,7 +1895,7 @@ const cutoverFantasyGets = () =>
           /\/api\/league\/\d+\/draft-grades/.test(url))
     );
 
-test('cutover: a fantasy member composes the chat launcher, recap and trophy case alongside the five member widget slices', async () => {
+test('cutover: a fantasy member composes the chat launcher, recap and trophy case alongside the widget slices', async () => {
   // inSeasonLeague() is a member (is_commissioner false, no invite_code) with a
   // draft-complete, in-season, 12-team league.
   mockGetByUrl({ '/api/league/1': inSeasonLeague() });
@@ -2108,15 +1903,17 @@ test('cutover: a fantasy member composes the chat launcher, recap and trophy cas
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
 
-  // Five of the six widget slices render for a member; the sixth, the
-  // commissioner panel, mounts in the rail but returns null for a non-
-  // commissioner by #644's design, so its own card is absent.
+  // Every fantasy widget slot renders for a member; the commissioner strip
+  // mounts under the header but returns null for a non-commissioner
+  // (CommissionerStrip.jsx's own gate), so its own card is absent.
   expect(screen.getByTestId('slot-my-team')).toBeInTheDocument();
   expect(screen.getByTestId('slot-matchup-preview')).toBeInTheDocument();
+  expect(screen.getByTestId('slot-around-the-league')).toBeInTheDocument();
   expect(screen.getByTestId('slot-standings')).toBeInTheDocument();
   expect(screen.getByTestId('slot-draft-grades')).toBeInTheDocument();
   expect(screen.getByTestId('dashboard-quick-actions')).toBeInTheDocument();
-  expect(screen.queryByTestId('commissioner-panel')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-recent-activity')).toBeInTheDocument();
+  expect(screen.queryByTestId('commissioner-strip')).not.toBeInTheDocument();
 
   // The composed-as-is fantasy surfaces.
   expect(screen.getByTestId('recap-card')).toBeInTheDocument();
@@ -2239,13 +2036,19 @@ test("cutover: a pick'em-only member shows pick'em standings and the Pick'em act
 
   // No fantasy slices, no fantasy layout regions, no recap, no advance control.
   expect(screen.queryByTestId('dashboard-hero')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-around-the-league')).not.toBeInTheDocument();
   expect(screen.queryByTestId('dashboard-main')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('dashboard-second-row')).not.toBeInTheDocument();
   expect(screen.queryByTestId('slot-my-team')).not.toBeInTheDocument();
   expect(screen.queryByTestId('slot-matchup-preview')).not.toBeInTheDocument();
   expect(screen.queryByTestId('slot-standings')).not.toBeInTheDocument();
   expect(screen.queryByTestId('slot-draft-grades')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('slot-recent-activity')).not.toBeInTheDocument();
   expect(screen.queryByTestId('recap-card')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
+  // Quick Actions still renders, full width and on its own (outside the
+  // second grid row, which never mounts for a pick'em-only league).
+  expect(screen.getByTestId('dashboard-quick-actions')).toBeInTheDocument();
 
   // The dispatcher recorded no scoring-standings, matchups or draft-grades GET.
   expect(cutoverFantasyGets()).toEqual([]);
@@ -2288,6 +2091,46 @@ test('cutover: a team-profile rename writes through to the standings and draft-g
   expect(within(gradesRow7).queryByText('Skattebo Stans')).not.toBeInTheDocument();
 
   // The write-through made no request: still exactly one league GET.
+  expect(cutoverLeagueGetCount()).toBe(1);
+});
+
+// The sibling test above proves the write-through's `teamName` half (what
+// THIS page's own widgets render). This test proves the other half: the raw
+// `name` column, which nothing on this page renders any more (ADR 0034
+// retired the only widget that did, the commissioner panel, in this same
+// ticket) but which is still patched by the SAME subscription
+// (LeagueDashboardPage.jsx's `withRawName` call, the first of the two
+// `applyTeamProfileUpdate` calls) and is still read on a DIFFERENT page:
+// `pages/commissioner-console/model/useCommissionerConsole.js` reads the
+// identical shared `useLeague` cache entry (its own docblock: "the same
+// entry"), and `components/LeagueDashboard/CommissionerTools.jsx` renders
+// that raw `name` in its removable-teams list. Dropping the `withRawName`
+// call leaves that console list stale after a live rename with nothing in
+// this repo turning red - this test is what closes that gap. It reads the
+// shared cache entry directly (`resourceCache`'s own `read`, the same module
+// `useLeague.js` itself calls) rather than mounting CommissionerTools here,
+// since that mount is gone from this page for good.
+test('cutover: a team-profile rename also patches the raw name column in the shared league cache (read by the commissioner console on a different page, #1107)', async () => {
+  mockGetByUrl(cutoverLiveIdentityMocks);
+  renderPage();
+
+  await screen.findByTestId('standings-table');
+  // Team 7's raw `name` column starts as the fixture's own decoy value,
+  // distinct from its canonical `teamName` ('Skattebo Stans').
+  const teamsInCache = () => read(['league', 1])?.data?.teams ?? [];
+  expect(teamsInCache().find((t) => t.teamId === 7)?.name).toBe('raw-7');
+
+  // Another manager's session publishes a rename for Team 7.
+  act(() => {
+    publishTeamProfileUpdate({ leagueId: 1, teamId: 7, name: 'Renamed Seven' });
+  });
+
+  // The shared cache entry's raw `name` column is patched too, with no
+  // second league GET (the write-through, like its teamName sibling, makes
+  // no request).
+  await waitFor(() => {
+    expect(teamsInCache().find((t) => t.teamId === 7)?.name).toBe('Renamed Seven');
+  });
   expect(cutoverLeagueGetCount()).toBe(1);
 });
 
@@ -2380,41 +2223,13 @@ test('cutover: no draft countdown once the draft_date is absent, past pre-draft,
   expect(screen.queryByTestId('slot-draft-countdown')).not.toBeInTheDocument();
 });
 
-// A pre-draft fantasy league whose viewer (teamId 1) is the commissioner, so
-// the commissioner panel can disclose the legacy CommissionerTools. Team 7
-// carries a raw `name` deliberately different from its canonical `teamName`, so
-// the test can prove the write-through patches the raw column CommissionerTools
-// renders (its removable-teams list), not only the teamName the widgets read.
-const cutoverCommissionerTeams = [
-  { teamId: 1, id: 1, name: 'Owner Raw', teamName: 'Owner Canon', avatar_url: null, avatar_static_url: null },
-  { teamId: 7, id: 7, name: 'RawSeven', teamName: 'CanonSeven', avatar_url: null, avatar_static_url: null },
-  { teamId: 8, id: 8, name: 'RawEight', teamName: 'CanonEight', avatar_url: null, avatar_static_url: null },
-];
-
-test('cutover: a team-profile rename also patches the raw name column CommissionerTools reads', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueDetail({
-      league: { draft_status: 'pending', is_commissioner: true },
-      teams: cutoverCommissionerTeams,
-      viewerTeamId: 1,
-    }),
-  });
-  renderPage();
-
-  const panel = await screen.findByTestId('commissioner-panel');
-  await userEvent.click(within(panel).getByRole('button', { name: /league administration/i }));
-
-  // CommissionerTools' removable-teams list renders each team's RAW name (Team 7
-  // is removable: not the viewer's own team, pre-draft so the list is live).
-  expect(await within(panel).findByRole('button', { name: 'Remove RawSeven' })).toBeInTheDocument();
-
-  // Another manager renames Team 7.
-  act(() => {
-    publishTeamProfileUpdate({ leagueId: 1, teamId: 7, name: 'Renamed Seven' });
-  });
-
-  // The raw column updates live in the commissioner tools, as it did on the
-  // legacy page (the write-through patches both `name` and `teamName`).
-  expect(await within(panel).findByRole('button', { name: 'Remove Renamed Seven' })).toBeInTheDocument();
-  expect(within(panel).queryByRole('button', { name: 'Remove RawSeven' })).not.toBeInTheDocument();
-});
+// The pre-draft-fantasy-commissioner "raw name column" cutover case that used
+// to live here (a team-profile rename patching the raw `name` CommissionerTools
+// reads, proven by expanding the commissioner panel's League administration
+// disclosure) is deleted with this ticket (#1110): CommissionerStrip mounts no
+// legacy administration tree at any width (ADR 0034), so CommissionerTools is
+// no longer reachable from this page at all - it composes AS-IS in
+// src/pages/commissioner-console instead, which is where that surface's own
+// coverage of the raw-name write-through now belongs. The teamName half of the
+// same write-through stays covered above ("cutover: a team-profile rename
+// writes through to the standings and draft-grades rows ...").

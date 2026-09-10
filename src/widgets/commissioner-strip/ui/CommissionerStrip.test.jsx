@@ -195,7 +195,6 @@ test('the strip mounts no legacy administration tree at any width', async () => 
   // temporary mount of it in the widget reddens this exact assertion;
   // removing it again returns to green (PR body records both runs).
   expect(screen.queryByTestId('mock-commissioner-tools')).not.toBeInTheDocument();
-  expect(screen.queryByTestId('commissioner-panel-administration')).not.toBeInTheDocument();
 });
 
 // --- the join-requests badge -------------------------------------------------

@@ -1,6 +1,7 @@
-// Fixture harness for the Game Center + Matchup Detail layout guard (#920).
+// Fixture harness for the Game Center + Matchup Detail layout guard (#920),
+// extended to also cover the League Dashboard layout guard (#1110).
 //
-// These two routes are not covered by the Draft-room harness, and this guard
+// These routes are not covered by the Draft-room harness, and this guard
 // deliberately does NOT extend the Draft route table (draftRouteTable.js): the
 // coverage guard walks only the Draft room's import closure, so registering
 // here would buy nothing and make that table's stated contract untrue. It uses
@@ -8,12 +9,16 @@
 // fixture asserts against the Draft REST installer and would pass vacuously on
 // these pages.
 //
-// A single catch-all handler over `/api/**` fulfils the nine endpoints these
-// two pages read and answers 500 `unexpected mocked request` on anything else,
-// the convention tests/e2e/auth-offline.spec.ts established. The app's own test
-// socket factory hook is installed on every load, so the score feed both pages
-// subscribe to on mount never opens a real connection (the join event these
-// pages emit is `league:join`, not the Draft room's `draft:join`).
+// A single catch-all handler over `/api/**` fulfils the fourteen endpoints
+// these three pages read (nine for Game Center + Matchup Detail, #920; five
+// more for the League Dashboard, #1110: draft grades, the viewer's lineup,
+// recent activity and the commissioner strip's join-request queue) and
+// answers 500 `unexpected mocked request` on anything else, the convention
+// tests/e2e/auth-offline.spec.ts established. The app's own test socket
+// factory hook is installed on every load, so the score feed both Game Center
+// and Matchup Detail subscribe to on mount never opens a real connection (the
+// join event these pages emit is `league:join`, not the Draft room's
+// `draft:join`); the League Dashboard mounts no score feed of its own.
 import type { Page, Route } from '@playwright/test';
 import { json } from './jsonRoute';
 
@@ -25,6 +30,7 @@ const OPP_TEAM_ID = 102;
 
 export const GAME_CENTER_URL = `/#/league/${LEAGUE_ID}/game-center`;
 export const MATCHUP_URL = `/#/league/${LEAGUE_ID}/matchups/${MATCHUP_ID}`;
+export const DASHBOARD_URL = `/#/league/${LEAGUE_ID}`;
 
 // The widest the h1, the LED board week cell and the season strip ever get.
 const CURRENT_WEEK = 18;
@@ -115,7 +121,16 @@ function benchFor(offset: number) {
 
 // The league row: a falsy pick'em flag (or the fantasy-only gate paints a
 // refusal card), best_ball false, current_week 18, and roster_slots as a
-// non-empty key list in commissioner order.
+// non-empty key list in commissioner order. `is_commissioner` / `is_public` /
+// `join_approval` are League Dashboard fields (#1110): the viewer is the
+// league's commissioner, so the commissioner strip mounts and its own
+// join-requests read fires (is_public + join_approval both true).
+// `transactions_locked` / `trade_deadline_week` / `waiver_type` /
+// `waiver_period_hours` / `trade_review_hours` are what
+// `shared/lib/commissionerFacts.js` reads for the strip's five fact tiles
+// (shared/lib/commissionerFacts.js: a fact whose source field is ABSENT is
+// not rendered at all, so the strip's `commissioner-strip-facts` grid stays
+// unmounted without them).
 const LEAGUE_ROW = {
   id: LEAGUE_ID,
   name: LEAGUE_NAME,
@@ -124,6 +139,14 @@ const LEAGUE_ROW = {
   best_ball: false,
   pickem_only: false,
   roster_slots: ROSTER_SLOTS,
+  is_commissioner: true,
+  is_public: true,
+  join_approval: true,
+  transactions_locked: false,
+  trade_deadline_week: 11,
+  waiver_type: 'faab',
+  waiver_period_hours: 24,
+  trade_review_hours: 24,
 };
 
 const TEAMS = [
@@ -255,7 +278,12 @@ const SCORE_PLAYS = [
 ];
 
 // Standings, so a record and rank print under each Team name (part of the real
-// rendered width).
+// rendered width). `pf`/`pa` are the wire's own field names
+// (entities/standings/model/standingsModel.js `teamStandingFromRow`, the ONE
+// place a Team's Record and points are computed island-wide); nothing reads
+// `pointsFor` off this raw row (Game Center and Matchup Detail read Record
+// only, through `recordsByTeamId`, which is wins/losses/ties, not points), so
+// this rename is safe for both existing consumers of this fixture.
 function standings() {
   return {
     standings: TEAMS.map((t, i) => ({
@@ -265,14 +293,102 @@ function standings() {
       wins: 10 - i,
       losses: i,
       ties: 0,
-      pointsFor: 1500 - i * 20,
+      pf: 1500 - i * 20,
+      pa: 1200 + i * 15,
     })),
   };
 }
 
+// Draft grades (League Dashboard's `draft-grades` rail card and `my-team-summary`
+// hero tile, both `GET /api/league/:id/draft-grades`). One row per Team,
+// ranked best-first as the real endpoint sends it; the viewer sits mid-pack.
+function draftGrades() {
+  const grades = ['A', 'B', 'C', 'C', 'D', 'F'];
+  return {
+    computedAt: '2026-09-01T00:00:00.000Z',
+    rosterValueAvailable: false,
+    grades: TEAMS.map((t, i) => ({
+      teamId: t.teamId,
+      name: t.teamName,
+      grade: grades[i] ?? 'C',
+      rank: i + 1,
+      adpNet: 120 - i * 30,
+      rosterValue: null,
+      steal: null,
+      reach: null,
+      pricedPicks: 9,
+    })),
+  };
+}
+
+// The viewer's weekly Lineup (`GET /api/team/lineup?leagueId=<id>&week=<week>`,
+// server/services/lineup.service.js `getLineup`). Shaped from what that
+// function actually returns (its own `entries: annotateLineupEntries(...)`
+// assembly, read directly off the service, not off the entity model's
+// docblock or a hand-built object - the #1097 sweep's binding ruling on this
+// ticket, since `opponent` is a real, currently-sent field, #1132/#1136): one
+// entry per required starting slot, full roster_slots, no bench/IR rows (the
+// widget's Starters section only needs enough starters to render a non-empty
+// list; the hero card's height is equalized by the page's own CSS grid
+// stretch, not by this fixture's row count).
+function lineupForViewer() {
+  return {
+    leagueId: LEAGUE_ID,
+    teamId: VIEWER_TEAM_ID,
+    season: 2026,
+    week: CURRENT_WEEK,
+    currentWeek: CURRENT_WEEK,
+    rosterSlots: ROSTER_SLOTS,
+    benchSlots: 5,
+    irSlots: 1,
+    entries: startersFor(HOME_STARTER_NAMES).map((starter, i) => ({
+      id: starter.id,
+      name: starter.name,
+      position: starter.position,
+      nfl_team: starter.nfl_team,
+      injury_status: null,
+      slot: STARTER_SLOTS[i],
+      ir_attested: false,
+      projected_points: starter.projected,
+      bye_week: null,
+      locked: false,
+      onBye: false,
+      valid_stash: false,
+      opponent: 'DAL',
+    })),
+  };
+}
+
+// Recent activity (`GET /api/league/:id/transactions`, League Dashboard's
+// `recent-activity` rail card): a bare array of raw transaction rows
+// (entities/activity/model/activityModel.js `activityFromRow`'s own input
+// shape), newest first.
+function transactions() {
+  return [
+    { id: 9001, type: 'add', team_name: TEAMS[0].teamName, player_name: 'Waiver Wire Wonder', created_at: '2026-09-08T20:00:00.000Z' },
+    { id: 9000, type: 'drop', team_name: TEAMS[1].teamName, player_name: 'Bench Warmer', created_at: '2026-09-08T12:00:00.000Z' },
+  ];
+}
+
+// The pending join-request queue (`GET /api/league/:id/join-requests`,
+// CommissionerStrip's own read): a bare array, one entry so the strip's Badge
+// renders. Real shape unimportant here (the strip states only the COUNT).
+function joinRequestRows() {
+  return [{ id: 1 }];
+}
+
+// The viewer's own roster (`GET /api/team/roster?leagueId=<id>`, quick-actions'
+// best-effort Set-Lineup recommendation read): a bare array, empty. The
+// widget degrades this read's absence/failure the same way (no
+// recommendation), so an empty roster is a legitimate, simple fixture.
+function rosterRows() {
+  return [];
+}
+
 /**
- * The one catch-all `/api/**` route. Answers the nine endpoints the two pages
- * read and 500s on anything unrecognised.
+ * The one catch-all `/api/**` route. Answers the fourteen endpoints Game
+ * Center, Matchup Detail and the League Dashboard read (see the module
+ * docblock) and 500s on anything unrecognised.
  */
 async function fulfilApi(route: Route) {
   const request = route.request();
@@ -305,6 +421,23 @@ async function fulfilApi(route: Route) {
   }
   if (method === 'GET' && pathname === '/api/team/hindsight') {
     return json(route, 200, { pointsLeftOnBench: 0 });
+  }
+  // League Dashboard reads (#1110): draft grades, the viewer's lineup, recent
+  // activity and the commissioner strip's join-request queue.
+  if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/draft-grades`) {
+    return json(route, 200, draftGrades());
+  }
+  if (method === 'GET' && pathname === '/api/team/lineup') {
+    return json(route, 200, lineupForViewer());
+  }
+  if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/transactions`) {
+    return json(route, 200, transactions());
+  }
+  if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}/join-requests`) {
+    return json(route, 200, joinRequestRows());
+  }
+  if (method === 'GET' && pathname === '/api/team/roster') {
+    return json(route, 200, rosterRows());
   }
 
   return json(route, 500, { error: `unexpected mocked request: ${method} ${pathname}` });
