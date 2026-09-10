@@ -1,6 +1,6 @@
 import React from 'react';
 import { Avatar, useMediaQuery } from '@mui/material';
-import { initialsFor } from '../../lib/initials';
+import { initialsFor } from '../lib';
 import { shouldShowStillFrame } from '../../lib/reducedMotionMedia';
 
 /**
@@ -14,6 +14,14 @@ import { shouldShowStillFrame } from '../../lib/reducedMotionMedia';
  * site here (including DraftPresenter) gets correct behavior just by passing
  * both URLs through and the rule cannot drift between the two surfaces that use
  * it.
+ *
+ * Part of `shared/ui` (#1146, ADR 0031's amendment extending the second-
+ * island-consumer clause to presentational components): reached seven island
+ * widget consumers, past the threshold, and moved here from
+ * `src/components/common/TeamAvatar` as the one canonical implementation for
+ * both island and legacy consumers. `shouldShowStillFrame` stays a below-
+ * island reach into `src/lib/reducedMotionMedia` — generic plumbing GifMessage
+ * also depends on, not yet promoted.
  */
 function TeamAvatar({ name, avatarUrl, avatarStaticUrl, size = 32, 'data-testid': testId }) {
   const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');

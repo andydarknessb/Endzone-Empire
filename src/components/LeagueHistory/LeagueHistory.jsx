@@ -43,7 +43,7 @@ import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import TeamAvatar from '../common/TeamAvatar';
+import { TeamAvatar } from '../../shared/ui';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 // The podium marks on the standings rows, as inline stroke glyphs on the same

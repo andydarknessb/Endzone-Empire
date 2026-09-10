@@ -22,3 +22,8 @@ export { default as InjuryTag } from './InjuryTag';
 // here where both can reach them. `SPRITE_FIXED` is the kit-free palette the
 // field's resting kit reads its gold and white from.
 export { Sprite, RefereeSprite, GoalPostSprite, FIXED as SPRITE_FIXED } from './TecmoSprite';
+// A team's avatar/initials fallback (#1146, ADR 0031's component amendment):
+// reached seven island widget consumers, past the second-island-consumer
+// threshold, and moved here as the one canonical implementation island and
+// legacy `src/components` consumers both import.
+export { default as TeamAvatar } from './TeamAvatar';

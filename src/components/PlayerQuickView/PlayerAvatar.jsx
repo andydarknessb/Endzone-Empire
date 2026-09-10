@@ -1,7 +1,7 @@
 import React from 'react';
 import { Avatar } from '@mui/material';
 import { positionColorSx } from './PositionChip';
-import { initialsFor } from '../../lib/initials';
+import { initialsFor } from '../../shared/lib';
 
 /**
  * A player's headshot with a position-colored, initials fallback when no

@@ -2,8 +2,7 @@ import React from 'react';
 import { Box, Typography, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
-import { Badge, Card, SplitBar } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Badge, Card, SplitBar, TeamAvatar } from '../../../shared/ui';
 import { scoreboardView } from '../model/scoreboardView';
 
 /**

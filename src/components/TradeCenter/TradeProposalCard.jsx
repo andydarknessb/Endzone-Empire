@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardActions, Box, Typography, Chip, Avatar, Button, Stack, Tooltip } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
-import TeamAvatar from '../common/TeamAvatar';
+import { TeamAvatar } from '../../shared/ui';
 import { formatRelative } from '../../utils/formatRelative';
 
 const STATUS_COLOR = {

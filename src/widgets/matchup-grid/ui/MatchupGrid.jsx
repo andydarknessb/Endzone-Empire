@@ -1,8 +1,7 @@
 import React from 'react';
 import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, SplitBar } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Badge, Card, SplitBar, TeamAvatar } from '../../../shared/ui';
 import { matchupCardView } from '../model/matchupCardView';
 
 /**

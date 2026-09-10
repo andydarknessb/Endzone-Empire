@@ -32,7 +32,7 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import { recordsByTeamId } from '../../entities/standings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import TeamAvatar from '../common/TeamAvatar';
+import { TeamAvatar } from '../../shared/ui';
 
 function OddsCell({ value, label }) {
   const pct = Math.round((value || 0) * 1000) / 10;

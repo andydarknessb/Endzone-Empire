@@ -82,3 +82,53 @@ as `playLabel`, a Scoring play domain model (#1137: `classifyPlays` folds into
 `features/celebrate-touchdown` and its one caller is that feature). The default
 week rule is unmeasured and unruled; the next reader should treat that silence
 as an open question, not a ruling.
+
+## Amendment (2026-09-10, #1146): the second-island-consumer clause covers presentational components too
+
+The Consequences bullet's below-island clause is worded around helpers
+("until a second island consumer earns them a `shared/lib` home"), and neither
+of that bullet's own examples was ever a presentational component. #1146 asked
+the question directly, raised from the lead review of PR #1142 (#1118): that PR
+landed a widget importing `AbbreviationTooltip` out of `src/components/common`,
+following the precedent of `TeamAvatar`, already imported the same way by seven
+widgets. Neither import had ever been ruled on - the clause names helpers, not
+components, and no ADR said whether UI is different.
+
+It is not. The clause is stated once, for a presentational component exactly as
+for a helper: an island widget importing below-island for either is sanctioned
+only until a second island consumer earns it a shared home - `shared/lib` for a
+helper, `shared/ui` for a presentational component, the two bottom-layer
+directories ADR 0020 and its amendment already name as siblings.
+
+Ruled under that clause:
+
+- `TeamAvatar` had reached seven island widget consumers (`standings-table`,
+  `around-the-league`, `my-team-summary`, `matchup-grid`, `matchup-preview`,
+  `scoreboard-strip`, `matchup-hero`), well past the threshold. It moves to
+  `shared/ui` as the one canonical implementation, exported through
+  `shared/ui`'s index; the legacy `src/components` consumers that had it
+  (`TradeProposalCard`, `TeamAvatarUploader`, `PowerRankings`, `LeagueHistory`,
+  `PickemStandings`) now import the same `shared/ui` export rather than
+  duplicating the implementation, matching the direction `Badge` and `Card`
+  already travel into `RecapCard`, `TrophyCase` and `CommissionerTools`.
+- `initialsFor`, the helper TeamAvatar and two widgets (`retro-scoreboard`,
+  `join-requests`) call directly, had already reached its own second island
+  consumer. It moves to `shared/lib` alongside TeamAvatar's promotion, under
+  the pre-existing helper clause.
+- `AbbreviationTooltip` has one island consumer (Draft Grades) and stays below
+  the island at `src/components/common/AbbreviationTooltip`: a documented
+  temporary edge under this clause until a second island consumer earns it a
+  `shared/ui` home. This is the sanctioned instance of the below-island
+  component reach going forward, the way ADR 0029's amendment names the
+  Matchup entity's below-island edges.
+- The reduced-motion still-frame decision (`src/lib/reducedMotionMedia`,
+  `shouldShowStillFrame`) stays below the island: it is generic plumbing with
+  no presentational identity of its own (GifMessage, outside the island,
+  depends on it too) and has not reached a second island consumer under either
+  clause.
+
+Like the rest of this ADR's import rules, this remains unaudited in the sense
+of ADR 0010: no lint rule enforces the threshold, and the boundary lint rule
+ADR 0020 names as a follow-up would need to reach below-island component
+imports the way it would reach below-island helper imports. Until it exists,
+both halves of the clause bind by review.

@@ -14,7 +14,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import TeamAvatar from '../common/TeamAvatar';
+import { TeamAvatar } from '../../shared/ui';
 import { usePickemStandings } from '../../hooks/usePickemStandings';
 import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 
