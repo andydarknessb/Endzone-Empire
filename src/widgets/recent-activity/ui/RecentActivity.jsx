@@ -68,14 +68,15 @@ function ActivitySkeletonRow({ first }) {
 
 /**
  * One transaction row: type Badge, Team name (or "Commissioner") + sentence,
- * relative time. A teamless row defaults its Team column to "Commissioner"
- * only when it actually IS a commissioner action; a `recap` row is also
- * teamless (a league-wide event, #1134) but reads as no Team at all rather
- * than misreporting itself as a commissioner action.
+ * relative time. The Team column renders `row.teamLabel` verbatim - the
+ * entity (`entities/activity`) is the one place that decides what a
+ * teamless row's Team column reads (#1144): "Commissioner" for a teamless
+ * `commissioner` row, blank for every other teamless row (`recap`,
+ * `stat_correction`, ...). This widget makes no transaction-type decision of
+ * its own.
  */
 function ActivityRow({ row, first, now }) {
   const badge = activityBadge(row.type);
-  const teamLabel = row.teamName || (row.type === 'commissioner' ? 'Commissioner' : '');
 
   return (
     <Box component="li" data-testid="recent-activity-row" data-type={row.type} sx={ROW_SX(first)}>
@@ -88,7 +89,7 @@ function ActivityRow({ row, first, now }) {
           data-testid="recent-activity-team"
           sx={{ ...ELLIPSIS_SX, fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}
         >
-          {teamLabel}
+          {row.teamLabel}
         </Box>
         <Box
           component="span"

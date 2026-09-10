@@ -9,18 +9,28 @@
  *
  * The shape:
  *
- *   { id, type, teamName, avatarUrl, avatarStaticUrl, sentence, players, segments, at }
+ *   { id, type, teamName, teamLabel, avatarUrl, avatarStaticUrl, sentence, players, segments, at }
  *
  * `type` is one of add | drop | waiver | trade | commissioner (the transaction
  * types `GET /api/league/:id/transactions` documents), stat_correction (an
  * NFL stat-correction row, carried for parity with the Activity page's
  * existing handling of them), or recap (a generated weekly recap being
  * published, #1134 - league-wide, like commissioner, so it carries no team
- * either). `teamName` is null on a commissioner or recap row (neither has a
- * Team's own move behind it). A type this module does not recognize (the
- * server declares the full list as `TRANSACTION_TYPES`,
- * `server/services/activity.service.js`) renders a generic sentence built
- * from the type itself rather than an empty one - see `genericSentenceFor`.
+ * either). `teamName` is null on a commissioner, recap, or stat_correction
+ * row (none of the three has a Team's own move behind it). A type this
+ * module does not recognize (the server declares the full list as
+ * `TRANSACTION_TYPES`, `server/services/activity.service.js`) renders a
+ * generic sentence built from the type itself rather than an empty one -
+ * see `genericSentenceFor`.
+ *
+ * `teamLabel` is the Team column's display string (#1144): `teamName` when
+ * the row has one, `'Commissioner'` for a teamless `commissioner` row (WHO
+ * made a commissioner move, not WHAT it was), and `''` for every other
+ * teamless row - `recap` (#1134) and `stat_correction` alike, since a
+ * generated recap and an NFL data correction are both league-wide events
+ * with no Team behind them, not commissioner actions. This is the one
+ * transaction-type dispatch for the Team column; a caller (`RecentActivity`)
+ * renders `teamLabel` verbatim and makes no type decision of its own.
  *
  * `sentence` NEVER repeats the Team name: it is the action alone ("added
  * Justin Jefferson", "claimed Breece Hall ($12), dropped Zach Wilson"), so a
@@ -169,6 +179,19 @@ function playersFor(row) {
   }
 }
 
+/**
+ * The Team column's display label for a row (#1144 - see the module
+ * docblock): the row's own Team name when it has one, `'Commissioner'` for
+ * a teamless `commissioner` row, and `''` for every other teamless row
+ * (`recap`, `stat_correction`, or any future type). The one place this
+ * entity decides "who does a teamless row belong to" - callers never
+ * re-derive it from `type`.
+ */
+function teamLabelFor(row) {
+  if (row.team_name) return row.team_name;
+  return row.type === 'commissioner' ? 'Commissioner' : '';
+}
+
 const text = (value) => ({ type: 'text', value });
 const player = (name, playerId) => ({ type: 'player', name, playerId });
 
@@ -247,6 +270,7 @@ export function activityFromRow(row) {
     id: r.id ?? null,
     type: r.type ?? null,
     teamName: r.team_name ?? null,
+    teamLabel: teamLabelFor(r),
     avatarUrl: r.team_avatar_url ?? null,
     avatarStaticUrl: r.team_avatar_static_url ?? null,
     sentence: sentenceFor(r),
