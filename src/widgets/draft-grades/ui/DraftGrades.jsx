@@ -27,8 +27,10 @@ import useDraftGrades from '../model/useDraftGrades';
  * which is mounted either way. Skeleton rows hold the one-line shape.
  *
  * Composes `shared/ui` (ADR 0020): `Card` for the labelled region and header
- * (title + the "Net vs ADP" tail), `GradeChip` for the per-row letter chip.
- * Colors come only from `--dash-*` tokens.
+ * (title + the "Net vs ADP" tail, an `AbbreviationTooltip` per #1118 - a
+ * focusable tab stop ahead of the table, carrying the fuller definition),
+ * `GradeChip` for the per-row letter chip. Colors come only from `--dash-*`
+ * tokens.
  *
  * The table is plain `table`/`tbody`/`tr`/`th`/`td` elements, NOT MUI's Table
  * primitives, and that is load-bearing rather than a style preference. The app
