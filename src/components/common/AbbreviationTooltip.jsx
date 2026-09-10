@@ -19,17 +19,21 @@ export const STAT_DEFINITIONS = Object.freeze({
   PF: 'Points for: total fantasy points scored by this team.',
   PA: 'Points against: total fantasy points scored by this team\'s opponents.',
   ADP: 'Average draft position: the typical pick where this player is selected.',
-  Projected: 'Projected fantasy points: an estimate based on available projection data.',
-  'Expected final': 'Expected final: the projection until a starter kicks off, then points so far plus what he is still expected to add, until it is the score.',
+  Projected: 'An estimate of fantasy points based on available projection data.',
+  'Expected final': 'The projection until a starter kicks off, then points so far plus what he '
+    + 'is still expected to add, until it is the score.',
   'FPTS/G': 'Fantasy points per game: total fantasy points divided by games played.',
   'Pos rank': 'Position rank: this player\'s rank among players at the same position.',
-  Bye: 'Bye week: the week this player\'s NFL team does not play, so they can\'t score.',
+  Bye: 'The week this player\'s NFL team does not play, so they can\'t score.',
   '17-game pace': 'Historical pace: last completed season\'s per-game production, extrapolated '
     + 'across seventeen games. Not a forecast or a weekly projection.',
-  // Unlike the acronym entries above, the term itself is already plain
-  // words, so this definition does not restate "Net vs ADP" as a prefix
-  // (the aria-label composed in AbbreviationTooltip below already carries
-  // the term once, and repeating it here would say it twice).
+  // A definition must never open by restating its own term (checked
+  // case-insensitively by the contract test below): the aria-label composed
+  // in AbbreviationTooltip already prefixes the term once, so a definition
+  // that opens with it gets announced twice. That is the whole rule - it is
+  // not a split between acronyms and plain words. 'Bye' and 'Projected' are
+  // plain words and used to restate too (fixed alongside this entry, #1145);
+  // '17-game pace' is plain words and never did.
   'Net vs ADP': 'Adds up how far each pick beat its market ADP. Higher is better. The steal is '
     + 'the pick that fell furthest past its ADP, the reach the pick taken furthest ahead of it.',
 });
