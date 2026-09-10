@@ -30,6 +30,13 @@ describe('figures', () => {
   test('a count prints as a whole number, a dash when unknown', () => {
     expect(formatCount(9)).toBe('9');
     expect(formatCount(null)).toBe('-');
+    // Empty string and undefined should render as unknown, not zero
+    expect(formatCount('')).toBe('-');
+    expect(formatCount(undefined)).toBe('-');
+    expect(formatCount(NaN)).toBe('-');
+    // Numeric zero and string numbers should render as their values
+    expect(formatCount(0)).toBe('0');
+    expect(formatCount('4')).toBe('4');
   });
 });
 

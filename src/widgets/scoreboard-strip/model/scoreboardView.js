@@ -1,5 +1,5 @@
 import { matchupStatusView } from '../../../entities/matchup';
-import { matchupWinProbability } from '../../../shared/lib';
+import { matchupWinProbability, finite } from '../../../shared/lib';
 
 /**
  * The scoreboard strip's view model (widget `scoreboard-strip`, ADR 0031,
@@ -21,12 +21,14 @@ export function formatScore(value) {
 
 /** An Expected final as the strip prints it: one decimal, or null when unknown. */
 export function formatExpectedFinal(value) {
-  return value != null && Number.isFinite(Number(value)) ? Number(value).toFixed(1) : null;
+  const n = finite(value);
+  return n != null ? n.toFixed(1) : null;
 }
 
 /** Players remaining as the model reports it: the integer count, or null when unknown. */
 export function formatPlayersRemaining(value) {
-  return value != null && Number.isFinite(Number(value)) ? String(Number(value)) : null;
+  const n = finite(value);
+  return n != null ? String(n) : null;
 }
 
 // The record lookup the page passes down (ADR 0031: Team record does not join
