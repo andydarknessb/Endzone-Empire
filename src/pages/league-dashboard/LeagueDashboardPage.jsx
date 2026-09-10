@@ -21,7 +21,9 @@ import MyTeamSummary from '../../widgets/my-team-summary';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StandingsTable from '../../widgets/standings-table';
 import DraftGrades from '../../widgets/draft-grades';
-import CommissionerPanel from '../../widgets/commissioner-panel';
+import CommissionerStrip from '../../widgets/commissioner-strip';
+import AroundTheLeague from '../../widgets/around-the-league';
+import RecentActivity from '../../widgets/recent-activity';
 import QuickActions from '../../widgets/quick-actions';
 import ChatPanel from '../../components/ChatPanel/ChatPanel';
 import RecapCard from '../../components/RecapCard/RecapCard';
@@ -53,7 +55,7 @@ const H1_SX = {
   color: 'var(--dash-ink)',
 };
 
-// Several widgets on this page render null (a member's commissioner panel, a
+// Several widgets on this page render null (a member's commissioner strip, a
 // league with no recap, an empty trophy case), and a wrapper that outlives its
 // content still takes a turn in the shell's 22px stack: four blank bands at
 // phone width came from exactly that. `:empty` matches a wrapper whose child
@@ -66,18 +68,26 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * a commissioner, the copy-invite control) sits above the widget slices; the
  * legacy monolith it replaces is deleted.
  *
- * Fantasy vs pick'em-only composition. A fantasy league fills the hero
- * (my-team + matchup) and main grid (standings + a rail of draft-grades and the
- * commissioner panel), and shows the weekly recap and the pre-draft countdown.
- * A pick'em-only league has no fantasy team, matchups or draft, so none of
- * those slices mount (each would fire a fantasy read that returns an empty or
- * zeroed table): its body is the pick'em standings, and the quick-actions
- * widget trims itself to the pick'em surfaces. Quick actions, the trophy case
- * and league chat are common to both. The recap and the pre-draft countdown are
- * fantasy-only (gated on isPickemOnly, matching the legacy page); the trophy
- * case is NOT, because trophy.service awards a pickem_champion type with no type
- * filter on the league read and TrophyCase renders it, so a completed pick'em
- * season has a populated case (the legacy page mounted it unconditionally too).
+ * v2 composition (ADR 0034, #1110): the commissioner strip sits directly under
+ * the header at every width (`slot-commissioner-strip`) and replaces the old
+ * three-branch commissioner rail card; the retired administration-panel
+ * widget is deleted in this same PR. A fantasy league fills the hero (my-team
+ * + matchup, `align-items: stretch` so the two cards share the row height), a
+ * full-width Around the League strip, and the main grid (standings + a rail
+ * holding Draft Grades only) followed by a second grid row of the same tracks
+ * (Quick Actions in the wide track, Recent activity in the rail track), and
+ * shows the weekly recap and the pre-draft countdown. A pick'em-only league
+ * has no fantasy team, matchups or draft, so none of those slices mount
+ * (each would fire a fantasy
+ * read that returns an empty or zeroed table): its body is the pick'em
+ * standings, and Quick Actions renders full width on its own (the widget trims
+ * itself to the pick'em surfaces; Recent activity does not mount at all, since
+ * the activity log is a fantasy surface). The trophy case and league chat are
+ * common to both. The recap and the pre-draft countdown are fantasy-only
+ * (gated on isPickemOnly, matching the legacy page); the trophy case is NOT,
+ * because trophy.service awards a pickem_champion type with no type filter on
+ * the league read and TrophyCase renders it, so a completed pick'em season has
+ * a populated case (the legacy page mounted it unconditionally too).
  *
  * The page reads the league through the shared cache (useLeague / ADR 0004), so
  * a subpage reached from here reuses the same payload. Everything phase-shaped
@@ -103,12 +113,6 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
 export default function LeagueDashboardPage() {
   const { leagueId } = useParams();
   const { league, teams, viewerTeamId, loading, refetch, updateTeams } = useLeague(leagueId);
-  const theme = useTheme();
-  // The page's own grid flip, read once so the commissioner panel can move with
-  // it. `down('md')` and not Game Center's `down('sm')`: this is the breakpoint
-  // at which the hero and main grids collapse to one column and the rail stops
-  // being a rail.
-  const compactCommissioner = useMediaQuery(theme.breakpoints.down('md'), { noSsr: true });
 
   // Live team identity: patch a rename or new avatar into the shared league
   // membership so every consumer reading teams[] reflects it with no request.
@@ -268,21 +272,14 @@ export default function LeagueDashboardPage() {
         )}
       </Box>
 
-      {/* COMMISSIONER PANEL, below md. At those widths the rail stacks under
-          the standings, which buries the commissioner's own console roughly
-          three screens down, so it becomes a top-level section directly under
-          the header instead. Exactly one mount at any width: the rail slot and
-          the pick'em slot below both stand down while this one renders, so DOM
-          order is visual order with no CSS `order` (no 1.3.2/2.4.3 mismatch)
-          and no second disclosure to leave out of sync. Crossing md swaps which
-          branch mounts, which REMOUNTS the widget and resets its League
-          administration disclosure to collapsed; that is the accepted cost of
-          keeping a single mount, and it only happens on a resize across 900px. */}
-      {compactCommissioner && (
-        <Box component="section" data-testid="slot-commissioner-panel" sx={EMPTY_HIDDEN_SX}>
-          <CommissionerPanel leagueId={leagueId} />
-        </Box>
-      )}
+      {/* COMMISSIONER STRIP, directly under the header at every width (ADR
+          0034 / #1108, #1110). Replaces the retired three-branch
+          administration rail card: one mount, one place, no width-crossing
+          remount and no disclosure to leave out of sync. Renders nothing for a
+          member (CommissionerStrip's own gate); the wrapper collapses. */}
+      <Box component="section" data-testid="slot-commissioner-strip" sx={EMPTY_HIDDEN_SX}>
+        <CommissionerStrip leagueId={leagueId} />
+      </Box>
 
       {/* Weekly recap: matchup-derived, so fantasy-only, gated on the same
           isPickemOnly the legacy page used. Self-hides on a 404 (no recap
@@ -338,13 +335,28 @@ export default function LeagueDashboardPage() {
               MyTeamSummary already returns null for them, and leaving the
               5fr track in place bought 5/12 of the hero as bare `dash-bg`
               beside a lone matchup card. viewerTeamId is the per-viewer field
-              that answers it (#112), not a scan of teams[]. */}
+              that answers it (#112), not a scan of teams[].
+
+              `alignItems: 'stretch'` (#1110) makes My Team and the matchup
+              card share the row height, matching the canvas. Each slot Box is
+              ALSO its own single-item grid (`display: 'grid'`, no template of
+              its own): a stretched CSS Grid item's used height is definite,
+              but that does not cascade to a plain block descendant with
+              `height: auto`, which is exactly my-team-summary's and
+              matchup-preview's own root Card - so each slot re-stretches its
+              one child through a second grid, rather than leaving a card that
+              stretches its wrapper but not itself. my-team-summary's own Card
+              additionally sets `height: '100%'` to consume this (see its own
+              docblock); matchup-preview's does not need to, since an
+              unset/auto height IS the height a grid item stretches by
+              default - this slot Box is the only change either widget needed. */}
           <Box
             component="section"
             data-testid="dashboard-hero"
             sx={{
               display: 'grid',
               gap: '22px',
+              alignItems: 'stretch',
               gridTemplateColumns: {
                 xs: '1fr',
                 md: viewerTeamId == null ? '1fr' : '5fr 7fr',
@@ -352,24 +364,61 @@ export default function LeagueDashboardPage() {
             }}
           >
             {viewerTeamId != null && (
-              <Box data-testid="slot-my-team" sx={EMPTY_HIDDEN_SX}>
+              <Box data-testid="slot-my-team" sx={{ display: 'grid', ...EMPTY_HIDDEN_SX }}>
                 <MyTeamSummary leagueId={leagueId} />
               </Box>
             )}
-            <Box data-testid="slot-matchup-preview">
+            <Box data-testid="slot-matchup-preview" sx={{ display: 'grid' }}>
               <MatchupPreview leagueId={leagueId} />
             </Box>
           </Box>
 
-          {/* MAIN: standings beside a rail (same nameless-container reasoning as
-              the hero). Collapses to one column at tablet width.
+          {/* AROUND THE LEAGUE: full-width strip of the week's matchup tiles,
+              between the hero and the main grid (#1103, #1110). Fantasy only,
+              which this placement already guarantees (it sits inside the
+              `!pickemOnly` branch); the widget also self-hides for a
+              pick'em-only league and on an empty current week, so the wrapper
+              collapses either way.
+
+              `minWidth: 0` and `contain: 'paint'` (measured in Chromium at
+              320px, #1110: `minWidth: 0` is the same #916/#917/#919/#921 rule
+              `slot-standings` below already carries, for the same reason -
+              without it this box itself floors at its content's min-content
+              width instead of the column's). Below `md` the widget's own
+              scroller (`around-the-league-body`) holds six tiles at a fixed
+              `flex: 0 0 200px` and scrolls internally (`overflowX: 'auto'`),
+              which already clips what a REAL viewer sees and can reach - but
+              a scrolled-past tile's own `getBoundingClientRect()` still
+              reports its full, un-clipped layout position, and measured in
+              Chromium that position alone was enough to widen
+              `document.documentElement.scrollWidth` to 609px at a 320px
+              viewport, even though `document.body`'s OWN scrollWidth measured
+              a clean 320px and nothing was visually broken - a `<html>`
+              vs `<body>` scrollWidth disagreement specific to a `display:
+              flex` scroll container's ink overflow, which plain `overflow:
+              hidden`/`clip` on this box did NOT close (tried and measured;
+              still 609). `contain: 'paint'` does (measured 320): per the CSS
+              Containment spec it guarantees nothing paints outside this box's
+              border box, which is exactly the guarantee `document.
+              documentElement.scrollWidth`'s own computation needs here. */}
+          <Box
+            component="section"
+            data-testid="slot-around-the-league"
+            sx={{ minWidth: 0, contain: 'paint', ...EMPTY_HIDDEN_SX }}
+          >
+            <AroundTheLeague leagueId={leagueId} />
+          </Box>
+
+          {/* MAIN: standings beside a rail holding Draft Grades only (same
+              nameless-container reasoning as the hero). Collapses to one
+              column at tablet width.
 
               The zero minimum is on the standings track only. A bare `1fr` or
               `8fr` track still floors at its item's min-content width, which is
               how a wide table dragged the whole document past the viewport. The
-              rail track keeps its automatic minimum deliberately: it holds the
-              legacy commissioner selects, whose fixed widths would overflow a
-              zeroed track rather than clip inside it. */}
+              rail track keeps its automatic minimum: Draft Grades is a table
+              in its own horizontal scroller, so shrinking the track scrolls it
+              rather than clipping anything (the #916/#917/#919/#921 rule). */}
           <Box
             component="section"
             data-testid="dashboard-main"
@@ -393,66 +442,60 @@ export default function LeagueDashboardPage() {
             {/* The rail is short and the standings are long, so above md the
                 rail rides down with the scroll instead of leaving a column of
                 bare page beside row 8. `top: 22px` and not an app-bar offset:
-                Nav.jsx:95 is position="static", so nothing is pinned above it. */}
+                Nav.jsx:95 is position="static", so nothing is pinned above it.
+                Draft Grades only now (#1110): the commissioner panel that used
+                to compose below it here moved to the strip under the header. */}
             <Box
               data-testid="dashboard-rail"
               sx={{
                 display: 'grid',
-                // The rail's own track takes the zero minimum its items cannot.
-                // An implicit track floors at its widest item's min-content, and
-                // Draft Grades is a table: measured in Chromium it held the rail
-                // at 314.34px inside a 288px column at 320px and dragged the
-                // document 10px sideways. That table already sits in its own
-                // horizontal scroller, so shrinking the track scrolls it rather
-                // than clipping anything, which is what makes a zero minimum
-                // legal here (the #916/#917/#919/#921 rule). Safe now and not
-                // before: the commissioner selects sharing this rail carried
-                // fixed pixel widths until they became `{ xs: '100%', sm: N }`
-                // in this same pass.
                 gridTemplateColumns: 'minmax(0, 1fr)',
                 gap: '22px',
                 position: { md: 'sticky' },
                 top: { md: '22px' },
               }}
             >
-              {/* Rail top: draft grades. The commissioner panel composes below
-                  it in this same rail. */}
               <Box data-testid="slot-draft-grades">
                 <DraftGrades leagueId={leagueId} />
               </Box>
-              {/* Rail: commissioner panel (#644), at md and up only - below
-                  that the top-level section under the header owns the one
-                  mount. Renders nothing for a member; a commissioner sees the
-                  advance-week control and the legacy league administration
-                  behind a disclosure. */}
-              {!compactCommissioner && (
-                <Box data-testid="slot-commissioner-panel" sx={EMPTY_HIDDEN_SX}>
-                  <CommissionerPanel leagueId={leagueId} />
-                </Box>
-              )}
+            </Box>
+          </Box>
+
+          {/* SECOND ROW (#1110): the same two tracks as the main grid, Quick
+              Actions in the wide track and Recent activity in the rail track.
+              Recent activity is fantasy-only (the activity log is a fantasy
+              surface); this placement already guarantees that, being inside
+              the `!pickemOnly` branch, so no further gate is needed here. */}
+          <Box
+            component="section"
+            data-testid="dashboard-second-row"
+            sx={{
+              display: 'grid',
+              gap: '22px',
+              gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 8fr) 4fr' },
+            }}
+          >
+            <Box data-testid="dashboard-quick-actions" sx={EMPTY_HIDDEN_SX}>
+              <QuickActions leagueId={leagueId} />
+            </Box>
+            <Box data-testid="slot-recent-activity">
+              <RecentActivity leagueId={leagueId} />
             </Box>
           </Box>
         </>
       )}
 
-      {/* QUICK ACTIONS: the full-width grouped action cards below the body. The
-          widget trims itself to the pick'em surfaces in a pick'em league. */}
-      <Box
-        component="section"
-        data-testid="dashboard-quick-actions"
-        sx={EMPTY_HIDDEN_SX}
-      >
-        <QuickActions leagueId={leagueId} />
-      </Box>
-
-      {/* Commissioner panel for a pick'em league at md and up (a fantasy league
-          mounts it in the main-grid rail above instead, and below md both defer
-          to the section under the header, so the three branches are mutually
-          exclusive). Renders nothing for a member; the advance-week control is
-          absent in a pick'em league by the widget's own design. */}
-      {pickemOnly && !compactCommissioner && (
-        <Box component="section" data-testid="slot-commissioner-panel" sx={EMPTY_HIDDEN_SX}>
-          <CommissionerPanel leagueId={leagueId} />
+      {/* QUICK ACTIONS, pick'em-only: full width, on its own (a fantasy league
+          composes it in the second grid row above instead, alongside Recent
+          activity; the two are mutually exclusive with pickemOnly). The
+          widget trims itself to the pick'em surfaces. */}
+      {pickemOnly && (
+        <Box
+          component="section"
+          data-testid="dashboard-quick-actions"
+          sx={EMPTY_HIDDEN_SX}
+        >
+          <QuickActions leagueId={leagueId} />
         </Box>
       )}
 
