@@ -1092,10 +1092,14 @@ function normalizeInjuryStatus(raw) {
 
 /**
  * Injury sync: Tank01's player list carries each player's current injury
- * designation, so one getNFLPlayerList call refreshes everyone. Players with
- * no current designation are cleared back to healthy. Player-row locks make
- * overlapping manual/scheduled syncs observe transitions exactly once; IR
- * flag rows commit with the designation updates before best-effort push.
+ * designation AND his current team, so one getNFLPlayerList call refreshes
+ * both. Players with no current designation are cleared back to healthy; a
+ * player the feed has moved gets his nfl_team corrected in the same bulk write.
+ * This is the only UNATTENDED writer of that column — syncPlayers is manual —
+ * so without it a team label frozen at the last hand-run sync survives every
+ * signing, trade and practice-squad elevation for the rest of the season. Player-row locks make overlapping manual/scheduled syncs observe
+ * transitions exactly once; IR flag rows commit with the designation updates
+ * before best-effort push.
  */
 async function syncInjuries({ api = tank01Get } = {}) {
   // #961: every run appends exactly one data_sync_runs row so a failed injury
@@ -1147,7 +1151,11 @@ async function syncInjuries({ api = tank01Get } = {}) {
     job: 'injuries',
     startedAt,
     ok: true,
-    detail: { playersUpdated: result.playersUpdated, irFlags: result.irFlags },
+    detail: {
+      playersUpdated: result.playersUpdated,
+      irFlags: result.irFlags,
+      teamChanges: result.teamChanges,
+    },
   });
   return result;
 }
@@ -1170,18 +1178,30 @@ async function runInjurySync(api) {
     err.syncFailureReason = 'bad_response';
     throw err;
   }
-  const injuryByExternal = new Map();
+  // getNFLPlayerList carries each player's CURRENT team alongside the injury
+  // designation, so this one call refreshes both. `team` is read exactly
+  // the way normalizePlayerEntry reads it for syncPlayers, so both
+  // writers put the same vocabulary (Tank01's raw abbreviation, WSH not WAS)
+  // into players.nfl_team and the nfl_games join keeps working.
+  const feedByExternal = new Map();
   for (const entry of entries) {
     if (!entry || entry.playerID == null) continue;
     const injury = entry.injury || {};
-    injuryByExternal.set(String(entry.playerID), {
+    feedByExternal.set(String(entry.playerID), {
       status: normalizeInjuryStatus(injury.designation),
       detail: injury.description ? String(injury.description).slice(0, 255) : null,
+      // null for a player the feed lists with no team (a free agent). The scan
+      // below keeps his existing label rather than writing the null through:
+      // syncPlayers may clear a team because it runs rarely and by hand, but
+      // this pass runs unattended every day, so one transient blank in the feed
+      // must not be able to strip 3,000 team labels.
+      team: entry.team ? String(entry.team) : null,
     });
   }
 
   let irFlags;
   let matchedCount = 0;
+  let teamCorrections = 0;
   try {
     // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK, and the
     // release rule (ADR 0033). This one catch now covers BOTH failure modes:
@@ -1192,7 +1212,7 @@ async function runInjurySync(api) {
     // error.rollbackError on a rejecting ROLLBACK, logged once, and destroyed or
     // returned the connection). The wrapper rethrows the ORIGINAL error
     // untouched, so tagging it write_failed here is correct for both.
-    ({ irFlags, matchedCount } = await withTransaction(
+    ({ irFlags, matchedCount, teamChanges: teamCorrections } = await withTransaction(
       pool,
       async (client) => {
         // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
@@ -1220,11 +1240,11 @@ async function runInjurySync(api) {
         // disconnect.
         await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
         const playersResult = await client.query(
-          `SELECT "id", "external_id", "injury_status"
+          `SELECT "id", "external_id", "injury_status", "nfl_team"
              FROM "players" WHERE "external_id" IS NOT NULL
              FOR UPDATE`
         );
-        // Build three parallel arrays (ids int[], statuses/details text[]) over
+        // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
         // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
         // designation writes null into both text columns, and nulls survive into the
         // text[] as SQL NULL. transitions is built over the SAME matches and drives
@@ -1234,40 +1254,51 @@ async function runInjurySync(api) {
         const ids = [];
         const statuses = [];
         const details = [];
+        const teams = [];
+        let teamChanges = 0;
         for (const player of playersResult.rows) {
-          const injury = injuryByExternal.get(String(player.external_id));
-          if (!injury) continue; // not in the feed — leave untouched
+          const feed = feedByExternal.get(String(player.external_id));
+          if (!feed) continue; // not in the feed — leave untouched
+          // A feed entry with no team keeps the label the row already has, so a
+          // blank can never wipe one; see the map build above.
+          const team = feed.team === null ? player.nfl_team : feed.team;
+          if (team !== player.nfl_team) teamChanges += 1;
           ids.push(player.id);
-          statuses.push(injury.status);
-          details.push(injury.detail);
+          statuses.push(feed.status);
+          details.push(feed.detail);
+          teams.push(team);
           transitions.push({
             playerId: player.id,
             previousDesignation: player.injury_status,
-            currentDesignation: injury.status,
+            currentDesignation: feed.status,
           });
         }
-        // One bulk UPDATE replaces the per-player loop. The two-column
-        // IS DISTINCT FROM predicate against the target row p skips no-op rows (both
-        // columns unchanged), so an unchanged row costs no write and the FOR UPDATE
-        // scan does not need widening to compare injury_detail in JS. Guarded on a
-        // non-empty id list the way syncAdp guards its own bulk set.
+        // One bulk UPDATE replaces the per-player loop. The three-column
+        // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
+        // three columns unchanged), so an unchanged row costs no write and the FOR
+        // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
+        // on a non-empty id list the way syncAdp guards its own bulk set.
         if (ids.length > 0) {
           await client.query(
             `UPDATE "players" p
-                SET "injury_status" = v."status", "injury_detail" = v."detail"
+                SET "injury_status" = v."status", "injury_detail" = v."detail",
+                    "nfl_team" = v."team"
                FROM (SELECT unnest($1::int[]) AS "id",
                             unnest($2::text[]) AS "status",
-                            unnest($3::text[]) AS "detail") v
+                            unnest($3::text[]) AS "detail",
+                            unnest($4::text[]) AS "team") v
               WHERE p."id" = v."id"
                 AND (p."injury_status" IS DISTINCT FROM v."status"
-                     OR p."injury_detail" IS DISTINCT FROM v."detail")`,
-            [ids, statuses, details]
+                     OR p."injury_detail" IS DISTINCT FROM v."detail"
+                     OR p."nfl_team" IS DISTINCT FROM v."team")`,
+            [ids, statuses, details, teams]
           );
         }
         const { flagRecoveredIrStashes } = require('./irPolicy.service');
         return {
           irFlags: await flagRecoveredIrStashes(client, transitions),
           matchedCount: transitions.length,
+          teamChanges,
         };
       },
       { label: 'injuries' }
@@ -1290,7 +1321,14 @@ async function runInjurySync(api) {
   // statement's rowCount: under the no-op predicate the two legitimately
   // differ, and the count an admin reads must not silently shrink to the
   // handful of rows that changed.
-  return { playersUpdated: matchedCount, irFlags: irFlags.length };
+  //
+  // teamChanges counts the matches whose nfl_team the feed moved. It is the
+  // only signal that this pass is keeping team labels current at all: a stale
+  // label is invisible until it misroutes something (the bug behind this was
+  // found because a player's stat line landed in a week his listed team had not
+  // played), and a run that silently stopped correcting teams reads as a
+  // healthy run without it. Expect a handful in-season and 0 on a quiet day.
+  return { playersUpdated: matchedCount, irFlags: irFlags.length, teamChanges: teamCorrections };
 }
 
 /**
@@ -1434,6 +1472,17 @@ function normalizePlayerEntry(entry) {
  * re-run; existing players get their name/position/team refreshed, new ones
  * are inserted). Not on the scheduler — trigger from the admin dashboard or
  * POST /api/scoring/sync-players.
+ *
+ * INSERTING new players is what this is for now. It is no longer the only
+ * thing keeping an EXISTING player's team current: the daily injury sync reads
+ * the same feed and corrects nfl_team on every run, so a roster move no longer
+ * waits for someone to remember to press this. The one thing that
+ * still needs a hand-run is a player who is not in our table at all.
+ *
+ * Note the two writers differ on a blank team on purpose: this one writes the
+ * feed's null through (a hand-run sync is a deliberate act, and clearing a
+ * released player is a legitimate outcome of it), while the unattended daily
+ * pass keeps the existing label instead.
  */
 async function syncPlayers({ season }) {
   const response = await tank01Get('/getNFLPlayerList');

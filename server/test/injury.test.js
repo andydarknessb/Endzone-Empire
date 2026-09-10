@@ -34,8 +34,8 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
-        { id: 21, external_id: 'tank-21', injury_status: 'O' },
-        { id: 22, external_id: 'tank-22', injury_status: 'Q' },
+        { id: 21, external_id: 'tank-21', injury_status: 'O', nfl_team: 'BUF' },
+        { id: 22, external_id: 'tank-22', injury_status: 'Q', nfl_team: 'MIA' },
       ],
     }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
@@ -70,15 +70,15 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
       return {
         data: {
           body: [
-            { playerID: 'tank-21', injury: { designation: 'Questionable', description: 'Ankle' } },
-            { playerID: 'tank-22', injury: { designation: 'Active' } },
+            { playerID: 'tank-21', team: 'BUF', injury: { designation: 'Questionable', description: 'Ankle' } },
+            { playerID: 'tank-22', team: 'MIA', injury: { designation: 'Active' } },
           ],
         },
       };
     },
   });
 
-  assert.deepEqual(result, { playersUpdated: 2, irFlags: 1 });
+  assert.deepEqual(result, { playersUpdated: 2, irFlags: 1, teamChanges: 0 });
   assert.match(fake.matching(select('players'))[0].text, /FOR UPDATE$/);
   // #929: one bulk UPDATE replaces the per-player loop. Rewritten from the old
   // assertion `fake.matching(update('players')).length === 2`, which pinned two
@@ -94,7 +94,8 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
     [21, 22],
     ['Q', null],
     ['Ankle', null],
-  ], 'ids, statuses, details as three parallel arrays in scan order');
+    ['BUF', 'MIA'],
+  ], 'ids, statuses, details, teams as four parallel arrays in scan order');
   // #904: syncInjuries serializes with syncAdp on the same transaction-scoped
   // advisory lock (id 23004, players-bulk-write). The lock is the FIRST statement
   // inside the transaction - after BEGIN, before the FOR UPDATE scan takes any
@@ -250,8 +251,8 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
   // here against the same stored rows, gated on it actually being present in the
   // SQL. stored[61] equals its feed values (a no-op); stored[62] differs.
   const stored = new Map([
-    [61, { injury_status: 'Q', injury_detail: 'Ankle' }],
-    [62, { injury_status: 'D', injury_detail: 'Knee' }],
+    [61, { injury_status: 'Q', injury_detail: 'Ankle', nfl_team: 'KC' }],
+    [62, { injury_status: 'D', injury_detail: 'Knee', nfl_team: 'LV' }],
   ]);
   const written = [];
   const fake = createFakePool([
@@ -259,16 +260,18 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
-        { id: 61, external_id: 'tank-61', injury_status: 'Q' },
-        { id: 62, external_id: 'tank-62', injury_status: 'D' },
+        { id: 61, external_id: 'tank-61', injury_status: 'Q', nfl_team: 'KC' },
+        { id: 62, external_id: 'tank-62', injury_status: 'D', nfl_team: 'LV' },
       ],
     }), 'client'],
     [update('players'), (text, params) => {
       const hasNoOpPredicate = /IS DISTINCT FROM/.test(text);
-      const [ids, statuses, details] = params;
+      const [ids, statuses, details, teams] = params;
       for (let i = 0; i < ids.length; i++) {
         const row = stored.get(ids[i]);
-        const distinct = row.injury_status !== statuses[i] || row.injury_detail !== details[i];
+        const distinct = row.injury_status !== statuses[i]
+          || row.injury_detail !== details[i]
+          || row.nfl_team !== teams[i];
         if (!hasNoOpPredicate || distinct) written.push(ids[i]);
       }
       return { rows: [] };
@@ -280,8 +283,8 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
     api: async () => ({
       data: {
         body: [
-          { playerID: 'tank-61', injury: { designation: 'Questionable', description: 'Ankle' } },
-          { playerID: 'tank-62', injury: { designation: 'Out', description: 'Hamstring' } },
+          { playerID: 'tank-61', team: 'KC', injury: { designation: 'Questionable', description: 'Ankle' } },
+          { playerID: 'tank-62', team: 'LV', injury: { designation: 'Out', description: 'Hamstring' } },
         ],
       },
     }),
@@ -295,11 +298,12 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
     [61, 62],
     ['Q', 'O'],
     ['Ankle', 'Hamstring'],
+    ['KC', 'LV'],
   ]);
-  // The predicate compares BOTH columns against the target row p.
+  // The predicate compares ALL THREE columns against the target row p.
   assert.match(
     injuryWrites[0].text,
-    /"injury_status" IS DISTINCT FROM v\."status"[\s\S]*OR[\s\S]*"injury_detail" IS DISTINCT FROM v\."detail"/,
+    /"injury_status" IS DISTINCT FROM v\."status"[\s\S]*OR[\s\S]*"injury_detail" IS DISTINCT FROM v\."detail"[\s\S]*OR[\s\S]*"nfl_team" IS DISTINCT FROM v\."team"/,
   );
   // The changed row is written; the no-op is not. Red-tell: removing the
   // IS DISTINCT FROM clause writes both -> written becomes [61, 62] -> red.
@@ -368,14 +372,14 @@ test('#929: the bulk designation write is issued before the IR stash is read', a
 // transaction, not on the checked-out client.
 const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
 const healthyToQuestionableApi = async () => ({
-  data: { body: [{ playerID: 'tank-91', injury: { designation: 'Questionable', description: 'Ankle' } }] },
+  data: { body: [{ playerID: 'tank-91', team: 'SEA', injury: { designation: 'Questionable', description: 'Ankle' } }] },
 });
 
 test('#961 success: one ok=true data_sync_runs row with job "injuries" and the run counts', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 91, external_id: 'tank-91', injury_status: null }],
+      rows: [{ id: 91, external_id: 'tank-91', injury_status: null, nfl_team: 'SEA' }],
     }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
@@ -383,14 +387,14 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
 
   const result = await syncInjuries({ api: healthyToQuestionableApi });
 
-  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 });
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0, teamChanges: 0 });
   const records = dataSyncRuns(fake.calls);
   // Red-tell for criterion 2: deleting the ok=true record call empties this.
   assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended');
   assert.equal(records[0].via, 'pool', 'the record is written on the pool, outside the transaction');
   assert.equal(records[0].params[0], 'injuries', 'the job is the literal "injuries"');
   assert.equal(records[0].params[2], true, 'ok is true');
-  assert.deepEqual(JSON.parse(records[0].params[3]), { playersUpdated: 1, irFlags: 0 },
+  assert.deepEqual(JSON.parse(records[0].params[3]), { playersUpdated: 1, irFlags: 0, teamChanges: 0 },
     'detail carries the run counts');
   // Recorded after the run committed, never mid-transaction.
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
@@ -604,7 +608,7 @@ test('#961 best-effort: a record write that throws changes neither outcome nor r
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 91, external_id: 'tank-91', injury_status: null }],
+      rows: [{ id: 91, external_id: 'tank-91', injury_status: null, nfl_team: 'SEA' }],
     }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => { throw new Error('relation "data_sync_runs" does not exist'); }],
@@ -612,7 +616,7 @@ test('#961 best-effort: a record write that throws changes neither outcome nor r
 
   const result = await syncInjuries({ api: healthyToQuestionableApi });
 
-  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 }, 'the run returns its real result');
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0, teamChanges: 0 }, 'the run returns its real result');
   assert.equal(dataSyncRuns(fake.calls).length, 1, 'the record write was attempted once');
   fake.assertClean();
 });
@@ -663,5 +667,63 @@ test('#929: playersUpdated counts feed matches, not written rows (3 matches, 1 n
   assert.deepEqual(written, [82, 83], 'the statement writes only the two changed rows');
   assert.equal(result.playersUpdated, 3, 'but playersUpdated counts all three feed matches');
   assert.equal(result.irFlags, 0);
+  fake.assertClean();
+});
+
+// ---- the same pass keeps players.nfl_team current ------------------------
+// getNFLPlayerList carries a current team as well as a designation, and this
+// job is the only unattended reader of that feed (syncPlayers is manual). The
+// bug: a player traded/signed/elevated mid-season kept the team label frozen at
+// the last hand-run sync, so his stat line landed under a team whose game had
+// not been played and every schedule join for him — lineup locks, bye
+// detection, opponent projection features — read the wrong game.
+
+test('team refresh: a player the feed has moved gets his nfl_team corrected in the same write', async (t) => {
+  // The real shape: stored ARI, actually playing for NE. Red-tell: dropping
+  // nfl_team from the SET leaves the write carrying only status/detail and the
+  // teams array never reaches SQL.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 1041, external_id: 'tank-1041', injury_status: null, nfl_team: 'ARI' }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({ data: { body: [{ playerID: 'tank-1041', team: 'NE', injury: {} }] } }),
+  });
+
+  const writes = fake.matching(update('players'));
+  assert.equal(writes.length, 1);
+  assert.match(writes[0].text, /"nfl_team" = v\."team"/, 'the write sets nfl_team');
+  assert.deepEqual(writes[0].params[3], ['NE'], 'the teams array carries the feed team, not the stored one');
+  assert.equal(result.teamChanges, 1, 'the correction is counted for the run record');
+  // The scan must read nfl_team, or the change can never be detected.
+  assert.match(fake.matching(select('players'))[0].text, /"nfl_team"/);
+  fake.assertClean();
+});
+
+test('team refresh: a feed entry with no team keeps the stored label instead of wiping it', async (t) => {
+  // This pass runs unattended every day, so a blank team in the feed must never
+  // be able to strip a label (syncPlayers, hand-run, still writes the null
+  // through on purpose). Red-tell: pushing feed.team straight into the array
+  // sends [null] and the daily job clears teams league-wide on a bad feed.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 55, external_id: 'tank-55', injury_status: null, nfl_team: 'GB' }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({ data: { body: [{ playerID: 'tank-55', injury: {} }] } }),
+  });
+
+  assert.deepEqual(fake.matching(update('players'))[0].params[3], ['GB'], 'the stored label survives');
+  assert.equal(result.teamChanges, 0, 'keeping a label is not a change');
   fake.assertClean();
 });
