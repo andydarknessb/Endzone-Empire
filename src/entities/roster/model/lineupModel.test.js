@@ -2,9 +2,10 @@ import { lineupModel } from './lineupModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
 // (server/services/lineup.service.js getLineup: id, name, position,
-// nfl_team, slot, projected_points, injury_status, plus the annotation
-// fields this model does not read). getLineup never sends an `opponent`
-// field, so none is fixtured here.
+// nfl_team, slot, projected_points, injury_status, opponent, plus the
+// annotation fields this model does not read). `opponent` arrived with
+// #1132 (annotateLineupEntries): a Team code or `null` for a bye/unsynced
+// slate.
 const row = (overrides = {}) => ({
   id: 1,
   name: 'Josh Allen',
@@ -13,6 +14,7 @@ const row = (overrides = {}) => ({
   slot: 'QB',
   projected_points: 24.3,
   injury_status: null,
+  opponent: 'KC',
   bye_week: null,
   locked: false,
   onBye: false,
@@ -23,7 +25,12 @@ const row = (overrides = {}) => ({
 // A spentStartingSlots row exactly as lineup.service.js builds it: a
 // departed starter's slot-holding record for a settled week, spread into
 // getLineup's entries alongside the real rows. It carries no
-// `projected_points` key at all (never `null` - simply absent).
+// `projected_points` key at all (never `null` - simply absent). It still
+// gets annotated with `opponent` like every other row: annotateLineupEntries
+// has no spent branch, and spentStartingSlots carries the player's real
+// nfl_team, so a settled week's nfl_games row normally resolves to a real
+// Team code here too - `null` is the bye/unsynced-slate case, not the
+// spent-row case.
 const spentRow = (overrides = {}) => ({
   player_id: null,
   id: 300,
@@ -33,6 +40,7 @@ const spentRow = (overrides = {}) => ({
   injury_status: null,
   slot: 'WR',
   spent: true,
+  opponent: 'NYJ',
   ...overrides,
 });
 
@@ -76,8 +84,8 @@ describe('lineupModel: the one shape from the lineup body', () => {
       expect(Number.isFinite(s.projectedPoints)).toBe(true);
     });
 
-    // One starter's full shape, camelCased off the wire's row. No `opponent`
-    // key: getLineup never sends one.
+    // One starter's full shape, camelCased off the wire's row, including
+    // `opponent` (#1150) as the wire supplied it.
     expect(model.starters[0]).toEqual({
       playerId: 1,
       name: 'Starter 1',
@@ -87,7 +95,34 @@ describe('lineupModel: the one shape from the lineup body', () => {
       projectedPoints: 10,
       injuryStatus: null,
       spent: false,
+      opponent: 'KC',
     });
+  });
+
+  test('a non-null opponent on the wire produces the same value on the modeled entry and the corresponding starter', () => {
+    const model = lineupModel({
+      ...body,
+      entries: [row({ id: 1, slot: 'QB', opponent: 'NE' }), ...starterRows.slice(1), ...benchRows, irRow],
+    });
+    expect(model.entries[0].opponent).toBe('NE');
+    expect(model.starters[0].opponent).toBe('NE');
+  });
+
+  test('opponent: null on the wire stays null rather than being dropped or coerced', () => {
+    const model = lineupModel({
+      ...body,
+      entries: [row({ id: 1, slot: 'QB', opponent: null }), ...starterRows.slice(1), ...benchRows, irRow],
+    });
+    expect(model.starters[0].opponent).toBeNull();
+  });
+
+  test('a wire row without an opponent key at all produces opponent: null', () => {
+    const { opponent, ...rowWithoutOpponent } = row({ id: 1, slot: 'QB' });
+    const model = lineupModel({
+      ...body,
+      entries: [rowWithoutOpponent, ...starterRows.slice(1), ...benchRows, irRow],
+    });
+    expect(model.starters[0].opponent).toBeNull();
   });
 
   // Red-tell (AC): dropping the `slot !== 'BENCH'` clause from the starters
@@ -121,6 +156,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       projectedPoints: null,
       injuryStatus: null,
       spent: true,
+      opponent: 'NYJ',
     });
   });
 

@@ -14,11 +14,14 @@
  * together, CONTEXT.md's Roster), each mapped to the one player shape:
  *
  *   { playerId, name, position, nflTeam, slot, projectedPoints,
- *     injuryStatus, spent }
+ *     injuryStatus, spent, opponent }
  *
- * There is no `opponent` field: the wire row getLineup actually assembles
- * (server/services/lineup.service.js) never carries one, so nothing here
- * invents one. If a future route grows one, add it then.
+ * `opponent` arrived with #1132 (server/services/lineup.service.js
+ * `annotateLineupEntries`): the wire's own `opponentByTeam.get(...) ?? null`,
+ * already folded to a Team code (#1136) or `null`. `null` means absence - a
+ * bye week or an unsynced slate - never "unknown"; this model passes it
+ * through as-is (missing key or explicit `null` both land as `null`) and
+ * never derives, normalizes, or invents a value of its own.
  *
  * `starters` is the subset of `entries` whose `slot` is neither `BENCH` nor
  * `IR`, AND which is not `spent` (CONTEXT.md's Lineup entry: "a starting
@@ -42,11 +45,13 @@ const IR = 'IR';
 
 /**
  * One lineup row (the wire's `id`, `name`, `position`, `nfl_team`, `slot`,
- * `projected_points`, `injury_status`, plus `spent` on a spentStartingSlots
- * row) as the one player shape. `projectedPoints` is coerced to a finite
- * number or null: node-postgres can hand a decimal back as a string, a spent
- * row carries no `projected_points` key at all, and a missing projection
- * must stay null rather than becoming 0 or NaN.
+ * `projected_points`, `injury_status`, `opponent`, plus `spent` on a
+ * spentStartingSlots row) as the one player shape. `projectedPoints` is
+ * coerced to a finite number or null: node-postgres can hand a decimal back
+ * as a string, a spent row carries no `projected_points` key at all, and a
+ * missing projection must stay null rather than becoming 0 or NaN.
+ * `opponent` is passed through unchanged - a missing key or an explicit
+ * `null` both land as `null`, never derived or normalized here.
  */
 function playerFromLineupEntry(row) {
   const r = row || {};
@@ -60,6 +65,7 @@ function playerFromLineupEntry(row) {
     projectedPoints: Number.isFinite(points) ? points : null,
     injuryStatus: r.injury_status ?? null,
     spent: !!r.spent,
+    opponent: r.opponent ?? null,
   };
 }
 
