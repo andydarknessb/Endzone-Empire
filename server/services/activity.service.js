@@ -12,10 +12,13 @@
 // The one place this app declares which types it will ever write. Every
 // `logTransaction(` call site passes a literal from this list (#1134 found
 // the seventh, `recap`, reaching the client with no matching case because
-// nothing pinned the two sides together). The client's
+// nothing pinned the two sides together). `server/test/activity.service.test.js`
+// asserts this array's exact shape, so an eighth type added here turns that
+// suite red before it can ship - that's the tripwire. The client's
 // `src/entities/activity/model/activityModel.test.js` keeps a hard-coded
-// copy of this exact array, commented as this list's partner, so the next
-// addition here is caught by a client test before it ships as a blank row.
+// copy of this exact array as the required follow-through: once the server
+// test sends someone here, updating the client list is what then proves the
+// new type renders a real sentence instead of a blank row.
 const TRANSACTION_TYPES = ['add', 'commissioner', 'drop', 'recap', 'stat_correction', 'trade', 'waiver'];
 
 class ActivityError extends Error {
