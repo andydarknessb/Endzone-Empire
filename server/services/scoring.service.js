@@ -796,7 +796,9 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
  * re-fetched for the rest of the afternoon (~350 calls/Sunday). Now:
  *  - `scheduled` games have no stats yet — never fetch
  *  - `final` games already ingested (final_stats_synced_at set) — never again
- *  - `in_progress` games, and finals not yet ingested, are the only fetches
+ *  - `in_progress` games are the Live box, read by the clock engine's loop
+ *    through the Box source seam (modules/liveBoxPoll, ADR 0035), not here
+ *  - finals not yet ingested are the only fetches: the Final box (#1185)
  *
  * @param {Array<{tank01_game_id: string, game_status: string, final_stats_synced_at: ?Date}>} rows
  * @returns {Array<{gameId: string, status: string, isFinal: boolean}>}
@@ -807,9 +809,9 @@ function gamesNeedingBoxScore(rows) {
     const gameId = row.tank01_game_id;
     if (!gameId) continue;
     const status = row.game_status;
-    if (status === 'scheduled') continue;
-    if (status === 'final' && row.final_stats_synced_at) continue;
-    out.push({ gameId, status, isFinal: status === 'final' });
+    if (status !== 'final') continue;
+    if (row.final_stats_synced_at) continue;
+    out.push({ gameId, status, isFinal: true });
   }
   return out;
 }
@@ -871,18 +873,30 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
       if (pauseMs > 0 && gamesProcessed > 0) {
         await new Promise((resolve) => setTimeout(resolve, pauseMs));
       }
+      // Every target here is Final box work (gamesNeedingBoxScore) or a
+      // historical week with no live rows. The Final box is the one Tank01
+      // call we never shed, so it runs at essential priority (#1186); the
+      // historical backfill keeps standard so it can be shed at budget.
       const boxResponse = await tank01Get('/getNFLBoxScore', {
         params: { gameID: target.gameId, playByPlay: 'true', fantasyPoints: 'false' },
+        priority: target.isFinal ? 'essential' : 'standard',
         transport: api,
       });
       const box = tank01Body(boxResponse.data) || {};
       gamesProcessed += 1;
       const liveBox = tank01BoxSource.fromBox(box);
-      const result = await applyGameBoxScore({ liveBox, season, week, maps });
+      // The Final box landing writes stats and emits no Scoring plays (the
+      // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
+      // and that difference is not a new play.
+      const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal });
       updated += result.updated;
       plays.push(...result.plays);
-      // A final game's stats are now in: never fetch this box score again.
-      if (target.isFinal) await markFinalStatsSynced(target.gameId);
+      // A final game's stats are now in: never fetch this box score again, and
+      // refuse any Live box that arrives late for it.
+      if (target.isFinal) {
+        await markFinalStatsSynced(target.gameId);
+        require('../modules/liveBox').noteFinalBoxApplied(target.gameId);
+      }
     } catch (err) {
       // Correction-route retries are safe because every stat write is an
       // upsert. Do not hide pool starvation as a single skipped NFL game.

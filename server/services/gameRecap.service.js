@@ -277,9 +277,18 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     console.log(`gameRecap: ${tank01GameId} is ${state.game_status}, not final; skipping`);
     return null;
   }
+  // The Final box grace (#1186, ADR 0035): the box is read fifteen minutes
+  // after the game goes final, so Tank01's numbers have settled and one call
+  // is enough. The engine arms that timer (modules/finalBox); the reconcile
+  // sweep can reach here sooner and must not jump it.
+  const finalBox = require('../modules/finalBox');
+  if (finalBox.isWithinGrace(tank01GameId)) {
+    console.log(`gameRecap: ${tank01GameId} is inside its Final box grace; skipping until due`);
+    return null;
+  }
 
   // 'essential' priority: this is the last Tank01 call we'd ever shed, because
-  // one fetch serves BOTH the recap and this game's final stat ingest below.
+  // one fetch serves BOTH the recap and this game's Final box ingest below.
   const boxResponse = await tank01Get('/getNFLBoxScore', {
     params: { gameID: tank01GameId, playByPlay: 'true', fantasyPoints: 'false' },
     priority: 'essential',
@@ -297,8 +306,12 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
       const scoring = require('./scoring.service');
       const maps = await scoring.loadWeekMaps({ season: state.season, week: state.week });
       const liveBox = require('./tank01BoxSource').fromBox(box);
-      await scoring.applyGameBoxScore({ liveBox, season: state.season, week: state.week, maps });
+      // This IS the Final box landing: stats are written, no Scoring play is
+      // emitted (the switch-pass rule, ADR 0035), the game is stamped, and the
+      // Live box switch is told so any later Live box for it is refused.
+      await scoring.applyGameBoxScore({ liveBox, season: state.season, week: state.week, maps, suppressPlays: true });
       await scoring.markFinalStatsSynced(tank01GameId);
+      require('../modules/liveBox').noteFinalBoxApplied(tank01GameId);
     } catch (err) {
       console.error('gameRecap: final stat ingest failed for %s:', tank01GameId, err.message);
     }

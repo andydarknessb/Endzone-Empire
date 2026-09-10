@@ -28,6 +28,9 @@ const { tank01Body } = require('../services/scoring.service');
 const { tank01Get, getQuotaState, priorityAllowed } = require('./tank01Client');
 const espnScoreboard = require('./espnScoreboard');
 const gameRecap = require('../services/gameRecap.service');
+const liveBoxPoll = require('./liveBoxPoll');
+const liveBox = require('./liveBox');
+const finalBox = require('./finalBox');
 
 const RECAP_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // reconciliation cadence (safety net, not a hot path)
 const ESPN_FAILURE_THRESHOLD = 3; // consecutive failures before falling back to Tank01
@@ -61,6 +64,7 @@ let lastRecapSweepAt = 0;
 let espnConsecutiveFailures = 0;
 let lastSourceUsed = null;
 let lastQuotaMode = null;
+let lastLiveBoxAt = null;
 
 /**
  * Which source this tick will actually use. ESPN is retried on every tick even
@@ -342,18 +346,29 @@ async function fetchRowsForWeek({ season, week }) {
  * Returns whether any upserted row is currently in_progress.
  */
 async function upsertRows(rows) {
-  if (!rows || rows.length === 0) return { hasInProgress: false, upserted: 0 };
+  if (!rows || rows.length === 0) {
+    return { hasInProgress: false, upserted: 0, changed: [], finals: [], finalSyncedGameIds: new Set() };
+  }
 
-  // Pre-upsert statuses so we can detect games transitioning INTO 'final' on
-  // this tick (and only this tick) — a recap is generated once, when the game
-  // first goes final, never again for games already final on a prior tick.
+  // Pre-upsert rows: the status detects games transitioning INTO 'final' on
+  // this tick (and only this tick) — the Final box and recap are scheduled
+  // once, when the game first goes final; the score, quarter and clock are the
+  // change signal the Live box poll keys on (#1185), so a game that did not
+  // move costs no summary fetch; final_stats_synced_at and espn_event_id ride
+  // along for the poll's final guard and its ESPN key.
   const gameIds = rows.map((r) => r.tank01GameId);
   const priorRes = await pool.query(
-    `SELECT "tank01_game_id", "game_status" FROM "live_game_states"
-     WHERE "tank01_game_id" = ANY($1)`,
+    `SELECT "tank01_game_id", "game_status", "current_score_home", "current_score_away",
+            "quarter", "time_remaining", "espn_event_id", "final_stats_synced_at"
+       FROM "live_game_states"
+      WHERE "tank01_game_id" = ANY($1)`,
     [gameIds]
   );
+  const priorRows = new Map(priorRes.rows.map((r) => [r.tank01_game_id, r]));
   const priorStatus = new Map(priorRes.rows.map((r) => [r.tank01_game_id, r.game_status]));
+  const finalSyncedGameIds = new Set(
+    priorRes.rows.filter((r) => r.final_stats_synced_at).map((r) => r.tank01_game_id)
+  );
 
   const now = new Date();
   const result = await pool.query(UPSERT_SQL, [
@@ -374,26 +389,48 @@ async function upsertRows(rows) {
     rows.map((r) => (r.espnEventId != null ? String(r.espnEventId) : null)),
   ]);
 
-  // Enqueue recap generation for freshly-final games. The queue bounds the
-  // box-score fan-out (a burst of games going final at once becomes a short
-  // sequence, not a thundering herd) and swallows failures, so it can never
-  // break or delay the poll loop. That one box-score fetch also ingests the
-  // game's final stats — see gameRecap.generateForGame.
-  for (const gameId of finalTransitions(priorStatus, result.rows)) {
-    gameRecap.enqueueRecap(gameId);
+  // Freshly-final games: arm the Final box (#1186, ADR 0035). Fifteen minutes
+  // on, the timer enqueues the recap; gameRecap.generateForGame is the Final
+  // box path (one essential-priority Tank01 box, applied with no Scoring
+  // plays, stamped, then the recap built from the same box). The queue bounds
+  // the fan-out and swallows failures, so it can never break or delay the poll
+  // loop, and the reconcile sweep heals a timer lost to a restart.
+  const finals = finalTransitions(priorStatus, result.rows);
+  for (const gameId of finals) {
+    finalBox.scheduleFinalBox(gameId);
   }
 
   const hasInProgress = result.rows.some((r) => r.game_status === 'in_progress');
-  return { hasInProgress, upserted: result.rows.length };
+  const changed = liveBoxPoll.changedGames(priorRows, rows);
+  return { hasInProgress, upserted: result.rows.length, changed, finals, finalSyncedGameIds };
 }
 
-/** Fetch one (season, week) from the active source and upsert it. */
-async function pollAndUpsert({ season, week }) {
+/**
+ * Fetch one (season, week) from the active source, upsert it, then read and
+ * apply the Live box of every in-progress game that moved (#1185) and re-score
+ * the leagues that are due. The Live box work is contained: a failure there is
+ * logged and never stops the clock upsert or the tick.
+ */
+async function pollAndUpsert({ season, week, quotaMode }) {
   const { rows, source } = await fetchRowsForWeek({ season, week });
   lastSourceUsed = source;
   if (rows === null) return { hasInProgress: false, source, skipped: true };
-  const { hasInProgress, upserted } = await upsertRows(rows);
-  return { hasInProgress, source, upserted };
+  const { hasInProgress, upserted, changed, finalSyncedGameIds } = await upsertRows(rows);
+  let liveBoxResult = null;
+  try {
+    liveBoxResult = await liveBoxPoll.pollChangedGames({
+      season,
+      week,
+      games: changed,
+      finalSyncedGameIds,
+      quotaMode,
+      now: Date.now(),
+    });
+    lastLiveBoxAt = new Date().toISOString();
+  } catch (err) {
+    console.error('liveGameEngine: Live box pass failed for %s week %s:', season, week, err.message);
+  }
+  return { hasInProgress, source, upserted, changed: changed.length, liveBox: liveBoxResult };
 }
 
 /**
@@ -449,7 +486,7 @@ async function tick() {
     if (plan.callApi) {
       let anyInProgress = false;
       for (const w of windows) {
-        const { hasInProgress } = await pollAndUpsert(w);
+        const { hasInProgress } = await pollAndUpsert({ ...w, quotaMode: quota.mode });
         anyInProgress = anyInProgress || hasInProgress;
       }
       // A slate that just went live wants the live cadence immediately rather
@@ -517,6 +554,9 @@ function getLiveGameEngineStatus() {
     lastSourceUsed,
     espnConsecutiveFailures,
     quotaMode: lastQuotaMode,
+    // The Live box switch (ADR 0035). /api/health publishes a pinned key set
+    // and drops this; the worker heartbeat's job_status carries it whole.
+    liveBox: { ...liveBox.getLiveBoxStatus(), lastLiveBoxAt },
   };
 }
 

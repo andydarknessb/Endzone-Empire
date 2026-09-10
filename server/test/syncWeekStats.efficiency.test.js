@@ -11,7 +11,7 @@ const scoring = require('../services/scoring.service');
 
 // --- gamesNeedingBoxScore (pure) --------------------------------------------
 
-test('gamesNeedingBoxScore: only in-progress games and un-ingested finals', () => {
+test('gamesNeedingBoxScore: only un-ingested finals; in-progress games are the engine’s Live box (#1185)', () => {
   const rows = [
     { tank01_game_id: 'g-live', game_status: 'in_progress', final_stats_synced_at: null },
     { tank01_game_id: 'g-final-new', game_status: 'final', final_stats_synced_at: null },
@@ -19,7 +19,6 @@ test('gamesNeedingBoxScore: only in-progress games and un-ingested finals', () =
     { tank01_game_id: 'g-later', game_status: 'scheduled', final_stats_synced_at: null },
   ];
   assert.deepEqual(scoring.gamesNeedingBoxScore(rows), [
-    { gameId: 'g-live', status: 'in_progress', isFinal: false },
     { gameId: 'g-final-new', status: 'final', isFinal: true },
   ]);
 });
@@ -76,7 +75,7 @@ function stubWorld(t, { liveRows = LIVE_ROWS } = {}) {
   });
   const api = {
     async get(path, opts) {
-      fetched.push({ path, gameId: opts && opts.params && opts.params.gameID });
+      fetched.push({ path, gameId: opts && opts.params && opts.params.gameID, priority: opts && opts.priority });
       return {
         data: {
           body: {
@@ -97,11 +96,22 @@ test('syncWeekStats: skips scheduled games and finals already ingested', async (
 
   assert.deepEqual(
     fetched.map((f) => f.gameId),
-    ['20260913_KC@BUF', '20260913_DAL@PHI'],
-    'only the live game and the un-ingested final cost a call'
+    ['20260913_DAL@PHI'],
+    'only the un-ingested final costs a call: the in-progress game is the engine’s Live box (#1185)'
   );
-  assert.equal(result.gamesProcessed, 2);
-  assert.equal(result.gamesSkipped, 2);
+  assert.equal(fetched[0].priority, 'essential', 'the Final box is the one call never shed (#1186)');
+  assert.equal(result.gamesProcessed, 1);
+  assert.equal(result.gamesSkipped, 3);
+});
+
+test('syncWeekStats: an in_progress game is no longer fetched here; a final without final_stats_synced_at still is (#1185)', async (t) => {
+  const liveRows = [
+    { tank01_game_id: 'g-live', game_status: 'in_progress', final_stats_synced_at: null },
+    { tank01_game_id: 'g-final', game_status: 'final', final_stats_synced_at: null },
+  ];
+  const { fetched, api } = stubWorld(t, { liveRows });
+  await scoring.syncWeekStats({ season: 2026, week: 2, api });
+  assert.deepEqual(fetched.map((f) => f.gameId), ['g-final']);
 });
 
 test('syncWeekStats: the game list comes from live_game_states, not a schedule call', async (t) => {
