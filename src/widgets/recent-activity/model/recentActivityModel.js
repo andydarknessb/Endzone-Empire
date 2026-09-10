@@ -80,8 +80,15 @@ const WEEK_MS = 7 * DAY_MS;
  * running it.
  */
 export function formatActivityTime(at, now = Date.now(), locale) {
-  // Guard against null, undefined, empty string, and invalid dates
-  if (at == null || at === '' || (at instanceof Date && Number.isNaN(at.getTime()))) {
+  // Guard against null and undefined before constructing a Date.
+  // new Date(null) is the Unix epoch, not an Invalid Date (#1122): without
+  // this guard, null becomes "Dec 31, 1969" instead of rendering nothing.
+  if (at == null || at === '') {
+    return null;
+  }
+
+  // Guard against invalid Date objects before date math (#1122).
+  if (at instanceof Date && Number.isNaN(at.getTime())) {
     return null;
   }
 
