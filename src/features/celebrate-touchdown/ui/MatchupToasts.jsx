@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { playLabel } from '../../../lib/scoringEvents';
+import { playLabel } from '../../../entities/matchup';
 
 /**
  * The bottom toast stack of the celebrate-touchdown feature (ADR 0031, #903),

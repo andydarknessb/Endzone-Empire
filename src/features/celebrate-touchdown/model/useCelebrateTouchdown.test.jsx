@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
-import { MAX_CUTSCENES } from '../../../lib/scoringEvents';
+import { MAX_CUTSCENES } from './classifyPlays';
 import { useCelebrateTouchdown } from '../index';
 
 jest.mock('../../../api/apiClient', () => ({

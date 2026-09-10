@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import { Card } from '../../../shared/ui';
-import { playLabel } from '../../../lib/scoringEvents';
+import { playLabel } from '../../../entities/matchup';
 
 /**
  * The last-plays ticker of the Scoreboard view (ADR 0031, #903), transcribed

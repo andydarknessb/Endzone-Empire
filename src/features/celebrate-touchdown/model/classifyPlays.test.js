@@ -1,4 +1,4 @@
-import { classifyPlays, MAX_CUTSCENES, playLabel } from './scoringEvents';
+import { classifyPlays, MAX_CUTSCENES } from './classifyPlays';
 
 const td = (playerId, over = {}) => ({
   playerId,
@@ -67,20 +67,4 @@ describe('classifyPlays', () => {
     expect(classifyPlays([], ctx()).cutscenes).toHaveLength(0);
     expect(classifyPlays([null, { name: 'no id' }], ctx()).cutscenes).toHaveLength(0);
   });
-
-  test('playLabel describes the TD type', () => {
-    expect(playLabel(td(1, { type: 'receiving' }))).toBe('receiving TD');
-    expect(playLabel({})).toBe('scoring TD');
-  });
-
-  test('playLabel describes a non-touchdown moment play in plain English', () => {
-    expect(playLabel(td(1, { type: 'sack', isTouchdown: false }))).toBe('SACK');
-    expect(playLabel(td(1, { type: 'fieldGoal', isTouchdown: false }))).toBe('FIELD GOAL');
-    expect(playLabel(td(1, { type: 'interception', isTouchdown: false }))).toBe('INTERCEPTED');
-  });
 });
-
-// Win probability's arithmetic and its tests moved to src/shared/lib/
-// winProbability(.test).js (#1120, ADR 0031): matchupWinProbability earned a
-// shared/lib home once a fifth widget consumer (#1117) and the Matchup page
-// passed ADR 0031's one-more-consumer threshold for the below-island reach.

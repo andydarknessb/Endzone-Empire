@@ -3,7 +3,7 @@ import { Box, Typography, useMediaQuery } from '@mui/material';
 import { keyframes, useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card } from '../../../shared/ui';
-import { playLabel } from '../../../lib/scoringEvents';
+import { playLabel } from '../../../entities/matchup';
 import {
   IDLE_LINE,
   SIDE_LABELS,

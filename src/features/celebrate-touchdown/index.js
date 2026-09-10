@@ -16,10 +16,13 @@
  *     slots it into the retro field's caption row.
  *
  * Import edges, for the boundary audit ADR 0020 names: `shared/ui` (the
- * Tecmo sprite) through its index, and the sanctioned reaches below the
- * island: `src/api/apiClient` (the preference read), `src/lib/scoringEvents`
- * (the play classifier and label) and `src/lib/nflTeamColors` (the sprite
- * kits). It imports no widget, page or other feature.
+ * Tecmo sprite) and `entities/matchup` (`playLabel` and, since #1137, the
+ * side attribution `classifyPlays` reads), both through their index, and the
+ * sanctioned reaches below the island: `src/api/apiClient` (the preference
+ * read) and `src/lib/nflTeamColors` (the sprite kits). `classifyPlays` and
+ * `MAX_CUTSCENES` are this feature's own private model
+ * (`./model/classifyPlays`), not a below-island reach. It imports no widget,
+ * page or other feature.
  */
 export { default, default as CelebrateTouchdown } from './ui/CelebrateTouchdown';
 export { default as TecmoCutscene } from './ui/TecmoCutscene';
