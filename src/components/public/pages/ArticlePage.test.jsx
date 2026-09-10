@@ -61,7 +61,7 @@ test('navigating to a related article loads its body and rebuilds the table of c
   render(
     <AppThemeProvider>
       <HelmetProvider>
-        <MemoryRouter initialEntries={['/strategy/draft-by-tiers']}>
+        <MemoryRouter initialEntries={['/strategy/reading-trade-value']}>
           <Routes>
             <Route path="/strategy/:slug" element={<ArticlePage />} />
           </Routes>
@@ -69,7 +69,7 @@ test('navigating to a related article loads its body and rebuilds the table of c
       </HelmetProvider>
     </AppThemeProvider>
   );
-  await screen.findByRole('heading', { name: 'How to build tiers' });
+  await screen.findByRole('heading', { name: 'Trade from surplus, not from panic' });
 
   // The related strip links to the newest recap; this is an in-app hop, so the
   // page keeps its component instance and only the slug changes. Target the
@@ -77,7 +77,9 @@ test('navigating to a related article loads its body and rebuilds the table of c
   // "The Scoreboard"/"Fantasy Stock Risers" headings, so the link name is the
   // only thing pinning which body this test actually loads, and pointing it at
   // an older recap leaves it one published article away from falling out of the
-  // three-slot strip.
+  // three-slot strip. Starting from reading-trade-value (Trades) rather than
+  // draft-by-tiers (Draft) because Trades has no cluster, keeping all non-Trades
+  // articles at equal priority and giving the newest Recap a slot.
   // The card's accessible name is the title plus the excerpt, so this matches
   // the title as a substring rather than asserting the whole name.
   const newestRecap = listArticles().find((a) => a.category === 'Recap');
@@ -90,7 +92,7 @@ test('navigating to a related article loads its body and rebuilds the table of c
   await waitFor(() => {
     expect(screen.getByRole('navigation', { name: 'Table of contents' })).toHaveTextContent('Fantasy Stock Risers');
   });
-  expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('How to build tiers');
+  expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('Trade from surplus, not from panic');
 });
 
 // The fallback matters as much as the happy path: formatDate returns the raw
