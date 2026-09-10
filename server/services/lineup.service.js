@@ -634,16 +634,43 @@ async function weekKickoffs(client, { season, week, kickoffCache = null }) {
  * The MAP KEY is normalised, the same fold every kickoff/bye lookup applies,
  * so a DEF unit named by a full team name or either of Washington's codes
  * both find their row (ADR 0011). The MAP VALUE stays raw `nfl_games.opponent`
- * on purpose (Team code vocabulary, CONTEXT.md): it is a display string handed
- * straight to the client alongside the entry's own (already raw) `nfl_team`,
- * never joined or keyed on again. The team-code uniqueness index ADR 0011
- * added guarantees at most one row per (season, week, team code), so there is
- * no tie to break the way `weekKickoffs` must for kickoff instants.
+ * on purpose (a Raw team code, CONTEXT.md - the schedule's own spelling, never
+ * folded): it is a display string handed straight to the client alongside the
+ * entry's own (already raw) `nfl_team`, never joined or keyed on again. The
+ * team-code uniqueness index ADR 0011 added guarantees at most one row per
+ * (season, week, team code), so there is no tie to break the way `weekKickoffs`
+ * must for kickoff instants.
  *
  * ABSENCE STAYS ABSENCE, exactly as it does for kickoff and bye: a team with
  * no `nfl_games` row that week - a bye, or a schedule nobody synced - is
  * simply not in the map, so `getLineup` falls back to `opponent: null`
  * structurally rather than by a special case.
+ *
+ * WHY THIS IS ITS OWN QUERY, NOT `weekKickoffs` WIDENED TO SELECT `opponent`
+ * TOO - a real alternative, considered and rejected. `weekKickoffs` already
+ * selects every row for the week; adding one column would look free. It is
+ * not free on either path `getLineup` takes:
+ *
+ *   - a LIVE week never calls `weekKickoffs` at all. Its lock check goes
+ *     through `kickedOffTeams`, a narrower `kickoff_at <= now` filter, so
+ *     widening `weekKickoffs` would not remove a read here - `getLineup`
+ *     would still need a second call for the one this function makes, same
+ *     as today. Nothing is saved on the common path.
+ *   - a SETTLED week (viewing an already-final week) does reach `weekKickoffs`,
+ *     through `rowsHeldAsPlayed` -> `playersNotHeldAtKickoff` -> `playerKickoffs`.
+ *     Only here would folding `opponent` into it save the second ~32-row read
+ *     this function costs.
+ *
+ * That narrow win is not worth widening `weekKickoffs`'s return shape. Its
+ * Map<team, kickoff_at> is read as a bare instant by three functions on the
+ * settle/lock-critical path (`playerKickoffs`, `playersNotHeldAtLastKickoff`,
+ * and the tie-break inside `weekKickoffs` itself) - exactly the code #227 and
+ * #635 exist because a small mistake there is a silent scoring bug, and
+ * exactly what `settleScoreOfRecord.test.js` pins down to one read shape on
+ * purpose. Reshaping every value to `{ kickoffAt, opponent }` to serve a
+ * field only `getLineup` ever reads, for a saving that does not apply to the
+ * far more common live-week call, is the worse trade. A second small, narrow
+ * query that touches nothing the lock question depends on is the safer one.
  */
 async function weekOpponents(client, { season, week }) {
   const result = await client.query(
