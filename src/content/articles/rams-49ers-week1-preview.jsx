@@ -130,7 +130,7 @@ const Body = () => (
       Kittle showed no limitations during camp and is expected to suit up Thursday. With Pearsall
       out for the season, Kirk on IR, and Aiyuk gone, Kittle becomes the most important receiving
       option on the roster. Target consolidation benefits tight ends more than any other position.
-      If he is active, he is a top-three TE play this week.
+      If he is active, he is an elite TE1 this week.
     </P>
 
     <H3>Start: Christian McCaffrey, RB, 49ers (if active)</H3>
