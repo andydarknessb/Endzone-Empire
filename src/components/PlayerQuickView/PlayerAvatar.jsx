@@ -1,7 +1,10 @@
 import React from 'react';
 import { Avatar } from '@mui/material';
 import { positionColorSx } from './PositionChip';
-import { initialsFor } from '../../lib/initials';
+// Concrete module path, not the shared/lib barrel: a legacy consumer (ADR
+// 0031's #1146 amendment) - the index would pull the whole kit, including
+// useEndpoint, into this bundle.
+import { initialsFor } from '../../shared/lib/initials';
 
 /**
  * A player's headshot with a position-colored, initials fallback when no

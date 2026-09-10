@@ -1,5 +1,5 @@
 import { matchupStatusView } from '../../../entities/matchup';
-import { matchupWinProbability } from '../../../lib/winProbability';
+import { matchupWinProbability, finite, formatKickoff } from '../../../shared/lib';
 
 /**
  * The matchup-hero widget's view model, pure (ticket #893, ADR 0031). Given
@@ -28,11 +28,9 @@ import { matchupWinProbability } from '../../../lib/winProbability';
  * value the entity does not know) has none, so the card asserts neither state
  * (the entity's `hasStarted === null` contract).
  *
- * The arithmetic reaches below the island for `src/lib/winProbability`, the
- * sanctioned reach ADR 0031 names for the helpers only these pages used.
+ * The arithmetic and the kickoff/finite-value contracts come from
+ * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer.
  */
-
-const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
 
 // The status chip's Badge variant per server status, the canvas's statusChip():
 // `.chip.live` is the danger red with the dot, `.chip.final` the success
@@ -40,27 +38,9 @@ const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
 // label is the entity predicate's; an unknown status has no chip at all.
 const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
-/** A finite number from a wire value (pg DECIMAL strings included), else null. */
-function finite(value) {
-  if (value == null || value === '') return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
 /** A difference rounded to a tenth, so "by 0.0" never reads as a lead. */
 function tenth(value) {
   return Math.round(value * 10) / 10;
-}
-
-/**
- * "Sun 7:20 PM" from an ISO timestamp, in the viewer's locale and time zone;
- * null when the value is missing or not a date.
- */
-export function formatKickoff(iso) {
-  if (iso == null || iso === '') return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, KICKOFF_FORMAT).format(date);
 }
 
 /**

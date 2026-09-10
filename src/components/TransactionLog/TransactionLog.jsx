@@ -36,6 +36,7 @@ import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
+import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
@@ -97,85 +98,36 @@ function dayLabel(dateLike) {
   });
 }
 
-function renderPlayerList(items, onOpenPlayer) {
-  return items.map((item, i) => (
-    <React.Fragment key={item.playerId}>
-      {i > 0 && ', '}
-      <PlayerNameLink name={item.playerName} playerId={item.playerId} onOpen={onOpenPlayer} />
-    </React.Fragment>
-  ));
-}
-
-function TransactionDescription({ txn, onOpenPlayer }) {
-  const detail = txn.detail || {};
-  switch (txn.type) {
-    case 'add':
-      return (
-        <>
-          added <PlayerNameLink name={txn.player_name} playerId={detail.playerId} onOpen={onOpenPlayer} />
-        </>
-      );
-    case 'drop':
-      return (
-        <>
-          dropped <PlayerNameLink name={txn.player_name} playerId={detail.playerId} onOpen={onOpenPlayer} />
-        </>
-      );
-    case 'waiver': {
-      const bidSuffix = typeof detail.bid === 'number' ? ` ($${detail.bid})` : '';
-      return (
-        <>
-          claimed <PlayerNameLink name={txn.player_name} playerId={detail.playerId} onOpen={onOpenPlayer} />
-          {bidSuffix}
-          {detail.droppedPlayerId && txn.dropped_player_name && (
-            <>
-              , dropped{' '}
-              <PlayerNameLink
-                name={txn.dropped_player_name}
-                playerId={detail.droppedPlayerId}
-                onOpen={onOpenPlayer}
-              />
-            </>
-          )}
-        </>
-      );
-    }
-    case 'trade': {
-      const items = Array.isArray(detail.items) ? detail.items : [];
-      // Older trade rows were logged before names/team ids were baked into
-      // detail — fall back to the generic sentence rather than rendering
-      // blanks for them.
-      if (items.length === 0 || !detail.receivingTeamName) {
-        return 'completed a trade';
-      }
-      const sent = items.filter((i) => i.fromTeamId === detail.proposingTeamId);
-      const received = items.filter((i) => i.toTeamId === detail.proposingTeamId);
-      return (
-        <>
-          traded {renderPlayerList(sent, onOpenPlayer)} to {detail.receivingTeamName} for{' '}
-          {renderPlayerList(received, onOpenPlayer)}
-        </>
-      );
-    }
-    case 'commissioner':
-      return 'commissioner action';
-    case 'stat_correction': {
-      const changed = Array.isArray(detail.changes) ? detail.changes.length : 0;
-      const week = detail.week;
-      return `NFL stat correction updated ${changed} matchup score${changed === 1 ? '' : 's'}${
-        week ? ` in week ${week}` : ''
-      }`;
-    }
-    default:
-      return '';
-  }
+// The Activity read model's `sentence` (src/entities/activity, #1100) is a
+// flat string, but a player's name inside it has always been a clickable
+// PlayerNameLink that opens the shared PlayerQuickView (#1100 escalation:
+// dropping that cost the app-wide convention and its only test). Matching
+// player names back against the flat sentence text is unsound (a suffixed
+// name, a Team name containing a surname, two same-named players — #1112),
+// so TransactionLog never does that: it renders the model's own `segments`
+// in order, a `PlayerNameLink` at each player part and plain text at each
+// text part, so a name is a link because it IS one, not because it matched.
+function renderSegments(segments, onOpenPlayer) {
+  return segments.map((seg, i) =>
+    seg.type === 'player' ? (
+      <PlayerNameLink key={`${seg.playerId}-${i}`} name={seg.name} playerId={seg.playerId} onOpen={onOpenPlayer} />
+    ) : (
+      <React.Fragment key={i}>{seg.value}</React.Fragment>
+    )
+  );
 }
 
 // One row of the activity timeline: a colored dot/icon keyed off the
 // transaction type, the team + action description, and a relative
-// timestamp aligned to the right.
+// timestamp aligned to the right. The description text is the Activity read
+// model's `sentence` (src/entities/activity, #1100): TransactionLog no
+// longer derives it inline, so it cannot drift from another surface reading
+// the same rows; it renders from the model's own `segments` rather than
+// `sentence` so player names inside it stay clickable (see renderSegments
+// above).
 function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
   const { Icon, color } = TYPE_ICON_META[txn.type] || { Icon: HistoryOutlinedIcon, color: 'grey' };
+  const { segments } = activityFromRow(txn);
   return (
     <TimelineItem data-testid={`txn-${txn.id}`}>
       <TimelineSeparator>
@@ -199,7 +151,7 @@ function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
                   {txn.team_name}{' '}
                 </Box>
               )}
-              <TransactionDescription txn={txn} onOpenPlayer={onOpenPlayer} />
+              {renderSegments(segments, onOpenPlayer)}
             </Typography>
           </Box>
           <Tooltip title={new Date(txn.created_at).toLocaleString()}>

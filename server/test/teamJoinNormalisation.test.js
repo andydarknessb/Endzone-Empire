@@ -298,6 +298,26 @@ test('a WAS player matches a WSH-coded game row', async (t) => {
 
 // --- projection: getPositionDefense -----------------------------------------
 
+const OPPONENT_COLUMN = '"nfl_games"."opponent"';
+
+/**
+ * Whether the statement folds its defense key through `fn_normalize_nfl_team`
+ * or reads it raw, READ OUT OF THE STATEMENT ITSELF rather than assumed by
+ * this fixture (same discipline as `teamPredicateFrom` above). A fake that
+ * decided this on its own would prove nothing about a reverted fix: this way,
+ * reverting the SQL to a bare `"nfl_games"."opponent"` flips the fake back to
+ * raw keys too, so the membership/arithmetic assertions below fail on the
+ * regression exactly when the SQL text does.
+ */
+function defenseKeyFoldFrom(sql) {
+  const text = flat(sql);
+  const wrapped = new RegExp(`fn_normalize_nfl_team\\(\\s*${escape(OPPONENT_COLUMN)}\\s*\\)`);
+  const bare = new RegExp(escape(OPPONENT_COLUMN));
+  if (wrapped.test(text)) return normalizeNflTeam;
+  if (bare.test(text)) return (raw) => raw;
+  throw new Error(`no reference to ${OPPONENT_COLUMN} in the statement under test: ${text}`);
+}
+
 /**
  * Answers the position-vs-defense aggregate out of fixture tables, joining
  * `nfl_games` the way the statement itself says to, and REPORTING how many
@@ -334,6 +354,7 @@ function positionDefenseFake(world) {
       );
     }
     const sameTeam = teamPredicateFrom(sql, GAMES_TEAM, PLAYERS_TEAM);
+    const foldDefense = defenseKeyFoldFrom(sql);
 
     const grouped = new Map();
     for (const stat of world.stats) {
@@ -351,10 +372,11 @@ function positionDefenseFake(world) {
         continue;
       }
       seen.joined += 1;
-      const key = `${game.opponent} ${player.position}`;
+      const defenseKey = foldDefense(game.opponent);
+      const key = `${defenseKey} ${player.position}`;
       if (!grouped.has(key)) {
         grouped.set(key, {
-          defense: game.opponent,
+          defense: defenseKey,
           position: player.position,
           points: 0,
           weeks: new Set(),
@@ -428,21 +450,69 @@ test('getPositionDefense keeps every stat row, including DEF units and WSH weeks
   assert.doesNotMatch(seen.statement, RAW_PREDICATE);
 });
 
-test('getPositionDefense still keys the aggregate by the schedule opponent vocabulary', async (t) => {
-  // The consumer (decision.service.startSitAdvice) looks this map up with an
-  // opponent read straight out of nfl_games, so normalising the GROUP BY key
-  // would break the pairing that works today. #287 changes the join, not the
-  // key. The opponent-label lookups are a separate, lower-severity ticket.
+test('getPositionDefense folds WSH- and WAS-coded opponent weeks into one canonical WAS bucket (#1154, supersedes the raw-keyed ruling at ADR 0011)', async (t) => {
+  // Superseded ruling: this test used to assert `defense.has('WSH')` and
+  // `defense.has('WAS') === false`, reasoning that normalising the GROUP BY
+  // key "would break the pairing that works today" against a raw opponent
+  // read in decision.service.startSitAdvice. #1136 made every opponent that
+  // leaves the server a Team code, so that raw-on-raw pairing no longer
+  // exists to protect; on Cory's 2026-09-10 ruling (#1154), the aggregate now
+  // folds its own key instead of leaving a second, JS-side fold
+  // (`foldedDefense`, removed) to paper over the mismatch. ADR 0011's
+  // Consequences bullet recording the old pairing as deliberate is amended,
+  // not edited, to say so.
+  //
+  // Two raw aliases for Washington (WSH in week 1, WAS in week 3) must
+  // combine into ONE 'WAS' bucket, and the assertions below prove ARITHMETIC,
+  // not just membership: both weeks' points and both distinct game weeks
+  // contribute to the resulting average.
   const world = {
-    players: [{ id: 1, position: 'DEF', nfl_team: 'Denver Broncos' }],
-    stats: [{ player_id: 1, season: SEASON, week: 1, fantasy_points: 9 }],
-    games: [{ season: SEASON, week: 1, nfl_team: 'DEN', opponent: 'WSH' }],
+    players: [
+      { id: 1, position: 'DEF', nfl_team: 'Denver Broncos' },
+      { id: 2, position: 'DEF', nfl_team: 'Buffalo Bills' },
+    ],
+    stats: [
+      { player_id: 1, season: SEASON, week: 1, fantasy_points: 9 },
+      { player_id: 2, season: SEASON, week: 3, fantasy_points: 5 },
+    ],
+    games: [
+      { season: SEASON, week: 1, nfl_team: 'DEN', opponent: 'WSH' },
+      { season: SEASON, week: 3, nfl_team: 'BUF', opponent: 'WAS' },
+    ],
   };
-  const { answer } = positionDefenseFake(world);
+  const { seen, answer } = positionDefenseFake(world);
   t.mock.method(pool, 'query', async (sql, params) => answer(sql, params));
 
   const defense = await projection.getPositionDefense({ season: SEASON, uptoWeek: 5 });
 
-  assert.ok(defense.has('WSH'), 'the opponent column is passed through unfolded');
-  assert.equal(defense.has('WAS'), false);
+  // Membership: one canonical bucket, no raw alias key survives.
+  assert.ok(defense.has('WAS'), 'both raw aliases fold into the canonical WAS bucket');
+  assert.equal(defense.has('WSH'), false, 'the raw WSH spelling never survives as its own key');
+
+  // Arithmetic: (9 + 5) points over 2 distinct game weeks = 7, not either
+  // week's value alone. Proves the fake's own fold combined both aliases
+  // rather than one alias silently winning last-wins.
+  assert.equal(defense.get('WAS').DEF, 7);
+
+  // Statement half, against the real SQL text (a fake cannot fake this): the
+  // defense key is grouped and selected through fn_normalize_nfl_team, and no
+  // raw "nfl_games"."opponent" survives ungrouped in the GROUP BY or the
+  // SELECT of that key.
+  const RAW_OPPONENT_KEY =
+    /(?<!fn_normalize_nfl_team\()"nfl_games"\."opponent"(?!\s*\))/;
+  assert.match(
+    seen.statement,
+    /fn_normalize_nfl_team\(\s*"nfl_games"\."opponent"\s*\)\s+AS\s+"defense"/,
+    'the defense column is selected through fn_normalize_nfl_team'
+  );
+  assert.match(
+    seen.statement,
+    /GROUP BY\s+fn_normalize_nfl_team\(\s*"nfl_games"\."opponent"\s*\)/,
+    'the defense key is grouped through fn_normalize_nfl_team'
+  );
+  assert.doesNotMatch(
+    seen.statement,
+    RAW_OPPONENT_KEY,
+    'no un-normalised "nfl_games"."opponent" survives outside the fn_normalize_nfl_team call'
+  );
 });

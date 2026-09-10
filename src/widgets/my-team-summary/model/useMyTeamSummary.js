@@ -1,14 +1,18 @@
 import { useEndpoint } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
+import { useTeamLineup } from '../../../entities/roster';
+import { isPickemOnly } from '../../../lib/leagueType';
+import { lineupAttention } from '../../../lib/lineupAttention';
+import { DEFAULT_ROSTER_SLOTS } from '../../../lib/draftSim/templates';
 import { ordinal } from '../lib/ordinal';
 
 /**
  * Data model for the my-team summary widget (League Dashboard hero-left,
- * ticket #639). The widget owns its own reads; this hook is where they live so
- * the UI stays a thin presenter.
+ * ticket #639, extended by #1101's starters section). The widget owns its own
+ * reads; this hook is where they live so the UI stays a thin presenter.
  *
- * Four sources, each answering "which of these is me" by Team id against the
+ * Five sources, each answering "which of these is me" by Team id against the
  * viewer's own team id (`viewerTeamId`), never an account identifier (#112,
  * CONTEXT.md team identity):
  *
@@ -40,6 +44,15 @@ import { ordinal } from '../lib/ordinal';
  *     placeholders.
  *   - The waiver/roster tile reads the league row and the viewer's own `teams[]`
  *     entry, both already in the league cache above, so it costs no request.
+ *   - The starters section reads the ROSTER ENTITY's lineup
+ *     (src/entities/roster, `useTeamLineup`, #1101), keyed by the league's
+ *     current week exactly like standings above. It is a plain read (this
+ *     widget is its only mount on this page) and is skipped entirely for a
+ *     pick'em-only viewer, who has no roster to read: `useTeamLineup`'s own
+ *     null-leagueId contract means the request never fires. The section is
+ *     independent of the card's SPINE (standings): a slow or failed lineup
+ *     read never blocks or errors the tiles above it, and a slow standings
+ *     read never blocks the starters section either.
  */
 
 // Both plain reads below use the shared useEndpoint (src/shared/lib, #669) and
@@ -81,6 +94,46 @@ function capacityFact(league, team) {
       : ['Roster', numberOrNull(team.roster_count), numberOrNull(league.roster_limit)];
   if (have == null || cap == null) return null;
   return { label, text: `${have}/${cap}` };
+}
+
+// The starters section (#1101) shows this many rows before folding the rest
+// into the "and N more" note.
+const STARTERS_SHOWN = 5;
+
+/**
+ * The league's starting-slot config, parsed defensively (`roster_slots` rides
+ * on the league row as jsonb - server/routes/league.router.js - so it
+ * normally arrives already parsed; a string is tolerated the same way the
+ * quick-actions widget's own `rosterSlotsOf` tolerates one, useQuickActions.js),
+ * then resolved exactly the way `server/services/decision.service.js:141`
+ * resolves the identical absent-config case: `rosterSlots && length > 0 ?
+ * rosterSlots : DEFAULT_ROSTER_SLOTS`, never an empty array.
+ *
+ * This matters beyond a friendlier guess: `totalSlots` is this array's summed
+ * `count`, and it is the footer's DENOMINATOR ("Lineup set/incomplete ·
+ * <filled> of <this>"). An empty-array default would make `totalSlots` 0, and
+ * since "set" is `filled >= totalSlots`, ANY filled count - including a
+ * missing-config league nobody has actually set up - clears `9 >= 0` and
+ * paints the reassuring "Lineup set" claim with its check mark. A degraded
+ * default must never land on the reassuring end of a claim (#1101 formal
+ * review, f2), so this falls back to the real 9-slot standard shape instead.
+ */
+function resolvedRosterSlots(league) {
+  const raw = league?.roster_slots;
+  let slots;
+  if (Array.isArray(raw)) {
+    slots = raw;
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      slots = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      slots = [];
+    }
+  } else {
+    slots = [];
+  }
+  return slots.length > 0 ? slots : DEFAULT_ROSTER_SLOTS;
 }
 
 export function useMyTeamSummary(leagueId) {
@@ -176,6 +229,77 @@ export function useMyTeamSummary(leagueId) {
     if (odds != null) playoffOdds = { percent: Math.round(odds * 100) };
   }
 
+  // Starters section (#1101): the first five starters from entities/roster,
+  // an "and N more · M questionable" note, and a lineup-completeness footer.
+  // A pick'em-only viewer has no roster at all, so the lineup read never fires
+  // for one (`useTeamLineup`'s null-leagueId contract) and the section never
+  // mounts. `lineup.starters` already excludes bench, IR and spent rows
+  // (lineupModel, CONTEXT.md's Lineup entry: a spent slot starts nobody
+  // today), so this never re-derives the starter set with its own filter -
+  // that is the tested red-tell (a re-derived filter is how the spent-slot
+  // rule gets lost).
+  const pickemOnly = isPickemOnly(league);
+  const { lineup, loading: lineupLoading } = useTeamLineup(
+    !pickemOnly && leagueId != null ? leagueId : null,
+    league?.current_week ?? null,
+  );
+
+  let starters = null;
+  if (!pickemOnly) {
+    if (lineupLoading) {
+      // The week is often already known (the league row landed before the
+      // lineup read settles), so the loading header can still read "Starters
+      // · Week N" instead of a bare "Starters".
+      starters = { status: 'loading', week: league?.current_week ?? null };
+    } else if (lineup) {
+      const rosterSlots = resolvedRosterSlots(league);
+      const totalSlots = rosterSlots.reduce((sum, s) => sum + (Number(s?.count) || 0), 0);
+      // "Is this starting slot filled" is shared with the quick-actions widget
+      // (src/lib/lineupAttention.js) rather than answered a second way here:
+      // that module's own docblock names two independently-derived answers to
+      // exactly this question as the failure the extraction exists to prevent
+      // (#1101 formal review, f1). Fed `lineup.entries`, not `lineup.starters`:
+      // a spent row keeps its ORIGINAL starting slot as its `slot` key
+      // (spentStartingSlots), and CONTEXT.md's Lineup entry rule is that a
+      // spent slot is settled for the week and "no save ... may seat a
+      // replacement beside it" - so it must count as FILLED here, the same
+      // way `lineupModel` excludes it from `starters` without treating the
+      // exclusion as a hole to fill. (`lineup.starters` alone would undercount
+      // by one for every spent slot, which is exactly the false "Lineup
+      // incomplete" this rule exists to stop.)
+      //
+      // Known gap, left as a comment rather than fixed silently: quick-actions
+      // reads a DIFFERENT wire for this same rule, `/api/team/roster`, whose
+      // query joins from `team_players` and so drops a departed starter's row
+      // entirely once he leaves the roster - unlike `/api/team/lineup`, which
+      // deliberately keeps the spent record (lineup.service.js's
+      // `spentStartingSlots`). The two widgets can still disagree on a spent
+      // slot because they read different inputs, even though they now share
+      // the same rule. Reconciling the data source is a quick-actions change
+      // and is out of this ticket's scope.
+      const { emptyStarterSlots } = lineupAttention({
+        rosterSlots,
+        entries: lineup.entries.map((e) => ({ slot: e.slot })),
+      });
+      starters = {
+        status: 'ready',
+        week: league?.current_week ?? null,
+        rows: lineup.starters.slice(0, STARTERS_SHOWN),
+        moreCount: Math.max(0, lineup.starters.length - STARTERS_SHOWN),
+        // The single source of the questionable count: lineupModel computes
+        // it once off the starters (CONTEXT.md's "computed in ONE place"
+        // pattern), so this note never invents its own answer.
+        questionableCount: lineup.questionable,
+        filled: Math.max(0, totalSlots - emptyStarterSlots),
+        totalSlots,
+        lineupHref: leagueId != null ? `/league/${leagueId}/lineup` : null,
+      };
+    }
+    // A failed read (or one that resolved with no lineup at all) leaves
+    // `starters` null: the section is simply absent, and the card's tiles
+    // above are untouched since they come from an unrelated read.
+  }
+
   return {
     league,
     identity,
@@ -187,6 +311,7 @@ export function useMyTeamSummary(leagueId) {
     proj,
     playoffOdds,
     capacity: capacityFact(league, viewerTeam),
+    starters,
   };
 }
 

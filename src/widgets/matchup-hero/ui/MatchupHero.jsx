@@ -2,10 +2,10 @@ import React from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, StatTile, SplitBar } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Card, Badge, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
+import { formatKickoff } from '../../../shared/lib';
 import { teamNameLabel } from '../../../lib/teamIdentity';
-import { matchupHeroView, formatKickoff, ordinal } from '../model/matchupHeroView';
+import { matchupHeroView, ordinal } from '../model/matchupHeroView';
 
 /**
  * The "Your matchup" card (ticket #893, ADR 0031): the viewer's Matchup on

@@ -1,5 +1,5 @@
 import { matchupFromListRow } from '../../../entities/matchup';
-import { matchupCardView, formatKickoff, formatPoints, formatCount } from './matchupCardView';
+import { matchupCardView, formatCount } from './matchupCardView';
 import { lookupRecord } from '../lib/records';
 
 function model(overrides = {}) {
@@ -22,27 +22,21 @@ function model(overrides = {}) {
   });
 }
 
-describe('formatKickoff', () => {
-  test('reads "Sun 7:20 PM" for an instant in the given zone', () => {
-    expect(formatKickoff('2026-09-14T00:20:00Z', { timeZone: 'America/Chicago', locale: 'en-US' })).toBe('Sun 7:20 PM');
-    expect(formatKickoff('2026-09-14T00:20:00Z', { timeZone: 'UTC', locale: 'en-US' })).toBe('Mon 12:20 AM');
-  });
-
-  test('an absent or unparseable instant reads as null', () => {
-    expect(formatKickoff(null)).toBeNull();
-    expect(formatKickoff('')).toBeNull();
-    expect(formatKickoff('not a date')).toBeNull();
-  });
-});
+// formatKickoff and formatPoints are shared/lib's contracts now (src/shared/
+// lib/kickoff(.test).js and numeric(.test).js, #1120, ADR 0031); this view
+// model only consumes them, so their own unit tests live there.
 
 describe('figures', () => {
-  test('points print to one decimal and a count as a whole number, a dash when unknown', () => {
-    expect(formatPoints('92.1')).toBe('92.1');
-    expect(formatPoints(118)).toBe('118.0');
-    expect(formatPoints(0)).toBe('0.0');
-    expect(formatPoints(null)).toBe('-');
+  test('a count prints as a whole number, a dash when unknown', () => {
     expect(formatCount(9)).toBe('9');
     expect(formatCount(null)).toBe('-');
+    // Empty string and undefined should render as unknown, not zero
+    expect(formatCount('')).toBe('-');
+    expect(formatCount(undefined)).toBe('-');
+    expect(formatCount(NaN)).toBe('-');
+    // Numeric zero and string numbers should render as their values
+    expect(formatCount(0)).toBe('0');
+    expect(formatCount('4')).toBe('4');
   });
 });
 

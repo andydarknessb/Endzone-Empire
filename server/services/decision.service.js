@@ -68,16 +68,31 @@ function pointsOf(projections, playerId) {
  * caller (startSitAdvice) has already read a `players` row into memory and
  * looks this map up with normalizeNflTeam(entry.nfl_team) too, so both sides
  * of the JS-side comparison agree even when one side is a DEF unit's full
- * team name (#423). The map's VALUE stays raw `nfl_games.opponent` on
- * purpose: it feeds `defense.get(opponent)`, a raw-on-raw pairing (#320 /
- * #422) that must not change.
+ * team name (#423). A row whose team folds to no team (a blank `nfl_team`)
+ * contributes no entry, the same absence-stays-absence rule every other
+ * schedule lookup in this app follows.
+ *
+ * The map's VALUE is now folded too (#1136): every opponent that leaves the
+ * server is a Team code (CONTEXT.md, Team code), this map included. That
+ * used to break the raw-on-raw pairing `getPositionDefense`'s `defense` map
+ * had with a raw opponent read from this same table (#320/#422), so
+ * `startSitAdvice` below folded a local copy of `defense`'s keys before
+ * looking anything up. `getPositionDefense` itself now folds its key through
+ * `fn_normalize_nfl_team` (#1154, projection.service.js), so `defense` is
+ * already Team-code-keyed and `startSitAdvice` reads it directly - the local
+ * remap is gone, not doubled.
  */
 async function getWeekOpponents({ season, week }) {
   const result = await pool.query(
     `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
     [season, week]
   );
-  return new Map(result.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
+  const byTeam = new Map();
+  for (const row of result.rows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    if (team !== null) byTeam.set(team, normalizeNflTeam(row.opponent));
+  }
+  return byTeam;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +383,10 @@ async function startSitAdvice({ leagueId, userId, week }) {
   ]);
   const projections = toLegacyProjectionMap(run);
 
+  // `defense` (getPositionDefense) keys itself by Team code (#1154,
+  // projection.service.js), the same vocabulary `opponents` above already
+  // folds into (#1136), so this pairing is folded-on-folded with no local
+  // remap: read `defense` directly with the already-canonical opponent.
   const defenseByPlayer = new Map();
   for (const entry of lineup.entries) {
     const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;

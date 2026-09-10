@@ -1,4 +1,4 @@
-import { useEndpoint } from '../../../shared/lib';
+import { useEndpoint, matchupWinProbability, formatKickoff, finite } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { teamNameLabel } from '../../../lib/teamIdentity';
 import {
@@ -6,7 +6,6 @@ import {
   matchupFromDetailBody,
   matchupStatusView,
 } from '../../../entities/matchup';
-import { matchupWinProbability } from '../../../lib/winProbability';
 
 /**
  * Data model for the matchup-preview widget (League Dashboard hero-right,
@@ -128,13 +127,6 @@ import { matchupWinProbability } from '../../../lib/winProbability';
 // (ADR 0020), so the map is restated here rather than reached for; the labels
 // and `hasStarted` still come from the one entity predicate (ADR 0030).
 const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
-
-/** A finite number from a wire value (pg DECIMAL strings included), else null. */
-function finite(value) {
-  if (value == null || value === '') return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
 
 export function useMatchupPreview(leagueId) {
   const { teams, viewerTeamId, league } = useLeague(leagueId);
@@ -311,9 +303,9 @@ export function useMatchupPreview(leagueId) {
   // `hasStarted === null` contract).
   //
   // The win probability is the SAME helper Game Center's hero reads
-  // (src/lib/winProbability, the sanctioned reach below the island), computed
-  // from the two scores and the two Expected finals, so the two surfaces
-  // cannot disagree. It is never a points ratio: SplitBar's accessible name is
+  // (shared/lib, ADR 0031, #1120), computed from the two scores and the two
+  // Expected finals, so the two surfaces cannot disagree. It is never a
+  // points ratio: SplitBar's accessible name is
   // the hard-coded "Win probability" (#872), and a ratio there would announce a
   // number that is not one. The share is clamped and rounded exactly as
   // SplitBar rounds its own segments, and it is stated from the VIEWER's side
@@ -351,6 +343,15 @@ export function useMatchupPreview(leagueId) {
     }
   }
 
+  // The kickoff tail (#1102): before the game has started, the header's tail
+  // reads the row's own `first_kickoff_at` (matchupFromListRow already maps
+  // it as `firstKickoffAt`, no new request) rather than the fallback caption.
+  // `hasStarted === false` only, the mirror of `projectedMargin` above: an
+  // unknown status asserts neither state, and a started Matchup keeps its
+  // status chip exactly as it is.
+  const kickoffLabel =
+    hasStarted === false ? formatKickoff(myMatchup?.firstKickoffAt) : null;
+
   const game = {
     hasStarted,
     chipLabel,
@@ -358,6 +359,7 @@ export function useMatchupPreview(leagueId) {
     chipDot: myMatchup?.status === 'live',
     winProbability,
     projectedMargin,
+    kickoffLabel,
   };
 
   // aria-busy while a layout-holding read is in flight: the list spine, and

@@ -1,6 +1,6 @@
 # Game Center and Matchup Detail join the island
 
-Status: accepted (2026-09-05)
+Status: accepted (2026-09-05); scope superseded by ADR 0034 (2026-09-09)
 
 ADR 0017 opened a local Feature-Sliced Design island, ADR 0020 grew it to
 cover the League Dashboard, and ADR 0029 gave it an `entities` layer whose
@@ -70,3 +70,82 @@ Rulings recorded on the spec that shape the slices:
   where they are; a slice imports them as the entity imports `src/api`, the
   sanctioned reach below the island, until a second island consumer earns them
   a `shared/lib` home.
+
+## Amendment (2026-09-10, #1131): the below-island clause fired
+
+Two of the Consequences bullet's helpers have reached their second island
+consumer thresholds and been ruled. The win-probability arithmetic fired
+the below-island clause with PR #1120 and now lives in `src/shared/lib` as a
+public index export. The play classifier fired the clause too, reaching six
+island consumers across four slices, and is ruled to live in `entities/matchup`
+as `playLabel`, a Scoring play domain model (#1137: `classifyPlays` folds into
+`features/celebrate-touchdown` and its one caller is that feature). The default
+week rule is unmeasured and unruled; the next reader should treat that silence
+as an open question, not a ruling.
+
+## Amendment (2026-09-10, #1146): the second-island-consumer clause covers presentational components too
+
+The Consequences bullet's below-island clause is worded around helpers
+("until a second island consumer earns them a `shared/lib` home"), and neither
+of that bullet's own examples was ever a presentational component. #1146 asked
+the question directly, raised from the lead review of PR #1142 (#1118): that PR
+landed a widget importing `AbbreviationTooltip` out of `src/components/common`,
+following the precedent of `TeamAvatar`, already imported the same way by seven
+widgets. Neither import had ever been ruled on - the clause names helpers, not
+components, and no ADR said whether UI is different.
+
+It is not. The clause is stated once, for a presentational component exactly as
+for a helper: an island widget importing below-island for either is sanctioned
+only until a second island consumer earns it a shared home - `shared/lib` for a
+helper, `shared/ui` for a presentational component, the two bottom-layer
+directories ADR 0020 and its amendment already name as siblings.
+
+Ruled under that clause:
+
+- `TeamAvatar` had reached seven island widget consumers (`standings-table`,
+  `around-the-league`, `my-team-summary`, `matchup-grid`, `matchup-preview`,
+  `scoreboard-strip`, `matchup-hero`), well past the threshold. It moves to
+  `shared/ui` as the one canonical implementation, exported through
+  `shared/ui`'s index. The seven island widgets import it from that index,
+  per ADR 0020's barrel rule for widgets and features. The legacy
+  `src/components` consumers that had it (`TradeProposalCard`,
+  `TeamAvatarUploader`, `PowerRankings`, `LeagueHistory`, `PickemStandings`)
+  are outside the layer that rule governs and import the concrete
+  `shared/ui/TeamAvatar` module instead, not the index: a legacy file
+  importing the barrel pulls every `shared/ui` module - and, through
+  `TeamAvatar`'s own `initialsFor` dependency, `shared/lib`'s index - into
+  its bundle, which is what broke the Draft room's harness-coverage guard
+  (ADR 0014) and the initial bundle's size budget on this amendment's first
+  pass (caught in #1146's review). `TeamAvatar` itself imports `initialsFor`
+  from the concrete `shared/lib/initials` module for the same reason, so the
+  reach to `shared/lib`'s index (and the non-literal `useEndpoint` GET the
+  harness guard refuses) does not exist regardless of how a caller reaches
+  `TeamAvatar`. Both directions - island through the barrel, legacy through
+  the concrete module - resolve to the same one implementation and duplicate
+  nothing; only the import style differs, because ADR 0020's barrel rule
+  ("import them ONLY from this index") was written for widgets and features,
+  never for a legacy `src/components` file outside the island it governs.
+- `initialsFor`, the helper TeamAvatar and two widgets (`retro-scoreboard`,
+  `join-requests`) call directly, had already reached its own second island
+  consumer. It moves to `shared/lib` alongside TeamAvatar's promotion, under
+  the pre-existing helper clause. The two widgets import it from the
+  `shared/lib` index, per ADR 0020's amendment; the legacy
+  `PlayerQuickView/PlayerAvatar`, outside that layer, imports the concrete
+  `shared/lib/initials` module instead, the same split as `TeamAvatar`'s.
+- `AbbreviationTooltip` has one island consumer (Draft Grades) and stays below
+  the island at `src/components/common/AbbreviationTooltip`: a documented
+  temporary edge under this clause until a second island consumer earns it a
+  `shared/ui` home. This is the sanctioned instance of the below-island
+  component reach going forward, the way ADR 0029's amendment names the
+  Matchup entity's below-island edges.
+- The reduced-motion still-frame decision (`src/lib/reducedMotionMedia`,
+  `shouldShowStillFrame`) stays below the island: it is generic plumbing with
+  no presentational identity of its own (GifMessage, outside the island,
+  depends on it too) and has not reached a second island consumer under either
+  clause.
+
+Like the rest of this ADR's import rules, this remains unaudited in the sense
+of ADR 0010: no lint rule enforces the threshold, and the boundary lint rule
+ADR 0020 names as a follow-up would need to reach below-island component
+imports the way it would reach below-island helper imports. Until it exists,
+both halves of the clause bind by review.

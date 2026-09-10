@@ -674,7 +674,15 @@ router.get('/:id/matchups', async (req, res) => {
               home."name" AS "home_team_name", away."name" AS "away_team_name",
               home."avatar_url" AS "home_team_avatar_url", away."avatar_url" AS "away_team_avatar_url",
               home."avatar_static_url" AS "home_team_avatar_static_url",
-              away."avatar_static_url" AS "away_team_avatar_static_url"
+              away."avatar_static_url" AS "away_team_avatar_static_url",
+              COALESCE(
+                (
+                  SELECT array_agg(DISTINCT "matchup_games"."tank01_game_id" ORDER BY "matchup_games"."tank01_game_id")
+                  FROM "view_matchup_nfl_games" "matchup_games"
+                  WHERE "matchup_games"."fantasy_matchup_id" = "matchups"."id"
+                ),
+                ARRAY[]::text[]
+              ) AS "nfl_game_ids"
        FROM "matchups"
        JOIN "teams" home ON home."id" = "matchups"."home_team_id"
        JOIN "teams" away ON away."id" = "matchups"."away_team_id"
@@ -884,10 +892,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // unit's players.nfl_team is a full team name (syncTeamDefenses), while
     // nfl_games.nfl_team is Tank01's raw abbreviation. The lookup below
     // normalizes the same way, so both sides of this JS-side comparison agree
-    // (#425, same pattern as #423 in decision.service). The VALUE stays raw
-    // nfl_games.opponent on purpose - ADR 0011 keeps the schedule in Tank01's
-    // own vocabulary.
-    const opponentByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
+    // (#425, same pattern as #423 in decision.service). The VALUE is folded
+    // too (#1136): a starter row's opponent is a Team code once it leaves the
+    // server (CONTEXT.md, Team code), never nfl_games's own Tank01 spelling -
+    // a raw WSH beside a folded WAS on the same starter row is exactly the
+    // bug this closes.
+    const opponentByTeam = new Map(
+      scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), normalizeNflTeam(r.opponent)])
+    );
 
     // A SETTLED matchup is read AS PLAYED, never through the current roster
     // (CONTEXT.md, Settle pass): the score printed beside these lists was

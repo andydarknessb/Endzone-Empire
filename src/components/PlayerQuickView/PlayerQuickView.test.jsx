@@ -234,7 +234,7 @@ test('Compare pins the first player and renders two stat lines after navigation'
   expect(comparison).toHaveTextContent('6 Rec, 90 Rec Yds');
   expect(comparison).toHaveTextContent('JaMarr Chase');
   expect(comparison).toHaveTextContent('10 Rec, 140 Rec Yds');
-  expect(within(comparison).getAllByLabelText(/Projected: Projected fantasy points:/)).toHaveLength(2);
+  expect(within(comparison).getAllByLabelText(/Projected: An estimate of fantasy points/)).toHaveLength(2);
   expect(within(comparison).getAllByLabelText(/FPTS\/G: Fantasy points per game:/)).toHaveLength(2);
 });
 
@@ -383,7 +383,7 @@ test('shows the fantasy strip: ADP, pos rank, projection, and last-season total'
   expect(strip).toHaveTextContent('2025: 300 pts');
   expect(screen.getByLabelText(/ADP: Average draft position:/)).toBeInTheDocument();
   expect(screen.getByLabelText(/Pos rank: Position rank:/)).toBeInTheDocument();
-  expect(screen.getByLabelText(/Projected: Projected fantasy points:/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/Projected: An estimate of fantasy points/)).toBeInTheDocument();
   expect(screen.getByLabelText(/FPTS\/G: Fantasy points per game:/)).toBeInTheDocument();
 });
 

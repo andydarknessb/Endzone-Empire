@@ -1,8 +1,8 @@
 import React, { useId } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Card, Badge, Skeleton } from '../../../shared/ui';
-import TeamAvatar from '../../../components/common/TeamAvatar';
+import { Link as RouterLink } from 'react-router-dom';
+import { Card, Badge, PosChip, Skeleton, TeamAvatar } from '../../../shared/ui';
 import useMyTeamSummary from '../model/useMyTeamSummary';
 
 /**
@@ -34,9 +34,17 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * never touches the rest of the page. The grade/value and power-rankings reads
  * degrade on their own (a placeholder for missing grades, an absent tile for an
  * uncomputed projection) without erroring the card.
+ *
+ * Below the tiles, a "Starters · Week N" section (#1101): the entities/roster
+ * lineup's first five starters, a "N more starters · M questionable" note and
+ * a lineup-completeness footer beside a Set Lineup button. It is independent
+ * of the tiles' spine - its own read loads/fails on its own - and never mounts
+ * at all for a pick'em-only viewer (`useMyTeamSummary` never fetches the
+ * lineup for one). It stretches to fill any extra height the page's grid gives
+ * the card (`flex: 1 1 auto` on the card's now-flex root).
  */
 export default function MyTeamSummary({ leagueId }) {
-  const { identity, spine, record, draftGrade, rosterValue, proj, playoffOdds, capacity } =
+  const { identity, spine, record, draftGrade, rosterValue, proj, playoffOdds, capacity, starters } =
     useMyTeamSummary(leagueId);
   // The Team name is the card's accessible name (see the Card below); the id
   // has to be minted before the early return so the hook order is stable.
@@ -68,9 +76,12 @@ export default function MyTeamSummary({ leagueId }) {
       data-testid="my-team-summary"
       aria-busy={busy}
       aria-labelledby={nameId}
-      sx={{ p: 2.5 }}
+      sx={{ p: 2.5, height: '100%' }}
     >
-      <Box sx={{ display: 'grid', gap: 2 }}>
+      {/* flex column, not grid: the starters section below needs `flex: 1 1
+          auto` to grow into whatever height the page's grid stretches this
+          card to (the page sets align-items: stretch in its own ticket, #1101). */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
         {/* Identity: avatar, Team name + You pill, and the secondary line. */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75 }}>
           {/* The avatar carries the Team name as its accessible name. TeamAvatar
@@ -216,6 +227,8 @@ export default function MyTeamSummary({ leagueId }) {
             )}
           </Box>
         )}
+
+        {starters && <StartersSection starters={starters} />}
       </Box>
     </Card>
   );
@@ -350,4 +363,284 @@ function StatTileSkeleton() {
 
 function StatValueSkeleton() {
   return <Skeleton data-testid="my-team-skeleton" variant="text" width={40} height={22} />;
+}
+
+// --- Starters section (#1101) ----------------------------------------------
+
+// Primary button look, copied from matchup-preview's own PRIMARY_SX (that
+// widget's Set Lineup button): the registered "dashboard primary button label
+// on accent" pairing (tokens.contrast.test.js), so composing it here is not a
+// new pairing.
+//
+// This is now a FOURTH independent copy (matchup-hero, matchup-preview,
+// bench-what-if) of the same sx object, which the "matching that precedent"
+// reasoning this comment used to give is no longer good cover for: ADR 0031's
+// 2026-09-10 amendment (#1146, PR #1160) puts a presentational duplication
+// like this one in `shared/ui` at its SECOND island consumer, past which this
+// one already sits (#1101 formal review, n2). Left as a fourth copy here
+// rather than promoted in this PR - the note carried no cycle of its own -
+// but the next touch to any of these four should extract a shared
+// `shared/ui` primary-button treatment instead of adding a fifth.
+const BUTTON_BASE = {
+  textTransform: 'none',
+  fontSize: '13px',
+  fontWeight: 600,
+  lineHeight: 1.2,
+  borderRadius: '9px',
+  padding: '8px 14px',
+  minWidth: 0,
+  minHeight: 36,
+};
+const PRIMARY_SX = {
+  ...BUTTON_BASE,
+  color: 'var(--dash-on-accent)',
+  backgroundColor: 'var(--dash-accent)',
+  border: '1px solid var(--dash-accent)',
+  transition: 'filter var(--transition-fast)',
+  '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
+};
+
+// The footer's check mark, the same path MatchupGrid's LeaderCheck draws.
+// Decorative and aria-hidden: the visible copy ("Lineup set"/"Lineup
+// incomplete") already carries the meaning to a screen reader. The caller
+// renders this ONLY for a set lineup - showing it beside "Lineup incomplete"
+// would tell a sighted manager the opposite of what the text says.
+function CheckIcon() {
+  return (
+    <Box
+      component="span"
+      aria-hidden="true"
+      data-testid="my-team-lineup-check"
+      sx={{ display: 'flex', color: 'var(--dash-ink)' }}
+    >
+      <svg
+        width={16}
+        height={16}
+        viewBox="0 0 20 20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        focusable="false"
+      >
+        <path d="M4 10.5 8 14.5 16 6" />
+      </svg>
+    </Box>
+  );
+}
+
+// The wire's four injury-designation codes (irPolicy.service.js), expanded
+// ONLY for the accessible description below - the visible label stays the
+// abbreviation ("the injury Badge is specified to read the injury status
+// abbreviation", #1101 review). Mirrors shared/ui/InjuryTag's own DESIGNATIONS
+// map, duplicated rather than imported: this row never switches Badge variant
+// by code (always `warning`, per the design canvas), so it does not compose
+// InjuryTag itself, only borrows its code-to-name mapping.
+const INJURY_DESIGNATION_NAME = {
+  Q: 'Questionable',
+  D: 'Doubtful',
+  O: 'Out',
+  IR: 'Injured reserve',
+};
+
+// A starter's injury designation beside his name: the wire's own abbreviation
+// (Q/D/O/IR, players.injury_status) on a Badge, always the `warning` variant
+// - this row never switches to `danger` the way InjuryTag does elsewhere, per
+// the design canvas: "No new contrast pairing: the injury Badge is the
+// registered `warning` variant over `dash-surface`" (#1101). Renders nothing
+// for a healthy starter (a null/empty status). The accessible description
+// expands the code to its full designation ("Injury status: Questionable"),
+// the same InjuryTag convention (its docblock: "so a screen reader hears the
+// word and not a letter") - a bare "Injury status: O" would leave a listener
+// unable to tell "Out" from "Questionable" by ear.
+function StarterInjuryBadge({ status }) {
+  const code = status ? String(status).trim() : '';
+  if (!code) return null;
+  // An unrecognized code (none of the four the wire actually sends) still
+  // renders the Badge, unlike InjuryTag, which renders nothing for one
+  // (#1101 formal review, n1): the ticket's own instruction is "a warning
+  // Badge reading the injury status abbreviation when the starter carries
+  // one" - any non-null status, not only a recognized one - so the fallback
+  // announces the raw code rather than silently dropping the flag.
+  const name = INJURY_DESIGNATION_NAME[code.toUpperCase()] || code;
+  return (
+    <Badge
+      variant="warning"
+      data-testid="starter-injury-badge"
+      sx={{
+        fontSize: '10px',
+        lineHeight: 1.2,
+        flex: 'none',
+        '& .MuiChip-label': { px: 0.75, py: 0.25 },
+      }}
+    >
+      <span aria-hidden="true">{code}</span>
+      <span style={visuallyHidden}>{`Injury status: ${name}`}</span>
+    </Badge>
+  );
+}
+
+// One starter row: PosChip, name (+ injury Badge when flagged), the
+// "NFLTEAM vs OPP" line, and the projection right-aligned in tabular numerals.
+// `opponent` is a Team code or null (lineupModel's docblock: null means
+// absence - a bye or an unsynced slate - never "unknown"), so a null renders
+// the team code ALONE with no "vs" clause and no invented label ("BYE",
+// "TBD", "-"): that data cannot support one (#1101 ruling, 2026-09-10).
+function StarterRow({ starter }) {
+  const secondLine = starter.opponent
+    ? `${starter.nflTeam ?? ''} vs ${starter.opponent}`
+    : starter.nflTeam ?? '';
+  return (
+    <Box data-testid="starter-row" sx={{ display: 'flex', alignItems: 'center', gap: '8px', py: '4px' }}>
+      <PosChip position={starter.slot} sx={{ flex: 'none' }} />
+      <Box sx={{ minWidth: 0, flex: '1 1 auto' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Box
+            component="span"
+            sx={{
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--dash-ink)',
+            }}
+          >
+            {starter.name}
+          </Box>
+          <StarterInjuryBadge status={starter.injuryStatus} />
+        </Box>
+        <Box
+          component="div"
+          data-testid="starter-opponent-line"
+          sx={{ fontSize: '11.5px', color: 'var(--dash-faint)' }}
+        >
+          {secondLine}
+        </Box>
+      </Box>
+      <Box
+        component="span"
+        data-testid="starter-projection"
+        sx={{
+          flex: 'none',
+          minWidth: '34px',
+          textAlign: 'right',
+          fontVariantNumeric: 'tabular-nums',
+          fontSize: '13px',
+          fontWeight: 600,
+          color: 'var(--dash-ink)',
+        }}
+      >
+        {/* The bare number has no column header to give it meaning in the
+            accessibility tree, so a hidden label names it; the visible glyph
+            stays a plain number (the mockup's tabular column). */}
+        <span aria-hidden="true">
+          {Number.isFinite(starter.projectedPoints) ? starter.projectedPoints.toFixed(1) : '-'}
+        </span>
+        <span style={visuallyHidden}>
+          {Number.isFinite(starter.projectedPoints)
+            ? `${starter.projectedPoints.toFixed(1)} projected points`
+            : 'Projection not available'}
+        </span>
+      </Box>
+    </Box>
+  );
+}
+
+function StarterRowSkeleton() {
+  return <Skeleton data-testid="my-team-starters-skeleton" variant="text" height={32} />;
+}
+
+/**
+ * "Starters · Week N": the first five starters, a "and N more starters · M
+ * questionable" note, and a footer stating lineup completeness beside the Set
+ * Lineup button. `flex: 1 1 auto` on the root lets this section (not the
+ * identity row or the tile row) absorb whatever extra height the page's grid
+ * stretches the card to.
+ *
+ * The heading below is deliberately NOT a heading element: the card names
+ * itself with exactly one <h2> (its Team name, see the region docs above), and
+ * a second heading here would break that count.
+ */
+function StartersSection({ starters }) {
+  const loading = starters.status === 'loading';
+  const isLineupSet = !loading && starters.filled >= starters.totalSlots;
+  return (
+    <Box
+      data-testid="my-team-starters"
+      sx={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', gap: '10px' }}
+    >
+      <Typography
+        component="div"
+        sx={{
+          fontSize: '11px',
+          fontWeight: 600,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--dash-faint)',
+        }}
+      >
+        {starters.week != null ? `Starters · Week ${starters.week}` : 'Starters'}
+      </Typography>
+
+      {loading ? (
+        <Box sx={{ display: 'grid', gap: '4px' }}>
+          {Array.from({ length: 5 }, (_, i) => (
+            <StarterRowSkeleton key={i} />
+          ))}
+        </Box>
+      ) : (
+        <>
+          <Box sx={{ display: 'grid' }}>
+            {starters.rows.map((starter) => (
+              <StarterRow key={starter.playerId ?? starter.name} starter={starter} />
+            ))}
+          </Box>
+
+          {starters.moreCount > 0 && (
+            <Typography
+              component="div"
+              data-testid="my-team-starters-more"
+              sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
+            >
+              {`and ${starters.moreCount} more starter${starters.moreCount === 1 ? '' : 's'} · ${starters.questionableCount} questionable`}
+            </Typography>
+          )}
+
+          <Box
+            data-testid="my-team-lineup-footer"
+            sx={{
+              mt: 'auto',
+              pt: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 1,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {/* The check mark is a "done" affirmation, not a neutral bullet:
+                  showing it next to "Lineup incomplete" would tell a sighted
+                  manager the opposite of what the text says, so it renders
+                  only once the lineup actually is set. */}
+              {isLineupSet && <CheckIcon />}
+              <Typography
+                component="span"
+                data-testid="my-team-lineup-status"
+                sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}
+              >
+                {isLineupSet ? 'Lineup set' : 'Lineup incomplete'}
+                {` · ${starters.filled} of ${starters.totalSlots}`}
+              </Typography>
+            </Box>
+            <Button component={RouterLink} to={starters.lineupHref} disableElevation sx={PRIMARY_SX}>
+              Set Lineup
+            </Button>
+          </Box>
+        </>
+      )}
+    </Box>
+  );
 }

@@ -48,6 +48,44 @@ const projectionFor = (playerId, median, extra = {}) => ({
   ...extra,
 });
 
+/**
+ * Wraps a `getPositionDefense` mock's returned Map so that iterating it
+ * (`.entries()`, `.keys()`, `.forEach()`, or spreading it) throws, while
+ * plain `.get()`/`.has()` reads still work.
+ *
+ * #1154 removed `decision.service`'s `foldedDefense` JS remap, whose sole
+ * reason to exist was to iterate `defense.entries()` and re-key a local
+ * copy before startSitAdvice reads it. Once getPositionDefense returns a
+ * canonical-keyed map, a reinstated remap would be a silent no-op on every
+ * VALUE this suite checks (re-normalizing an already-canonical key returns
+ * the same key), so a value-based assertion can never catch its return.
+ * This guard catches its ONE structural signature instead: only a second
+ * normalization site needs to iterate the map at all.
+ */
+function guardAgainstDefenseIteration(map) {
+  const forbidden = new Set(['entries', 'keys', 'forEach', Symbol.iterator]);
+  return new Proxy(map, {
+    // Reflect.get(target, prop) WITHOUT a receiver argument: a Map's internal
+    // slot methods (like the `size` getter) reject an incompatible receiver,
+    // so forwarding the Proxy itself as receiver makes an untouched read
+    // (e.g. `guarded.size`) throw a native TypeError instead of either
+    // working or tripping this guard's own message. Reading straight off
+    // `target` keeps every un-forbidden property exactly as plain as before.
+    get(target, prop) {
+      if (forbidden.has(prop)) {
+        throw new Error(
+          `getPositionDefense's map was iterated via .${String(prop)}() - a second ` +
+            'normalization/remap site over its keys is present again (#1154 removed ' +
+            'exactly this, the foldedDefense JS remap); startSitAdvice must read the ' +
+            'canonical map directly with .get()/.has() instead'
+        );
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 function mockAdviceDependencies(t, {
   entries,
   projections,
@@ -95,7 +133,8 @@ function mockAdviceDependencies(t, {
       projections: new Map(projections),
     };
   });
-  t.mock.method(projectionService, 'getPositionDefense', async () => positionDefense);
+  const guardedDefense = guardAgainstDefenseIteration(positionDefense);
+  t.mock.method(projectionService, 'getPositionDefense', async () => guardedDefense);
   return projectionCalls;
 }
 
@@ -248,7 +287,7 @@ test('a DEF unit resolves its opponent even though players.nfl_team is a full te
   assert.equal(defPlayer.opponentPointsAllowed, 5.5);
 });
 
-test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedule row (#423)', async (t) => {
+test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedule row (#423), opponent/opponentPointsAllowed unchanged by the #1136 fold', async (t) => {
   const entries = [
     lineupEntry(2, 'WR', 'RB', { nfl_team: 'WSH' }),
   ];
@@ -264,8 +303,63 @@ test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedu
 
   const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
   const wrPlayer = advice.players.find((p) => p.playerId === 2);
+  // DAL's raw and folded spellings are identical, so this regression check
+  // stays exactly what it was before #1136: a Washington player's own
+  // opponent/opponentPointsAllowed pairing is unaffected by the value fold.
   assert.equal(wrPlayer.opponent, 'DAL');
   assert.equal(wrPlayer.opponentPointsAllowed, 12.3);
+});
+
+test('a raw-coded WSH opponent value folds to WAS, and the defense pairing resolves against getPositionDefense\'s canonical key with no local remap (#1154, supersedes the #1136 raw-key pairing)', async (t) => {
+  // Superseded ruling: this test used to pair a raw 'WSH' key in
+  // `positionDefense` against `startSitAdvice`'s own JavaScript
+  // `foldedDefense` remap, because getPositionDefense returned a map keyed
+  // by the schedule's raw spelling (ADR 0011). On Cory's 2026-09-10 ruling
+  // (#1154), getPositionDefense itself folds its key through
+  // fn_normalize_nfl_team and returns a Team-code-keyed map, so this mock
+  // stands in for that canonical map directly, keyed 'WAS', and
+  // startSitAdvice reads it with no second fold of its own.
+  const entries = [
+    lineupEntry(6, 'WR', 'RB', { nfl_team: 'DAL' }), // DAL's opponent this week is Washington
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['WR'] }],
+    gameRows: [{ nfl_team: 'DAL', opponent: 'WSH' }],
+    // getPositionDefense now keys itself by the canonical Team code (#1154):
+    // a Washington-opponent week aggregates under 'WAS', never the raw 'WSH'.
+    positionDefense: new Map([['WAS', { WR: 9.1 }]]),
+    projections: [[6, projectionFor(6, 11, {
+      factors: { opponent: { available: true, pointsContribution: 0.8, opponentTeam: 'WAS' } },
+    })]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  const wrPlayer = advice.players.find((p) => p.playerId === 6);
+  assert.equal(wrPlayer.opponent, 'WAS', 'the wire opponent value is a Team code, never the schedule\'s raw WSH');
+  assert.equal(
+    wrPlayer.opponentPointsAllowed,
+    9.1,
+    'the folded opponent pairs directly with getPositionDefense\'s canonical-keyed aggregate; no local remap sits between them'
+  );
+});
+
+test('a schedule row with a blank nfl_team produces no map entry, never a false match for a teamless player (#1136)', async (t) => {
+  const entries = [
+    lineupEntry(7, 'DEF', 'RB', { nfl_team: '' }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['DEF'] }],
+    gameRows: [{ nfl_team: '', opponent: 'KC' }],
+    positionDefense: new Map(),
+    projections: [[7, projectionFor(7, 3)]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  const player = advice.players.find((p) => p.playerId === 7);
+  assert.equal(player.opponent, null, 'a blank nfl_team row must never be read back as a match');
+  assert.equal(player.opponentPointsAllowed, null);
 });
 
 test('advice never lists a player in two recommendations', async (t) => {

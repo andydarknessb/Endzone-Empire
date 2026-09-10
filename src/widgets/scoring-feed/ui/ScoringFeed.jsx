@@ -3,7 +3,7 @@ import { Box, Typography, useMediaQuery } from '@mui/material';
 import { keyframes, useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card } from '../../../shared/ui';
-import { playLabel } from '../../../lib/scoringEvents';
+import { playLabel } from '../../../entities/matchup';
 import {
   IDLE_LINE,
   SIDE_LABELS,
@@ -356,7 +356,7 @@ export function ScoringFeedList({
           </Typography>
         </Box>
       ) : (
-        <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+        <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
           {shown.map((item, i) => (
             <FeedRow key={`${item.playerId ?? 'play'}-${i}`} item={item} first={i === 0} />
           ))}

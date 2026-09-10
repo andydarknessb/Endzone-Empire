@@ -1,0 +1,109 @@
+{
+  "pages": [
+    {
+      "id": "dashboard",
+      "name": "League Dashboard"
+    },
+    {
+      "id": "console",
+      "name": "Commissioner console"
+    },
+    {
+      "id": "fsd",
+      "name": "FSD plan"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Dashboard · Desktop",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 2300,
+      "page": "dashboard"
+    },
+    {
+      "file": "DashboardMobile.dc.html",
+      "title": "Dashboard · Mobile",
+      "x": 1540,
+      "y": 0,
+      "w": 390,
+      "h": 4620,
+      "page": "dashboard"
+    },
+    {
+      "file": "CommissionerConsole.dc.html",
+      "title": "Commissioner console · Desktop",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1420,
+      "page": "console"
+    },
+    {
+      "file": "CommissionerConsoleMobile.dc.html",
+      "title": "Commissioner console · Mobile",
+      "x": 1540,
+      "y": 0,
+      "w": 390,
+      "h": 1900,
+      "page": "console"
+    },
+    {
+      "file": "FsdSliceMap.dc.html",
+      "title": "FSD slice map",
+      "x": 0,
+      "y": 0,
+      "w": 1200,
+      "h": 1240,
+      "page": "fsd"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "audit",
+      "x": 0,
+      "y": -560,
+      "w": 470,
+      "text": "AUDIT · League Dashboard today (measured in Chromium on production, league 137, commissioner view, 1200px container)\n1. Hero row: My Team is 174px tall beside a 329px matchup card. 155px of bare page under My Team, every load.\n2. Main row: Standings is 729px; the rail beside it is 1648px (Draft Grades 1119 + Commissioner 507). 919px of bare page under the standings. The rail is sticky but taller than the viewport, so it never pins.\n3. Commissioner box: opening League administration renders a 672px-wide tree inside a 377px card. The card, the tabs strip and the destructive box overflow the rail by 295px onto the page background, and the fact tiles reflow to five across.\n4. Commissioner Tools inside the box: seven tabs behind a scroll arrow, forms that want ~720px in a 307-377px column.\n5. Quick Actions: 11 tiles on an auto-fill grid; Moves fills 2 of 6 tracks, Play 4 of 6.\n6. My Team shows three tiles and not one of the viewer's players; Roster value is a dash. The roster read is already made.\n7. Mobile (code): the commissioner card moves above the hero, so a commissioner scrolls ~900px before their own team.",
+      "page": "dashboard"
+    },
+    {
+      "id": "changes",
+      "x": 490,
+      "y": -560,
+      "w": 470,
+      "text": "CHANGES · League Dashboard v2\n1. Commissioner strip: one 88px band under the header with five facts (roster and scoring stay on the console), the join count, Advance week and a link to a dedicated console route. The administration tree leaves the dashboard.\n2. Hero stretches: My Team gains a five-row Starters list (position chip, opponent, kickoff, projection, Q tag) and a lineup-status footer; the two cards are the same height.\n3. Around the league: six compact matchup tiles with a win-probability bar, viewer tile ringed.\n4. Draft Grades compact: 40px rows, steal/reach on the viewer row, toggle for the rest. Card drops from 1119px to ~600px, level with the standings.\n5. Second 8/4 row: Quick Actions as grouped rows in two columns (card and h2 kept, #936 ruling) beside a Recent activity rail card (eight transactions).\n6. Mobile: the strip is a compact stacked card (title and join chip, a 2x2 fact grid, two 44px buttons); Around the league scrolls sideways; standings fold PF/PA into the Team cell as today.\n7. Theme tweak on every artboard: dark verbatim, light derived from the same token names.",
+      "page": "dashboard"
+    },
+    {
+      "id": "wire",
+      "x": 980,
+      "y": -560,
+      "w": 460,
+      "text": "WIRE · what is on the wire today vs not\nON: league payload facts, join-requests count, standings, draft grades, matchups list (entities/matchup), transactions (GET /api/league/:id/transactions), lineup entries (GET /api/team/lineup?leagueId=&week=).\nNEEDED: first kickoff per matchup (same addition the Game Center canvas named); head-to-head, opponent streak and last-meeting tiles need a two-team history read (or derive from the matchups list client-side); per-starter injury status on the lineup entries if it is not already there.\nSample data on these boards is invented (Great Lakes Gridiron); the real league 137 is the one that was measured.",
+      "page": "dashboard"
+    },
+    {
+      "id": "console-note",
+      "x": 0,
+      "y": -420,
+      "w": 470,
+      "text": "COMMISSIONER CONSOLE · why a route\nThe #936 pass recorded this follow-up: the rail gives administration 307px and the forms want ~720px. A route (/league/:id/commissioner, precedent /draft-settings) gives the seven CommissionerTools sections a 240px rail and a 720px column, and the dashboard box becomes a strip.\nThe legacy CommissionerTools composes AS-IS inside the column (cut ruling on #617): this is a re-parenting, not a rewrite. Join requests get their own card with Approve/Deny (the decide mutation moves into a feature); destructive actions get a danger-bordered card at the end of every section, owner only.\nMobile: the section rail becomes a select; cards stack; every control is 44px.",
+      "page": "console"
+    },
+    {
+      "id": "fsd-note",
+      "x": 1240,
+      "y": 0,
+      "w": 420,
+      "text": "HOW TO BUILD IT\nOne ticket per slice, page tickets last (ADR 0020 pattern). New entities (roster, activity) ship before the widgets that read them. The strip replaces commissioner-panel in the same PR as the console route so no release carries both an in-rail tree and a strip.\nContrast: no new pairings; if a widget invents one it registers it in tokens.contrast.test.js first.\nCopy: middots, hyphen scores, no em dashes (ADR 0016). MUI Button house rule (#309). 44px targets on mobile.",
+      "page": "fsd"
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "dashboard"
+  }
+}

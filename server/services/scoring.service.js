@@ -365,176 +365,15 @@ function tank01Body(data) {
   return data;
 }
 
-/**
- * Map one Tank01 box-score playerStats entry to our flat stat names.
- * Tank01 groups stats into Passing/Rushing/Receiving/Kicking/Defense
- * category objects with string values; missing categories mean zero.
- */
-function normalizeTank01Stats(entry) {
-  const num = (...values) => {
-    for (const value of values) {
-      const parsed = Number(String(value ?? '').replace(/,/g, ''));
-      if (Number.isFinite(parsed) && String(value ?? '') !== '') return parsed;
-    }
-    return 0;
-  };
-  const e = entry || {};
-  const passing = e.Passing || {};
-  const rushing = e.Rushing || {};
-  const receiving = e.Receiving || {};
-  const kicking = e.Kicking || {};
-  const defense = e.Defense || {};
-  // Tank01 nests the return specialist's own punt-return line under
-  // "Punting" (alongside a punter's punting line) rather than a dedicated
-  // "Returns" category — there is no equivalent kickoff-return category
-  // anywhere in the box score response (confirmed empty across a full
-  // season sample), so kick returns have no real source to detect from.
-  const punting = e.Punting || {};
-  return {
-    passingYards: num(passing.passYds),
-    passingTDs: num(passing.passTD),
-    interceptions: num(passing.int),
-    rushingYards: num(rushing.rushYds),
-    rushingTDs: num(rushing.rushTD),
-    receivingYards: num(receiving.recYds),
-    receivingTDs: num(receiving.recTD),
-    receptions: num(receiving.receptions),
-    // Tank01 has reported fumblesLost under Defense and at the top level
-    // across versions — accept either.
-    fumbles: num(defense.fumblesLost, e.fumblesLost),
-    fieldGoal: num(kicking.fgMade),
-    // Misses derived from attempts-minus-made; a missing attempts field
-    // yields 0 rather than a negative.
-    fieldGoalMissed: Math.max(num(kicking.fgAttempts) - num(kicking.fgMade), 0),
-    extraPoint: num(kicking.xpMade),
-    extraPointMissed: Math.max(num(kicking.xpAttempts) - num(kicking.xpMade), 0),
-    returnTDs: num(punting.puntReturnTD),
-    puntReturns: num(punting.puntReturns),
-    puntReturnYards: num(punting.puntReturnYds),
-    // Tank01 has no kickoff-return category at all (see the comment above),
-    // so kickReturnYards has no live source; the nflverse finalization /
-    // backfill passes are the only place it can come from.
-  };
-}
-
-/**
- * Map one Tank01 box-score playerStats entry's "Defense" category to our IDP
- * scoring keys (individual defenders — DP roster slots). Confirmed live
- * field names: totalTackles, soloTackles, sacks, defensiveInterceptions
- * (+ interceptionTDs), forcedFumbles, fumblesRecovered, passDeflections,
- * qbHits, tfl, twoPointConversionReturn, defTD. Sack/TFL/fumble-return/
- * INT-return YARDAGE has no Tank01 field at all — those score 0 here and are
- * filled in later by nflverseSync.service.js's post-game finalization pass.
- * `defTD - interceptionTDs` is scored as the generic defensiveTD bucket
- * (fumble-or-blocked-kick-return TD, per the roster/scoring plan — Tank01
- * doesn't separate those two, and individual blocked-kick attribution isn't
- * scored at all); the interception itself already carries the full value of
- * a pick regardless of whether it was returned for a score.
- */
-function normalizeTank01IdpStats(entry) {
-  const num = (value) => {
-    const parsed = Number(String(value ?? '').replace(/,/g, ''));
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-  const d = (entry && entry.Defense) || {};
-  const totalTackles = num(d.totalTackles);
-  const soloTackles = num(d.soloTackles);
-  return {
-    soloTackle: soloTackles,
-    assistedTackle: Math.max(totalTackles - soloTackles, 0),
-    idpSack: num(d.sacks),
-    idpInterception: num(d.defensiveInterceptions),
-    forcedFumble: num(d.forcedFumbles),
-    idpFumbleRecovery: num(d.fumblesRecovered),
-    passDeflection: num(d.passDeflections),
-    qbHit: num(d.qbHits),
-    tacklesForLoss: num(d.tfl),
-    idpDefensiveTD: Math.max(num(d.defTD) - num(d.interceptionTDs), 0),
-    twoPointReturn: num(d.twoPointConversionReturn),
-  };
-}
-
-/**
- * Pure: scan a box score's play-by-play list (fetched with playByPlay=true)
- * and extract, per player, arrays of made-FG distances and TD-play
- * yardages by category — the raw material for the FG-distance and
- * TD-length-bonus scoring tiers. Confirmed live shapes:
- *   - a made FG's own play carries playerStats[id].Kicking.{fgMade, fgYds}
- *   - a TD play carries playerStats[id].{Passing.passTD+passYds |
- *     Rushing.rushTD+rushYds | Receiving.recTD+recYds} on the SAME play, so
- *     that category's yardage on a scoring play equals the score's length.
- * Nothing here infers yardage from play-text descriptions.
- */
-function extractPlayByPlayBonusStats(plays) {
-  const num = (value) => {
-    const parsed = Number(String(value ?? '').replace(/,/g, ''));
-    return Number.isFinite(parsed) ? parsed : null;
-  };
-  const byPlayer = new Map();
-  const bucket = (playerId) => {
-    if (!byPlayer.has(playerId)) {
-      byPlayer.set(playerId, {
-        fieldGoalDistances: [], passingTDLengths: [], rushingTDLengths: [], receivingTDLengths: [],
-      });
-    }
-    return byPlayer.get(playerId);
-  };
-  for (const play of Array.isArray(plays) ? plays : []) {
-    const playerStats = play && play.playerStats;
-    if (!playerStats) continue;
-    for (const [playerId, ps] of Object.entries(playerStats)) {
-      if (ps.Kicking && ps.Kicking.fgMade === '1') {
-        const yds = num(ps.Kicking.fgYds);
-        if (yds != null) bucket(playerId).fieldGoalDistances.push(yds);
-      }
-      if (ps.Passing && ps.Passing.passTD === '1') {
-        const yds = num(ps.Passing.passYds);
-        if (yds != null) bucket(playerId).passingTDLengths.push(yds);
-      }
-      if (ps.Rushing && ps.Rushing.rushTD === '1') {
-        const yds = num(ps.Rushing.rushYds);
-        if (yds != null) bucket(playerId).rushingTDLengths.push(yds);
-      }
-      if (ps.Receiving && ps.Receiving.recTD === '1') {
-        const yds = num(ps.Receiving.recYds);
-        if (yds != null) bucket(playerId).receivingTDLengths.push(yds);
-      }
-    }
-  }
-  return byPlayer;
-}
-
-/**
- * Map one side of Tank01's box-score "DST" object (team-level defensive
- * aggregate — sacks/interceptions/fumble recoveries/defensive TDs summed
- * across every individual defender) to our scoring-rule stat names. This is
- * the only source for team-defense stats: Tank01's player list has no
- * individual "DEF" entries, so a rostered DEF unit's fantasy points come
- * entirely from this aggregate rather than from any single player's line.
- *
- * `opponentTeamStats` is the OPPOSING side's `box.teamStats[side]` entry —
- * confirmed live, `blockedFG`/`blockedXP`/`blockedPunt` are reported on a
- * team's OWN teamStats line as kicks of THEIRS that got blocked, so credit
- * for a block belongs to the opponent's defense.
- */
-function normalizeTank01DstStats(dstSide, opponentTeamStats) {
-  const num = (value) => {
-    const parsed = Number(String(value ?? '').replace(/,/g, ''));
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-  const d = dstSide || {};
-  const opp = opponentTeamStats || {};
-  return {
-    sack: num(d.sacks),
-    interceptionReturn: num(d.defensiveInterceptions),
-    fumbleRecovery: num(d.fumblesRecovered),
-    defensiveTD: num(d.defTD),
-    safety: num(d.safeties),
-    blockedKick: num(opp.blockedFG) + num(opp.blockedXP) + num(opp.blockedPunt),
-    pointsAllowed: num(d.ptsAllowed),
-    yardsAllowed: num(d.ydsAllowed),
-  };
-}
+// Tank01's box-score normalisers live in tank01Normalizers.js (#1183) and are
+// re-exported below for their existing importers.
+const {
+  normalizeTank01Stats,
+  normalizeTank01IdpStats,
+  extractPlayByPlayBonusStats,
+  normalizeTank01DstStats,
+} = require('./tank01Normalizers');
+const tank01BoxSource = require('./tank01BoxSource');
 
 /**
  * A players.nfl_team value (full name or already-an-abbreviation) -> an
@@ -810,49 +649,74 @@ async function loadWeekMaps({ season, week }) {
 }
 
 /**
- * Ingest ONE Tank01 box score into player_stats — every player in the game
- * whose external_id we know, plus both team-defense aggregates.
+ * Ingest ONE game's Live box (or Final box) into player_stats: every player in
+ * the game whose external_id we know, plus both team-defense lines.
+ *
+ * This is the consumer side of the Box source seam (#1183, ADR 0035). It reads
+ * ONLY the source-neutral Live box shape that tank01BoxSource.fromBox and
+ * espnBoxSource produce; nothing here knows a Tank01 or ESPN field name. A raw
+ * Tank01 `box` is still accepted and adapted here so the callers and tests that
+ * predate the seam are unchanged.
  *
  * Extracted from syncWeekStats so a single box-score fetch can serve more than
- * one purpose: gameRecap.generateForGame now calls this with the box score it
- * already fetched for the recap, which is what eliminates the duplicate
- * final-game fetch (~69 calls/month of pure waste).
+ * one purpose: gameRecap.generateForGame calls this with the box it already
+ * fetched for the recap, which is what eliminates the duplicate final-game
+ * fetch (~69 calls/month of pure waste).
  *
- * Returns the typed touchdown events (`plays`) detected by diffing each
- * player's prior stored stats against this pull, decorated with the scoring
- * player's real NFL team and that week's opponent so the live UI can render a
- * team-accurate cutscene. Only genuine TD-stat increments produce a play, so a
- * re-sync or a stat correction never fabricates one.
+ * Returns the typed Scoring plays (`plays`) detected by diffing each player's
+ * prior stored stats against this pull, decorated with the scoring player's
+ * Team code and that week's opponent so the live UI can render a team-accurate
+ * cutscene. Only genuine stat increments produce a play, so a re-sync or a stat
+ * correction never fabricates one.
  *
  * @param {object} args
- * @param {object} args.box   unwrapped Tank01 /getNFLBoxScore body
- * @param {object} args.maps  from loadWeekMaps({ season, week })
+ * @param {object} [args.liveBox]  neutral Live box (tank01BoxSource / espnBoxSource)
+ * @param {object} [args.box]      unwrapped Tank01 /getNFLBoxScore body (adapted here)
+ * @param {object} args.maps       from loadWeekMaps({ season, week })
+ * @param {boolean} [args.suppressPlays]  write stats but emit no Scoring plays
+ *   (the switch-pass rule, ADR 0035: the first apply after a source change,
+ *   including the Final box landing, must not replay a touchdown cutscene)
  */
-async function applyGameBoxScore({ box, season, week, maps }) {
-  const { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam } = maps;
-  const playerStats = (box && box.playerStats) || {};
-  const bonusByPlayer = extractPlayByPlayBonusStats(box && box.allPlayByPlay);
+async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPlays = false }) {
+  const { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam, finalSyncedGameIds } = maps;
+  const live = liveBox || tank01BoxSource.fromBox(box);
+  // Final guard (#1186, ADR 0035): once the Final box has landed for a game
+  // (final_stats_synced_at set), no Live box write is accepted for it. A late
+  // ESPN poll cannot overwrite the numbers a settled week prices from. The
+  // caller supplies the set (the engine reads it off live_game_states); a
+  // caller without one, the Final box path included, is not guarded here.
+  if (live.gameId && finalSyncedGameIds && finalSyncedGameIds.has(String(live.gameId))) {
+    console.log('applyGameBoxScore: Final box already landed for %s; skipping a %s Live box', live.gameId, live.source);
+    return { updated: 0, plays: [], skipped: 'final-box-landed' };
+  }
   let updated = 0;
   const plays = [];
 
-  for (const entry of Object.values(playerStats)) {
-    const playerId = idByExternal.get(String(entry && entry.playerID));
+  const upsertStats = async (playerId, stats, points) => {
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT ("player_id", "season", "week")
+       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
+      [playerId, season, week, JSON.stringify(stats), points]
+    );
+    // Keep the diff baseline current so a re-apply of the same box (the recap
+    // path following a live sync) can't re-fire the same touchdown.
+    prevById.set(playerId, stats);
+    updated += 1;
+  };
+
+  for (const player of live.players || []) {
+    const playerId = idByExternal.get(String(player.externalId));
     if (!playerId) continue; // not in our pool
     const prev = prevById.get(playerId);
     // This upsert replaces the stats jsonb wholesale, so anything only nflverse
     // can supply has to ride across from the stored row or it's gone until the
     // next backfill. Merged BEFORE points are computed and before the row is
     // written, so the stored fantasy_points always describes the stored stats.
-    const stats = mergeCarriedStats(
-      {
-        ...normalizeTank01Stats(entry),
-        ...normalizeTank01IdpStats(entry),
-        ...(bonusByPlayer.get(String(entry.playerID)) || {}),
-      },
-      pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS)
-    );
+    const stats = mergeCarriedStats({ ...player.stats }, pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS));
     const points = calculateFantasyPoints(stats);
-    const events = detectScoringEvents(prev, stats);
+    const events = suppressPlays ? [] : detectScoringEvents(prev, stats);
     if (events.length > 0) {
       const meta = metaById.get(playerId) || {};
       const pointsDelta =
@@ -860,7 +724,7 @@ async function applyGameBoxScore({ box, season, week, maps }) {
       // The opponent map is keyed by the raw `nfl_games.nfl_team` and looked up
       // with the raw `meta.nfl_team` (its partner): that pairing stays raw-on-raw
       // (#431). The play object it feeds is a different contract: `nflTeam` and
-      // `opponent` on a scoring play are Team codes (CONTEXT.md **Team code**),
+      // `opponent` on a Scoring play are Team codes (CONTEXT.md **Team code**),
       // so both are folded through normalizeNflTeam before they leave the server.
       const rawOpponent = opponentByTeam.get(meta.nfl_team) || null;
       for (const ev of events) {
@@ -877,62 +741,33 @@ async function applyGameBoxScore({ box, season, week, maps }) {
         });
       }
     }
-    await pool.query(
-      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("player_id", "season", "week")
-       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [playerId, season, week, JSON.stringify(stats), points]
-    );
-    // Keep the diff baseline current so a re-apply of the same box score (the
-    // recap path following a live sync) can't re-fire the same touchdown.
-    prevById.set(playerId, stats);
-    updated += 1;
+    await upsertStats(playerId, stats, points);
   }
 
-  // Team-defense scoring: Tank01's box score carries one aggregate DST
-  // line per side (sacks/interceptions/fumble recoveries/defensive TDs
-  // summed across every individual defender) rather than per-defender
-  // stats we could roster — this is the only real source for a DEF
-  // unit's fantasy points.
-  const dst = (box && box.DST) || {};
-  const teamStats = (box && box.teamStats) || {};
-  for (const side of ['home', 'away']) {
-    const dstSide = dst[side];
-    // `rawAbbr` is Tank01's own spelling (Raw team code): WSH for Washington. It
-    // is the LOOKUP key on two raw-on-raw pairings that stay raw (#431): the
-    // DEF-unit match (its partner folds the same way, below) and the opponent
-    // map, which is keyed by nfl_games.nfl_team, also Tank01's raw spelling. Its
-    // partner in the opponent pairing is nfl_games; a schedule writer that
-    // started storing WAS would break that lookup. (modules/espnScoreboard.js
-    // keeps the same WSH-not-WAS boundary when it mints live_game_states rows
-    // and gameIDs.) What the play object CARRIES is a different contract: its
-    // `nflTeam`/`opponent` are Team codes (CONTEXT.md **Team code**), folded
-    // through normalizeNflTeam below, never the raw code.
-    const rawAbbr = dstSide && dstSide.teamAbv ? String(dstSide.teamAbv).toUpperCase() : null;
-    // `teamCode` folds that raw code to the canonical WAS, the vocabulary the DEF
-    // map is keyed in, so a WSH box score finds the `Washington Commanders` unit.
-    // It is also the Team code the DEF play carries out for `nflTeam`.
-    const teamCode = rawAbbr ? normalizeNflTeam(rawAbbr) : null;
-    const defPlayer = teamCode ? defByTeamCode.get(teamCode) : null;
+  // Team-defense scoring: one aggregate line per side, keyed by Team code. A
+  // rostered DEF unit has no external_id (no feed reports one as a player), so
+  // it is matched by Team code, the one vocabulary both sides fold to (#431).
+  // The opponent map is keyed by nfl_games' RAW spelling (WSH), so it is folded
+  // once here into a Team-code lookup rather than probed with a raw code.
+  const opponentByTeamCode = new Map();
+  for (const [rawTeam, rawOpponent] of opponentByTeam.entries()) {
+    const code = normalizeNflTeam(rawTeam);
+    if (code && !opponentByTeamCode.has(code)) opponentByTeamCode.set(code, rawOpponent);
+  }
+  for (const [teamCode, line] of Object.entries(live.teamDefense || {})) {
+    const defPlayer = defByTeamCode.get(teamCode);
     if (!defPlayer) continue; // no rostered DEF unit for this team in our pool
-    const opponentSide = side === 'home' ? 'away' : 'home';
     const prev = prevById.get(defPlayer.id);
     // Same wholesale-replace hazard as the player loop above: a DST row
-    // backfilled from nflverse carries gameTeam/gameOpponent that Tank01's
+    // backfilled from nflverse carries gameTeam/gameOpponent that a live
     // aggregate has no equivalent for.
-    const stats = mergeCarriedStats(
-      normalizeTank01DstStats(dstSide, teamStats[opponentSide]),
-      pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS)
-    );
+    const stats = mergeCarriedStats({ ...line }, pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS));
     const points = calculateFantasyPoints(stats);
-    const events = detectScoringEvents(prev, stats);
+    const events = suppressPlays ? [] : detectScoringEvents(prev, stats);
     if (events.length > 0) {
       const pointsDelta =
         Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
-      // Raw-on-raw lookup (rawAbbr keys nfl_games' raw spelling), Team-code
-      // payload: fold the found opponent before it leaves the server.
-      const rawOpponent = opponentByTeam.get(rawAbbr) || null;
+      const rawOpponent = opponentByTeamCode.get(teamCode) || null;
       for (const ev of events) {
         plays.push({
           playerId: defPlayer.id,
@@ -947,15 +782,7 @@ async function applyGameBoxScore({ box, season, week, maps }) {
         });
       }
     }
-    await pool.query(
-      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("player_id", "season", "week")
-       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [defPlayer.id, season, week, JSON.stringify(stats), points]
-    );
-    prevById.set(defPlayer.id, stats);
-    updated += 1;
+    await upsertStats(defPlayer.id, stats, points);
   }
 
   return { updated, plays };
@@ -969,7 +796,9 @@ async function applyGameBoxScore({ box, season, week, maps }) {
  * re-fetched for the rest of the afternoon (~350 calls/Sunday). Now:
  *  - `scheduled` games have no stats yet — never fetch
  *  - `final` games already ingested (final_stats_synced_at set) — never again
- *  - `in_progress` games, and finals not yet ingested, are the only fetches
+ *  - `in_progress` games are the Live box, read by the clock engine's loop
+ *    through the Box source seam (modules/liveBoxPoll, ADR 0035), not here
+ *  - finals not yet ingested are the only fetches: the Final box (#1185)
  *
  * @param {Array<{tank01_game_id: string, game_status: string, final_stats_synced_at: ?Date}>} rows
  * @returns {Array<{gameId: string, status: string, isFinal: boolean}>}
@@ -980,9 +809,9 @@ function gamesNeedingBoxScore(rows) {
     const gameId = row.tank01_game_id;
     if (!gameId) continue;
     const status = row.game_status;
-    if (status === 'scheduled') continue;
-    if (status === 'final' && row.final_stats_synced_at) continue;
-    out.push({ gameId, status, isFinal: status === 'final' });
+    if (status !== 'final') continue;
+    if (row.final_stats_synced_at) continue;
+    out.push({ gameId, status, isFinal: true });
   }
   return out;
 }
@@ -1044,17 +873,30 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
       if (pauseMs > 0 && gamesProcessed > 0) {
         await new Promise((resolve) => setTimeout(resolve, pauseMs));
       }
+      // Every target here is Final box work (gamesNeedingBoxScore) or a
+      // historical week with no live rows. The Final box is the one Tank01
+      // call we never shed, so it runs at essential priority (#1186); the
+      // historical backfill keeps standard so it can be shed at budget.
       const boxResponse = await tank01Get('/getNFLBoxScore', {
         params: { gameID: target.gameId, playByPlay: 'true', fantasyPoints: 'false' },
+        priority: target.isFinal ? 'essential' : 'standard',
         transport: api,
       });
       const box = tank01Body(boxResponse.data) || {};
       gamesProcessed += 1;
-      const result = await applyGameBoxScore({ box, season, week, maps });
+      const liveBox = tank01BoxSource.fromBox(box);
+      // The Final box landing writes stats and emits no Scoring plays (the
+      // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
+      // and that difference is not a new play.
+      const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal });
       updated += result.updated;
       plays.push(...result.plays);
-      // A final game's stats are now in: never fetch this box score again.
-      if (target.isFinal) await markFinalStatsSynced(target.gameId);
+      // A final game's stats are now in: never fetch this box score again, and
+      // refuse any Live box that arrives late for it.
+      if (target.isFinal) {
+        await markFinalStatsSynced(target.gameId);
+        require('../modules/liveBox').noteFinalBoxApplied(target.gameId);
+      }
     } catch (err) {
       // Correction-route retries are safe because every stat write is an
       // upsert. Do not hide pool starvation as a single skipped NFL game.
@@ -1092,10 +934,14 @@ function normalizeInjuryStatus(raw) {
 
 /**
  * Injury sync: Tank01's player list carries each player's current injury
- * designation, so one getNFLPlayerList call refreshes everyone. Players with
- * no current designation are cleared back to healthy. Player-row locks make
- * overlapping manual/scheduled syncs observe transitions exactly once; IR
- * flag rows commit with the designation updates before best-effort push.
+ * designation AND his current team, so one getNFLPlayerList call refreshes
+ * both. Players with no current designation are cleared back to healthy; a
+ * player the feed has moved gets his nfl_team corrected in the same bulk write.
+ * This is the only UNATTENDED writer of that column — syncPlayers is manual —
+ * so without it a team label frozen at the last hand-run sync survives every
+ * signing, trade and practice-squad elevation for the rest of the season. Player-row locks make overlapping manual/scheduled syncs observe
+ * transitions exactly once; IR flag rows commit with the designation updates
+ * before best-effort push.
  */
 async function syncInjuries({ api = tank01Get } = {}) {
   // #961: every run appends exactly one data_sync_runs row so a failed injury
@@ -1147,7 +993,11 @@ async function syncInjuries({ api = tank01Get } = {}) {
     job: 'injuries',
     startedAt,
     ok: true,
-    detail: { playersUpdated: result.playersUpdated, irFlags: result.irFlags },
+    detail: {
+      playersUpdated: result.playersUpdated,
+      irFlags: result.irFlags,
+      teamChanges: result.teamChanges,
+    },
   });
   return result;
 }
@@ -1170,18 +1020,30 @@ async function runInjurySync(api) {
     err.syncFailureReason = 'bad_response';
     throw err;
   }
-  const injuryByExternal = new Map();
+  // getNFLPlayerList carries each player's CURRENT team alongside the injury
+  // designation, so this one call refreshes both. `team` is read exactly
+  // the way normalizePlayerEntry reads it for syncPlayers, so both
+  // writers put the same vocabulary (Tank01's raw abbreviation, WSH not WAS)
+  // into players.nfl_team and the nfl_games join keeps working.
+  const feedByExternal = new Map();
   for (const entry of entries) {
     if (!entry || entry.playerID == null) continue;
     const injury = entry.injury || {};
-    injuryByExternal.set(String(entry.playerID), {
+    feedByExternal.set(String(entry.playerID), {
       status: normalizeInjuryStatus(injury.designation),
       detail: injury.description ? String(injury.description).slice(0, 255) : null,
+      // null for a player the feed lists with no team (a free agent). The scan
+      // below keeps his existing label rather than writing the null through:
+      // syncPlayers may clear a team because it runs rarely and by hand, but
+      // this pass runs unattended every day, so one transient blank in the feed
+      // must not be able to strip 3,000 team labels.
+      team: entry.team ? String(entry.team) : null,
     });
   }
 
   let irFlags;
   let matchedCount = 0;
+  let teamCorrections = 0;
   try {
     // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK, and the
     // release rule (ADR 0033). This one catch now covers BOTH failure modes:
@@ -1192,7 +1054,7 @@ async function runInjurySync(api) {
     // error.rollbackError on a rejecting ROLLBACK, logged once, and destroyed or
     // returned the connection). The wrapper rethrows the ORIGINAL error
     // untouched, so tagging it write_failed here is correct for both.
-    ({ irFlags, matchedCount } = await withTransaction(
+    ({ irFlags, matchedCount, teamChanges: teamCorrections } = await withTransaction(
       pool,
       async (client) => {
         // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
@@ -1220,11 +1082,11 @@ async function runInjurySync(api) {
         // disconnect.
         await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
         const playersResult = await client.query(
-          `SELECT "id", "external_id", "injury_status"
+          `SELECT "id", "external_id", "injury_status", "nfl_team"
              FROM "players" WHERE "external_id" IS NOT NULL
              FOR UPDATE`
         );
-        // Build three parallel arrays (ids int[], statuses/details text[]) over
+        // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
         // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
         // designation writes null into both text columns, and nulls survive into the
         // text[] as SQL NULL. transitions is built over the SAME matches and drives
@@ -1234,40 +1096,51 @@ async function runInjurySync(api) {
         const ids = [];
         const statuses = [];
         const details = [];
+        const teams = [];
+        let teamChanges = 0;
         for (const player of playersResult.rows) {
-          const injury = injuryByExternal.get(String(player.external_id));
-          if (!injury) continue; // not in the feed — leave untouched
+          const feed = feedByExternal.get(String(player.external_id));
+          if (!feed) continue; // not in the feed — leave untouched
+          // A feed entry with no team keeps the label the row already has, so a
+          // blank can never wipe one; see the map build above.
+          const team = feed.team === null ? player.nfl_team : feed.team;
+          if (team !== player.nfl_team) teamChanges += 1;
           ids.push(player.id);
-          statuses.push(injury.status);
-          details.push(injury.detail);
+          statuses.push(feed.status);
+          details.push(feed.detail);
+          teams.push(team);
           transitions.push({
             playerId: player.id,
             previousDesignation: player.injury_status,
-            currentDesignation: injury.status,
+            currentDesignation: feed.status,
           });
         }
-        // One bulk UPDATE replaces the per-player loop. The two-column
-        // IS DISTINCT FROM predicate against the target row p skips no-op rows (both
-        // columns unchanged), so an unchanged row costs no write and the FOR UPDATE
-        // scan does not need widening to compare injury_detail in JS. Guarded on a
-        // non-empty id list the way syncAdp guards its own bulk set.
+        // One bulk UPDATE replaces the per-player loop. The three-column
+        // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
+        // three columns unchanged), so an unchanged row costs no write and the FOR
+        // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
+        // on a non-empty id list the way syncAdp guards its own bulk set.
         if (ids.length > 0) {
           await client.query(
             `UPDATE "players" p
-                SET "injury_status" = v."status", "injury_detail" = v."detail"
+                SET "injury_status" = v."status", "injury_detail" = v."detail",
+                    "nfl_team" = v."team"
                FROM (SELECT unnest($1::int[]) AS "id",
                             unnest($2::text[]) AS "status",
-                            unnest($3::text[]) AS "detail") v
+                            unnest($3::text[]) AS "detail",
+                            unnest($4::text[]) AS "team") v
               WHERE p."id" = v."id"
                 AND (p."injury_status" IS DISTINCT FROM v."status"
-                     OR p."injury_detail" IS DISTINCT FROM v."detail")`,
-            [ids, statuses, details]
+                     OR p."injury_detail" IS DISTINCT FROM v."detail"
+                     OR p."nfl_team" IS DISTINCT FROM v."team")`,
+            [ids, statuses, details, teams]
           );
         }
         const { flagRecoveredIrStashes } = require('./irPolicy.service');
         return {
           irFlags: await flagRecoveredIrStashes(client, transitions),
           matchedCount: transitions.length,
+          teamChanges,
         };
       },
       { label: 'injuries' }
@@ -1290,7 +1163,14 @@ async function runInjurySync(api) {
   // statement's rowCount: under the no-op predicate the two legitimately
   // differ, and the count an admin reads must not silently shrink to the
   // handful of rows that changed.
-  return { playersUpdated: matchedCount, irFlags: irFlags.length };
+  //
+  // teamChanges counts the matches whose nfl_team the feed moved. It is the
+  // only signal that this pass is keeping team labels current at all: a stale
+  // label is invisible until it misroutes something (the bug behind this was
+  // found because a player's stat line landed in a week his listed team had not
+  // played), and a run that silently stopped correcting teams reads as a
+  // healthy run without it. Expect a handful in-season and 0 on a quiet day.
+  return { playersUpdated: matchedCount, irFlags: irFlags.length, teamChanges: teamCorrections };
 }
 
 /**
@@ -1434,6 +1314,17 @@ function normalizePlayerEntry(entry) {
  * re-run; existing players get their name/position/team refreshed, new ones
  * are inserted). Not on the scheduler — trigger from the admin dashboard or
  * POST /api/scoring/sync-players.
+ *
+ * INSERTING new players is what this is for now. It is no longer the only
+ * thing keeping an EXISTING player's team current: the daily injury sync reads
+ * the same feed and corrects nfl_team on every run, so a roster move no longer
+ * waits for someone to remember to press this. The one thing that
+ * still needs a hand-run is a player who is not in our table at all.
+ *
+ * Note the two writers differ on a blank team on purpose: this one writes the
+ * feed's null through (a hand-run sync is a deliberate act, and clearing a
+ * released player is a legitimate outcome of it), while the unattended daily
+ * pass keeps the existing label instead.
  */
 async function syncPlayers({ season }) {
   const response = await tank01Get('/getNFLPlayerList');

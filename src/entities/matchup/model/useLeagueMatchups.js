@@ -1,15 +1,18 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import apiClient from '../../../api/apiClient';
 import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { matchupFromListRow, applyScoreEvent, applyIdentityPatch } from './matchupModel';
+import { playsFromScoreEvent } from './play';
+import { useLiveGameStates } from './useLiveGameStates';
 
 /**
  * A league's Matchups as read models (ADR 0029: the thin hook on the entity's
  * index that composes a fetch with the live feeds over the pure module).
  *
- * It composes three sources onto the one model:
+ * It composes the score and identity sources onto the one model, and exposes
+ * the league's real NFL game-state feed alongside it:
  *   - a plain fetch of the Matchup list (NOT the resource cache: this is the
  *     only mount of this URL on the page, so ADR 0004's admission rule is not
  *     met), mapped through `matchupFromListRow`;
@@ -18,11 +21,12 @@ import { matchupFromListRow, applyScoreEvent, applyIdentityPatch } from './match
  *   - the Team identity feed (teamProfileEvents), applied through
  *     `applyIdentityPatch`, scoped to this league.
  *
- * The whole score event (including its `plays`) is handed to an optional
- * `onScores` callback so a reader can keep its own concern - Game Center's
- * league-wide play ticker filters by the week on screen - without a second
- * socket. The callback is read through a ref so passing a fresh one never
- * re-subscribes the feed.
+ * The score event, its `plays` run through the entity's Play model
+ * (`playsFromScoreEvent`, #1137), is handed to an optional `onScores`
+ * callback so a reader can keep its own concern - Game Center's league-wide
+ * play ticker filters by the week on screen - without a second socket. The
+ * callback is read through a ref so passing a fresh one never re-subscribes
+ * the feed.
  *
  * @param {number|string} leagueId
  * @param {{ onScores?: (event: object) => void }} [options]
@@ -34,6 +38,12 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
   const [error, setError] = useState(null);
   const onScoresRef = useRef(onScores);
   onScoresRef.current = onScores;
+
+  const gameIds = useMemo(
+    () => Array.from(new Set(matchups.flatMap((matchup) => matchup.nflGameIds || []))),
+    [matchups]
+  );
+  const liveGames = useLiveGameStates(`league-${leagueId}`, gameIds);
 
   // `silent` separates the first load from a background refresh. The first load
   // drives `loading`, which Game Center renders as a full-page skeleton; a
@@ -68,7 +78,7 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
             return entry ? applyScoreEvent(model, entry) : model;
           }));
         }
-        onScoresRef.current?.(event);
+        onScoresRef.current?.({ ...event, plays: playsFromScoreEvent(event) });
       },
       // A reconnect refetches to recover the deltas missed while offline, but
       // silently: the scoreboard already on screen stays up (F1).
@@ -82,7 +92,7 @@ export function useLeagueMatchups(leagueId, { onScores } = {}) {
     setMatchups((prev) => prev.map((model) => applyIdentityPatch(model, update)));
   }), [leagueId]);
 
-  return { matchups, loading, error, refetch: loadMatchups };
+  return { matchups, liveGames, loading, error, refetch: loadMatchups };
 }
 
 export default useLeagueMatchups;

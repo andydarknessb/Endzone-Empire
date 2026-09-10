@@ -127,7 +127,13 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
   assert.equal(await scheduler.syncEveryTicks(), scheduler.SYNC_EVERY_TICKS);
 });
 
-test('runDailyInjurySync runs once per local day and retries a failed day', async (t) => {
+/**
+ * #1188: the once-a-day gate is the last successful `injuries` row in
+ * data_sync_runs, not a module variable, so a worker restart (a fresh module
+ * instance) cannot re-run the sync. The world below is that table: the mocked
+ * syncInjuries appends a row exactly as the real one does.
+ */
+function injuryWorld(t, { inWindow = false } = {}) {
   const scoring = require('../services/scoring.service');
   const previousKey = process.env.RAPID_API_KEY;
   const previousHost = process.env.RAPID_API_HOST;
@@ -139,31 +145,80 @@ test('runDailyInjurySync runs once per local day and retries a failed day', asyn
     if (previousHost === undefined) delete process.env.RAPID_API_HOST;
     else process.env.RAPID_API_HOST = previousHost;
   });
-  let calls = 0;
-  let fail = false;
+  const world = { runs: [], calls: 0, fail: false, inWindow, clock: null };
+  const fake = createFakePool([
+    [/FROM "data_sync_runs"/, () => {
+      const ok = world.runs.filter((r) => r.ok).sort((a, b) => b.finished_at - a.finished_at);
+      return { rows: ok.length ? [{ finished_at: ok[0].finished_at }] : [] };
+    }],
+    [/FROM "live_game_states"/, () => ({ rows: world.inWindow ? [{ '?column?': 1 }] : [] })],
+    [/FROM "private"."api_usage"|FROM "private"."api_quota_snapshots"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
   t.mock.method(scoring, 'syncInjuries', async () => {
-    calls += 1;
-    if (fail) throw new Error('Tank01 unavailable');
+    world.calls += 1;
+    if (world.fail) {
+      world.runs.push({ ok: false, finished_at: world.clock });
+      throw new Error('Tank01 unavailable');
+    }
+    world.runs.push({ ok: true, finished_at: world.clock });
     return { playersUpdated: 10, irFlags: 1 };
   });
+  world.run = (now) => {
+    world.clock = now;
+    return scheduler.runDailyInjurySync({ now });
+  };
+  return world;
+}
 
+test('runDailyInjurySync: with a successful data_sync_runs row for today the sync does not run; with none it does (#1188)', async (t) => {
+  const world = injuryWorld(t);
   const firstDay = new Date('2026-08-20T12:00:00-05:00');
-  assert.deepEqual(await scheduler.runDailyInjurySync({ now: firstDay }), {
-    playersUpdated: 10,
-    irFlags: 1,
-  });
-  assert.equal(await scheduler.runDailyInjurySync({ now: firstDay }), null);
+  assert.deepEqual(await world.run(firstDay), { playersUpdated: 10, irFlags: 1 });
+  // "A fresh module instance": nothing in memory is consulted, only the table.
+  assert.equal(await world.run(new Date('2026-08-20T13:00:00-05:00')), null);
+  assert.equal(world.calls, 1);
 
-  fail = true;
+  // A failed day records ok=false, which does not move the gate: the next tick retries.
+  world.fail = true;
   const nextDay = new Date('2026-08-21T12:00:00-05:00');
-  await assert.rejects(scheduler.runDailyInjurySync({ now: nextDay }), /Tank01 unavailable/);
-  fail = false;
-  assert.deepEqual(await scheduler.runDailyInjurySync({ now: nextDay }), {
-    playersUpdated: 10,
-    irFlags: 1,
-  });
-  assert.equal(await scheduler.runDailyInjurySync({ now: nextDay }), null);
-  assert.equal(calls, 3);
+  await assert.rejects(world.run(nextDay), /Tank01 unavailable/);
+  world.fail = false;
+  assert.deepEqual(await world.run(new Date('2026-08-21T12:05:00-05:00')), { playersUpdated: 10, irFlags: 1 });
+  assert.equal(await world.run(new Date('2026-08-21T18:00:00-05:00')), null);
+  assert.equal(world.calls, 3);
+});
+
+test('runDailyInjurySync: inside a game window it runs every 15 minutes, not every 10, and not at all outside one the same day (#1188)', async (t) => {
+  const world = injuryWorld(t, { inWindow: true });
+  const T = new Date('2026-09-13T12:00:00-05:00'); // Sunday, first kickoff minus 90 min
+  assert.ok(await world.run(T), 'first run of the day');
+  assert.equal(await world.run(new Date(T.getTime() + 10 * 60 * 1000)), null, 'ten minutes on: not yet');
+  assert.ok(await world.run(new Date(T.getTime() + 15 * 60 * 1000)), 'fifteen minutes on: runs');
+  assert.equal(world.calls, 2);
+  world.inWindow = false;
+  assert.equal(await world.run(new Date(T.getTime() + 60 * 60 * 1000)), null, 'outside a window the daily gate holds');
+  assert.equal(world.calls, 2);
+});
+
+test('injurySyncDue is the whole cadence rule, and INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
+  const now = new Date('2026-09-13T15:00:00-05:00');
+  const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * 60 * 1000);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, inWindow: false, windowMs: 900000 }), true);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), inWindow: false, windowMs: 900000 }), false, 'same day, no window');
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), inWindow: true, windowMs: 900000 }), true);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(10), inWindow: true, windowMs: 900000 }), false);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(26 * 60), inWindow: false, windowMs: 900000 }), true, 'yesterday: due');
+  const prev = process.env.INJURY_GAME_WINDOW_MS;
+  delete process.env.INJURY_GAME_WINDOW_MS;
+  try {
+    assert.equal(scheduler.injuryGameWindowMs('ok'), 15 * 60 * 1000);
+    assert.equal(scheduler.injuryGameWindowMs('degraded'), 30 * 60 * 1000);
+    process.env.INJURY_GAME_WINDOW_MS = '60000';
+    assert.equal(scheduler.injuryGameWindowMs('ok'), 60000);
+  } finally {
+    if (prev === undefined) delete process.env.INJURY_GAME_WINDOW_MS; else process.env.INJURY_GAME_WINDOW_MS = prev;
+  }
 });
 
 test('tickUnlocked registers the daily injury sync duty', () => {

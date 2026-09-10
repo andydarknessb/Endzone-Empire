@@ -616,6 +616,77 @@ async function weekKickoffs(client, { season, week, kickoffCache = null }) {
 }
 
 /**
+ * THE OPPONENT QUESTION (#1132).
+ *
+ * Every lineup entry carries the week's NFL opponent for its player's team,
+ * read from the same `nfl_games` rows the kickoff question already reads -
+ * one query per `getLineup` call, never one per entry. `getLineup` is the
+ * only caller; private for the same reason as `kickedOffTeams` and
+ * `weekKickoffs`.
+ *
+ * The query mirrors `decision.service`'s `getWeekOpponents` (same SELECT,
+ * same table, and since #1136 the same fold on both sides), which reads the
+ * identical rows for start/sit advice; that site stays on the ambient pool,
+ * this one needs the caller's transaction `client`, so it is its own small
+ * function rather than a shared import (`decision.service` already requires
+ * `lineup.service` for `getLineup` itself, and a reverse require would cycle).
+ *
+ * The MAP KEY is normalised, the same fold every kickoff/bye lookup applies,
+ * so a DEF unit named by a full team name or either of Washington's codes
+ * both find their row (ADR 0011). The MAP VALUE is folded too (#1136): a
+ * lineup entry's `opponent` is a Team code once it leaves the server
+ * (CONTEXT.md, Team code), never `nfl_games`'s own Tank01 spelling - it is a
+ * display string handed straight to the client, but the client's own vocabulary
+ * is Team code (kits and colours key on it), not the schedule's. The team-code
+ * uniqueness index ADR 0011 added guarantees at most one row per (season,
+ * week, team code), so there is no tie to break the way `weekKickoffs` must
+ * for kickoff instants.
+ *
+ * ABSENCE STAYS ABSENCE, exactly as it does for kickoff and bye: a team with
+ * no `nfl_games` row that week - a bye, or a schedule nobody synced - is
+ * simply not in the map, so `getLineup` falls back to `opponent: null`
+ * structurally rather than by a special case.
+ *
+ * WHY THIS IS ITS OWN QUERY, NOT `weekKickoffs` WIDENED TO SELECT `opponent`
+ * TOO - a real alternative, considered and rejected. `weekKickoffs` already
+ * selects every row for the week; adding one column would look free. It is
+ * not free on either path `getLineup` takes:
+ *
+ *   - a LIVE week never calls `weekKickoffs` at all. Its lock check goes
+ *     through `kickedOffTeams`, a narrower `kickoff_at <= now` filter, so
+ *     widening `weekKickoffs` would not remove a read here - `getLineup`
+ *     would still need a second call for the one this function makes, same
+ *     as today. Nothing is saved on the common path.
+ *   - a SETTLED week (viewing an already-final week) does reach `weekKickoffs`,
+ *     through `rowsHeldAsPlayed` -> `playersNotHeldAtKickoff` -> `playerKickoffs`.
+ *     Only here would folding `opponent` into it save the second ~32-row read
+ *     this function costs.
+ *
+ * That narrow win is not worth widening `weekKickoffs`'s return shape. Its
+ * Map<team, kickoff_at> is read as a bare instant by three functions on the
+ * settle/lock-critical path (`playerKickoffs`, `playersNotHeldAtLastKickoff`,
+ * and the tie-break inside `weekKickoffs` itself) - exactly the code #227 and
+ * #635 exist because a small mistake there is a silent scoring bug, and
+ * exactly what `settleScoreOfRecord.test.js` pins down to one read shape on
+ * purpose. Reshaping every value to `{ kickoffAt, opponent }` to serve a
+ * field only `getLineup` ever reads, for a saving that does not apply to the
+ * far more common live-week call, is the worse trade. A second small, narrow
+ * query that touches nothing the lock question depends on is the safer one.
+ */
+async function weekOpponents(client, { season, week }) {
+  const result = await client.query(
+    `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+  const byTeam = new Map();
+  for (const row of result.rows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    if (team !== null) byTeam.set(team, normalizeNflTeam(row.opponent));
+  }
+  return byTeam;
+}
+
+/**
  * Each of these players' own kickoff for (season, week), keyed by PLAYER ID.
  * A player with no game that week is ABSENT from the map rather than present
  * with a null, so a caller cannot mistake "no game" for a kickoff instant.
@@ -786,14 +857,24 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
 }
 
 /**
- * Pure: add schedule-derived lock and bye metadata to lineup entries.
+ * Pure: add schedule-derived lock, bye and opponent metadata to lineup
+ * entries.
  *
  * `locked` is a Set of PLAYER IDS from `lockedPlayerIds`, not of team names
  * (#227). `byeByTeam` is still keyed by the caller's own team string, because
  * `computeByeWeeks` returns the caller's vocabulary back; that is the one map
- * here a raw `nfl_team` is the right key for.
+ * here a raw `nfl_team` is the right key for. `opponentByTeam` (#1132) is
+ * keyed on `normalizeNflTeam` output, like `kickedOffTeams`, because
+ * `weekOpponents` builds it that way - so the lookup here folds `row.nfl_team`
+ * before reading it, where the bye lookup does not. Its VALUE is folded too
+ * (#1136): a lineup entry's `opponent` is a Team code once it leaves the
+ * server (CONTEXT.md, Team code), so both sides of the map are folded now,
+ * not just the key ADR 0011's uniqueness index already covered. Absence from
+ * either map, or a raw `nfl_team` that folds to no game at all, means `null`,
+ * never a stale week's answer or an empty string. Defaulted so every existing
+ * 3-arg call (and test) keeps working unchanged.
  */
-function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
+function annotateLineupEntries(entries, { locked, byeByTeam, opponentByTeam = new Map(), selectedWeek }) {
   return entries.map((row) => {
     const byeWeek = byeByTeam.get(row.nfl_team) ?? null;
     return {
@@ -802,6 +883,7 @@ function annotateLineupEntries(entries, { locked, byeByTeam, selectedWeek }) {
       locked: row.spent || locked.has(row.id),
       onBye: !row.spent && byeWeek === selectedWeek,
       valid_stash: row.slot === IR && isValidStash(row),
+      opponent: opponentByTeam.get(normalizeNflTeam(row.nfl_team)) ?? null,
     };
   });
 }
@@ -900,6 +982,10 @@ async function getLineup({ leagueId, userId, week }) {
         players: entries.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
       });
       const byeByTeam = await computeByeWeeks(entries.map((row) => row.nfl_team), season);
+      // The opponent join (#1132): one read of the week's schedule, covering
+      // both `entries` and `spent` rows since it is keyed by team rather than
+      // by roster membership, unlike `computeByeWeeks` above.
+      const opponentByTeam = await weekOpponents(client, { season, week: targetWeek });
 
       // Returning COMMITs (ADR 0033). Every read above materialized the week
       // and its reads happen in one transaction; the assembly below is pure.
@@ -913,7 +999,7 @@ async function getLineup({ leagueId, userId, week }) {
         rosterSlots: settings.rosterSlots,
         benchSlots: settings.benchSlots,
         irSlots: settings.irSlots,
-        entries: annotateLineupEntries([...entries, ...spent], { locked, byeByTeam, selectedWeek: targetWeek }),
+        entries: annotateLineupEntries([...entries, ...spent], { locked, byeByTeam, opponentByTeam, selectedWeek: targetWeek }),
       };
     },
     { label: 'get-lineup' }

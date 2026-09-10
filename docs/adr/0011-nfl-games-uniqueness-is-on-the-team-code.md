@@ -62,3 +62,34 @@ option was rejected for the reason above.
 - Migrations are a carve-out: the maintainer merges, applies and verifies
   `knex_migrations`, and does not stack this with another migration on the
   same night.
+
+## Amendment (2026-09-10, #1154)
+
+The Consequences bullet above records that `getPositionDefense` keying its
+map by the raw `opponent`, paired with a raw lookup in
+`decision.service.startSitAdvice`, "remains deliberate." That pairing is
+reversed, not merely relocated: `getPositionDefense` now selects and groups
+its defense key through `fn_normalize_nfl_team("nfl_games"."opponent")` and
+returns a Team-code-keyed map, and `startSitAdvice` reads that map directly
+with its own already-folded opponent value (#1136 folds every opponent that
+reaches it before this ticket touches anything). PR #1153's temporary
+`foldedDefense` JavaScript remap, which existed only to bridge a folded
+opponent to a raw-keyed map, is removed rather than kept as a second
+normalization site.
+
+The reason is the one this ADR's own index is recorded above as existing to
+close: two raw aliases for one defense (`WAS` and `WSH` across different
+weeks) used to produce two separate partial aggregates under a raw key, so
+#1136's opponent fold on the consumer side could collapse them last-wins and
+silently discard one partial average. This ADR records a unique index on
+`(season, week, fn_normalize_nfl_team(nfl_team))` meant to block that alias
+pair at insert for a canonical writer; this amendment does not depend on
+that index being live on the shared database to justify the fold below; it
+is cited here as recorded, not as a confirmed applied fact (migrations are a
+carve-out the maintainer applies and verifies, never this codebase's to
+check). Independently of whether that index is live, a query already
+holding both spellings must fold before grouping so the two partial
+aggregates combine into one arithmetically correct average, rather than
+relying on no alias ever reaching the table. This section amends the
+Consequences bullet above; that bullet is left as originally written to
+show what the deliberate pairing used to be and why.

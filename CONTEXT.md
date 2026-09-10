@@ -12,6 +12,7 @@ MUI `<Button>` is the house button component; plain `.btn` classes are legacy
 (#309).
 
 ## Language
+Bold marks a headword and the Sense markers; a term in running prose is a capitalised plain word, and a capitalised term matching a headword refers to that entry.
 
 ### League and membership
 
@@ -267,7 +268,10 @@ folded through `fn_normalize_nfl_team` in SQL or `nflTeam.js` in JavaScript:
 WAS for Washington, never WSH. It is the only vocabulary in which two team
 columns may be compared or a map may be keyed. The one exception is a pairing
 where both sides are known to hold a single writer's raw spelling, and such a
-site must say so and name its partner.
+site must say so and name its partner. It is also the only vocabulary a team
+or opponent code may leave the server in: a player, a starter row, a lineup
+entry or a scoring play always carries a Team code, never the raw spelling
+underneath it (#1136).
 _Avoid_: abbreviation, abbr, team (unqualified), nfl_team (the column, whose
 contents are raw)
 
@@ -275,9 +279,12 @@ contents are raw)
 Whatever a team column actually holds before folding, which no column
 declares: Tank01's own spelling in `nfl_games` (WSH), a full team name for a
 DEF unit in `players` (Washington Commanders), a pre-relocation code in a
-historical row (SD, OAK, STL). Raw codes are written and displayed, never
-joined on or keyed by. Uniqueness on `nfl_games` is enforced on the team code,
-not the raw code (ADR 0011).
+historical row (SD, OAK, STL). Raw codes are written, and displayed only
+where the raw row itself is the subject, a schedule or sync admin view; a
+team or opponent code that leaves the server on a player, a starter, a
+lineup entry or a scoring play is a Team code, never this (#1136). Never
+joined on or keyed by. Uniqueness on `nfl_games` is enforced on the team
+code, not the raw code (ADR 0011).
 _Avoid_: team code (unqualified) when describing what a column contains
 
 ### Draft
@@ -697,7 +704,7 @@ wrong about its occupant, recorded on the lineup entry by the force-set
 path and, when an undoable drop interrupts it, copied onto the dropped
 player's waiver hold for the life of that hold so the undo can put it back.
 A waiver-claim drop is not undoable and copies nothing. A stash is
-**valid** when its occupant is IR-eligible or the entry is attested; a valid
+valid when its occupant is IR-eligible or the entry is attested; a valid
 stash grants capacity, is never flagged or nagged, and carries forward across
 weeks. The attestation ends the moment the manager makes any slot move on
 that player - from that week forward, never retroactively - after which the
@@ -751,6 +758,46 @@ final its lineups are a record of the week as played, never a working lineup:
 nothing is added to them after the fact, so re-scoring a final week counts
 only the players who were there when the games were played.
 _Avoid_: game (a game is an NFL game), fixture
+
+**Scoring play**:
+One scoring event for one player in one NFL game as the live sync detected
+it, carrying the player, his Team code and his opponent's, the event type,
+whether it is a touchdown, and the points it added; distinct from a
+Matchup's score (the total) and from a Moment play the retro scoreboard
+flashes.
+_Avoid_: play (unqualified), event, scoring event (the server module's name
+for the same thing)
+
+**Moment play**:
+An explicitly non-touchdown Scoring play: one carrying `isTouchdown` as
+false. A moment play holds the retro scoreboard longer than a touchdown dash
+does and is never routed to touchdown cutscenes or toasts. The canonical term for this subset.
+_Avoid_: moment (unqualified), non-touchdown event
+
+**Live box**:
+The box score of an NFL game in progress as the live sync last read it: each
+player's stats, the team-defense line and the game's Score summary lines,
+refreshed every poll and priced into live scoring. Read from ESPN, falling
+back to Tank01 when ESPN fails (ADR 0035). Nothing in it outlives the Final
+box.
+_Avoid_: box score (unqualified), live stats, in-game box
+
+**Final box**:
+The box score of a final NFL game, read once from Tank01 when the game goes
+final and never re-read; it replaces the Live box and is the game's stats from
+then on, apart from the per-defender yardage nflverse patches at week end.
+Distinct from the Score of record, which is a week's settled total, not a
+game's stats.
+_Avoid_: score of record (for a game's stats), official box, box of record
+
+**Score summary line**:
+One entry in an NFL game's scoring summary as the feed states it: the kind of
+score, its period and clock, and the scorer and yardage in text. The live sync
+reads touchdown lengths, field-goal distances and two-point conversions from
+these lines; a Scoring play is what the sync emits afterwards from a player's
+stat change, never the line itself.
+_Avoid_: scoring play (for a feed entry), scoringPlays (the feed's key, in
+prose)
 
 **Record**:
 A Team's season tally of wins, losses and ties, drawn from its finalized

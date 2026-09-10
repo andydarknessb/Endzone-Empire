@@ -1,106 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import apiClient from '../../../api/apiClient';
-import supabase from '../../../api/supabaseClient';
 import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import {
   matchupFromDetailBody, applyScoreEvent, applyIdentityPatch, pairStartersBySlot,
 } from './matchupModel';
-
-const LIVE_GAMES_TABLE = 'live_game_states';
-
-/** The listed games in id order, from the id -> row map the subscription keeps. */
-function gamesInOrder(ids, byId) {
-  return ids.map((id) => byId.get(String(id))).filter(Boolean);
-}
-
-/**
- * The live state of every NFL game a Matchup spans (its detail body's
- * `nflGameIds`, #884), through ONE realtime subscription instead of one channel
- * per game (#885): an initial read of every listed game's row, then one channel
- * filtered on the whole id set, opened over every listed game not yet final
- * (so a page opened before kickoff is subscribed when the games begin) and
- * closed once every listed game is final. A game already final at the initial
- * read is never subscribed to. Nothing else on the client reads
- * live_game_states (ADR 0009 keeps it the anon-readable surface; this is its
- * one reader). Returns the games' rows in id order; empty when there is no
- * client (realtime disabled), no ids, or the read failed.
- */
-function useLiveGames(matchupId, gameIds) {
-  const [byId, setById] = useState(() => new Map());
-  // A stable key so a fresh but equal ids array never re-subscribes.
-  const idsKey = (gameIds || []).map(String).join(',');
-
-  useEffect(() => {
-    const ids = idsKey ? idsKey.split(',') : [];
-    setById(new Map());
-    if (!supabase || ids.length === 0) return undefined;
-
-    let cancelled = false;
-    let channel = null;
-    const close = () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-        channel = null;
-      }
-    };
-
-    // Open the one channel over the games not yet final (scheduled ones
-    // included, so a page opened before kickoff hears the first update);
-    // every listed game final closes it.
-    const subscribe = (rows) => {
-      const open = rows.filter((r) => r.game_status !== 'final').map((r) => String(r.tank01_game_id));
-      if (open.length === 0 || channel) return;
-      channel = supabase
-        .channel(`live-games-${matchupId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: LIVE_GAMES_TABLE,
-            filter: `tank01_game_id=in.(${open.join(',')})`,
-          },
-          (payload) => {
-            if (cancelled || !payload || !payload.new) return;
-            setById((prev) => {
-              const next = new Map(prev);
-              next.set(String(payload.new.tank01_game_id), payload.new);
-              const listed = gamesInOrder(ids, next);
-              if (listed.length === ids.length && listed.every((r) => r.game_status === 'final')) close();
-              return next;
-            });
-          }
-        )
-        .subscribe();
-    };
-
-    (async () => {
-      const { data, error } = await supabase
-        .from(LIVE_GAMES_TABLE)
-        .select('*')
-        .in('tank01_game_id', ids);
-      if (cancelled) return;
-      if (error || !Array.isArray(data)) {
-        // The strip stays hidden, but the cause is on the console: a policy
-        // regression on live_game_states (ADR 0009) must not look like a quiet
-        // week with no games.
-        console.warn('useMatchup: live game states unavailable; the game strip stays hidden', error);
-        return;
-      }
-      setById(new Map(data.map((r) => [String(r.tank01_game_id), r])));
-      subscribe(data);
-    })();
-
-    return () => {
-      cancelled = true;
-      close();
-    };
-  }, [matchupId, idsKey]);
-
-  return useMemo(() => gamesInOrder(idsKey ? idsKey.split(',') : [], byId), [idsKey, byId]);
-}
+import { playsFromScoreEvent } from './play';
+import { useLiveGameStates } from './useLiveGameStates';
 
 /**
  * Applies the score event's per-play point deltas to a side's starters,
@@ -135,9 +42,10 @@ function applyStarterDeltas(lineup, deltaById) {
  *   - the Team identity feed (teamProfileEvents), applied through
  *     `applyIdentityPatch`, scoped to this league.
  *
- * The whole score event (including its `plays`) is handed to an optional
- * `onScores` callback so a reader can keep its own play-driven concerns -
- * Matchup Detail's cutscenes, toasts, ticker, retro field and its optimistic
+ * The score event, its `plays` run through the entity's Play model
+ * (`playsFromScoreEvent`, #1137), is handed to an optional `onScores`
+ * callback so a reader can keep its own play-driven concerns - Matchup
+ * Detail's cutscenes, toasts, ticker, retro field and its optimistic
  * per-starter point bumps - without a second socket. The callback is read
  * through a ref so passing a fresh one never re-subscribes the feed.
  *
@@ -156,11 +64,11 @@ function applyStarterDeltas(lineup, deltaById) {
  * an empty order and returns no rows, exactly as Matchup Detail waits on the
  * league for its bench line). The optimistic per-starter point bumps live here
  * too now, applied to the paired lineups on each score event, so the rows track
- * the live score without a refetch; the whole score event (including its `plays`)
- * is still handed to an optional `onScores` callback so a reader can keep its own
- * play-driven concerns - cutscenes, toasts, ticker, the retro field - without a
- * second socket. The callback is read through a ref so passing a fresh one never
- * re-subscribes the feed.
+ * the live score without a refetch; the score event, its `plays` run through
+ * the entity's Play model, is still handed to an optional `onScores` callback
+ * so a reader can keep its own play-driven concerns - cutscenes, toasts,
+ * ticker, the retro field - without a second socket. The callback is read
+ * through a ref so passing a fresh one never re-subscribes the feed.
  *
  * @param {number|string} leagueId
  * @param {number|string} matchupId
@@ -220,17 +128,20 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
         // Optimistically bump the scoring players' displayed points by the
         // reported delta so the paired rows track the live score without a
         // refetch. Kept on the lineup state here (not the reader) so the rows the
-        // hook exposes already carry the bump.
-        const plays = (event && event.plays) || [];
+        // hook exposes already carry the bump. The plays are read through the
+        // entity's Play model (#1137) so a wire quirk (isTouchdown sent as
+        // something other than a real boolean, say) never reaches the delta
+        // math or the callback below.
+        const plays = playsFromScoreEvent(event);
         if (plays.length) {
           const deltaById = new Map();
           for (const p of plays) {
-            deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + (Number(p.pointsDelta) || 0));
+            deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + p.pointsDelta);
           }
           setHome((prev) => applyStarterDeltas(prev, deltaById));
           setAway((prev) => applyStarterDeltas(prev, deltaById));
         }
-        onScoresRef.current?.(event);
+        onScoresRef.current?.({ ...event, plays });
       },
       // A reconnect refetches to recover the deltas missed while offline, but
       // silently: the box score already on screen stays up.
@@ -257,7 +168,7 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
   // The NFL games this Matchup spans (the detail body's `nflGameIds`) and their
   // live state, on the model as `games` (#885). One subscription for all of
   // them; the page renders a strip per row and opens nothing itself.
-  const games = useLiveGames(matchupId, detail?.nflGameIds);
+  const games = useLiveGameStates(matchupId, detail?.nflGameIds);
   const model = useMemo(() => (matchup ? { ...matchup, games } : matchup), [matchup, games]);
 
   return { matchup: model, detail, starterRows, loading, error, refetch: loadMatchup };

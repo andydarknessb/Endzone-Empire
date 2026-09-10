@@ -1,4 +1,5 @@
-import { matchupHeroView, heroSentence, formatKickoff, ordinal } from './matchupHeroView';
+import { matchupHeroView, heroSentence, ordinal } from './matchupHeroView';
+import { formatKickoff } from '../../../shared/lib';
 
 // The canvas's live Sunday (docs/design/game-center-matchups/build.mjs, HERO):
 // the viewer's Dockworkers ahead 82.2-77.0, projected to lose 110.5-123.9,
@@ -126,26 +127,9 @@ describe('matchupHeroView', () => {
   });
 });
 
-describe('formatKickoff', () => {
-  test('formats weekday short plus time with Intl, in the runtime locale', () => {
-    const iso = '2026-09-20T23:20:00.000Z';
-    const expected = new Intl.DateTimeFormat(undefined, {
-      weekday: 'short',
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(new Date(iso));
-    expect(formatKickoff(iso)).toBe(expected);
-    // Weekday short and a clock time are both present whatever the zone.
-    expect(formatKickoff(iso)).toMatch(/^[A-Z][a-z]{2}\b/);
-    expect(formatKickoff(iso)).toMatch(/\d{1,2}:\d{2}/);
-  });
-
-  test('reads null for a missing or unparseable value', () => {
-    expect(formatKickoff(null)).toBeNull();
-    expect(formatKickoff('')).toBeNull();
-    expect(formatKickoff('not a date')).toBeNull();
-  });
-});
+// formatKickoff itself is shared/lib's contract now (src/shared/lib/
+// kickoff(.test).js, #1120, ADR 0031); this view model only consumes it, so
+// its own tests live there.
 
 describe('ordinal', () => {
   test.each([
