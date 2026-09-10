@@ -356,7 +356,7 @@ export function ScoringFeedList({
           </Typography>
         </Box>
       ) : (
-        <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+        <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
           {shown.map((item, i) => (
             <FeedRow key={`${item.playerId ?? 'play'}-${i}`} item={item} first={i === 0} />
           ))}

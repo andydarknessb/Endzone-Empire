@@ -338,6 +338,7 @@ function Breadcrumb({ leagueId, leagueName }) {
     <Box component="nav" aria-label="Breadcrumb" data-testid="game-center-breadcrumb">
       <Box
         component="ol"
+        role="list"
         sx={{
           listStyle: 'none',
           m: 0,

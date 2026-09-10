@@ -24,7 +24,7 @@ export default function WeekGlance({ rows, headingLevel = 2, ...rest }) {
 
   return (
     <Card data-testid="week-glance" title="Week at a glance" headingLevel={headingLevel} {...rest}>
-      <Box component="ul" sx={{ listStyle: 'none', m: 0, p: '8px 0' }}>
+      <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: '8px 0' }}>
         {list.map((row) => (
           <Box
             component="li"

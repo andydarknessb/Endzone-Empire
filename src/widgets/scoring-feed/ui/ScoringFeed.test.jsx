@@ -179,6 +179,8 @@ describe('ScoringFeedList', () => {
     expect(card).toHaveTextContent('Week 3');
     expect(card).toHaveTextContent('TDs only');
 
+    const list = within(card).getByRole('list');
+    expect(list).toHaveAttribute('role', 'list');
     const rows = within(card).getAllByRole('listitem');
     expect(rows).toHaveLength(3);
 
