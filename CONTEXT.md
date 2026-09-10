@@ -762,10 +762,16 @@ _Avoid_: game (a game is an NFL game), fixture
 One scoring event for one player in one NFL game as the live sync detected
 it, carrying the player, his Team code and his opponent's, the event type,
 whether it is a touchdown, and the points it added; distinct from a
-Matchup's score (the total) and from a non-touchdown moment the retro
-scoreboard flashes.
+Matchup's score (the total) and from a **Moment play** the retro scoreboard
+flashes.
 _Avoid_: play (unqualified), event, scoring event (the server module's name
 for the same thing)
+
+**Moment play**:
+An explicitly non-touchdown **Scoring play**: one carrying `isTouchdown` as
+false. A moment play appears briefly on the retro scoreboard and is never
+routed to touchdown cutscenes or toasts. The canonical term for this subset.
+_Avoid_: moment (unqualified), non-touchdown event
 
 **Record**:
 A Team's season tally of wins, losses and ties, drawn from its finalized
