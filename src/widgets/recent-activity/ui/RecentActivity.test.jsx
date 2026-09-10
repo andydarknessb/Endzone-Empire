@@ -206,6 +206,27 @@ test('an empty response renders the empty-state sentence', async () => {
   expect(screen.queryByTestId('recent-activity-row')).not.toBeInTheDocument();
 });
 
+// #1134: `recap` is a league-wide row, teamless like commissioner, but must
+// not read as "Commissioner" - its Team column stays empty.
+test('a recap row renders the recap sentence, the Recap chip, and an empty Team column', async () => {
+  mockGet({
+    data: [row({ id: 9, type: 'recap', team: null, detail: { season: 2026, week: 4 }, agoMs: 60 * 60 * 1000 })],
+  });
+  renderWidget();
+
+  const rows = await screen.findAllByTestId('recent-activity-row');
+  expect(rows).toHaveLength(1);
+  const recapRow = rows[0];
+
+  expect(within(recapRow).getByTestId('recent-activity-sentence')).toHaveTextContent(
+    'Week 4 recap published'
+  );
+  expect(within(recapRow).getByTestId('recent-activity-team')).toHaveTextContent('');
+  const badge = within(recapRow).getByTestId('badge');
+  expect(badge).toHaveAttribute('data-variant', 'neutral');
+  expect(badge).toHaveTextContent('Recap');
+});
+
 test('a failed read renders one compact alert sentence and no rows', async () => {
   mockGet({ reject: { response: { status: 500 } } });
   renderWidget();

@@ -200,6 +200,18 @@ test('renders commissioner and stat-correction descriptions', async () => {
   ).toBeInTheDocument();
 });
 
+// #1134: a `recap` row (league-wide, no team) reads its own sentence rather
+// than the blank description it used to fall through to.
+test('renders a recap description', async () => {
+  mockTransactions([
+    txn({ id: 8, type: 'recap', team_name: null, player_name: null, detail: { season: 2026, week: 4 } }),
+  ]);
+  renderScreen();
+
+  const row = await screen.findByTestId('txn-8');
+  expect(within(row).getByTestId('txn-desc')).toHaveTextContent('Week 4 recap published');
+});
+
 test('filters rows by transaction type', async () => {
   mockTransactions([
     txn({ id: 1, type: 'add', team_name: "Alice's Team", detail: { playerId: 1 } }),

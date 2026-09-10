@@ -3,7 +3,33 @@
  * Both take the caller's transaction client so activity rows commit (or roll
  * back) atomically with the action they describe.
  */
+
+// ADR 0008's SCREAMING_SNAKE spelling applies to error CODES, not to these -
+// `"type"` here is a database value (a `transactions` column), the same
+// category the ADR's Scope section carves out for `draft_status` and the
+// like, so it stays as every call site already spells it.
+//
+// The one place this app declares which types it will ever write. Every
+// `logTransaction(` call site passes a literal from this list (#1134 found
+// the seventh, `recap`, reaching the client with no matching case because
+// nothing pinned the two sides together). The client's
+// `src/entities/activity/model/activityModel.test.js` keeps a hard-coded
+// copy of this exact array, commented as this list's partner, so the next
+// addition here is caught by a client test before it ships as a blank row.
+const TRANSACTION_TYPES = ['add', 'commissioner', 'drop', 'recap', 'stat_correction', 'trade', 'waiver'];
+
+class ActivityError extends Error {
+  constructor(statusCode, message, code = null) {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 async function logTransaction(client, { leagueId, teamId = null, type, detail = {} }) {
+  if (!TRANSACTION_TYPES.includes(type)) {
+    throw new ActivityError(400, `unknown transaction type: ${type}`, 'UNKNOWN_TRANSACTION_TYPE');
+  }
   await client.query(
     `INSERT INTO "transactions" ("league_id", "team_id", "type", "detail")
      VALUES ($1, $2, $3, $4)`,
@@ -31,4 +57,4 @@ async function notifyLeague(client, { leagueId, type, message, data = {}, exclud
   }
 }
 
-module.exports = { logTransaction, notify, notifyLeague };
+module.exports = { logTransaction, notify, notifyLeague, TRANSACTION_TYPES, ActivityError };
