@@ -3,6 +3,11 @@
 // is its points so far plus the projected points it still has left to score.
 // Recomputed on every score sync — as real points come in, "remaining" shrinks
 // and the curve sharpens toward whoever is ahead late.
+//
+// Promoted to `shared/lib` from `src/lib/winProbability` (#1120, ADR 0031):
+// `matchupWinProbability` reached five widget consumers plus the Matchup page,
+// past ADR 0031's one-more-consumer threshold for a `shared/lib` home. The
+// arithmetic and return shape are unchanged; only its address moved.
 
 // Spread (in fantasy points) of the expected-margin logistic. Roughly one
 // standard deviation of a weekly matchup margin; larger = flatter/less certain.

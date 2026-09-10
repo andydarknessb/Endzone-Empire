@@ -1,5 +1,5 @@
 import { matchupFromListRow } from '../../../entities/matchup';
-import { aroundLeagueTileView, formatPoints } from './tileView';
+import { aroundLeagueTileView } from './tileView';
 
 function row(overrides = {}) {
   return matchupFromListRow({
@@ -22,15 +22,10 @@ function row(overrides = {}) {
   });
 }
 
-describe('formatPoints', () => {
-  it('renders one decimal', () => {
-    expect(formatPoints('92.14')).toBe('92.1');
-  });
-
-  it('renders a dash for an unknown value', () => {
-    expect(formatPoints(null)).toBe('-');
-  });
-});
+// formatPoints is shared/lib's contract now (src/shared/lib/numeric(.test).js,
+// #1120, ADR 0031); this view model only consumes it, so its own unit tests
+// live there. The dash-for-unknown case below still exercises it through the
+// tile view's own output.
 
 describe('aroundLeagueTileView', () => {
   it('shows each side projected total before kickoff', () => {
