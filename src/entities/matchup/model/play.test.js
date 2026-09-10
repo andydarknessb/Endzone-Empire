@@ -49,20 +49,21 @@ describe('playsFromScoreEvent', () => {
     expect(play.pointsDelta).toBe(6);
   });
 
-  // Red-tell: a raw pass-through reads isTouchdown with `=== false`, and a
-  // string "false" is not `=== false`, so the raw entry (as useMatchup used
-  // to hand it to onScores) reads as a touchdown. The model normalises the
-  // field to a real boolean, so the same play is a non-touchdown moment once
-  // it has gone through here. This test is red against the raw entry and
-  // green against the modelled one.
+  // Red-tell: playLabel reads isTouchdown with a strict `=== false`, and a
+  // string "false" is not `=== false`, so playLabel on the raw pass-through
+  // (as useMatchup used to hand onScores its plays, before this model
+  // existed) reads a sack as a touchdown: "sack TD". The model normalises
+  // the field to a real boolean first, so playLabel on the SAME entry, once
+  // modelled, reads "SACK". Both assertions run playLabel, the production
+  // code under test; the first is red before this model existed and stays
+  // green now only because the raw entry is unmodelled, not because of
+  // anything this module does.
   test('a wire isTouchdown of the string "false" models as false, not a touchdown', () => {
     const rawEntry = rawPlay(1, { isTouchdown: 'false', type: 'sack' });
-    // The raw pass-through's own check, unchanged: a strict `=== false` sees
-    // the string as a touchdown.
-    expect(rawEntry.isTouchdown === false).toBe(false);
+    expect(playLabel(rawEntry)).toBe('sack TD');
 
     const [play] = playsFromScoreEvent({ plays: [rawEntry] });
-    expect(play.isTouchdown).toBe(false);
+    expect(playLabel(play)).toBe('SACK');
   });
 });
 

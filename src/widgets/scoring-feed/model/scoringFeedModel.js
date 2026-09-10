@@ -10,11 +10,13 @@
  *     at (ISO string, epoch ms or Date; optional), side ('home' | 'away' | null) }
  *
  * Where it comes from (the handoff for the page ticket, #897): the score
- * feed's play (server/services/scoring.service.js) carries playerId, name,
- * position, nflTeam, opponent, type, tdDelta, pointsDelta and isTouchdown, and
- * NO clock and NO side. The legacy ticker's handleScores added only `teamName`
- * from its roster lookup. The two fields this widget adds are the page's to
- * build; passing the server's play through unchanged renders, but blandly:
+ * feed's play arrives through `entities/matchup`'s Play model
+ * (`playsFromScoreEvent`, #1137), which carries playerId, name, position,
+ * nflTeam, opponent, type, pointsDelta and isTouchdown - not the wire's
+ * `tdDelta`, which the model does not carry across - and NO clock and NO
+ * side. The legacy ticker's handleScores added only `teamName` from its
+ * roster lookup. The two fields this widget adds are the page's to build;
+ * passing the modelled play through unchanged renders, but blandly:
  *
  *   - `at`: stamp it at receipt (Date.now()) as the play lands, since the
  *     server sends none. Without it the feed's time cell is blank on every row,
