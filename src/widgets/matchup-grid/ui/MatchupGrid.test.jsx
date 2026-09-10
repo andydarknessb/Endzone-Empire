@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { matchupFromListRow } from '../../../entities/matchup';
 import { MatchupGrid } from '../index';
 import { recordsByTeamId } from '../../../entities/standings';
-import { formatKickoff } from '../model/matchupCardView';
+import { formatKickoff } from '../../../shared/lib';
 
 // Fixtures are built through the entity's own list-row builder, so a test
 // proves the widget reads the one Matchup shape and never a wire column.

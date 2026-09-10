@@ -1,4 +1,4 @@
-import { useEndpoint } from '../../../shared/lib';
+import { useEndpoint, matchupWinProbability, formatKickoff, finite } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { teamNameLabel } from '../../../lib/teamIdentity';
 import {
@@ -6,7 +6,6 @@ import {
   matchupFromDetailBody,
   matchupStatusView,
 } from '../../../entities/matchup';
-import { matchupWinProbability } from '../../../lib/winProbability';
 
 /**
  * Data model for the matchup-preview widget (League Dashboard hero-right,
@@ -128,29 +127,6 @@ import { matchupWinProbability } from '../../../lib/winProbability';
 // (ADR 0020), so the map is restated here rather than reached for; the labels
 // and `hasStarted` still come from the one entity predicate (ADR 0030).
 const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
-
-const KICKOFF_FORMAT = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
-
-// "Sun 7:20 PM" from an ISO timestamp, in the viewer's locale and time zone;
-// null when the value is missing or not a date. The matchup-hero widget
-// (matchupHeroView.js) formats the same way for the same reason (#1102's
-// spec: "the same formatting the Game Center hero uses for its kickoff
-// line"); a widget never imports another widget's model (ADR 0020), so this
-// is restated here rather than reached for, the same call CHIP_VARIANTS above
-// already made.
-function formatKickoff(iso) {
-  if (iso == null || iso === '') return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, KICKOFF_FORMAT).format(date);
-}
-
-/** A finite number from a wire value (pg DECIMAL strings included), else null. */
-function finite(value) {
-  if (value == null || value === '') return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
 
 export function useMatchupPreview(leagueId) {
   const { teams, viewerTeamId, league } = useLeague(leagueId);
@@ -327,9 +303,9 @@ export function useMatchupPreview(leagueId) {
   // `hasStarted === null` contract).
   //
   // The win probability is the SAME helper Game Center's hero reads
-  // (src/lib/winProbability, the sanctioned reach below the island), computed
-  // from the two scores and the two Expected finals, so the two surfaces
-  // cannot disagree. It is never a points ratio: SplitBar's accessible name is
+  // (shared/lib, ADR 0031, #1120), computed from the two scores and the two
+  // Expected finals, so the two surfaces cannot disagree. It is never a
+  // points ratio: SplitBar's accessible name is
   // the hard-coded "Win probability" (#872), and a ratio there would announce a
   // number that is not one. The share is clamped and rounded exactly as
   // SplitBar rounds its own segments, and it is stated from the VIEWER's side

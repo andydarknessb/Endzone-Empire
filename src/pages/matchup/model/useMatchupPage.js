@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux';
 import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
-import { matchupWinProbability } from '../../../lib/winProbability';
+import { matchupWinProbability } from '../../../shared/lib';
 import { useMatchup, matchupStatusView } from '../../../entities/matchup';
 import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';

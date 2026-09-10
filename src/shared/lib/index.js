@@ -18,3 +18,11 @@ export {
   isTeamOnTheClock,
   formatRemaining,
 } from './onTheClock';
+// Matchup arithmetic and display contracts (#1120, ADR 0031), promoted from
+// private below-island and per-widget copies once matchupWinProbability
+// passed ADR 0031's one-more-consumer threshold: matchup-hero, matchup-grid,
+// matchup-preview, scoreboard-strip, around-the-league and the Matchup page
+// all read these instead of a private copy.
+export { matchupWinProbability, homeWinProbability, remainingPoints, MARGIN_SCALE } from './winProbability';
+export { formatKickoff } from './kickoff';
+export { finite, formatPoints } from './numeric';
