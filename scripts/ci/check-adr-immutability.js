@@ -25,6 +25,16 @@
  *   the old one's Status line says so. Neither path needs an escape hatch, so
  *   this guard has none: there is no environment variable that skips it.
  *
+ *   AMENDMENTS DO NOT TOUCH THE STATUS LINE. An appended `## Amendment`
+ *   section is itself the record of the amendment; it does not also add a
+ *   marker like "amended YYYY-MM-DD" to the Status line. The Status line
+ *   stays reserved for the ADR's acceptance and supersession lifecycle --
+ *   supersession is the part the uniqueness guard's header also describes
+ *   ("a retired ADR is marked Superseded IN PLACE"). This guard permits the
+ *   edit either way -- it only enforces that the line stays a `Status:`
+ *   line -- so the restriction is a convention for authors to follow, not
+ *   something this file can check.
+ *
  * WHAT "BASE" MEANS, AND BE HONEST ABOUT COVERAGE: the comparison is between
  * the checked-out tree and the git ref named by ADR_BASE_REF. ci.yml passes
  * `github.event.pull_request.base.sha` on pull requests (so the merge-ref

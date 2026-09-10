@@ -1,6 +1,6 @@
 # Game Center and Matchup Detail join the island
 
-Status: accepted (2026-09-05); scope superseded by ADR 0034 (2026-09-09); amended 2026-09-10
+Status: accepted (2026-09-05); scope superseded by ADR 0034 (2026-09-09)
 
 ADR 0017 opened a local Feature-Sliced Design island, ADR 0020 grew it to
 cover the League Dashboard, and ADR 0029 gave it an `entities` layer whose
