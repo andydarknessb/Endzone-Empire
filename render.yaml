@@ -95,6 +95,10 @@ services:
       # is also kept without expiry and served stale rather than erroring.
       - key: NEWS_CACHE_TTL_MS
         value: "21600000"
+      # On a day with an NFL game (read from nfl_games) headlines refresh
+      # hourly instead (#1188); about +60 Tank01 calls a month.
+      - key: NEWS_CACHE_TTL_GAME_DAY_MS
+        value: "3600000"
       - key: SPORTSDB_API_KEY
         sync: false
       - key: SUPABASE_URL
@@ -189,6 +193,17 @@ services:
       # ingested), so it is no longer the live-scoring cadence.
       - key: SYNC_EVERY_TICKS
         value: "6"
+      # Tank01 injury refresh (#1188): once a day, gated on the last successful
+      # data_sync_runs row so a restart cannot re-run it, and every
+      # INJURY_GAME_WINDOW_MS inside a game window (first kickoff minus 90 min
+      # to the last final); doubles while quota is degraded. ~+350 calls/month.
+      - key: INJURY_GAME_WINDOW_MS
+        value: "900000"
+      # The Final box (ADR 0035) is read this long after ESPN reports a game
+      # final, so Tank01's box has settled and one essential-priority call is
+      # enough. 900000 = 15 min.
+      - key: FINAL_BOX_GRACE_MS
+        value: "900000"
       - key: SPORTSDB_API_KEY
         sync: false
       - key: SUPABASE_URL
