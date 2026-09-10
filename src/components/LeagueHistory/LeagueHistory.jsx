@@ -43,7 +43,10 @@ import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import { TeamAvatar } from '../../shared/ui';
+// Concrete module path, not the shared/ui barrel: this is a legacy consumer
+// (ADR 0031's #1146 amendment), and importing the index would pull the whole
+// shared/ui kit - and shared/lib's useEndpoint through it - into this bundle.
+import TeamAvatar from '../../shared/ui/TeamAvatar';
 import AbbreviationTooltip from '../common/AbbreviationTooltip';
 
 // The podium marks on the standings rows, as inline stroke glyphs on the same

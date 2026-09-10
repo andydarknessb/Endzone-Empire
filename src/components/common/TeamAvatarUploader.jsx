@@ -5,7 +5,10 @@ import {
 } from '@mui/material';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import CloseIcon from '@mui/icons-material/Close';
-import { TeamAvatar } from '../../shared/ui';
+// Concrete module path, not the shared/ui barrel: a legacy consumer (ADR
+// 0031's #1146 amendment) - the index would pull the whole kit, and
+// shared/lib's useEndpoint through it, into this bundle.
+import TeamAvatar from '../../shared/ui/TeamAvatar';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 

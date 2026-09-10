@@ -1,6 +1,11 @@
 import React from 'react';
 import { Avatar, useMediaQuery } from '@mui/material';
-import { initialsFor } from '../lib';
+// Concrete module path, not the shared/lib barrel: the barrel's first export
+// is useEndpoint, and pulling it into every TeamAvatar consumer's import
+// graph is what broke the Draft harness-coverage guard and the bundle budget
+// (ADR 0031's #1146 amendment, post-review fix) - TeamAvatar needs only
+// initialsFor, not the rest of shared/lib.
+import { initialsFor } from '../lib/initials';
 import { shouldShowStillFrame } from '../../lib/reducedMotionMedia';
 
 /**

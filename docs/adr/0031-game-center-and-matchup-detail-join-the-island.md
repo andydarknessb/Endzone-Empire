@@ -106,15 +106,32 @@ Ruled under that clause:
   `around-the-league`, `my-team-summary`, `matchup-grid`, `matchup-preview`,
   `scoreboard-strip`, `matchup-hero`), well past the threshold. It moves to
   `shared/ui` as the one canonical implementation, exported through
-  `shared/ui`'s index; the legacy `src/components` consumers that had it
-  (`TradeProposalCard`, `TeamAvatarUploader`, `PowerRankings`, `LeagueHistory`,
-  `PickemStandings`) now import the same `shared/ui` export rather than
-  duplicating the implementation, matching the direction `Badge` and `Card`
-  already travel into `RecapCard`, `TrophyCase` and `CommissionerTools`.
+  `shared/ui`'s index. The seven island widgets import it from that index,
+  per ADR 0020's barrel rule for widgets and features. The legacy
+  `src/components` consumers that had it (`TradeProposalCard`,
+  `TeamAvatarUploader`, `PowerRankings`, `LeagueHistory`, `PickemStandings`)
+  are outside the layer that rule governs and import the concrete
+  `shared/ui/TeamAvatar` module instead, not the index: a legacy file
+  importing the barrel pulls every `shared/ui` module - and, through
+  `TeamAvatar`'s own `initialsFor` dependency, `shared/lib`'s index - into
+  its bundle, which is what broke the Draft room's harness-coverage guard
+  (ADR 0014) and the initial bundle's size budget on this amendment's first
+  pass (caught in #1146's review). `TeamAvatar` itself imports `initialsFor`
+  from the concrete `shared/lib/initials` module for the same reason, so the
+  reach to `shared/lib`'s index (and the non-literal `useEndpoint` GET the
+  harness guard refuses) does not exist regardless of how a caller reaches
+  `TeamAvatar`. Both directions - island through the barrel, legacy through
+  the concrete module - resolve to the same one implementation and duplicate
+  nothing; only the import style differs, because ADR 0020's barrel rule
+  ("import them ONLY from this index") was written for widgets and features,
+  never for a legacy `src/components` file outside the island it governs.
 - `initialsFor`, the helper TeamAvatar and two widgets (`retro-scoreboard`,
   `join-requests`) call directly, had already reached its own second island
   consumer. It moves to `shared/lib` alongside TeamAvatar's promotion, under
-  the pre-existing helper clause.
+  the pre-existing helper clause. The two widgets import it from the
+  `shared/lib` index, per ADR 0020's amendment; the legacy
+  `PlayerQuickView/PlayerAvatar`, outside that layer, imports the concrete
+  `shared/lib/initials` module instead, the same split as `TeamAvatar`'s.
 - `AbbreviationTooltip` has one island consumer (Draft Grades) and stays below
   the island at `src/components/common/AbbreviationTooltip`: a documented
   temporary edge under this clause until a second island consumer earns it a
