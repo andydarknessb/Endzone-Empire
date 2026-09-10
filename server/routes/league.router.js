@@ -892,10 +892,14 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // unit's players.nfl_team is a full team name (syncTeamDefenses), while
     // nfl_games.nfl_team is Tank01's raw abbreviation. The lookup below
     // normalizes the same way, so both sides of this JS-side comparison agree
-    // (#425, same pattern as #423 in decision.service). The VALUE stays raw
-    // nfl_games.opponent on purpose - ADR 0011 keeps the schedule in Tank01's
-    // own vocabulary.
-    const opponentByTeam = new Map(scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
+    // (#425, same pattern as #423 in decision.service). The VALUE is folded
+    // too (#1136): a starter row's opponent is a Team code once it leaves the
+    // server (CONTEXT.md, Team code), never nfl_games's own Tank01 spelling -
+    // a raw WSH beside a folded WAS on the same starter row is exactly the
+    // bug this closes.
+    const opponentByTeam = new Map(
+      scheduleRows.rows.map((r) => [normalizeNflTeam(r.nfl_team), normalizeNflTeam(r.opponent)])
+    );
 
     // A SETTLED matchup is read AS PLAYED, never through the current roster
     // (CONTEXT.md, Settle pass): the score printed beside these lists was

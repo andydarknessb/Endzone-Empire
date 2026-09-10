@@ -69,6 +69,26 @@ test('firstSentence extracts the leading sentence for list hooks', () => {
   assert.equal(svc.firstSentence(null), '');
 });
 
+test('serializePlayerProfile folds each recentGames row\'s opponent to a Team code (#1136)', () => {
+  const profile = svc.serializePlayerProfile({
+    player: { id: 1, name: 'Some Player', position: 'WR', nfl_team: 'DAL' },
+    season: 2026,
+    seasons: [],
+    seasonSummary: null,
+    weeklyLogPartial: false,
+    recentRows: [
+      // A raw-coded WSH opponent (nfl_games's own Tank01 spelling) must read
+      // back as the Team code WAS, never the schedule's raw spelling.
+      { season: 2026, week: 1, fantasy_points: 10, stats: {}, opponent: 'WSH' },
+      // No schedule row for this week (the LEFT JOIN found nothing): stays null.
+      { season: 2026, week: 2, fantasy_points: 8, stats: {}, opponent: null },
+    ],
+    posRank: null,
+  });
+  assert.equal(profile.recentGames[0].opponent, 'WAS');
+  assert.equal(profile.recentGames[1].opponent, null);
+});
+
 // ---- serializers whitelist fields ------------------------------------------
 
 test('serializeRankingRow rounds and exposes only whitelisted fields', () => {

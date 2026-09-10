@@ -248,7 +248,7 @@ test('a DEF unit resolves its opponent even though players.nfl_team is a full te
   assert.equal(defPlayer.opponentPointsAllowed, 5.5);
 });
 
-test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedule row (#423)', async (t) => {
+test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedule row (#423), opponent/opponentPointsAllowed unchanged by the #1136 fold', async (t) => {
   const entries = [
     lineupEntry(2, 'WR', 'RB', { nfl_team: 'WSH' }),
   ];
@@ -264,8 +264,56 @@ test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedu
 
   const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
   const wrPlayer = advice.players.find((p) => p.playerId === 2);
+  // DAL's raw and folded spellings are identical, so this regression check
+  // stays exactly what it was before #1136: a Washington player's own
+  // opponent/opponentPointsAllowed pairing is unaffected by the value fold.
   assert.equal(wrPlayer.opponent, 'DAL');
   assert.equal(wrPlayer.opponentPointsAllowed, 12.3);
+});
+
+test('a raw-coded WSH opponent value folds to WAS, and the defense pairing still resolves against getPositionDefense\'s raw key (#1136)', async (t) => {
+  const entries = [
+    lineupEntry(6, 'WR', 'RB', { nfl_team: 'DAL' }), // DAL's opponent this week is Washington
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['WR'] }],
+    gameRows: [{ nfl_team: 'DAL', opponent: 'WSH' }],
+    // getPositionDefense keys itself by the RAW schedule spelling (ADR 0011,
+    // unchanged by this ticket): a Washington-opponent week aggregates under
+    // the raw 'WSH', never the folded 'WAS'.
+    positionDefense: new Map([['WSH', { WR: 9.1 }]]),
+    projections: [[6, projectionFor(6, 11, {
+      factors: { opponent: { available: true, pointsContribution: 0.8, opponentTeam: 'WAS' } },
+    })]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  const wrPlayer = advice.players.find((p) => p.playerId === 6);
+  assert.equal(wrPlayer.opponent, 'WAS', 'the wire opponent value is a Team code, never the schedule\'s raw WSH');
+  assert.equal(
+    wrPlayer.opponentPointsAllowed,
+    9.1,
+    'folded opponent still pairs with getPositionDefense\'s raw-keyed aggregate (#1136 folds a local copy of defense, not getPositionDefense itself)'
+  );
+});
+
+test('a schedule row with a blank nfl_team produces no map entry, never a false match for a teamless player (#1136)', async (t) => {
+  const entries = [
+    lineupEntry(7, 'DEF', 'RB', { nfl_team: '' }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['DEF'] }],
+    gameRows: [{ nfl_team: '', opponent: 'KC' }],
+    positionDefense: new Map(),
+    projections: [[7, projectionFor(7, 3)]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  const player = advice.players.find((p) => p.playerId === 7);
+  assert.equal(player.opponent, null, 'a blank nfl_team row must never be read back as a match');
+  assert.equal(player.opponentPointsAllowed, null);
 });
 
 test('advice never lists a player in two recommendations', async (t) => {

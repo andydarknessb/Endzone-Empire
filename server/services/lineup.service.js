@@ -625,21 +625,22 @@ async function weekKickoffs(client, { season, week, kickoffCache = null }) {
  * `weekKickoffs`.
  *
  * The query mirrors `decision.service`'s `getWeekOpponents` (same SELECT,
- * same table), which reads the identical rows for start/sit advice; that
- * site stays on the ambient pool and untouched by this ticket; this one
- * needs the caller's transaction `client`, so it is its own small function
- * rather than a shared import (`decision.service` already requires
+ * same table, and since #1136 the same fold on both sides), which reads the
+ * identical rows for start/sit advice; that site stays on the ambient pool,
+ * this one needs the caller's transaction `client`, so it is its own small
+ * function rather than a shared import (`decision.service` already requires
  * `lineup.service` for `getLineup` itself, and a reverse require would cycle).
  *
  * The MAP KEY is normalised, the same fold every kickoff/bye lookup applies,
  * so a DEF unit named by a full team name or either of Washington's codes
- * both find their row (ADR 0011). The MAP VALUE stays raw `nfl_games.opponent`
- * on purpose (a Raw team code, CONTEXT.md - the schedule's own spelling, never
- * folded): it is a display string handed straight to the client alongside the
- * entry's own (already raw) `nfl_team`, never joined or keyed on again. The
- * team-code uniqueness index ADR 0011 added guarantees at most one row per
- * (season, week, team code), so there is no tie to break the way `weekKickoffs`
- * must for kickoff instants.
+ * both find their row (ADR 0011). The MAP VALUE is folded too (#1136): a
+ * lineup entry's `opponent` is a Team code once it leaves the server
+ * (CONTEXT.md, Team code), never `nfl_games`'s own Tank01 spelling - it is a
+ * display string handed straight to the client, but the client's own vocabulary
+ * is Team code (kits and colours key on it), not the schedule's. The team-code
+ * uniqueness index ADR 0011 added guarantees at most one row per (season,
+ * week, team code), so there is no tie to break the way `weekKickoffs` must
+ * for kickoff instants.
  *
  * ABSENCE STAYS ABSENCE, exactly as it does for kickoff and bye: a team with
  * no `nfl_games` row that week - a bye, or a schedule nobody synced - is
@@ -680,7 +681,7 @@ async function weekOpponents(client, { season, week }) {
   const byTeam = new Map();
   for (const row of result.rows) {
     const team = normalizeNflTeam(row.nfl_team);
-    if (team !== null) byTeam.set(team, row.opponent);
+    if (team !== null) byTeam.set(team, normalizeNflTeam(row.opponent));
   }
   return byTeam;
 }
@@ -863,12 +864,15 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
  * (#227). `byeByTeam` is still keyed by the caller's own team string, because
  * `computeByeWeeks` returns the caller's vocabulary back; that is the one map
  * here a raw `nfl_team` is the right key for. `opponentByTeam` (#1132) is
- * keyed NORMALISED, like `locked`, because `weekOpponents` builds it that way
- * (ADR 0011) - so the lookup here folds `row.nfl_team` before reading it,
- * where the bye lookup does not. Absence from either map, or a raw
- * `nfl_team` that folds to no game at all, means `null`, never a stale week's
- * answer or an empty string. Defaulted so every existing 3-arg call (and
- * test) keeps working unchanged.
+ * keyed on `normalizeNflTeam` output, like `kickedOffTeams`, because
+ * `weekOpponents` builds it that way - so the lookup here folds `row.nfl_team`
+ * before reading it, where the bye lookup does not. Its VALUE is folded too
+ * (#1136): a lineup entry's `opponent` is a Team code once it leaves the
+ * server (CONTEXT.md, Team code), so both sides of the map are folded now,
+ * not just the key ADR 0011's uniqueness index already covered. Absence from
+ * either map, or a raw `nfl_team` that folds to no game at all, means `null`,
+ * never a stale week's answer or an empty string. Defaulted so every existing
+ * 3-arg call (and test) keeps working unchanged.
  */
 function annotateLineupEntries(entries, { locked, byeByTeam, opponentByTeam = new Map(), selectedWeek }) {
   return entries.map((row) => {

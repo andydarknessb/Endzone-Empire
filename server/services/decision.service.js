@@ -68,16 +68,30 @@ function pointsOf(projections, playerId) {
  * caller (startSitAdvice) has already read a `players` row into memory and
  * looks this map up with normalizeNflTeam(entry.nfl_team) too, so both sides
  * of the JS-side comparison agree even when one side is a DEF unit's full
- * team name (#423). The map's VALUE stays raw `nfl_games.opponent` on
- * purpose: it feeds `defense.get(opponent)`, a raw-on-raw pairing (#320 /
- * #422) that must not change.
+ * team name (#423). A row whose team folds to no team (a blank `nfl_team`)
+ * contributes no entry, the same absence-stays-absence rule every other
+ * schedule lookup in this app follows.
+ *
+ * The map's VALUE is now folded too (#1136): every opponent that leaves the
+ * server is a Team code (CONTEXT.md, Team code), this map included. That
+ * breaks the raw-on-raw pairing `getPositionDefense`'s `defense` map used to
+ * have with a raw opponent read from this same table (#320/#422) -
+ * `defense` still keys itself by the raw schedule spelling on purpose
+ * (projection.service.js, ADR 0011), so `startSitAdvice` below folds a local
+ * copy of `defense`'s keys before it looks anything up, keeping the pairing
+ * folded-on-folded instead of leaving it mixed.
  */
 async function getWeekOpponents({ season, week }) {
   const result = await pool.query(
     `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
     [season, week]
   );
-  return new Map(result.rows.map((r) => [normalizeNflTeam(r.nfl_team), r.opponent]));
+  const byTeam = new Map();
+  for (const row of result.rows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    if (team !== null) byTeam.set(team, normalizeNflTeam(row.opponent));
+  }
+  return byTeam;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,10 +382,18 @@ async function startSitAdvice({ leagueId, userId, week }) {
   ]);
   const projections = toLegacyProjectionMap(run);
 
+  // `defense` (getPositionDefense) keys itself by the raw schedule spelling
+  // on purpose (projection.service.js, ADR 0011); `opponents` above is now
+  // folded (#1136), so a raw lookup against it would miss every Washington
+  // week. Fold a local copy of `defense`'s keys instead of touching the
+  // shared producer, keeping this pairing folded-on-folded.
+  const foldedDefense = new Map(
+    [...defense.entries()].map(([team, stats]) => [normalizeNflTeam(team), stats])
+  );
   const defenseByPlayer = new Map();
   for (const entry of lineup.entries) {
     const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;
-    const teamDefense = opponent ? defense.get(opponent) : null;
+    const teamDefense = opponent ? foldedDefense.get(opponent) : null;
     const opponentPointsAllowed = teamDefense ? teamDefense[entry.position] ?? null : null;
     defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed });
   }

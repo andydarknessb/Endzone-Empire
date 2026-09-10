@@ -17,9 +17,13 @@ const decisionService = require('../services/decision.service');
  * not for a DEF unit, whose `players.nfl_team` is a full team name
  * (`syncTeamDefenses` seeds it that way) - so every DEF's `opponent` came back
  * null. The fix (`decision.service`'s #423 pattern) normalizes both sides of
- * the JS-side comparison through `normalizeNflTeam`, leaving the map's VALUE
- * (`nfl_games.opponent`) raw, since ADR 0011 keeps the schedule in Tank01's
- * own vocabulary on purpose.
+ * the JS-side comparison through `normalizeNflTeam`.
+ *
+ * #1136: the map's VALUE (`nfl_games.opponent`) is folded too now, not left
+ * raw. A starter row's `opponent` is a Team code once it leaves the server
+ * (CONTEXT.md, Team code), the same vocabulary the client keys kits and
+ * colours by, so a raw WSH never sits beside a folded WAS on one starter row
+ * again.
  */
 
 const previousSecret = process.env.JWT_SECRET;
@@ -117,12 +121,23 @@ test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedu
   assert.equal(starter.opponent, 'DAL');
 });
 
-test("the opponent value stays raw ('WSH' does not fold to 'WAS') (#425)", async (t) => {
+test("the opponent value now folds ('WSH' becomes 'WAS') (#1136)", async (t) => {
   const starterRow = {
     id: 103, name: 'Some Runner', position: 'RB', nfl_team: 'DAL',
     injury_status: null, slot: 'RB', stats: null,
   };
   const scheduleRows = [{ nfl_team: 'DAL', opponent: 'WSH' }];
   const starter = await getHomeStarter(t, { starterRow, scheduleRows });
-  assert.equal(starter.opponent, 'WSH');
+  assert.equal(starter.opponent, 'WAS');
+});
+
+test('a starter with no game row in the week\'s schedule carries opponent: null (#1136)', async (t) => {
+  const starterRow = {
+    id: 104, name: 'Bye Week Back', position: 'RB', nfl_team: 'CHI',
+    injury_status: null, slot: 'RB', stats: null,
+  };
+  // No nfl_games row for CHI this week (a bye, or an unsynced slate).
+  const scheduleRows = [{ nfl_team: 'DAL', opponent: 'WSH' }];
+  const starter = await getHomeStarter(t, { starterRow, scheduleRows });
+  assert.equal(starter.opponent, null);
 });

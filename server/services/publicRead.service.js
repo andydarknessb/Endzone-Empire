@@ -25,6 +25,7 @@ const { getWeekProjections } = require('./projection.service');
 const { computeByeWeeks } = require('./bye.service');
 const { upcomingNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
+const { normalizeNflTeam } = require('./nflTeam');
 const {
   calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS, getSeasonPositionRank,
   projectSeasonPoints,
@@ -473,7 +474,12 @@ function serializePlayerProfile({ player, season, seasons, seasonSummary, weekly
       return {
         season: Number(r.season),
         week: Number(r.week),
-        opponent: r.opponent || null,
+        // A Team code once it leaves the server (CONTEXT.md, Team code;
+        // #1136), never nfl_games's raw Tank01 spelling - the JOIN above
+        // already folds both sides to find the row, this folds the VALUE it
+        // carries out too, matching the starter row, the lineup entry and
+        // the scoring play.
+        opponent: r.opponent ? normalizeNflTeam(r.opponent) : null,
         fantasyPoints: points.halfPpr,
         points,
         statLine: statLine(r.stats),

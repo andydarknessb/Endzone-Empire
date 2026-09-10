@@ -204,12 +204,15 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
  * not produce a wrong value, it DROPPED the row: every DEF unit (stored by
  * full team name) and every WSH-coded week left the aggregate entirely, with
  * no null anywhere to notice, and the average over the survivors read
- * perfectly plausible. The `opponent` key is deliberately NOT folded: the
- * caller (`decision.service.startSitAdvice`) looks this map up with an
- * opponent read straight out of `nfl_games`, so both sides of that lookup
- * already speak the schedule's own vocabulary. This map's key is therefore a
- * Raw team code (CONTEXT.md), the one exception the glossary allows, because
- * its lookup partner is raw too. Contrast projectionFeatures.js's
+ * perfectly plausible. The `opponent` key stays raw on purpose - this map's
+ * key is a Raw team code (CONTEXT.md). Its caller used to be raw too
+ * (`decision.service.startSitAdvice` looked this map up with an opponent
+ * read straight out of `nfl_games`); since #1136 that caller's own opponent
+ * value is a folded Team code instead (every opponent that leaves the server
+ * is), so it now folds a local copy of THIS map's keys before it looks
+ * anything up rather than reading it raw. Nothing here changes because of
+ * that: this map is still built and returned raw, the fold happens on the
+ * consumer's own copy. Contrast projectionFeatures.js's
  * `loadFeatureBundle` league scan, whose equivalent `defense` key IS folded
  * into a Team code, because its `allowedByDefense` map (`buildLeagueContext`)
  * is only ever read against keys already folded on the JS side.
