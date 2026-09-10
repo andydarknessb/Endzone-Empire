@@ -357,7 +357,7 @@ test('each desktop sort header (including every numeric one) exposes exactly one
 // file failed on the first numeric header checked (Bye):
 //   Expected length: 1
 //   Received length: 2
-//   Received object: [<span aria-label="Bye: Bye week: ..." role="button"
+//   Received object: [<span aria-label="Bye: The week this player's NFL ..." role="button"
 //   tabindex="0">...<span class="MuiBox-root ..." tabindex="0">Bye</span>...
 // i.e. exactly the two-tab-stop shape the ticket describes. Removing the
 // tabIndex again returned the suite to green.
