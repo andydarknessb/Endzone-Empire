@@ -74,12 +74,13 @@ function pointsOf(projections, playerId) {
  *
  * The map's VALUE is now folded too (#1136): every opponent that leaves the
  * server is a Team code (CONTEXT.md, Team code), this map included. That
- * breaks the raw-on-raw pairing `getPositionDefense`'s `defense` map used to
- * have with a raw opponent read from this same table (#320/#422) -
- * `defense` still keys itself by the raw schedule spelling on purpose
- * (projection.service.js, ADR 0011), so `startSitAdvice` below folds a local
- * copy of `defense`'s keys before it looks anything up, keeping the pairing
- * folded-on-folded instead of leaving it mixed.
+ * used to break the raw-on-raw pairing `getPositionDefense`'s `defense` map
+ * had with a raw opponent read from this same table (#320/#422), so
+ * `startSitAdvice` below folded a local copy of `defense`'s keys before
+ * looking anything up. `getPositionDefense` itself now folds its key through
+ * `fn_normalize_nfl_team` (#1154, projection.service.js), so `defense` is
+ * already Team-code-keyed and `startSitAdvice` reads it directly - the local
+ * remap is gone, not doubled.
  */
 async function getWeekOpponents({ season, week }) {
   const result = await pool.query(
@@ -382,18 +383,14 @@ async function startSitAdvice({ leagueId, userId, week }) {
   ]);
   const projections = toLegacyProjectionMap(run);
 
-  // `defense` (getPositionDefense) keys itself by the raw schedule spelling
-  // on purpose (projection.service.js, ADR 0011); `opponents` above is now
-  // folded (#1136), so a raw lookup against it would miss every Washington
-  // week. Fold a local copy of `defense`'s keys instead of touching the
-  // shared producer, keeping this pairing folded-on-folded.
-  const foldedDefense = new Map(
-    [...defense.entries()].map(([team, stats]) => [normalizeNflTeam(team), stats])
-  );
+  // `defense` (getPositionDefense) keys itself by Team code (#1154,
+  // projection.service.js), the same vocabulary `opponents` above already
+  // folds into (#1136), so this pairing is folded-on-folded with no local
+  // remap: read `defense` directly with the already-canonical opponent.
   const defenseByPlayer = new Map();
   for (const entry of lineup.entries) {
     const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;
-    const teamDefense = opponent ? foldedDefense.get(opponent) : null;
+    const teamDefense = opponent ? defense.get(opponent) : null;
     const opponentPointsAllowed = teamDefense ? teamDefense[entry.position] ?? null : null;
     defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed });
   }

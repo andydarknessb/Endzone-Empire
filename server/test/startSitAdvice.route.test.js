@@ -48,6 +48,44 @@ const projectionFor = (playerId, median, extra = {}) => ({
   ...extra,
 });
 
+/**
+ * Wraps a `getPositionDefense` mock's returned Map so that iterating it
+ * (`.entries()`, `.keys()`, `.forEach()`, or spreading it) throws, while
+ * plain `.get()`/`.has()` reads still work.
+ *
+ * #1154 removed `decision.service`'s `foldedDefense` JS remap, whose sole
+ * reason to exist was to iterate `defense.entries()` and re-key a local
+ * copy before startSitAdvice reads it. Once getPositionDefense returns a
+ * canonical-keyed map, a reinstated remap would be a silent no-op on every
+ * VALUE this suite checks (re-normalizing an already-canonical key returns
+ * the same key), so a value-based assertion can never catch its return.
+ * This guard catches its ONE structural signature instead: only a second
+ * normalization site needs to iterate the map at all.
+ */
+function guardAgainstDefenseIteration(map) {
+  const forbidden = new Set(['entries', 'keys', 'forEach', Symbol.iterator]);
+  return new Proxy(map, {
+    // Reflect.get(target, prop) WITHOUT a receiver argument: a Map's internal
+    // slot methods (like the `size` getter) reject an incompatible receiver,
+    // so forwarding the Proxy itself as receiver makes an untouched read
+    // (e.g. `guarded.size`) throw a native TypeError instead of either
+    // working or tripping this guard's own message. Reading straight off
+    // `target` keeps every un-forbidden property exactly as plain as before.
+    get(target, prop) {
+      if (forbidden.has(prop)) {
+        throw new Error(
+          `getPositionDefense's map was iterated via .${String(prop)}() - a second ` +
+            'normalization/remap site over its keys is present again (#1154 removed ' +
+            'exactly this, the foldedDefense JS remap); startSitAdvice must read the ' +
+            'canonical map directly with .get()/.has() instead'
+        );
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 function mockAdviceDependencies(t, {
   entries,
   projections,
@@ -95,7 +133,8 @@ function mockAdviceDependencies(t, {
       projections: new Map(projections),
     };
   });
-  t.mock.method(projectionService, 'getPositionDefense', async () => positionDefense);
+  const guardedDefense = guardAgainstDefenseIteration(positionDefense);
+  t.mock.method(projectionService, 'getPositionDefense', async () => guardedDefense);
   return projectionCalls;
 }
 
@@ -271,7 +310,15 @@ test('a skill player raw-coded WSH still resolves against a raw-coded WSH schedu
   assert.equal(wrPlayer.opponentPointsAllowed, 12.3);
 });
 
-test('a raw-coded WSH opponent value folds to WAS, and the defense pairing still resolves against getPositionDefense\'s raw key (#1136)', async (t) => {
+test('a raw-coded WSH opponent value folds to WAS, and the defense pairing resolves against getPositionDefense\'s canonical key with no local remap (#1154, supersedes the #1136 raw-key pairing)', async (t) => {
+  // Superseded ruling: this test used to pair a raw 'WSH' key in
+  // `positionDefense` against `startSitAdvice`'s own JavaScript
+  // `foldedDefense` remap, because getPositionDefense returned a map keyed
+  // by the schedule's raw spelling (ADR 0011). On Cory's 2026-09-10 ruling
+  // (#1154), getPositionDefense itself folds its key through
+  // fn_normalize_nfl_team and returns a Team-code-keyed map, so this mock
+  // stands in for that canonical map directly, keyed 'WAS', and
+  // startSitAdvice reads it with no second fold of its own.
   const entries = [
     lineupEntry(6, 'WR', 'RB', { nfl_team: 'DAL' }), // DAL's opponent this week is Washington
   ];
@@ -279,10 +326,9 @@ test('a raw-coded WSH opponent value folds to WAS, and the defense pairing still
     entries,
     rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['WR'] }],
     gameRows: [{ nfl_team: 'DAL', opponent: 'WSH' }],
-    // getPositionDefense keys itself by the RAW schedule spelling (ADR 0011,
-    // unchanged by this ticket): a Washington-opponent week aggregates under
-    // the raw 'WSH', never the folded 'WAS'.
-    positionDefense: new Map([['WSH', { WR: 9.1 }]]),
+    // getPositionDefense now keys itself by the canonical Team code (#1154):
+    // a Washington-opponent week aggregates under 'WAS', never the raw 'WSH'.
+    positionDefense: new Map([['WAS', { WR: 9.1 }]]),
     projections: [[6, projectionFor(6, 11, {
       factors: { opponent: { available: true, pointsContribution: 0.8, opponentTeam: 'WAS' } },
     })]],
@@ -294,7 +340,7 @@ test('a raw-coded WSH opponent value folds to WAS, and the defense pairing still
   assert.equal(
     wrPlayer.opponentPointsAllowed,
     9.1,
-    'folded opponent still pairs with getPositionDefense\'s raw-keyed aggregate (#1136 folds a local copy of defense, not getPositionDefense itself)'
+    'the folded opponent pairs directly with getPositionDefense\'s canonical-keyed aggregate; no local remap sits between them'
   );
 });
 

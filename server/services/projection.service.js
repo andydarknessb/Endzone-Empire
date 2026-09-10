@@ -204,33 +204,39 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
  * not produce a wrong value, it DROPPED the row: every DEF unit (stored by
  * full team name) and every WSH-coded week left the aggregate entirely, with
  * no null anywhere to notice, and the average over the survivors read
- * perfectly plausible. The `opponent` key stays raw on purpose - this map's
- * key is a Raw team code (CONTEXT.md). Its caller used to be raw too
- * (`decision.service.startSitAdvice` looked this map up with an opponent
- * read straight out of `nfl_games`); since #1136 that caller's own opponent
- * value is a folded Team code instead (every opponent that leaves the server
- * is), so it now folds a local copy of THIS map's keys before it looks
- * anything up rather than reading it raw. Nothing here changes because of
- * that: this map is still built and returned raw, the fold happens on the
- * consumer's own copy. Contrast projectionFeatures.js's
- * `loadFeatureBundle` league scan, whose equivalent `defense` key IS folded
- * into a Team code, because its `allowedByDefense` map (`buildLeagueContext`)
- * is only ever read against keys already folded on the JS side.
+ * perfectly plausible. The `defense` key is ALSO folded through
+ * `fn_normalize_nfl_team` (#1154, Cory's 2026-09-10 ruling): this map's key
+ * is a Team code (CONTEXT.md), never the schedule's raw spelling, matching
+ * the vocabulary every opponent code carries once it leaves the server
+ * (#1136). CONTEXT.md's glossary never sanctioned a raw key here - its Raw
+ * team code entry says such a value is "never joined on or keyed by" - so
+ * this brings the code into line with the glossary rather than departing
+ * from it. `decision.service.startSitAdvice` reads this map directly with
+ * its own already-folded opponent value; there is no second fold on the
+ * consumer's side. Contrast projectionFeatures.js's `loadFeatureBundle`
+ * league scan, whose equivalent `defense` key was already folded into a Team
+ * code the same way, because its `allowedByDefense` map (`buildLeagueContext`)
+ * is only ever read against keys already folded on the JS side - the two
+ * sites are now consistent instead of being the one remaining raw-keyed
+ * exception.
  *
- * One consequence to know about, shared with every other normalised join in
- * the app: `nfl_games` is unique on the RAW `(season, week, nfl_team)`, so a
- * legacy `WAS` row sitting beside a `WSH` row for one team-week would fold
- * together and double-count here where the raw comparison matched at most
- * one. Both writers coerce to Tank01 codes before insert, so it takes a
- * third-party or hand-inserted row to arise, and losing every DEF unit
- * entirely is the worse of the two failures by a distance. Since #421 that
- * exposure is closed at the database: `nfl_games_season_week_team_code_unique`
- * enforces uniqueness on the Team code beside the raw constraint (ADR 0011),
- * so the aliased row is rejected at insert and this fold cannot double-count.
+ * Folding the GROUP BY key introduces the same exposure the join fold above
+ * already lives with: a legacy `WAS` row sitting beside a `WSH` row for one
+ * team-week now combines into one bucket where the raw key would have kept
+ * them apart. That is the fix, not a new risk - two aliases for the same
+ * defense are MEANT to combine into one arithmetically correct average, not
+ * to accidentally double one game's points under two spellings. ADR 0011
+ * records `nfl_games_season_week_team_code_unique`, a unique index on
+ * `(season, week, fn_normalize_nfl_team(nfl_team))` added for #421 to reject
+ * that second spelling at insert - this codebase has no standing to confirm
+ * the index is live on the shared database (migrations are a carve-out the
+ * maintainer applies), so this docblock cites it as recorded in the ADR, not
+ * as an applied fact this fold depends on.
  */
 async function getPositionDefense({ season, uptoWeek }) {
   const result = await pool.query(
-    `SELECT "nfl_games"."opponent" AS "defense", "players"."position",
+    `SELECT fn_normalize_nfl_team("nfl_games"."opponent") AS "defense",
+            "players"."position",
             SUM("player_stats"."fantasy_points") AS "points",
             COUNT(DISTINCT "player_stats"."week") AS "games"
      FROM "player_stats"
@@ -240,7 +246,7 @@ async function getPositionDefense({ season, uptoWeek }) {
        AND fn_normalize_nfl_team("nfl_games"."nfl_team")
            = fn_normalize_nfl_team("players"."nfl_team")
      WHERE "player_stats"."season" = $1 AND "player_stats"."week" < $2
-     GROUP BY "nfl_games"."opponent", "players"."position"`,
+     GROUP BY fn_normalize_nfl_team("nfl_games"."opponent"), "players"."position"`,
     [season, uptoWeek]
   );
   const defense = new Map();
