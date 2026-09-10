@@ -122,6 +122,28 @@ test('espnBoxSource: Score summary lines are carried as lines, never as Scoring 
   assert.equal(first.text, 'Eli Raridon 2 Yd pass from Drake Maye (Andy Borregales Kick)');
 });
 
+test('espnBoxSource: a rushing touchdown Score summary line gives the rusher a rushingTDLengths entry', () => {
+  // NE at SEA had no rushing score; the line shape is real ("Daniel Jones 1 Yd
+  // Rush (Spencer Shrader Kick)", IND 2025 week 1) with a scorer on this roster.
+  const withRush = {
+    ...summary,
+    scoringPlays: [
+      ...summary.scoringPlays,
+      {
+        type: { text: 'Rushing Touchdown' },
+        text: 'Rhamondre Stevenson 3 Yd Rush (Andy Borregales Kick)',
+        period: { number: 4 },
+        clock: { displayValue: '2:00' },
+        team: { abbreviation: 'NE' },
+      },
+    ],
+  };
+  const box = espnBoxSource.fromSummary(withRush, { gameId: GAME_ID });
+  assert.deepEqual(player(box, '4569173').stats.rushingTDLengths, [3]);
+  assert.equal(box.scoreSummaryLines.at(-1).scorerExternalId, '4569173');
+  assert.equal(box.scoreSummaryLines.at(-1).yards, 3);
+});
+
 test('espnBoxSource: a summary with no athletes for a game in progress yields an empty players list (the shape-failure signal)', () => {
   const hollow = {
     header: { id: '1', competitions: [{ id: '1', status: { type: { state: 'in' } }, competitors: summary.header.competitions[0].competitors }] },
