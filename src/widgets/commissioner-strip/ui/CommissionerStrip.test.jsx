@@ -142,6 +142,15 @@ test('a commissioner sees five fact tiles, both console links and the advance co
   const badge = await within(card).findByTestId('commissioner-strip-join-requests');
   expect(badge).toHaveTextContent('Join requests · 1');
   expect(badge).toHaveAttribute('href', '/league/42/commissioner');
+  // `clickable` routes the Chip through ButtonBase (not the bare `component`
+  // it would otherwise render as), which is what carries the theme's
+  // MuiButtonBase keyboard focus-visible ring, hover state and cursor to
+  // this link. Without it the class below is absent and the link's focus
+  // becomes visually silent.
+  expect(badge.className).toMatch(/MuiChip-clickable/);
+  // Still a real anchor (implicit `link` role from `href`), reachable the
+  // same way as a moment ago, `clickable` only changes what carries it.
+  expect(within(card).getByRole('link', { name: /join requests/i })).toBe(badge);
 
   expect(
     within(card).getByRole('link', { name: /league administration/i })

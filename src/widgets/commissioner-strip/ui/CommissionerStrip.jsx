@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, Typography } from '@mui/material';
 import { Card, Badge, StatTile } from '../../../shared/ui';
@@ -59,6 +59,11 @@ export default function CommissionerStrip({ leagueId }) {
     commissionerCount,
     refetch,
   } = useCommissionerStrip(leagueId);
+  // Called unconditionally, ABOVE the presence gate below: a member's first
+  // render and a commissioner's later one (once the league read resolves)
+  // must call the same hooks in the same order, so this cannot sit after an
+  // early return (Rules of Hooks).
+  const headingId = useId();
 
   // Commissioner-only, and ABSENT (not merely hidden) from a member's DOM,
   // exactly as the retired panel was: a non-commissioner gets no card, no
@@ -73,7 +78,7 @@ export default function CommissionerStrip({ leagueId }) {
   const consoleHref = `/league/${leagueId}/commissioner`;
 
   return (
-    <Card data-testid="commissioner-strip" aria-label="Commissioner">
+    <Card data-testid="commissioner-strip" aria-labelledby={headingId}>
       <Box
         sx={{
           display: 'flex',
@@ -86,6 +91,7 @@ export default function CommissionerStrip({ leagueId }) {
       >
         <Box sx={{ order: 1, display: 'grid', gap: '2px', flex: 'none' }}>
           <Typography
+            id={headingId}
             component="h2"
             sx={{
               m: 0,
@@ -141,9 +147,17 @@ export default function CommissionerStrip({ leagueId }) {
             live. A settled queue renders nothing at all rather than a zero. */}
         {pendingJoinRequests > 0 && (
           <Box sx={{ order: { xs: 2, md: 3 }, flex: 'none' }}>
+            {/* `clickable` is required alongside `component` for an anchor
+                Chip (MUI's own guidance): without it Chip renders `component`
+                directly and skips ButtonBase entirely, which is also what
+                carries the theme's MuiButtonBase focus-visible ring
+                (AppThemeProvider.jsx - "every button-like control ...
+                chips") and its hover/cursor treatment. Passing it here is
+                what makes this link's keyboard focus visible, not decoration. */}
             <Badge
               component={RouterLink}
               to={consoleHref}
+              clickable
               variant="warning"
               data-testid="commissioner-strip-join-requests"
               sx={{ ...MIN_TOUCH_TARGET_SX, textDecoration: 'none' }}
