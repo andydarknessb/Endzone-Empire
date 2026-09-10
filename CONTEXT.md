@@ -769,8 +769,8 @@ for the same thing)
 
 **Moment play**:
 An explicitly non-touchdown **Scoring play**: one carrying `isTouchdown` as
-false. A moment play appears briefly on the retro scoreboard and is never
-routed to touchdown cutscenes or toasts. The canonical term for this subset.
+false. A moment play holds the retro scoreboard longer than a touchdown dash
+does and is never routed to touchdown cutscenes or toasts. The canonical term for this subset.
 _Avoid_: moment (unqualified), non-touchdown event
 
 **Record**:
