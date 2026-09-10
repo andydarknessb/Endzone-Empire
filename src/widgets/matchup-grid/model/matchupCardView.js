@@ -1,5 +1,5 @@
 import { matchupStatusView } from '../../../entities/matchup';
-import { matchupWinProbability, formatKickoff, formatPoints } from '../../../shared/lib';
+import { matchupWinProbability, formatKickoff, formatPoints, finite } from '../../../shared/lib';
 import { lookupRecord } from '../lib/records';
 
 /**
@@ -46,8 +46,8 @@ const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', sch
 
 /** Players remaining as a whole number, or a dash when unknown. */
 export function formatCount(value) {
-  const n = value == null ? NaN : Number(value);
-  return Number.isFinite(n) ? String(n) : '-';
+  const n = finite(value);
+  return n != null ? String(n) : '-';
 }
 
 function joinNote(parts) {
