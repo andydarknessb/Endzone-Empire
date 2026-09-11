@@ -371,7 +371,7 @@ test('GET history allTime: sums championships and Record across seasons, from cu
   ]);
 });
 
-test("GET history allTime: a pick'em Team has no Record (never 0), while co-champions each still count", async (t) => {
+test("GET history allTime: a pick'em Team has no Record (never 0); co-champions each still count, and a NON-champion pick'em Team still gets a row", async (t) => {
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql).replace(/\s+/g, ' ').trim();
     if (text.startsWith('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
@@ -383,6 +383,13 @@ test("GET history allTime: a pick'em Team has no Record (never 0), while co-cham
             standings: [
               { teamId: 30, name: 'Pickem Aces', points: 171, correct: 120, incorrect: 10, pushes: 0, pending: 0, made: 130, weekly: {}, rank: 1 },
               { teamId: 40, name: 'Pickem Barons', points: 171, correct: 120, incorrect: 10, pushes: 0, pending: 0, made: 130, weekly: {}, rank: 1 },
+              // Red-tell (#1212): a non-champion pick'em Team (never in
+              // `champions`, so nothing but this standings row would ever add
+              // it to allTime) must still appear, with championships: 0 and
+              // Record: null - the row-set rule is "any archived standings OR
+              // champions", not "champions, or a standings row with a
+              // numeric wins".
+              { teamId: 45, name: 'Pickem Ravens', points: 90, correct: 60, incorrect: 70, pushes: 0, pending: 0, made: 130, weekly: {}, rank: 3 },
             ],
             pickem_only: true,
             champion_team_id: null,
@@ -401,9 +408,9 @@ test("GET history allTime: a pick'em Team has no Record (never 0), while co-cham
             },
             ...NO_TROPHIES,
             ...NO_DRAFT_GRADES,
-            all_team_ids: [30, 40],
-            all_team_names: ['Pickem Aces', 'Pickem Barons'],
-            all_team_avatar_urls: [null, null],
+            all_team_ids: [30, 40, 45],
+            all_team_names: ['Pickem Aces', 'Pickem Barons', 'Pickem Ravens'],
+            all_team_avatar_urls: [null, null, null],
           },
         ],
       };
@@ -420,6 +427,7 @@ test("GET history allTime: a pick'em Team has no Record (never 0), while co-cham
   assert.deepEqual(response.body.allTime, [
     { teamId: 30, name: 'Pickem Aces', avatarUrl: null, championships: 1, wins: null, losses: null, ties: null },
     { teamId: 40, name: 'Pickem Barons', avatarUrl: null, championships: 1, wins: null, losses: null, ties: null },
+    { teamId: 45, name: 'Pickem Ravens', avatarUrl: null, championships: 0, wins: null, losses: null, ties: null },
   ]);
 });
 

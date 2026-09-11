@@ -239,11 +239,17 @@ function buildAllTime(seasons, identity) {
     if (Array.isArray(season.standings)) {
       for (const row of season.standings) {
         if (row == null || row.teamId == null) continue;
-        if (typeof row.wins !== 'number') continue;
+        // Every standings teamId belongs in the row set (row-set rule),
+        // whether or not this row carries a numeric `wins` — a non-champion
+        // pick'em Team must still get a row (championships: 0, Record:
+        // null), so totalFor() runs unconditionally and only the Record sum
+        // below is gated on `wins` being numeric.
         const total = totalFor(row.teamId);
-        total.wins = (total.wins ?? 0) + row.wins;
-        total.losses = (total.losses ?? 0) + (row.losses ?? 0);
-        total.ties = (total.ties ?? 0) + (row.ties ?? 0);
+        if (typeof row.wins === 'number') {
+          total.wins = (total.wins ?? 0) + row.wins;
+          total.losses = (total.losses ?? 0) + (row.losses ?? 0);
+          total.ties = (total.ties ?? 0) + (row.ties ?? 0);
+        }
       }
     }
     if (Array.isArray(season.champions)) {

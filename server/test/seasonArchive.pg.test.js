@@ -423,7 +423,15 @@ if (!ENABLED) {
     );
     leagueId = league.rows[0].id;
 
-    const { seasons, allTime } = await seasonArchive({ leagueId });
+    const spy = countQueries();
+    let seasons;
+    let allTime;
+    try {
+      ({ seasons, allTime } = await seasonArchive({ leagueId }));
+    } finally {
+      spy.restore();
+    }
+    assert.equal(spy.count(), 1, 'seasonArchive must run exactly one query even with zero archived seasons');
     assert.deepEqual(seasons, []);
     assert.deepEqual(allTime, []);
   });
