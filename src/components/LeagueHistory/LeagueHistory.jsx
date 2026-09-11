@@ -164,7 +164,12 @@ function seasonPresentation(season) {
     trophies: Array.isArray(season.trophies) ? season.trophies : [],
     draftGrades: Array.isArray(season.draftGrades) ? season.draftGrades : null,
     champions,
-    pickem: isPickemStandings(standings),
+    // Only a fantasy season carries the singular 'champion' outcome, so
+    // 'champions' (declared pick'em) is an exact signal; isPickemStandings
+    // covers a declared no-champion or legacy-undeclared pick'em season
+    // whose standings shape still gives it away when the outcome string
+    // alone ('no_champion') is shared with fantasy.
+    pickem: season.outcome === 'champions' || isPickemStandings(standings),
     coChampions: champions.length > 1,
     explicitNoChampion: season.outcome === 'no_champion',
   };
@@ -447,13 +452,21 @@ function LeagueHistory() {
     if (Number(update.leagueId) !== Number(leagueId)) return;
     setSeasons((prev) => prev.map((season) => {
       // A declared Pick'em result is frozen archive text (seasonArchive
-      // reads it from pickem_result, never a live Team join), so a live
-      // profile change must never rewrite it. `outcome: 'champions'` (plural)
-      // is unique to that case; a fantasy season's positive outcome is the
-      // singular 'champion', and both types' champion-less outcome is
-      // 'no_champion' with an empty `champions` array a patch is a no-op on
-      // either way.
-      if (season.outcome === 'champions') return season;
+      // reads it from pickem_result, never a live Team join), including its
+      // standings, so a live profile change must never rewrite any of it.
+      // `outcome: 'champions'` (plural) is unique to a declared champions
+      // result. A declared no-champion result also persists 'no_champion'
+      // with an empty `champions` array (pickemSeasonResult.service.js), the
+      // same outcome string a champion-less fantasy season carries - so the
+      // outcome string alone can't tell them apart there, and
+      // isPickemStandings(standings) is what does: a fantasy season's
+      // standings always carry `wins`, a pick'em season's never do. A legacy
+      // pick'em season with no declared result (outcome null) still patches
+      // through, same as before this ticket.
+      if (season.outcome === 'champions'
+        || (season.outcome === 'no_champion' && isPickemStandings(Array.isArray(season.standings) ? season.standings : []))) {
+        return season;
+      }
       return {
         ...season,
         champions: Array.isArray(season.champions)

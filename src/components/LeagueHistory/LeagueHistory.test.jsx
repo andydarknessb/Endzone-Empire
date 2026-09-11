@@ -402,6 +402,86 @@ test("a declared Pick'em no-champion season is explicit rather than reported as 
   expect(within(panel).queryByTestId('champion-banner-2026')).not.toBeInTheDocument();
 });
 
+// A declared Pick'em result is frozen archive text at every outcome, not only
+// a declared champions one: 'no_champion' persists with an empty `champions`
+// array (pickemSeasonResult.service.js), the same outcome string a
+// champion-less fantasy season carries. The subscriber tells them apart by
+// standings shape (isPickemStandings), not the outcome string alone, so a
+// live profile event must still never rewrite a pick'em season's archived
+// standings while a fantasy season's DOES keep patching through.
+test("a live profile update never rewrites a declared Pick'em no-champion season's standings, but still patches a fantasy season's", async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [
+        {
+          season: 2026,
+          outcome: 'no_champion',
+          champions: [],
+          standings: [
+            { teamId: 10, name: 'Archived Aces', rank: 1, points: 171, correct: 120, incorrect: 5, pushes: 2, pending: 0, made: 125, weekly: {} },
+          ],
+          trophies: [],
+          draftGrades: null,
+        },
+        {
+          season: 2025,
+          outcome: 'no_champion',
+          champions: [],
+          standings: [
+            { teamId: 20, name: 'Fantasy Runner', rank: 1, wins: 5, losses: 5, ties: 0, pf: 1000, pa: 1000 },
+          ],
+          trophies: [],
+          draftGrades: null,
+        },
+      ],
+    },
+  });
+
+  renderHistory();
+
+  const pickemPanel = await screen.findByTestId('season-panel-2026');
+  const fantasyPanel = await screen.findByTestId('season-panel-2025');
+  expect(within(pickemPanel).getByText('Archived Aces')).toBeInTheDocument();
+  expect(within(fantasyPanel).getByText('Fantasy Runner')).toBeInTheDocument();
+
+  act(() => publishTeamProfileUpdate({ leagueId: 1, teamId: 10, name: 'Anonymized Pickem Team' }));
+  act(() => publishTeamProfileUpdate({ leagueId: 1, teamId: 20, name: 'Anonymized Fantasy Team' }));
+
+  // Pick'em: frozen archive text, unchanged.
+  expect(within(pickemPanel).getByText('Archived Aces')).toBeInTheDocument();
+  expect(within(pickemPanel).queryByText('Anonymized Pickem Team')).not.toBeInTheDocument();
+  // Fantasy: still a live-sourced name, patches through.
+  expect(within(fantasyPanel).getByText('Anonymized Fantasy Team')).toBeInTheDocument();
+  expect(within(fantasyPanel).queryByText('Fantasy Runner')).not.toBeInTheDocument();
+});
+
+// A declared Pick'em champions season is identifiable from `outcome` alone
+// (it's the one League type that ever carries it), independent of whatever
+// shape its archived standings happen to be - including empty, which
+// isPickemStandings alone can't distinguish from a fantasy season.
+test("a declared Pick'em champions season with no archived standings still renders the Points/Correct headers", async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [{
+        season: 2026,
+        outcome: 'champions',
+        champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
+        standings: [],
+        trophies: [],
+        draftGrades: null,
+      }],
+    },
+  });
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
+  expect(within(table).getByText('Points')).toBeInTheDocument();
+  expect(within(table).getByText('Correct')).toBeInTheDocument();
+  expect(within(table).queryByText('Record')).not.toBeInTheDocument();
+});
+
 // Issue #1009. Both League History record sites printed an unconditional
 // `wins-losses` under a header that read W-L-T, so an 8-4-2 season displayed as
 // 8-4 and the surface promised a tie column it never filled. The payload
