@@ -78,7 +78,6 @@ const teamRow = ({ userId, teamId, teamName }) => ({
   locked: false,
   draft_ready: true,
   roster_count: 0,
-  total_points: '0',
 });
 
 function leagueDetailFake(t, { coCommissioners = [] } = {}) {

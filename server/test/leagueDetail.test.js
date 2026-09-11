@@ -76,7 +76,6 @@ function mockLeagueDetail(t, {
           locked: false,
           draft_ready: true,
           roster_count: 0,
-          total_points: '0',
         }],
       };
     }
@@ -108,7 +107,6 @@ test('GET league detail selects and serializes team readiness', async (t) => {
           locked: false,
           draft_ready: true,
           roster_count: 0,
-          total_points: '0',
         }],
       };
     }
