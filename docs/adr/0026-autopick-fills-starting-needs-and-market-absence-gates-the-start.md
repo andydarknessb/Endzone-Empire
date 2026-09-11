@@ -56,3 +56,7 @@ did before.
 - The start gate needs the market to be an observable fact, which is why the
   sync record and the scheduled sync ship with the gate (#747) rather than
   with this ADR's implementation (#746).
+
+## Amendment (2026-09-11): the wipe guard also refuses on too few matched players (#747 decision 5, #1227)
+
+Decision 5 (#747) read the wipe guard as refusing a Success body with fewer than MARKET_FLOOR usable entries. Ruling (Cory): that guard alone is not enough - a body can clear it and still match few or no roster rows after an upstream name-format or team-code change, committing a near-empty market as a successful run. Decision 5 now reads: fewer than MARKET_FLOOR usable entries, or fewer than MARKET_FLOOR matched players, is a refused run; nothing is written to `players` either way. A match-ratio guard was considered and rejected: one constant, one floor, read by every gate.

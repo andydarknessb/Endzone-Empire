@@ -207,27 +207,103 @@ test('syncAdp wipe guard: a thin Success body writes nothing to players and reco
   assert.equal(runDetail(runs[0]).adpPlayers, MARKET_FLOOR - 50, 'the thin count is recorded for diagnosis');
 });
 
-test('syncAdp on a full Success body refreshes players and records ok=true with the matched count', async (t) => {
-  // 200 usable entries clears MARKET_FLOOR, so the reset-and-set runs. Lowering
-  // this fixture below MARKET_FLOOR (e.g. to 99) trips the guard above instead,
-  // turning the ok=true assertion red - the guard's other half.
-  stubFfc(t, ffcBody(200));
+// ---- the match guard: enough entries, too few of them hit the roster (#1227) -
+
+test('syncAdp match guard: enough usable entries but too few matching a roster row is a refused run (thin_match)', async (t) => {
+  // The point of this ticket: a Success body that clears the entries guard
+  // (MARKET_FLOOR + 50 well-formed rows) but whose names hit nothing in the
+  // fake roster must not be allowed to NULL every ADP either. No players
+  // UPDATE handler is registered on purpose: if the guard let execution reach
+  // a wipe, fakePool throws "unexpected query" and this test goes red.
+  stubFfc(t, ffcBody(MARKET_FLOOR + 50));
   const fake = createFakePool([
     [select('players'), () => ({
-      rows: [
-        { id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' },
-        { id: 2, name: 'Player 2', position: 'RB', nfl_team: 'KC' },
-      ],
+      rows: [{ id: 1, name: 'Nobody Matches', position: 'RB', nfl_team: 'KC' }],
     })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const result = await syncAdp();
+
+  // Same resolved shape as the thin_market refusal (#1201, lead pre-launch
+  // note), except reason and playersMatched, which now carries the measured
+  // count.
+  assert.deepEqual(result, {
+    ok: false,
+    skipped: true,
+    reason: 'thin_match',
+    format: 'half-ppr',
+    teams: 12,
+    adpPlayers: MARKET_FLOOR + 50,
+    playersMatched: 0,
+    playersUpdated: 0,
+  });
+  assert.equal(fake.matching(update('players')).length, 0, 'the market must not be wiped');
+  assert.equal(fake.matching(select('players')).length, 1, 'unlike thin_market, this guard runs after the roster is read');
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1, 'exactly one run recorded');
+  assert.equal(runOk(runs[0]), false);
+  // Migrated onto runSyncJob the same way as thin_market: reason 'refused',
+  // refusalReason 'thin_match'. Red-tell: a mapping that records anything
+  // else here turns this red.
+  assert.equal(runDetail(runs[0]).reason, 'refused');
+  assert.equal(runDetail(runs[0]).refusalReason, 'thin_match');
+  assert.equal(runDetail(runs[0]).adpPlayers, MARKET_FLOOR + 50);
+  assert.equal(runDetail(runs[0]).matched, 0, 'the measured match count is recorded for diagnosis');
+});
+
+test('syncAdp match guard: exactly MARKET_FLOOR matched players applies normally (boundary)', async (t) => {
+  // The other half of the guard: MARKET_FLOOR matched is healthy, not thin.
+  // Lowering the roster below MARKET_FLOOR names would trip the guard above
+  // instead, turning the ok=true assertion red.
+  stubFfc(t, ffcBody(MARKET_FLOOR));
+  const roster = Array.from({ length: MARKET_FLOOR }, (_, i) => ({
+    id: i + 1,
+    name: `Player ${i + 1}`,
+    position: 'RB',
+    nfl_team: 'KC',
+  }));
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: roster })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
-    [update('players'), () => ({ rows: [], rowCount: 2 })],
+    [update('players'), () => ({ rows: [], rowCount: MARKET_FLOOR })],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
   ]).install(t);
 
   const result = await syncAdp();
 
   assert.equal(result.ok, true);
-  assert.equal(result.playersMatched, 2);
+  assert.equal(result.playersMatched, MARKET_FLOOR, 'exactly the floor still counts as a healthy match');
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1);
+  assert.equal(runOk(runs[0]), true);
+  assert.equal(runDetail(runs[0]).matched, MARKET_FLOOR);
+});
+
+// A roster of `count` players named "Player 1".."Player count", each RB, so
+// it lines up one-to-one with the same-shaped prefix of ffcBody's entries -
+// used below to clear the match guard as well as the entries guard.
+const fullRoster = (count) =>
+  Array.from({ length: count }, (_, i) => ({ id: i + 1, name: `Player ${i + 1}`, position: 'RB', nfl_team: 'KC' }));
+
+test('syncAdp on a full Success body refreshes players and records ok=true with the matched count', async (t) => {
+  // 200 usable entries clears MARKET_FLOOR, and a 150-player roster (well
+  // above MARKET_FLOOR) clears the match guard too, so the reset-and-set
+  // runs. Lowering the roster below MARKET_FLOOR matches trips the match
+  // guard instead, turning the ok=true assertion red - that guard's other
+  // half (see the dedicated match-guard tests above).
+  stubFfc(t, ffcBody(200));
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: fullRoster(150) })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
+    [update('players'), () => ({ rows: [], rowCount: 150 })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const result = await syncAdp();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.playersMatched, 150);
   // The reset-and-set: one NULL wipe and one bulk set, both after the guard.
   assert.equal(fake.matching(/^UPDATE "players" SET "adp" = NULL/).length, 1);
   assert.equal(fake.matching(/^UPDATE "players" p SET "adp"/).length, 1);
@@ -263,7 +339,7 @@ test('syncAdp on a full Success body refreshes players and records ok=true with 
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1);
   assert.equal(runOk(runs[0]), true);
-  assert.equal(runDetail(runs[0]).matched, 2, 'the matched count is recorded');
+  assert.equal(runDetail(runs[0]).matched, 150, 'the matched count is recorded');
   assert.equal(runDetail(runs[0]).adpPlayers, 200);
 });
 
@@ -276,7 +352,7 @@ test('syncAdp rolls back and records ok=false when the bulk set throws, leaving 
   stubFfc(t, ffcBody(200));
   const boom = new Error('bulk set failed mid-transaction');
   const fake = createFakePool([
-    [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    [select('players'), () => ({ rows: fullRoster(150) })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
     // The wipe succeeds; only the bulk set throws, so the wipe is what must be
     // undone by the ROLLBACK.
@@ -314,7 +390,7 @@ test('syncAdp: a rejecting ROLLBACK destroys the connection and the original err
   stubFfc(t, ffcBody(200));
   const boom = new Error('bulk set failed mid-transaction');
   const fake = createFakePool([
-    [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    [select('players'), () => ({ rows: fullRoster(150) })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
     [/^UPDATE "players" SET "adp" = NULL/, () => ({ rows: [], rowCount: 1 })],
     [/^UPDATE "players" p SET "adp"/, () => { throw boom; }],
@@ -356,9 +432,9 @@ test('a failed data_sync_runs record never masks a correctly refreshed market', 
   // and not stop the scheduler day-stamping.
   stubFfc(t, ffcBody(200));
   const fake = createFakePool([
-    [select('players'), () => ({ rows: [{ id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' }] })],
+    [select('players'), () => ({ rows: fullRoster(150) })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
-    [update('players'), () => ({ rows: [], rowCount: 1 })],
+    [update('players'), () => ({ rows: [], rowCount: 150 })],
     [insert('data_sync_runs'), () => { throw new Error('relation "data_sync_runs" does not exist'); }],
   ]).install(t);
 

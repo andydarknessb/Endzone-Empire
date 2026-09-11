@@ -18,11 +18,14 @@ const FFC_BASE = 'https://fantasyfootballcalculator.com/api/v1/adp';
 const VALID_FORMATS = new Set(['standard', 'ppr', 'half-ppr', '2qb', 'dynasty', 'rookie']);
 
 // The market-health thresholds (#747). MARKET_FLOOR is the count of players
-// carrying an ADP below which the market is treated as absent, and it is the one
-// every gate reads: the wipe guard refuses a Success body with fewer usable
-// entries, draft start (draftStart.service, draftSchedule.service) refuses
-// when fewer than this many players carry a non-null adp, and getMarketStatus
-// below reports it as the commissioner-visible `floor`. MARKET_STALE_DAYS is
+// carrying an ADP below which the market is treated as absent, and it is the
+// one every gate reads: the wipe guard refuses a Success body with fewer than
+// MARKET_FLOOR usable entries, OR with at least that many usable entries but
+// fewer than MARKET_FLOOR of them matching a roster player (#747 decision 5,
+// amended 2026-09-11) - draft start (draftStart.service,
+// draftSchedule.service) refuses when fewer than this many players carry a
+// non-null adp, and getMarketStatus below reports it as the
+// commissioner-visible `floor`. MARKET_STALE_DAYS is
 // the age (in days since the last ok run) past which the market is meant to read
 // as stale; it is exported here so no gate hardcodes the number, and
 // getMarketStatus is what reads it (#748).
@@ -188,7 +191,10 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
       format: fmt,
       teams,
       adpPlayers: detail.adpPlayers || 0,
-      playersMatched: 0,
+      // thin_market never reads the roster, so its detail carries no
+      // `matched` and this stays 0; thin_match carries the measured count
+      // that tripped the refusal (#1227).
+      playersMatched: detail.matched != null ? detail.matched : 0,
       playersUpdated: 0,
     };
   }
@@ -211,13 +217,22 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
  * untagged throw, tagged `fetch_failed` by `runSyncJob`; an unexpected body
  * shape is pre-tagged `bad_response` (statusCode 502) here, same as before.
  *
- * THE WIPE GUARD (#747, decision 5). The apply step NULLs every ADP before
- * setting the matched values, so a Success body with too few players would
- * empty the whole market. A body with fewer than MARKET_FLOOR usable entries
- * is a refusal: nothing is written to players (and the roster is not even
- * read), and `runSyncJob` records the run ok=false with reason 'refused' and
- * `thin_market` as the refusalReason, `adpPlayers` carried through in
- * `detail` (#1197 R3).
+ * THE WIPE GUARD (#747, decision 5, amended 2026-09-11). The apply step NULLs
+ * every ADP before setting the matched values, so a Success body with too
+ * few USABLE entries, or too few of those entries that actually MATCH a
+ * roster row, would empty the whole market either way. Two checks, one
+ * constant:
+ * - too few usable entries is a refusal before the roster is even read:
+ *   nothing is written to players, and `runSyncJob` records the run
+ *   ok=false with reason 'refused' and `thin_market` as the refusalReason,
+ *   `adpPlayers` carried through in `detail` (#1197 R3).
+ * - enough usable entries but too few of them matching a roster row (an
+ *   upstream name-format or team-code change would do it) is also a
+ *   refusal, `thin_match`, checked after `buildAdpUpdates` runs: nothing is
+ *   written to players, and `runSyncJob` records ok=false with
+ *   refusalReason 'thin_match', `adpPlayers` and `matched` both carried
+ *   through in `detail`. A match-ratio guard was considered and rejected
+ *   (#1227): one constant, one floor, read by every gate.
  */
 async function fetchAdpUnit(fmt, teams, year) {
   const api = adpClient();
@@ -254,6 +269,20 @@ async function fetchAdpUnit(fmt, teams, year) {
 
   const players = await pool.query(`SELECT "id", "name", "position", "nfl_team" FROM "players"`);
   const updates = buildAdpUpdates(players.rows, entries);
+
+  if (updates.length < MARKET_FLOOR) {
+    // The entries guard above only proves FFC sent enough well-formed rows;
+    // it says nothing about whether those rows hit our roster. A mass
+    // name-format or team-code mismatch upstream would pass that guard and
+    // then wipe the market down to whatever the (few or zero) matches leave
+    // behind. Refuse the same way the entries guard does: log here (the
+    // record is best-effort and the table may not exist yet), write nothing.
+    console.warn(
+      `ADP sync refused: ${updates.length} matched players is below the ${MARKET_FLOOR}-player market floor (of ${entries.length} usable entries); players left unchanged`
+    );
+    return { refused: true, reason: 'thin_match', detail: { adpPlayers: entries.length, matched: updates.length } };
+  }
+
   return [{ entries, updates }];
 }
 
