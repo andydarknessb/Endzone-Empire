@@ -62,6 +62,42 @@ test('GET lineup/:playerId/context: a player not on the caller\'s roster is refu
   assert.equal('error' in res.body, false, 'ADR 0032: no bare error field beside a coded refusal');
 });
 
+test('GET lineup/:playerId/context: the roster check is scoped to the CALLER\'s own team, not the league at large', async (t) => {
+  const fake = createFakePool([
+    ...baseHandlers(),
+    [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "week" FROM "nfl_games"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  const res = await request(app)
+    .get(`/api/team/lineup/${PLAYER.id}/context`)
+    .query({ leagueId: VIEWER.leagueId, week: 5 })
+    .set('Authorization', authed);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  // The gate is this one predicate: team_players.team_id = requireMember's
+  // own team.id, never just the league. Pinned so a regression that widened
+  // the WHERE clause (e.g. to "any team in this league") fails here rather
+  // than silently returning another manager's player.
+  const rosterCall = fake.matching(select('team_players'))[0];
+  assert.deepEqual(rosterCall.params, [VIEWER.teamId, PLAYER.id]);
+});
+
+test('GET lineup/:playerId/context: a caller who holds no team in the league is refused (403), before any roster check', async (t) => {
+  createFakePool([
+    [select('leagues'), () => ({ rows: [leagueRow()] })],
+    [select('teams'), () => ({ rows: [] })], // requireMember: not a member
+  ]).install(t);
+
+  const res = await request(app)
+    .get(`/api/team/lineup/${PLAYER.id}/context`)
+    .query({ leagueId: VIEWER.leagueId })
+    .set('Authorization', authed);
+
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+});
+
 test('GET lineup/:playerId/context: all three of line, weather and usage present', async (t) => {
   createFakePool([
     ...baseHandlers(),
