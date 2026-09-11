@@ -183,10 +183,15 @@ test('getWeeklyOdds: reads only the newest snapshot per game (criterion 3), filt
       // The DISTINCT ON / ORDER BY ... DESC does the newest-per-game work in
       // SQL; the fake just returns what a correct query would already have
       // picked, since this harness does not simulate real row semantics.
+      // observed_at is a JS Date, not a string - pool.js installs no pg type
+      // parser for timestamptz, so that is what a real query actually hands
+      // back (formal review, PR #1259 f1). Handing in a Date here is what
+      // makes the assertion below exercise the toISOString conversion
+      // instead of merely echoing a string literal back at itself.
       return {
         rows: [{
           game_key: '2026_02_BUF_MIA', total: '47.5', spread: '-3.5',
-          observed_at: '2026-09-11T18:00:00.000Z', source: 'espn',
+          observed_at: new Date('2026-09-11T18:00:00.000Z'), source: 'espn',
         }],
       };
     }],

@@ -189,7 +189,13 @@ async function getWeeklyOdds({ season, week, client } = {}) {
       total: row.total == null ? null : Number(row.total),
       spread: row.spread == null ? null : Number(row.spread),
       source: row.source,
-      observedAt: row.observed_at,
+      // vegasOdds.provider.js's GameOdds typedef documents this as an
+      // ISO-8601 STRING; `pool.js` installs no pg type parser for
+      // timestamptz, so `row.observed_at` arrives as a JS Date and must be
+      // converted on the way out (formal review, PR #1259 f1) rather than
+      // passed through the way decisionCardContext.service.js's loadLine
+      // does for its own unrelated, string-vs-Date-indifferent JSON response.
+      observedAt: row.observed_at == null ? null : new Date(row.observed_at).toISOString(),
     });
   }
   return map;

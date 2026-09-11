@@ -288,9 +288,12 @@ let lastOddsSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
  * credential gate, and an in-memory interval gate is safe even across a
  * worker restart - the worst case is one extra free, unmetered fetch, not a
  * wasted budget. Runs the odds Sync run (services/espnOdds.provider.js) once
- * per distinct (season, week) slate any live fantasy league is currently on -
- * the same distinct-weeks read `syncAndScoreLiveWeeks` uses below - so a
- * league mid-transition to a new week still gets both weeks' slates priced.
+ * per distinct (season, week) slate any live fantasy league is currently on,
+ * read with the same `fantasySeasonLiveWhereSql()` predicate
+ * `syncAndScoreLiveWeeks` uses below (that function then dedupes in JS and
+ * keeps each league's id; this one only needs the distinct pairs, so it lets
+ * SQL do the DISTINCT and discards ids) - so a league mid-transition to a new
+ * week still gets both weeks' slates priced.
  * A single week's throw is logged and does not stop the other weeks' syncs;
  * the interval is stamped once the set of weeks is known, so a read failure
  * here retries next tick same as everywhere else in this module.
