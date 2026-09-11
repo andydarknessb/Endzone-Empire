@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Box } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { Card } from '../../../shared/ui';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { buildLedgerSections } from '../model/buildLedgerSections';
+import { useBenchPointsLeft } from '../model/useBenchPointsLeft';
 import LedgerRow from './LedgerRow';
 
 /**
@@ -24,8 +25,16 @@ import LedgerRow from './LedgerRow';
  * target (`MIN_TOUCH_TARGET_SX`, `src/lib/a11y`). The page around this
  * widget owns its own vertical scrolling; nothing here forces horizontal
  * scroll (rows wrap rather than overflow).
+ *
+ * The Bench card also carries AC5's bench-points-left line (this widget's
+ * own `useBenchPointsLeft` read of the existing hindsight endpoint, keyed
+ * off `leagueId` plus the `lineup` prop's own `teamId`/`season`), and
+ * `onOpenQuickView` is forwarded to every occupied row so its player name
+ * can open the page-owned Quick View dialog (see `../index.js`'s
+ * below-island edges note for why that control lives below the island).
  */
 export default function LineupLedger({
+  leagueId,
   lineup,
   league,
   liveGamesByKey,
@@ -37,6 +46,7 @@ export default function LineupLedger({
   onRowClick,
   canDropEntry,
   onRequestDrop,
+  onOpenQuickView,
 }) {
   const [mobileTab, setMobileTab] = useState('starters');
   const entries = Array.isArray(lineup?.entries) ? lineup.entries : [];
@@ -46,6 +56,9 @@ export default function LineupLedger({
     benchSlots: lineup?.benchSlots,
     irSlots: lineup?.irSlots,
   });
+  // AC5: "the bench points left on the table line reads the existing
+  // hindsight endpoint" (formal review finding ac5-hindsight-line-missing).
+  const benchPointsLeft = useBenchPointsLeft({ leagueId, teamId: lineup?.teamId, season: lineup?.season });
 
   const rowProps = (row) => {
     const entry = row.entry;
@@ -71,6 +84,7 @@ export default function LineupLedger({
       canDrop: Boolean(entry && !entry.spent && canDropEntry?.(entry)),
       onClick: (event) => onRowClick?.(entry, row.slotType, event),
       onRequestDrop,
+      onOpenQuickView,
     };
   };
 
@@ -100,6 +114,15 @@ export default function LineupLedger({
             </Card>
           )}
           <Card title="Bench" data-testid="ledger-bench">
+            {benchPointsLeft.text && (
+              <Typography
+                component="p"
+                data-testid="bench-points-left"
+                sx={{ m: 0, px: '12px', pt: '10px', fontSize: '12px', color: 'var(--dash-faint)' }}
+              >
+                {benchPointsLeft.text}
+              </Typography>
+            )}
             <Box sx={{ p: '12px', maxHeight: { sm: 560 }, overflowY: { sm: 'auto' } }}>
               {bench.map((row) => {
                 const { key, ...props } = rowProps(row);

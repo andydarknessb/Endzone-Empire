@@ -26,7 +26,8 @@ const entry = (overrides = {}) => ({
 
 test('an empty slot renders a placeholder and no player content', () => {
   render(<LedgerRow slotLabel="QB" entry={null} onClick={jest.fn()} data-testid="row" />);
-  expect(screen.getByTestId('row')).toHaveTextContent('Empty');
+  expect(screen.getByText('Empty')).toBeInTheDocument();
+  expect(screen.getByTestId('row')).toHaveAttribute('aria-label', 'Empty QB slot');
   expect(screen.queryByTestId('ledger-projection')).toBeNull();
 });
 
@@ -37,6 +38,24 @@ test('an occupied row shows name, position/team code, and calls onClick', async 
   expect(screen.getByText('QB · BUF')).toBeInTheDocument();
   await userEvent.click(screen.getByTestId('row'));
   expect(onClick).toHaveBeenCalledTimes(1);
+});
+
+// Formal review finding legacy-controls-dropped-without-a-criterion: the
+// player name is a real link (opens Quick View) again, restored as a
+// sibling control so it is independently clickable without becoming a
+// nested-interactive descendant of the row's own button.
+test('the player name opens Quick View without triggering the row click, and is not nested inside it', async () => {
+  const onClick = jest.fn();
+  const onOpenQuickView = jest.fn();
+  render(
+    <LedgerRow slotLabel="QB" entry={entry()} onClick={onClick} onOpenQuickView={onOpenQuickView} data-testid="row" />
+  );
+  const nameLink = screen.getByRole('button', { name: 'Josh Allen' });
+  const row = screen.getByTestId('row');
+  expect(row).not.toContainElement(nameLink);
+  await userEvent.click(nameLink);
+  expect(onOpenQuickView).toHaveBeenCalledWith(1);
+  expect(onClick).not.toHaveBeenCalled();
 });
 
 test('a locked row shows the lock icon and not the legacy chip text', () => {
@@ -63,9 +82,38 @@ test('an Unavailable row shows the reason in the projection cell and a dash for 
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
 });
 
-test('an available row shows the projection cell as a number and a dash for points', () => {
+test('an Unavailable Game cell reads its own reason state, distinct from bye (formal review)', () => {
+  const { rerender } = render(
+    <LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onClick={jest.fn()} data-testid="row" />
+  );
+  expect(screen.getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'unavailable');
+
+  rerender(
+    <LedgerRow slotLabel="WR" entry={entry({ onBye: true, availability: { available: false, reason: 'bye' } })} onClick={jest.fn()} data-testid="row" />
+  );
+  expect(screen.getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'bye');
+});
+
+test('an available row with no points yet (pre-kickoff) shows the projection cell as a number and a dash for points', () => {
   render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('24.3');
+  expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
+});
+
+test('an available row with actual points (live or final) shows them in the points cell', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-points')).toHaveTextContent('12.4');
+});
+
+test('an Unavailable row shows a dash for points even when the wire carries a points value', () => {
+  render(
+    <LedgerRow
+      slotLabel="WR"
+      entry={entry({ points: 5, availability: { available: false, reason: 'out' } })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
 });
 
@@ -147,7 +195,7 @@ test('a spent row is marked disabled and shows a SPENT indicator', async () => {
   const onClick = jest.fn();
   render(<LedgerRow slotLabel="WR" entry={entry({ spent: true })} onClick={onClick} disabled data-testid="row" />);
   expect(screen.getByTestId('ledger-spent-chip')).toBeInTheDocument();
-  expect(screen.getByTestId('row')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByTestId('row')).toBeDisabled();
   await userEvent.click(screen.getByTestId('row'));
   expect(onClick).not.toHaveBeenCalled();
 });

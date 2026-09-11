@@ -28,6 +28,13 @@ test('bye renders the warning variant', () => {
   expect(screen.getByTestId('game-state-chip')).toHaveAttribute('data-variant', 'warning');
 });
 
+test('unavailable renders the warning variant, distinct from bye in its data-game-state', () => {
+  render(<GameStateChip state="unavailable">out</GameStateChip>);
+  const chip = screen.getByTestId('game-state-chip');
+  expect(chip).toHaveAttribute('data-variant', 'warning');
+  expect(chip).toHaveAttribute('data-game-state', 'unavailable');
+});
+
 test('an unrecognized state falls back to neutral rather than throwing', () => {
   render(<GameStateChip state="unknown">?</GameStateChip>);
   expect(screen.getByTestId('game-state-chip')).toHaveAttribute('data-variant', 'neutral');
