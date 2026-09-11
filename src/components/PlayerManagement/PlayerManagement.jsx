@@ -44,7 +44,7 @@ import PlayerQuickView from "../PlayerQuickView/PlayerQuickView";
 import PlayerAvatar from "../PlayerQuickView/PlayerAvatar";
 import PositionChip from "../PlayerQuickView/PositionChip";
 import { useSnackbar } from "../Snackbar/SnackbarProvider";
-import AbbreviationTooltip from "../common/AbbreviationTooltip";
+import AbbreviationTooltip from "../../shared/ui/AbbreviationTooltip";
 import { rosterActionForPhase } from "../../lib/leaguePhase";
 import { isPickemOnly } from "../../lib/leagueType";
 import {

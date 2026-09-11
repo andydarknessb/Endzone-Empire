@@ -1,9 +1,8 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Badge, Card, GradeChip, Skeleton } from '../../../shared/ui';
+import { AbbreviationTooltip, Badge, Card, GradeChip, Skeleton } from '../../../shared/ui';
 import { ToggleGradeDetails, useGradeDetails } from '../../../features/toggle-grade-details';
-import AbbreviationTooltip from '../../../components/common/AbbreviationTooltip';
 import useDraftGrades from '../model/useDraftGrades';
 
 /**
