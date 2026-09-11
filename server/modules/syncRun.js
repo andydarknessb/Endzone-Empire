@@ -33,9 +33,8 @@ const { withTransaction } = require('./withTransaction');
  *   `ok` is true only when every unit applied; the outcome and any failed
  *   units live in `detail`, since the table carries no `reason` column.
  * - On success `runSyncJob` resolves to the single unit's `apply` result when
- *   there was exactly one unit - today's two one-unit callers, injuries and
- *   ADP, both rely on this: their result is `apply`'s return value unwrapped -
- *   or `{ results: [...] }` for zero or more than one. On a unit failure it
+ *   there was exactly one unit (`apply`'s return value unwrapped), or
+ *   `{ results: [...] }` for zero or more than one. On a unit failure it
  *   rethrows the ORIGINAL error from the first unit that failed (with any
  *   `error.rollbackError` `withTransaction` attached), after recording; on a
  *   fetch failure it rethrows the (possibly pre-tagged) fetch error the same
