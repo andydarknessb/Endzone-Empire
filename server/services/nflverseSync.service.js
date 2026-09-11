@@ -203,21 +203,113 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
  * there), and re-score every league sitting on that week — reusing
  * correction.service's correctLeagueWeek (the same recompute/notify path
  * Tank01 stat corrections use), not a new scoring code path.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction
+ * and the one data_sync_runs row per run, job 'nflverse-week' — no lock
+ * (per-week player_stats rows, the same reasoning as the week-stats job:
+ * these are not a whole-table bulk writer). The unit covers only the
+ * player_stats patch writes (#1204 ruling #2): apply does the known-players
+ * read and the per-player read-merge-upsert on the transaction client. The
+ * league re-score loop runs AFTER runSyncJob resolves and OUTSIDE its
+ * transaction, only on an ok run (a failed run throws before reaching it) —
+ * it keeps its own per-League try/catch, so a re-score failure never fails
+ * the run or rolls back the write it is scoring. Resolved value is
+ * unchanged: `{ season, week, playersUpdated, leaguesRescored }`.
  */
 async function syncNflverseWeek({ season, week }) {
+  const result = await runSyncJob({
+    job: 'nflverse-week',
+    lock: null,
+    fetch: () => fetchNflverseWeekUnit({ season, week }),
+    apply: (client, unit) => applyNflverseWeekUnit(client, unit),
+  });
+  if (result.playersUpdated === 0) {
+    return { ...result, leaguesRescored: 0 };
+  }
+  const leaguesRescored = await rescoreLeaguesForWeek({ season, week });
+  return { ...result, leaguesRescored };
+}
+
+/**
+ * fetch() for the nflverse-week job: the two nflverse network fetches, before
+ * any transaction or lock. Returns one unit — everything apply needs to
+ * compute and write this week's patches.
+ */
+async function fetchNflverseWeekUnit({ season, week }) {
   const [defRows, crosswalk] = await Promise.all([
     fetchPlayerWeekStatsForSeason(season),
     fetchPlayersCrosswalk(),
   ]);
-  return applyNflverseWeek({ season, week, defRows, crosswalk });
+  return [{ season, week, defRows, crosswalk }];
 }
 
 /**
- * Apply one (season, week)'s patches from already-fetched nflverse data.
- * Split from syncNflverseWeek so a multi-week backfill can download the
+ * apply(client, unit) for the nflverse-week job: runs inside runSyncJob's
+ * withTransaction, no lock. Does the known-players read and the per-player
+ * read-merge-upsert on `client` — the write-only half of what
+ * `applyNflverseWeek` below does; the league re-score loop is deliberately
+ * NOT here (#1204 ruling #2), so it runs outside this transaction.
+ */
+async function applyNflverseWeekUnit(client, { season, week, defRows, crosswalk }) {
+  const weekRows = filterRowsForWeek(defRows, { season, week });
+
+  const knownPlayers = await client.query(
+    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+  );
+  const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
+
+  const updates = buildStatUpdates({ defRows: weekRows, crosswalk, knownPlayersByExternalId: idByExternal });
+  let playersUpdated = 0;
+  for (const { playerId, patch } of updates) {
+    const existing = await client.query(
+      `SELECT "stats" FROM "player_stats" WHERE "player_id" = $1 AND "season" = $2 AND "week" = $3`,
+      [playerId, season, week]
+    );
+    const prevStats = existing.rows[0] ? existing.rows[0].stats : {};
+    const stats = { ...prevStats, ...patch };
+    const points = scoring.calculateFantasyPoints(stats);
+    await client.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT ("player_id", "season", "week")
+       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
+      [playerId, season, week, JSON.stringify(stats), points]
+    );
+    playersUpdated += 1;
+  }
+  return { season, week, playersUpdated };
+}
+
+/**
+ * The league re-score loop for one (season, week), split out so
+ * syncNflverseWeek can run it after its Sync run commits and outside its
+ * transaction (#1204 ruling #2). Same shape `applyNflverseWeek` below uses:
+ * per-League try/catch, a failure logs and does not fail the caller.
+ */
+async function rescoreLeaguesForWeek({ season, week }) {
+  const leaguesResult = await pool.query(`SELECT "id" FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`);
+  let leaguesRescored = 0;
+  for (const league of leaguesResult.rows) {
+    try {
+      const outcome = await correction.correctLeagueWeek({ leagueId: league.id, season, week });
+      if (outcome.changes.length > 0) leaguesRescored += 1;
+    } catch (err) {
+      console.error('nflverse finalization: re-score failed for league %s:', league.id, err.message);
+    }
+  }
+  return leaguesRescored;
+}
+
+/**
+ * Apply one (season, week)'s patches from already-fetched nflverse data,
+ * outside any Sync run — no transaction, no lock, no data_sync_runs row.
+ * `syncNflverseWeek` above no longer calls this (#1204: it is now its own
+ * Sync run, job 'nflverse-week', via `fetchNflverseWeekUnit`/
+ * `applyNflverseWeekUnit`); this stays exactly as it was for its one
+ * remaining caller, `scripts/backfill-weekly-stats.js`, which downloads the
  * season defense file and the (large) players crosswalk once per season
- * instead of once per week, and skip the league re-score loop for
- * historical weeks no league ever sat on.
+ * instead of once per week and always passes `rescoreLeagues: false` to skip
+ * the league re-score loop for historical weeks no league ever sat on.
  */
 async function applyNflverseWeek({ season, week, defRows, crosswalk, rescoreLeagues = true }) {
   const weekRows = filterRowsForWeek(defRows, { season, week });
