@@ -1228,8 +1228,7 @@ router.get('/:id/draft-grades', async (req, res) => {
 // outcome, trophies, and draft grades per completed season, plus `allTime`
 // (#1212): the League's all-time Team roster (championships and the
 // all-time Record, CONTEXT.md "Record"). One seasonArchive() read decides
-// all of it server-side; the route only adds membership and the deprecated
-// singular `champion` projection.
+// all of it server-side; the route only adds membership.
 router.get('/:id/history', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
