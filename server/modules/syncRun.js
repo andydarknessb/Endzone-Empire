@@ -13,10 +13,14 @@ const { withTransaction } = require('./withTransaction');
  *
  * - `fetch()` runs first, outside any transaction and outside any lock. It
  *   returns `units[]`, the work `apply` will run once per unit, or
- *   `{ refused: true, reason }` when the feed answered but the job declines to
- *   write (a thin ADP market, say). An untagged throw from `fetch` is tagged
- *   `fetch_failed`; `fetch` may pre-tag `error.syncFailureReason` itself (a 502
- *   shape guard tags `bad_response`) and that tag wins.
+ *   `{ refused: true, reason, detail }` when the feed answered but the job
+ *   declines to write (a thin ADP market, say); `detail` is optional and, when
+ *   given, is merged into the recorded row's detail and onto the resolved
+ *   refusal alongside `refused`/`reason` (a caller reads it back to report,
+ *   say, the usable count that tripped the refusal). An untagged throw from
+ *   `fetch` is tagged `fetch_failed`; `fetch` may pre-tag
+ *   `error.syncFailureReason` itself (a 502 shape guard tags `bad_response`)
+ *   and that tag wins.
  * - `apply(client, unit)` runs once per unit, each unit in its own transaction
  *   (`withTransaction(pool, ..., { label: job })`) after
  *   `SELECT pg_advisory_xact_lock($1)` with `lock`, when the job takes one. A
@@ -29,13 +33,14 @@ const { withTransaction } = require('./withTransaction');
  *   `ok` is true only when every unit applied; the outcome and any failed
  *   units live in `detail`, since the table carries no `reason` column.
  * - On success `runSyncJob` resolves to the single unit's `apply` result when
- *   there was exactly one unit - today's only caller, the injuries job, has
- *   exactly one, so its result is `apply`'s return value unwrapped - or
- *   `{ results: [...] }` for zero or more than one. On a unit failure it
+ *   there was exactly one unit - today's two one-unit callers, injuries and
+ *   ADP, both rely on this: their result is `apply`'s return value unwrapped -
+ *   or `{ results: [...] }` for zero or more than one. On a unit failure it
  *   rethrows the ORIGINAL error from the first unit that failed (with any
  *   `error.rollbackError` `withTransaction` attached), after recording; on a
  *   fetch failure it rethrows the (possibly pre-tagged) fetch error the same
- *   way. A refusal never throws; it resolves to `{ refused: true, reason }`.
+ *   way. A refusal never throws; it resolves to `{ refused: true, reason }`
+ *   plus `detail` when `fetch` supplied one.
  *   Tagging a thrown value with `.syncFailureReason` is best-effort: a frozen
  *   object or a non-object throw (a string, say) cannot carry the tag, and
  *   `tagReason` below reads that failure rather than letting it replace the
@@ -58,13 +63,20 @@ async function runSyncJob({ job, lock, fetch, apply }) {
   }
 
   if (units && units.refused) {
-    await recordDataSyncRun({
-      job,
-      startedAt,
-      ok: false,
-      detail: { reason: 'refused', refusalReason: units.reason || null },
-    });
-    return { refused: true, reason: units.reason || null };
+    // `reason`/`refusalReason` are this module's own markers of a refusal,
+    // spread in AFTER the caller's detail so a fetch that happens to return
+    // `detail: { reason: ... }` (qa-reviewer #1201: a theoretical risk today,
+    // since the only caller supplies `{ adpPlayers }`) can never overwrite
+    // them and turn a refused row unreadable as such.
+    const recordedDetail = {
+      ...(units.detail || {}),
+      reason: 'refused',
+      refusalReason: units.reason || null,
+    };
+    await recordDataSyncRun({ job, startedAt, ok: false, detail: recordedDetail });
+    const resolved = { refused: true, reason: units.reason || null };
+    if (units.detail) resolved.detail = units.detail;
+    return resolved;
   }
 
   const list = Array.isArray(units) ? units : [units];
@@ -172,12 +184,12 @@ function toRun(json) {
 /**
  * Append one observable row to data_sync_runs for a background sync run
  * (#961). The ONE writer of the table (ADR 0036, #1197 R5): `runSyncJob`
- * above calls this directly, and it is exported here for the two callers
- * that do not go through `runSyncJob` - `services/adp.service.js`'s
- * `recordAdpRun` (until the ADP job itself migrates onto this module, #1201)
- * and `modules/liveBox.js` (the Live box source switch, which stays outside
- * this module: it is a signal that the source changed, ADR 0035, not a run of
- * a feed sync). `job` is the caller's free-text identifier (the migration's
+ * above calls this directly, and it is exported here for the one remaining
+ * caller that does not go through `runSyncJob` - `modules/liveBox.js` (the
+ * Live box source switch, which stays outside this module: it is a signal
+ * that the source changed, ADR 0035, not a run of a feed sync). Every feed
+ * sync job itself now goes through `runSyncJob` (#1201 moved the last one,
+ * ADP). `job` is the caller's free-text identifier (the migration's
  * docblock treats a new job type as a new string, not a migration),
  * `started_at` is captured by the caller before its upstream fetch, and
  * `finished_at` is left to the column DEFAULT (now()), the instant of this
@@ -188,8 +200,9 @@ function toRun(json) {
  * directly to share this helper - `adp.service` already requires
  * `scoring.service` (a cycle the reverse edge would have closed) - so it kept
  * its own copy requiring only the pool. That reasoning still holds here:
- * `services/dataSyncRuns.js` now re-exports this function for one release, so
- * neither of its two remaining callers needs to change its require path.
+ * `services/dataSyncRuns.js` re-exports this function so its one remaining
+ * caller, `modules/liveBox.js`, does not need to change its require path
+ * (#1206 owns retiring that re-export).
  *
  * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
  * outcome of a run: the sync may have completed correctly, and a thrown

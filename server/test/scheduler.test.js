@@ -278,21 +278,36 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
 });
 
 test('getSchedulerStatus reports the latest ADP run, and null when none has run', async (t) => {
+  // #1201 (ADR 0036): the probe read moved onto lastRun('adp'), the shared
+  // { latest, latestOk } read every Sync run job uses (server/modules/syncRun.js).
   const noRuns = createFakePool([
-    [/FROM "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ latest: null, latestOk: null }] })],
   ]).install(t);
-  assert.equal((await scheduler.getSchedulerStatus()).lastAdpSync, null);
+  const empty = await scheduler.getSchedulerStatus();
+  assert.equal(empty.lastAdpSync, null);
+  assert.equal(empty.lastAdpSuccess, null);
   noRuns.assertClean();
 
   t.mock.restoreAll();
+  // A failed latest row and an older ok row: lastAdpSync reports the latest
+  // row regardless of outcome (today's behaviour, unchanged), and the new
+  // lastAdpSuccess field reports the ok one - "last successful sync"
+  // (CONTEXT.md), which #1205 will generalize from.
   createFakePool([
     [/FROM "data_sync_runs"/, () => ({
-      rows: [{ finished_at: '2026-09-02T06:00:00.000Z', ok: true, detail: { matched: 182, adpPlayers: 200 } }],
+      rows: [{
+        latest: { id: 2, finished_at: '2026-09-03T06:00:00.000Z', ok: false, detail: { reason: 'refused', refusalReason: 'thin_market', adpPlayers: 40 } },
+        latestOk: { id: 1, finished_at: '2026-09-02T06:00:00.000Z', ok: true, detail: { matched: 182, adpPlayers: 200 } },
+      }],
     })],
   ]).install(t);
-  assert.deepEqual((await scheduler.getSchedulerStatus()).lastAdpSync, {
-    finishedAt: '2026-09-02T06:00:00.000Z',
-    ok: true,
+  const status = await scheduler.getSchedulerStatus();
+  assert.equal(status.lastAdpSync.ok, false);
+  assert.equal(status.lastAdpSync.matched, null, 'the failed row carries no matched count');
+  assert.ok(status.lastAdpSync.finishedAt instanceof Date);
+  assert.equal(status.lastAdpSync.finishedAt.toISOString(), '2026-09-03T06:00:00.000Z');
+  assert.deepEqual(status.lastAdpSuccess, {
+    finishedAt: new Date('2026-09-02T06:00:00.000Z'),
     matched: 182,
   });
 });
@@ -304,6 +319,7 @@ test('getSchedulerStatus never throws when the data_sync_runs read fails', async
   // Health probes and the worker heartbeat depend on this never throwing.
   const status = await scheduler.getSchedulerStatus();
   assert.equal(status.lastAdpSync, null);
+  assert.equal(status.lastAdpSuccess, null);
 });
 
 // ---- scoring is decoupled from syncing -------------------------------------

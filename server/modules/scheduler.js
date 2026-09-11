@@ -6,6 +6,7 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
+const { lastRun } = require('./syncRun');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -552,23 +553,35 @@ function stopScheduler() {
 
 /**
  * Snapshot of scheduler health for the /api/health and /api/admin endpoints.
- * Async because it also reports the latest ADP market sync (#747), read from
- * data_sync_runs. It must NEVER throw: health probes and the worker heartbeat
- * call it, so a read failure degrades to lastAdpSync: null, not an exception.
+ * Async because it also reports the latest ADP market sync (#747), read via
+ * `lastRun('adp')` (server/modules/syncRun.js, ADR 0036, #1201) rather than a
+ * hand-rolled query: `lastRun` is the one round trip every Sync run job reads
+ * back through. It must NEVER throw: health probes and the worker heartbeat
+ * call it, so a read failure degrades to lastAdpSync/lastAdpSuccess: null, not
+ * an exception.
+ *
+ * `lastAdpSync` reports the latest run regardless of outcome (unchanged
+ * behaviour, still `{ finishedAt, ok, matched }`); `lastAdpSuccess` is new
+ * (#1201) and reports the latest OK run - "last successful sync" (CONTEXT.md)
+ * - as `{ finishedAt, matched }`, `ok` being implied true. #1205 generalizes
+ * this probe read for every Sync run job from here.
  */
 async function getSchedulerStatus() {
   let lastAdpSync = null;
+  let lastAdpSuccess = null;
   try {
-    const res = await pool.query(
-      `SELECT "finished_at", "ok", "detail" FROM "data_sync_runs"
-       WHERE "job" = 'adp' ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
-    );
-    const row = res.rows[0];
-    if (row) {
+    const { latest, latestOk } = await lastRun('adp');
+    if (latest) {
       lastAdpSync = {
-        finishedAt: row.finished_at,
-        ok: row.ok,
-        matched: row.detail && row.detail.matched != null ? row.detail.matched : null,
+        finishedAt: latest.finishedAt,
+        ok: latest.ok,
+        matched: latest.detail && latest.detail.matched != null ? latest.detail.matched : null,
+      };
+    }
+    if (latestOk) {
+      lastAdpSuccess = {
+        finishedAt: latestOk.finishedAt,
+        matched: latestOk.detail && latestOk.detail.matched != null ? latestOk.detail.matched : null,
       };
     }
   } catch (err) {
@@ -578,8 +591,9 @@ async function getSchedulerStatus() {
     // (#747 review 750-f4).
     console.warn('getSchedulerStatus: data_sync_runs read failed, reporting lastAdpSync=null:', err.message);
     lastAdpSync = null;
+    lastAdpSuccess = null;
   }
-  return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync };
+  return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync, lastAdpSuccess };
 }
 
 module.exports = {
