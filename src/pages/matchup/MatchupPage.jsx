@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Container, Link, Typography, useMediaQuery } from '@mui/material';
+import { Alert, Box, Container, Link, Typography, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { Badge, Skeleton } from '../../shared/ui';
+import { Badge, DashButton, Skeleton } from '../../shared/ui';
 import ScoreboardStrip from '../../widgets/scoreboard-strip';
 import SlotComparison from '../../widgets/slot-comparison';
 import NflGameStrip from '../../widgets/nfl-game-strip';
@@ -368,47 +368,28 @@ function Breadcrumb({ leagueId, leagueName }) {
 }
 
 /**
- * The canvas's `.btn.primary` "Set lineup": the `dash-on-accent` label on the
- * `dash-accent` fill (the registered "dashboard primary button label on
- * accent" pairing), 38px in the header and a full-width 44px row at the
- * bottom of the phone layout. A react-router link to the Lineup page: nothing
- * is managed here (ADR 0019).
+ * The canvas's `.btn.primary` "Set lineup" (shared/ui's DashButton, #1166):
+ * the `dash-on-accent` label on the `dash-accent` fill, the default `md` size
+ * (38px at `md` and up, 44px below it). The bottom (phone) placement stretches
+ * full width, which is row layout and stays here at the call site rather than
+ * in the shared treatment. A react-router link to the Lineup page: nothing is
+ * managed here (ADR 0019). The explicit `focus-visible` outline this used to
+ * carry is dropped: it duplicated the global keyboard-focus ring every
+ * button-like control already gets from `MuiButtonBase` (AppThemeProvider)
+ * and `:focus-visible` (base.css).
  */
 function SetLineupLink({ href, placement }) {
   const bottom = placement === 'bottom';
   return (
-    <Button
+    <DashButton
       component={RouterLink}
       to={href}
-      disableElevation
       data-testid="set-lineup"
       data-placement={placement}
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '8px',
-        height: bottom ? 44 : 38,
-        width: bottom ? '100%' : undefined,
-        px: '16px',
-        py: 0,
-        minWidth: 0,
-        borderRadius: '9px',
-        fontSize: '13px',
-        fontWeight: 600,
-        lineHeight: 1.2,
-        textTransform: 'none',
-        whiteSpace: 'nowrap',
-        border: '1px solid var(--dash-accent)',
-        color: 'var(--dash-on-accent)',
-        backgroundColor: 'var(--dash-accent)',
-        transition: 'filter var(--transition-fast)',
-        '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
-        '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
-      }}
+      sx={bottom ? { width: '100%' } : undefined}
     >
       Set lineup
-    </Button>
+    </DashButton>
   );
 }
 

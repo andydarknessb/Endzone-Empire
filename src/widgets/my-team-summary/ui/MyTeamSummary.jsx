@@ -1,8 +1,8 @@
 import React, { useId } from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, PosChip, Skeleton, TeamAvatar } from '../../../shared/ui';
+import { Card, Badge, DashButton, PosChip, Skeleton, TeamAvatar, injuryView } from '../../../shared/ui';
 import useMyTeamSummary from '../model/useMyTeamSummary';
 
 /**
@@ -367,39 +367,6 @@ function StatValueSkeleton() {
 
 // --- Starters section (#1101) ----------------------------------------------
 
-// Primary button look, copied from matchup-preview's own PRIMARY_SX (that
-// widget's Set Lineup button): the registered "dashboard primary button label
-// on accent" pairing (tokens.contrast.test.js), so composing it here is not a
-// new pairing.
-//
-// This is now a FOURTH independent copy (matchup-hero, matchup-preview,
-// bench-what-if) of the same sx object, which the "matching that precedent"
-// reasoning this comment used to give is no longer good cover for: ADR 0031's
-// 2026-09-10 amendment (#1146, PR #1160) puts a presentational duplication
-// like this one in `shared/ui` at its SECOND island consumer, past which this
-// one already sits (#1101 formal review, n2). Left as a fourth copy here
-// rather than promoted in this PR - the note carried no cycle of its own -
-// but the next touch to any of these four should extract a shared
-// `shared/ui` primary-button treatment instead of adding a fifth.
-const BUTTON_BASE = {
-  textTransform: 'none',
-  fontSize: '13px',
-  fontWeight: 600,
-  lineHeight: 1.2,
-  borderRadius: '9px',
-  padding: '8px 14px',
-  minWidth: 0,
-  minHeight: 36,
-};
-const PRIMARY_SX = {
-  ...BUTTON_BASE,
-  color: 'var(--dash-on-accent)',
-  backgroundColor: 'var(--dash-accent)',
-  border: '1px solid var(--dash-accent)',
-  transition: 'filter var(--transition-fast)',
-  '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
-};
-
 // The footer's check mark, the same path MatchupGrid's LeaderCheck draws.
 // Decorative and aria-hidden: the visible copy ("Lineup set"/"Lineup
 // incomplete") already carries the meaning to a screen reader. The caller
@@ -430,20 +397,6 @@ function CheckIcon() {
   );
 }
 
-// The wire's four injury-designation codes (irPolicy.service.js), expanded
-// ONLY for the accessible description below - the visible label stays the
-// abbreviation ("the injury Badge is specified to read the injury status
-// abbreviation", #1101 review). Mirrors shared/ui/InjuryTag's own DESIGNATIONS
-// map, duplicated rather than imported: this row never switches Badge variant
-// by code (always `warning`, per the design canvas), so it does not compose
-// InjuryTag itself, only borrows its code-to-name mapping.
-const INJURY_DESIGNATION_NAME = {
-  Q: 'Questionable',
-  D: 'Doubtful',
-  O: 'Out',
-  IR: 'Injured reserve',
-};
-
 // A starter's injury designation beside his name: the wire's own abbreviation
 // (Q/D/O/IR, players.injury_status) on a Badge, always the `warning` variant
 // - this row never switches to `danger` the way InjuryTag does elsewhere, per
@@ -451,9 +404,10 @@ const INJURY_DESIGNATION_NAME = {
 // registered `warning` variant over `dash-surface`" (#1101). Renders nothing
 // for a healthy starter (a null/empty status). The accessible description
 // expands the code to its full designation ("Injury status: Questionable"),
-// the same InjuryTag convention (its docblock: "so a screen reader hears the
-// word and not a letter") - a bare "Injury status: O" would leave a listener
-// unable to tell "Out" from "Questionable" by ear.
+// reading the name off shared/ui's exported `injuryView` (#1165) rather than
+// a private map - this row still does not compose InjuryTag itself (it never
+// switches Badge variant by code; InjuryTag does), only borrows its
+// code-to-name mapping via `injuryView`, ignoring `.variant`.
 function StarterInjuryBadge({ status }) {
   const code = status ? String(status).trim() : '';
   if (!code) return null;
@@ -463,7 +417,7 @@ function StarterInjuryBadge({ status }) {
   // Badge reading the injury status abbreviation when the starter carries
   // one" - any non-null status, not only a recognized one - so the fallback
   // announces the raw code rather than silently dropping the flag.
-  const name = INJURY_DESIGNATION_NAME[code.toUpperCase()] || code;
+  const name = injuryView(code)?.name || code;
   return (
     <Badge
       variant="warning"
@@ -635,9 +589,9 @@ function StartersSection({ starters }) {
                 {` · ${starters.filled} of ${starters.totalSlots}`}
               </Typography>
             </Box>
-            <Button component={RouterLink} to={starters.lineupHref} disableElevation sx={PRIMARY_SX}>
+            <DashButton component={RouterLink} to={starters.lineupHref}>
               Set Lineup
-            </Button>
+            </DashButton>
           </Box>
         </>
       )}

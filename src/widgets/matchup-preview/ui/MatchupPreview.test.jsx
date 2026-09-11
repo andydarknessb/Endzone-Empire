@@ -371,8 +371,8 @@ test('the loading skeleton carries the same tracks, so the card does not reflow'
   expect(shapes.some((el) => rulesUnder(el).includes('justify-self: center'))).toBe(true);
 });
 
-// Red-tell (T2): deleting `minHeight: { xs: 44, md: 38 }` from `BUTTON_BASE`
-// turns this case red and no other.
+// Red-tell (T2): deleting the `md` breakpoint from DashButton's size map
+// (shared/ui, #1166) turns this case red and no other.
 test('both footer actions meet the 44px touch target on a phone and stay 38px on desktop', async () => {
   renderCard(row({ status: 'scheduled' }));
 
@@ -387,9 +387,10 @@ test('both footer actions meet the 44px touch target on a phone and stay 38px on
   });
 });
 
-// Red-tell (T3): dropping the transition from `PRIMARY_SX` turns this case red.
-// The hover is a `filter`, which the app theme's MuiButton transition does not
-// cover, so the primary snapped while the ghost beside it eased.
+// Red-tell (T3): dropping the transition from DashButton's primary variant
+// (shared/ui, #1166) turns this case red. The hover is a `filter`, which the
+// app theme's MuiButton transition does not cover, so the primary snapped
+// while the ghost beside it eased.
 test('the primary action eases its hover filter', async () => {
   renderCard(row({ status: 'scheduled' }));
 

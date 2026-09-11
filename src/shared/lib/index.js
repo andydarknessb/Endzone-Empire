@@ -30,3 +30,11 @@ export { finite, formatPoints } from './numeric';
 // alongside TeamAvatar in `shared/ui` once both crossed the second-island-
 // consumer threshold.
 export { initialsFor } from './initials';
+// The roster-slots parse (#1165, ADR 0031's second-island-consumer clause),
+// promoted once quick-actions, my-team-summary and the Matchup page each
+// carried their own parse-and-tolerate body for `league.roster_slots`.
+export { parseRosterSlots } from './rosterSlots';
+// The Unavailable reason -> label map (#1208), promoted once LineupScreen,
+// the retro-scoreboard widget model and the slot-comparison widget model
+// each carried an identical bye/out/ir label object.
+export { unavailableLabel } from './unavailableLabel';

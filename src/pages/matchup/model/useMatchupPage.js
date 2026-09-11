@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux';
 import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
-import { matchupWinProbability } from '../../../shared/lib';
+import { matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
 import { useMatchup, matchupStatusView } from '../../../entities/matchup';
 import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';
@@ -76,9 +76,16 @@ const RETRO_DASH_MS = 1000;
 const RETRO_MOMENT_MS = 1800;
 const TICKER_LIMIT = 12;
 
-/** The league's roster_slots keys in commissioner order, or an empty list. */
+/**
+ * The league's roster_slots keys in commissioner order, or an empty list.
+ * `roster_slots` is jsonb and normally arrives already parsed, but a string is
+ * tolerated the same way the other two island readers of this column do
+ * (shared/lib's `parseRosterSlots`, #1165): a string-typed `roster_slots` now
+ * yields slot keys here too, instead of the empty list this used to fall back
+ * to for anything but a literal array.
+ */
 export function slotOrderFor(league) {
-  return (Array.isArray(league?.roster_slots) ? league.roster_slots : [])
+  return parseRosterSlots(league?.roster_slots)
     .map((s) => (s && s.key != null ? String(s.key) : null))
     .filter(Boolean);
 }

@@ -262,6 +262,15 @@ prevent.
 _Avoid_: injury status (the column name, not the concept), IR (unqualified —
 ambiguous with the slot)
 
+**Sync run**:
+One execution of a feed sync (injuries, ADP, schedule, players, week stats),
+recorded whether it succeeded, was refused, or failed, and with the reason
+when it did not succeed. The scheduler status and the health probe read the
+latest Sync run for a job; "last successful sync" means the latest one that
+succeeded, not the latest one that ran (ADR 0036).
+_Avoid_: sync job (the code, not one execution of it), data sync run (the
+table name), poll (the Live box cadence, not a feed sync)
+
 **Team code**:
 The canonical abbreviation an NFL team is identified by once it has been
 folded through `fn_normalize_nfl_team` in SQL or `nflTeam.js` in JavaScript:
@@ -810,7 +819,9 @@ Rankings and season history. Since #959 the rule is computed in ONE
 place, the standings entity (src/entities/standings): the standings table, the
 Team summary, a Matchup card, season history, the Lineup screen and Power
 Rankings all read the formatted Record from there rather than deriving it,
-which is what stops another surface inventing another answer.
+which is what stops another surface inventing another answer. A Team's
+all-time Record is the sum of its archived season Records (see Season
+archive) and renders by the same rule.
 _Avoid_: standings (the ordered table built from every Team's Record, not one
 Team's own tally)
 
@@ -909,6 +920,15 @@ Awarding is idempotent by design.
 
 **Recap**:
 A generated narrative summary of one league week.
+
+**Season archive**:
+A League's completed seasons as they finished: each season's final standings,
+its champions (none, one, or several, for a fantasy and a pick'em League
+alike) and its outcome, written once when the season completes and never
+recomputed from later Matchups. League history and every all-time figure read
+the archive, never the live season.
+_Avoid_: league history (the page and the table, not the concept), past
+seasons, archive (unqualified)
 
 **Pick'em**:
 The pick-the-winners game: every manager picks the winner of every NFL game on

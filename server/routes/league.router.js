@@ -361,17 +361,19 @@ router.get('/:id', async (req, res) => {
               -- and is stripped from the serialized teams[] entry (#343, #115).
               "teams"."owner_id",
               ${teamIdentityColumns()},
-              COUNT("team_players"."id")::int AS "roster_count",
-              COALESCE(SUM(CASE WHEN "matchups"."home_team_id" = "teams"."id" THEN "matchups"."home_score"
-                                WHEN "matchups"."away_team_id" = "teams"."id" THEN "matchups"."away_score"
-                                ELSE 0 END), 0) AS "total_points"
+              COUNT("team_players"."id")::int AS "roster_count"
+       -- #1214: this used to also LEFT JOIN "matchups" and sum a "total_points"
+       -- column, which fanned every team_players row out across every matchup
+       -- row (roster_count = roster size x matchups played; total_points =
+       -- points x roster size). total_points had no consumer under src/ and was
+       -- the wrong number by rule regardless (Record is computed once, from
+       -- finalized regular-season matchups only, by season.getStandings) - so
+       -- both the join and the column are gone rather than patched.
        FROM "teams"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "teams"."id"
-       LEFT JOIN "matchups" ON "matchups"."league_id" = "teams"."league_id"
-         AND ("matchups"."home_team_id" = "teams"."id" OR "matchups"."away_team_id" = "teams"."id")
        WHERE "teams"."league_id" = $1
        GROUP BY "teams"."id"
-       ORDER BY "total_points" DESC, "teams"."draft_position"`,
+       ORDER BY "teams"."draft_position", "teams"."id"`,
       [leagueId]
     );
     // is_commissioner is the viewer's effective role (owner or co-commissioner)

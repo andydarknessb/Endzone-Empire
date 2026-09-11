@@ -838,7 +838,18 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
 
   let targets;
   if (stateRes.rows.length > 0) {
-    targets = gamesNeedingBoxScore(stateRes.rows);
+    // A final inside its Final box grace belongs to the grace timer
+    // (modules/finalBox): its one essential-priority fetch serves both the
+    // stamp and the recap. Fetching it here first stamped the game and left
+    // the timer's recap to fetch a second box (#1221, SF at LAR 2026-09-10).
+    // Past the grace, or with no timer armed after a restart, this sync is
+    // still the retry path for a Final box that failed (#1186 ruling).
+    const finalBox = require('../modules/finalBox');
+    targets = gamesNeedingBoxScore(stateRes.rows).filter((target) => {
+      if (!finalBox.isWithinGrace(target.gameId)) return true;
+      console.log('syncWeekStats: %s is inside its Final box grace; leaving it to the timer', target.gameId);
+      return false;
+    });
   } else {
     // No live rows for this week (a historical week, or live scoring has not
     // run yet; see modules/liveGameEngine.js): fall back to one counted

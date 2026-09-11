@@ -1,4 +1,5 @@
 import { matchupStatusView } from '../../../entities/matchup';
+import { unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
 
 /**
  * Pure presentation arithmetic for the retro-scoreboard widget (ADR 0031,
@@ -83,13 +84,13 @@ export function matchupHasStarted(status) {
 // The reason an Unavailable player (CONTEXT.md, Roster and lineup) shows in
 // place of his projection, in the Lineup page's words; null for an available
 // row (or a row that carries no verdict), which shows its projection as ever.
-// The same rule as the legacy MatchupExtras.unavailableLabel, copied here
-// rather than imported because that page leaves the tree with #903 (ADR 0031)
-// and a widget never depends on a page.
-const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };
+// The reason -> label lookup is shared/lib's unavailableLabel (#1208, replacing
+// the widget's own copy of the map); this wrapper keeps the widget's own
+// `availability`-object contract and its own fallback ('out') for a reason the
+// shared map does not know.
 export function unavailableLabel(availability) {
   if (!availability || availability.available !== false) return null;
-  return UNAVAILABLE_LABELS[availability.reason] || 'out';
+  return sharedUnavailableLabel(availability.reason) || 'out';
 }
 
 // Position -> `pos-*` palette key for the headshot ring (design canvas

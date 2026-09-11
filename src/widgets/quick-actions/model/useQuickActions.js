@@ -1,4 +1,4 @@
-import { useEndpoint } from '../../../shared/lib';
+import { useEndpoint, parseRosterSlots } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE } from '../../../lib/leaguePhase';
 import { isPickemOnly } from '../../../lib/leagueType';
@@ -81,21 +81,12 @@ const GROUPS = [
 
 // The league's starting-slot config, as the lineupAttention helper wants it.
 // `roster_slots` rides on the league row (SELECT leagues.*); it is jsonb, so it
-// arrives parsed, but a string is tolerated defensively. When it is absent the
-// helper reads 0 empty slots (nothing to compare a fill against) while byes
-// still register off the default starter order.
+// arrives parsed, but a string is tolerated defensively (shared/lib's
+// parseRosterSlots, #1165). When it is absent the helper reads 0 empty slots
+// (nothing to compare a fill against) while byes still register off the
+// default starter order.
 function rosterSlotsOf(league) {
-  const raw = league?.roster_slots;
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
+  return parseRosterSlots(league?.roster_slots);
 }
 
 // The Set Lineup recommendation copy. Empty starting slots read first, then

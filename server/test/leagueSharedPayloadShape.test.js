@@ -97,7 +97,6 @@ const teamRow = ({ userId, teamId, teamName }) => ({
   teamId,
   teamName,
   roster_count: 0,
-  total_points: '0',
 });
 
 // A `leagues` row as the league-detail query projects it: a representative set
@@ -160,7 +159,7 @@ test('league detail: the response root is { viewerTeamId, league, teams } and vi
 // --- teams[] entry -------------------------------------------------------
 const TEAM_ENTRY_CLEAN = [
   'avatar_static_url', 'avatar_url', 'draft_position', 'draft_ready', 'faab_remaining',
-  'id', 'is_co_commissioner', 'locked', 'name', 'roster_count', 'teamId', 'teamName', 'total_points',
+  'id', 'is_co_commissioner', 'locked', 'name', 'roster_count', 'teamId', 'teamName',
 ];
 // owner_id stays in the SELECT (viewerTeamId reads it off the raw rows) and is
 // stripped from the serialization; owner is no longer selected (#343, #115).
