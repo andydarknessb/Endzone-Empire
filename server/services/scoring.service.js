@@ -1484,8 +1484,11 @@ function normalizePlayerEntry(entry) {
  * (#1204). The one unit (every parsed feed entry) upserts in a single
  * transaction: a mid-run upsert failure now rolls the whole unit back instead
  * of leaving the players upserted before it (the previous per-player
- * try/catch swallowed and continued past a failure). Resolved value is
- * unchanged: `{ season, playersUpserted, skippedNonFantasy }`.
+ * try/catch swallowed and continued past a failure). Resolved shape is
+ * unchanged: `{ season, playersUpserted, skippedNonFantasy }` - but a feed
+ * carrying a duplicate `external_id` now counts it once in `playersUpserted`
+ * (#1251's JS-side dedup, applySyncPlayersUnit's own docblock), where the old
+ * per-row loop counted it twice.
  */
 async function syncPlayers({ season, api = tank01Get }) {
   return runSyncJob({
@@ -1531,10 +1534,13 @@ async function fetchSyncPlayersUnit({ season, api }) {
  */
 async function applySyncPlayersUnit(client, { season, entries }) {
   let skipped = 0;
-  // Keyed by externalId so a duplicate within one feed batch keeps only its
-  // last entry - ON CONFLICT DO UPDATE cannot affect the same row twice in
-  // one statement (21000), and the per-row loop's last-write-wins tolerance
-  // is preserved here in JS instead.
+  // Keyed by the NUMERIC external_id (the actual ::int[] conflict target),
+  // not the parsed string, so two entries whose ids differ as text but
+  // coincide as integers ('4432' vs '04432') still collide in JS instead of
+  // reaching ON CONFLICT DO UPDATE as two array elements for the same row
+  // (21000, qa-reviewer #1251). A duplicate within one feed batch keeps only
+  // its last entry - the per-row loop's last-write-wins tolerance, preserved
+  // here in JS instead.
   const byExternalId = new Map();
   for (const raw of entries) {
     const parsed = normalizePlayerEntry(raw);
@@ -1542,7 +1548,7 @@ async function applySyncPlayersUnit(client, { season, entries }) {
       skipped += 1;
       continue;
     }
-    byExternalId.set(parsed.externalId, parsed);
+    byExternalId.set(Number(parsed.externalId), parsed);
   }
   const rows = Array.from(byExternalId.values());
   if (rows.length > 0) {

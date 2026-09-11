@@ -44,17 +44,17 @@
  *     `pg_advisory_xact_lock(hashtext($1))` inside its own transaction; not
  *     a Sync run.
  *   - `server/services/sleeper.service.js` - ruled on #1251 criterion 7:
- *     `upsertSeasonStats` WILL take a direct blocking
- *     `pg_advisory_xact_lock(23004)` inside its own transaction and is not a
- *     run either - not yet true of this file (today it is a bare
- *     `pool.query` upsert with no transaction and no lock; the lock registry
- *     at `server/modules/advisoryLock.js` says so explicitly). Listed here
- *     pre-emptively, before #1251 lands the call, so whichever of #1206 and
- *     #1251 merges second does not go red on `guards`. #1251's own review
- *     owns checking that its lock actually lands inside a `withTransaction`
- *     block - a `pg_advisory_xact_lock` issued through a bare `pool.query`
- *     is transaction-scoped to that one implicit statement and releases
- *     immediately, serializing nothing (qa-reviewer, #1206 risk review).
+ *     `upsertSeasonStats` takes a direct blocking
+ *     `pg_advisory_xact_lock(23004)` inside its own transaction (#1251 landed
+ *     the call) and is not a run either - it stays off `data_sync_runs` on
+ *     purpose, since it does not go through `runSyncJob`. This entry was
+ *     added pre-emptively while #1206 and #1251 were both in flight, before
+ *     either merged, so whichever landed second would not go red on
+ *     `guards`; #1251's own risk review confirmed the lock actually lands
+ *     inside a `withTransaction` block rather than a bare `pool.query` (which
+ *     would be transaction-scoped to that one implicit statement and release
+ *     immediately, serializing nothing - the shape #1206's risk review had
+ *     flagged as the thing to verify here).
  *
  * Run standalone: `npm run check:hand-rolled-sync-run`, which runs this
  * script's own `node --test` file first, then the scan over the real tree -

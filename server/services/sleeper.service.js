@@ -100,15 +100,19 @@ function buildSeasonStatUpdates(players, entries, season) {
  * `pg_advisory_xact_lock(23004)` as the transaction's first statement, then
  * the one bulk upsert, then COMMIT (`withTransaction`, ADR 0033). Direct call,
  * not `withAdvisoryLock` (try-and-skip) - this writer must WAIT for the lock
- * rather than skip a season's sync, per the registry comment. One transaction
- * per season, matching `syncSeasonStats`'s existing one-statement-per-season
- * loop and its own per-season error capture below: a failure here rejects
- * this call and is caught there, landing in that season's `{ season, error }`
- * entry rather than failing the whole run. `player_season_stats`'s other
- * writer, `syncPlayerSeasonStats` (services/scoring.service.js, job
- * 'season-stats'), takes the SAME lock via `runSyncJob`, so the two no longer
- * race to a deadlock (40P01) now that both hold their row locks to COMMIT.
- * Resolved row count is unchanged.
+ * rather than skip a season's sync, per the registry comment. The wait is
+ * still bounded by `pool.js`'s `statement_timeout` (15s web / 30s worker,
+ * SQLSTATE 57014) like every other direct 23004 taker: a season that loses
+ * that race rolls back cleanly and is captured below as `{ season, error }`,
+ * not left half-written. One transaction per season, matching
+ * `syncSeasonStats`'s existing one-statement-per-season loop and its own
+ * per-season error capture below: a failure here rejects this call and is
+ * caught there, landing in that season's `{ season, error }` entry rather
+ * than failing the whole run. `player_season_stats`'s other writer,
+ * `syncPlayerSeasonStats` (services/scoring.service.js, job 'season-stats'),
+ * takes the SAME lock via `runSyncJob`, so the two no longer race to a
+ * deadlock (40P01) now that both hold their row locks to COMMIT. Resolved
+ * row count is unchanged.
  */
 async function upsertSeasonStats(updates) {
   if (updates.length === 0) return 0;
