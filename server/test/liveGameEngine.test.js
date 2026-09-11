@@ -378,7 +378,14 @@ test('upsertRows: a Tank01 fallback row leaves an existing espn_event_id in plac
 
 // --- upsertRows: Situation (#1233, ADR 0037) ---------------------------------
 
-test('upsertRows: an ESPN row with a Situation writes all four columns', async (t) => {
+// UPSERT_SQL's column list ends "...espn_event_id, possession, down_distance,
+// is_red_zone, last_play" ($13..$17), so upsertRows must bind them at exactly
+// params[12..16] in that order. Pin the indices, not just "some array
+// contains the value" — a transposition (e.g. possession/downDistance
+// swapped) would pass a substring/inclusion check silently, and Postgres
+// would accept it too (both are text[] casts), writing the wrong text to an
+// anon-readable column on every live tick.
+test('upsertRows: an ESPN row with a Situation binds possession/downDistance/isRedZone/lastPlay at $14..$17 in order', async (t) => {
   const fake = upsertWorld(t);
   await upsertRows([
     {
@@ -394,13 +401,14 @@ test('upsertRows: an ESPN row with a Situation writes all four columns', async (
   assert.match(call.text, /"down_distance"/);
   assert.match(call.text, /"is_red_zone"/);
   assert.match(call.text, /"last_play"/);
-  const arrays = call.params.filter(Array.isArray);
-  assert.ok(arrays.some((arr) => arr.includes('BUF')), 'possession rides the unnest arrays');
-  assert.ok(arrays.some((arr) => arr.includes('1st & 10')), 'down_distance rides the unnest arrays');
-  assert.ok(arrays.some((arr) => arr.includes(false)), 'is_red_zone rides the unnest arrays');
-  assert.ok(
-    arrays.some((arr) => arr.includes('B.Allen pass complete to K.Coleman for 12 yards')),
-    'last_play rides the unnest arrays'
+  assert.equal(call.params.length, 17, 'the upsert binds exactly $1..$17');
+  assert.deepEqual(call.params[13], ['BUF'], 'possession is params[13] ($14)');
+  assert.deepEqual(call.params[14], ['1st & 10'], 'down_distance is params[14] ($15)');
+  assert.deepEqual(call.params[15], [false], 'is_red_zone is params[15] ($16)');
+  assert.deepEqual(
+    call.params[16],
+    ['B.Allen pass complete to K.Coleman for 12 yards'],
+    'last_play is params[16] ($17)'
   );
 });
 
@@ -421,8 +429,8 @@ test('upsertRows: Situation is always overwritten, never COALESCEd like espn_eve
     /"possession" = COALESCE/,
     'possession is always the new value, so a stale one never survives a final or a Tank01 tick'
   );
-  const arrays = call.params.filter(Array.isArray);
-  const nullSlots = arrays.filter((arr) => arr.length === 1 && arr[0] === null);
-  // espn_event_id, possession, down_distance, is_red_zone, last_play: five null slots.
-  assert.ok(nullSlots.length >= 5, `expected at least 5 null slots, got ${nullSlots.length}`);
+  assert.deepEqual(call.params[13], [null], 'possession is null, not undefined, for a Tank01 row');
+  assert.deepEqual(call.params[14], [null], 'down_distance is null for a Tank01 row');
+  assert.deepEqual(call.params[15], [null], 'is_red_zone is null for a Tank01 row');
+  assert.deepEqual(call.params[16], [null], 'last_play is null for a Tank01 row');
 });

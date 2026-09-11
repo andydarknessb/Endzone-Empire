@@ -29,7 +29,11 @@
 exports.up = async function (knex) {
   await knex.schema.alterTable('live_game_states', (t) => {
     t.string('possession', 10); // Team code, folded through espnAbbrToOurs — never ESPN's raw spelling
-    t.string('down_distance', 40); // e.g. '1st & 10' — display text, not parsed further
+    // text, not varchar: ESPN's downDistanceText fallback is location-qualified
+    // ('1st & 10 at MIA 18') and unbounded, and a length overflow on this
+    // column would abort the whole batched upsert for the slate, not just one
+    // game's Situation (qa-reviewer finding, #1233).
+    t.text('down_distance');
     t.boolean('is_red_zone');
     t.text('last_play');
   });

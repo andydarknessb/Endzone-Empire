@@ -132,6 +132,7 @@ function resolvePossession(possession, competitors) {
   if (possession == null || possession === '') return null;
   const raw = String(possession).trim();
   if (!raw) return null;
+  if (!Array.isArray(competitors)) return null;
   const match = competitors.find(
     (c) =>
       c &&
