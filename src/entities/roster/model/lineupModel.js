@@ -40,12 +40,14 @@
  * literal string "Questionable".
  *
  * This module also carries three more roster/lineup facts (#1207, part of
- * #1198's expand step; nothing consumes them yet):
+ * #1198's expand step):
  *
  *   - `pairStartersBySlot`, moved here byte-for-byte from
- *     `entities/matchup/model/matchupModel.js` (which re-exports it for one
- *     release) - pairing two sides' starters by slot is a fact about the
- *     Lineup, not the Matchup.
+ *     `entities/matchup/model/matchupModel.js`, which re-exported it for one
+ *     release until #1210 closed that exception - pairing two sides' starters
+ *     by slot is a fact about the Lineup, not the Matchup. Read since #1210 by
+ *     `pages/matchup/model/useMatchupPage.js` (a page importing an entity
+ *     directly, ADR 0029), not by another entity.
  *   - `eligibleSlots(entry, league)` and `locked(entry)`, exported facts
  *     mirroring LineupScreen.jsx's slot-eligibility and lock reads.
  *   - `lineupEntries(rosterWire, league)`, a second read model (distinct
@@ -158,9 +160,11 @@ export function lineupModel(body) {
  *
  * Moved here from `entities/matchup/model/matchupModel.js` byte-for-byte in
  * behaviour (#1207, ADR 0029): pairing is a Roster/Lineup fact (which player sits
- * in which slot), not a Matchup one. `entities/matchup` re-exports it for one
+ * in which slot), not a Matchup one. `entities/matchup` re-exported it for one
  * release so its existing internal imports (`useMatchup.js`, its own test file)
- * keep working unchanged.
+ * kept working unchanged; #1210 closed that exception and moved the pairing
+ * call up to `pages/matchup/model/useMatchupPage.js`, which reads it from
+ * HERE directly.
  */
 export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
   const ordered = (slotOrder || []).filter((k) => k != null).map(String);
