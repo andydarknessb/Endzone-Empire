@@ -1,8 +1,8 @@
 import React from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card, Badge, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
+import { Card, Badge, DashButton, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
 import { formatKickoff } from '../../../shared/lib';
 import { teamNameLabel } from '../../../lib/teamIdentity';
 import { matchupHeroView, ordinal } from '../model/matchupHeroView';
@@ -189,22 +189,21 @@ export default function MatchupHero({
               marginLeft: { md: 'auto' },
             }}
           >
-            <Button
+            <DashButton
+              variant="ghost"
               component={RouterLink}
               to={`/league/${leagueId}/matchups/${matchup?.id}`}
-              disableElevation
-              sx={GHOST_SX}
+              sx={BUTTON_ROW_SX}
             >
               Compare rosters
-            </Button>
-            <Button
+            </DashButton>
+            <DashButton
               component={RouterLink}
               to={`/league/${leagueId}/lineup`}
-              disableElevation
-              sx={PRIMARY_SX}
+              sx={BUTTON_ROW_SX}
             >
               Set lineup
-            </Button>
+            </DashButton>
           </Box>
         </Box>
       </Box>
@@ -604,41 +603,8 @@ const PCT_SX = {
   alignSelf: 'baseline',
 };
 
-// The canvas's `.btn`: 38px tall on desktop, stretched to the row with a 44px
-// hit target below `md`.
-const BUTTON_BASE = {
-  textTransform: 'none',
-  fontSize: '13px',
-  fontWeight: 600,
-  lineHeight: 1.2,
-  borderRadius: '9px',
-  padding: '0 16px',
-  minWidth: 0,
-  minHeight: { xs: 44, md: 38 },
+// Row layout, not the button's own paint (DashButton, shared/ui, #1166):
+// stretched to the row with a 44px hit target below `md`.
+const BUTTON_ROW_SX = {
   flex: { xs: '1 1 0', md: 'none' },
-  border: '1px solid var(--dash-line-strong)',
-  whiteSpace: 'nowrap',
-};
-
-// Ghost look: dim label on the card surface (a registered pairing), a hairline
-// border, no fill.
-const GHOST_SX = {
-  ...BUTTON_BASE,
-  color: 'var(--dash-dim)',
-  backgroundColor: 'transparent',
-  '&:hover': {
-    color: 'var(--dash-ink)',
-    borderColor: 'var(--dash-accent-line)',
-    backgroundColor: 'transparent',
-  },
-};
-
-// Primary look: the `dash-on-accent` label on the `dash-accent` fill (the
-// registered "dashboard primary button label on accent" pairing).
-const PRIMARY_SX = {
-  ...BUTTON_BASE,
-  color: 'var(--dash-on-accent)',
-  backgroundColor: 'var(--dash-accent)',
-  borderColor: 'var(--dash-accent)',
-  '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
 };

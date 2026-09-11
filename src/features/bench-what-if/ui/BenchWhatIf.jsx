@@ -1,7 +1,7 @@
 import React, { useId } from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { Card } from '../../../shared/ui';
+import { Card, DashButton } from '../../../shared/ui';
 
 /**
  * bench-what-if feature (ADR 0031, #900): the Bench what-if card on Matchup
@@ -175,14 +175,9 @@ export default function BenchWhatIf({ whatIf, hasRoster, leagueId, headingLevel 
           </Typography>
           {gain != null && <GainChip>{`+${gain}`}</GainChip>}
           <Box sx={{ flex: '1 1 0' }} />
-          <Button
-            component={RouterLink}
-            to={swapLineupHref(leagueId, swap)}
-            disableElevation
-            sx={PRIMARY_SX}
-          >
+          <DashButton size="sm" component={RouterLink} to={swapLineupHref(leagueId, swap)}>
             Swap in lineup
-          </Button>
+          </DashButton>
         </Box>
       )}
     </Card>
@@ -219,32 +214,6 @@ function GainChip({ children }) {
     </Box>
   );
 }
-
-// The canvas's `.btn.primary` at the card's 32px height: the `dash-on-accent`
-// label on the `dash-accent` fill (the registered "dashboard primary button
-// label on accent" pairing). On a phone the target grows to 44px so it is a
-// comfortable tap; the row wraps around it.
-const PRIMARY_SX = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '8px',
-  minHeight: { xs: 44, sm: 32 },
-  px: '16px',
-  py: 0,
-  minWidth: 0,
-  borderRadius: '9px',
-  fontSize: '13px',
-  fontWeight: 600,
-  lineHeight: 1.2,
-  textTransform: 'none',
-  whiteSpace: 'nowrap',
-  border: '1px solid var(--dash-accent)',
-  color: 'var(--dash-on-accent)',
-  backgroundColor: 'var(--dash-accent)',
-  transition: 'filter var(--transition-fast)',
-  '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
-};
 
 // Inline stroke icons on the canvas's 20px grid, one style, decorative.
 const ICON_PROPS = {

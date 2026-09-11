@@ -1,8 +1,8 @@
 import React from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Card, Skeleton, SplitBar, StatTile, TeamAvatar } from '../../../shared/ui';
+import { Badge, Card, DashButton, Skeleton, SplitBar, StatTile, TeamAvatar } from '../../../shared/ui';
 import useMatchupPreview from '../model/useMatchupPreview';
 
 /**
@@ -152,22 +152,21 @@ export default function MatchupPreview({ leagueId }) {
               borderTop: '1px solid var(--dash-line)',
             }}
           >
-            <Button
+            <DashButton
+              variant="ghost"
               component={RouterLink}
               to={`/league/${leagueId}/matchups/${matchupId}`}
-              disableElevation
-              sx={GHOST_SX}
+              sx={BUTTON_ROW_SX}
             >
               Compare rosters
-            </Button>
-            <Button
+            </DashButton>
+            <DashButton
               component={RouterLink}
               to={`/league/${leagueId}/lineup`}
-              disableElevation
-              sx={PRIMARY_SX}
+              sx={BUTTON_ROW_SX}
             >
               Set Lineup
-            </Button>
+            </DashButton>
           </Box>
         </>
       )}
@@ -198,47 +197,12 @@ const VS_PILL_SX = {
   py: 0.75,
 };
 
-// The canvas's `.btn`, matching the evolved twin on the Matchup page's hero
-// (MatchupHero.jsx): 38px tall on desktop, stretched to the row with a 44px
-// hit target below `md`, which also splits the two buttons across the row
-// instead of leaving them 10px apart under the same thumb.
-const BUTTON_BASE = {
-  textTransform: 'none',
-  fontSize: '13px',
-  fontWeight: 600,
-  lineHeight: 1.2,
-  borderRadius: '9px',
-  padding: '9px 16px',
-  minWidth: 0,
-  minHeight: { xs: 44, md: 38 },
+// Row layout, not the button's own paint (DashButton, shared/ui, #1166):
+// stretched to the row with a 44px hit target below `md`, which also splits
+// the two buttons across the row instead of leaving them 10px apart under the
+// same thumb.
+const BUTTON_ROW_SX = {
   flex: { xs: '1 1 0', md: 'none' },
-  border: '1px solid var(--dash-line-strong)',
-};
-
-// Ghost look: dim label on the card surface (a registered pairing), a hairline
-// border, no fill.
-const GHOST_SX = {
-  ...BUTTON_BASE,
-  color: 'var(--dash-dim)',
-  backgroundColor: 'transparent',
-  '&:hover': {
-    color: 'var(--dash-ink)',
-    borderColor: 'var(--dash-accent-line)',
-    backgroundColor: 'transparent',
-  },
-};
-
-// Primary look: the `dash-on-accent` label on the `dash-accent` fill (the
-// registered "dashboard primary button label on accent" pairing).
-// The hover is a `filter`, which the app theme's MuiButton transition does not
-// cover, so the primary snapped while the ghost beside it eased.
-const PRIMARY_SX = {
-  ...BUTTON_BASE,
-  color: 'var(--dash-on-accent)',
-  backgroundColor: 'var(--dash-accent)',
-  borderColor: 'var(--dash-accent)',
-  transition: 'filter var(--transition-fast)',
-  '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
 };
 
 // One side of the versus block: avatar, Team name, the display figure and its
