@@ -182,20 +182,18 @@ function injuryGameWindowMs(quotaMode) {
 }
 
 /**
- * The last successful injury sync, read from data_sync_runs rather than a
- * module variable (#1188): the in-memory day stamp reset on every worker
- * restart, so "daily" ran 3.4 times a day. Null when no successful run exists
- * or the read fails (which then runs the sync: the safe direction).
+ * The last successful injury sync, read via `lastRun('injuries')`
+ * (server/modules/syncRun.js, ADR 0036, #1205) rather than a hand-rolled
+ * query: the in-memory day stamp reset on every worker restart, so "daily"
+ * ran 3.4 times a day (#1188). Null when no successful run exists or the read
+ * fails (which then runs the sync: the safe direction). Deliberately reads
+ * `latestOk`, not `latest`: a failed run must not move the once-a-day gate,
+ * so the next tick retries it.
  */
 async function lastInjurySyncAt() {
   try {
-    const res = await pool.query(
-      `SELECT "finished_at" FROM "data_sync_runs"
-        WHERE "job" = 'injuries' AND "ok" = true
-        ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
-    );
-    const row = res.rows[0];
-    return row && row.finished_at ? new Date(row.finished_at) : null;
+    const { latestOk } = await lastRun('injuries');
+    return latestOk ? latestOk.finishedAt : null;
   } catch (err) {
     console.warn('runDailyInjurySync: data_sync_runs read failed, treating as never run:', err.message);
     return null;
@@ -552,48 +550,121 @@ function stopScheduler() {
 }
 
 /**
+ * Every feed-sync job the Sync run module records (ADR 0036), in the order
+ * `syncRuns` below reports them. Declared once so `getSchedulerStatus` and any
+ * future reader share one spelling (#1205). `live-box` is deliberately
+ * excluded: its data_sync_runs row is a source-switch signal, not a Sync run
+ * (#1197 R5, ADR 0035).
+ */
+const SYNC_RUN_JOBS = [
+  'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week',
+];
+
+// The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
+// syncRun.js). Anything else - a legacy row written before that module
+// existed, such as an old ADP row's `reason: 'thin_market'` - reports
+// outcome: null rather than inventing a value (#1205).
+const SYNC_RUN_OUTCOMES = new Set(['refused', 'fetch_failed', 'bad_response', 'write_failed']);
+
+/** `{ finishedAt, ok, outcome }` for one `lastRun(job).latest` row, or null. */
+function toLatestStatus(latest) {
+  if (!latest) return null;
+  const reason = latest.detail && latest.detail.reason;
+  return {
+    finishedAt: latest.finishedAt,
+    ok: latest.ok,
+    outcome: latest.ok ? 'ok' : (SYNC_RUN_OUTCOMES.has(reason) ? reason : null),
+  };
+}
+
+/** `{ finishedAt }` for one `lastRun(job).latestOk` row, or null. */
+function toLatestOkStatus(latestOk) {
+  return latestOk ? { finishedAt: latestOk.finishedAt } : null;
+}
+
+/**
+ * One job's `lastRun` read, never rejecting: resolves `{ job, run, failed }`,
+ * `run` being `null` on a failed read so the caller can degrade that job to
+ * `{ latest: null, latestOk: null }` without a try/catch of its own.
+ */
+async function readSyncRunStatus(job) {
+  try {
+    return { job, run: await lastRun(job), failed: false };
+  } catch (err) {
+    return { job, run: null, failed: true, message: err.message };
+  }
+}
+
+/**
  * Snapshot of scheduler health for the /api/health and /api/admin endpoints.
- * Async because it also reports the latest ADP market sync (#747), read via
- * `lastRun('adp')` (server/modules/syncRun.js, ADR 0036, #1201) rather than a
- * hand-rolled query: `lastRun` is the one round trip every Sync run job reads
- * back through. It must NEVER throw: health probes and the worker heartbeat
- * call it, so a read failure degrades to lastAdpSync/lastAdpSuccess: null, not
- * an exception.
+ * Async because it reads every feed-sync job's latest Sync run (ADR 0036) via
+ * `lastRun(job)` (server/modules/syncRun.js): `lastRun` is the one round trip
+ * every Sync run job reads back through, and each job gets its own read so
+ * one job's failure cannot hide another's status. It must NEVER throw: health
+ * probes and the worker heartbeat call it every 60s, so a read failure
+ * degrades that job to nulls, not an exception - and however many of the
+ * `SYNC_RUN_JOBS` reads fail in one call, at most one warning is logged for
+ * it, not one per job (#1205).
  *
- * `lastAdpSync` reports the latest run regardless of outcome (unchanged
- * behaviour, still `{ finishedAt, ok, matched }`); `lastAdpSuccess` is new
- * (#1201) and reports the latest OK run - "last successful sync" (CONTEXT.md)
- * - as `{ finishedAt, matched }`, `ok` being implied true. #1205 generalizes
- * this probe read for every Sync run job from here.
+ * `lastAdpSync` reports the latest ADP run regardless of outcome (unchanged
+ * behaviour since #747, still `{ finishedAt, ok, matched }`); `lastAdpSuccess`
+ * reports the latest OK run - "last successful sync" (CONTEXT.md) - as
+ * `{ finishedAt, matched }`, `ok` being implied true (#1201). Both are derived
+ * from the same `lastRun('adp')` read `syncRuns.adp` uses, not a second query.
+ *
+ * `syncRuns` (#1205) is new: an object keyed by job literal (`SYNC_RUN_JOBS`),
+ * each value `{ latest, latestOk }`. `latest` is `{ finishedAt, ok, outcome }`
+ * or null when the job has never run (or its migration has not landed:
+ * nothing to read is indistinguishable from nothing recorded yet). `latestOk`
+ * is `{ finishedAt }` or null. This widens only the admin route and the
+ * worker heartbeat's job status - `publishSchedulerStatus`
+ * (server/routes/health.router.js) keeps its existing whitelist, so the
+ * public `/api/health` payload is unchanged.
  */
 async function getSchedulerStatus() {
+  const results = await Promise.all(SYNC_RUN_JOBS.map(readSyncRunStatus));
+
+  const syncRuns = {};
+  let warned = false;
+  const byJob = {};
+  for (const { job, run, failed, message } of results) {
+    byJob[job] = run;
+    if (failed) {
+      if (!warned) {
+        // Never throw (health probes and the worker heartbeat depend on it),
+        // but do not degrade silently: a permanently broken read (dropped
+        // table, a permission change) would otherwise be indistinguishable
+        // from "no run yet" (#747 review 750-f4).
+        console.warn('getSchedulerStatus: data_sync_runs read failed for job %s, reporting nulls:', job, message);
+        warned = true;
+      }
+      syncRuns[job] = { latest: null, latestOk: null };
+      continue;
+    }
+    syncRuns[job] = { latest: toLatestStatus(run.latest), latestOk: toLatestOkStatus(run.latestOk) };
+  }
+
   let lastAdpSync = null;
   let lastAdpSuccess = null;
-  try {
-    const { latest, latestOk } = await lastRun('adp');
-    if (latest) {
+  const adp = byJob.adp;
+  if (adp) {
+    if (adp.latest) {
       lastAdpSync = {
-        finishedAt: latest.finishedAt,
-        ok: latest.ok,
-        matched: latest.detail && latest.detail.matched != null ? latest.detail.matched : null,
+        finishedAt: adp.latest.finishedAt,
+        ok: adp.latest.ok,
+        matched: adp.latest.detail && adp.latest.detail.matched != null ? adp.latest.detail.matched : null,
       };
     }
-    if (latestOk) {
+    if (adp.latestOk) {
       lastAdpSuccess = {
-        finishedAt: latestOk.finishedAt,
-        matched: latestOk.detail && latestOk.detail.matched != null ? latestOk.detail.matched : null,
+        finishedAt: adp.latestOk.finishedAt,
+        matched: adp.latestOk.detail && adp.latestOk.detail.matched != null ? adp.latestOk.detail.matched : null,
       };
     }
-  } catch (err) {
-    // Never throw (health probes and the worker heartbeat depend on it), but do
-    // not degrade silently: a permanently broken read (dropped table, a
-    // permission change) would otherwise be indistinguishable from "no run yet"
-    // (#747 review 750-f4).
-    console.warn('getSchedulerStatus: data_sync_runs read failed, reporting lastAdpSync=null:', err.message);
-    lastAdpSync = null;
-    lastAdpSuccess = null;
   }
-  return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync, lastAdpSuccess };
+
+  return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync, lastAdpSuccess, syncRuns };
 }
 
 module.exports = {
@@ -603,6 +674,7 @@ module.exports = {
   draftTick,
   alertCloseMatchups,
   getSchedulerStatus,
+  SYNC_RUN_JOBS,
   syncAndScoreLiveWeeks,
   syncEveryTicks,
   runDailyInjurySync,
