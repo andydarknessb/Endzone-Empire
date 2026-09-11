@@ -1,7 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
-const { isTransientDatabaseError } = require('../modules/dbRetry');
 const { PLAYERS_BULK_WRITE_LOCK, NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { withTransaction } = require('../modules/withTransaction');
 const { tank01Get } = require('../modules/tank01Client');
@@ -676,8 +675,12 @@ async function loadWeekMaps({ season, week }) {
  * @param {boolean} [args.suppressPlays]  write stats but emit no Scoring plays
  *   (the switch-pass rule, ADR 0035: the first apply after a source change,
  *   including the Final box landing, must not replay a touchdown cutscene)
+ * @param {object} [args.client]  a checked-out transaction client (ADR 0033);
+ *   defaults to the ambient pool for every caller outside a Sync run's own
+ *   per-unit transaction (the Live box poll, the recap path, and every test
+ *   that predates the week-stats Sync run migration, #1202) - unchanged.
  */
-async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPlays = false }) {
+async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPlays = false, client = pool }) {
   const { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam, finalSyncedGameIds } = maps;
   const live = liveBox || tank01BoxSource.fromBox(box);
   // Final guard (#1186, ADR 0035): once the Final box has landed for a game
@@ -693,7 +696,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
   const plays = [];
 
   const upsertStats = async (playerId, stats, points) => {
-    await pool.query(
+    await client.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT ("player_id", "season", "week")
@@ -828,6 +831,15 @@ function gamesNeedingBoxScore(rows) {
  *
  * Returns typed touchdown events (`plays`) for the live UI — see
  * applyGameBoxScore.
+ *
+ * A Sync run (CONTEXT.md, ADR 0036, #1202): the target-list read above stays
+ * a plain pool read (it decides WHAT to fetch, same as every job's setup),
+ * then `runSyncJob({ job: 'week-stats', ... })` owns the shape from there -
+ * fetchWeekStatsUnits pulls every target's box outside any transaction,
+ * applyWeekStatsUnit writes one game per unit inside its own transaction, and
+ * exactly one `data_sync_runs` row records the whole run. No job lock: the
+ * writes are per-game `player_stats` rows, the same rows the Live box poll
+ * upserts, and a slate-wide lock would stall it (ADR 0036).
  */
 async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   const stateRes = await pool.query(
@@ -873,15 +885,45 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   }
 
   const maps = await loadWeekMaps({ season, week });
+  // Mutated by fetchWeekStatsUnits, read back once runSyncJob resolves: fetch
+  // fully completes before any unit is applied (runSyncJob awaits it first),
+  // so this is never read while still being written.
+  const failedFetches = [];
 
-  let updated = 0;
-  let gamesProcessed = 0;
-  const plays = [];
+  const runResult = await runSyncJob({
+    job: 'week-stats',
+    lock: null,
+    fetch: () => fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }),
+    apply: (client, unit) => applyWeekStatsUnit(client, unit, { season, week, maps, failedFetches }),
+  });
+
+  const applied = runResult && runResult.results ? runResult.results : [runResult];
+  return {
+    season,
+    week,
+    playersUpdated: applied.reduce((sum, r) => sum + (r ? r.updated : 0), 0),
+    gamesProcessed: applied.length,
+    gamesSkipped: gamesSkipped + failedFetches.length,
+    plays: applied.flatMap((r) => (r ? r.plays : [])),
+  };
+}
+
+/**
+ * fetch() for the week-stats job (#1202): one Tank01 box-score call per
+ * target game, at the same pauseMs cadence and the same quota cost as the
+ * pre-Sync-run loop - fetch-all never adds calls. A game whose call fails is
+ * pushed onto the caller's `failedFetches` and left out of the returned
+ * units, rather than aborting the rest of the slate the way a bare throw
+ * would; zero units on a slate with live targets is tagged `fetch_failed`
+ * (ADR 0036) - Tank01 answered for none of the games this pass needed.
+ */
+async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
+  const units = [];
   for (const target of targets) {
     try {
       // Backfill callers pace the box-score calls to stay under the provider's
       // per-second rate limit; live callers leave this at 0.
-      if (pauseMs > 0 && gamesProcessed > 0) {
+      if (pauseMs > 0 && units.length > 0) {
         await new Promise((resolve) => setTimeout(resolve, pauseMs));
       }
       // Every target here is Final box work (gamesNeedingBoxScore) or a
@@ -894,28 +936,41 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
         transport: api,
       });
       const box = tank01Body(boxResponse.data) || {};
-      gamesProcessed += 1;
       const liveBox = tank01BoxSource.fromBox(box);
-      // The Final box landing writes stats and emits no Scoring plays (the
-      // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
-      // and that difference is not a new play.
-      const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal });
-      updated += result.updated;
-      plays.push(...result.plays);
-      // A final game's stats are now in: never fetch this box score again, and
-      // refuse any Live box that arrives late for it.
-      if (target.isFinal) {
-        await markFinalStatsSynced(target.gameId);
-        require('../modules/liveBox').noteFinalBoxApplied(target.gameId);
-      }
+      units.push({ target, liveBox });
     } catch (err) {
-      // Correction-route retries are safe because every stat write is an
-      // upsert. Do not hide pool starvation as a single skipped NFL game.
-      if (isTransientDatabaseError(err)) throw err;
-      console.error('Stat sync failed for game %s:', target.gameId, err.message);
+      console.error('Box fetch failed for game %s:', target.gameId, err.message);
+      failedFetches.push(target.gameId);
     }
   }
-  return { season, week, playersUpdated: updated, gamesProcessed, gamesSkipped, plays };
+  if (units.length === 0) {
+    const error = new Error(`syncWeekStats: every box fetch failed (${targets.length} target(s))`);
+    error.syncFailureReason = 'fetch_failed';
+    throw error;
+  }
+  return units;
+}
+
+/**
+ * apply() for the week-stats job (#1202): one game per unit, each in its own
+ * transaction via runSyncJob/withTransaction (ADR 0036/0033), no job lock. A
+ * unit that throws is recorded write_failed and rolled back by runSyncJob;
+ * the units applied in earlier iterations stay applied, since each already
+ * committed in its own transaction. `failedFetches` rides along on every
+ * successful unit's result so it lands in the run's recorded detail.
+ */
+async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, maps, failedFetches }) {
+  // The Final box landing writes stats and emits no Scoring plays (the
+  // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
+  // and that difference is not a new play.
+  const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal, client });
+  // A final game's stats are now in: never fetch this box score again, and
+  // refuse any Live box that arrives late for it.
+  if (target.isFinal) {
+    await markFinalStatsSynced(target.gameId, client);
+    require('../modules/liveBox').noteFinalBoxApplied(target.gameId);
+  }
+  return { gameId: target.gameId, updated: result.updated, plays: result.plays, skipped: failedFetches };
 }
 
 /**
@@ -923,9 +978,13 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
  * separate from the recap row: a recap can be regenerated without re-spending a
  * box-score call, and a stat re-sync (admin/correction route) can clear the
  * stamp if it ever needs to.
+ *
+ * `client` defaults to the ambient pool for every caller outside a Sync run's
+ * per-unit transaction; syncWeekStats' own apply (#1202) passes its unit's
+ * transaction client so the stamp commits or rolls back with that game's stats.
  */
-async function markFinalStatsSynced(tank01GameId) {
-  await pool.query(
+async function markFinalStatsSynced(tank01GameId, client = pool) {
+  await client.query(
     `UPDATE "live_game_states" SET "final_stats_synced_at" = now(), "updated_at" = now()
       WHERE "tank01_game_id" = $1`,
     [tank01GameId]

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const scoring = require('../services/scoring.service');
 const finalBox = require('../modules/finalBox');
+const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 
 // The Tank01 plan allows ~1,000 calls a MONTH. The old syncWeekStats box-scored
 // every game in the week on every ~30-minute pass, so a game that finished at
@@ -39,6 +40,13 @@ test('gamesNeedingBoxScore: rows without an id are ignored', () => {
 });
 
 // --- syncWeekStats -----------------------------------------------------------
+//
+// syncWeekStats is now a Sync run (#1202, ADR 0036): the box fetches run
+// outside any transaction, and each game applies in its own transaction via
+// runSyncJob. That means the pg pool's checked-out CLIENT does the per-game
+// writes (the player_stats upsert, the final_stats_synced_at stamp), not the
+// ambient pool - so these tests use the shared fakePool helper (the migration
+// rule in test/helpers/fakePool.js) rather than a hand-rolled pool.query stub.
 
 const LIVE_ROWS = [
   { tank01_game_id: '20260913_KC@BUF', game_status: 'in_progress', final_stats_synced_at: null },
@@ -47,52 +55,71 @@ const LIVE_ROWS = [
   { tank01_game_id: '20260914_MIN@CHI', game_status: 'scheduled', final_stats_synced_at: null },
 ];
 
+const DEFAULT_PLAYERS = [{ id: 7, external_id: '4433971', name: 'Star Back', position: 'RB', nfl_team: 'KC' }];
+
+const DEFAULT_BOX = {
+  playerStats: {
+    4433971: { playerID: '4433971', Rushing: { rushYds: '104', rushTD: '1', carries: '18' } },
+  },
+};
+
+const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
+// The INSERT is ("job","started_at","ok","detail") with values ($1,$2,$3,$4::jsonb)
+// - finished_at is left to the column DEFAULT - so ok is params[2] and the detail
+// JSON is params[3].
+const runOk = (call) => call.params[2];
+const runDetail = (call) => JSON.parse(call.params[3]);
+
 /**
- * Stubs every query syncWeekStats/loadWeekMaps/applyGameBoxScore makes, and
- * records the box-score calls plus any final_stats_synced_at stamps.
+ * Wires a fakePool for syncWeekStats: the target-list read and loadWeekMaps'
+ * reads land on the pool (setup, before the Sync run's fetch); the per-game
+ * writes (player_stats upsert, the final_stats_synced_at stamp) are pinned to
+ * the `'client'` side, since applyWeekStatsUnit now threads its unit's
+ * transaction client through applyGameBoxScore/markFinalStatsSynced (#1202) -
+ * a regression back to the ambient pool would turn these tests red with
+ * "unexpected query" rather than silently passing.
+ *
+ * `boxByGameId[gameId]` overrides the box body Tank01 answers with for that
+ * game; the string `'reject'` makes that game's fetch throw instead.
  */
-function stubWorld(t, { liveRows = LIVE_ROWS } = {}) {
-  const fetched = [];
+function stubWorld(t, { liveRows = LIVE_ROWS, players = DEFAULT_PLAYERS, boxByGameId = {}, onPlayerStatsInsert } = {}) {
   const stamped = [];
   const upserts = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    if (text.includes('FROM "live_game_states"')) return { rows: liveRows };
-    if (text.includes('SET "final_stats_synced_at"')) {
+  const fake = createFakePool([
+    [/FROM "live_game_states"/, () => ({ rows: liveRows })],
+    [/FROM "players" WHERE "external_id"/, () => ({ rows: players })],
+    [/"position" = 'DEF'/, () => ({ rows: [] })],
+    [select('player_stats'), () => ({ rows: [] })],
+    [/FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'KC', opponent: 'BUF' }] })],
+    [update('live_game_states'), (text, params) => {
       stamped.push(params[0]);
       return { rows: [] };
-    }
-    if (text.includes('FROM "players" WHERE "external_id"')) {
-      return { rows: [{ id: 7, external_id: '4433971', name: 'Star Back', position: 'RB', nfl_team: 'KC' }] };
-    }
-    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
-    if (text.includes('FROM "player_stats"')) return { rows: [] };
-    if (text.includes('FROM "nfl_games"')) return { rows: [{ nfl_team: 'KC', opponent: 'BUF' }] };
-    if (text.includes('INTO "player_stats"')) {
+    }, 'client'],
+    [insert('player_stats'), (text, params) => {
+      if (onPlayerStatsInsert) onPlayerStatsInsert(params);
       upserts.push(params);
       return { rows: [] };
-    }
-    throw new Error(`Unexpected SQL: ${text}`);
-  });
+    }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const fetched = [];
   const api = {
     async get(path, opts) {
-      fetched.push({ path, gameId: opts && opts.params && opts.params.gameID, priority: opts && opts.priority });
-      return {
-        data: {
-          body: {
-            playerStats: {
-              4433971: { playerID: '4433971', Rushing: { rushYds: '104', rushTD: '1', carries: '18' } },
-            },
-          },
-        },
-      };
+      const gameId = opts && opts.params && opts.params.gameID;
+      fetched.push({ path, gameId, priority: opts && opts.priority });
+      if (boxByGameId[gameId] === 'reject') {
+        throw new Error(`Tank01 box fetch failed for ${gameId}`);
+      }
+      const body = boxByGameId[gameId] || DEFAULT_BOX;
+      return { data: { body } };
     },
   };
-  return { fetched, stamped, upserts, api };
+  return { fake, fetched, stamped, upserts, api };
 }
 
 test('syncWeekStats: skips scheduled games and finals already ingested', async (t) => {
-  const { fetched, api } = stubWorld(t);
+  const { fake, fetched, api } = stubWorld(t);
   const result = await scoring.syncWeekStats({ season: 2026, week: 2, api });
 
   assert.deepEqual(
@@ -103,6 +130,7 @@ test('syncWeekStats: skips scheduled games and finals already ingested', async (
   assert.equal(fetched[0].priority, 'essential', 'the Final box is the one call never shed (#1186)');
   assert.equal(result.gamesProcessed, 1);
   assert.equal(result.gamesSkipped, 3);
+  fake.assertClean();
 });
 
 test('syncWeekStats: an in_progress game is no longer fetched here; a final without final_stats_synced_at still is (#1185)', async (t) => {
@@ -163,7 +191,7 @@ test('syncWeekStats: a week of finished, ingested games costs zero calls', async
     game_status: 'final',
     final_stats_synced_at: new Date(),
   }));
-  const { fetched, api } = stubWorld(t, { liveRows });
+  const { fake, fetched, api } = stubWorld(t, { liveRows });
   const result = await scoring.syncWeekStats({ season: 2026, week: 2, api });
   assert.deepEqual(fetched, []);
   assert.deepEqual(result, {
@@ -174,12 +202,117 @@ test('syncWeekStats: a week of finished, ingested games costs zero calls', async
     gamesSkipped: 4,
     plays: [],
   });
+  assert.equal(dataSyncRuns(fake.calls).length, 0, 'no targets: no Sync run is even attempted');
 });
 
 test('syncWeekStats: with no live rows it falls back to one schedule call', async (t) => {
   const { fetched, api } = stubWorld(t, { liveRows: [] });
   await scoring.syncWeekStats({ season: 2024, week: 7, api });
   assert.equal(fetched[0].path, '/getNFLGamesForWeek');
+});
+
+// --- syncWeekStats as a Sync run (#1202, ADR 0036) ---------------------------
+
+test('syncWeekStats: fetch-all costs the same Tank01 calls as before - every target is fetched regardless of another target’s outcome', async (t) => {
+  const liveRows = [
+    { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g2', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g3', game_status: 'final', final_stats_synced_at: null },
+  ];
+  const { fetched, api } = stubWorld(t, { liveRows });
+  await scoring.syncWeekStats({ season: 2026, week: 2, api });
+  assert.deepEqual(fetched.map((f) => f.gameId), ['g1', 'g2', 'g3'], 'fetch-all never adds or skips a call');
+});
+
+test('syncWeekStats: game 2 of 3 fails to write; games 1 and 3 stay written and the run records write_failed naming game 2 (#1202)', async (t) => {
+  const liveRows = [
+    { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g2', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g3', game_status: 'final', final_stats_synced_at: null },
+  ];
+  const players = [
+    { id: 1, external_id: 'p1', name: 'Player One', position: 'RB', nfl_team: 'KC' },
+    { id: 2, external_id: 'p2', name: 'Player Two', position: 'RB', nfl_team: 'KC' },
+    { id: 3, external_id: 'p3', name: 'Player Three', position: 'RB', nfl_team: 'KC' },
+  ];
+  const boxByGameId = {
+    g1: { playerStats: { p1: { playerID: 'p1', Rushing: { rushYds: '50', rushTD: '0', carries: '10' } } } },
+    g2: { playerStats: { p2: { playerID: 'p2', Rushing: { rushYds: '60', rushTD: '0', carries: '11' } } } },
+    g3: { playerStats: { p3: { playerID: 'p3', Rushing: { rushYds: '70', rushTD: '0', carries: '12' } } } },
+  };
+  const { fake, upserts, api } = stubWorld(t, {
+    liveRows,
+    players,
+    boxByGameId,
+    onPlayerStatsInsert: (params) => {
+      if (params[0] === 2) throw new Error('player_stats write failed for game2');
+    },
+  });
+
+  await assert.rejects(scoring.syncWeekStats({ season: 2026, week: 2, api }), /write failed for game2/);
+
+  assert.deepEqual(
+    upserts.map((p) => p[0]).sort(),
+    [1, 3],
+    'game 1 and game 3 rows are written; game 2 never lands'
+  );
+  assert.equal(fake.matching(/^COMMIT$/).length, 2, 'game 1 and game 3 each commit their own transaction');
+  assert.equal(fake.matching(/^ROLLBACK$/).length, 1, 'only game 2’s transaction rolls back');
+  fake.assertClean();
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1, 'exactly one run recorded for the whole slate');
+  assert.equal(runOk(runs[0]), false);
+  const detail = runDetail(runs[0]);
+  assert.equal(detail.reason, 'write_failed');
+  assert.equal(detail.failed.length, 1);
+  assert.match(detail.failed[0].message, /game2/);
+});
+
+test('syncWeekStats: one box fetch rejects; the run still applies the rest and records ok with detail.skipped naming that game (#1202)', async (t) => {
+  const liveRows = [
+    { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g2', game_status: 'final', final_stats_synced_at: null },
+  ];
+  const { fake, fetched, upserts, api } = stubWorld(t, {
+    liveRows,
+    boxByGameId: { g2: 'reject' },
+  });
+
+  const result = await scoring.syncWeekStats({ season: 2026, week: 2, api });
+
+  assert.deepEqual(fetched.map((f) => f.gameId), ['g1', 'g2'], 'both targets are attempted - same quota cost as before');
+  assert.equal(upserts.length, 1, 'g1 still writes');
+  assert.equal(result.gamesProcessed, 1);
+  assert.equal(result.gamesSkipped, 1, 'the failed fetch counts against this pass');
+  fake.assertClean();
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1);
+  assert.equal(runOk(runs[0]), true, 'a partial fetch failure is still an ok run - only the fully-failed slate is not');
+  assert.deepEqual(runDetail(runs[0]).skipped, ['g2']);
+});
+
+test('syncWeekStats: every box fetch on the slate fails; the run is fetch_failed and nothing is written (#1202)', async (t) => {
+  const liveRows = [
+    { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g2', game_status: 'final', final_stats_synced_at: null },
+  ];
+  const { fake, upserts, api } = stubWorld(t, {
+    liveRows,
+    boxByGameId: { g1: 'reject', g2: 'reject' },
+  });
+
+  await assert.rejects(scoring.syncWeekStats({ season: 2026, week: 2, api }), /every box fetch failed/);
+
+  assert.equal(upserts.length, 0, 'nothing was ever applied - fetch never produced a unit');
+  assert.equal(fake.matching(/^BEGIN$/).length, 0, 'no transaction opens when fetch itself fails');
+  fake.assertClean();
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1);
+  assert.equal(runOk(runs[0]), false);
+  assert.equal(runDetail(runs[0]).reason, 'fetch_failed');
 });
 
 // --- applyGameBoxScore (the extracted loop body) ------------------------------
