@@ -161,7 +161,7 @@ if (!ENABLED) {
     await pool.query(
       `INSERT INTO "trophies" ("league_id", "team_id", "season", "week", "type", "label", "data", "awarded_at")
        VALUES ($1, $2, $3, 0, 'league_champion', 'League Champion', '{}', '2081-01-05T00:00:00Z')`,
-      [fantasyLeagueId, otherTeamId, FANTASY_SEASON_NO_CHAMPION - 1]
+      [fantasyLeagueId, otherTeamId, FANTASY_SEASON_WITH_CHAMPION - 1]
     );
 
     await pool.query(
