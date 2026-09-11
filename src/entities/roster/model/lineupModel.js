@@ -115,6 +115,17 @@ function playerFromLineupEntry(row) {
  * From the lineup body (`GET /api/team/lineup?leagueId=<id>&week=<week>`).
  * A null/undefined body maps to the empty shape (no entries, zero counts)
  * rather than throwing, matching the entities layer's other builders.
+ *
+ * `rosterSlots`, `benchSlots`, `irSlots` and `currentWeek` (#1237) are the
+ * wire's own already-resolved slot configuration (server/services/
+ * lineup.service.js's `parseLineupSettings`: the league's `roster_slots`
+ * with the standard 7-slot shape as its fallback, never re-resolved here) and
+ * the server's own idea of "this week" - passed through unchanged rather than
+ * re-derived, so a page building the Lineup surface reads them off this one
+ * model instead of the raw wire body directly. `lineupEntries` below already
+ * takes a caller-supplied `rosterSlots`; this is that same array, sourced
+ * from the response `lineupEntries`'s own caller would otherwise have to
+ * fetch a second time.
  */
 export function lineupModel(body) {
   const b = body || {};
@@ -132,6 +143,10 @@ export function lineupModel(body) {
     week: b.week ?? null,
     season: b.season ?? null,
     teamId: b.teamId ?? null,
+    currentWeek: b.currentWeek ?? null,
+    rosterSlots: Array.isArray(b.rosterSlots) ? b.rosterSlots : [],
+    benchSlots: Number.isInteger(b.benchSlots) ? b.benchSlots : null,
+    irSlots: Number.isInteger(b.irSlots) ? b.irSlots : null,
     entries,
     starters,
     benchCount,
@@ -338,6 +353,21 @@ export function lineupEntries(rosterWire, league) {
       kickoff: r.kickoff ?? null,
       gameKey: r.game_key ?? null,
       onBye: Boolean(r.onBye),
+      // The IR slot's own facts (CONTEXT.md's Attested stash and
+      // IR-eligible; #1237): `irAttested` is the commissioner's vouch for
+      // this stash (`lineup_entries.ir_attested`), and `validStash` is the
+      // server's own answer to "is this stash still valid" (IR-eligible OR
+      // attested), read alongside rather than re-derived from injuryStatus
+      // here - the server already applies the attestation-ends-on-any-move
+      // rule this entity does not model.
+      irAttested: Boolean(r.ir_attested),
+      validStash: Boolean(r.valid_stash),
+      // CONTEXT.md's Lineup entry: a spent row is a settled week's record of
+      // a departed starter's slot and starts nobody today - `lineupModel`'s
+      // `starters` already excludes it on this same flag; this per-entry
+      // model exposes it too so a surface rendering ALL entries (starters,
+      // bench and IR together) can mark it inert rather than a live row.
+      spent: Boolean(r.spent),
     };
     return {
       ...entry,
