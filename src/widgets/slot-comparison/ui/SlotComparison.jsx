@@ -31,8 +31,9 @@ import {
  * mobile a cell is two lines, the points on the second, and the pace bar is
  * dropped.
  *
- * The rows arrive already paired and ordered by the Matchup entity
- * (`pairStartersBySlot`, in the league's slot order); this widget renders
+ * The rows arrive already paired and ordered by the Matchup page model
+ * (`pairStartersBySlot`, from `entities/roster`, in the league's slot order;
+ * #1210 moved the pairing out of the Matchup entity); this widget renders
  * them as given and never pairs or re-sorts. Two callbacks: `onOpenPlayer(id)`
  * from a starter's name, and `onToggle(id)` from the rest of his cell, which
  * expands the row's stat line (`expandedId` is the open starter). The two are

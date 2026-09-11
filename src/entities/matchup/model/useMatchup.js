@@ -4,7 +4,7 @@ import { subscribeToScoreFeed } from '../../../shared/lib';
 import { subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import {
-  matchupFromDetailBody, applyScoreEvent, applyIdentityPatch, pairStartersBySlot,
+  matchupFromDetailBody, applyScoreEvent, applyIdentityPatch,
 } from './matchupModel';
 import { playsFromScoreEvent } from './play';
 import { useLiveGameStates } from './useLiveGameStates';
@@ -57,14 +57,17 @@ function applyStarterDeltas(lineup, deltaById) {
  * (totals, status, `final`, Expected final, Players remaining); `detail` is the
  * lineup payload beneath it.
  *
- * The two lineups' STARTERS, however, arrive already paired: given the league's
- * `slotOrder` (its roster_slots keys), the hook returns `starterRows` - one row
- * per slot instance, home paired with away by slot key - so no render pairs
- * starters itself, and none can pair without the league's order (pairing refuses
- * an empty order and returns no rows, exactly as Matchup Detail waits on the
- * league for its bench line). The optimistic per-starter point bumps live here
- * too now, applied to the paired lineups on each score event, so the rows track
- * the live score without a refetch; the score event, its `plays` run through
+ * The two lineups' STARTERS are returned UNPAIRED, as `homeStarters` and
+ * `awayStarters` (#1210: pairing starters by slot is a Roster/Lineup fact,
+ * ADR 0029, and moved up to `pages/matchup/model/useMatchupPage.js`, which
+ * pairs them with `entities/roster`'s `pairStartersBySlot` and the league's
+ * `slotOrder` it already reads off the league row). This hook still accepts
+ * `slotOrder` and hands it straight back unmodified, so a reader has both
+ * halves of the pair in one place without re-deriving the order itself; the
+ * hook itself pairs nothing, so no entity here imports another entity. The
+ * optimistic per-starter point bumps still live here, applied to the lineup
+ * state on each score event, so `homeStarters`/`awayStarters` track the live
+ * score without a refetch; the score event, its `plays` run through
  * the entity's Play model, is still handed to an optional `onScores` callback
  * so a reader can keep its own play-driven concerns - cutscenes, toasts,
  * ticker, the retro field - without a second socket. The callback is read
@@ -73,14 +76,15 @@ function applyStarterDeltas(lineup, deltaById) {
  * @param {number|string} leagueId
  * @param {number|string} matchupId
  * @param {{ onScores?: (event: object) => void, slotOrder?: string[] }} [options]
- * @returns {{ matchup: object|null, detail: object|null, starterRows: object[], loading: boolean, error: string|null, refetch: () => void }}
+ * @returns {{ matchup: object|null, detail: object|null, homeStarters: object[]|undefined, awayStarters: object[]|undefined, slotOrder: string[]|undefined, loading: boolean, error: string|null, refetch: () => void }}
  */
 export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
   const [matchup, setMatchup] = useState(null);
   const [detail, setDetail] = useState(null);
   // The two lineups (starters/bench per side) as the hook's own live state,
   // seeded from each fetch of the detail body and bumped optimistically on the
-  // score feed's plays. `starterRows` below pairs their starters by slot.
+  // score feed's plays. Their starters are returned unpaired (#1210); a reader
+  // pairs them with the league's slot order.
   const [home, setHome] = useState(null);
   const [away, setAway] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -155,23 +159,22 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
     setMatchup((prev) => (prev ? applyIdentityPatch(prev, update) : prev));
   }), [leagueId]);
 
-  // Starters arrive already paired (ADR 0029/0030): the hook owns the pairing so
-  // no render does, and it refuses without the league's slot order - until the
-  // order arrives `starterRows` is empty and the lineup views render nothing,
-  // rather than pairing against a fantasy-standard default that mis-places IDP
-  // starters.
-  const starterRows = useMemo(
-    () => pairStartersBySlot(home?.starters, away?.starters, slotOrder),
-    [home, away, slotOrder]
-  );
-
   // The NFL games this Matchup spans (the detail body's `nflGameIds`) and their
   // live state, on the model as `games` (#885). One subscription for all of
   // them; the page renders a strip per row and opens nothing itself.
   const games = useLiveGameStates(matchupId, detail?.nflGameIds);
   const model = useMemo(() => (matchup ? { ...matchup, games } : matchup), [matchup, games]);
 
-  return { matchup: model, detail, starterRows, loading, error, refetch: loadMatchup };
+  return {
+    matchup: model,
+    detail,
+    homeStarters: home?.starters,
+    awayStarters: away?.starters,
+    slotOrder,
+    loading,
+    error,
+    refetch: loadMatchup,
+  };
 }
 
 export default useMatchup;

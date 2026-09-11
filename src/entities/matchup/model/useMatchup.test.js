@@ -139,30 +139,34 @@ const detailWithStarters = () => ({
   },
 });
 
-test('exposes paired starter rows in the league slot order once the order is known', async () => {
+// #1210: the hook stops pairing (ADR 0029 - pairing is a Roster/Lineup fact,
+// so it moved up to pages/matchup/model/useMatchupPage.js, which pairs with
+// entities/roster's pairStartersBySlot). The hook now exposes each side's
+// starters unpaired and hands the `slotOrder` option straight back, so a
+// reader has both halves of the pair without re-deriving the order itself.
+test("exposes each side's starters unpaired, and hands the slot order option back unmodified", async () => {
   apiClient.get.mockResolvedValue(detailWithStarters());
 
   const { result } = renderHook(() => useMatchup(1, 9, { slotOrder: ['QB', 'DL'] }));
 
   await waitFor(() => expect(result.current.matchup).not.toBeNull());
-  expect(result.current.starterRows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
-    ['QB', 'Josh Allen', 'Jalen Hurts'],
-    ['DL', 'Myles Garrett', null],
-  ]);
+  expect(result.current.homeStarters.map((s) => s.name)).toEqual(['Josh Allen', 'Myles Garrett']);
+  expect(result.current.awayStarters.map((s) => s.name)).toEqual(['Jalen Hurts']);
+  expect(result.current.slotOrder).toEqual(['QB', 'DL']);
 });
 
-test('refuses to pair without the league slot order, so no render pairs against a default', async () => {
+test('with no slotOrder option, starters still load and slotOrder comes back undefined (the hook pairs nothing, so it refuses nothing)', async () => {
   apiClient.get.mockResolvedValue(detailWithStarters());
 
   const { result } = renderHook(() => useMatchup(1, 9));
 
   await waitFor(() => expect(result.current.matchup).not.toBeNull());
-  // The starters loaded, but with no slot order there are no rows - the lineup
-  // view renders nothing until the league arrives.
-  expect(result.current.starterRows).toEqual([]);
+  expect(result.current.homeStarters).toHaveLength(2);
+  expect(result.current.awayStarters).toHaveLength(1);
+  expect(result.current.slotOrder).toBeUndefined();
 });
 
-test('an optimistic per-starter bump reaches the paired rows without a refetch', async () => {
+test('an optimistic per-starter bump reaches homeStarters without a refetch', async () => {
   apiClient.get.mockResolvedValue(detailWithStarters());
 
   const { result } = renderHook(() => useMatchup(1, 9, { slotOrder: ['QB', 'DL'] }));
@@ -176,8 +180,8 @@ test('an optimistic per-starter bump reaches the paired rows without a refetch',
     });
   });
 
-  const qbRow = result.current.starterRows.find((r) => r.slot === 'QB');
-  expect(qbRow.home.points).toBe(26);
+  const qb = result.current.homeStarters.find((s) => s.id === 1);
+  expect(qb.points).toBe(26);
   expect(apiClient.get.mock.calls.length).toBe(before);
 });
 

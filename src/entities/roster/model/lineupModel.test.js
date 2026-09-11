@@ -1,4 +1,4 @@
-import { lineupModel, locked, eligibleSlots, lineupEntries } from './lineupModel';
+import { lineupModel, pairStartersBySlot, locked, eligibleSlots, lineupEntries } from './lineupModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
 // (server/services/lineup.service.js getLineup: id, name, position,
@@ -241,6 +241,99 @@ describe('lineupModel: the one shape from the lineup body', () => {
       entries: [row({ id: 1, slot: 'QB', projected_points: null })],
     });
     expect(model.starters[0].projectedPoints).toBeNull();
+  });
+});
+
+// #1207 (part of #1198, R1): `pairStartersBySlot`, moved here byte-for-byte
+// from `entities/matchup/model/matchupModel.js`, which re-exported it for one
+// release; these cases moved with it from that module's test file when #1210
+// closed the exception (R5 of #1198: tests replace, not layer).
+describe('pairStartersBySlot: starters paired by slot, in the league order', () => {
+  const player = (overrides = {}) => ({
+    id: 1,
+    name: 'P. Mahomes',
+    slot: 'QB',
+    position: 'QB',
+    points: 24.1,
+    ...overrides,
+  });
+
+  // A standard (offense-only) league order; the pairing needs an explicit order
+  // now - there is no silent default.
+  const STANDARD = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
+
+  const shortHome = [player({ id: 1, name: "Ja'Marr Chase", slot: 'WR', position: 'WR' })];
+  const fullAway = [
+    player({ id: 2, name: 'Trevor Lawrence', slot: 'QB' }),
+    player({ id: 3, name: 'Jonathan Taylor', slot: 'RB', position: 'RB' }),
+    player({ id: 4, name: 'DJ Moore', slot: 'WR', position: 'WR' }),
+    player({ id: 5, name: 'Cam Little', slot: 'K', position: 'K' }),
+    player({ id: 6, name: 'Los Angeles Rams', slot: 'DEF', position: 'DEF' }),
+    player({ id: 7, name: 'Emmanuel Ogbah', slot: 'D LINE', position: 'DL' }),
+  ];
+
+  test('pairs by slot key, never by index, and leaves the unfilled side empty', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway, STANDARD);
+    // 'D LINE' is a slot only the starters carry, so it is appended after the
+    // league order rather than dropped.
+    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['QB', null, 'Trevor Lawrence'],
+      ['RB', null, 'Jonathan Taylor'],
+      ['WR', "Ja'Marr Chase", 'DJ Moore'],
+      ['K', null, 'Cam Little'],
+      ['DEF', null, 'Los Angeles Rams'],
+      ['D LINE', null, 'Emmanuel Ogbah'],
+    ]);
+  });
+
+  test('pairs the nth starter of a multi-count slot with the nth on the other side', () => {
+    const home = [player({ id: 1, name: 'H RB1', slot: 'RB' }), player({ id: 2, name: 'H RB2', slot: 'RB' })];
+    const away = [player({ id: 3, name: 'A RB1', slot: 'RB' })];
+    expect(pairStartersBySlot(home, away, ['RB']).map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['RB', 'H RB1', 'A RB1'],
+      ['RB', 'H RB2', null],
+    ]);
+  });
+
+  test('follows the league slotOrder when given, then appends slots only the starters know about', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway, ['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    expect(rows.map((r) => r.slot)).toEqual(['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    const extra = pairStartersBySlot([player({ id: 9, name: 'Flex Guy', slot: 'IDP FLEX' })], [], ['QB']);
+    expect(extra.map((r) => r.slot)).toEqual(['IDP FLEX']);
+  });
+
+  test('under an IDP slot order places defensive starters on their own rows, in order', () => {
+    // An IDP league carries defensive slots the fantasy-standard default never
+    // knew; they must land on their own rows in the commissioner's order, not
+    // sink to the end or share an offensive row.
+    const idpOrder = ['QB', 'RB', 'WR', 'DL', 'LB', 'DB'];
+    const home = [
+      player({ id: 1, name: 'Josh Allen', slot: 'QB' }),
+      player({ id: 2, name: 'Myles Garrett', slot: 'DL', position: 'DL' }),
+      player({ id: 3, name: 'Fred Warner', slot: 'LB', position: 'LB' }),
+      player({ id: 4, name: 'Derwin James', slot: 'DB', position: 'DB' }),
+    ];
+    const away = [
+      player({ id: 5, name: 'Micah Parsons', slot: 'DL', position: 'DL' }),
+      player({ id: 6, name: 'Roquan Smith', slot: 'LB', position: 'LB' }),
+    ];
+    const rows = pairStartersBySlot(home, away, idpOrder);
+    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['QB', 'Josh Allen', null],
+      ['DL', 'Myles Garrett', 'Micah Parsons'],
+      ['LB', 'Fred Warner', 'Roquan Smith'],
+      ['DB', 'Derwin James', null],
+    ]);
+  });
+
+  test('pairing with no slot order is refused and returns no rows', () => {
+    // Red-tell (AC1): reinstating a default order inside the pairing function
+    // turns THIS case red and no other - every other case passes an explicit
+    // order, so a default would change only the refusal.
+    expect(pairStartersBySlot(shortHome, fullAway)).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, [])).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, null)).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, [null, undefined])).toEqual([]);
   });
 });
 

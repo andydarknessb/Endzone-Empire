@@ -9,12 +9,16 @@
  * internal.
  *
  * `pairStartersBySlot`, `lineupEntries`, `eligibleSlots` and `locked` are all
- * exported from HERE, but only `pairStartersBySlot` is read by another
- * entity: since #1207, `entities/matchup`'s `matchupModel.js` re-exports it
- * from HERE for one release. ADR 0029 itself forbids an entity importing
- * another entity (lines 31 and 78); this is a temporary exception to that
- * rule, authorized by #1198 R1's one-release move (pairing starters by slot
- * is a Roster/Lineup fact, not a Matchup one), and #1210 removes it.
+ * exported from HERE. `pairStartersBySlot` used to be re-exported from
+ * `entities/matchup`'s `matchupModel.js` too (#1207, one release, since
+ * `useMatchup.js` paired starters itself): ADR 0029 forbids an entity
+ * importing another entity (lines 31 and 78), and that re-export was the
+ * temporary, authorized exception (#1198 R1's one-release move - pairing
+ * starters by slot is a Roster/Lineup fact, not a Matchup one). #1210 closed
+ * it: the pairing moved up to `pages/matchup/model/useMatchupPage.js`, which
+ * imports `pairStartersBySlot` from HERE directly (ADR 0029 permits a page
+ * importing an entity), and nothing under `entities/matchup` imports this
+ * entity any more.
  */
 export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';

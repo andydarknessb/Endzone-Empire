@@ -8,10 +8,10 @@ import Icon from './icons';
 /**
  * The Lineups card from the Scoreboard view (design canvas rosterPreview()):
  * a compact, non-interactive slot-by-slot preview of the paired rows the
- * entity hands down, home on the left, the PosChip in the middle, away
- * mirrored on the right. Each filled side is a 28px PlayerAvatar headshot
- * (the ESPN photo, position-colored initials when there is none) in a 2px
- * ring of its position's `pos-*` color, as the canvas's headshot() draws it
+ * Matchup page model hands down, home on the left, the PosChip in the
+ * middle, away mirrored on the right. Each filled side is a 28px PlayerAvatar
+ * headshot (the ESPN photo, position-colored initials when there is none) in
+ * a 2px ring of its position's `pos-*` color, as the canvas's headshot() draws it
  * and the slot-comparison widget rings its own (so the two lineup renderings
  * share one avatar treatment), the name with his injury designation beside
  * it when flagged (the kit's InjuryTag, the same tag the Starters table
@@ -20,9 +20,10 @@ import Icon from './icons';
  * Unavailable starter, the reason ("0.0 · on bye"), the reason carrying the
  * `unavailable-reason` test id the Matchup Detail page tests read.
  *
- * It renders the rows AS GIVEN: the entity paired them under the league's slot
- * order (ADR 0029), so this card neither pairs nor re-sorts, and a slot only
- * one side has filled keeps its row with an empty opposite side. Every row is
+ * It renders the rows AS GIVEN: the Matchup page model paired them under the
+ * league's slot order (ADR 0029, #1210), so this card neither pairs nor
+ * re-sorts, and a slot only one side has filled keeps its row with an empty
+ * opposite side. Every row is
  * `data-testid="slot-row"`, the convention the Matchup Detail page tests read
  * to prove the two lineup renderings agree slot for slot.
  *

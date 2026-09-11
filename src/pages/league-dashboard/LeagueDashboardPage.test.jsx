@@ -1662,8 +1662,10 @@ const quickActionsLeague = (overrides = {}) =>
   });
 
 // The standard 9-starter roster shape, as the league row's `roster_slots`
-// jsonb. Only needed by the empty-starting-slot assertion (AC3); the bye
-// assertions read it off the default starter order, so they omit it.
+// jsonb. #1210 deleted lineupAttention's client-side default starter order
+// (ADR 0029's sibling concern: a default guesses at a fantasy-standard shape
+// that mis-places IDP starters), so every assertion below that needs a
+// starting slot to exist - empty-slot AND bye alike - now supplies this.
 const quickActionsStandardSlots = [
   { key: 'QB', count: 1 },
   { key: 'RB', count: 2 },
@@ -1745,7 +1747,14 @@ test('quick-actions: two starters on a current-week bye mark Set Lineup Recommen
     row.lineup_slot === 'QB' || row.id === 12 ? { ...row, bye_week: 3 } : row
   );
   mockGetByUrl({
-    '/api/league/1': quickActionsLeague(),
+    '/api/league/1': quickActionsLeague({
+      league: {
+        draft_status: 'complete',
+        season_status: 'regular',
+        current_week: 3,
+        roster_slots: quickActionsStandardSlots,
+      },
+    }),
     [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(roster),
   });
   renderPage();

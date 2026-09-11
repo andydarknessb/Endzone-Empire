@@ -16,30 +16,34 @@
  *
  * This module is the SERVER-SIDE single source of the standard shape. Client
  * src/ cannot import it at runtime (react-scripts's ModuleScopePlugin confines
- * the bundle to src/), so client mirrors exist and this is what they are
+ * the bundle to src/), so a client mirror exists and this is what it is
  * measured against:
  *
- *   - src/lib/lineupAttention.js's `DEFAULT_STARTER_SLOT_ORDER` (the starter
- *     KEYS only) is PINNED to this module by lineupAttention.parity.test.js.
  *   - src/lib/draftSim/templates.js exports a byte-identical
  *     `DEFAULT_ROSTER_SLOTS`. It is PINNED to this module by
  *     src/lib/draftSim/templates.parity.test.js (#692), which compares the
  *     two whole-object and in order, not just by key: this copy also carries
  *     `count` and `eligiblePositions`, so a drift in either is real.
  *
- * So do not treat this as the only copy: changing the contents here does not
- * propagate to either client mirror. lineupAttention.parity.test.js pins keys
- * only, so a count or eligiblePositions drift passes it silently; the
- * whole-object templates.parity.test.js is what fails on a count or
- * eligiblePositions drift in templates.js.
+ * src/lib/lineupAttention.js used to keep a second client mirror,
+ * `DEFAULT_STARTER_SLOT_ORDER` (the starter KEYS only), pinned here by
+ * lineupAttention.parity.test.js. #1210 deleted that mirror (ADR 0029's
+ * sibling concern: a default guesses at a fantasy-standard shape that could
+ * mis-place IDP starters); lineupAttention now inspects only a league's own
+ * configured slots, with no fallback to this module's shape at all.
  *
- * There is no third, hand-kept client copy. The commissioner roster form
+ * So do not treat this as the only copy: changing the contents here does not
+ * propagate to the remaining client mirror. The whole-object
+ * templates.parity.test.js is what fails on a count or eligiblePositions
+ * drift in templates.js.
+ *
+ * There is no second, hand-kept client copy. The commissioner roster form
  * (src/components/LeagueDashboard/CommissionerTools.jsx) derives its one-click
  * lineup templates from templates.js's pinned DEFAULT_ROSTER_SLOTS rather than
  * keeping its own literal, and CommissionerTools.test.jsx additionally pins the
  * Standard template's rendered rows (keys and counts, in order) back to this
- * leaf. So there are two client copies — lineupAttention.js (keys only) and
- * templates.js (whole object) — and both are covered by a parity test.
+ * leaf. So there is one client copy - templates.js (whole object) - and it is
+ * covered by a parity test.
  */
 
 const DEFAULT_ROSTER_SLOTS = [

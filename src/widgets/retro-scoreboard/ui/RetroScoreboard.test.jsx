@@ -47,7 +47,8 @@ const matchup = (overrides = {}) => ({
 });
 
 // A detail starter row as the wire carries it (league.router.js buildPlayer):
-// the entity pairs these by slot; the widget renders the pairs as given.
+// the Matchup page model pairs these by slot; the widget renders the pairs
+// as given.
 const starter = (overrides = {}) => ({
   id: 10,
   name: 'J. Goff',
