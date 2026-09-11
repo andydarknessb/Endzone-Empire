@@ -1,6 +1,5 @@
 import { useEndpoint, matchupWinProbability, finite } from '../../../shared/lib';
-import { useLeague } from '../../../hooks/useLeague';
-import { matchupFromListRow, matchupStatusView } from '../../../entities/matchup';
+import { matchupFromListRow } from '../../../entities/matchup';
 
 /**
  * Data model for the team-summary-strip widget (#1237 AC4): "live score
@@ -28,11 +27,14 @@ import { matchupFromListRow, matchupStatusView } from '../../../entities/matchup
  * (`entities/roster`'s `locked`, read off the `lineup` prop the page already
  * fetched for the Ledger widget - ADR 0020's "value two widgets both need is
  * passed down by the page").
+ *
+ * `week` and `viewerTeamId` are supplied by the page (its own `useLeague`
+ * read) rather than fetched again here (formal review finding
+ * ac1-widgets-reach-below-the-island): a League is a domain concept, and
+ * ADR 0029's below-island exception is for plumbing with no domain meaning,
+ * not for a second reach at the same league row the page already holds.
  */
-export function useTeamSummaryStrip({ leagueId, lineup }) {
-  const { league, viewerTeamId } = useLeague(leagueId);
-  const week = league?.current_week ?? null;
-
+export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup }) {
   const listUrl = leagueId != null && week != null ? `/api/league/${leagueId}/matchups?week=${week}` : null;
   const list = useEndpoint(listUrl);
 
@@ -73,10 +75,13 @@ export function useTeamSummaryStrip({ leagueId, lineup }) {
   const viewer = status === 'ready' ? sideView(viewerTeamId) : null;
   const opponent = status === 'ready' ? sideView(opponentId) : null;
 
-  const { hasStarted } = matchupStatusView(myMatchup?.status);
-
+  // AC4 asks for win probability unconditionally once the matchup is ready
+  // (formal review finding ac4-win-probability-gated-on-kickoff), not only
+  // once the game has started: pre-kickoff both scores are 0 and the figure
+  // reads purely off the two projected totals, which is exactly what a
+  // manager wants to see before kickoff too.
   let winProbability = null;
-  if (status === 'ready' && hasStarted === true) {
+  if (status === 'ready') {
     const shares = matchupWinProbability({
       homeScore: finite(myMatchup.home.score) ?? 0,
       awayScore: finite(myMatchup.away.score) ?? 0,

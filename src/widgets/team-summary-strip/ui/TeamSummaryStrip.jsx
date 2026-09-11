@@ -13,9 +13,11 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * registered in tokens.contrast.test.js (the stat-tile faint/ink pair, the
  * card surface).
  */
-export default function TeamSummaryStrip({ leagueId, lineup }) {
+export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup }) {
   const { status, viewer, opponent, winProbability, lockedStarters, totalStarters } = useTeamSummaryStrip({
     leagueId,
+    week,
+    viewerTeamId,
     lineup,
   });
 
