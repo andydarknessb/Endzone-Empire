@@ -147,9 +147,18 @@ function injuryWorld(t, { inWindow = false } = {}) {
   });
   const world = { runs: [], calls: 0, fail: false, inWindow, clock: null };
   const fake = createFakePool([
+    // lastInjurySyncAt now reads lastRun('injuries') (#1205): shape the row the
+    // way syncRun.js's lastRun query does, `{ latest, latestOk }`.
     [/FROM "data_sync_runs"/, () => {
-      const ok = world.runs.filter((r) => r.ok).sort((a, b) => b.finished_at - a.finished_at);
-      return { rows: ok.length ? [{ finished_at: ok[0].finished_at }] : [] };
+      const sorted = [...world.runs].sort((a, b) => b.finished_at - a.finished_at);
+      const latest = sorted[0];
+      const latestOk = sorted.find((r) => r.ok);
+      return {
+        rows: [{
+          latest: latest ? { id: sorted.length, finished_at: latest.finished_at, ok: latest.ok, detail: null } : null,
+          latestOk: latestOk ? { id: sorted.length, finished_at: latestOk.finished_at, ok: true, detail: null } : null,
+        }],
+      };
     }],
     [/FROM "live_game_states"/, () => ({ rows: world.inWindow ? [{ '?column?': 1 }] : [] })],
     [/FROM "private"."api_usage"|FROM "private"."api_quota_snapshots"/, () => ({ rows: [] })],
@@ -277,12 +286,21 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
   assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
 });
 
+// Row shape matching syncRun.js's lastRun($job) query: `{ latest, latestOk }`,
+// each a row_to_json-shaped object (snake_case) or null. `byJob` maps a job
+// literal to that shape; a job with no entry answers { latest: null, latestOk: null }.
+function dataSyncRunsPool(byJob) {
+  return createFakePool([
+    [/FROM "data_sync_runs"/, (text, params) => ({
+      rows: [byJob[params[0]] || { latest: null, latestOk: null }],
+    })],
+  ]);
+}
+
 test('getSchedulerStatus reports the latest ADP run, and null when none has run', async (t) => {
   // #1201 (ADR 0036): the probe read moved onto lastRun('adp'), the shared
   // { latest, latestOk } read every Sync run job uses (server/modules/syncRun.js).
-  const noRuns = createFakePool([
-    [/FROM "data_sync_runs"/, () => ({ rows: [{ latest: null, latestOk: null }] })],
-  ]).install(t);
+  const noRuns = dataSyncRunsPool({}).install(t);
   const empty = await scheduler.getSchedulerStatus();
   assert.equal(empty.lastAdpSync, null);
   assert.equal(empty.lastAdpSuccess, null);
@@ -290,17 +308,14 @@ test('getSchedulerStatus reports the latest ADP run, and null when none has run'
 
   t.mock.restoreAll();
   // A failed latest row and an older ok row: lastAdpSync reports the latest
-  // row regardless of outcome (today's behaviour, unchanged), and the new
-  // lastAdpSuccess field reports the ok one - "last successful sync"
-  // (CONTEXT.md), which #1205 will generalize from.
-  createFakePool([
-    [/FROM "data_sync_runs"/, () => ({
-      rows: [{
-        latest: { id: 2, finished_at: '2026-09-03T06:00:00.000Z', ok: false, detail: { reason: 'refused', refusalReason: 'thin_market', adpPlayers: 40 } },
-        latestOk: { id: 1, finished_at: '2026-09-02T06:00:00.000Z', ok: true, detail: { matched: 182, adpPlayers: 200 } },
-      }],
-    })],
-  ]).install(t);
+  // row regardless of outcome (today's behaviour, unchanged), and
+  // lastAdpSuccess reports the ok one - "last successful sync" (CONTEXT.md).
+  dataSyncRunsPool({
+    adp: {
+      latest: { id: 2, finished_at: '2026-09-03T06:00:00.000Z', ok: false, detail: { reason: 'refused', refusalReason: 'thin_market', adpPlayers: 40 } },
+      latestOk: { id: 1, finished_at: '2026-09-02T06:00:00.000Z', ok: true, detail: { matched: 182, adpPlayers: 200 } },
+    },
+  }).install(t);
   const status = await scheduler.getSchedulerStatus();
   assert.equal(status.lastAdpSync.ok, false);
   assert.equal(status.lastAdpSync.matched, null, 'the failed row carries no matched count');
@@ -312,7 +327,9 @@ test('getSchedulerStatus reports the latest ADP run, and null when none has run'
   });
 });
 
-test('getSchedulerStatus never throws when the data_sync_runs read fails', async (t) => {
+test('getSchedulerStatus never throws when the data_sync_runs read fails, and logs at most one warning', async (t) => {
+  let warnings = 0;
+  t.mock.method(console, 'warn', () => { warnings += 1; });
   createFakePool([
     [/FROM "data_sync_runs"/, () => { throw new Error('relation "data_sync_runs" does not exist'); }],
   ]).install(t);
@@ -320,6 +337,62 @@ test('getSchedulerStatus never throws when the data_sync_runs read fails', async
   const status = await scheduler.getSchedulerStatus();
   assert.equal(status.lastAdpSync, null);
   assert.equal(status.lastAdpSuccess, null);
+  // Every one of the 9 SYNC_RUN_JOBS reads rejects, but only one warning logs.
+  assert.equal(warnings, 1);
+  for (const job of scheduler.SYNC_RUN_JOBS) {
+    assert.deepEqual(status.syncRuns[job], { latest: null, latestOk: null }, `${job} degrades to nulls`);
+  }
+});
+
+// ---- syncRuns: lastRun(job) for every feed-sync job (#1205) ----------------
+
+test('getSchedulerStatus.syncRuns reports every job, null for one with no rows', async (t) => {
+  dataSyncRunsPool({}).install(t);
+  const status = await scheduler.getSchedulerStatus();
+  assert.deepEqual(Object.keys(status.syncRuns), scheduler.SYNC_RUN_JOBS);
+  for (const job of scheduler.SYNC_RUN_JOBS) {
+    assert.deepEqual(status.syncRuns[job], { latest: null, latestOk: null });
+  }
+});
+
+test('getSchedulerStatus.syncRuns maps outcome from detail.reason, not from ok alone', async (t) => {
+  // Red-tell: a refused job's latest reports outcome: 'refused', with latestOk
+  // still the older ok row - mapping outcome from ok alone goes red here.
+  dataSyncRunsPool({
+    injuries: {
+      latest: { id: 5, finished_at: '2026-09-10T12:00:00.000Z', ok: false, detail: { reason: 'refused' } },
+      latestOk: { id: 3, finished_at: '2026-09-09T12:00:00.000Z', ok: true, detail: null },
+    },
+    'week-stats': {
+      latest: { id: 6, finished_at: '2026-09-10T12:00:00.000Z', ok: false, detail: { reason: 'fetch_failed' } },
+      latestOk: null,
+    },
+    schedule: {
+      latest: { id: 7, finished_at: '2026-09-10T12:00:00.000Z', ok: false, detail: { reason: 'bad_response' } },
+      latestOk: null,
+    },
+    players: {
+      latest: { id: 8, finished_at: '2026-09-10T12:00:00.000Z', ok: false, detail: { reason: 'write_failed' } },
+      latestOk: null,
+    },
+    // A legacy row written before runSyncJob existed: an outcome never invented.
+    'season-stats': {
+      latest: { id: 9, finished_at: '2026-09-10T12:00:00.000Z', ok: false, detail: { reason: 'thin_market' } },
+      latestOk: null,
+    },
+    adp: {
+      latest: { id: 10, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: { matched: 200 } },
+      latestOk: { id: 10, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: { matched: 200 } },
+    },
+  }).install(t);
+  const status = await scheduler.getSchedulerStatus();
+  assert.equal(status.syncRuns.injuries.latest.outcome, 'refused');
+  assert.deepEqual(status.syncRuns.injuries.latestOk, { finishedAt: new Date('2026-09-09T12:00:00.000Z') });
+  assert.equal(status.syncRuns['week-stats'].latest.outcome, 'fetch_failed');
+  assert.equal(status.syncRuns.schedule.latest.outcome, 'bad_response');
+  assert.equal(status.syncRuns.players.latest.outcome, 'write_failed');
+  assert.equal(status.syncRuns['season-stats'].latest.outcome, null, 'an unmapped reason is never invented');
+  assert.equal(status.syncRuns.adp.latest.outcome, 'ok');
 });
 
 // ---- scoring is decoupled from syncing -------------------------------------
