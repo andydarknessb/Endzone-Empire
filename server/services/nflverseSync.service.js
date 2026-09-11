@@ -244,16 +244,22 @@ async function fetchNflverseWeekUnit({ season, week }) {
 }
 
 /**
- * apply(client, unit) for the nflverse-week job: runs inside runSyncJob's
- * withTransaction, no lock. Does the known-players read and the per-player
- * read-merge-upsert on `client` — the write-only half of what
- * `applyNflverseWeek` below does; the league re-score loop is deliberately
- * NOT here (#1204 ruling #2), so it runs outside this transaction.
+ * apply(db, unit) for the nflverse-week job's WRITE: the known-players read
+ * and the per-player read-merge-upsert. `db` is anything shaped like
+ * `{ query(text, params) }` - runSyncJob passes the transaction client (so
+ * this runs inside runSyncJob's withTransaction, no lock), and
+ * `applyNflverseWeek` below passes the bare `pool` (so each statement
+ * autocommits on its own, exactly as it did before #1204). The league
+ * re-score loop is deliberately NOT here (#1204 ruling #2 - see
+ * `rescoreLeaguesForWeek` below): a syncNflverseWeek caller runs it after
+ * this write's transaction commits and outside it; `applyNflverseWeek` runs
+ * it right after this call, on the bare pool either way, so no transaction
+ * boundary is at stake there.
  */
-async function applyNflverseWeekUnit(client, { season, week, defRows, crosswalk }) {
+async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
   const weekRows = filterRowsForWeek(defRows, { season, week });
 
-  const knownPlayers = await client.query(
+  const knownPlayers = await db.query(
     `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
   );
   const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
@@ -261,14 +267,14 @@ async function applyNflverseWeekUnit(client, { season, week, defRows, crosswalk 
   const updates = buildStatUpdates({ defRows: weekRows, crosswalk, knownPlayersByExternalId: idByExternal });
   let playersUpdated = 0;
   for (const { playerId, patch } of updates) {
-    const existing = await client.query(
+    const existing = await db.query(
       `SELECT "stats" FROM "player_stats" WHERE "player_id" = $1 AND "season" = $2 AND "week" = $3`,
       [playerId, season, week]
     );
     const prevStats = existing.rows[0] ? existing.rows[0].stats : {};
     const stats = { ...prevStats, ...patch };
     const points = scoring.calculateFantasyPoints(stats);
-    await client.query(
+    await db.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT ("player_id", "season", "week")
@@ -309,59 +315,27 @@ async function rescoreLeaguesForWeek({ season, week }) {
  * Apply one (season, week)'s patches from already-fetched nflverse data,
  * outside any Sync run — no transaction, no lock, no data_sync_runs row.
  * `syncNflverseWeek` above no longer calls this (#1204: it is now its own
- * Sync run, job 'nflverse-week', via `fetchNflverseWeekUnit`/
- * `applyNflverseWeekUnit`); this stays exactly as it was for its one
+ * Sync run, job 'nflverse-week'); this stays exactly as it was for its one
  * remaining caller, `scripts/backfill-weekly-stats.js`, which downloads the
  * season defense file and the (large) players crosswalk once per season
  * instead of once per week and always passes `rescoreLeagues: false` to skip
  * the league re-score loop for historical weeks no league ever sat on.
+ *
+ * Delegates the write to `applyNflverseWeekUnit(pool, ...)` (formal review
+ * f2, #1204: this and the nflverse-week job's apply were verbatim copies of
+ * the same write) and the re-score loop to `rescoreLeaguesForWeek` - on the
+ * bare pool either way, so each statement still autocommits on its own
+ * exactly as before, and no transaction boundary changes. Behavior is
+ * unchanged: no updates skips the leagues query entirely (leaguesRescored 0
+ * either way `rescoreLeagues` is set), and `rescoreLeagues: false` skips it
+ * even when there were updates.
  */
 async function applyNflverseWeek({ season, week, defRows, crosswalk, rescoreLeagues = true }) {
-  const weekRows = filterRowsForWeek(defRows, { season, week });
-
-  const knownPlayers = await pool.query(
-    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
-  );
-  const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
-
-  const updates = buildStatUpdates({ defRows: weekRows, crosswalk, knownPlayersByExternalId: idByExternal });
-  if (updates.length === 0) return { season, week, playersUpdated: 0, leaguesRescored: 0 };
-
-  let playersUpdated = 0;
-  for (const { playerId, patch } of updates) {
-    const existing = await pool.query(
-      `SELECT "stats" FROM "player_stats" WHERE "player_id" = $1 AND "season" = $2 AND "week" = $3`,
-      [playerId, season, week]
-    );
-    const prevStats = existing.rows[0] ? existing.rows[0].stats : {};
-    const stats = { ...prevStats, ...patch };
-    const points = scoring.calculateFantasyPoints(stats);
-    await pool.query(
-      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("player_id", "season", "week")
-       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [playerId, season, week, JSON.stringify(stats), points]
-    );
-    playersUpdated += 1;
-  }
-
-  if (!rescoreLeagues) {
+  const { playersUpdated } = await applyNflverseWeekUnit(pool, { season, week, defRows, crosswalk });
+  if (playersUpdated === 0 || !rescoreLeagues) {
     return { season, week, playersUpdated, leaguesRescored: 0 };
   }
-
-  const leaguesResult = await pool.query(`SELECT "id" FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`);
-  let leaguesRescored = 0;
-  for (const league of leaguesResult.rows) {
-    try {
-      // No-ops instantly for a league with no matchup rows at this
-      // (season, week) — safe to call broadly rather than pre-filtering.
-      const outcome = await correction.correctLeagueWeek({ leagueId: league.id, season, week });
-      if (outcome.changes.length > 0) leaguesRescored += 1;
-    } catch (err) {
-      console.error('nflverse finalization: re-score failed for league %s:', league.id, err.message);
-    }
-  }
+  const leaguesRescored = await rescoreLeaguesForWeek({ season, week });
   return { season, week, playersUpdated, leaguesRescored };
 }
 

@@ -11,6 +11,8 @@ const {
   normalizeTeamAbbr,
   missingTeamDefenses,
   syncTeamDefenses,
+  syncPlayers,
+  syncPlayerSeasonStats,
   normalizeTank01Game,
   detectScoringEvents,
   SCORING_RULES,
@@ -283,6 +285,60 @@ test('syncTeamDefenses upserts every missing team inside one transaction under P
   const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
   const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
   const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "players"/.test(c.text));
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
+  assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first insert');
+  fake.assertClean();
+});
+
+// Formal review f1 (#1204): only team-defenses had a lock-ordering test above,
+// though the issue names PLAYERS_BULK_WRITE_LOCK for all three players-table
+// jobs and, for players, it is the #904 guard against a row-lock deadlock
+// with syncInjuries/syncAdp. Without these two, `lock: null` in either
+// syncPlayers or syncPlayerSeasonStats leaves every other test green.
+test('syncPlayers upserts every fetched entry inside one transaction under PLAYERS_BULK_WRITE_LOCK', async (t) => {
+  const api = async (path) => {
+    assert.equal(path, '/getNFLPlayerList');
+    return { data: { body: [{ playerID: '1', longName: 'Test Player', pos: 'WR', team: 'BUF' }] } };
+  };
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(result, { season: 2026, playersUpserted: 1, skippedNonFantasy: 0 });
+
+  // Red-tell: remove the lock and this ordering assertion goes red.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "players"/.test(c.text));
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
+  assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first insert');
+  fake.assertClean();
+});
+
+test('syncPlayerSeasonStats upserts every rollup inside one transaction under PLAYERS_BULK_WRITE_LOCK', async (t) => {
+  const fake = createFakePool([
+    [/FROM "player_stats"/, () => ({ rows: [
+      { player_id: 1, season: 2025, stats: { rec: 1 }, fantasy_points: '10.00' },
+    ] }), 'pool'],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('player_season_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayerSeasonStats({ currentSeason: 2026 });
+
+  assert.deepEqual(result, { cutoffSeason: 2026, seasonsUpserted: 1 });
+
+  // Red-tell: remove the lock and this ordering assertion goes red.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "player_season_stats"/.test(c.text));
   assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
   assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
   assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first insert');
