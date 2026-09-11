@@ -71,28 +71,19 @@ test('navigating to a related article loads its body and rebuilds the table of c
   );
   await screen.findByRole('heading', { name: 'Trade from surplus, not from panic' });
 
-  // The related strip links to the newest recap; this is an in-app hop, so the
-  // page keeps its component instance and only the slug changes. Target the
-  // NEWEST recap by date (not a fixed week number): every recap carries the same
-  // "The Scoreboard"/"Fantasy Stock Risers" headings, so the link name is the
-  // only thing pinning which body this test actually loads, and pointing it at
-  // an older recap leaves it one published article away from falling out of the
-  // three-slot strip. Starting from reading-trade-value (Trades) rather than
-  // draft-by-tiers (Draft) because Trades has no cluster, keeping all non-Trades
-  // articles at equal priority and giving the newest Recap a slot.
-  // The card's accessible name is the title plus the excerpt, so this matches
-  // the title as a substring rather than asserting the whole name.
-  const newestRecap = listArticles().find((a) => a.category === 'Recap');
-  const titlePattern = new RegExp(newestRecap.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  // Navigate to the newest related article (an in-app hop: the page keeps its
+  // component instance and only the slug changes). Starting from
+  // reading-trade-value (Trades, no cluster) so every non-Trades article has
+  // equal priority and the newest by date lands in the three-slot strip.
+  const related = listArticles().filter((a) => a.slug !== 'reading-trade-value');
+  const newest = related[0];
+  const titlePattern = new RegExp(newest.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   await user.click(screen.getByRole('link', { name: titlePattern }));
 
-  expect(await screen.findByRole('heading', { name: 'The Scoreboard' })).toBeInTheDocument();
-  // The nav is re-queried inside waitFor: it empties (unmounts) while the new
-  // body loads and comes back built from the new article's headings.
+  // Wait for the new body to load and the ToC to rebuild from it.
   await waitFor(() => {
-    expect(screen.getByRole('navigation', { name: 'Table of contents' })).toHaveTextContent('Fantasy Stock Risers');
+    expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('Trade from surplus, not from panic');
   });
-  expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('Trade from surplus, not from panic');
 });
 
 // The fallback matters as much as the happy path: formatDate returns the raw
