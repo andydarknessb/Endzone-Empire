@@ -229,10 +229,9 @@ function toRun(json) {
  * writer before this module existed and could not require `adp.service`
  * directly to share this helper - `adp.service` already requires
  * `scoring.service` (a cycle the reverse edge would have closed) - so it kept
- * its own copy requiring only the pool. That reasoning still holds here:
- * `services/dataSyncRuns.js` re-exports this function so its one remaining
- * caller, `modules/liveBox.js`, does not need to change its require path
- * (#1206 owns retiring that re-export).
+ * its own copy requiring only the pool. `services/dataSyncRuns.js` stayed on
+ * as a thin re-export for `modules/liveBox.js` until #1206 deleted it and
+ * pointed that one remaining caller at this module directly.
  *
  * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
  * outcome of a run: the sync may have completed correctly, and a thrown
