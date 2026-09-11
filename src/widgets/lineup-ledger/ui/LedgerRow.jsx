@@ -74,13 +74,19 @@ function EdgeLine({ edge }) {
 
 // The player's avatar: initials on the NFL team's jersey colour (CONTEXT.md's
 // Ledger row, "avatar with the NFL team colour"). No photo plumbing on this
-// endpoint yet, matching the entity's own scope.
+// endpoint yet, matching the entity's own scope. The label ink is the design
+// system's `text-inverse` token (src/theme/tokens.js) - the same token
+// PosChip already paints its own label on a solid fill with - not a literal:
+// `src/lib/nflTeamColors.js` is the one file the color-literals guard
+// allowlists for real NFL hex values (external data), and this file is not
+// it, so the background alone stays a raw hex value from that lookup while
+// the text on top of it goes through a token.
 function PlayerAvatar({ name, nflTeam }) {
   const kit = NFL_TEAM_COLORS[nflTeam] || FALLBACK_KIT;
   return (
     <Avatar
       aria-hidden="true"
-      sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: '#fff' }}
+      sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: 'var(--text-inverse)' }}
     >
       {initialsFor(name)}
     </Avatar>

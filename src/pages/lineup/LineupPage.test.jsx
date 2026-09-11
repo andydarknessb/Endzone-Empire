@@ -236,7 +236,7 @@ test('every Edge line kind from the fixture renders with its own kind attribute'
 
 test('Unavailable reasons show in the projection cell and a dash for points', async () => {
   renderPage();
-  const benchRow = await screen.findByTestId(`ledger-row-BENCH-10`);
+  const benchRow = await screen.findByTestId(`slot-row-BENCH-10`);
   expect(within(benchRow).getByTestId('ledger-projection')).toHaveTextContent('out');
   expect(within(benchRow).getByTestId('ledger-points')).toHaveTextContent('-');
 });
@@ -256,7 +256,7 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
   renderPage();
 
   await user.click(await screen.findByText('Bench Guy'));
-  await user.click(screen.getByTestId('ledger-row-WR-0'));
+  await user.click(screen.getByTestId('slot-row-WR-0'));
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {

@@ -23,6 +23,12 @@
  * best-ball-only edge case; left as a follow-up rather than blocking this
  * ticket): the zero-bench-slots IR-recovery placeholder row, and best
  * ball's extra bench row for the "resolve an ineligible IR stash" case.
+ *
+ * `testId` restores the legacy page's own `slot-row-<SLOT>-<index>` /
+ * `slot-row-<SLOT>-<entryId>` contract byte-for-byte (LineupScreen.jsx):
+ * `tests/e2e/auth-offline.spec.ts` asserts on it directly
+ * (`slot-row-BENCH-501`, `slot-row-WR-0`) as the browser-level proof of the
+ * offline queue, and that spec is out of this ticket's scope to edit.
  */
 export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots }) {
   const list = Array.isArray(entries) ? entries : [];
@@ -41,7 +47,7 @@ export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots 
     const filled = bySlot.get(type) || [];
     return Array.from({ length: count }, (_, i) => ({
       key: `${type}-${i}`,
-      testId: `ledger-row-${type}-${i}`,
+      testId: `slot-row-${type}-${i}`,
       slotLabel: count > 1 ? `${type} ${i + 1}` : type,
       slotType: type,
       entry: filled[i] || null,
@@ -52,7 +58,7 @@ export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots 
   const irEntries = bySlot.get('IR') || [];
   const ir = Array.from({ length: irCount }, (_, i) => ({
     key: `IR-${i}`,
-    testId: `ledger-row-IR-${i}`,
+    testId: `slot-row-IR-${i}`,
     slotLabel: 'IR',
     slotType: 'IR',
     entry: irEntries[i] || null,
@@ -65,7 +71,7 @@ export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots 
     const entry = sortedBench[i] || null;
     return {
       key: entry ? `BENCH-${entry.playerId}` : `BENCH-empty-${i}`,
-      testId: entry ? `ledger-row-BENCH-${entry.playerId}` : `ledger-row-BENCH-empty-${i}`,
+      testId: entry ? `slot-row-BENCH-${entry.playerId}` : `slot-row-BENCH-empty-${i}`,
       slotLabel: 'BENCH',
       slotType: 'BENCH',
       entry,
