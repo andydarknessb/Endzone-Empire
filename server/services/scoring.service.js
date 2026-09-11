@@ -894,7 +894,7 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
     job: 'week-stats',
     lock: null,
     fetch: () => fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }),
-    apply: (client, unit) => applyWeekStatsUnit(client, unit, { season, week, maps, failedFetches }),
+    apply: (client, unit) => applyWeekStatsUnit(client, unit, { season, week, maps }),
   });
 
   const applied = runResult && runResult.results ? runResult.results : [runResult];
@@ -924,6 +924,13 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
  * units, rather than aborting the rest of the slate the way a bare throw
  * would; zero units on a slate with live targets is tagged `fetch_failed`
  * (ADR 0036) - Tank01 answered for none of the games this pass needed.
+ *
+ * Returns `{ units, detail: { skipped } }` (runSyncJob's fetch-detail wrapper,
+ * #1202) rather than a bare units array: `skipped` is run-level detail - it
+ * belongs to the WHOLE slate, not to any one game's own apply result - and a
+ * slate with two or more units has no single result to carry it on. This is
+ * what makes the recorded run's `detail.skipped` reliable regardless of how
+ * many games ended up applying (formal review, PR #1244 f1).
  */
 async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
   const units = [];
@@ -956,7 +963,7 @@ async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
     error.syncFailureReason = 'fetch_failed';
     throw error;
   }
-  return units;
+  return { units, detail: { skipped: failedFetches } };
 }
 
 /**
@@ -964,8 +971,11 @@ async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
  * transaction via runSyncJob/withTransaction (ADR 0036/0033), no job lock. A
  * unit that throws is recorded write_failed and rolled back by runSyncJob;
  * the units applied in earlier iterations stay applied, since each already
- * committed in its own transaction. `failedFetches` rides along on every
- * successful unit's result so it lands in the run's recorded detail.
+ * committed in its own transaction. The failed-fetch list is NOT carried on
+ * this return value - it is run-level detail, not any one unit's, and rides
+ * instead on fetchWeekStatsUnits' own `{ units, detail: { skipped } }`
+ * wrapper, which runSyncJob merges into the recorded row regardless of how
+ * many units applied (formal review, PR #1244 f1).
  *
  * Stamps `final_stats_synced_at` inside this unit's own transaction (so the
  * stamp commits or rolls back with that game's stats), but does NOT notify
@@ -974,7 +984,7 @@ async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
  * with the DB on a ROLLBACK (qa-reviewer #1202 risk review). The caller
  * notifies once runSyncJob resolves, keyed off `isFinal` in this return value.
  */
-async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, maps, failedFetches }) {
+async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, maps }) {
   // The Final box landing writes stats and emits no Scoring plays (the
   // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
   // and that difference is not a new play.
@@ -988,7 +998,6 @@ async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, m
     isFinal: target.isFinal,
     updated: result.updated,
     plays: result.plays,
-    skipped: failedFetches,
   };
 }
 

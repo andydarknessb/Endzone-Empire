@@ -267,9 +267,14 @@ test('syncWeekStats: game 2 of 3 fails to write; games 1 and 3 stay written and 
   assert.equal(detail.reason, 'write_failed');
   assert.equal(detail.failed.length, 1);
   assert.match(detail.failed[0].message, /game2/);
+  // Formal review, PR #1244 f1: detail.skipped is run-level detail from
+  // fetchWeekStatsUnits' own { units, detail } wrapper, merged into the
+  // recorded row on a write_failed run too, not just an ok one - here every
+  // box fetch succeeded, so it is present and empty.
+  assert.deepEqual(detail.skipped, [], 'detail.skipped is present (empty) even when no box fetch failed');
 });
 
-test('syncWeekStats: one box fetch rejects; the run still applies the rest and records ok with detail.skipped naming that game (#1202)', async (t) => {
+test('syncWeekStats: one box fetch rejects on a two-game slate; the run still applies g1 and records ok with detail.skipped naming g2 (#1202)', async (t) => {
   const liveRows = [
     { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: null },
     { tank01_game_id: 'g2', game_status: 'final', final_stats_synced_at: null },
@@ -291,6 +296,49 @@ test('syncWeekStats: one box fetch rejects; the run still applies the rest and r
   assert.equal(runs.length, 1);
   assert.equal(runOk(runs[0]), true, 'a partial fetch failure is still an ok run - only the fully-failed slate is not');
   assert.deepEqual(runDetail(runs[0]).skipped, ['g2']);
+});
+
+/**
+ * Formal review, PR #1244 f1: `detail.skipped` rode on each unit's OWN apply
+ * result, so `runSyncJob` recorded it at the top level only when exactly one
+ * unit applied (the two-game case above). A three-game slate with one failed
+ * fetch leaves TWO units, so the old code's recorded detail was `{ results }`
+ * with no top-level `skipped` at all - the lead measured this by widening the
+ * two-game fixture to three. fetchWeekStatsUnits now returns
+ * `{ units, detail: { skipped } }` (runSyncJob's fetch-detail wrapper), so
+ * `skipped` survives at the top level regardless of how many units applied.
+ */
+test('syncWeekStats: one box fetch rejects on a THREE-game slate; detail.skipped survives alongside multiple results (#1202, formal review f1)', async (t) => {
+  const liveRows = [
+    { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g2', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g3', game_status: 'final', final_stats_synced_at: null },
+  ];
+  const players = [
+    { id: 1, external_id: 'p1', name: 'Player One', position: 'RB', nfl_team: 'KC' },
+    { id: 2, external_id: 'p2', name: 'Player Two', position: 'RB', nfl_team: 'KC' },
+  ];
+  const boxByGameId = {
+    g1: { playerStats: { p1: { playerID: 'p1', Rushing: { rushYds: '50', rushTD: '0', carries: '10' } } } },
+    g2: 'reject',
+    g3: { playerStats: { p2: { playerID: 'p2', Rushing: { rushYds: '70', rushTD: '0', carries: '12' } } } },
+  };
+  const { fake, fetched, upserts, api } = stubWorld(t, { liveRows, players, boxByGameId });
+
+  const result = await scoring.syncWeekStats({ season: 2026, week: 2, api });
+
+  assert.deepEqual(fetched.map((f) => f.gameId), ['g1', 'g2', 'g3'], 'every target is still attempted');
+  assert.equal(upserts.length, 2, 'g1 and g3 both write - two units applied');
+  assert.equal(result.gamesProcessed, 2);
+  fake.assertClean();
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1);
+  assert.equal(runOk(runs[0]), true);
+  const detail = runDetail(runs[0]);
+  assert.deepEqual(Object.keys(detail).sort(), ['results', 'skipped'], 'the recorded row is { results, skipped }, not just { results }');
+  assert.deepEqual(detail.skipped, ['g2'], 'detail.skipped survives at the top level with two applied units, not just one');
+  assert.equal(detail.results.length, 2);
 });
 
 test('syncWeekStats: every box fetch on the slate fails; the run is fetch_failed and nothing is written (#1202)', async (t) => {

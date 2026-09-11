@@ -261,6 +261,71 @@ test('runSyncJob: multiple units resolve to { results: [...] }, matching what is
   assert.deepEqual(detail, result, 'the recorded detail matches the resolved value');
 });
 
+test('runSyncJob: fetch returning { units, detail } merges detail into a single-unit ok row without changing the resolved value (#1202)', async (t) => {
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await runSyncJob({
+    job: 'widgets',
+    lock: null,
+    fetch: async () => ({ units: [{ id: 'w1' }], detail: { skipped: ['w0'] } }),
+    apply: async (client, unit) => ({ id: unit.id, written: 1 }),
+  });
+
+  assert.deepEqual(result, { id: 'w1', written: 1 }, 'the resolved value is the unit result alone, no wrapper leaks through');
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.deepEqual(detail, { skipped: ['w0'], id: 'w1', written: 1 }, 'fetchDetail and the unit result both land in the recorded row');
+});
+
+test('runSyncJob: fetch returning { units, detail } merges detail into a multi-unit ok row, surviving alongside { results } (#1202)', async (t) => {
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await runSyncJob({
+    job: 'widgets',
+    lock: null,
+    fetch: async () => ({ units: [{ id: 'w1' }, { id: 'w2' }], detail: { skipped: ['w3'] } }),
+    apply: async (client, unit) => ({ id: unit.id }),
+  });
+
+  // The resolved value is exactly runSyncJob's normal multi-unit shape - the
+  // wrapper's detail never reaches a caller's return value, only the recorded row.
+  assert.deepEqual(result, { results: [{ id: 'w1' }, { id: 'w2' }] });
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.deepEqual(detail.skipped, ['w3'], 'run-level detail is recorded even with two-or-more units, unlike a bare units array (formal review, PR #1244 f1)');
+  assert.deepEqual(detail.results, result.results);
+});
+
+test('runSyncJob: fetch returning { units, detail } merges detail into a write_failed row, with reason/failed still winning on collision (#1202)', async (t) => {
+  const boom = new Error('unit 2 blew up');
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await assert.rejects(
+    runSyncJob({
+      job: 'widgets',
+      lock: null,
+      // A caller-supplied detail.reason/detail.failed must not survive - the
+      // module's own write_failed markers win, same rule as the refusal path.
+      fetch: async () => ({ units: [{ id: 'w1' }, { id: 'w2' }], detail: { skipped: ['w3'], reason: 'oops', failed: 'oops' } }),
+      apply: async (client, unit) => {
+        if (unit.id === 'w2') throw boom;
+        return { id: unit.id };
+      },
+    }),
+    /unit 2 blew up/,
+  );
+
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.deepEqual(detail.skipped, ['w3'], 'fetch-supplied run-level detail survives on a write_failed row too');
+  assert.equal(detail.reason, 'write_failed', 'the module\'s own marker wins over a caller-supplied detail.reason');
+  assert.equal(detail.failed.length, 1, 'the module\'s own marker wins over a caller-supplied detail.failed');
+  assert.equal(detail.failed[0].message, 'unit 2 blew up');
+});
+
 test('runSyncJob: a frozen fetch error still records one row and rethrows the original object', async (t) => {
   const boom = Object.freeze(new Error('frozen boom'));
   const fake = createFakePool([
