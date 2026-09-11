@@ -439,23 +439,41 @@ function missingTeamDefenses(existingNflTeams) {
  * (see normalizeTank01DstStats) — so they're seeded directly from the same
  * 32-team list syncWeekStats matches box scores against. Idempotent: safe to
  * re-run, since missingTeamDefenses skips any team that already has a row.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job
+ * 'team-defenses', sharing PLAYERS_BULK_WRITE_LOCK with the other players-
+ * table-family jobs (#1204). The one unit (every missing team this fetch
+ * found) inserts in a single transaction: a mid-run insert failure now rolls
+ * the whole unit back instead of leaving the teams inserted before it (the
+ * previous per-team try/catch swallowed and continued past a failure).
+ * Resolved value is unchanged: `{ teamsInserted, totalDefTeams }`.
  */
 async function syncTeamDefenses() {
+  return runSyncJob({
+    job: 'team-defenses',
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: fetchTeamDefensesUnit,
+    apply: (client, unit) => applyTeamDefensesUnit(client, unit),
+  });
+}
+
+/** fetch() for the team-defenses job: the existing-DEF-rows read, before any transaction or lock. */
+async function fetchTeamDefensesUnit() {
   const existing = await pool.query(`SELECT "nfl_team" FROM "players" WHERE "position" = 'DEF'`);
   const missing = missingTeamDefenses(existing.rows.map((r) => r.nfl_team));
-  let inserted = 0;
+  return [{ missing, existingCount: existing.rows.length }];
+}
+
+/** apply(client, unit) for the team-defenses job: runs inside runSyncJob's withTransaction, under PLAYERS_BULK_WRITE_LOCK. */
+async function applyTeamDefensesUnit(client, { missing, existingCount }) {
   for (const name of missing) {
-    try {
-      await pool.query(
-        `INSERT INTO "players" ("name", "position", "nfl_team") VALUES ($1, 'DEF', $1)`,
-        [name]
-      );
-      inserted += 1;
-    } catch (err) {
-      console.error('DEF backfill failed for %s:', name, err.message);
-    }
+    await client.query(
+      `INSERT INTO "players" ("name", "position", "nfl_team") VALUES ($1, 'DEF', $1)`,
+      [name]
+    );
   }
-  return { teamsInserted: inserted, totalDefTeams: existing.rows.length + inserted };
+  return { teamsInserted: missing.length, totalDefTeams: existingCount + missing.length };
 }
 
 /**
@@ -1449,15 +1467,45 @@ function normalizePlayerEntry(entry) {
  * feed's null through (a hand-run sync is a deliberate act, and clearing a
  * released player is a legitimate outcome of it), while the unattended daily
  * pass keeps the existing label instead.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job 'players',
+ * sharing PLAYERS_BULK_WRITE_LOCK with the other players-table-family jobs
+ * (#1204). The one unit (every parsed feed entry) upserts in a single
+ * transaction: a mid-run upsert failure now rolls the whole unit back instead
+ * of leaving the players upserted before it (the previous per-player
+ * try/catch swallowed and continued past a failure). Resolved value is
+ * unchanged: `{ season, playersUpserted, skippedNonFantasy }`.
  */
-async function syncPlayers({ season }) {
-  const response = await tank01Get('/getNFLPlayerList');
+async function syncPlayers({ season, api = tank01Get }) {
+  return runSyncJob({
+    job: 'players',
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: () => fetchSyncPlayersUnit({ season, api }),
+    apply: (client, unit) => applySyncPlayersUnit(client, unit),
+  });
+}
+
+/**
+ * fetch() for the players job: the Tank01 player-list call, before any
+ * transaction or lock. `api` mirrors syncSchedule/syncInjuries's own
+ * injectable default (`api = tank01Get`) — a test seam, not a behavior
+ * change: production always calls the real tank01Get.
+ */
+async function fetchSyncPlayersUnit({ season, api }) {
+  const response = await api('/getNFLPlayerList');
   const entries = tank01Body(response.data) || [];
   if (!Array.isArray(entries)) {
     const err = new Error('unexpected getNFLPlayerList response shape');
     err.statusCode = 502;
+    err.syncFailureReason = 'bad_response';
     throw err;
   }
+  return [{ season, entries }];
+}
+
+/** apply(client, unit) for the players job: runs inside runSyncJob's withTransaction, under PLAYERS_BULK_WRITE_LOCK. */
+async function applySyncPlayersUnit(client, { season, entries }) {
   let upserted = 0;
   let skipped = 0;
   for (const raw of entries) {
@@ -1466,22 +1514,18 @@ async function syncPlayers({ season }) {
       skipped += 1;
       continue;
     }
-    try {
-      await pool.query(
-        `INSERT INTO "players" ("external_id", "name", "position", "nfl_team", "photo_url", "jersey_number")
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT ("external_id")
-         DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
-                       "nfl_team" = EXCLUDED."nfl_team",
-                       -- keep an existing headshot/jersey if a later feed omits it
-                       "photo_url" = COALESCE(EXCLUDED."photo_url", "players"."photo_url"),
-                       "jersey_number" = COALESCE(EXCLUDED."jersey_number", "players"."jersey_number")`,
-        [parsed.externalId, parsed.name, parsed.position, parsed.nflTeam, parsed.photoUrl, parsed.jerseyNumber]
-      );
-      upserted += 1;
-    } catch (err) {
-      console.error('player sync: upsert failed for external_id %s:', parsed.externalId, err.message);
-    }
+    await client.query(
+      `INSERT INTO "players" ("external_id", "name", "position", "nfl_team", "photo_url", "jersey_number")
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT ("external_id")
+       DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
+                     "nfl_team" = EXCLUDED."nfl_team",
+                     -- keep an existing headshot/jersey if a later feed omits it
+                     "photo_url" = COALESCE(EXCLUDED."photo_url", "players"."photo_url"),
+                     "jersey_number" = COALESCE(EXCLUDED."jersey_number", "players"."jersey_number")`,
+      [parsed.externalId, parsed.name, parsed.position, parsed.nflTeam, parsed.photoUrl, parsed.jerseyNumber]
+    );
+    upserted += 1;
   }
   return { season, playersUpserted: upserted, skippedNonFantasy: skipped };
 }
@@ -1677,8 +1721,28 @@ function buildPlayerSummary({
  * `positions: DEFENSIVE_POSITIONS` (or run
  * scripts/backfill-defense-season-stats.js) to roll up DEF/IDP only — Sleeper
  * never writes rows for those positions, so the scoped upsert is safe.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job
+ * 'season-stats', sharing PLAYERS_BULK_WRITE_LOCK with the other
+ * players-table-family jobs (#1204). The one unit (every player:season
+ * rollup this fetch computed) upserts in a single transaction: a mid-run
+ * upsert failure now rolls the whole unit back instead of leaving the rollups
+ * upserted before it (the previous per-rollup try/catch swallowed and
+ * continued past a failure). Resolved value is unchanged: `{ cutoffSeason,
+ * seasonsUpserted }`.
  */
 async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
+  return runSyncJob({
+    job: 'season-stats',
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: () => fetchSyncPlayerSeasonStatsUnit({ currentSeason, positions }),
+    apply: (client, unit) => applySyncPlayerSeasonStatsUnit(client, unit),
+  });
+}
+
+/** fetch() for the season-stats job: the cutoff lookup and the weekly-rollup read, before any transaction or lock. */
+async function fetchSyncPlayerSeasonStatsUnit({ currentSeason, positions } = {}) {
   let cutoff = Number(currentSeason);
   if (!Number.isInteger(cutoff)) {
     // Pick'em-only leagues are excluded from the derived cutoff: their
@@ -1717,8 +1781,13 @@ async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
     byKey.get(key).rows.push(row);
   }
 
+  return [{ cutoff, entries: Array.from(byKey.values()) }];
+}
+
+/** apply(client, unit) for the season-stats job: runs inside runSyncJob's withTransaction, under PLAYERS_BULK_WRITE_LOCK. */
+async function applySyncPlayerSeasonStatsUnit(client, { cutoff, entries }) {
   let upserted = 0;
-  for (const { playerId, season, rows } of byKey.values()) {
+  for (const { playerId, season, rows } of entries) {
     const { games, stats } = aggregateSeasonStats(rows.map((r) => r.stats));
     // Sum the stored weekly points rather than scoring the aggregate: the
     // teamDefense pointsAllowed/yardsAllowed rules are per-game tier tables,
@@ -1730,20 +1799,16 @@ async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
       const weekPoints = r.fantasy_points == null ? NaN : Number(r.fantasy_points);
       return sum + (Number.isFinite(weekPoints) ? weekPoints : calculateFantasyPoints(r.stats));
     }, 0) * 100) / 100;
-    try {
-      await pool.query(
-        `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT ("player_id", "season")
-         DO UPDATE SET "games_played" = EXCLUDED."games_played",
-                       "stats" = EXCLUDED."stats",
-                       "fantasy_points" = EXCLUDED."fantasy_points"`,
-        [playerId, season, games, JSON.stringify(stats), points]
-      );
-      upserted += 1;
-    } catch (err) {
-      console.error('season-stat backfill failed for player %s season %s:', playerId, season, err.message);
-    }
+    await client.query(
+      `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT ("player_id", "season")
+       DO UPDATE SET "games_played" = EXCLUDED."games_played",
+                     "stats" = EXCLUDED."stats",
+                     "fantasy_points" = EXCLUDED."fantasy_points"`,
+      [playerId, season, games, JSON.stringify(stats), points]
+    );
+    upserted += 1;
   }
   return { cutoffSeason: cutoff, seasonsUpserted: upserted };
 }
