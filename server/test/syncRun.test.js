@@ -150,6 +150,24 @@ test('runSyncJob: a refusal\'s detail reaches both the recorded row and the reso
   fake.assertClean();
 });
 
+test('runSyncJob: a refusal detail cannot clobber the reason/refusalReason markers (qa-reviewer, #1201)', async (t) => {
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await runSyncJob({
+    job: 'adp',
+    lock: 23004,
+    fetch: async () => ({ refused: true, reason: 'thin_market', detail: { reason: 'oops', refusalReason: 'oops' } }),
+    apply: async () => { throw new Error('apply must never run on a refusal'); },
+  });
+
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.equal(detail.reason, 'refused', 'the module\'s own marker wins over a caller-supplied detail.reason');
+  assert.equal(detail.refusalReason, 'thin_market', 'the module\'s own marker wins over a caller-supplied detail.refusalReason');
+  assert.equal(result.reason, 'thin_market');
+});
+
 test('runSyncJob: an apply throw is tagged write_failed, recorded in detail.failed[], and the original error is rethrown', async (t) => {
   const boom = new Error('apply blew up');
   const fake = createFakePool([

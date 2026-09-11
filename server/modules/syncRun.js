@@ -62,8 +62,16 @@ async function runSyncJob({ job, lock, fetch, apply }) {
   }
 
   if (units && units.refused) {
-    const recordedDetail = { reason: 'refused', refusalReason: units.reason || null };
-    if (units.detail) Object.assign(recordedDetail, units.detail);
+    // `reason`/`refusalReason` are this module's own markers of a refusal,
+    // spread in AFTER the caller's detail so a fetch that happens to return
+    // `detail: { reason: ... }` (qa-reviewer #1201: a theoretical risk today,
+    // since the only caller supplies `{ adpPlayers }`) can never overwrite
+    // them and turn a refused row unreadable as such.
+    const recordedDetail = {
+      ...(units.detail || {}),
+      reason: 'refused',
+      refusalReason: units.reason || null,
+    };
     await recordDataSyncRun({ job, startedAt, ok: false, detail: recordedDetail });
     const resolved = { refused: true, reason: units.reason || null };
     if (units.detail) resolved.detail = units.detail;
@@ -175,12 +183,12 @@ function toRun(json) {
 /**
  * Append one observable row to data_sync_runs for a background sync run
  * (#961). The ONE writer of the table (ADR 0036, #1197 R5): `runSyncJob`
- * above calls this directly, and it is exported here for the two callers
- * that do not go through `runSyncJob` - `services/adp.service.js`'s
- * `recordAdpRun` (until the ADP job itself migrates onto this module, #1201)
- * and `modules/liveBox.js` (the Live box source switch, which stays outside
- * this module: it is a signal that the source changed, ADR 0035, not a run of
- * a feed sync). `job` is the caller's free-text identifier (the migration's
+ * above calls this directly, and it is exported here for the one remaining
+ * caller that does not go through `runSyncJob` - `modules/liveBox.js` (the
+ * Live box source switch, which stays outside this module: it is a signal
+ * that the source changed, ADR 0035, not a run of a feed sync). Every feed
+ * sync job itself now goes through `runSyncJob` (#1201 moved the last one,
+ * ADP). `job` is the caller's free-text identifier (the migration's
  * docblock treats a new job type as a new string, not a migration),
  * `started_at` is captured by the caller before its upstream fetch, and
  * `finished_at` is left to the column DEFAULT (now()), the instant of this
@@ -191,8 +199,9 @@ function toRun(json) {
  * directly to share this helper - `adp.service` already requires
  * `scoring.service` (a cycle the reverse edge would have closed) - so it kept
  * its own copy requiring only the pool. That reasoning still holds here:
- * `services/dataSyncRuns.js` now re-exports this function for one release, so
- * neither of its two remaining callers needs to change its require path.
+ * `services/dataSyncRuns.js` re-exports this function so its one remaining
+ * caller, `modules/liveBox.js`, does not need to change its require path
+ * (#1206 owns retiring that re-export).
  *
  * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
  * outcome of a run: the sync may have completed correctly, and a thrown
