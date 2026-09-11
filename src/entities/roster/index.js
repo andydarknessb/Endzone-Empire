@@ -7,5 +7,5 @@
  * `shared` (`shared/lib`'s `useEndpoint`, the same plain read the Matchup and
  * Standings slices use). Everything else in this folder is internal.
  */
-export { lineupModel } from './model/lineupModel';
+export { lineupModel, pairStartersBySlot } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';
