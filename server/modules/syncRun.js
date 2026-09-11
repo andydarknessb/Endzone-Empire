@@ -29,14 +29,18 @@ const { recordDataSyncRun } = require('../services/dataSyncRuns');
  *   (best-effort: a failure to record never masks the run's real outcome).
  *   `ok` is true only when every unit applied; the outcome and any failed
  *   units live in `detail`, since the table carries no `reason` column.
- * - On success `runSyncJob` resolves to the single unit's `apply` result (or
- *   `{ results: [...] }` when there was more than one unit) - today's only
- *   caller, the injuries job, has exactly one unit, so its result is
- *   `apply`'s return value unwrapped. On a unit failure it rethrows the
- *   ORIGINAL error from the first unit that failed (with any
+ * - On success `runSyncJob` resolves to the single unit's `apply` result when
+ *   there was exactly one unit - today's only caller, the injuries job, has
+ *   exactly one, so its result is `apply`'s return value unwrapped - or
+ *   `{ results: [...] }` for zero or more than one. On a unit failure it
+ *   rethrows the ORIGINAL error from the first unit that failed (with any
  *   `error.rollbackError` `withTransaction` attached), after recording; on a
  *   fetch failure it rethrows the (possibly pre-tagged) fetch error the same
  *   way. A refusal never throws; it resolves to `{ refused: true, reason }`.
+ *   Tagging a thrown value with `.syncFailureReason` is best-effort: a frozen
+ *   object or a non-object throw (a string, say) cannot carry the tag, and
+ *   `tagReason` below reads that failure rather than letting it replace the
+ *   real error or skip the one `data_sync_runs` row this run still owes.
  */
 async function runSyncJob({ job, lock, fetch, apply }) {
   const startedAt = new Date();
@@ -44,12 +48,12 @@ async function runSyncJob({ job, lock, fetch, apply }) {
   try {
     units = await fetch();
   } catch (error) {
-    error.syncFailureReason = error.syncFailureReason || 'fetch_failed';
+    const reason = tagReason(error, 'fetch_failed');
     await recordDataSyncRun({
       job,
       startedAt,
       ok: false,
-      detail: { reason: error.syncFailureReason, message: error.message },
+      detail: { reason, message: messageOf(error) },
     });
     throw error;
   }
@@ -76,15 +80,15 @@ async function runSyncJob({ job, lock, fetch, apply }) {
       const result = await withTransaction(
         pool,
         async (client) => {
-          if (lock) await client.query('SELECT pg_advisory_xact_lock($1)', [lock]);
+          if (lock != null) await client.query('SELECT pg_advisory_xact_lock($1)', [lock]);
           return apply(client, unit);
         },
         { label: job }
       );
       results.push(result);
     } catch (error) {
-      error.syncFailureReason = error.syncFailureReason || 'write_failed';
-      failed.push({ unit: i, message: error.message, reason: error.syncFailureReason });
+      const reason = tagReason(error, 'write_failed');
+      failed.push({ unit: i, message: messageOf(error), reason });
       firstFailure = firstFailure || error;
     }
   }
@@ -99,13 +103,34 @@ async function runSyncJob({ job, lock, fetch, apply }) {
     throw firstFailure;
   }
 
-  await recordDataSyncRun({
-    job,
-    startedAt,
-    ok: true,
-    detail: results.length === 1 ? results[0] : { results },
-  });
-  return results.length === 1 ? results[0] : results;
+  const onSuccess = results.length === 1 ? results[0] : { results };
+  await recordDataSyncRun({ job, startedAt, ok: true, detail: onSuccess });
+  return onSuccess;
+}
+
+/**
+ * Best-effort tag: sets `error.syncFailureReason` to its own existing tag or
+ * `fallback`, and returns whichever reason ends up in effect. The write is
+ * wrapped because `error` is caller-supplied and not guaranteed to be an
+ * extensible object - a frozen error or a non-object throw (a plain string,
+ * say) would otherwise turn this bookkeeping step itself into a TypeError
+ * that replaces the real failure and skips the one `data_sync_runs` row this
+ * run still owes (mirrors the same defensive pattern in withTransaction.js).
+ */
+function tagReason(error, fallback) {
+  const existing = error && typeof error === 'object' ? error.syncFailureReason : null;
+  const reason = existing || fallback;
+  try {
+    error.syncFailureReason = reason;
+  } catch {
+    /* non-extensible or non-object throw: the fallback reason still applies */
+  }
+  return reason;
+}
+
+/** Defensive `.message` read: a null/undefined/primitive throw has none. */
+function messageOf(error) {
+  return error && error.message ? error.message : String(error);
 }
 
 /**

@@ -206,6 +206,71 @@ test('lastRun(job): one query returns { latest, latestOk }, decoding the row_to_
   assert.equal(fake.calls.length, 1, 'one round trip');
 });
 
+test('runSyncJob: multiple units resolve to { results: [...] }, matching what is recorded', async (t) => {
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await runSyncJob({
+    job: 'widgets',
+    lock: null,
+    fetch: async () => [{ id: 'w1' }, { id: 'w2' }],
+    apply: async (client, unit) => ({ id: unit.id }),
+  });
+
+  assert.deepEqual(result, { results: [{ id: 'w1' }, { id: 'w2' }] });
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.deepEqual(detail, result, 'the recorded detail matches the resolved value');
+});
+
+test('runSyncJob: a frozen fetch error still records one row and rethrows the original object', async (t) => {
+  const boom = Object.freeze(new Error('frozen boom'));
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const promise = runSyncJob({
+    job: 'widgets',
+    lock: null,
+    fetch: async () => { throw boom; },
+    apply: async () => ({}),
+  });
+
+  await assert.rejects(promise, /frozen boom/);
+  const error = await promise.catch((e) => e);
+  assert.equal(error, boom, 'the frozen original is rethrown untouched, not a TypeError from tagging it');
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'a frozen throw still gets its one data_sync_runs row');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.reason, 'fetch_failed', 'the fallback reason still applies when the tag write itself fails');
+  assert.equal(detail.message, 'frozen boom');
+});
+
+test('runSyncJob: a non-object apply throw (a plain string) still records write_failed and rethrows it', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const promise = runSyncJob({
+    job: 'widgets',
+    lock: 12345,
+    fetch: async () => [{}],
+    apply: async () => { throw 'plain string failure'; }, // eslint-disable-line no-throw-literal
+  });
+
+  await assert.rejects(promise);
+  const error = await promise.catch((e) => e);
+  assert.equal(error, 'plain string failure');
+
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1, 'a non-object throw still gets its one data_sync_runs row');
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.reason, 'write_failed');
+  assert.equal(detail.failed[0].message, 'plain string failure');
+});
+
 test('lastRun(job): both null when the job has never run', async (t) => {
   createFakePool([
     [/^SELECT\s+\(SELECT row_to_json/, () => ({ rows: [{ latest: null, latestOk: null }] })],

@@ -30,6 +30,16 @@ const assert = require('node:assert/strict');
 const ENABLED = process.env.PG_TESTS === '1' || process.env.SYNCRUN_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((k) => process.env[k]);
+// This file connects through the app's own server/modules/pool.js (see the
+// require below), not a hand-built pg.Pool like the sibling *.pg.test.js
+// files - deliberately, so the lock this file observes is the SAME lock
+// runSyncJob takes. But pool.js falls back to a local dev database
+// ('endzone_empire') when PGDATABASE is unset, unlike a bespoke pool built
+// from `database: process.env.PGDATABASE` with no fallback (teamInsertLock.
+// pg.test.js's pattern). Requiring PGDATABASE explicitly here closes that
+// gap: a bare local `PG_TESTS=1` with no PG* connection vars set refuses
+// instead of silently writing seed rows into a developer's real dev database.
+const missingPgDatabase = !process.env.PGDATABASE;
 
 if (!ENABLED) {
   test('syncRun PG tests (skipped: set PG_TESTS=1 or SYNCRUN_PG_TESTS=1; CI migration-smoke runs these)',
@@ -37,6 +47,12 @@ if (!ENABLED) {
 } else if (urlLeak.length > 0) {
   test('syncRun PG tests refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only ever see a disposable PG* database`);
+  });
+} else if (missingPgDatabase) {
+  test('syncRun PG tests refuse to run without PGDATABASE set', () => {
+    assert.fail('set PGDATABASE (and the other PG* connection vars) to a disposable database - '
+      + 'this file connects through server/modules/pool.js, which falls back to the local dev '
+      + 'database name ("endzone_empire") when PGDATABASE is unset, and these tests write and delete real rows');
   });
 } else {
   // The same pool runSyncJob itself requires: connects from PG* env, exactly
@@ -113,26 +129,39 @@ if (!ENABLED) {
     });
     seededJobs.push('syncrun-pgtest-lock-a', 'syncrun-pgtest-lock-b');
 
-    assert.ok(await waitUntil(() => aApplyStarted), 'run A reached apply and is holding the lock');
+    let runB = null;
+    try {
+      assert.ok(await waitUntil(() => aApplyStarted), 'run A reached apply and is holding the lock');
 
-    const runB = runSyncJob({
-      job: 'syncrun-pgtest-lock-b',
-      lock: TEST_LOCK,
-      fetch: async () => [1],
-      apply: async () => {
-        bApplyStarted = true;
-        return { ok: true };
-      },
-    });
+      runB = runSyncJob({
+        job: 'syncrun-pgtest-lock-b',
+        lock: TEST_LOCK,
+        fetch: async () => [1],
+        apply: async () => {
+          bApplyStarted = true;
+          return { ok: true };
+        },
+      });
 
-    const blocked = await waitForBlockedLock();
-    assert.ok(blocked, 'B is blocked waiting for the lock A still holds');
-    assert.equal(bApplyStarted, false, 'B\'s apply has not run while A still holds the lock');
+      const blocked = await waitForBlockedLock();
+      assert.ok(blocked, 'B is blocked waiting for the lock A still holds');
+      assert.equal(bApplyStarted, false, 'B\'s apply has not run while A still holds the lock');
 
-    releaseA();
-    await runA;
-    await runB;
-    assert.equal(bApplyStarted, true, 'B\'s apply ran once A committed and released the lock');
+      releaseA();
+      await runA;
+      await runB;
+      assert.equal(bApplyStarted, true, 'B\'s apply ran once A committed and released the lock');
+    } finally {
+      // Always release A's gate and let both runs settle, even when an
+      // assertion above threw (in particular the `blocked` assertion this
+      // red-tell exists to catch): an unreleased gate leaves A's transaction,
+      // and the lock it holds, open forever, hanging this test and, with it,
+      // test.after's pool.end() - a failing assertion must turn this test
+      // red, never hang the whole migration-smoke job.
+      releaseA();
+      await runA.catch(() => {});
+      if (runB) await runB.catch(() => {});
+    }
   });
 
   // Red-tell 2: remove `withTransaction` from runSyncJob's per-unit apply
