@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, select } = require('./helpers/fakePool');
+const { createFakePool, select, insert } = require('./helpers/fakePool');
 const {
   calculateFantasyPoints,
   tank01Body,
@@ -15,6 +15,7 @@ const {
   SCORING_RULES,
   generateMatchups,
   scoreMatchups,
+  syncSchedule,
 } = require('../services/scoring.service');
 
 // The best-ball IR-classification assertion that used to live here moved to
@@ -343,6 +344,91 @@ test('normalizeTank01Game builds kickoff from epoch and requires both teams', ()
   assert.equal(normalizeTank01Game({ home: 'NYJ', gameTime_epoch: '1' }), null);
   assert.equal(normalizeTank01Game({ home: 'NYJ', away: 'BUF' }), null);
   assert.equal(normalizeTank01Game(null), null);
+});
+
+// #1203: syncSchedule (Sync run module, ADR 0036, job 'schedule') fetches all
+// 18 weeks before writing anything, then upserts the single unit in one
+// transaction under NFL_GAMES_BULK_WRITE_LOCK (23005) - the same lock
+// syncScheduleFromNflverse takes, so a Tank01 run and an nflverse run started
+// together serialize instead of interleaving their upserts.
+
+test('syncSchedule fetches all 18 weeks before writing, then upserts both team perspectives in one transaction under NFL_GAMES_BULK_WRITE_LOCK', async (t) => {
+  const apiCalls = [];
+  const api = async (path, opts) => {
+    assert.equal(path, '/getNFLGamesForWeek');
+    apiCalls.push(opts.params.week);
+    return {
+      data: {
+        body: [{ home: 'NYJ', away: 'BUF', gameTime_epoch: String(1700000000 + opts.params.week) }],
+      },
+    };
+  };
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncSchedule({ season: 2026, api });
+
+  assert.deepEqual(apiCalls, Array.from({ length: 18 }, (_, i) => i + 1), 'exactly one call per regular-season week');
+  const writes = fake.matching(insert('nfl_games'));
+  assert.equal(writes.length, 36, 'one game per week, two rows per game (home + away perspective)');
+  assert.deepEqual(result, { season: 2026, gamesUpserted: 36, failedWeeks: [] });
+
+  // Red-tell: remove the lock and this ordering assertion (or the pg
+  // serialization test) goes red.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "nfl_games"/.test(c.text));
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  assert.ok(lockIdx >= 0, 'the advisory lock is acquired');
+  assert.equal(fake.calls[lockIdx].via, 'client', 'the lock sits inside the transaction client');
+  assert.deepEqual(fake.calls[lockIdx].params, [23005], 'the lock id is 23005 (nfl-games-bulk-write)');
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first upsert');
+  assert.ok(commitIdx > firstWriteIdx, 'every write commits in the same transaction');
+  fake.assertClean();
+});
+
+test('syncSchedule tolerates a throwing week and a non-array week: still calls every week and carries both in failedWeeks', async (t) => {
+  const apiCalls = [];
+  const api = async (path, opts) => {
+    const { week } = opts.params;
+    apiCalls.push(week);
+    if (week === 3) throw new Error('tank01 quota exceeded');
+    if (week === 7) return { data: { body: { not: 'an array' } } };
+    return { data: { body: [{ home: 'NYJ', away: 'BUF', gameTime_epoch: '1700000000' }] } };
+  };
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncSchedule({ season: 2026, api });
+
+  assert.equal(apiCalls.length, 18, 'every week is still called - Tank01 quota is metered per call regardless of earlier failures');
+  assert.deepEqual(result.failedWeeks.map((f) => f.week), [3, 7]);
+  assert.equal(result.failedWeeks[0].message, 'tank01 quota exceeded');
+  assert.match(result.failedWeeks[1].message, /unexpected getNFLGamesForWeek response shape/);
+  assert.equal(result.gamesUpserted, 32, '16 successful weeks x 2 rows; the other weeks wrote nothing');
+  fake.assertClean();
+});
+
+test('syncSchedule: when every week fails to fetch, the run is fetch_failed and nothing is written', async (t) => {
+  const api = async () => { throw new Error('tank01 down'); };
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  await assert.rejects(syncSchedule({ season: 2026, api }), /every week failed to fetch/);
+
+  assert.equal(fake.calls.some((c) => c.text === 'BEGIN'), false, 'fetch failed before any unit reached the transaction');
+  const runInsert = fake.matching(insert('data_sync_runs'))[0];
+  assert.ok(runInsert, 'the failed run is still recorded');
+  const detail = JSON.parse(runInsert.params[3]);
+  assert.equal(detail.reason, 'fetch_failed');
 });
 
 // #1055: generateMatchups and scoreMatchups each own a pool.connect()
