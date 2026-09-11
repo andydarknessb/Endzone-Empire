@@ -94,6 +94,11 @@ async function tickUnlocked() {
       console.error('daily adp sync failed (will retry next tick):', err.message);
     }
     try {
+      await runHourlyOddsSync();
+    } catch (err) {
+      console.error('hourly odds sync failed (will retry next tick):', err.message);
+    }
+    try {
       await runHoldoutSnapshots();
     } catch (err) {
       console.error('holdout snapshot pass failed (will retry next tick):', err.message);
@@ -272,6 +277,43 @@ async function runDailyAdpSync({ now = new Date() } = {}) {
   const result = await adp.syncAdp();
   lastAdpSyncDay = today;
   return result;
+}
+
+const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
+let lastOddsSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
+
+/**
+ * Hourly Line refresh (#1234, ADR 0036/0037): ESPN's scoreboard needs no key
+ * and is not quota-metered, so unlike the injury sync this job has no
+ * credential gate, and an in-memory interval gate is safe even across a
+ * worker restart - the worst case is one extra free, unmetered fetch, not a
+ * wasted budget. Runs the odds Sync run (services/espnOdds.provider.js) once
+ * per distinct (season, week) slate any live fantasy league is currently on -
+ * the same distinct-weeks read `syncAndScoreLiveWeeks` uses below - so a
+ * league mid-transition to a new week still gets both weeks' slates priced.
+ * A single week's throw is logged and does not stop the other weeks' syncs;
+ * the interval is stamped once the set of weeks is known, so a read failure
+ * here retries next tick same as everywhere else in this module.
+ */
+async function runHourlyOddsSync({ now = new Date() } = {}) {
+  if (now.getTime() - lastOddsSyncAt < ODDS_SYNC_INTERVAL_MS) return null;
+  const leaguesResult = await pool.query(
+    `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
+     WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+  lastOddsSyncAt = now.getTime();
+  const odds = require('../services/espnOdds.provider');
+  const results = [];
+  for (const row of leaguesResult.rows) {
+    const season = row.current_season;
+    const week = row.current_week;
+    try {
+      results.push(await odds.syncOdds({ season, week }));
+    } catch (err) {
+      console.error('odds sync failed for %s week %s:', season, week, err.message);
+    }
+  }
+  return results;
 }
 
 async function tick() {
@@ -558,7 +600,7 @@ function stopScheduler() {
  */
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
-  'players', 'season-stats', 'team-defenses', 'nflverse-week',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds',
 ];
 
 // The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
@@ -681,6 +723,7 @@ module.exports = {
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
+  runHourlyOddsSync,
   runHoldoutSnapshots,
   runPickemWeekSync,
   runPickemSeasonCompletion,

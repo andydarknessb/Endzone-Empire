@@ -1,13 +1,18 @@
 /**
  * Provider boundary for third-party sportsbook odds (game total + spread).
  *
- * Deliberately NO implementation behind it, for the same reason
- * `expertProjection.provider.js` has none: every odds source is either a
+ * This file ships no implementation by default, for the same reason
+ * `expertProjection.provider.js` has none: most odds sources are either a
  * licensed commercial feed, a personal-use-only tier that must not ship in
- * production, or a scraped page that can silently start lying. None of those
- * is an approved source, so the socket is built and left empty rather than
- * filled with something that violates a term of service or breaks without
- * notice.
+ * production, or a scraped page that can silently start lying. One approved,
+ * free source now exists — ESPN's public scoreboard `odds[]` block, priced no
+ * differently than the clock it already carries (ADR 0037) — and
+ * `services/espnOdds.provider.js` fills this seam with it via
+ * `setVegasOddsProvider` at process boot (server.js, worker.js). This file
+ * itself stays unaware of that implementation: it still boots as the no-op
+ * below until something installs a real one, which is what keeps the seam
+ * swappable and this boundary's own tests honest about the unconfigured
+ * default.
  *
  * The boundary exists anyway so that:
  *  - `projectionModel.gameEnvironmentEffect` has one place to read a market
