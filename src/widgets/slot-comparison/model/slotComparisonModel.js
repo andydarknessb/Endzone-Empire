@@ -7,19 +7,20 @@
  * game_clock, photo_url, stats.
  */
 
-const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };
+import { unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
 
 /**
  * The reason an Unavailable starter (CONTEXT.md, Roster and lineup) shows in
  * place of his projection, in the Lineup page's words; null for an available
- * row or one that carries no verdict. The same rule as the legacy
- * MatchupExtras.unavailableLabel, copied here rather than imported because the
- * legacy Matchup Detail page leaves the tree with #903 (ADR 0031) and a widget
- * never depends on a page.
+ * row or one that carries no verdict. The reason -> label lookup is
+ * shared/lib's unavailableLabel (#1208, replacing this widget's own copy of
+ * the map); this wrapper keeps the widget's own `availability`-object
+ * contract and its own fallback ('out') for a reason the shared map does not
+ * know.
  */
 export function unavailableLabel(availability) {
   if (!availability || availability.available !== false) return null;
-  return UNAVAILABLE_LABELS[availability.reason] || 'out';
+  return sharedUnavailableLabel(availability.reason) || 'out';
 }
 
 // The stat line's fields in reading order, the same list and order as the
