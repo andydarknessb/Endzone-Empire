@@ -139,13 +139,15 @@ test('syncPlayerSeasonStats scopes to the given positions and sums weekly points
   assert.match(weekly.text, /"p"\."position" = ANY\(\$2\)/);
   assert.deepEqual(weekly.params, [2026, DEFENSIVE_POSITIONS]);
 
+  // #1251: the write is now one bulk `unnest` upsert, so params are parallel
+  // arrays (one entry per player:season row) rather than one scalar per column.
   const upsert = fake.matching(insert('player_season_stats'))[0];
-  const [playerId, season, games, stats, points] = upsert.params;
-  assert.equal(playerId, 6721);
-  assert.equal(season, 2025);
-  assert.equal(games, 2);
-  assert.deepEqual(JSON.parse(stats), { sack: 4, pointsAllowed: 0, yardsAllowed: 185 });
-  assert.equal(points, 44); // 22 + 22, NOT the 21 the aggregate would score
+  const [playerIds, seasons, games, stats, points] = upsert.params;
+  assert.deepEqual(playerIds, [6721]);
+  assert.deepEqual(seasons, [2025]);
+  assert.deepEqual(games, [2]);
+  assert.deepEqual(JSON.parse(stats[0]), { sack: 4, pointsAllowed: 0, yardsAllowed: 185 });
+  assert.deepEqual(points, [44]); // 22 + 22, NOT the 21 the aggregate would score
   fake.assertClean();
 });
 
@@ -195,6 +197,6 @@ test('syncPlayerSeasonStats scores a week itself when the stored points are unus
 
   await syncPlayerSeasonStats({ currentSeason: 2026, positions: IDP_POSITIONS });
   const upsert = fake.matching(insert('player_season_stats'))[0];
-  assert.equal(upsert.params[4], 8); // 6 solo + 4 assists * 0.5, recomputed
+  assert.deepEqual(upsert.params[4], [8]); // 6 solo + 4 assists * 0.5, recomputed
   fake.assertClean();
 });

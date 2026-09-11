@@ -1,5 +1,7 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const { withTransaction } = require('../modules/withTransaction');
+const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { normalizeNameKey } = require('./nameMatch');
 const { calculateFantasyPoints } = require('./scoring.service');
 
@@ -91,23 +93,47 @@ function buildSeasonStatUpdates(players, entries, season) {
   return updates;
 }
 
+/**
+ * Bulk `unnest` upsert of one season's rollups (unchanged shape/columns), now
+ * run inside its own transaction under PLAYERS_BULK_WRITE_LOCK (#1251,
+ * advisoryLock.js's 23004 registry comment): a blocking
+ * `pg_advisory_xact_lock(23004)` as the transaction's first statement, then
+ * the one bulk upsert, then COMMIT (`withTransaction`, ADR 0033). Direct call,
+ * not `withAdvisoryLock` (try-and-skip) - this writer must WAIT for the lock
+ * rather than skip a season's sync, per the registry comment. The wait is
+ * still bounded by `pool.js`'s `statement_timeout` (15s web / 30s worker,
+ * SQLSTATE 57014) like every other direct 23004 taker: a season that loses
+ * that race rolls back cleanly and is captured below as `{ season, error }`,
+ * not left half-written. One transaction per season, matching
+ * `syncSeasonStats`'s existing one-statement-per-season loop and its own
+ * per-season error capture below: a failure here rejects this call and is
+ * caught there, landing in that season's `{ season, error }` entry rather
+ * than failing the whole run. `player_season_stats`'s other writer,
+ * `syncPlayerSeasonStats` (services/scoring.service.js, job 'season-stats'),
+ * takes the SAME lock via `runSyncJob`, so the two no longer race to a
+ * deadlock (40P01) now that both hold their row locks to COMMIT. Resolved
+ * row count is unchanged.
+ */
 async function upsertSeasonStats(updates) {
   if (updates.length === 0) return 0;
-  await pool.query(
-    `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
-     SELECT * FROM unnest($1::int[], $2::int[], $3::int[], $4::jsonb[], $5::numeric[])
-     ON CONFLICT ("player_id", "season")
-     DO UPDATE SET "games_played" = EXCLUDED."games_played",
-                   "stats" = EXCLUDED."stats",
-                   "fantasy_points" = EXCLUDED."fantasy_points"`,
-    [
-      updates.map((u) => u.playerId),
-      updates.map((u) => u.season),
-      updates.map((u) => u.games),
-      updates.map((u) => JSON.stringify(u.stats)),
-      updates.map((u) => calculateFantasyPoints(u.stats)),
-    ]
-  );
+  await withTransaction(pool, async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
+    await client.query(
+      `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
+       SELECT * FROM unnest($1::int[], $2::int[], $3::int[], $4::jsonb[], $5::numeric[])
+       ON CONFLICT ("player_id", "season")
+       DO UPDATE SET "games_played" = EXCLUDED."games_played",
+                     "stats" = EXCLUDED."stats",
+                     "fantasy_points" = EXCLUDED."fantasy_points"`,
+      [
+        updates.map((u) => u.playerId),
+        updates.map((u) => u.season),
+        updates.map((u) => u.games),
+        updates.map((u) => JSON.stringify(u.stats)),
+        updates.map((u) => calculateFantasyPoints(u.stats)),
+      ]
+    );
+  }, { label: 'sleeper.upsertSeasonStats' });
   return updates.length;
 }
 
