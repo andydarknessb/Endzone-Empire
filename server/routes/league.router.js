@@ -1243,12 +1243,6 @@ router.get('/:id/history', async (req, res) => {
       season: season.season,
       outcome: season.outcome,
       champions: season.champions,
-      // Deprecated compatibility projection: the first archived champion,
-      // for both League types. Declaration order has no championship
-      // significance; new consumers use `champions`. #1213 deletes it.
-      champion: Array.isArray(season.champions) && season.champions[0]
-        ? season.champions[0]
-        : null,
       standings: season.standings,
       trophies: season.trophies,
       draftGrades: season.draftGrades,

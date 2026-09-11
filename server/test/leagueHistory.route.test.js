@@ -132,17 +132,11 @@ test("GET history returns archived Pick'em champions and explicit no-champion st
   assert.match(historySql, /"leagues"\."pickem_only"/);
   assert.equal(response.body.seasons[0].outcome, 'champions');
   assert.deepEqual(response.body.seasons[0].champions, canonicalPickemChampions);
-  assert.deepEqual(response.body.seasons[0].champion, {
-    teamId: 10,
-    name: 'Archived Aces',
-    avatarUrl: '/aces.png',
-    avatarStaticUrl: null,
-  });
-  assert.equal(response.body.seasons[0].champion.name, 'Archived Aces');
+  assert.equal('champion' in response.body.seasons[0], false);
   assert.equal(response.body.seasons[0].trophies[0].team_name, 'Wrong Live Winner');
   assert.equal(response.body.seasons[1].outcome, 'no_champion');
   assert.deepEqual(response.body.seasons[1].champions, []);
-  assert.equal(response.body.seasons[1].champion, null);
+  assert.equal('champion' in response.body.seasons[1], false);
 });
 
 test("GET history never promotes an ambiguous Pick'em legacy pointer as a champion", async (t) => {
@@ -189,13 +183,8 @@ test("GET history never promotes an ambiguous Pick'em legacy pointer as a champi
 
   assert.equal(response.status, 200);
   assert.equal(response.body.seasons[0].champions, null);
-  assert.equal(response.body.seasons[0].champion, null);
-  assert.deepEqual(response.body.seasons[1].champion, {
-    teamId: 20,
-    name: 'Fantasy Champion',
-    avatarUrl: '/fantasy.png',
-    avatarStaticUrl: null,
-  });
+  assert.equal('champion' in response.body.seasons[0], false);
+  assert.equal('champion' in response.body.seasons[1], false);
 });
 
 // The frozen archive is served to every league member, so a served standings
