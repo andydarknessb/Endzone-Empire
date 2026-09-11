@@ -130,6 +130,26 @@ test('runSyncJob: fetch returning { refused: true, reason } records ok=false wit
   fake.assertClean();
 });
 
+test('runSyncJob: a refusal\'s detail reaches both the recorded row and the resolved value (#1201)', async (t) => {
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await runSyncJob({
+    job: 'adp',
+    lock: 23004,
+    fetch: async () => ({ refused: true, reason: 'thin_market', detail: { adpPlayers: 50 } }),
+    apply: async () => { throw new Error('apply must never run on a refusal'); },
+  });
+
+  assert.deepEqual(result, { refused: true, reason: 'thin_market', detail: { adpPlayers: 50 } });
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.equal(detail.reason, 'refused');
+  assert.equal(detail.refusalReason, 'thin_market');
+  assert.equal(detail.adpPlayers, 50, 'the fetch-supplied detail is merged into the recorded row');
+  fake.assertClean();
+});
+
 test('runSyncJob: an apply throw is tagged write_failed, recorded in detail.failed[], and the original error is rethrown', async (t) => {
   const boom = new Error('apply blew up');
   const fake = createFakePool([

@@ -181,12 +181,29 @@ test('syncAdp wipe guard: a thin Success body writes nothing to players and reco
 
   const result = await syncAdp();
 
-  assert.equal(result.ok, false);
+  // The body syncAdp resolves to on a thin market must not change (#1201,
+  // lead pre-launch note): every one of its callers reads this shape.
+  assert.deepEqual(result, {
+    ok: false,
+    skipped: true,
+    reason: 'thin_market',
+    format: 'half-ppr',
+    teams: 12,
+    adpPlayers: MARKET_FLOOR - 50,
+    playersMatched: 0,
+    playersUpdated: 0,
+  });
   assert.equal(fake.matching(update('players')).length, 0, 'the market must not be wiped');
   assert.equal(fake.matching(select('players')).length, 0, 'a refused run does not even read the roster');
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1, 'exactly one run recorded');
   assert.equal(runOk(runs[0]), false);
+  // Migrated onto runSyncJob (#1201, ADR 0036): the run is a REFUSAL, not a
+  // write_failed - reason is 'refused' with 'thin_market' kept as the
+  // refusalReason (#1197 R3). Red-tell: a mapping that records anything else
+  // here turns this red.
+  assert.equal(runDetail(runs[0]).reason, 'refused');
+  assert.equal(runDetail(runs[0]).refusalReason, 'thin_market');
   assert.equal(runDetail(runs[0]).adpPlayers, MARKET_FLOOR - 50, 'the thin count is recorded for diagnosis');
 });
 

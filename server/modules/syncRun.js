@@ -13,10 +13,14 @@ const { withTransaction } = require('./withTransaction');
  *
  * - `fetch()` runs first, outside any transaction and outside any lock. It
  *   returns `units[]`, the work `apply` will run once per unit, or
- *   `{ refused: true, reason }` when the feed answered but the job declines to
- *   write (a thin ADP market, say). An untagged throw from `fetch` is tagged
- *   `fetch_failed`; `fetch` may pre-tag `error.syncFailureReason` itself (a 502
- *   shape guard tags `bad_response`) and that tag wins.
+ *   `{ refused: true, reason, detail }` when the feed answered but the job
+ *   declines to write (a thin ADP market, say); `detail` is optional and, when
+ *   given, is merged into the recorded row's detail and onto the resolved
+ *   refusal alongside `refused`/`reason` (a caller reads it back to report,
+ *   say, the usable count that tripped the refusal). An untagged throw from
+ *   `fetch` is tagged `fetch_failed`; `fetch` may pre-tag
+ *   `error.syncFailureReason` itself (a 502 shape guard tags `bad_response`)
+ *   and that tag wins.
  * - `apply(client, unit)` runs once per unit, each unit in its own transaction
  *   (`withTransaction(pool, ..., { label: job })`) after
  *   `SELECT pg_advisory_xact_lock($1)` with `lock`, when the job takes one. A
@@ -58,13 +62,12 @@ async function runSyncJob({ job, lock, fetch, apply }) {
   }
 
   if (units && units.refused) {
-    await recordDataSyncRun({
-      job,
-      startedAt,
-      ok: false,
-      detail: { reason: 'refused', refusalReason: units.reason || null },
-    });
-    return { refused: true, reason: units.reason || null };
+    const recordedDetail = { reason: 'refused', refusalReason: units.reason || null };
+    if (units.detail) Object.assign(recordedDetail, units.detail);
+    await recordDataSyncRun({ job, startedAt, ok: false, detail: recordedDetail });
+    const resolved = { refused: true, reason: units.reason || null };
+    if (units.detail) resolved.detail = units.detail;
+    return resolved;
   }
 
   const list = Array.isArray(units) ? units : [units];

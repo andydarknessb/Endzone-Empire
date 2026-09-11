@@ -1,11 +1,10 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
+const { runSyncJob } = require('../modules/syncRun');
 const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { normalizeNameKey } = require('./nameMatch');
 const { IDP_POSITIONS } = require('./scoring.service');
 const { normalizeNflTeam } = require('./nflTeam');
-const { recordDataSyncRun } = require('./dataSyncRuns');
 
 const IDP_POSITION_SET = new Set(IDP_POSITIONS);
 
@@ -29,24 +28,6 @@ const VALID_FORMATS = new Set(['standard', 'ppr', 'half-ppr', '2qb', 'dynasty', 
 // getMarketStatus is what reads it (#748).
 const MARKET_FLOOR = 100;
 const MARKET_STALE_DAYS = 7;
-
-/**
- * Append one observable row to data_sync_runs for an ADP run (#747): the daily
- * worker sync and the manual admin trigger both land here, and getSchedulerStatus
- * reports the latest. One INSERT at the end of a run records the whole thing -
- * started_at is captured before the upstream fetch, and finished_at is left to
- * the column DEFAULT (now()), the instant of the write.
- *
- * A thin wrapper over the shared recorder (#961): the INSERT, its best-effort
- * swallow, and the "record failed for adp" log all live in
- * services/dataSyncRuns now, so the injury sync records the same way without a
- * second copy of the rule. This spells the job literal 'adp' the way it always
- * did; the recorder writes on the pool, outside any transaction, exactly as
- * before. Behaviour is unchanged.
- */
-async function recordAdpRun({ startedAt, ok, detail }) {
-  await recordDataSyncRun({ job: 'adp', startedAt, ok, detail });
-}
 
 /**
  * The market's observable state for GET /api/league/:id (#748): how many
@@ -176,34 +157,79 @@ function buildAdpUpdates(players, entries) {
  * Per-format ADP is a separate product question and is deliberately not built
  * here (#747, decision 6).
  *
- * THE WIPE GUARD (#747, decision 5). The refresh NULLs every ADP before setting
- * the matched values, so a Success body with too few players would empty the
- * whole market. A body with fewer than MARKET_FLOOR usable entries is therefore
- * treated as a failed run: nothing is written to players, and the run is
- * recorded ok = false with the thin count in detail. The NULL-then-set runs
- * only after the guard passes. Every run - refused, succeeded, or thrown -
- * appends one data_sync_runs row so freshness and health can observe it.
+ * Sync run module (ADR 0036, #1201): `runSyncJob` owns the fetch/apply split,
+ * the transaction, the advisory lock and the one `data_sync_runs` row per run
+ * - the shape this job hand-rolled (#747, #882, #904) is now written once, in
+ * server/modules/syncRun.js. `fetchAdpUnit` below is the `fetch`: it calls
+ * FFC, applies the wipe guard (#747, decision 5), and - only once the guard
+ * passes - reads the roster and builds the matches, all outside any
+ * transaction. `applyAdpUnit` is the `apply`: the NULL-then-set, inside the
+ * transaction `runSyncJob` opens under `PLAYERS_BULK_WRITE_LOCK`. The three
+ * resolved/thrown shapes below (ok body, thin-market body, thrown
+ * bad_response) are unchanged for every caller (scheduler.js, admin.router.js,
+ * scoring.router.js) - only where the shape is written moved.
  */
 async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
   const fmt = VALID_FORMATS.has(format) ? format : 'half-ppr';
-  const startedAt = new Date();
 
-  let resp;
-  try {
-    const api = adpClient();
-    const params = { teams };
-    if (year) params.year = year;
-    resp = await api.get(`/${fmt}`, { params });
-  } catch (err) {
-    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'fetch_failed', message: err.message } });
-    throw err;
+  const result = await runSyncJob({
+    job: 'adp',
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: () => fetchAdpUnit(fmt, teams, year),
+    apply: (client, unit) => applyAdpUnit(client, unit),
+  });
+
+  if (result && result.refused) {
+    const detail = result.detail || {};
+    return {
+      ok: false,
+      skipped: true,
+      reason: result.reason,
+      format: fmt,
+      teams,
+      adpPlayers: detail.adpPlayers || 0,
+      playersMatched: 0,
+      playersUpdated: 0,
+    };
   }
+
+  return {
+    ok: true,
+    format: fmt,
+    teams,
+    adpPlayers: result.adpPlayers,
+    playersMatched: result.matched,
+    playersUpdated: result.matched,
+  };
+}
+
+/**
+ * `fetch()` for the ADP job (ADR 0036): the FFC call, the response-shape
+ * guard, and - because both must happen before any transaction opens - the
+ * wipe guard and the roster read/match that used to run between the guard and
+ * `withTransaction` in this function. A non-2xx or throwing FFC call is an
+ * untagged throw, tagged `fetch_failed` by `runSyncJob`; an unexpected body
+ * shape is pre-tagged `bad_response` (statusCode 502) here, same as before.
+ *
+ * THE WIPE GUARD (#747, decision 5). The apply step NULLs every ADP before
+ * setting the matched values, so a Success body with too few players would
+ * empty the whole market. A body with fewer than MARKET_FLOOR usable entries
+ * is a refusal: nothing is written to players (and the roster is not even
+ * read), and `runSyncJob` records the run ok=false with reason 'refused' and
+ * `thin_market` as the refusalReason, `adpPlayers` carried through in
+ * `detail` (#1197 R3).
+ */
+async function fetchAdpUnit(fmt, teams, year) {
+  const api = adpClient();
+  const params = { teams };
+  if (year) params.year = year;
+  const resp = await api.get(`/${fmt}`, { params });
 
   const body = resp.data || {};
   if (body.status !== 'Success' || !Array.isArray(body.players)) {
-    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'bad_response', status: body.status ?? null } });
     const err = new Error(`unexpected ADP response (status=${body.status})`);
     err.statusCode = 502;
+    err.syncFailureReason = 'bad_response';
     throw err;
   }
 
@@ -213,10 +239,8 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
     if (e) entries.push(e);
   }
 
-  // Wipe guard: refuse to reset the market from a body too thin to be a real
-  // one. Recorded as a failed run; players is left untouched (and unread).
   if (entries.length < MARKET_FLOOR) {
-    // Log the refusal HERE, not only through recordAdpRun. That record is
+    // Log the refusal HERE, not only through the recorded row. That record is
     // best-effort, and during the carve-out window before the migration is
     // applied data_sync_runs does not exist, so the INSERT is swallowed. Without
     // this line a market-emptying upstream body would be refused with no record
@@ -225,96 +249,66 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year } = {}) {
     console.warn(
       `ADP sync refused: ${entries.length} usable entries is below the ${MARKET_FLOOR}-player market floor; players left unchanged`
     );
-    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'thin_market', adpPlayers: entries.length } });
-    return {
-      ok: false,
-      skipped: true,
-      reason: 'thin_market',
-      format: fmt,
-      teams,
-      adpPlayers: entries.length,
-      playersMatched: 0,
-      playersUpdated: 0,
-    };
+    return { refused: true, reason: 'thin_market', detail: { adpPlayers: entries.length } };
   }
 
   const players = await pool.query(`SELECT "id", "name", "position", "nfl_team" FROM "players"`);
   const updates = buildAdpUpdates(players.rows, entries);
+  return [{ entries, updates }];
+}
 
-  // Full reset-and-set in two bulk statements (one round trip each) so it stays
-  // fast over the pooler and a player who fell out of the top ~200 loses a
-  // stale ADP. The two statements run in ONE transaction on one checked-out
-  // client (#882): as two separate autocommit pool queries there was a window
-  // between the NULL wipe and the bulk set in which zero players carried an ADP,
-  // and any concurrent reader of the market count (the scheduled-draft sweep, a
-  // manual startDraft) that landed in it would see an empty market on a fully
-  // loaded system - the sweep then sends a spurious draft_no_market notification.
-  // Wrapped in a transaction, a concurrent reader sees the old count or the new
-  // one under MVCC and never 0. The transaction is opened only here, after the
-  // wipe guard has passed, and withTransaction owns connect, BEGIN,
-  // COMMIT-or-guarded-ROLLBACK and the release rule (ADR 0033). recordAdpRun
-  // stays OUTSIDE it, in the catch around the wrapper: the run record is
-  // best-effort observability and must not be rolled back with the market.
-  //
-  // SERIALIZED WITH syncInjuries (#904). Holding the wipe's row locks across the
-  // bulk set (which locks target rows in a different order) would otherwise
-  // permit a deadlock cycle with syncInjuries (scoring.service.js), which locks
-  // near the whole players table FOR UPDATE in its own scan order and holds to
-  // commit. Both writers take a single transaction-scoped advisory lock
-  // (PLAYERS_BULK_WRITE_LOCK) as the FIRST statement inside their transaction,
-  // before any row lock, so the two runs cannot interleave and cannot form the
-  // cycle. It is the BLOCKING xact form (pg_advisory_xact_lock): the second sync
-  // waits rather than skipping. That wait ends when the other sync's transaction
-  // finishes (no network I/O runs inside either transaction, so it is short) OR
-  // when statement_timeout fires, whichever comes first: every pooled connection
-  // sets statement_timeout (pool.js, 15s web / 30s worker), and it counts
-  // lock-wait time, so a lock blocked past the limit is CANCELLED with SQLSTATE
-  // 57014, not parked. 57014 is not in dbRetry's TRANSIENT_CODES, so that sync
-  // fails (rolls back to the previous ADP values, records ok=false) rather than
-  // retrying. Both sides of this lock now hold it for a small, fixed number of
-  // statements across their whole transaction - syncAdp's wipe plus one bulk set,
-  // and syncInjuries' scan, one bulk set, and its IR flag pass (a select plus one
-  // insert per flagged stash, usually none) (#929, which collapsed syncInjuries'
-  // former ~3,000-row per-player loop) - so a wait long enough to reach the
-  // timeout is unlikely to arise. Either way the xact scope releases the lock, so
-  // there is no explicit unlock that could strand it behind Supavisor's
-  // transaction pooling the way a session lock did in #839.
-  try {
-    await withTransaction(
-      pool,
-      async (client) => {
-        await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
-        await client.query(`UPDATE "players" SET "adp" = NULL WHERE "adp" IS NOT NULL`);
-        if (updates.length > 0) {
-          await client.query(
-            `UPDATE "players" p SET "adp" = v.adp
-             FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS adp) v
-             WHERE p."id" = v.id`,
-            [updates.map((u) => u.id), updates.map((u) => u.adp)]
-          );
-        }
-      },
-      { label: 'adp' }
+/**
+ * `apply(client, unit)` for the ADP job: runs inside `runSyncJob`'s
+ * `withTransaction`, after the module has already taken
+ * `PLAYERS_BULK_WRITE_LOCK` on this client. Returns exactly the shape
+ * recorded as this run's `data_sync_runs` detail on success, and read back by
+ * `syncAdp` to build its own resolved body: `{ adpPlayers, matched }`.
+ *
+ * Full reset-and-set in two bulk statements (one round trip each) so it stays
+ * fast over the pooler and a player who fell out of the top ~200 loses a
+ * stale ADP. The two statements run in ONE transaction on one checked-out
+ * client (#882): as two separate autocommit pool queries there was a window
+ * between the NULL wipe and the bulk set in which zero players carried an ADP,
+ * and any concurrent reader of the market count (the scheduled-draft sweep, a
+ * manual startDraft) that landed in it would see an empty market on a fully
+ * loaded system - the sweep then sends a spurious draft_no_market notification.
+ * Wrapped in a transaction, a concurrent reader sees the old count or the new
+ * one under MVCC and never 0.
+ *
+ * SERIALIZED WITH syncInjuries (#904). Holding the wipe's row locks across the
+ * bulk set (which locks target rows in a different order) would otherwise
+ * permit a deadlock cycle with syncInjuries (scoring.service.js), which locks
+ * near the whole players table FOR UPDATE in its own scan order and holds to
+ * commit. Both writers take a single transaction-scoped advisory lock
+ * (PLAYERS_BULK_WRITE_LOCK), taken by `runSyncJob` as the FIRST statement
+ * after BEGIN, before any row lock here, so the two runs cannot interleave and
+ * cannot form the cycle. It is the BLOCKING xact form (pg_advisory_xact_lock):
+ * the second sync waits rather than skipping. That wait ends when the other
+ * sync's transaction finishes (no network I/O runs inside either transaction,
+ * so it is short) OR when statement_timeout fires, whichever comes first:
+ * every pooled connection sets statement_timeout (pool.js, 15s web / 30s
+ * worker), and it counts lock-wait time, so a lock blocked past the limit is
+ * CANCELLED with SQLSTATE 57014, not parked. 57014 is not in dbRetry's
+ * TRANSIENT_CODES, so that sync fails (rolls back to the previous ADP values,
+ * records ok=false) rather than retrying. Both sides of this lock now hold it
+ * for a small, fixed number of statements across their whole transaction -
+ * this wipe plus one bulk set, and syncInjuries' scan, one bulk set, and its
+ * IR flag pass (#929) - so a wait long enough to reach the timeout is
+ * unlikely to arise. Either way the xact scope releases the lock, so there is
+ * no explicit unlock that could strand it behind Supavisor's transaction
+ * pooling the way a session lock did in #839.
+ */
+async function applyAdpUnit(client, { entries, updates }) {
+  await client.query(`UPDATE "players" SET "adp" = NULL WHERE "adp" IS NOT NULL`);
+  if (updates.length > 0) {
+    await client.query(
+      `UPDATE "players" p SET "adp" = v.adp
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS adp) v
+       WHERE p."id" = v.id`,
+      [updates.map((u) => u.id), updates.map((u) => u.adp)]
     );
-  } catch (err) {
-    // Both a pool.connect() failure (propagated untouched) and an in-transaction
-    // failure (already rolled back, error.rollbackError attached when the
-    // ROLLBACK itself rejected) land here. Record the failed run (best-effort,
-    // outside the rolled-back transaction) so an admin sees the market write
-    // failed, then surface the ORIGINAL error the wrapper rethrew.
-    await recordAdpRun({ startedAt, ok: false, detail: { reason: 'write_failed', message: err.message } });
-    throw err;
   }
-
-  await recordAdpRun({ startedAt, ok: true, detail: { adpPlayers: entries.length, matched: updates.length } });
-  return {
-    ok: true,
-    format: fmt,
-    teams,
-    adpPlayers: entries.length,
-    playersMatched: updates.length,
-    playersUpdated: updates.length,
-  };
+  return { adpPlayers: entries.length, matched: updates.length };
 }
 
 module.exports = {
