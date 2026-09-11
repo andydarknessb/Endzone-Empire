@@ -11,6 +11,7 @@ import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import { useSwapPlayers, QuickPickMenu } from '../../features/swap-players';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
+import PlayerQuickView from '../../components/PlayerQuickView/PlayerQuickView';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
@@ -35,9 +36,20 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * Situation treatment (ticket 9 - this ticket's Game cell shows clock and
  * score only). The Decision card (glossary: "Tapping a row opens the
  * Decision card") is not built by this ticket either - no acceptance
- * criterion here names it, and Trade/acquisition-detail/quick-view stay off
- * this page until it lands; Drop keeps its own row control in the meantime,
- * matching AC6's "Swap, quick pick, drop and undo behave as today".
+ * criterion here names it, and Trade/acquisition-detail stay off this page
+ * until it lands; Drop keeps its own row control in the meantime, matching
+ * AC6's "Swap, quick pick, drop and undo behave as today".
+ *
+ * The player name and the empty-roster "Browse Players" action - both
+ * legacy controls this page dropped in an earlier revision with no
+ * acceptance criterion authorising either - are restored (formal review
+ * finding legacy-controls-dropped-without-a-criterion): the name reopens
+ * the existing `PlayerQuickView` this page now owns, and `emptyRoster`
+ * below gates a dedicated empty state distinct from the draft-in-progress
+ * one. Team Record/Rank and the per-row Trade control stay dropped: both
+ * are reachable elsewhere (the Dashboard's my-team-summary; the Decision
+ * card once it lands), and restoring them here would be new surface this
+ * page's own criteria do not ask for.
  */
 export default function LineupPage() {
   const { leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError } =
@@ -45,6 +57,7 @@ export default function LineupPage() {
   const { league, teams, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(selectedLeagueId);
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
+  const [quickViewId, setQuickViewId] = useState(null);
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
 
@@ -118,6 +131,7 @@ export default function LineupPage() {
   const phase = deriveLeaguePhase(league);
   const draftInProgress = phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING;
   const canDropEntry = () => Boolean(lineup && lineup.week != null && lineup.week === lineup.currentWeek);
+  const emptyRoster = !lineupLoading && lineup != null && lineup.entries.length === 0;
 
   return (
     <Box sx={{ maxWidth: 1180, mx: 'auto', px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 3 } }}>
@@ -192,11 +206,26 @@ export default function LineupPage() {
             </Card>
           )}
 
-          {!draftInProgress && (
+          {/* Restored per formal review (finding
+              legacy-controls-dropped-without-a-criterion): TeamLineup.jsx's
+              own empty-roster action, "no players rostered yet, Browse
+              Players", distinct from the draft-in-progress card above. Only
+              once the lineup has actually loaded and named zero entries, so
+              a background reload never flashes this over real rows. */}
+          {!draftInProgress && emptyRoster && (
+            <Card data-testid="lineup-empty-roster">
+              <Box sx={{ p: 3, display: 'grid', gap: 1.5, justifyItems: 'start' }}>
+                <Typography>No players rostered yet. Head to the player pool to add players to your team.</Typography>
+                <Button component={RouterLink} to="/player" variant="contained">Browse Players</Button>
+              </Box>
+            </Card>
+          )}
+
+          {!draftInProgress && !emptyRoster && (
             <>
               {bestBall && (
                 <Badge variant="live" sx={{ mb: 2 }} data-testid="best-ball-notice">
-                  Best ball: your optimal lineup is computed automatically each week.
+                  Best ball: your best legal lineup is set automatically each week.
                 </Badge>
               )}
 
@@ -221,7 +250,12 @@ export default function LineupPage() {
 
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: '16px', alignItems: 'start' }}>
                 <Box sx={{ display: 'grid', gap: '16px' }}>
-                  <TeamSummaryStrip leagueId={selectedLeagueId} lineup={lineup} />
+                  <TeamSummaryStrip
+                    leagueId={selectedLeagueId}
+                    week={league?.current_week ?? null}
+                    viewerTeamId={viewerTeamId}
+                    lineup={lineup}
+                  />
 
                   {swap.selectedEntry && (
                     <Box
@@ -240,6 +274,7 @@ export default function LineupPage() {
                     </Box>
                   ) : (
                     <LineupLedger
+                      leagueId={selectedLeagueId}
                       lineup={lineup}
                       league={league}
                       liveGamesByKey={liveGamesByKey}
@@ -253,6 +288,7 @@ export default function LineupPage() {
                       onRowClick={swap.onRowClick}
                       canDropEntry={canDropEntry}
                       onRequestDrop={drop.requestDrop}
+                      onOpenQuickView={setQuickViewId}
                     />
                   )}
                 </Box>
@@ -273,6 +309,12 @@ export default function LineupPage() {
         onSelect={swap.handleQuickPickSelect}
       />
       <DropConfirmationDialog entry={drop.dropCandidate} onClose={drop.closeDropConfirmation} onConfirm={drop.confirmDrop} />
+      <PlayerQuickView
+        open={quickViewId != null}
+        onClose={() => setQuickViewId(null)}
+        playerId={quickViewId}
+        leagueId={Number(selectedLeagueId)}
+      />
     </Box>
   );
 }

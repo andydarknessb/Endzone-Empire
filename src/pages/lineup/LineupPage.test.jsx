@@ -78,6 +78,7 @@ const LEAGUES_URL = '/api/league';
 const LEAGUE_URL = '/api/league/1';
 const LINEUP_URL = '/api/team/lineup?leagueId=1';
 const MATCHUPS_URL = '/api/league/1/matchups?week=4';
+const HINDSIGHT_URL = '/api/team/hindsight?leagueId=1&teamId=3&season=2026';
 
 const ROSTER_SLOTS = [
   { key: 'QB', count: 1, eligiblePositions: ['QB'] },
@@ -192,6 +193,7 @@ function baseUrls(overrides = {}) {
     [LEAGUE_URL]: leagueResponse(),
     [LINEUP_URL]: { data: lineupBody() },
     [MATCHUPS_URL]: { data: [matchupRow()] },
+    [HINDSIGHT_URL]: { data: { totalPointsLeftOnBench: 12.5 } },
     ...overrides,
   };
 }
@@ -236,9 +238,15 @@ test('every Edge line kind from the fixture renders with its own kind attribute'
 
 test('Unavailable reasons show in the projection cell and a dash for points', async () => {
   renderPage();
-  const benchRow = await screen.findByTestId(`slot-row-BENCH-10`);
-  expect(within(benchRow).getByTestId('ledger-projection')).toHaveTextContent('out');
-  expect(within(benchRow).getByTestId('ledger-points')).toHaveTextContent('-');
+  // The row's covering button (`slot-row-BENCH-10`) and its visible content
+  // (`slot-row-BENCH-10-content`) are siblings (formal review fix: the name
+  // is a real, independently clickable link, not a nested-interactive
+  // descendant of the row), so the cells are read from the content sibling,
+  // not `within` the button itself.
+  await screen.findByTestId('slot-row-BENCH-10');
+  const benchRowContent = screen.getByTestId('slot-row-BENCH-10-content');
+  expect(within(benchRowContent).getByTestId('ledger-projection')).toHaveTextContent('out');
+  expect(within(benchRowContent).getByTestId('ledger-points')).toHaveTextContent('-');
 });
 
 test('the summary strip shows the score/projected figures and win probability from the matchup entity', async () => {
@@ -255,7 +263,9 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
   apiClient.put.mockResolvedValue({ data: {} });
   renderPage();
 
-  await user.click(await screen.findByText('Bench Guy'));
+  // The row itself (not the player's name, now a separate link) is the
+  // swap-select control.
+  await user.click(await screen.findByTestId('slot-row-BENCH-10'));
   await user.click(screen.getByTestId('slot-row-WR-0'));
 
   await waitFor(() =>
@@ -270,7 +280,7 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
 test('a refused swap: clicking a locked starter warns and saves nothing', async () => {
   const user = userEvent.setup();
   renderPage();
-  await user.click(await screen.findByText('Josh Allen'));
+  await user.click(await screen.findByTestId('slot-row-QB-0'));
   expect(mockNotify).toHaveBeenCalledWith("Locked players can't be moved", { severity: 'warning' });
   expect(apiClient.put).not.toHaveBeenCalled();
 });
@@ -278,7 +288,8 @@ test('a refused swap: clicking a locked starter warns and saves nothing', async 
 test('best ball refuses a click on a starting slot (no selection, no save)', async () => {
   const user = userEvent.setup();
   renderPage({ [LEAGUE_URL]: leagueResponse({ best_ball: true }), [LEAGUES_URL]: leaguesListResponse({ best_ball: true }) });
-  await user.click(await screen.findByText('Derrick King'));
+  await screen.findByText('Derrick King');
+  await user.click(screen.getByTestId('slot-row-RB-0'));
   expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
 });
@@ -303,4 +314,40 @@ test('no "optimal", "optimize" or "range" copy, and no em-dashes, anywhere on th
   expect(text).not.toMatch(/optimal|optimize/i);
   expect(text).not.toMatch(/\brange\b/i);
   expect(text).not.toMatch(/—/);
+});
+
+// A dedicated best-ball render: the assertion above defaults to
+// best_ball: false, so it never mounts the best-ball notice and would pass
+// even if that copy used the banned word (formal review finding
+// ac11-optimal-copy-and-blind-guard).
+test('no "optimal" copy in the best-ball notice either', async () => {
+  const { container } = renderPage({
+    [LEAGUE_URL]: leagueResponse({ best_ball: true }),
+    [LEAGUES_URL]: leaguesListResponse({ best_ball: true }),
+  });
+  expect(await screen.findByTestId('best-ball-notice')).toBeInTheDocument();
+  expect(container.textContent).not.toMatch(/optimal|optimize/i);
+});
+
+// AC5 (formal review finding ac5-hindsight-line-missing): the bench points
+// left on the table line reads the existing hindsight endpoint.
+test('the bench points left on the table line reads the hindsight endpoint', async () => {
+  renderPage();
+  expect(await screen.findByTestId('bench-points-left')).toHaveTextContent('Bench points this season: 12.5');
+});
+
+// Formal review finding legacy-controls-dropped-without-a-criterion:
+// restored controls.
+test('the player name reopens the Quick View dialog', async () => {
+  const user = userEvent.setup();
+  renderPage({ '/api/players/1/summary': { data: {} } });
+  await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
+  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+});
+
+test('an empty roster (no draft in progress) shows the Browse Players empty state', async () => {
+  renderPage({ [LINEUP_URL]: { data: lineupBody({ body: { entries: [] } }) } });
+  expect(await screen.findByTestId('lineup-empty-roster')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Browse Players' })).toHaveAttribute('href', '/player');
+  expect(screen.queryByTestId('ledger-starters')).not.toBeInTheDocument();
 });
