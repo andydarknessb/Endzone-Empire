@@ -14,7 +14,7 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { fantasySideWhereSql } = require('./leagueType');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
-const { recordDataSyncRun } = require('./dataSyncRuns');
+const { runSyncJob } = require('../modules/syncRun');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -955,65 +955,38 @@ function normalizeInjuryStatus(raw) {
  * before best-effort push.
  */
 async function syncInjuries({ api = tank01Get } = {}) {
-  // #961: every run appends exactly one data_sync_runs row so a failed injury
-  // sync stops being invisible. startedAt is captured before the upstream fetch
-  // (mirroring the ADP precedent) so the record spans the slowest part of the
-  // run. syncInjuries has TWO outcomes and no refusal: it returns, or it throws.
-  // An empty or fully unmatched feed is a legitimate ok=true run with
-  // playersUpdated 0 (the loop leaves unmatched rows untouched), not a refusal.
-  const startedAt = new Date();
-  let result;
-  try {
-    result = await runInjurySync(api);
-  } catch (error) {
-    // Every throw is recorded before it is rethrown, and reason answers the
-    // highest-value operational question this row exists for: was it upstream
-    // (Tank01, which is quota-metered) or was it us (our database)? The four
-    // reasons mirror the ADP job's vocabulary so two rows in one table read in
-    // one language, and each throw site tags its own (runInjurySync sets
-    // error.syncFailureReason):
-    //   fetch_failed  - the Tank01 getNFLPlayerList call itself threw (network,
-    //                   HTTP error, quota refusal). Upstream. Check Tank01.
-    //   bad_response  - Tank01 answered but the payload shape was wrong (the 502
-    //                   guard). Upstream contract drift. (ADP: adp.service.js:203.)
-    //   write_failed  - the database side threw (connect, lock, scan, bulk
-    //                   UPDATE, IR flag pass), rolled back. Ours. Check the DB.
-    //     - pool.connect() itself failing (pool exhaustion or refusal, the
-    //       #839 shape) is tagged in its own guard, above the transaction
-    //       try, since no client exists yet to roll back or release.
-    //     - a ROLLBACK that itself rejects (#1048) never changes the tag: the
-    //       rollback failure is attached as error.rollbackError and logged,
-    //       and the original error is what gets tagged write_failed and rethrown.
-    //   sync_failed   - reserved for a genuinely unclassified error (e.g. a bug
-    //                   in the feed-mapping loop), so the three above never blur.
-    // The record is written on the POOL, outside the transaction, so a
-    // rolled-back run still leaves its failure row; both paths carry the message.
-    await recordDataSyncRun({
-      job: 'injuries',
-      startedAt,
-      ok: false,
-      detail: { reason: error.syncFailureReason || 'sync_failed', message: error.message },
-    });
-    throw error;
-  }
-  // Success is recorded OUTSIDE the try: a best-effort record that somehow threw
-  // must not be re-caught and rewritten as a failure. The recorder swallows its
-  // own errors, so this never throws; if the swallow were removed, this run's
-  // correct result would surface the record's error instead.
-  await recordDataSyncRun({
+  // Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+  // the advisory lock and the one data_sync_runs row per run - the shape
+  // #961 hand-rolled here is now written once, in server/modules/syncRun.js.
+  // syncInjuries has TWO outcomes and no refusal: it returns, or it throws (an
+  // empty or fully unmatched feed is a legitimate ok=true run with
+  // playersUpdated 0, not a refusal, so fetchInjuryUnits never returns
+  // `{ refused: true }`). The IR flag push is deliberately OUTSIDE runSyncJob:
+  // it must run only after the designation write has committed, and it is not
+  // part of the shape the module owns.
+  let irFlagsForPush = [];
+  const result = await runSyncJob({
     job: 'injuries',
-    startedAt,
-    ok: true,
-    detail: {
-      playersUpdated: result.playersUpdated,
-      irFlags: result.irFlags,
-      teamChanges: result.teamChanges,
-    },
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: () => fetchInjuryUnits(api),
+    apply: (client, feedByExternal) => applyInjuryUnit(client, feedByExternal, (flags) => { irFlagsForPush = flags; }),
   });
+  try {
+    const { sendIrFlagPushes } = require('./irPolicy.service');
+    await sendIrFlagPushes(irFlagsForPush);
+  } catch (error) {
+    console.error('IR flag push failed:', error.message);
+  }
   return result;
 }
 
-async function runInjurySync(api) {
+/**
+ * fetch() for the injuries job: runs before any transaction or lock. Returns
+ * one unit - a Map keyed by external_id, the whole Tank01 player list boiled
+ * down to what apply needs - since this job's entire feed is one atomic write
+ * (ADR 0036: "injuries: one unit, the Tank01 player list").
+ */
+async function fetchInjuryUnits(api) {
   let response;
   try {
     response = await api('/getNFLPlayerList');
@@ -1021,6 +994,8 @@ async function runInjurySync(api) {
     // Upstream: the Tank01 call itself threw. Tagged here because such an error
     // carries no statusCode, so it cannot be told apart from a database failure
     // downstream without a tag - the exact conflation finding 1 called out.
+    // runSyncJob tags an untagged throw fetch_failed anyway; this tag is set
+    // explicitly so the site that knows WHY (an upstream call) says so.
     error.syncFailureReason = error.syncFailureReason || 'fetch_failed';
     throw error;
   }
@@ -1051,125 +1026,103 @@ async function runInjurySync(api) {
       team: entry.team ? String(entry.team) : null,
     });
   }
+  return [feedByExternal];
+}
 
-  let irFlags;
-  let matchedCount = 0;
-  let teamCorrections = 0;
-  try {
-    // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK, and the
-    // release rule (ADR 0033). This one catch now covers BOTH failure modes:
-    // pool.connect() itself failing (the #839 shape - withTransaction propagates
-    // it untouched, with no client to ROLLBACK or release, so the connection
-    // error is never turned into a TypeError that swallows it) AND any
-    // in-transaction failure (withTransaction has already rolled back, attached
-    // error.rollbackError on a rejecting ROLLBACK, logged once, and destroyed or
-    // returned the connection). The wrapper rethrows the ORIGINAL error
-    // untouched, so tagging it write_failed here is correct for both.
-    ({ irFlags, matchedCount, teamChanges: teamCorrections } = await withTransaction(
-      pool,
-      async (client) => {
-        // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
-        // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
-        // different order across its wipe and bulk set. Both writers take one
-        // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK) as the FIRST
-        // statement after BEGIN, before any row lock, so they cannot interleave into
-        // a deadlock cycle. Blocking xact form (pg_advisory_xact_lock): the second
-        // sync waits rather than skipping. The wait ends when the other sync's
-        // transaction finishes (no network I/O inside either transaction, so it is
-        // short) OR when statement_timeout fires (pool.js sets it on every pooled
-        // connection, 15s web / 30s worker, and it counts lock-wait time), whichever
-        // comes first. The designation write below is a SINGLE bulk statement (#929),
-        // not the ~3,000 sequential single-row writes the per-player loop once took.
-        // The lock is transaction-scoped, so it is held for the whole transaction:
-        // the scan, that one bulk write, and the IR flag pass (flagRecoveredIrStashes,
-        // still inside this transaction below - a select over the current IR stashes
-        // plus one notify insert per flagged stash, usually none), released at COMMIT.
-        // That is a far shorter hold than the loop's, so a 57014 cancellation of a
-        // blocked wait is far less likely to be reached in the first place. The lock
-        // releases with the transaction either way, so there is no explicit unlock and
-        // nothing strands behind the pooler (#839): with COMMIT, with ROLLBACK, or,
-        // when the ROLLBACK itself rejects, with the connection withTransaction
-        // destroys, which drops the socket so Postgres frees the session's locks on
-        // disconnect.
-        await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
-        const playersResult = await client.query(
-          `SELECT "id", "external_id", "injury_status", "nfl_team"
-             FROM "players" WHERE "external_id" IS NOT NULL
-             FOR UPDATE`
-        );
-        // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
-        // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
-        // designation writes null into both text columns, and nulls survive into the
-        // text[] as SQL NULL. transitions is built over the SAME matches and drives
-        // both playersUpdated and the IR flag pass, independent of which rows the
-        // statement actually writes.
-        const transitions = [];
-        const ids = [];
-        const statuses = [];
-        const details = [];
-        const teams = [];
-        let teamChanges = 0;
-        for (const player of playersResult.rows) {
-          const feed = feedByExternal.get(String(player.external_id));
-          if (!feed) continue; // not in the feed — leave untouched
-          // A feed entry with no team keeps the label the row already has, so a
-          // blank can never wipe one; see the map build above.
-          const team = feed.team === null ? player.nfl_team : feed.team;
-          if (team !== player.nfl_team) teamChanges += 1;
-          ids.push(player.id);
-          statuses.push(feed.status);
-          details.push(feed.detail);
-          teams.push(team);
-          transitions.push({
-            playerId: player.id,
-            previousDesignation: player.injury_status,
-            currentDesignation: feed.status,
-          });
-        }
-        // One bulk UPDATE replaces the per-player loop. The three-column
-        // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
-        // three columns unchanged), so an unchanged row costs no write and the FOR
-        // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
-        // on a non-empty id list the way syncAdp guards its own bulk set.
-        if (ids.length > 0) {
-          await client.query(
-            `UPDATE "players" p
-                SET "injury_status" = v."status", "injury_detail" = v."detail",
-                    "nfl_team" = v."team"
-               FROM (SELECT unnest($1::int[]) AS "id",
-                            unnest($2::text[]) AS "status",
-                            unnest($3::text[]) AS "detail",
-                            unnest($4::text[]) AS "team") v
-              WHERE p."id" = v."id"
-                AND (p."injury_status" IS DISTINCT FROM v."status"
-                     OR p."injury_detail" IS DISTINCT FROM v."detail"
-                     OR p."nfl_team" IS DISTINCT FROM v."team")`,
-            [ids, statuses, details, teams]
-          );
-        }
-        const { flagRecoveredIrStashes } = require('./irPolicy.service');
-        return {
-          irFlags: await flagRecoveredIrStashes(client, transitions),
-          matchedCount: transitions.length,
-          teamChanges,
-        };
-      },
-      { label: 'injuries' }
-    ));
-  } catch (error) {
-    // The database side threw (connect, lock, FOR UPDATE scan, bulk UPDATE, or IR
-    // flag pass). Tagged so the failure row reads "ours", distinct from an
-    // upstream fetch_failed.
-    error.syncFailureReason = error.syncFailureReason || 'write_failed';
-    throw error;
+/**
+ * apply(client, unit) for the injuries job: runs inside runSyncJob's
+ * withTransaction, after the module has already taken PLAYERS_BULK_WRITE_LOCK
+ * on this client. `onIrFlags` hands the committed IR-flag rows back to
+ * syncInjuries by closure, since the push they drive must fire only once this
+ * transaction has committed - after runSyncJob resolves, not inside apply.
+ *
+ * Returns exactly the shape recorded as this run's data_sync_runs detail on
+ * success, and returned to syncInjuries's own caller: `{ playersUpdated,
+ * irFlags, teamChanges }`.
+ */
+async function applyInjuryUnit(client, feedByExternal, onIrFlags) {
+  // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
+  // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
+  // different order across its wipe and bulk set. Both writers take one
+  // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK), taken by
+  // runSyncJob as the FIRST statement after BEGIN, before any row lock, so
+  // they cannot interleave into a deadlock cycle. Blocking xact form
+  // (pg_advisory_xact_lock): the second sync waits rather than skipping. The
+  // wait ends when the other sync's transaction finishes (no network I/O
+  // inside either transaction, so it is short) OR when statement_timeout
+  // fires (pool.js sets it on every pooled connection, 15s web / 30s worker,
+  // and it counts lock-wait time), whichever comes first. The designation
+  // write below is a SINGLE bulk statement (#929), not the ~3,000 sequential
+  // single-row writes the per-player loop once took. The lock is
+  // transaction-scoped, so it is held for the whole transaction: the scan,
+  // that one bulk write, and the IR flag pass (flagRecoveredIrStashes, still
+  // inside this transaction below - a select over the current IR stashes plus
+  // one notify insert per flagged stash, usually none), released at COMMIT.
+  // That is a far shorter hold than the loop's, so a 57014 cancellation of a
+  // blocked wait is far less likely to be reached in the first place. The lock
+  // releases with the transaction either way, so there is no explicit unlock
+  // and nothing strands behind the pooler (#839): with COMMIT, with ROLLBACK,
+  // or, when the ROLLBACK itself rejects, with the connection withTransaction
+  // destroys, which drops the socket so Postgres frees the session's locks on
+  // disconnect.
+  const playersResult = await client.query(
+    `SELECT "id", "external_id", "injury_status", "nfl_team"
+       FROM "players" WHERE "external_id" IS NOT NULL
+       FOR UPDATE`
+  );
+  // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
+  // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
+  // designation writes null into both text columns, and nulls survive into the
+  // text[] as SQL NULL. transitions is built over the SAME matches and drives
+  // both playersUpdated and the IR flag pass, independent of which rows the
+  // statement actually writes.
+  const transitions = [];
+  const ids = [];
+  const statuses = [];
+  const details = [];
+  const teams = [];
+  let teamChanges = 0;
+  for (const player of playersResult.rows) {
+    const feed = feedByExternal.get(String(player.external_id));
+    if (!feed) continue; // not in the feed — leave untouched
+    // A feed entry with no team keeps the label the row already has, so a
+    // blank can never wipe one; see the map build above.
+    const team = feed.team === null ? player.nfl_team : feed.team;
+    if (team !== player.nfl_team) teamChanges += 1;
+    ids.push(player.id);
+    statuses.push(feed.status);
+    details.push(feed.detail);
+    teams.push(team);
+    transitions.push({
+      playerId: player.id,
+      previousDesignation: player.injury_status,
+      currentDesignation: feed.status,
+    });
   }
-
-  try {
-    const { sendIrFlagPushes } = require('./irPolicy.service');
-    await sendIrFlagPushes(irFlags);
-  } catch (error) {
-    console.error('IR flag push failed:', error.message);
+  // One bulk UPDATE replaces the per-player loop. The three-column
+  // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
+  // three columns unchanged), so an unchanged row costs no write and the FOR
+  // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
+  // on a non-empty id list the way syncAdp guards its own bulk set.
+  if (ids.length > 0) {
+    await client.query(
+      `UPDATE "players" p
+          SET "injury_status" = v."status", "injury_detail" = v."detail",
+              "nfl_team" = v."team"
+         FROM (SELECT unnest($1::int[]) AS "id",
+                      unnest($2::text[]) AS "status",
+                      unnest($3::text[]) AS "detail",
+                      unnest($4::text[]) AS "team") v
+        WHERE p."id" = v."id"
+          AND (p."injury_status" IS DISTINCT FROM v."status"
+               OR p."injury_detail" IS DISTINCT FROM v."detail"
+               OR p."nfl_team" IS DISTINCT FROM v."team")`,
+      [ids, statuses, details, teams]
+    );
   }
+  const { flagRecoveredIrStashes } = require('./irPolicy.service');
+  const irFlags = await flagRecoveredIrStashes(client, transitions);
+  onIrFlags(irFlags);
   // playersUpdated counts feed matches (the length of transitions), not the
   // statement's rowCount: under the no-op predicate the two legitimately
   // differ, and the count an admin reads must not silently shrink to the
@@ -1181,7 +1134,7 @@ async function runInjurySync(api) {
   // found because a player's stat line landed in a week his listed team had not
   // played), and a run that silently stopped correcting teams reads as a
   // healthy run without it. Expect a handful in-season and 0 on a quiet day.
-  return { playersUpdated: matchedCount, irFlags: irFlags.length, teamChanges: teamCorrections };
+  return { playersUpdated: transitions.length, irFlags: irFlags.length, teamChanges };
 }
 
 /**
