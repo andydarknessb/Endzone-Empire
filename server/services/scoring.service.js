@@ -458,7 +458,17 @@ async function syncTeamDefenses() {
   });
 }
 
-/** fetch() for the team-defenses job: the existing-DEF-rows read, before any transaction or lock. */
+/**
+ * fetch() for the team-defenses job: the existing-DEF-rows read, before any
+ * transaction or lock. NOT closed by PLAYERS_BULK_WRITE_LOCK: this read runs
+ * on the bare pool before the lock is taken, so two overlapping runs can both
+ * read the same "missing" list before either inserts (the lock only
+ * serializes the inserts themselves, into one after the other, not this
+ * read). `players` carries no UNIQUE constraint over (name, position) to
+ * catch the resulting double-insert - a pre-existing gap (the old
+ * unlocked, uncoordinated code had the same window), not one this ticket
+ * opened or closed.
+ */
 async function fetchTeamDefensesUnit() {
   const existing = await pool.query(`SELECT "nfl_team" FROM "players" WHERE "position" = 'DEF'`);
   const missing = missingTeamDefenses(existing.rows.map((r) => r.nfl_team));
@@ -1504,7 +1514,20 @@ async function fetchSyncPlayersUnit({ season, api }) {
   return [{ season, entries }];
 }
 
-/** apply(client, unit) for the players job: runs inside runSyncJob's withTransaction, under PLAYERS_BULK_WRITE_LOCK. */
+/**
+ * apply(client, unit) for the players job: runs inside runSyncJob's
+ * withTransaction, under PLAYERS_BULK_WRITE_LOCK.
+ *
+ * KNOWN TRADE-OFF (qa-reviewer, #1204): this is a per-row loop over the whole
+ * Tank01 player list (thousands of statements) while holding the lock, not
+ * the single bulk `unnest` statement #904/#929 moved `syncInjuries` to for
+ * exactly this reason (a short hold under 23004 so a concurrent holder's
+ * wait cannot reach pool.js's statement_timeout, 15s web / 30s worker,
+ * SQLSTATE 57014). `players` is manual-only (an operator presses a button),
+ * so the exposure is a rare overlap with the daily injuries/adp pass, not a
+ * per-tick one - accepted here rather than rewritten to a bulk upsert
+ * (an equally sized change of its own) in this ticket's scope.
+ */
 async function applySyncPlayersUnit(client, { season, entries }) {
   let upserted = 0;
   let skipped = 0;
@@ -1784,7 +1807,22 @@ async function fetchSyncPlayerSeasonStatsUnit({ currentSeason, positions } = {})
   return [{ cutoff, entries: Array.from(byKey.values()) }];
 }
 
-/** apply(client, unit) for the season-stats job: runs inside runSyncJob's withTransaction, under PLAYERS_BULK_WRITE_LOCK. */
+/**
+ * apply(client, unit) for the season-stats job: runs inside runSyncJob's
+ * withTransaction, under PLAYERS_BULK_WRITE_LOCK.
+ *
+ * KNOWN TRADE-OFF (qa-reviewer, #1204): same per-row-loop-under-the-lock
+ * trade-off as the players job's apply, above - see that docblock. This job
+ * also does NOT serialize against `sleeper.service.js`'s `syncSeasonStats`,
+ * the OTHER writer of `player_season_stats`: that function takes no lock and
+ * is out of this ticket's scope (the issue explicitly keeps the Sleeper sync
+ * out of scope). Wrapping this loop in one transaction (required to make it
+ * a Sync run at all) means its row locks now hold until COMMIT instead of
+ * autocommitting per row as the old code did, which was not possible to
+ * deadlock against Sleeper's own bulk write; it now is, if the two ever run
+ * concurrently in a conflicting row order. Left for the project lead to
+ * weigh, since a real fix touches sleeper.service.js.
+ */
 async function applySyncPlayerSeasonStatsUnit(client, { cutoff, entries }) {
   let upserted = 0;
   for (const { playerId, season, rows } of entries) {

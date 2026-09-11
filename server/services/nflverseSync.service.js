@@ -283,8 +283,13 @@ async function applyNflverseWeekUnit(client, { season, week, defRows, crosswalk 
 /**
  * The league re-score loop for one (season, week), split out so
  * syncNflverseWeek can run it after its Sync run commits and outside its
- * transaction (#1204 ruling #2). Same shape `applyNflverseWeek` below uses:
- * per-League try/catch, a failure logs and does not fail the caller.
+ * transaction (#1204 ruling #2). Same shape `applyNflverseWeek` below (and
+ * `correctWeekFromNflverse`/`finalizePriorWeeks` elsewhere in this file) use:
+ * only the PER-LEAGUE work is try/catch'd; the leagues list SELECT itself is
+ * not, so a query failure there rejects the caller even though the write
+ * this run's data_sync_runs row already recorded ok: true for has committed.
+ * `finalizePriorWeeks`'s own try/catch (below) still turns that into a
+ * logged skip for one week rather than aborting the whole pass.
  */
 async function rescoreLeaguesForWeek({ season, week }) {
   const leaguesResult = await pool.query(`SELECT "id" FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`);
