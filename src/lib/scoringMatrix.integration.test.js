@@ -12,7 +12,7 @@ const mockSupabaseClient = {
 jest.mock('axios', () => ({
   create: jest.fn(() => ({ get: mockRapidApiGet })),
 }));
-jest.mock('../../server/modules/pool', () => ({ query: jest.fn() }));
+jest.mock('../../server/modules/pool', () => ({ query: jest.fn(), connect: jest.fn() }));
 jest.mock('../../server/modules/io', () => ({ getIo: jest.fn(() => null) }));
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => mockSupabaseClient),
@@ -234,8 +234,17 @@ describe('isolated Tank01 ingestion and database update', () => {
       if (sql.includes('FROM "player_stats"')) return { rows: [] };
       if (sql.includes('FROM "nfl_games"')) return { rows: [] };
       if (sql.includes('INSERT INTO "player_stats"')) return { rowCount: 1 };
+      // syncWeekStats is a Sync run (#1202, ADR 0036): its one game applies
+      // inside a transaction on a checked-out client, and the run itself is
+      // recorded on the pool once, after. `pool.connect()` below hands back a
+      // client whose `.query` IS this same mock, so BEGIN/COMMIT and the
+      // player_stats writes above all land here too - only these two shapes
+      // are new.
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      if (sql.includes('INSERT INTO "data_sync_runs"')) return { rows: [{ id: 1 }] };
       throw new Error(`Unexpected database query: ${sql}`);
     });
+    pool.connect.mockImplementation(async () => ({ query: pool.query, release: jest.fn() }));
 
     const result = await syncWeekStats({ season: 2026, week: 1 });
 

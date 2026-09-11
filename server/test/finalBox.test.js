@@ -5,6 +5,7 @@ const liveBox = require('../modules/liveBox');
 const pool = require('../modules/pool');
 const scoring = require('../services/scoring.service');
 const { priorityAllowed } = require('../modules/tank01Client');
+const { createFakePool, insert, update } = require('./helpers/fakePool');
 
 /**
  * The Final box handoff (#1186, ADR 0035): when ESPN reports a game final the
@@ -59,17 +60,20 @@ test('FINAL_BOX_GRACE_MS is env-tunable', () => {
 test('the Final box call passes essential priority: essential-only allows it, blocked refuses it', async (t) => {
   liveBox.__resetLiveBoxState();
   const calls = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    if (text.includes('FROM "live_game_states"')) return { rows: [{ tank01_game_id: 'g-final', game_status: 'final', final_stats_synced_at: null }] };
-    if (text.includes('SET "final_stats_synced_at"')) return { rows: [] };
-    if (text.includes('FROM "players" WHERE "external_id"')) return { rows: [{ id: 7, external_id: '4433971', name: 'Star Back', position: 'RB', nfl_team: 'KC' }] };
-    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
-    if (text.includes('FROM "player_stats"')) return { rows: [{ player_id: 7, stats: { rushingYards: 50, rushingTDs: 0 } }] };
-    if (text.includes('FROM "nfl_games"')) return { rows: [] };
-    if (text.includes('INTO "player_stats"')) { calls.push({ upsert: params }); return { rows: [] }; }
-    throw new Error(`Unexpected SQL: ${text}`);
-  });
+  // syncWeekStats is now a Sync run (#1202, ADR 0036): its per-game write goes
+  // through the unit's own transaction client, not the ambient pool, so this
+  // needs the fakePool helper (which patches pool.connect() too) rather than a
+  // hand-rolled pool.query stub.
+  createFakePool([
+    [/FROM "live_game_states"/, () => ({ rows: [{ tank01_game_id: 'g-final', game_status: 'final', final_stats_synced_at: null }] })],
+    [update('live_game_states'), () => ({ rows: [] }), 'client'],
+    [/FROM "players" WHERE "external_id"/, () => ({ rows: [{ id: 7, external_id: '4433971', name: 'Star Back', position: 'RB', nfl_team: 'KC' }] })],
+    [/"position" = 'DEF'/, () => ({ rows: [] })],
+    [/FROM "player_stats"/, () => ({ rows: [{ player_id: 7, stats: { rushingYards: 50, rushingTDs: 0 } }] })],
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
+    [insert('player_stats'), (text, params) => { calls.push({ upsert: params }); return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
   const api = { get: async (path, opts) => { calls.push({ path, opts }); return { data: { body: { gameID: 'g-final', playerStats: { 4433971: { playerID: '4433971', Rushing: { rushYds: '104', rushTD: '2' } } } } } }; } };
   const result = await scoring.syncWeekStats({ season: 2026, week: 2, api });
   const fetch = calls.find((c) => c.path === '/getNFLBoxScore');

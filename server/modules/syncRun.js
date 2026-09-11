@@ -12,15 +12,26 @@ const { withTransaction } = require('./withTransaction');
  * the whole run.
  *
  * - `fetch()` runs first, outside any transaction and outside any lock. It
- *   returns `units[]`, the work `apply` will run once per unit, or
- *   `{ refused: true, reason, detail }` when the feed answered but the job
- *   declines to write (a thin ADP market, say); `detail` is optional and, when
- *   given, is merged into the recorded row's detail and onto the resolved
- *   refusal alongside `refused`/`reason` (a caller reads it back to report,
- *   say, the usable count that tripped the refusal). An untagged throw from
- *   `fetch` is tagged `fetch_failed`; `fetch` may pre-tag
- *   `error.syncFailureReason` itself (a 502 shape guard tags `bad_response`)
- *   and that tag wins.
+ *   returns `units[]`, the work `apply` will run once per unit; or
+ *   `{ units, detail }` (#1202) when the run has detail that belongs to the
+ *   WHOLE run rather than to any one unit's own apply result - a list of
+ *   games whose box fetch failed, say, which cannot ride on a single unit's
+ *   result once the run has two or more units. `detail` is merged into the
+ *   recorded row on both an ok run (spread first, so the module's own
+ *   `results`/single-unit shape wins on any key collision) and a write_failed
+ *   run (spread first, so `reason`/`failed` win) - never into the resolved
+ *   value, which stays exactly `results.length === 1 ? results[0] : {
+ *   results }` either way, wrapper or not; or `{ refused: true, reason,
+ *   detail }` when the feed answered but the job declines to write (a thin
+ *   ADP market, say); that `detail` is optional and, when given, is merged
+ *   into the recorded row's detail and onto the resolved refusal alongside
+ *   `refused`/`reason` (a caller reads it back to report, say, the usable
+ *   count that tripped the refusal). An untagged throw from `fetch` is tagged
+ *   `fetch_failed`; `fetch` may pre-tag `error.syncFailureReason` itself (a
+ *   502 shape guard tags `bad_response`) and that tag wins. A throw happens
+ *   before any `{ units, detail }` wrapper is returned, so a fetch_failed
+ *   run's recorded detail never has run-level detail to merge - just the
+ *   tagged reason and the error's message.
  * - `apply(client, unit)` runs once per unit, each unit in its own transaction
  *   (`withTransaction(pool, ..., { label: job })`) after
  *   `SELECT pg_advisory_xact_lock($1)` with `lock`, when the job takes one. A
@@ -47,9 +58,9 @@ const { withTransaction } = require('./withTransaction');
  */
 async function runSyncJob({ job, lock, fetch, apply }) {
   const startedAt = new Date();
-  let units;
+  let fetched;
   try {
-    units = await fetch();
+    fetched = await fetch();
   } catch (error) {
     const reason = tagReason(error, 'fetch_failed');
     await recordDataSyncRun({
@@ -61,22 +72,34 @@ async function runSyncJob({ job, lock, fetch, apply }) {
     throw error;
   }
 
-  if (units && units.refused) {
+  if (fetched && fetched.refused) {
     // `reason`/`refusalReason` are this module's own markers of a refusal,
     // spread in AFTER the caller's detail so a fetch that happens to return
     // `detail: { reason: ... }` (qa-reviewer #1201: a theoretical risk today,
     // since the only caller supplies `{ adpPlayers }`) can never overwrite
     // them and turn a refused row unreadable as such.
     const recordedDetail = {
-      ...(units.detail || {}),
+      ...(fetched.detail || {}),
       reason: 'refused',
-      refusalReason: units.reason || null,
+      refusalReason: fetched.reason || null,
     };
     await recordDataSyncRun({ job, startedAt, ok: false, detail: recordedDetail });
-    const resolved = { refused: true, reason: units.reason || null };
-    if (units.detail) resolved.detail = units.detail;
+    const resolved = { refused: true, reason: fetched.reason || null };
+    if (fetched.detail) resolved.detail = fetched.detail;
     return resolved;
   }
+
+  // fetch() may wrap its units in `{ units, detail }` (#1202) to attach
+  // run-level detail that does not belong to any one unit's own apply result.
+  // A bare units array/single-unit object is still accepted, with no
+  // run-level detail to merge - `'units' in fetched` is what tells the two
+  // apart, since a plain single-unit object (the schedule job's accumulated
+  // unit, say) never carries that key.
+  const hasDetailWrapper =
+    fetched != null && typeof fetched === 'object' && !Array.isArray(fetched) &&
+    Object.prototype.hasOwnProperty.call(fetched, 'units');
+  const units = hasDetailWrapper ? fetched.units : fetched;
+  const fetchDetail = hasDetailWrapper && fetched.detail ? fetched.detail : null;
 
   const list = Array.isArray(units) ? units : [units];
   const results = [];
@@ -104,17 +127,25 @@ async function runSyncJob({ job, lock, fetch, apply }) {
   }
 
   if (failed.length > 0) {
+    // `reason`/`failed` are this module's own markers of a write failure,
+    // spread in AFTER fetchDetail for the same reason the refusal path spreads
+    // its own markers last: a fetch-supplied detail must never overwrite them.
     await recordDataSyncRun({
       job,
       startedAt,
       ok: false,
-      detail: { reason: 'write_failed', failed },
+      detail: { ...(fetchDetail || {}), reason: 'write_failed', failed },
     });
     throw firstFailure;
   }
 
   const onSuccess = results.length === 1 ? results[0] : { results };
-  await recordDataSyncRun({ job, startedAt, ok: true, detail: onSuccess });
+  // Same spread order on the ok path: fetchDetail first, onSuccess's own
+  // results/single-unit shape wins on any key collision. The RESOLVED value
+  // callers see is always onSuccess alone - fetchDetail only ever reaches the
+  // recorded data_sync_runs row, never a caller's return value.
+  const recordedDetail = fetchDetail ? { ...fetchDetail, ...onSuccess } : onSuccess;
+  await recordDataSyncRun({ job, startedAt, ok: true, detail: recordedDetail });
   return onSuccess;
 }
 
