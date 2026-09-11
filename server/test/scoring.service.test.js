@@ -345,6 +345,82 @@ test('syncPlayerSeasonStats upserts every rollup inside one transaction under PL
   fake.assertClean();
 });
 
+// #1251: the players and season-stats applies rewritten as one bulk `unnest`
+// upsert each, so the number of write statements per unit is a fixed
+// constant, not one per row. Each test drives a unit of hundreds of rows -
+// this goes red against the old per-row loop, which issued one INSERT per
+// row between the lock and COMMIT.
+test('syncPlayers issues a fixed number of write statements between the lock and COMMIT regardless of row count', async (t) => {
+  const entries = Array.from({ length: 250 }, (_, i) => (
+    { playerID: String(2000 + i), longName: `Bulk Player ${i}`, pos: 'WR', team: 'BUF' }
+  ));
+  const api = async () => ({ data: { body: entries } });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(result, { season: 2026, playersUpserted: 250, skippedNonFantasy: 0 });
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  const between = fake.calls.slice(lockIdx + 1, commitIdx);
+  assert.equal(between.length, 1, 'one write statement independent of row count');
+  assert.ok(between[0].text.startsWith('INSERT INTO "players"'));
+  fake.assertClean();
+});
+
+test('syncPlayerSeasonStats issues a fixed number of write statements between the lock and COMMIT regardless of row count', async (t) => {
+  const weeklyRows = Array.from({ length: 300 }, (_, i) => (
+    { player_id: i + 1, season: 2025, stats: { rec: 1 }, fantasy_points: '10.00' }
+  ));
+  const fake = createFakePool([
+    [/FROM "player_stats"/, () => ({ rows: weeklyRows }), 'pool'],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('player_season_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayerSeasonStats({ currentSeason: 2026 });
+
+  assert.deepEqual(result, { cutoffSeason: 2026, seasonsUpserted: 300 });
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  const between = fake.calls.slice(lockIdx + 1, commitIdx);
+  assert.equal(between.length, 1, 'one write statement independent of row count');
+  assert.ok(between[0].text.startsWith('INSERT INTO "player_season_stats"'));
+  fake.assertClean();
+});
+
+test('syncPlayers dedupes a duplicate external_id within one batch, last entry wins, counted once', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '77', longName: 'Old Name', pos: 'WR', team: 'BUF', jerseyNum: '11' },
+        { playerID: '77', longName: 'New Name', pos: 'WR', team: 'MIA', jerseyNum: '22' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(result, { season: 2026, playersUpserted: 1, skippedNonFantasy: 0 });
+  assert.equal(insertParams[0].length, 1, 'one parallel-array row for the deduped external_id');
+  assert.deepEqual(insertParams[0], ['77']);
+  assert.deepEqual(insertParams[1], ['New Name'], 'the later entry wins');
+  assert.deepEqual(insertParams[3], ['MIA'], 'the later entry wins');
+  assert.deepEqual(insertParams[5], ['22'], 'the later entry wins');
+  fake.assertClean();
+});
+
 // team-defenses' INSERT sets no column any real constraint protects
 // (external_id stays NULL; name/position/nfl_team carry no UNIQUE or CHECK,
 // per 20260710000001_initial_schema.js), so no real feed data can make its

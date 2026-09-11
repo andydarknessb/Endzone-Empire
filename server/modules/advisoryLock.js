@@ -22,10 +22,19 @@ const sentry = require('./sentry');
  *         `players`) and 'season-stats' (writes `player_season_stats`, NOT
  *         `players` - it shares this lock only because it, `syncPlayers` and
  *         `syncTeamDefenses` are triggered from the same admin surface and
- *         #1204 grouped them under one key rather than mint a fourth; it does
- *         NOT serialize against `sleeper.service.js`'s OWN
- *         `player_season_stats` writer, `syncSeasonStats`, which takes no
- *         lock and predates this ticket).
+ *         #1204 grouped them under one key rather than mint a fourth).
+ *         #1251 added a sixth caller: `sleeper.service.js`'s
+ *         `syncSeasonStats`, the OTHER writer of `player_season_stats`, now
+ *         takes this same lock directly (not through `runSyncJob` - it stays
+ *         off `data_sync_runs`) inside its own `withTransaction`, blocking on
+ *         the same `pg_advisory_xact_lock(23004)` as its first statement, so
+ *         it serializes against `season-stats` instead of racing it to a
+ *         deadlock (both bulk-`unnest` upserts now hold their row locks to
+ *         COMMIT). Same lock, not a new id, because it is the same table
+ *         family and ADR 0036 already says players-table writers share it.
+ *         Full writer list: syncAdp, syncInjuries, syncPlayers,
+ *         syncPlayerSeasonStats, syncTeamDefenses (through `runSyncJob`) and
+ *         Sleeper's syncSeasonStats (direct, own transaction).
  *   23005 nfl-games-bulk-write - serializes the two whole-nfl_games-table
  *         SYNC writers, syncSchedule (Tank01, services/scoring.service.js, job
  *         'schedule') and syncScheduleFromNflverse

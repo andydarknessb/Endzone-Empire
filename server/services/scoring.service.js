@@ -1518,39 +1518,56 @@ async function fetchSyncPlayersUnit({ season, api }) {
  * apply(client, unit) for the players job: runs inside runSyncJob's
  * withTransaction, under PLAYERS_BULK_WRITE_LOCK.
  *
- * KNOWN TRADE-OFF (qa-reviewer, #1204): this is a per-row loop over the whole
- * Tank01 player list (thousands of statements) while holding the lock, not
- * the single bulk `unnest` statement #904/#929 moved `syncInjuries` to for
- * exactly this reason (a short hold under 23004 so a concurrent holder's
- * wait cannot reach pool.js's statement_timeout, 15s web / 30s worker,
- * SQLSTATE 57014). `players` is manual-only (an operator presses a button),
- * so the exposure is a rare overlap with the daily injuries/adp pass, not a
- * per-tick one - accepted here rather than rewritten to a bulk upsert
- * (an equally sized change of its own) in this ticket's scope.
+ * One bulk `unnest` upsert (#1251), the same shape #904/#929 moved
+ * `syncInjuries` to and Sleeper's `upsertSeasonStats` already uses: a
+ * constant number of write statements per unit, independent of row count, so
+ * the hold under 23004 stays short enough that a concurrent holder's wait
+ * cannot reach pool.js's statement_timeout (15s web / 30s worker, SQLSTATE
+ * 57014). `ON CONFLICT DO UPDATE` raises 21000 if the same `external_id`
+ * appears twice in one statement, so a duplicate key within the batch is
+ * deduped in JS first (last entry wins) and counted once in
+ * `playersUpserted`. An empty batch (every entry skipped) issues no write
+ * statement, mirroring `syncInjuries`/`syncAdp`'s own guard.
  */
 async function applySyncPlayersUnit(client, { season, entries }) {
-  let upserted = 0;
   let skipped = 0;
+  // Keyed by externalId so a duplicate within one feed batch keeps only its
+  // last entry - ON CONFLICT DO UPDATE cannot affect the same row twice in
+  // one statement (21000), and the per-row loop's last-write-wins tolerance
+  // is preserved here in JS instead.
+  const byExternalId = new Map();
   for (const raw of entries) {
     const parsed = normalizePlayerEntry(raw);
     if (!parsed) {
       skipped += 1;
       continue;
     }
+    byExternalId.set(parsed.externalId, parsed);
+  }
+  const rows = Array.from(byExternalId.values());
+  if (rows.length > 0) {
     await client.query(
       `INSERT INTO "players" ("external_id", "name", "position", "nfl_team", "photo_url", "jersey_number")
-       VALUES ($1, $2, $3, $4, $5, $6)
+       SELECT * FROM unnest($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
        ON CONFLICT ("external_id")
        DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
                      "nfl_team" = EXCLUDED."nfl_team",
                      -- keep an existing headshot/jersey if a later feed omits it
                      "photo_url" = COALESCE(EXCLUDED."photo_url", "players"."photo_url"),
                      "jersey_number" = COALESCE(EXCLUDED."jersey_number", "players"."jersey_number")`,
-      [parsed.externalId, parsed.name, parsed.position, parsed.nflTeam, parsed.photoUrl, parsed.jerseyNumber]
+      [
+        rows.map((r) => r.externalId),
+        rows.map((r) => r.name),
+        rows.map((r) => r.position),
+        rows.map((r) => r.nflTeam),
+        // null (not '') survives text[], so a feed that omits photo_url/jersey_number
+        // keeps the stored value through the COALESCE above rather than clearing it.
+        rows.map((r) => r.photoUrl),
+        rows.map((r) => r.jerseyNumber),
+      ]
     );
-    upserted += 1;
   }
-  return { season, playersUpserted: upserted, skippedNonFantasy: skipped };
+  return { season, playersUpserted: rows.length, skippedNonFantasy: skipped };
 }
 
 /**
@@ -1811,44 +1828,49 @@ async function fetchSyncPlayerSeasonStatsUnit({ currentSeason, positions } = {})
  * apply(client, unit) for the season-stats job: runs inside runSyncJob's
  * withTransaction, under PLAYERS_BULK_WRITE_LOCK.
  *
- * KNOWN TRADE-OFF (qa-reviewer, #1204): same per-row-loop-under-the-lock
- * trade-off as the players job's apply, above - see that docblock. This job
- * also does NOT serialize against `sleeper.service.js`'s `syncSeasonStats`,
- * the OTHER writer of `player_season_stats`: that function takes no lock and
- * is out of this ticket's scope (the issue explicitly keeps the Sleeper sync
- * out of scope). Wrapping this loop in one transaction (required to make it
- * a Sync run at all) means its row locks now hold until COMMIT instead of
- * autocommitting per row as the old code did, which was not possible to
- * deadlock against Sleeper's own bulk write; it now is, if the two ever run
- * concurrently in a conflicting row order. Left for the project lead to
- * weigh, since a real fix touches sleeper.service.js.
+ * One bulk `unnest` upsert (#1251), the exact column list and conflict
+ * clause Sleeper's `upsertSeasonStats` already uses for the same table (the
+ * shape is copied, not the function): a constant number of write statements
+ * per unit, independent of row count. `entries` is already unique per
+ * `player:season` from the fetch's grouping, so no JS-side dedup is needed
+ * here the way the players job needs one. Sleeper's own writer now takes the
+ * same 23004 lock inside its own transaction (see `sleeper.service.js`), so
+ * the two writers of `player_season_stats` serialize instead of racing to a
+ * deadlock. An empty batch issues no write statement.
  */
 async function applySyncPlayerSeasonStatsUnit(client, { cutoff, entries }) {
-  let upserted = 0;
-  for (const { playerId, season, rows } of entries) {
-    const { games, stats } = aggregateSeasonStats(rows.map((r) => r.stats));
+  const rows = entries.map(({ playerId, season, rows: weekRows }) => {
+    const { games, stats } = aggregateSeasonStats(weekRows.map((r) => r.stats));
     // Sum the stored weekly points rather than scoring the aggregate: the
     // teamDefense pointsAllowed/yardsAllowed rules are per-game tier tables,
     // so scoring a season total tier-matches once instead of once per week.
     // For linear categories the two are identical under default rules.
-    const points = Math.round(rows.reduce((sum, r) => {
+    const points = Math.round(weekRows.reduce((sum, r) => {
       // Careful: Number(null) is 0, which would silently score a missing week
       // as zero instead of recomputing it.
       const weekPoints = r.fantasy_points == null ? NaN : Number(r.fantasy_points);
       return sum + (Number.isFinite(weekPoints) ? weekPoints : calculateFantasyPoints(r.stats));
     }, 0) * 100) / 100;
+    return { playerId, season, games, stats, points };
+  });
+  if (rows.length > 0) {
     await client.query(
       `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
+       SELECT * FROM unnest($1::int[], $2::int[], $3::int[], $4::jsonb[], $5::numeric[])
        ON CONFLICT ("player_id", "season")
        DO UPDATE SET "games_played" = EXCLUDED."games_played",
                      "stats" = EXCLUDED."stats",
                      "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [playerId, season, games, JSON.stringify(stats), points]
+      [
+        rows.map((r) => r.playerId),
+        rows.map((r) => r.season),
+        rows.map((r) => r.games),
+        rows.map((r) => JSON.stringify(r.stats)),
+        rows.map((r) => r.points),
+      ]
     );
-    upserted += 1;
   }
-  return { cutoffSeason: cutoff, seasonsUpserted: upserted };
+  return { cutoffSeason: cutoff, seasonsUpserted: rows.length };
 }
 
 /**
