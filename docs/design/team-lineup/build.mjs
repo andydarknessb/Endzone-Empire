@@ -180,6 +180,7 @@ const ir = [
 
 const posVar = (pos) => `var(--pos-${pos.toLowerCase()})`;
 const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('');
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 const avatar = (p, size = 36) => `<div class="avatar" style="width: ${size}px; height: ${size}px; font-size: ${Math.round(size * 0.36)}px;">${initials(p.name)}<span class="kit" style="background: ${kits[p.team] || '#9aa0a6'};"></span></div>`;
 
@@ -199,7 +200,7 @@ const gameCell = (p) => {
   if (p.kind === 'live') {
     return `<div class="stack" style="gap: 3px; min-width: 0;">
       <div class="row" style="gap: 8px;"><span class="chip sm live"><span class="dot"></span>${p.state}</span><span class="num" style="font-size: 12px; font-weight: 600; white-space: nowrap;">${p.score}</span></div>
-      <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim);">${p.rz ? `<span class="row" style="gap: 4px; color: var(--danger); font-weight: 600;">${ic.redzone()}RZ</span>` : ''}<span class="ellip">${p.sit}</span></div>
+      <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim);">${p.rz ? `<span class="row" style="gap: 4px; color: var(--danger); font-weight: 600;">${ic.redzone()}RZ</span>` : ''}<span class="ellip">${esc(p.sit)}</span></div>
     </div>`;
   }
   if (p.kind === 'final') {
@@ -509,7 +510,7 @@ const mRow = (p, { slotLabel, highlight = false, locked = false } = {}) => {
         ? `<span class="chip sm warn">Bye</span>`
         : `<span style="font-size: 12px; font-weight: 600;">${p.opp}</span><span class="note">${p.state}</span>`;
   const second = p.kind === 'live'
-    ? `${p.rz ? `<span class="row" style="gap: 3px; color: var(--danger); font-weight: 600;">${ic.redzone()}RZ</span>` : ''}<span class="ellip">${p.sit}</span>`
+    ? `${p.rz ? `<span class="row" style="gap: 3px; color: var(--danger); font-weight: 600;">${ic.redzone()}RZ</span>` : ''}<span class="ellip">${esc(p.sit)}</span>`
     : p.injury ? `<span class="row" style="gap: 4px; color: var(--warning);">${ic.warn(12)}<span class="ellip">${p.injuryText}</span></span>`
     : p.note ? `<span class="row" style="gap: 4px; color: var(--accent);">${ic.trend(12)}<span class="ellip">${p.note}</span></span>`
     : p.line ? `<span class="num ellip">${p.line}</span>${p.wxText ? `<span class="row" style="gap: 3px; flex: none;">${wxIcon(p)}${p.wxText}</span>` : ''}`
