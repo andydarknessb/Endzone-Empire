@@ -23,7 +23,7 @@ The slices, in the order the spec's tickets deliver them:
 - Entities: `pickem-game` (the slate, picks, lock and phase, plus the Line,
   weather, Record, Venue, Broadcast, Situation and final extras a game
   carries) and `pickem-standings` (rank ties, accuracy, best week, trend).
-- Features: `pick-winner`, `rank-confidence`, `save-picks`; `pick-week` is
+- Features: `pick-winner`, `set-confidence`, `save-picks`; `pick-week` is
   reused from ADR 0031.
 - Widgets: `pickem-board` (kickoff-window groups of game cards and the save
   bar), `pickem-standings`, `pickem-settings`.

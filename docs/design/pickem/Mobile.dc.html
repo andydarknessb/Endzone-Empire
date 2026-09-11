@@ -1,0 +1,336 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: var(--accent); } a:hover { color: var(--ink); }
+    .t-light {
+      --bg: #eef2f6; --surface: #ffffff; --surface2: #f4f7fa; --surface3: #e6ecf2;
+      --line: rgba(31, 45, 58, 0.12); --line-strong: rgba(31, 45, 58, 0.22);
+      --ink: #141b23; --dim: #55636f; --faint: #5e6a74;
+      --accent: #0f6a41; --accent-soft: rgba(15, 106, 65, 0.12); --accent-line: rgba(15, 106, 65, 0.32); --on-accent: #ffffff;
+      --home: #1e5bb8; --home-soft: rgba(30, 91, 184, 0.10); --away: #1b7d4f; --away-soft: rgba(27, 125, 79, 0.08);
+      --danger: #c62828; --danger-soft: rgba(198, 40, 40, 0.10);
+      --warning: #8a5a00; --warning-soft: rgba(138, 90, 0, 0.12);
+      --shadow-1: 0 1px 2px rgba(16, 24, 32, 0.08); --shadow-2: 0 4px 12px rgba(16, 24, 32, 0.10);
+      --focus: #1e5bb8;
+    }
+    .t-dark {
+      --bg: #0b1015; --surface: #141b23; --surface2: #1b242f; --surface3: #222e3b;
+      --line: rgba(154, 183, 211, 0.12); --line-strong: rgba(154, 183, 211, 0.22);
+      --ink: #e8eef4; --dim: #93a4b5; --faint: #8a9bad;
+      --accent: #2fd97b; --accent-soft: rgba(47, 217, 123, 0.12); --accent-line: rgba(47, 217, 123, 0.35); --on-accent: #0b1015;
+      --home: #7eaaff; --home-soft: rgba(126, 170, 255, 0.16); --away: #7ee2a8; --away-soft: rgba(126, 226, 168, 0.16);
+      --danger: #ff6b6b; --danger-soft: rgba(255, 107, 107, 0.14);
+      --warning: #f0b34e; --warning-soft: rgba(240, 179, 78, 0.14);
+      --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45); --shadow-2: 0 6px 16px rgba(0, 0, 0, 0.5);
+      --focus: #7eaaff;
+    }
+    .board { font-family: "Archivo", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.45; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; position: relative; }
+    .num { font-variant-numeric: tabular-nums; }
+    .tile { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; min-width: 0; flex: 1; background: var(--surface2); border: 1px solid var(--line); border-radius: 10px; }
+    .tile .l { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+    .tile .v { font-size: 16px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.2; white-space: nowrap; background: var(--surface2); color: var(--dim); border: 1px solid var(--line); }
+    .badge.success { background: var(--away-soft); color: var(--away); border-color: var(--away); }
+    .badge.danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+    .badge.warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 9px; font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; }
+    .btn.primary { color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); }
+    .seg { display: flex; gap: 2px; padding: 3px; background: var(--surface2); border: 1px solid var(--line); border-radius: 9px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+    .seg::-webkit-scrollbar { display: none; }
+    .seg .opt { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 38px; padding: 0 12px; border: 0; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 600; line-height: 1; color: var(--dim); background: transparent; white-space: nowrap; }
+    .seg .opt.on { color: var(--ink); background: var(--surface); box-shadow: var(--shadow-1); }
+    .seg.fill .opt { flex: 1 1 0; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-1); overflow: hidden; }
+    .card.final { background: var(--surface2); }
+    .card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0 12px; font-size: 12px; color: var(--faint); flex-wrap: wrap; }
+    .card-head .kick { font-weight: 600; color: var(--dim); }
+    .card-head .spacer { flex: 1; }
+    .teams { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 0 12px; }
+    .team { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); text-align: left; cursor: pointer; font: inherit; color: var(--ink); width: 100%; box-sizing: border-box; }
+    .team.picked { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+    .team.locked { cursor: default; }
+    .team.won { border-color: var(--away); }
+    .mono { flex: none; width: 32px; height: 32px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.04em; color: #ffffff; border: 1px solid var(--line-strong); }
+    .tname { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+    .tname .abbr { font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 17px; letter-spacing: 0.06em; line-height: 1.1; }
+    .tname .full { font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rec { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .score { font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 24px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .score.lost { color: var(--faint); font-weight: 500; }
+    .radio { flex: none; width: 20px; height: 20px; border-radius: 999px; border: 2px solid var(--line-strong); background: transparent; }
+    .team.picked .radio { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--surface); }
+    .fav { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--home); background: var(--home-soft); border-radius: 4px; padding: 2px 4px; margin-left: 6px; vertical-align: middle; }
+    .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 12px 0 12px; font-size: 11.5px; color: var(--dim); }
+    .meta .it { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .meta svg { width: 13px; height: 13px; color: var(--faint); }
+    .cons { padding: 8px 12px 12px 12px; }
+    .cons .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: var(--dim); margin-bottom: 5px; }
+    .cons .row b { color: var(--ink); font-weight: 600; }
+    .bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--surface3); }
+    .bar .a { background: var(--away); }
+    .bar .h { background: var(--home); }
+    .conf { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 12px; font-weight: 600; color: var(--ink); }
+    .conf .n { font-family: "Barlow Condensed", Impact, sans-serif; font-size: 16px; font-weight: 700; color: var(--accent); }
+    .conf.empty { color: var(--faint); border-style: dashed; }
+    .conf.empty .n { color: var(--faint); }
+    .headline { padding: 8px 12px 12px 12px; font-size: 12px; color: var(--dim); border-top: 1px solid var(--line); margin-top: 8px; }
+    .group-h { display: flex; align-items: baseline; gap: 8px; margin: 20px 0 8px 0; flex-wrap: wrap; }
+    .group-h .t { font-family: "Barlow Condensed", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; font-size: 16px; font-weight: 600; }
+    .group-h .s { font-size: 11.5px; color: var(--faint); }
+    .group-h .lock { margin-left: auto; font-size: 11.5px; color: var(--faint); display: inline-flex; align-items: center; gap: 4px; }
+    .group-h .lock svg { width: 12px; height: 12px; }
+    .grid { display: flex; flex-direction: column; gap: 10px; }
+  </style>
+</helmet>
+<div class="board {{themeClass}}" style="width: 390px; min-height: 5200px; padding: 16px 16px 96px 16px; box-sizing: border-box;">
+
+  <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); margin-bottom: 6px;">
+    <span>Sunday Funday League</span><span>/</span><span style="color: var(--dim);">Pick'em</span>
+  </div>
+  <h1 style="margin: 0 0 4px 0; font-family: 'Barlow Condensed', Impact, sans-serif; text-transform: uppercase; font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: 0.04em;">Pick'em</h1>
+  <div style="font-size: 12.5px; color: var(--dim); margin-bottom: 12px;">Week 1 · 2026 · Confidence scoring, 1 to 16</div>
+
+  <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+    <div class="tile"><span class="l">Rank</span><span class="v">3rd</span></div>
+    <div class="tile"><span class="l">Points</span><span class="v">21</span></div>
+    <div class="tile"><span class="l">Correct</span><span class="v">1/2</span></div>
+    <div class="tile"><span class="l">Streak</span><span class="v">W1</span></div>
+  </div>
+
+  <div class="seg fill" role="radiogroup" aria-label="Section" style="margin-bottom: 8px;">
+    <button class="opt on" type="button">Picks</button>
+    <button class="opt" type="button">Standings</button>
+  </div>
+  <div class="seg" role="radiogroup" aria-label="Week">
+    <button class="opt on" type="button">Wk 1</button>
+    <button class="opt" type="button">Wk 2</button>
+    <button class="opt" type="button">Wk 3</button>
+    <button class="opt" type="button">Wk 4</button>
+    <button class="opt" type="button">Wk 5</button>
+    <button class="opt" type="button">Wk 6</button>
+    <button class="opt" type="button">Wk 7</button>
+    <button class="opt" type="button">Wk 8</button>
+    <button class="opt" type="button">Wk 9</button>
+  </div>
+
+  <sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+    <div class="group-h">
+      <span class="t">{{g.title}}</span>
+      <span class="s">{{g.sub}}</span>
+      <span class="lock"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="12" height="8" rx="2"></rect><path d="M7 9V6a3 3 0 0 1 6 0v3"></path></svg>{{g.lock}}</span>
+    </div>
+    <div class="grid">
+      <sc-for list="{{g.games}}" as="game" hint-placeholder-count="2">
+        <div class="card {{game.cardClass}}">
+          <div class="card-head">
+            <span class="kick">{{game.kickoff}}</span>
+            <span>·</span>
+            <span>{{game.tv}}</span>
+            <span class="spacer"></span>
+            <sc-if value="{{game.isFinal}}" hint-placeholder-val="{{false}}">
+              <span class="badge">Final</span>
+              <span class="badge {{game.resultClass}}">{{game.resultLabel}}</span>
+            </sc-if>
+            <sc-if value="{{game.isOpen}}" hint-placeholder-val="{{true}}">
+              <span class="badge">{{game.line}} · O/U {{game.ou}}</span>
+            </sc-if>
+          </div>
+
+          <div class="teams">
+            <button class="team {{game.awayClass}}" type="button" onClick="{{game.pickAway}}" aria-label="Pick {{game.away.name}}">
+              <span class="mono" style="background: #{{game.away.color}};">{{game.away.abbr}}</span>
+              <span class="tname">
+                <span class="abbr">{{game.away.abbr}}<sc-if value="{{game.awayFav}}" hint-placeholder-val="{{false}}"><span class="fav">FAV</span></sc-if></span>
+                <span class="full">{{game.away.name}}</span>
+              </span>
+              <span class="rec">{{game.away.rec}} · road {{game.away.road}}</span>
+              <sc-if value="{{game.isFinal}}" hint-placeholder-val="{{false}}"><span class="score {{game.awayScoreClass}}">{{game.awayScore}}</span></sc-if>
+              <sc-if value="{{game.isOpen}}" hint-placeholder-val="{{true}}"><span class="radio"></span></sc-if>
+            </button>
+            <button class="team {{game.homeClass}}" type="button" onClick="{{game.pickHome}}" aria-label="Pick {{game.home.name}}">
+              <span class="mono" style="background: #{{game.home.color}};">{{game.home.abbr}}</span>
+              <span class="tname">
+                <span class="abbr">{{game.home.abbr}}<sc-if value="{{game.homeFav}}" hint-placeholder-val="{{false}}"><span class="fav">FAV</span></sc-if></span>
+                <span class="full">{{game.home.name}}</span>
+              </span>
+              <span class="rec">{{game.home.rec}} · home {{game.home.homeRec}}</span>
+              <sc-if value="{{game.isFinal}}" hint-placeholder-val="{{false}}"><span class="score {{game.homeScoreClass}}">{{game.homeScore}}</span></sc-if>
+              <sc-if value="{{game.isOpen}}" hint-placeholder-val="{{true}}"><span class="radio"></span></sc-if>
+            </button>
+          </div>
+
+          <div class="meta">
+            <span class="it"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16h14"></path><path d="M5 16V9l5-4 5 4v7"></path><path d="M8 16v-4h4v4"></path></svg>{{game.venue}}</span>
+            <span class="it"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15a4 4 0 0 1-.5-8 5 5 0 0 1 9.6 1.3A3.2 3.2 0 0 1 14.5 15z"></path></svg>{{game.weather}}</span>
+            <sc-if value="{{game.hasNote}}" hint-placeholder-val="{{false}}"><span class="it" style="color: var(--warning); font-weight: 600;">{{game.note}}</span></sc-if>
+          </div>
+
+          <sc-if value="{{game.isOpen}}" hint-placeholder-val="{{true}}">
+            <div class="cons">
+              <div class="row"><span><b class="num" style="color: var(--ink);">{{game.consPicked}}</b> of 10 have picked · reveal at kickoff</span>
+                <sc-if value="{{isConfidence}}" hint-placeholder-val="{{true}}"><span class="conf {{game.confClass}}">Confidence <span class="n">{{game.confLabel}}</span><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l4 4 4-4"></path></svg></span></sc-if>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{game.isFinal}}" hint-placeholder-val="{{false}}">
+            <div class="headline">{{game.headline}}</div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </sc-for>
+
+  <div style="position: sticky; bottom: 0; left: 0; right: 0; margin: 16px -16px -96px -16px; padding: 10px 16px 14px 16px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: var(--shadow-2); display: flex; align-items: center; gap: 10px;">
+    <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0;">
+      <div style="font-size: 12.5px; color: var(--dim);"><b class="num" style="color: var(--ink); font-weight: 600;">{{pickedCount}}</b> of 14 picked · <span style="color: var(--warning); font-weight: 600;">Unsaved</span></div>
+      <div style="height: 5px; border-radius: 999px; background: var(--surface3); overflow: hidden;"><div style="height: 100%; width: {{pickedPct}}%; background: var(--accent); border-radius: 999px;"></div></div>
+      <div style="font-size: 11px; color: var(--faint);">Next lock Sun 1:00 PM</div>
+    </div>
+    <button class="btn primary" type="button">Save picks</button>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Board"},"mode":{"editor":"enum","options":["confidence","straight"],"default":"confidence","section":"Board"},"$preview":{"width":390,"height":5200}}'>
+const T = {
+  NE:  { abbr: 'NE',  name: 'New England Patriots', color: '002a5c' },
+  SEA: { abbr: 'SEA', name: 'Seattle Seahawks', color: '002a5c' },
+  SF:  { abbr: 'SF',  name: 'San Francisco 49ers', color: 'aa0000' },
+  LAR: { abbr: 'LAR', name: 'Los Angeles Rams', color: '003594' },
+  TB:  { abbr: 'TB',  name: 'Tampa Bay Buccaneers', color: 'bd1c36' },
+  CIN: { abbr: 'CIN', name: 'Cincinnati Bengals', color: 'fb4f14' },
+  NO:  { abbr: 'NO',  name: 'New Orleans Saints', color: 'a08a5a' },
+  DET: { abbr: 'DET', name: 'Detroit Lions', color: '0076b6' },
+  NYJ: { abbr: 'NYJ', name: 'New York Jets', color: '115740' },
+  TEN: { abbr: 'TEN', name: 'Tennessee Titans', color: '4495d2' },
+  BAL: { abbr: 'BAL', name: 'Baltimore Ravens', color: '29126f' },
+  IND: { abbr: 'IND', name: 'Indianapolis Colts', color: '003b75' },
+  ATL: { abbr: 'ATL', name: 'Atlanta Falcons', color: 'a71930' },
+  PIT: { abbr: 'PIT', name: 'Pittsburgh Steelers', color: '000000' },
+  CHI: { abbr: 'CHI', name: 'Chicago Bears', color: '0b1c3a' },
+  CAR: { abbr: 'CAR', name: 'Carolina Panthers', color: '0085ca' },
+  CLE: { abbr: 'CLE', name: 'Cleveland Browns', color: '472a08' },
+  JAX: { abbr: 'JAX', name: 'Jacksonville Jaguars', color: '007487' },
+  BUF: { abbr: 'BUF', name: 'Buffalo Bills', color: '00338d' },
+  HOU: { abbr: 'HOU', name: 'Houston Texans', color: '021018' },
+  MIA: { abbr: 'MIA', name: 'Miami Dolphins', color: '008e97' },
+  LV:  { abbr: 'LV',  name: 'Las Vegas Raiders', color: '000000' },
+  GB:  { abbr: 'GB',  name: 'Green Bay Packers', color: '204e32' },
+  MIN: { abbr: 'MIN', name: 'Minnesota Vikings', color: '4f2683' },
+  WAS: { abbr: 'WAS', name: 'Washington Commanders', color: '5a1414' },
+  PHI: { abbr: 'PHI', name: 'Philadelphia Eagles', color: '06424d' },
+  ARI: { abbr: 'ARI', name: 'Arizona Cardinals', color: 'a40227' },
+  LAC: { abbr: 'LAC', name: 'Los Angeles Chargers', color: '0080c6' },
+  DAL: { abbr: 'DAL', name: 'Dallas Cowboys', color: '002a5c' },
+  NYG: { abbr: 'NYG', name: 'New York Giants', color: '003c7f' },
+  DEN: { abbr: 'DEN', name: 'Denver Broncos', color: '0a2343' },
+  KC:  { abbr: 'KC',  name: 'Kansas City Chiefs', color: 'e31837' },
+};
+// Week 1, 2026 slate as ESPN's scoreboard lists it (kickoffs ET). League picks, my picks
+// and confidence ranks are SAMPLE values; the rest is the live payload.
+const GROUPS = [
+  { id: 'thu', title: 'Thursday night', sub: 'Sep 10 · NBC', lock: 'Locked', games: [
+    { key: 'NE|SEA', kickoff: 'Thu 8:20 PM', tv: 'NBC', away: 'NE', home: 'SEA', status: 'final', as: 10, hs: 13, awayRec: '0-1', homeRec: '1-0', venue: 'Lumen Field · Seattle', weather: 'Outdoor', cons: { away: 4, home: 6, picked: 10 }, my: 'NE', conf: 9,
+      headline: 'Seahawks pick off Drake Maye 3 times to beat Patriots 13-10 in Super Bowl rematch' },
+  ] },
+  { id: 'fri', title: 'Friday night', sub: 'Sep 11 · Netflix', lock: 'Locked', games: [
+    { key: 'LAR|SF', kickoff: 'Fri 8:35 PM', tv: 'Netflix', away: 'SF', home: 'LAR', status: 'final', as: 27, hs: 7, awayRec: '1-0', homeRec: '0-1', venue: 'Melbourne Cricket Ground', weather: 'Outdoor', note: 'Neutral site · Melbourne, AUS', cons: { away: 3, home: 7, picked: 10 }, my: 'SF', conf: 12,
+      headline: '49ers cruise past Rams 27-7 in the first NFL game played in Australia' },
+  ] },
+  { id: 'sun1', title: 'Sunday early', sub: 'Sep 13 · 1:00 PM ET · 8 games', lock: 'Locks Sun 1:00 PM', games: [
+    { key: 'CIN|TB', kickoff: 'Sun 1:00 PM', tv: 'FOX', away: 'TB', home: 'CIN', line: 'CIN -3.5', fav: 'CIN', ou: 50.5, venue: 'Paycor Stadium · Cincinnati', weather: 'Partly sunny · 82°', cons: { away: 3, home: 6, picked: 9 }, my: 'CIN', conf: 6 },
+    { key: 'DET|NO', kickoff: 'Sun 1:00 PM', tv: 'FOX', away: 'NO', home: 'DET', line: 'DET -7', fav: 'DET', ou: 49.5, venue: 'Ford Field · Detroit', weather: 'Indoor', cons: { away: 1, home: 8, picked: 9 }, my: 'DET', conf: 14 },
+    { key: 'NYJ|TEN', kickoff: 'Sun 1:00 PM', tv: 'CBS', away: 'NYJ', home: 'TEN', line: 'TEN -1.5', fav: 'TEN', ou: 38.5, venue: 'Nissan Stadium · Nashville', weather: 'Partly sunny · 86° · wind 16 mph', cons: { away: 5, home: 4, picked: 9 }, my: null, conf: null },
+    { key: 'BAL|IND', kickoff: 'Sun 1:00 PM', tv: 'CBS', away: 'BAL', home: 'IND', line: 'BAL -3.5', fav: 'BAL', ou: 47.5, venue: 'Lucas Oil Stadium · Indianapolis', weather: 'Indoor', cons: { away: 7, home: 2, picked: 9 }, my: 'BAL', conf: 10 },
+    { key: 'ATL|PIT', kickoff: 'Sun 1:00 PM', tv: 'FOX', away: 'ATL', home: 'PIT', line: 'PIT -6', fav: 'PIT', ou: 41.5, venue: 'Acrisure Stadium · Pittsburgh', weather: 'Cloudy · 80°', cons: { away: 2, home: 7, picked: 9 }, my: 'PIT', conf: 11 },
+    { key: 'CAR|CHI', kickoff: 'Sun 1:00 PM', tv: 'FOX', away: 'CHI', home: 'CAR', line: 'CHI -3', fav: 'CHI', ou: 47.5, venue: 'Bank of America Stadium · Charlotte', weather: 'Mostly cloudy · 87° · rain 40%', cons: { away: 6, home: 3, picked: 9 }, my: null, conf: null },
+    { key: 'CLE|JAX', kickoff: 'Sun 1:00 PM', tv: 'CBS', away: 'CLE', home: 'JAX', line: 'JAX -8.5', fav: 'JAX', ou: 39.5, venue: 'EverBank Stadium · Jacksonville', weather: 'Intermittent clouds · 89°', cons: { away: 1, home: 8, picked: 9 }, my: 'JAX', conf: 13 },
+    { key: 'BUF|HOU', kickoff: 'Sun 1:00 PM', tv: 'CBS', away: 'BUF', home: 'HOU', line: 'BUF -1.5', fav: 'BUF', ou: 44.5, venue: 'NRG Stadium · Houston', weather: 'Indoor', cons: { away: 5, home: 4, picked: 9 }, my: 'BUF', conf: 5 },
+  ] },
+  { id: 'sun2', title: 'Sunday late', sub: 'Sep 13 · 4:25 PM ET · 4 games', lock: 'Locks Sun 4:25 PM', games: [
+    { key: 'LV|MIA', kickoff: 'Sun 4:25 PM', tv: 'FOX', away: 'MIA', home: 'LV', line: 'LV -3', fav: 'LV', ou: 40.5, venue: 'Allegiant Stadium · Las Vegas', weather: 'Indoor', cons: { away: 4, home: 4, picked: 8 }, my: null, conf: null },
+    { key: 'GB|MIN', kickoff: 'Sun 4:25 PM', tv: 'CBS', away: 'GB', home: 'MIN', line: 'MIN -1.5', fav: 'MIN', ou: 46.5, venue: 'U.S. Bank Stadium · Minneapolis', weather: 'Indoor', cons: { away: 5, home: 3, picked: 8 }, my: 'GB', conf: 3 },
+    { key: 'PHI|WAS', kickoff: 'Sun 4:25 PM', tv: 'FOX', away: 'WAS', home: 'PHI', line: 'PHI -6', fav: 'PHI', ou: 44.5, venue: 'Lincoln Financial Field · Philadelphia', weather: 'Intermittent clouds · 83°', cons: { away: 2, home: 6, picked: 8 }, my: 'PHI', conf: 8 },
+    { key: 'ARI|LAC', kickoff: 'Sun 4:25 PM', tv: 'CBS', away: 'ARI', home: 'LAC', line: 'LAC -9.5', fav: 'LAC', ou: 47.5, venue: 'SoFi Stadium · Inglewood', weather: 'Partly sunny · 80°', cons: { away: 1, home: 7, picked: 8 }, my: 'LAC', conf: 16 },
+  ] },
+  { id: 'snf', title: 'Sunday night', sub: 'Sep 13 · 8:20 PM ET · NBC', lock: 'Locks Sun 8:20 PM', games: [
+    { key: 'DAL|NYG', kickoff: 'Sun 8:20 PM', tv: 'NBC', away: 'DAL', home: 'NYG', line: 'DAL -3', fav: 'DAL', ou: 48.5, venue: 'MetLife Stadium · East Rutherford', weather: 'Partly cloudy · 77° · wind 18 mph', cons: { away: 6, home: 2, picked: 8 }, my: null, conf: null },
+  ] },
+  { id: 'mnf', title: 'Monday night', sub: 'Sep 14 · 8:15 PM ET · ESPN/ABC', lock: 'Locks Mon 8:15 PM', games: [
+    { key: 'DEN|KC', kickoff: 'Mon 8:15 PM', tv: 'ESPN/ABC', away: 'DEN', home: 'KC', line: 'KC -2.5', fav: 'KC', ou: 43.5, venue: 'Arrowhead Stadium · Kansas City', weather: 'Mostly sunny · 84°', cons: { away: 3, home: 5, picked: 8 }, my: null, conf: null },
+  ] },
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const picks = {};
+    GROUPS.forEach((g) => g.games.forEach((x) => { if (x.my) picks[x.key] = x.my; }));
+    this.state = { picks };
+  }
+  renderVals() {
+    const theme = this.props.theme ?? 'light';
+    const isConfidence = (this.props.mode ?? 'confidence') === 'confidence';
+    const picks = this.state.picks;
+    let pickedCount = 0;
+    const groups = GROUPS.map((g) => ({
+      title: g.title, sub: g.sub, lock: g.lock,
+      games: g.games.map((x) => {
+        const away = { ...T[x.away], rec: x.awayRec || '0-0', road: '0-0' };
+        const home = { ...T[x.home], rec: x.homeRec || '0-0', homeRec: '0-0' };
+        const isFinal = x.status === 'final';
+        const isOpen = !isFinal;
+        const picked = picks[x.key] || null;
+        if (isOpen && picked) pickedCount += 1;
+        const winner = isFinal ? (x.hs > x.as ? x.home : x.away) : null;
+        const correct = isFinal && picked === winner;
+        const total = x.cons.away + x.cons.home;
+        const awayPct = total ? Math.round((x.cons.away / total) * 100) : 0;
+        const lead = x.cons.away >= x.cons.home ? x.away : x.home;
+        const leadCount = Math.max(x.cons.away, x.cons.home);
+        const setPick = (team) => () => { if (isOpen) this.setState({ picks: { ...this.state.picks, [x.key]: team } }); };
+        const cls = (team) => [
+          picked === team ? 'picked' : '',
+          isFinal ? 'locked' : '',
+          winner === team ? 'won' : '',
+        ].join(' ');
+        return {
+          key: x.key, kickoff: x.kickoff, tv: x.tv, away, home, isFinal, isOpen,
+          cardClass: isFinal ? 'final' : '',
+          line: x.line || '', ou: x.ou == null ? '' : String(x.ou),
+          awayFav: x.fav === x.away, homeFav: x.fav === x.home,
+          awayScore: isFinal ? String(x.as) : '', homeScore: isFinal ? String(x.hs) : '',
+          awayScoreClass: isFinal && winner !== x.away ? 'lost' : '',
+          homeScoreClass: isFinal && winner !== x.home ? 'lost' : '',
+          resultClass: !picked ? '' : correct ? 'success' : 'danger',
+          resultLabel: !picked ? 'No pick' : correct ? (isConfidence ? 'Correct · +' + x.conf : 'Correct · +1') : 'Missed · ' + picked,
+          venue: x.venue, weather: x.weather, hasNote: Boolean(x.note), note: x.note || '',
+          consLead: lead, consText: 'leads ' + leadCount + '-' + (total - leadCount), consPicked: String(x.cons.picked),
+          consAwayPct: String(awayPct), consHomePct: String(100 - awayPct),
+          confClass: x.conf ? '' : 'empty', confLabel: x.conf ? String(x.conf) : '--',
+          headline: x.headline || '',
+          awayClass: cls(x.away), homeClass: cls(x.home),
+          pickAway: setPick(x.away), pickHome: setPick(x.home),
+        };
+      }),
+    }));
+    return {
+      themeClass: theme === 'dark' ? 't-dark' : 't-light',
+      isConfidence,
+      groups,
+      pickedCount: String(pickedCount),
+      pickedPct: String(Math.round((pickedCount / 14) * 100)),
+    };
+  }
+}
+</script>
+</body>
+</html>
