@@ -38,3 +38,6 @@ export { default as DashButton } from './DashButton';
 // exported only from the concrete module - no island consumer needs them
 // through the barrel yet.
 export { default as AbbreviationTooltip } from './AbbreviationTooltip';
+// A player's Game cell state (#1237, ADR 0037): pre-kickoff, live, final or
+// bye, on the kit's Badge. Composed by the Lineup page's lineup-ledger widget.
+export { default as GameStateChip } from './GameStateChip';
