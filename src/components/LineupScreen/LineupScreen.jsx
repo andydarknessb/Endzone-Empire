@@ -46,6 +46,7 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import { prefersReducedMotion } from '../../lib/reducedMotionMedia';
 import { lineupAttention, DEFAULT_STARTER_SLOT_ORDER } from '../../lib/lineupAttention';
+import { unavailableLabel } from '../../shared/lib';
 
 // Mirrors POSITION_GROUPS in server/services/lineup.service.js — group keys
 // (DL/LB/DB) usable in a slot's eligiblePositions expand to every specific
@@ -97,8 +98,6 @@ function canResolveLockedIrStash(entry, targetSlot) {
 // never prints "vs null", a 0 that looks like a measurement, or an opponent
 // difficulty nobody computed.
 
-const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };
-
 /**
  * What goes in the parentheses after a player's name. A player who cannot play
  * gets the REASON, not a projection: "0 proj" invites the reader to compare a
@@ -109,7 +108,7 @@ const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };
 function describeSide(side) {
   const availability = side && side.availability;
   if (availability && availability.available === false) {
-    return UNAVAILABLE_LABELS[availability.reason] || 'unavailable';
+    return unavailableLabel(availability.reason) || 'unavailable';
   }
   if (!side || side.projection == null) return null;
   const range = side.distribution;
