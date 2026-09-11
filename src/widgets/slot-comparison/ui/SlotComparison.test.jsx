@@ -3,8 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SlotComparison } from '..';
 
-// A Matchup detail starter row as the entity pairs it (the wire shape of
-// GET /api/league/:id/matchups/:matchupId, #892 fields included).
+// A Matchup detail starter row as the Matchup page model pairs it (the wire
+// shape of GET /api/league/:id/matchups/:matchupId, #892 fields included).
 const starter = (over = {}) => ({
   id: 1,
   name: 'J. Goff',

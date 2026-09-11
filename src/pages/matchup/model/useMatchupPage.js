@@ -17,10 +17,10 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
  *
  *   - The league, through the shared league cache (useLeague / ADR 0004):
  *     its name for the breadcrumb and the LED board, its `roster_slots` keys
- *     in commissioner order as the `slotOrder` the entity pairs starters by
- *     (IDP slots included; pairing refuses without it, so both lineup views
- *     render nothing until the league row arrives), and its `best_ball` flag
- *     for the bench-left rule.
+ *     in commissioner order as the `slotOrder` THIS page model pairs starters
+ *     by (IDP slots included; pairing refuses without it, so both lineup
+ *     views render nothing until the league row arrives), and its `best_ball`
+ *     flag for the bench-left rule.
  *   - The Matchup as a read model (entities/matchup, ADR 0029) with the score
  *     feed and the Team identity feed composed inside the hook: `matchup`
  *     (the scoreboard, with the live NFL game rows on `.games`, #885),

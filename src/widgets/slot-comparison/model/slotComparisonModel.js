@@ -2,9 +2,10 @@
  * Pure presentation rules for the slot-comparison widget (ADR 0031, #899).
  * No render, no fetch: the UI reads these so each rule has one home and a
  * table test, and the row shape they read is the Matchup detail starter row
- * the entity pairs (`pairStartersBySlot` in entities/matchup): id, name,
- * position, nfl_team, opponent, points, projected, availability, game_state,
- * game_clock, photo_url, stats.
+ * the Matchup page model pairs (`pairStartersBySlot`, from `entities/roster`;
+ * #1210 moved the pairing out of `entities/matchup`): id, name, position,
+ * nfl_team, opponent, points, projected, availability, game_state, game_clock,
+ * photo_url, stats.
  */
 
 import { unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';

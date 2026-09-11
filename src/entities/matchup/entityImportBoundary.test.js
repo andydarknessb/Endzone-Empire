@@ -31,7 +31,7 @@ const THIS_ENTITY = path.basename(ENTITY_ROOT); // 'matchup'
 function collectSourceFiles(dir) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
+    const full = path.join(dir, entry.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- readdir dirent names cannot contain path separators
     if (entry.isDirectory()) {
       out.push(...collectSourceFiles(full));
     } else if (/\.(js|jsx|ts|tsx)$/.test(entry.name) && full !== __filename) {
@@ -61,7 +61,7 @@ function importSpecifiers(filePath) {
 // island, or a package specifier).
 function entitySliceOf(specifier, fromFile) {
   if (!specifier.startsWith('.')) return null;
-  const resolved = path.resolve(path.dirname(fromFile), specifier);
+  const resolved = path.resolve(path.dirname(fromFile), specifier); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- test-time scan of checked-in source; the specifier is only resolved to classify its entity slice, never read or written
   const relative = path.relative(ENTITIES_DIR, resolved);
   if (relative.startsWith('..')) return null;
   return relative.split(path.sep)[0];
