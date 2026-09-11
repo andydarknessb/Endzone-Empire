@@ -1156,9 +1156,6 @@ async function fetchInjuryUnits(api) {
  * irFlags, teamChanges }`.
  */
 async function applyInjuryUnit(client, feedByExternal, onIrFlags) {
-  // SCRATCH RED-TELL DEMO (#1206): a hand-rolled copy of the lock runSyncJob
-  // already takes for this unit. Must be reverted before commit.
-  await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
   // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
   // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
   // different order across its wipe and bulk set. Both writers take one
