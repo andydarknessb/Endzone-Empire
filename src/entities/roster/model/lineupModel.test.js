@@ -534,6 +534,19 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(entries[0]).toMatchObject({ projection: null, floor: null, ceiling: null });
   });
 
+  test('points carries through from the wire\'s actualPoints, coerced the same way projectedPoints already is (#1237)', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB', actualPoints: '18.50' })], league);
+    expect(entries[0].points).toBe(18.5);
+  });
+
+  test('a null or missing actualPoints reads as points: null, never 0', () => {
+    const withNull = lineupEntries([row({ id: 1, slot: 'QB', actualPoints: null })], league);
+    expect(withNull[0].points).toBeNull();
+    const { actualPoints, ...rowWithoutActualPoints } = row({ id: 1, slot: 'QB' });
+    const withoutKey = lineupEntries([rowWithoutActualPoints], league);
+    expect(withoutKey[0].points).toBeNull();
+  });
+
   test('kickoff and gameKey pass through exactly as opponent already does', () => {
     const withSchedule = lineupEntries(
       [row({ id: 1, slot: 'QB', kickoff: '2026-11-01T18:00:00Z', game_key: 'BUF-MIA' })],

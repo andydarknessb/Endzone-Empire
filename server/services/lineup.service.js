@@ -1220,7 +1220,10 @@ async function getLineup({ leagueId, userId, week }) {
           actualPoints: row.actualPoints,
           now,
         });
-        delete annotatedRow.actualPoints;
+        // Kept on the wire as `actualPoints` (#1237, ADR 0037's Ledger row:
+        // "projection and points"): the client's points cell reads this
+        // directly rather than re-deriving it, the same way it already reads
+        // `projection`/`floor`/`ceiling` as the server's own numbers.
       }
 
       // Returning COMMITs (ADR 0033). Every read above materialized the week

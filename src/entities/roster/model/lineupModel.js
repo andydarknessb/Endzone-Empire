@@ -295,8 +295,11 @@ function availabilityFor(entry) {
  *
  * The shape: `{ playerId, name, position, nflTeam, slot, slotIndex,
  * eligibleSlots, locked, availability: { available, reason }, unavailable,
- * projectedPoints, projection, floor, ceiling, opponent, kickoff, gameKey,
- * edge: { kind, text } }`. `slotIndex` is the entry's position in the
+ * projectedPoints, projection, floor, ceiling, points, opponent, kickoff,
+ * gameKey, edge: { kind, text }, irAttested, validStash, spent }`. `points`
+ * (#1237) is the entry's actual/live fantasy points, null before kickoff or
+ * when the week has no stats yet - the Ledger row's points cell reads this,
+ * never `projectedPoints`. `slotIndex` is the entry's position in the
  * league's own slot order; a slot the entries carry that the order does not
  * name (BENCH, IR, or a stray key) is appended after the ordered slots, in
  * the order first seen, mirroring `pairStartersBySlot`'s same rule. The
@@ -335,6 +338,12 @@ export function lineupEntries(rosterWire, league) {
     const projection = r.projection == null ? NaN : Number(r.projection);
     const floor = r.floor == null ? NaN : Number(r.floor);
     const ceiling = r.ceiling == null ? NaN : Number(r.ceiling);
+    // The entry's actual/live fantasy points (#1237, formal review
+    // ac2-points-cell-always-a-dash): the server's own `actualPoints`
+    // (lineup.service.js's `calculateFantasyPoints` over the week's stats
+    // row), null before kickoff or when the week has no stats yet - never
+    // derived here.
+    const actualPoints = r.actualPoints == null ? NaN : Number(r.actualPoints);
     const entry = {
       playerId: r.id ?? null,
       name: r.name ?? null,
@@ -345,6 +354,7 @@ export function lineupEntries(rosterWire, league) {
       projection: Number.isFinite(projection) ? projection : null,
       floor: Number.isFinite(floor) ? floor : null,
       ceiling: Number.isFinite(ceiling) ? ceiling : null,
+      points: Number.isFinite(actualPoints) ? actualPoints : null,
       injuryStatus: r.injury_status ?? null,
       opponent: r.opponent ?? null,
       // `kickoff` and `gameKey` (#1235) are passed through exactly as the

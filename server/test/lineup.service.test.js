@@ -185,6 +185,9 @@ test('getLineup returns league-scored current-week projections and preserves una
     projection: 20,
     floor: 14,
     ceiling: 26,
+    // #1237: kept on the wire now (previously stripped) as the Ledger row's
+    // points cell source; null here since this row carries no week_stats.
+    actualPoints: null,
     edge: { kind: 'none', text: null },
   });
   fake.assertClean();
