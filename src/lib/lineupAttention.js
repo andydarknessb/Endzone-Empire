@@ -21,15 +21,6 @@
  * rule (you are not penalized for a backup's bye).
  */
 
-// The standard 7-slot starter order (9 starter instances). Used ONLY to pick and
-// order starting slots when a league carries no explicit `roster_slots` yet (a
-// league still loading, or a legacy row). Mirrors the keys of the server's
-// DEFAULT_ROSTER_SLOTS (server/services/rosterSlots.js, re-exported by
-// lineup.service). lineupAttention.parity.test.js pins the two equal, in order,
-// so a drift in the standard roster shape fails a test rather than shipping
-// silently. (LineupScreen no longer keeps its own copy - it imports this one.)
-export const DEFAULT_STARTER_SLOT_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
-
 export function lineupAttention({ rosterSlots = [], entries = [] } = {}) {
   const slots = Array.isArray(rosterSlots) ? rosterSlots : [];
 
@@ -41,11 +32,12 @@ export function lineupAttention({ rosterSlots = [], entries = [] } = {}) {
     (bySlot[entry.slot] = bySlot[entry.slot] || []).push(entry);
   }
 
-  // The starting slots to inspect: the league's own keys, or the standard order
-  // when none are configured. When there are no configured slots the empty-slot
-  // reduce below finds a count of 0 for every default key, so emptyStarterSlots
-  // is 0 there while byes are still read off the default starter keys.
-  const starterSlotOrder = slots.length > 0 ? slots.map((s) => s.key) : DEFAULT_STARTER_SLOT_ORDER;
+  // The starting slots to inspect: the league's own keys, in the league's own
+  // order. No default (#1210): an unconfigured league (`rosterSlots` empty)
+  // yields no starting slots to inspect at all, rather than guessing at a
+  // fantasy-standard shape that would mis-place IDP starters exactly as the
+  // deleted pairing default did (ADR 0029's sibling concern).
+  const starterSlotOrder = slots.map((s) => s.key);
 
   const emptyStarterSlots = starterSlotOrder.reduce((acc, type) => {
     const count = slots.find((s) => s.key === type)?.count || 0;
