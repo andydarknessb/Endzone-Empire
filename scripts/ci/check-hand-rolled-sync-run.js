@@ -98,8 +98,11 @@ const LOCK_ALLOWED_FILES = Object.freeze(new Set([
 const INSERT_ALLOWED_FILE = 'server/modules/syncRun.js';
 
 // Anchored on the FULL blocking-lock name so the try-and-skip form
-// (pg_TRY_advisory_xact_lock) is never a substring match.
-const LOCK_PATTERN = /\bpg_advisory_xact_lock\s*\(/;
+// (pg_TRY_advisory_xact_lock) is never a substring match. Case-insensitive
+// like INSERT_PATTERN below (PR #1255 review f1): Postgres identifiers are
+// case-insensitive unless quoted, and a hand-rolled site is not guaranteed
+// to write the call in lower case.
+const LOCK_PATTERN = /\bpg_advisory_xact_lock\s*\(/i;
 const INSERT_PATTERN = /insert\s+into\s+"?data_sync_runs"?\b/i;
 
 const toPosix = (rel) => rel.split(path.sep).join('/');

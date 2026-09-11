@@ -64,6 +64,29 @@ test('pg_try_advisory_xact_lock never matches, in any file', () => {
   assert.deepEqual(findings, []);
 });
 
+test('an upper-case pg_advisory_xact_lock call in a disallowed file fails, naming file:line (PR #1255 review f1)', () => {
+  const { findings } = analyze([
+    {
+      file: 'server/services/notAJob.service.js',
+      source: "async function run(client) {\n  await client.query('SELECT PG_ADVISORY_XACT_LOCK($1)', [1]);\n}\nmodule.exports = { run };\n",
+    },
+  ]);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].file, 'server/services/notAJob.service.js');
+  assert.equal(findings[0].line, 2);
+  assert.match(findings[0].rule, /pg_advisory_xact_lock/);
+});
+
+test('an upper-case PG_TRY_ADVISORY_XACT_LOCK never matches, in any file (PR #1255 review f1)', () => {
+  const { findings } = analyze([
+    {
+      file: 'server/services/notAJob.service.js',
+      source: "async function run(client) {\n  await client.query('SELECT PG_TRY_ADVISORY_XACT_LOCK($1) AS locked', [1]);\n}\nmodule.exports = { run };\n",
+    },
+  ]);
+  assert.deepEqual(findings, []);
+});
+
 test('INSERT INTO data_sync_runs passes in the one allowed writer', () => {
   const { findings } = analyze([
     {
