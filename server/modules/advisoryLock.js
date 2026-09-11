@@ -16,26 +16,42 @@ const sentry = require('./sentry');
  *         (services/scoring.service.js), so their opposite row-lock orders cannot
  *         deadlock (#904). Each sync issues a blocking pg_advisory_xact_lock(23004)
  *         as the first statement after its own BEGIN.
+ *   23005 nfl-games-bulk-write - serializes the two whole-nfl_games-table
+ *         SYNC writers, syncSchedule (Tank01, services/scoring.service.js, job
+ *         'schedule') and syncScheduleFromNflverse
+ *         (services/nflverseSync.service.js, job 'schedule-nflverse'), so a
+ *         Tank01 run and an nflverse run started together cannot interleave
+ *         their per-row upserts of the same season's games (#1203). (Not the
+ *         one-off scripts/repair-schedule-orientation.js repair tool: it only
+ *         ever null-only UPDATEs game_key/home_away/neutral_site, guarded by
+ *         IS NULL, never nfl_team/opponent/kickoff_at and never an INSERT, so
+ *         it does not compete with either sync writer.) Taken as
+ *         `lock` by server/modules/syncRun.js's `runSyncJob`, which issues the
+ *         blocking pg_advisory_xact_lock(23005) as the first statement inside
+ *         each unit's own transaction - a concurrent run WAITS for the lock
+ *         rather than silently interleaving its writes.
  *
- * Only 23001 and 23002 are taken through withAdvisoryLock; 23003 and 23004 call
- * pg_advisory_xact_lock / pg_try_advisory_xact_lock directly. 23004 deliberately
- * does NOT use the helper: withAdvisoryLock is try-and-skip on its own client,
- * but the two syncs must WAIT for the lock rather than skip (until the holder's
- * transaction ends, or until statement_timeout cancels the wait with SQLSTATE
- * 57014 - see the call-site comments and #929), and the lock must live inside
- * each sync's own transaction.
+ * Only 23001 and 23002 are taken through withAdvisoryLock; 23003, 23004 and
+ * 23005 call pg_advisory_xact_lock / pg_try_advisory_xact_lock directly.
+ * 23004 and 23005 deliberately do NOT use the helper: withAdvisoryLock is
+ * try-and-skip on its own client, but these writers must WAIT for the lock
+ * rather than skip (until the holder's transaction ends, or until
+ * statement_timeout cancels the wait with SQLSTATE 57014 - see the call-site
+ * comments and #929), and the lock must live inside each writer's own
+ * transaction.
  *
  * SHARED KEYSPACE. The single-key form is one flat bigint namespace, so any
  * OTHER single-key advisory lock shares it with the ids above. The one other
  * single-key call site is holdout.service.js (pg_advisory_xact_lock(hashtext(id))),
  * whose key is a hash of the capture identity, not a small fixed integer - it
- * will not collide with 23001-23004 in practice, but a new FIXED id must still be
+ * will not collide with 23001-23005 in practice, but a new FIXED id must still be
  * chosen from this block. The weekly-trophy-engine SQL
  * (server/db/sql/2026-07-20-weekly-trophy-engine.sql) uses the TWO-key
  * (int4, int4) form, which Postgres keeps in a separate keyspace from the
  * single-key form, so it cannot collide with anything here.
  */
 const PLAYERS_BULK_WRITE_LOCK = 23004;
+const NFL_GAMES_BULK_WRITE_LOCK = 23005;
 
 /**
  * Consecutive skips per lock id (#842). After #839 a skip can only mean another
@@ -132,4 +148,10 @@ async function withAdvisoryLock(lockId, name, work) {
   }
 }
 
-module.exports = { withAdvisoryLock, resetSkipStreaks, SKIP_ALARM_STREAK, PLAYERS_BULK_WRITE_LOCK };
+module.exports = {
+  withAdvisoryLock,
+  resetSkipStreaks,
+  SKIP_ALARM_STREAK,
+  PLAYERS_BULK_WRITE_LOCK,
+  NFL_GAMES_BULK_WRITE_LOCK,
+};

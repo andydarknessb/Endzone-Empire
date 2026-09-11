@@ -4,6 +4,8 @@ const scoring = require('./scoring.service');
 const correction = require('./correction.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
+const { NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
+const { runSyncJob } = require('../modules/syncRun');
 
 /**
  * Two nflverse-backed jobs share this service:
@@ -404,18 +406,47 @@ function buildScheduleRows(rows, { season }) {
  * Tank01-synced kickoff, so this can run any time without degrading live
  * data, and a later Tank01 re-sync still corrects placeholder times. Bye
  * derivation needs every week's ROW to exist, not exact times.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job
+ * 'schedule-nflverse'. This is one fetch (the CSV), so any fetch or parse
+ * throw is tagged fetch_failed by the module with no special handling here.
+ * The single unit (every row this file produced) writes in one transaction
+ * under NFL_GAMES_BULK_WRITE_LOCK — the same lock syncSchedule (Tank01)
+ * takes, so a run of each source started together serializes instead of
+ * interleaving its upserts of the same season's games (#1203).
  */
 async function syncScheduleFromNflverse({ season }) {
+  return runSyncJob({
+    job: 'schedule-nflverse',
+    lock: NFL_GAMES_BULK_WRITE_LOCK,
+    fetch: () => fetchScheduleFromNflverseUnits({ season }),
+    apply: (client, unit) => applyScheduleFromNflverseUnit(client, unit),
+  });
+}
+
+/** fetch() for the schedule-nflverse job: the CSV fetch and parse, before any transaction or lock. */
+async function fetchScheduleFromNflverseUnits({ season }) {
   const rows = parseCsv(await fetchCsvText(NFLVERSE_GAMES_URL));
   const scheduleRows = buildScheduleRows(rows, { season });
+  return [{ season, scheduleRows }];
+}
+
+/**
+ * apply(client, unit) for the schedule-nflverse job: runs inside
+ * runSyncJob's withTransaction, after the module has already taken
+ * NFL_GAMES_BULK_WRITE_LOCK on this client. Same per-row upsert as before,
+ * unchanged — still never overwrites `opponent` or `kickoff_at` on an
+ * existing row (a Tank01-synced kickoff stays authoritative), and the ON
+ * CONFLICT branch still only fills in the additive game-context columns,
+ * each COALESCEd so a null in this file cannot erase a value already there —
+ * just run on the transaction client instead of the bare pool.
+ */
+async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
   let rowsInserted = 0;
   let contextUpdated = 0;
   for (const game of scheduleRows) {
-    // Still never overwrites `opponent` or `kickoff_at` on an existing row —
-    // a Tank01-synced kickoff stays authoritative. The ON CONFLICT branch
-    // exists only to fill in the additive game-context columns, and each one
-    // is COALESCEd so a null in this file cannot erase a value already there.
-    const res = await pool.query(
+    const res = await client.query(
       `INSERT INTO "nfl_games"
          ("season", "week", "nfl_team", "opponent", "kickoff_at",
           "game_key", "home_away", "neutral_site", "venue", "roof", "surface", "rest_days")

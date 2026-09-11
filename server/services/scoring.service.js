@@ -2,7 +2,7 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
 const { isTransientDatabaseError } = require('../modules/dbRetry');
-const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
+const { PLAYERS_BULK_WRITE_LOCK, NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { withTransaction } = require('../modules/withTransaction');
 const { tank01Get } = require('../modules/tank01Client');
 const {
@@ -1169,44 +1169,117 @@ function normalizeTank01Game(entry) {
  * Pull the real NFL schedule into nfl_games — one row per team per week,
  * keyed by Tank01 team abbreviations (matching players.nfl_team from
  * syncPlayers) — powering lineup locks and bye detection. One
- * getNFLGamesForWeek call per regular-season week; idempotent upserts.
+ * getNFLGamesForWeek call per regular-season week (18, never more — Tank01 is
+ * quota-metered), all 18 issued before any write.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job 'schedule'.
+ * `fetchScheduleUnits` keeps the per-week tolerance the old interleaved loop
+ * had — a week whose call throws, or whose body is not an array, is skipped
+ * and logged rather than failing the whole run — but every fetch now runs
+ * BEFORE the single write transaction, so a throwing week can no longer leave
+ * some weeks upserted and others not. If every week fails, the run is
+ * fetch_failed and nothing is written (today's fully-empty-feed case left the
+ * same nothing-written outcome, just with no run row to show it). Otherwise
+ * one unit (every game fetched across all weeks) is written in one
+ * transaction under NFL_GAMES_BULK_WRITE_LOCK — the same lock
+ * syncScheduleFromNflverse takes, so a Tank01 run and an nflverse run started
+ * together serialize instead of interleaving their upserts (#1203).
+ *
+ * `failedWeeks` lives ONLY in the recorded data_sync_runs row: applyScheduleUnit's
+ * return value is what runSyncJob both records as the run's detail AND
+ * resolves to, so this wrapper strips failedWeeks back off before returning -
+ * the pre-launch lead note's "Must NOT change: both functions' resolved
+ * bodies... the routes see exactly what they see today" means the RESOLVED
+ * VALUE (and so the JSON both routes forward), not the run detail.
  */
-async function syncSchedule({ season }) {
-  let upserted = 0;
+async function syncSchedule({ season, api = tank01Get } = {}) {
+  const { season: resultSeason, gamesUpserted } = await runSyncJob({
+    job: 'schedule',
+    lock: NFL_GAMES_BULK_WRITE_LOCK,
+    fetch: () => fetchScheduleUnits({ season, api }),
+    apply: (client, unit) => applyScheduleUnit(client, unit),
+  });
+  return { season: resultSeason, gamesUpserted };
+}
+
+/**
+ * fetch() for the schedule job: runs before any transaction or lock. Issues
+ * all 18 getNFLGamesForWeek calls (never short-circuits on a per-week
+ * failure, since Tank01's quota is metered per call regardless of outcome)
+ * and returns ONE unit — every normalized game across every week that
+ * answered, plus the weeks that did not (`failedWeeks: [{ week, message }]`).
+ * A week whose call throws, or whose response body is not an array, is
+ * caught, logged and added to `failedWeeks`; every other week still
+ * contributes its games. Throws (tagged `fetch_failed`) only when EVERY week
+ * failed — there is then nothing to write, and the caller sees that as a
+ * failed run instead of a silent zero.
+ */
+async function fetchScheduleUnits({ season, api }) {
+  const games = [];
+  const failedWeeks = [];
   for (let week = 1; week <= 18; week++) {
     try {
-      const response = await tank01Get('/getNFLGamesForWeek', {
+      const response = await api('/getNFLGamesForWeek', {
         params: { week, seasonType: 'reg', season },
       });
-      const games = tank01Body(response.data) || [];
-      if (!Array.isArray(games)) continue;
-      for (const entry of games) {
+      const weekGames = tank01Body(response.data) || [];
+      if (!Array.isArray(weekGames)) {
+        throw new Error('unexpected getNFLGamesForWeek response shape');
+      }
+      for (const entry of weekGames) {
         const game = normalizeTank01Game(entry);
         if (!game) continue;
-        const gameKey = buildGameKey({ season, week, away: game.away, home: game.home });
-        for (const [team, opponent, side] of [
-          [game.home, game.away, 'home'],
-          [game.away, game.home, 'away'],
-        ]) {
-          // game_key/home_away are additive: Tank01 carries no venue, roof,
-          // surface or rest data, so those columns are left exactly as they
-          // are (an nflverse schedule pass fills them in).
-          await pool.query(
-            `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at", "game_key", "home_away")
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT ("season", "week", "nfl_team")
-             DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at",
-                           "game_key" = EXCLUDED."game_key", "home_away" = EXCLUDED."home_away"`,
-            [season, week, team, opponent, game.kickoffAt, gameKey, side]
-          );
-          upserted += 1;
-        }
+        games.push({ week, ...game });
       }
     } catch (err) {
       console.error('schedule sync failed for week %s:', week, err.message);
+      failedWeeks.push({ week, message: err.message });
     }
   }
-  return { season, gamesUpserted: upserted };
+  if (failedWeeks.length === 18) {
+    const allFailed = new Error('schedule sync: every week failed to fetch');
+    allFailed.syncFailureReason = 'fetch_failed';
+    throw allFailed;
+  }
+  return [{ season, games, failedWeeks }];
+}
+
+/**
+ * apply(client, unit) for the schedule job: runs inside runSyncJob's
+ * withTransaction, after the module has already taken
+ * NFL_GAMES_BULK_WRITE_LOCK on this client. Same per-team upsert the old
+ * per-week loop ran, unchanged — game_key/home_away are additive, and Tank01
+ * carries no venue, roof, surface or rest data, so those columns are left
+ * exactly as they are (an nflverse schedule pass fills them in) — just run on
+ * the transaction client instead of the bare pool, and once per fetched game
+ * rather than interleaved with the fetch.
+ *
+ * This return value is what runSyncJob records as the run's data_sync_runs
+ * detail (so `failedWeeks` is visible there) AND what it resolves to —
+ * syncSchedule strips `failedWeeks` back off before returning to ITS caller,
+ * so the two stay deliberately different.
+ */
+async function applyScheduleUnit(client, { season, games, failedWeeks }) {
+  let upserted = 0;
+  for (const { week, home, away, kickoffAt } of games) {
+    const gameKey = buildGameKey({ season, week, away, home });
+    for (const [team, opponent, side] of [
+      [home, away, 'home'],
+      [away, home, 'away'],
+    ]) {
+      await client.query(
+        `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at", "game_key", "home_away")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT ("season", "week", "nfl_team")
+         DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at",
+                       "game_key" = EXCLUDED."game_key", "home_away" = EXCLUDED."home_away"`,
+        [season, week, team, opponent, kickoffAt, gameKey, side]
+      );
+      upserted += 1;
+    }
+  }
+  return { season, gamesUpserted: upserted, failedWeeks };
 }
 
 // Fantasy-relevant positions — Tank01's full player list includes every

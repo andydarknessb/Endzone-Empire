@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const axios = require('axios');
+const { createFakePool, insert } = require('./helpers/fakePool');
 const {
   parseCsv,
   filterRowsForWeek,
@@ -740,25 +741,42 @@ test('syncScheduleFromNflverse never overwrites a Tank01 kickoff, but does fill 
     '2026_18_SF_ARI,2026,REG,18,2027-01-10,Sunday,13:00,SF,,ARI,,closed,grass,State Farm Stadium',
   ].join('\n');
   t.mock.method(axios, 'get', async () => ({ data: csv }));
-  const calls = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    calls.push({ sql: String(sql), params });
-    // Simulate the ARI perspective already existing from a Tank01 sync.
-    const inserted = params[2] !== 'ARI';
-    return { rowCount: 1, rows: [{ inserted }] };
-  });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('nfl_games'), (text, params) => ({
+      // Simulate the ARI perspective already existing from a Tank01 sync.
+      rows: [{ inserted: params[2] !== 'ARI' }],
+    }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
 
   const out = await syncScheduleFromNflverse({ season: 2026 });
 
-  assert.equal(calls.length, 2);
-  assert.match(calls[0].sql, /INSERT INTO "nfl_games"/);
+  const writes = fake.matching(insert('nfl_games'));
+  assert.equal(writes.length, 2);
+  assert.match(writes[0].text, /INSERT INTO "nfl_games"/);
   // The conflict branch touches ONLY the additive context columns.
-  assert.match(calls[0].sql, /ON CONFLICT \("season", "week", "nfl_team"\)\s*\n?\s*DO UPDATE SET/);
-  assert.equal(/DO UPDATE SET[\s\S]*"kickoff_at"/.test(calls[0].sql), false);
-  assert.equal(/DO UPDATE SET[\s\S]*"opponent" =/.test(calls[0].sql), false);
-  assert.deepEqual(calls[0].params.slice(0, 4), [2026, 18, 'ARI', 'SF']);
-  assert.equal(calls[0].params[5], '2026_18_SF_ARI');
-  assert.equal(calls[0].params[9], 'closed');
-  assert.deepEqual(calls[1].params.slice(0, 4), [2026, 18, 'SF', 'ARI']);
+  assert.match(writes[0].text, /ON CONFLICT \("season", "week", "nfl_team"\) DO UPDATE SET/);
+  assert.equal(/DO UPDATE SET[\s\S]*"kickoff_at"/.test(writes[0].text), false);
+  assert.equal(/DO UPDATE SET[\s\S]*"opponent" =/.test(writes[0].text), false);
+  assert.deepEqual(writes[0].params.slice(0, 4), [2026, 18, 'ARI', 'SF']);
+  assert.equal(writes[0].params[5], '2026_18_SF_ARI');
+  assert.equal(writes[0].params[9], 'closed');
+  assert.deepEqual(writes[1].params.slice(0, 4), [2026, 18, 'SF', 'ARI']);
   assert.deepEqual(out, { season: 2026, gamesInFile: 1, rowsInserted: 1, contextUpdated: 1 });
+
+  // #1203: the writes run inside one transaction, under NFL_GAMES_BULK_WRITE_LOCK
+  // (23005) taken as the FIRST statement after BEGIN, before either upsert -
+  // the same lock syncSchedule (Tank01) takes, so the two sources serialize.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "nfl_games"/.test(c.text));
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  assert.ok(lockIdx >= 0, 'the advisory lock is acquired');
+  assert.equal(fake.calls[lockIdx].via, 'client', 'the lock sits inside the transaction client');
+  assert.deepEqual(fake.calls[lockIdx].params, [23005], 'the lock id is 23005 (nfl-games-bulk-write)');
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first upsert');
+  assert.ok(commitIdx > firstWriteIdx, 'the writes commit inside the same transaction');
+  fake.assertClean();
 });
