@@ -68,6 +68,16 @@ if (!ENABLED) {
   const LOCK_SEASON_TANK01 = 900202;
   const LOCK_SEASON_NFLVERSE = 900203;
 
+  // Unlike the other *.pg.test.js files, this one's data_sync_runs cleanup
+  // cannot filter by a test-only job literal (syncRun.pg.test.js's pattern):
+  // syncSchedule/syncScheduleFromNflverse always record the real 'schedule'/
+  // 'schedule-nflverse' job names, and a failed run's detail carries no
+  // season to filter on either. Bounding by started_at instead keeps the
+  // final cleanup exact to what THIS file's own runs wrote, rather than also
+  // deleting any pre-existing 'schedule'/'schedule-nflverse' history a
+  // developer's disposable database already had.
+  const fileStartedAt = new Date();
+
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function waitUntil(predicate, timeoutMs = 8000) {
@@ -117,10 +127,14 @@ if (!ENABLED) {
       await clearSeason(ROLLBACK_SEASON);
       await clearSeason(LOCK_SEASON_TANK01);
       await clearSeason(LOCK_SEASON_NFLVERSE);
-      // Every data_sync_runs row this file's two jobs wrote, regardless of
-      // which disposable season it named - no other pg test file uses these
-      // job literals, so this is exact to this file's own writes.
-      await pool.query(`DELETE FROM "data_sync_runs" WHERE "job" IN ('schedule', 'schedule-nflverse')`);
+      // Every data_sync_runs row this file's two jobs wrote since it started -
+      // bounded by started_at (not season, which a failed run's detail may
+      // omit) so a developer's disposable database keeps any 'schedule'/
+      // 'schedule-nflverse' history that predates this run.
+      await pool.query(
+        `DELETE FROM "data_sync_runs" WHERE "job" IN ('schedule', 'schedule-nflverse') AND "started_at" >= $1`,
+        [fileStartedAt]
+      );
     } finally {
       await pool.end();
     }
@@ -180,7 +194,11 @@ if (!ENABLED) {
     // A big enough single week that the write transaction (hundreds of
     // sequential upserts on the SAME lock-holding connection) stays open long
     // enough to observe mid-flight; every other week is empty and fast, so
-    // the fetch phase itself (outside the lock) stays quick.
+    // the fetch phase itself (outside the lock) stays quick. Keep this well
+    // under pool.js's statement_timeout (15s web / 30s worker): run B's own
+    // lock-wait is a statement on that same timeout, so a GAME_COUNT large
+    // enough to push run A's transaction past it would fail run B with
+    // SQLSTATE 57014 instead of proving anything about the lock.
     const GAME_COUNT = 400;
     const bigWeek = Array.from({ length: GAME_COUNT }, (_, i) => ({
       home: `H${i}`, away: `A${i}`, gameTime_epoch: String(1700000000 + i),

@@ -17,11 +17,15 @@ const sentry = require('./sentry');
  *         deadlock (#904). Each sync issues a blocking pg_advisory_xact_lock(23004)
  *         as the first statement after its own BEGIN.
  *   23005 nfl-games-bulk-write - serializes the two whole-nfl_games-table
- *         writers, syncSchedule (Tank01, services/scoring.service.js, job
+ *         SYNC writers, syncSchedule (Tank01, services/scoring.service.js, job
  *         'schedule') and syncScheduleFromNflverse
  *         (services/nflverseSync.service.js, job 'schedule-nflverse'), so a
  *         Tank01 run and an nflverse run started together cannot interleave
- *         their per-row upserts of the same season's games (#1203). Taken as
+ *         their per-row upserts of the same season's games (#1203). (Not the
+ *         one-off scripts/repair-schedule-orientation.js repair tool: it only
+ *         ever null-only UPDATEs game_key/home_away/neutral_site, guarded by
+ *         IS NULL, never nfl_team/opponent/kickoff_at and never an INSERT, so
+ *         it does not compete with either sync writer.) Taken as
  *         `lock` by server/modules/syncRun.js's `runSyncJob`, which issues the
  *         blocking pg_advisory_xact_lock(23005) as the first statement inside
  *         each unit's own transaction - a concurrent run WAITS for the lock
