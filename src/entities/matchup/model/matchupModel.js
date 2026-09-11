@@ -1,4 +1,5 @@
 import { applyTeamProfileUpdate } from '../../../lib/teamProfileEvents';
+import { pairStartersBySlot } from '../../roster';
 
 /**
  * The Matchup read model, pure (ADR 0029: the entities layer's first slice; ADR
@@ -206,58 +207,10 @@ export function matchupStatusView(status) {
 
 /**
  * Pairs the two starter arrays into one row per slot INSTANCE, matched by slot
- * key and never by array index. The arrays differ in length whenever one manager
- * has left a slot empty (or set no lineup at all), and lineup_entries can hold
- * any commissioner-defined slot key ('D LINE', 'IDP FLEX'), so an index zip
- * labels the row with whichever side happens to sit at that index and reads a QB
- * under a WR chip. The nth home starter in a slot pairs with the nth away starter
- * in the same slot; the remainder renders with an empty side.
- *
- * `slotOrder` is the league's roster_slots keys, in commissioner order (IDP slots
- * included). Pairing REFUSES without it: an empty or absent order returns no rows,
- * so a lineup view renders nothing until the league row arrives rather than
- * falling back to a fantasy-standard default order that knows no IDP slots and
- * would silently mis-place defensive starters (ADR 0030's sibling concern - a
- * default is a guess, and the guess this replaces put every IDP starter in the
- * wrong row). A slot the starters carry that the order does not name is appended
- * after the ordered slots, in the order it was first seen, so a stray slot still
- * renders rather than vanishing.
+ * key and never by array index (see `entities/roster/model/lineupModel.js` for
+ * the full docblock). Moved there byte-for-byte in behaviour (#1207, ADR 0029:
+ * pairing is a Roster/Lineup fact, not a Matchup one) and re-exported HERE for
+ * one release so this module's existing internal imports (`useMatchup.js`, this
+ * file's own test) keep working unchanged.
  */
-export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
-  const ordered = (slotOrder || []).filter((k) => k != null).map(String);
-  if (ordered.length === 0) return [];
-
-  const home = homeStarters || [];
-  const away = awayStarters || [];
-  // Key on the slot as a string on both sides, matching the stringified order
-  // above, so a numeric slot key never groups under a value the order can't find.
-  const slotKey = (p) => (p.slot == null ? '' : String(p.slot));
-  const bySlot = (list) => list.reduce((acc, p) => {
-    const key = slotKey(p);
-    if (!acc.has(key)) acc.set(key, []);
-    acc.get(key).push(p);
-    return acc;
-  }, new Map());
-  const homeBySlot = bySlot(home);
-  const awayBySlot = bySlot(away);
-
-  const order = [];
-  const seen = new Set();
-  const add = (key) => {
-    if (seen.has(key)) return;
-    seen.add(key);
-    order.push(key);
-  };
-  ordered.forEach(add);
-  home.forEach((p) => add(slotKey(p)));
-  away.forEach((p) => add(slotKey(p)));
-
-  const rows = [];
-  for (const slot of order) {
-    const h = homeBySlot.get(slot) || [];
-    const a = awayBySlot.get(slot) || [];
-    const count = Math.max(h.length, a.length);
-    for (let i = 0; i < count; i++) rows.push({ slot, home: h[i] || null, away: a[i] || null });
-  }
-  return rows;
-}
+export { pairStartersBySlot };

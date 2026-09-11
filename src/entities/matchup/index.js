@@ -2,8 +2,11 @@
  * Public surface of the Matchup entity (ADR 0029: the FSD island's entities
  * layer, first slice). Widgets, pages and the legacy `src/components` surfaces
  * import a Matchup from HERE and never from an internal path; the entity itself
- * never imports a feature, a widget, a page or another entity. Within the island
- * it depends on `shared` (the score feed, `shared/lib`); it also reaches the
+ * never imports a feature, a widget or a page. One temporary exception to
+ * "never another entity" stands since #1207: `matchupModel.js` re-exports
+ * `pairStartersBySlot` from `entities/roster` for one release (#1198 R1's
+ * move), and #1210 removes the re-export. Within the island it otherwise
+ * depends on `shared` (the score feed, `shared/lib`); it also reaches the
  * legacy tree below the island for two things the brief and precedent settle -
  * the existing generic Team profile helper (`src/lib/teamProfileEvents`, which
  * the issue mandated) and a plain fetch (`src/api/apiClient`, the same module
