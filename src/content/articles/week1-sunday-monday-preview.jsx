@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Tabs, Tab } from '@mui/material';
 import {
-  Lead, P, H2, H3, Quote, UL, LI,
+  Lead, P, H2, Quote, UL, LI,
   Table, THead, TBody, TR, TH, TD,
 } from '../../components/public/kit/Prose';
 
