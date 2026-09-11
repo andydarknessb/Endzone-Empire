@@ -141,30 +141,37 @@ function PodiumCard({ place }) {
 const isPickemStandings = (standings) =>
   standings.length > 0 && standings.every((row) => row.wins === undefined && row.points !== undefined);
 
+// seasonArchive() (server/services/seasonArchive.service.js) decides
+// champions and outcome once, server-side, for both League types: `champions`
+// is always an array of { teamId, name, avatarUrl, avatarStaticUrl } (empty
+// when there is none) and `outcome` is 'champion'/'no_champion' for a fantasy
+// season or the declared 'champions'/'no_champion' for a pick'em one - `null`
+// only for a legacy pick'em season with no declared result. This is a
+// pass-through: the only client-side work left is the standings lookup for
+// each champion's record/points caption and the pick'em-shape detection that
+// `outcome`/`champions` alone cannot make (a legacy season can have neither).
 function seasonPresentation(season) {
   const standings = Array.isArray(season.standings) ? season.standings : [];
-  const hasArchivedPickemResult = Array.isArray(season.champions);
-  const champions = hasArchivedPickemResult
+  const champions = Array.isArray(season.champions)
     ? season.champions.map((champion) => ({
       ...champion,
-      standing: champion,
+      standing: standings.find((team) => team.teamId === champion.teamId),
     }))
-    : season.champion
-      ? [{
-        ...season.champion,
-        teamName: season.champion.name,
-        standing: standings.find((team) => team.teamId === season.champion.teamId),
-      }]
-      : [];
+    : [];
 
   return {
     standings,
     trophies: Array.isArray(season.trophies) ? season.trophies : [],
     draftGrades: Array.isArray(season.draftGrades) ? season.draftGrades : null,
     champions,
-    pickem: hasArchivedPickemResult || isPickemStandings(standings),
+    // Only a fantasy season carries the singular 'champion' outcome, so
+    // 'champions' (declared pick'em) is an exact signal; isPickemStandings
+    // covers a declared no-champion or legacy-undeclared pick'em season
+    // whose standings shape still gives it away when the outcome string
+    // alone ('no_champion') is shared with fantasy.
+    pickem: season.outcome === 'champions' || isPickemStandings(standings),
     coChampions: champions.length > 1,
-    explicitNoChampion: hasArchivedPickemResult && season.outcome === 'no_champion',
+    explicitNoChampion: season.outcome === 'no_champion',
   };
 }
 
@@ -193,7 +200,7 @@ function SeasonPanel({ season, defaultExpanded }) {
                 <Chip
                   key={champion.teamId}
                   color="warning"
-                  label={`${coChampions ? 'Co-Champion' : 'Champion'}: ${champion.teamName}`}
+                  label={`${coChampions ? 'Co-Champion' : 'Champion'}: ${champion.name}`}
                 />
               ))}
             </Box>
@@ -224,7 +231,7 @@ function SeasonPanel({ season, defaultExpanded }) {
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               {champions.map((champion) => {
-                const name = champion.teamName;
+                const name = champion.name;
                 const { standing } = champion;
                 return (
                   <Box key={champion.teamId} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -444,10 +451,27 @@ function LeagueHistory() {
   useEffect(() => subscribeToTeamProfileUpdates((update) => {
     if (Number(update.leagueId) !== Number(leagueId)) return;
     setSeasons((prev) => prev.map((season) => {
-      if (Array.isArray(season.champions)) return season;
+      // A declared Pick'em result is frozen archive text (seasonArchive
+      // reads it from pickem_result, never a live Team join), including its
+      // standings, so a live profile change must never rewrite any of it.
+      // `outcome: 'champions'` (plural) is unique to a declared champions
+      // result. A declared no-champion result also persists 'no_champion'
+      // with an empty `champions` array (pickemSeasonResult.service.js), the
+      // same outcome string a champion-less fantasy season carries - so the
+      // outcome string alone can't tell them apart there, and
+      // isPickemStandings(standings) is what does: a fantasy season's
+      // standings always carry `wins`, a pick'em season's never do. A legacy
+      // pick'em season with no declared result (outcome null) still patches
+      // through, same as before this ticket.
+      if (season.outcome === 'champions'
+        || (season.outcome === 'no_champion' && isPickemStandings(Array.isArray(season.standings) ? season.standings : []))) {
+        return season;
+      }
       return {
         ...season,
-        champion: applyTeamProfileUpdate(season.champion, update),
+        champions: Array.isArray(season.champions)
+          ? season.champions.map((champion) => applyTeamProfileUpdate(champion, update))
+          : season.champions,
         standings: Array.isArray(season.standings)
           ? season.standings.map((team) => applyTeamProfileUpdate(team, update))
           : season.standings,
