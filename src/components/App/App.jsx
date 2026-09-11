@@ -42,7 +42,7 @@ import './App.css';
 
 const LeagueManagement = lazy(() => import('../LeagueManagement/LeagueManagement'));
 const LeagueDiscovery = lazy(() => import('../LeagueDiscovery/LeagueDiscovery'));
-const TeamLineup = lazy(() => import('../LineupScreen/TeamLineup'));
+const LineupPage = lazy(() => import('../../pages/lineup'));
 const PlayerManagement = lazy(() => import('../PlayerManagement/PlayerManagement'));
 const LeagueDashboardPage = lazy(() => import('../../pages/league-dashboard'));
 const MatchupPage = lazy(() => import('../../pages/matchup'));
@@ -192,7 +192,7 @@ function App() {
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/league/join" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
-          <Route path="/team" element={<ProtectedRoute><TeamLineup /></ProtectedRoute>} />
+          <Route path="/team" element={<ProtectedRoute><LineupPage /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboardPage /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><FantasyOnly><MatchupPage /></FantasyOnly></ProtectedRoute>} />

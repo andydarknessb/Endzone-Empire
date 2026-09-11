@@ -40,7 +40,7 @@ const MAIN_LINKS = [
   { label: 'League', to: '/league' },
   { label: 'Discover', to: '/discover' },
   { label: 'Players', to: '/player' },
-  { label: 'Roster', to: '/team' },
+  { label: 'Lineup', to: '/team' },
   { label: 'Mock Draft', to: '/draft-sim' },
 ];
 

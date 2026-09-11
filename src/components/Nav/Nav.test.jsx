@@ -39,7 +39,7 @@ test('shows the full authenticated nav when a user is logged in', async () => {
   expect(screen.getByRole('link', { name: 'League' })).toHaveAttribute('href', '/league');
   expect(screen.getByRole('link', { name: 'Discover' })).toHaveAttribute('href', '/discover');
   expect(screen.getByRole('link', { name: 'Players' })).toHaveAttribute('href', '/player');
-  expect(screen.getByRole('link', { name: 'Roster' })).toHaveAttribute('href', '/team');
+  expect(screen.getByRole('link', { name: 'Lineup' })).toHaveAttribute('href', '/team');
   expect(screen.queryByRole('link', { name: /login \/ register/i })).not.toBeInTheDocument();
 });
 
