@@ -10,6 +10,9 @@ const {
   normalizeTank01DstStats,
   normalizeTeamAbbr,
   missingTeamDefenses,
+  syncTeamDefenses,
+  syncPlayers,
+  syncPlayerSeasonStats,
   normalizeTank01Game,
   detectScoringEvents,
   SCORING_RULES,
@@ -261,6 +264,115 @@ test('missingTeamDefenses excludes teams already present, matched by abbreviatio
 test('missingTeamDefenses ignores unresolvable/empty nfl_team values and null/undefined input', () => {
   assert.equal(missingTeamDefenses([null, '', 'Not A Real Team']).length, 32);
   assert.equal(missingTeamDefenses(undefined).length, 32);
+});
+
+// --- syncTeamDefenses as a Sync run job (#1204, ADR 0036) --------------------
+
+test('syncTeamDefenses upserts every missing team inside one transaction under PLAYERS_BULK_WRITE_LOCK', async (t) => {
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: [{ nfl_team: 'BUF' }] }), 'pool'],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncTeamDefenses();
+
+  assert.deepEqual(result, { teamsInserted: 31, totalDefTeams: 32 }, '32 teams minus the one BUF row already seeded');
+  assert.equal(fake.matching(insert('players')).length, 31);
+
+  // Red-tell: remove the lock and this ordering assertion goes red.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "players"/.test(c.text));
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
+  assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first insert');
+  fake.assertClean();
+});
+
+// Formal review f1 (#1204): only team-defenses had a lock-ordering test above,
+// though the issue names PLAYERS_BULK_WRITE_LOCK for all three players-table
+// jobs and, for players, it is the #904 guard against a row-lock deadlock
+// with syncInjuries/syncAdp. Without these two, `lock: null` in either
+// syncPlayers or syncPlayerSeasonStats leaves every other test green.
+test('syncPlayers upserts every fetched entry inside one transaction under PLAYERS_BULK_WRITE_LOCK', async (t) => {
+  const api = async (path) => {
+    assert.equal(path, '/getNFLPlayerList');
+    return { data: { body: [{ playerID: '1', longName: 'Test Player', pos: 'WR', team: 'BUF' }] } };
+  };
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(result, { season: 2026, playersUpserted: 1, skippedNonFantasy: 0 });
+
+  // Red-tell: remove the lock and this ordering assertion goes red.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "players"/.test(c.text));
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
+  assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first insert');
+  fake.assertClean();
+});
+
+test('syncPlayerSeasonStats upserts every rollup inside one transaction under PLAYERS_BULK_WRITE_LOCK', async (t) => {
+  const fake = createFakePool([
+    [/FROM "player_stats"/, () => ({ rows: [
+      { player_id: 1, season: 2025, stats: { rec: 1 }, fantasy_points: '10.00' },
+    ] }), 'pool'],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('player_season_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayerSeasonStats({ currentSeason: 2026 });
+
+  assert.deepEqual(result, { cutoffSeason: 2026, seasonsUpserted: 1 });
+
+  // Red-tell: remove the lock and this ordering assertion goes red.
+  const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
+  const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
+  const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "player_season_stats"/.test(c.text));
+  assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
+  assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
+  assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first insert');
+  fake.assertClean();
+});
+
+// team-defenses' INSERT sets no column any real constraint protects
+// (external_id stays NULL; name/position/nfl_team carry no UNIQUE or CHECK,
+// per 20260710000001_initial_schema.js), so no real feed data can make its
+// second row fail against actual Postgres the way the other three jobs' pg
+// tests do (server/test/playersFamilySync.pg.test.js) - this fakePool test
+// proves the same rollback wiring instead: a throw mid-unit stops the loop
+// and rolls back rather than being swallowed by a per-team try/catch.
+test('syncTeamDefenses: a later insert that throws rolls back the run (no per-team try/catch survives it any more)', async (t) => {
+  let insertCount = 0;
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: [] }), 'pool'], // all 32 teams missing
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('players'), () => {
+      insertCount += 1;
+      if (insertCount === 2) throw new Error('insert exploded');
+      return { rows: [] };
+    }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  await assert.rejects(syncTeamDefenses(), /insert exploded/);
+
+  assert.equal(insertCount, 2, 'the loop stopped at the throwing insert instead of continuing past it');
+  assert.equal(fake.calls.some((c) => c.text === 'COMMIT'), false, 'no COMMIT: withTransaction rolled back instead');
+  assert.ok(fake.calls.some((c) => c.text === 'ROLLBACK'), 'withTransaction issued the ROLLBACK');
+  const recordedDetail = JSON.parse(fake.matching(insert('data_sync_runs'))[0].params[3]);
+  assert.equal(recordedDetail.reason, 'write_failed');
+  fake.assertClean();
 });
 
 // --- Team-defense (DST) aggregate handling ------------------------------------

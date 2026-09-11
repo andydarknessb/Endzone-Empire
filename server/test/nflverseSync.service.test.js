@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const axios = require('axios');
-const { createFakePool, insert } = require('./helpers/fakePool');
+const { createFakePool, insert, select } = require('./helpers/fakePool');
 const {
   parseCsv,
   filterRowsForWeek,
@@ -17,8 +17,10 @@ const {
   buildFullStatUpdates,
   buildDstStatUpdates,
   isNflverseFinalizationDay,
+  syncNflverseWeek,
 } = require('../services/nflverseSync.service');
 const scoring = require('../services/scoring.service');
+const correction = require('../services/correction.service');
 
 // --- parseCsv ------------------------------------------------------------
 
@@ -656,6 +658,70 @@ test('correctWeekFromNflverse still honors an explicit preserveKeys', async (t) 
     season: 2025, week: 3, rescoreLeagues: false, preserveKeys: [],
   });
   assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
+});
+
+// --- syncNflverseWeek as its own Sync run (#1204, ADR 0036) -----------------
+
+/** Stubs the two feed fetches syncNflverseWeek's fetch() makes: one matched
+ * def-stat row (00-0039924 -> espn 4429795 -> our player 42) with a non-zero
+ * finalization patch. */
+function stubNflverseWeekFeed(t) {
+  t.mock.method(axios, 'get', async (url) => {
+    if (url.includes('stats_player_week')) {
+      return {
+        data: [
+          'season,week,season_type,player_id,def_sack_yards,def_tackles_for_loss_yards,fumble_recovery_yards_opp,def_interception_yards,def_safeties',
+          '2025,3,REG,00-0039924,9,2,15,27,1',
+        ].join('\n'),
+      };
+    }
+    if (url.includes('players.csv')) return { data: 'gsis_id,espn_id\n00-0039924,4429795\n' };
+    return { data: '' };
+  });
+}
+
+function fakeNflverseWeekPool(t, dataSyncRunHandler) {
+  return createFakePool([
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
+    [insert('player_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), dataSyncRunHandler || (() => ({ rows: [] }))],
+    [select('leagues'), () => ({ rows: [{ id: 7 }] })],
+  ]).install(t);
+}
+
+test('syncNflverseWeek: the nflverse-week run row is recorded before the first correctLeagueWeek call', async (t) => {
+  stubNflverseWeekFeed(t);
+  const events = [];
+  const fake = fakeNflverseWeekPool(t, () => {
+    events.push('data_sync_runs');
+    return { rows: [] };
+  });
+  t.mock.method(correction, 'correctLeagueWeek', async () => {
+    events.push('correctLeagueWeek');
+    return { changes: [] };
+  });
+
+  const out = await syncNflverseWeek({ season: 2025, week: 3 });
+
+  assert.deepEqual(events, ['data_sync_runs', 'correctLeagueWeek'],
+    'the run row commits (inside runSyncJob) before the re-score loop, which runs after runSyncJob resolves');
+  assert.equal(out.playersUpdated, 1);
+  assert.equal(out.leaguesRescored, 0);
+  fake.assertClean();
+});
+
+test('syncNflverseWeek: a re-score failure for one league logs and does not fail the run or change playersUpdated', async (t) => {
+  stubNflverseWeekFeed(t);
+  fakeNflverseWeekPool(t);
+  t.mock.method(correction, 'correctLeagueWeek', async () => {
+    throw new Error('re-score exploded');
+  });
+  t.mock.method(console, 'error', () => {});
+
+  const out = await syncNflverseWeek({ season: 2025, week: 3 });
+  assert.equal(out.playersUpdated, 1, 'the write already committed before the re-score loop ran');
+  assert.equal(out.leaguesRescored, 0);
 });
 
 // --- nflverse schedule backfill ----------------------------------------------
