@@ -254,7 +254,8 @@ Derived from the season schedule rather than supplied.
 **Situation**:
 Where an in-progress NFL game stands beyond its clock and score: which team
 has the ball, the down and distance, whether the ball is in the red zone,
-and the last play. Read from the same scoreboard poll as the clock and
+the last play, and the home side's win probability as the scoreboard
+computes it after that play. Read from the same scoreboard poll as the clock and
 carried on the same live game row, so it reaches clients the way the clock
 does.
 _Avoid_: game state (the clock row as a whole), drive, play-by-play (the
