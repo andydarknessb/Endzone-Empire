@@ -31,7 +31,7 @@ const { captureMessage } = require('./sentry');
 const espnBoxSource = require('../services/espnBoxSource');
 const tank01BoxSource = require('../services/tank01BoxSource');
 const { tank01Body } = require('../services/scoring.service');
-const { recordDataSyncRun } = require('../services/dataSyncRuns');
+const { recordDataSyncRun } = require('./syncRun');
 
 const ESPN_SUMMARY_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary';
 const ESPN_BOX_FAILURE_THRESHOLD = 3;
