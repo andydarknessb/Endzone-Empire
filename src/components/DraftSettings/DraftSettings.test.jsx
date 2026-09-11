@@ -26,8 +26,8 @@ const leagueResponse = (overrides = {}) => ({
       ...overrides,
     },
     teams: [
-      { id: 1, teamId: 1, name: "Alice's Team", teamName: "Alice's Team", owner: 'alice', draft_position: 1, faab_remaining: 100, locked: false, draft_ready: true, roster_count: 0, total_points: '0' },
-      { id: 2, teamId: 2, name: "Bob's Team", teamName: "Bob's Team", owner: 'bob', draft_position: 2, faab_remaining: 100, locked: false, draft_ready: false, roster_count: 0, total_points: '0' },
+      { id: 1, teamId: 1, name: "Alice's Team", teamName: "Alice's Team", owner: 'alice', draft_position: 1, faab_remaining: 100, locked: false, draft_ready: true, roster_count: 0 },
+      { id: 2, teamId: 2, name: "Bob's Team", teamName: "Bob's Team", owner: 'bob', draft_position: 2, faab_remaining: 100, locked: false, draft_ready: false, roster_count: 0 },
     ],
   },
 });

@@ -59,8 +59,10 @@ if (!ENABLED) {
   };
   const pool = new pg.Pool({ ...connection, max: 5 });
 
-  // JWT_SECRET must be set before ../modules/auth is required (getSecret()
-  // reads it eagerly at sign time), mirroring leagueDetail.test.js.
+  // JWT_SECRET is set here, mirroring leagueDetail.test.js: getSecret() in
+  // ../modules/auth reads it lazily on every call, so the ordering relative
+  // to the require below doesn't matter, but signToken() below does need it
+  // set before that call happens.
   const previousSecret = process.env.JWT_SECRET;
   process.env.JWT_SECRET = 'league-detail-pg-test-secret';
   test.after(() => {
@@ -71,9 +73,14 @@ if (!ENABLED) {
   // The real route, wired exactly as server.js wires it. It reaches Postgres
   // through server/modules/pool, which - like `pool` above - builds its
   // connection from these same PG* variables once DATABASE_URL* is confirmed
-  // absent, so both point at the one disposable database.
+  // absent, so both point at the one disposable database. Kept as its own
+  // reference (not just required for its side effect) so test.after below can
+  // end it too - the router's connections would otherwise sit open past this
+  // file's own assertions, mirroring rosterDropLockOrder.pg.test.js and
+  // tradeCapacityRace.pg.test.js, which both end their own pool and this one.
   const { signToken } = require('../modules/auth');
   const leagueRouter = require('../routes/league.router');
+  const modulePool = require('../modules/pool');
   const app = express();
   app.use(express.json());
   app.use('/api/league', leagueRouter);
@@ -156,6 +163,7 @@ if (!ENABLED) {
       }
     } finally {
       await pool.end();
+      await modulePool.end();
     }
   });
 
