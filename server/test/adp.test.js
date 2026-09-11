@@ -258,6 +258,34 @@ test('syncAdp match guard: enough usable entries but too few matching a roster r
   assert.equal(runDetail(runs[0]).matched, 0, 'the measured match count is recorded for diagnosis');
 });
 
+// pl-endzone formal review, f1 (blocking): the zero-matched case above cannot
+// tell a `playersMatched` that correctly reads `detail.matched` apart from
+// one hardcoded back to 0 - a body with a few, but not enough, matches pins
+// the difference. Red-tell: reverting adp.service.js's refused-body mapping
+// to `playersMatched: 0,` leaves this at `playersMatched === 0` instead of 3.
+test('syncAdp match guard: a nonzero but still-thin matched count is carried through to playersMatched and detail.matched', async (t) => {
+  stubFfc(t, ffcBody(MARKET_FLOOR + 50));
+  const fake = createFakePool([
+    [select('players'), () => ({
+      rows: [
+        { id: 1, name: 'Player 1', position: 'RB', nfl_team: 'KC' },
+        { id: 2, name: 'Player 2', position: 'RB', nfl_team: 'KC' },
+        { id: 3, name: 'Player 3', position: 'RB', nfl_team: 'KC' },
+        { id: 4, name: 'Nobody Matches', position: 'RB', nfl_team: 'KC' },
+      ],
+    })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  const result = await syncAdp();
+
+  assert.equal(result.reason, 'thin_match');
+  assert.equal(result.playersMatched, 3, 'the measured count, not 0, is carried through');
+  assert.equal(fake.matching(update('players')).length, 0, 'the market must not be wiped');
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runDetail(runs[0]).matched, 3, 'the recorded detail carries the same measured count');
+});
+
 test('syncAdp match guard: exactly MARKET_FLOOR matched players applies normally (boundary)', async (t) => {
   // The other half of the guard: MARKET_FLOOR matched is healthy, not thin.
   // Lowering the roster below MARKET_FLOOR names would trip the guard above
