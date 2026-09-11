@@ -2,7 +2,6 @@
 
 const pool = require('./pool');
 const { withTransaction } = require('./withTransaction');
-const { recordDataSyncRun } = require('../services/dataSyncRuns');
 
 /**
  * A feed sync is a Sync run (CONTEXT.md, ADR 0036). `runSyncJob({ job, lock,
@@ -170,4 +169,55 @@ function toRun(json) {
   };
 }
 
-module.exports = { runSyncJob, lastRun };
+/**
+ * Append one observable row to data_sync_runs for a background sync run
+ * (#961). The ONE writer of the table (ADR 0036, #1197 R5): `runSyncJob`
+ * above calls this directly, and it is exported here for the two callers
+ * that do not go through `runSyncJob` - `services/adp.service.js`'s
+ * `recordAdpRun` (until the ADP job itself migrates onto this module, #1201)
+ * and `modules/liveBox.js` (the Live box source switch, which stays outside
+ * this module: it is a signal that the source changed, ADR 0035, not a run of
+ * a feed sync). `job` is the caller's free-text identifier (the migration's
+ * docblock treats a new job type as a new string, not a migration),
+ * `started_at` is captured by the caller before its upstream fetch, and
+ * `finished_at` is left to the column DEFAULT (now()), the instant of this
+ * write.
+ *
+ * Moved from `services/dataSyncRuns.js` (#1200): that file was the sole
+ * writer before this module existed and could not require `adp.service`
+ * directly to share this helper - `adp.service` already requires
+ * `scoring.service` (a cycle the reverse edge would have closed) - so it kept
+ * its own copy requiring only the pool. That reasoning still holds here:
+ * `services/dataSyncRuns.js` now re-exports this function for one release, so
+ * neither of its two remaining callers needs to change its require path.
+ *
+ * BEST-EFFORT BY CONSTRUCTION. A failure to record must never mask the real
+ * outcome of a run: the sync may have completed correctly, and a thrown
+ * observability write would turn that into a caller-visible error and, for
+ * the scheduler, stop it day-stamping (re-running the full sync every tick).
+ * That is the whole and durable reason to swallow here (rather than at each
+ * call site): it keeps every caller uniformly best-effort with no chance of
+ * the asymmetry creeping back.
+ *
+ * It writes on the POOL, never a caller's transaction client, so a failure
+ * row survives the ROLLBACK of the run it describes: a record written on a
+ * rolled-back client would be lost with it, and the whole point of the row is
+ * that a failed run stops being invisible.
+ */
+async function recordDataSyncRun({ job, startedAt, ok, detail }) {
+  try {
+    await pool.query(
+      `INSERT INTO "data_sync_runs" ("job", "started_at", "ok", "detail")
+       VALUES ($1, $2, $3, $4::jsonb)`,
+      [job, startedAt, ok, detail ? JSON.stringify(detail) : null]
+    );
+  } catch (err) {
+    // Constant format string with job as a %s argument, not an interpolated
+    // template: interpolating a caller-supplied value trips semgrep's
+    // unsafe-formatstring rule, and this shared file would otherwise re-fire
+    // it on every future scan.
+    console.error('data_sync_runs record failed for %s (run outcome unaffected):', job, err.message);
+  }
+}
+
+module.exports = { runSyncJob, lastRun, recordDataSyncRun };

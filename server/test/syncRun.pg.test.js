@@ -108,7 +108,7 @@ if (!ENABLED) {
     }
   });
 
-  // Red-tell 1: remove the `if (lock) await client.query('SELECT
+  // Red-tell 1: remove the `if (lock != null) await client.query('SELECT
   // pg_advisory_xact_lock($1)', [lock])` line from runSyncJob and this goes
   // red - B's apply starts immediately instead of waiting for A to commit.
   test('two runs sharing a lock serialize: the second\'s apply does not start until the first commits', async () => {
