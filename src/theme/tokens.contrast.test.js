@@ -225,11 +225,17 @@ const PAIRINGS = [
     'surface'
   ),
   // The remaining #354 sweep candidates need no PAIRINGS row:
-  //   - LeagueHistory's champion banner (LeagueHistory.jsx) and SimPickFeed's
-  //     active-team row (SimPickFeed.jsx) both paint `accent-soft` inside a
-  //     MUI Paper/Accordion, whose background is `background.paper` ==
-  //     `surface` (AppThemeProvider.jsx). Same backdrop as the two rows at the
-  //     top of this block, so nothing new to measure.
+  //   - SimPickFeed's active-team row (SimPickFeed.jsx) paints `accent-soft`
+  //     inside a MUI Paper/Accordion, whose background is `background.paper`
+  //     == `surface` (AppThemeProvider.jsx). Same backdrop as the two rows at
+  //     the top of this block, so nothing new to measure.
+  //   - LeagueHistory's champion banner moved off this MUI pairing at #1213:
+  //     it now lives at `src/pages/league-history/LeagueHistoryPage.jsx`, on
+  //     the dash-* kit, and paints `dash-ink` on `dash-accent-soft` inside a
+  //     `shared/ui` Card (`dash-surface`). That pairing is already a
+  //     registered row below ("the me-row team name on the accent tint over
+  //     a card"), so this move needed no new measurement either - it is kept
+  //     checked under its new home, not newly covered by it.
   //   - LandingPage.css's own `accent-soft` consumer, the `landing-cta-pulse`
   //     keyframe, animates a `box-shadow` ring around a button; no text sits
   //     on it.

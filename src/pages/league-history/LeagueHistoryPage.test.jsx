@@ -1,8 +1,9 @@
 import React from 'react';
-import { act, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import LeagueHistory from './LeagueHistory';
+import LeagueHistoryPage from './LeagueHistoryPage';
+import { teamStandingFromRow } from '../../entities/standings';
 import { publishTeamProfileUpdate } from '../../lib/teamProfileEvents';
 
 jest.mock('../../api/apiClient', () => ({
@@ -10,20 +11,39 @@ jest.mock('../../api/apiClient', () => ({
   default: { get: jest.fn() },
 }));
 
+// Wraps the REAL implementation so every test's Record output is the genuine
+// standings-entity rule unless a test explicitly overrides it once (the
+// binding red-tell below) - the body's 3-1-2 / 3-1 cases stay unmocked.
+// react-scripts' Jest preset sets `resetMocks: true`, which strips a mock
+// function's implementation before every test - including one supplied to
+// `jest.fn(impl)` at module-mock-factory time - so the real implementation is
+// reinstated in `beforeEach` (which runs AFTER that reset) rather than once,
+// up front, in the factory.
+jest.mock('../../entities/standings', () => {
+  const actual = jest.requireActual('../../entities/standings');
+  return { __esModule: true, ...actual, teamStandingFromRow: jest.fn() };
+});
+
+beforeEach(() => {
+  const actual = jest.requireActual('../../entities/standings');
+  teamStandingFromRow.mockImplementation(actual.teamStandingFromRow);
+});
+
 afterEach(() => {
   jest.clearAllMocks();
 });
 
 const renderHistory = (leagueId = 1) =>
-  renderWithProviders(<LeagueHistory />, {
+  renderWithProviders(<LeagueHistoryPage />, {
     path: '/league/:leagueId/history',
     route: `/league/${leagueId}/history`,
   });
 
+const openAllTimeTab = () => fireEvent.click(screen.getByRole('radio', { name: 'All-Time' }));
+
 // jsdom lays nothing out, but emotion inserts every sx rule into
 // `document.styleSheets` under the element's generated class, so a declared
-// size can be read back. Same helper as GameCenterPage.test.jsx, keyed by the
-// selector's tail ('' for the element's own rule).
+// size can be read back. Same helper the legacy LeagueHistory.test.jsx used.
 const rulesUnder = (el) => {
   const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
   const found = {};
@@ -37,13 +57,11 @@ const rulesUnder = (el) => {
   return found;
 };
 
-// seasonArchive() (server/services/seasonArchive.service.js, #1211) decides
+// seasonArchive() (server/services/seasonArchive.service.js) decides
 // champions and outcome server-side for both League types: `champions` is
 // always an array of canonical { teamId, name, avatarUrl, avatarStaticUrl }
 // entries (empty when there is none), and a fantasy season's outcome is the
-// explicit 'champion' | 'no_champion' this fixture exercises. The deprecated
-// singular `champion` field is still on the wire (server/routes/league.router.js)
-// but this screen is a pass-through now and never reads it.
+// explicit 'champion' | 'no_champion' this fixture exercises.
 const historyResponse = () => ({
   data: {
     seasons: [
@@ -72,7 +90,19 @@ const historyResponse = () => ({
         draftGrades: null,
       },
     ],
+    allTime: [],
   },
+});
+
+test('announces the loading region to assistive tech while the history read is in flight', async () => {
+  let resolveGet;
+  apiClient.get.mockReturnValue(new Promise((resolve) => { resolveGet = resolve; }));
+
+  renderHistory();
+
+  expect(screen.getByTestId('page-skeleton')).toHaveAttribute('aria-busy', 'true');
+  resolveGet(historyResponse());
+  await screen.findByText('Season 2026');
 });
 
 test('renders past seasons with champion, standings, trophies, and draft grades', async () => {
@@ -83,32 +113,25 @@ test('renders past seasons with champion, standings, trophies, and draft grades'
   expect(await screen.findByText('Season 2026')).toBeInTheDocument();
   expect(screen.getByTestId('champion-2026')).toHaveTextContent('Sunday Ballers');
   expect(screen.getByText('Season 2025')).toBeInTheDocument();
-  // The intended visible change (#1211, #1199 user story 1): a fantasy
-  // season's no-champion outcome is now decided server-side, so it renders
-  // the explicit "No champion" state that only Pick'em used to show, not the
-  // generic "No champion recorded" fallback for an unknown outcome.
   expect(screen.getByText('No champion')).toBeInTheDocument();
   expect(screen.getAllByText('Sunday Ballers').length).toBeGreaterThan(0);
   expect(screen.getByText("Bob's Team")).toBeInTheDocument();
 });
 
-test('caps the season section titles at h6 under the h6 season summary', async () => {
+test("caps the season's section headings at h3 under the season's own h2", async () => {
   apiClient.get.mockResolvedValue(historyResponse());
 
   renderHistory();
 
   const panel = await screen.findByTestId('season-panel-2026');
-  // Each section sits under the season's h6 accordion summary ("Season 2026"),
-  // so it caps at h6 rather than inverting to the h5 #721 chose.
-  expect(within(panel).getByRole('heading', { level: 6, name: 'Final Standings' })).toBeInTheDocument();
-  expect(within(panel).getByRole('heading', { level: 6, name: 'Trophies' })).toBeInTheDocument();
-  expect(within(panel).getByRole('heading', { level: 6, name: 'Draft Grades' })).toBeInTheDocument();
-  // No inverted h5 heading remains inside the season panel.
-  expect(within(panel).queryAllByRole('heading', { level: 5 })).toHaveLength(0);
+  expect(within(panel).getByRole('heading', { level: 2, name: 'Season 2026' })).toBeInTheDocument();
+  expect(within(panel).getByRole('heading', { level: 3, name: 'Final Standings' })).toBeInTheDocument();
+  expect(within(panel).getByRole('heading', { level: 3, name: 'Trophies' })).toBeInTheDocument();
+  expect(within(panel).getByRole('heading', { level: 3, name: 'Draft Grades' })).toBeInTheDocument();
+  // No sub-section heading escapes to the season's own level.
+  expect(within(panel).getAllByRole('heading', { level: 2 })).toHaveLength(1);
 });
 
-// The trophy glyphs are exported by TrophyCase and painted on this route too,
-// so a change on that side has to stay visible from here.
 test('paints the trophy glyphs from the shared trophy icon, not emoji', async () => {
   apiClient.get.mockResolvedValue(historyResponse());
 
@@ -153,34 +176,44 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
           draftGrades: null,
         },
       ],
+      allTime: [],
     },
   });
 
   renderHistory();
 
   const panel = await screen.findByTestId('season-panel-2026');
-  // The medals are inline stroke glyphs, not emoji (no emoji in product UI),
-  // and stay decorative: each is aria-hidden, so the rank number beside it is
-  // the only thing in the accessibility tree.
   // eslint-disable-next-line testing-library/no-node-access -- the medals are aria-hidden by design, so no Testing Library query can reach them
   const medals = panel.querySelectorAll('svg[data-medal]');
   expect(Array.from(medals).map((el) => el.getAttribute('data-medal'))).toEqual(['1', '2', '3']);
   medals.forEach((el) => expect(el).toHaveAttribute('aria-hidden', 'true'));
-  // And they are actually 16px. Box takes width/height as system props, so a
-  // string value is emitted unitless, dropped, and never reaches the element as
-  // an attribute either: the glyph then draws at its own scale. That shipped
-  // once, at roughly 90px, which pushed the rank number onto a second line and
-  // made each podium row about 175px tall. Presence and aria-hidden both stayed
-  // green through it, so the size is asserted here rather than eyeballed.
   medals.forEach((el) => {
     const rule = rulesUnder(el)[''] || '';
     expect(rule).toMatch(/width:\s*16px/);
     expect(rule).toMatch(/height:\s*16px/);
   });
   expect(panel.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
-  // Rank numbers remain present for screen readers alongside the decorative medals.
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('4')).toBeInTheDocument();
+});
+
+test('the Team cell is the row header in Final Standings, Draft Grades, and All-Time, so a cell reads with its Team', async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [historyResponse().data.seasons[0]],
+      allTime: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, championships: 1, wins: 12, losses: 2, ties: 0 }],
+    },
+  });
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const standingsTable = within(panel).getByRole('table', { name: 'Final Standings' });
+  expect(within(standingsTable).getByRole('rowheader', { name: 'Sunday Ballers' })).toBeInTheDocument();
+
+  openAllTimeTab();
+  const allTimeTable = await screen.findByRole('table', { name: 'All-Time Records' });
+  expect(within(allTimeTable).getByRole('rowheader', { name: 'Sunday Ballers' })).toBeInTheDocument();
 });
 
 test('renders an inline note when trophies failed to load for a season', async () => {
@@ -196,6 +229,7 @@ test('renders an inline note when trophies failed to load for a season', async (
           draftGrades: null,
         },
       ],
+      allTime: [],
     },
   });
 
@@ -217,6 +251,7 @@ test('renders an inline note when draft grades failed to load for a season', asy
           draftGradesErrored: true,
         },
       ],
+      allTime: [],
     },
   });
 
@@ -226,36 +261,14 @@ test('renders an inline note when draft grades failed to load for a season', asy
 });
 
 test('shows a thematic empty state when there are no completed seasons', async () => {
-  apiClient.get.mockResolvedValue({ data: { seasons: [] } });
+  apiClient.get.mockResolvedValue({ data: { seasons: [], allTime: [] } });
 
   renderHistory();
 
   const empty = await screen.findByTestId('history-empty');
   expect(empty).toHaveTextContent('The Hall of Fame is empty.');
   expect(empty).toHaveTextContent('Complete your first season to cement your legacy.');
-  // The Hall of Fame preview scaffold only makes sense once real seasons exist.
-  expect(screen.queryByTestId('history-year-tabs')).not.toBeInTheDocument();
-});
-
-test('renders the Hall of Fame preview (year tabs, podium, mock standings) when seasons exist', async () => {
-  apiClient.get.mockResolvedValue(historyResponse());
-
-  renderHistory();
-
-  await screen.findByText('Season 2026');
-
-  const tabs = screen.getByTestId('history-year-tabs');
-  expect(within(tabs).getByText('2025')).toBeInTheDocument();
-  expect(within(tabs).getByText('2024')).toBeInTheDocument();
-  expect(within(tabs).getByText('All-Time Records')).toBeInTheDocument();
-
-  expect(screen.getByTestId('podium-card-1')).toBeInTheDocument();
-  expect(screen.getByTestId('podium-card-2')).toBeInTheDocument();
-  expect(screen.getByTestId('podium-card-3')).toBeInTheDocument();
-
-  const mockTable = screen.getByTestId('history-mock-standings');
-  expect(within(mockTable).getByText('Record')).toBeInTheDocument();
-  expect(within(mockTable).getByText('Total Points')).toBeInTheDocument();
+  expect(screen.queryByTestId('league-history-tabs')).not.toBeInTheDocument();
 });
 
 test('shows an error alert when the history fetch fails', async () => {
@@ -274,8 +287,6 @@ test("a pick'em season's standings render points and correct picks instead of a 
           season: 2026,
           outcome: 'champions',
           champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
-          // The shape rolloverSeason archives for a pick'em-only league:
-          // Team identity + scoring totals only, no account identity (#342).
           standings: [
             { teamId: 1, name: 'Sunday Ballers', rank: 1, points: 171, correct: 120, incorrect: 5, pushes: 2, pending: 0, made: 125, weekly: {} },
             { teamId: 2, name: "Bob's Team", rank: 2, points: 160, correct: 115, incorrect: 8, pushes: 2, pending: 0, made: 123, weekly: {} },
@@ -286,6 +297,7 @@ test("a pick'em season's standings render points and correct picks instead of a 
           draftGrades: null,
         },
       ],
+      allTime: [],
     },
   });
 
@@ -313,9 +325,6 @@ test("a stripped pick'em standings renders by Team name, and a gone-Team row as 
         season: 2026,
         outcome: 'champions',
         champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
-        // Post-#342 archive: Team identity + scoring totals only. A manager
-        // whose Team is gone at rollover archives with teamId/name null and
-        // must render as the shared "Former manager" label, never blank.
         standings: [
           { teamId: 1, name: 'Sunday Ballers', rank: 1, points: 171, correct: 120, incorrect: 5, pushes: 2, pending: 0, made: 125, weekly: {} },
           { teamId: null, name: null, rank: 2, points: 160, correct: 115, incorrect: 8, pushes: 2, pending: 0, made: 123, weekly: {} },
@@ -323,6 +332,7 @@ test("a stripped pick'em standings renders by Team name, and a gone-Team row as 
         trophies: [],
         draftGrades: null,
       }],
+      allTime: [],
     },
   });
 
@@ -331,11 +341,9 @@ test("a stripped pick'em standings renders by Team name, and a gone-Team row as 
   const panel = await screen.findByTestId('season-panel-2026');
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('Sunday Ballers')).toBeInTheDocument();
-  // The gone-Team row shows the shared label, not a blank or a stale account id.
   expect(within(table).getByText('Former manager')).toBeInTheDocument();
   expect(within(table).getByText('171')).toBeInTheDocument();
   expect(within(table).getByText('160')).toBeInTheDocument();
-  // Nothing blank, null, or undefined leaks into the rendered standings.
   expect(table).not.toHaveTextContent('undefined');
   expect(table).not.toHaveTextContent('null');
 });
@@ -350,9 +358,6 @@ test("a Pick'em history panel displays every archived co-champion instead of the
           { teamId: 10, name: 'Archived Aces', avatarUrl: null, avatarStaticUrl: null },
           { teamId: 99, name: 'Departed Champs', avatarUrl: null, avatarStaticUrl: null },
         ],
-        // The deprecated singular compatibility field, deliberately
-        // mismatched: this screen is a pass-through now and must render every
-        // archived co-champion from `champions`, never fall back to this.
         champion: { teamId: 777, name: 'Deprecated Wrong Winner' },
         standings: [
           { teamId: 11, name: 'Drifted Leader', rank: 1, points: 180, correct: 121, pushes: 0 },
@@ -361,6 +366,7 @@ test("a Pick'em history panel displays every archived co-champion instead of the
         trophies: [],
         draftGrades: null,
       }],
+      allTime: [],
     },
   });
 
@@ -391,6 +397,7 @@ test("a declared Pick'em no-champion season is explicit rather than reported as 
         trophies: [],
         draftGrades: null,
       }],
+      allTime: [],
     },
   });
 
@@ -402,13 +409,6 @@ test("a declared Pick'em no-champion season is explicit rather than reported as 
   expect(within(panel).queryByTestId('champion-banner-2026')).not.toBeInTheDocument();
 });
 
-// A declared Pick'em result is frozen archive text at every outcome, not only
-// a declared champions one: 'no_champion' persists with an empty `champions`
-// array (pickemSeasonResult.service.js), the same outcome string a
-// champion-less fantasy season carries. The subscriber tells them apart by
-// standings shape (isPickemStandings), not the outcome string alone, so a
-// live profile event must still never rewrite a pick'em season's archived
-// standings while a fantasy season's DOES keep patching through.
 test("a live profile update never rewrites a declared Pick'em no-champion season's standings, but still patches a fantasy season's", async () => {
   apiClient.get.mockResolvedValue({
     data: {
@@ -434,6 +434,7 @@ test("a live profile update never rewrites a declared Pick'em no-champion season
           draftGrades: null,
         },
       ],
+      allTime: [],
     },
   });
 
@@ -447,18 +448,12 @@ test("a live profile update never rewrites a declared Pick'em no-champion season
   act(() => publishTeamProfileUpdate({ leagueId: 1, teamId: 10, name: 'Anonymized Pickem Team' }));
   act(() => publishTeamProfileUpdate({ leagueId: 1, teamId: 20, name: 'Anonymized Fantasy Team' }));
 
-  // Pick'em: frozen archive text, unchanged.
   expect(within(pickemPanel).getByText('Archived Aces')).toBeInTheDocument();
   expect(within(pickemPanel).queryByText('Anonymized Pickem Team')).not.toBeInTheDocument();
-  // Fantasy: still a live-sourced name, patches through.
   expect(within(fantasyPanel).getByText('Anonymized Fantasy Team')).toBeInTheDocument();
   expect(within(fantasyPanel).queryByText('Fantasy Runner')).not.toBeInTheDocument();
 });
 
-// A declared Pick'em champions season is identifiable from `outcome` alone
-// (it's the one League type that ever carries it), independent of whatever
-// shape its archived standings happen to be - including empty, which
-// isPickemStandings alone can't distinguish from a fantasy season.
 test("a declared Pick'em champions season with no archived standings still renders the Points/Correct headers", async () => {
   apiClient.get.mockResolvedValue({
     data: {
@@ -470,6 +465,7 @@ test("a declared Pick'em champions season with no archived standings still rende
         trophies: [],
         draftGrades: null,
       }],
+      allTime: [],
     },
   });
 
@@ -482,14 +478,11 @@ test("a declared Pick'em champions season with no archived standings still rende
   expect(within(table).queryByText('Record')).not.toBeInTheDocument();
 });
 
-// Issue #1009. Both League History record sites printed an unconditional
-// `wins-losses` under a header that read W-L-T, so an 8-4-2 season displayed as
-// 8-4 and the surface promised a tie column it never filled. The payload
-// already carried `ties` (the season standings service returns it), so this
-// asserts the rendered value, both sites at once, in both directions - a tied
-// Team and a tie-less one - which is the pair that pins the rule rather than
-// just the tie case (a formatter that always printed three parts would satisfy
-// the tie case alone and regress every tie-less season to 12-2-0).
+// Issue #1009 (ported from LeagueHistory.test.jsx): pins the Record rule in
+// both directions - a tied Team and a tie-less one - rather than just the
+// tie case, which a formatter that always printed three parts would satisfy
+// while regressing every tie-less season to 12-2-0. Real teamStandingFromRow,
+// unmocked (the red-tell binding test below is the only mocked case).
 const seasonWithTies = (ties) => ({
   data: {
     seasons: [
@@ -504,6 +497,7 @@ const seasonWithTies = (ties) => ({
         draftGrades: null,
       },
     ],
+    allTime: [],
   },
 });
 
@@ -516,7 +510,6 @@ test('a Team that has tied shows the three-part record in the champion line and 
   expect(within(panel).getByTestId('champion-banner-2026')).toHaveTextContent('8-4-2 record');
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('8-4-2')).toBeInTheDocument();
-  // The header no longer names a fixed number of parts.
   expect(within(table).getByText('Record')).toBeInTheDocument();
 });
 
@@ -532,4 +525,107 @@ test('a tie-less Team shows the two-part record in the champion line and the sta
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('8-4')).toBeInTheDocument();
   expect(within(table).queryByText('8-4-0')).not.toBeInTheDocument();
+});
+
+// --- All-Time tab (#1212 / this ticket) ---
+
+test("binds the All-Time Record to the standings entity's teamStandingFromRow, not a local formatter", async () => {
+  teamStandingFromRow.mockReturnValueOnce({ record: 'REC-SENTINEL' });
+  apiClient.get.mockResolvedValue({
+    data: {
+      // A pick'em-shaped season, so nothing here calls teamStandingFromRow
+      // before the All-Time tab does - the mocked-once return is spent on
+      // exactly the call this test is pinning.
+      seasons: [{ season: 2026, outcome: 'no_champion', champions: [], standings: [{ teamId: 1, points: 10 }], trophies: [], draftGrades: null }],
+      allTime: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, championships: 1, wins: 12, losses: 2, ties: 0 }],
+    },
+  });
+
+  renderHistory();
+  await screen.findByText('Season 2026');
+  openAllTimeTab();
+
+  expect(await screen.findByText('REC-SENTINEL')).toBeInTheDocument();
+});
+
+test("a pick'em-only League's All-Time tab renders no Record column and no wins-losses text", async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [{ season: 2026, outcome: 'no_champion', champions: [], standings: [{ teamId: 1, points: 10 }], trophies: [], draftGrades: null }],
+      allTime: [
+        { teamId: 1, name: 'Sunday Ballers', avatarUrl: null, championships: 0, wins: null, losses: null, ties: null },
+        { teamId: 2, name: "Bob's Team", avatarUrl: null, championships: 1, wins: null, losses: null, ties: null },
+      ],
+    },
+  });
+
+  renderHistory();
+  await screen.findByText('Season 2026');
+  openAllTimeTab();
+
+  const table = await screen.findByRole('table', { name: 'All-Time Records' });
+  expect(within(table).queryByText('Record')).not.toBeInTheDocument();
+  expect(table.textContent).not.toMatch(/\d+-\d+/);
+});
+
+test('a mixed All-Time roster shows a Record for a fantasy Team and an empty cell for a pick\'em Team', async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [{ season: 2026, outcome: 'champion', champions: [], standings: [{ teamId: 1, wins: 8, losses: 4, ties: 0 }], trophies: [], draftGrades: null }],
+      allTime: [
+        { teamId: 1, name: 'Fantasy Team', avatarUrl: null, championships: 1, wins: 20, losses: 10, ties: 1 },
+        { teamId: 2, name: 'Pickem Team', avatarUrl: null, championships: 0, wins: null, losses: null, ties: null },
+      ],
+    },
+  });
+
+  renderHistory();
+  await screen.findByText('Season 2026');
+  openAllTimeTab();
+
+  const table = await screen.findByRole('table', { name: 'All-Time Records' });
+  expect(within(table).getByText('20-10-1')).toBeInTheDocument();
+  // eslint-disable-next-line testing-library/no-node-access -- walking up to the row is the only way to scope "this Team's own Record cell"
+  const pickemRow = within(table).getByText('Pickem Team').closest('tr');
+  const pickemCells = within(pickemRow).getAllByRole('cell');
+  // A blank cell announces nothing to a screen reader, so the empty Record
+  // cell carries the same aria-hidden dash / visually-hidden "Not available"
+  // pair the missing-rosterValue cell uses, never bare emptiness.
+  expect(pickemCells[pickemCells.length - 1]).toHaveTextContent('Not available');
+});
+
+// Cory's 2026-09-11 ruling on this ticket, settling the note #1211/PR #1222
+// left open: a co-champion removed before rollover (so its Team never
+// archived a standings row) loses the points/correct caption; the other
+// co-champion's still renders. No per-champion caption field is added to
+// champions[].
+test("a co-champion missing its own season's archived standings row renders its name alone and logs the defect, while the other co-champion's caption still renders", async () => {
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [{
+        season: 2026,
+        outcome: 'champion',
+        champions: [
+          { teamId: 1, name: 'Has Standing', avatarUrl: null, avatarStaticUrl: null },
+          { teamId: 2, name: 'Missing Standing', avatarUrl: null, avatarStaticUrl: null },
+        ],
+        standings: [{ teamId: 1, name: 'Has Standing', rank: 1, wins: 10, losses: 4, ties: 0 }],
+        trophies: [],
+        draftGrades: null,
+      }],
+      allTime: [],
+    },
+  });
+
+  renderHistory();
+
+  const banner = await screen.findByTestId('champion-banner-2026');
+  expect(banner).toHaveTextContent('Has Standing');
+  expect(banner).toHaveTextContent('10-4 record');
+  expect(banner).toHaveTextContent('Missing Standing');
+  expect(banner).not.toHaveTextContent('Missing Standing record');
+  expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('champion 2'));
+
+  errorSpy.mockRestore();
 });
