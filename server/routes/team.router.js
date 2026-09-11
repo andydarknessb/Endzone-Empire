@@ -6,6 +6,7 @@ const { createRateLimiter } = require('../modules/rateLimit');
 const { addFreeAgent, dropPlayer, undoDrop } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
+const { getDecisionCardContext } = require('../services/decisionCardContext.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
@@ -230,6 +231,41 @@ router.get('/lineup/advice', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching lineup advice', error);
     res.status(500).json({ error: 'failed to fetch lineup advice' });
+  }
+});
+
+// GET /api/team/lineup/:playerId/context?leagueId=N&week=W — the Decision
+// card's game and usage context for one rostered player (ADR 0037, #1236):
+// { line, weather, usage }, null-safe throughout. week defaults to the
+// league's current week.
+router.get('/lineup/:playerId/context', async (req, res) => {
+  if (!/^\d+$/.test(req.params.playerId)) {
+    return res.status(400).json({ error: 'playerId must be a positive integer' });
+  }
+  const leagueId = req.query.leagueId;
+  if (!/^\d+$/.test(String(leagueId))) {
+    return res.status(400).json({ error: 'leagueId query param (integer) is required' });
+  }
+  const week = req.query.week === undefined ? undefined : req.query.week;
+  if (week !== undefined && !/^\d+$/.test(String(week))) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const context = await getDecisionCardContext({
+      leagueId: Number(leagueId),
+      userId: req.user.id,
+      playerId: Number(req.params.playerId),
+      week: week === undefined ? undefined : Number(week),
+    });
+    res.json(context);
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json(
+        error.code ? { code: error.code, message: error.message } : { error: error.message }
+      );
+    }
+    console.error('Error fetching decision card context', error);
+    res.status(500).json({ error: 'failed to fetch decision card context' });
   }
 });
 
