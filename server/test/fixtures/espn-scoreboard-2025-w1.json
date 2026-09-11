@@ -785,6 +785,14 @@
         "displayName": "Buffalo Bills"
        }
       }
+     ],
+     "odds": [
+      {
+       "provider": { "id": "58", "name": "consensus" },
+       "details": "MIA -3.5",
+       "overUnder": 47.5,
+       "spread": -3.5
+      }
      ]
     }
    ]

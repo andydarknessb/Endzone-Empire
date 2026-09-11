@@ -286,6 +286,70 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
   assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
 });
 
+// ---- hourly odds sync (#1234) ------------------------------------------
+
+test('runHourlyOddsSync runs once per hour, syncing every distinct live-league week', async (t) => {
+  const espnOdds = require('../services/espnOdds.provider');
+  const calls = [];
+  t.mock.method(espnOdds, 'syncOdds', async ({ season, week }) => {
+    calls.push({ season, week });
+    return { gamesWritten: 1 };
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
+  ]).install(t);
+
+  const first = new Date('2026-09-11T12:00:00Z');
+  assert.deepEqual(await scheduler.runHourlyOddsSync({ now: first }), [{ gamesWritten: 1 }]);
+  assert.deepEqual(calls, [{ season: 2026, week: 2 }]);
+
+  // A tick 10 minutes later is not due yet.
+  const soon = new Date('2026-09-11T12:10:00Z');
+  assert.equal(await scheduler.runHourlyOddsSync({ now: soon }), null);
+  assert.equal(calls.length, 1);
+
+  // An hour later it runs again.
+  const later = new Date('2026-09-11T13:01:00Z');
+  await scheduler.runHourlyOddsSync({ now: later });
+  assert.equal(calls.length, 2);
+});
+
+test('runHourlyOddsSync syncs every distinct (season, week) a live league is on, and one week failing does not stop another', async (t) => {
+  const espnOdds = require('../services/espnOdds.provider');
+  const calls = [];
+  t.mock.method(espnOdds, 'syncOdds', async ({ season, week }) => {
+    calls.push({ season, week });
+    if (week === 2) throw new Error('ESPN unavailable');
+    return { gamesWritten: 3 };
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({
+      rows: [
+        { current_season: 2026, current_week: 2 },
+        { current_season: 2026, current_week: 3 },
+      ],
+    })],
+  ]).install(t);
+
+  // A day past the previous test's own last stamp, so this module-level
+  // interval gate (shared across every test in this file, same as
+  // lastAdpSyncDay above) is unambiguously due regardless of run order.
+  const results = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-12T12:00:00Z') });
+  assert.deepEqual(calls, [{ season: 2026, week: 2 }, { season: 2026, week: 3 }]);
+  assert.deepEqual(results, [{ gamesWritten: 3 }], 'the failed week is skipped, not thrown');
+});
+
+test('tickUnlocked runs the hourly odds sync in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runHourlyOddsSync\(\);\s*\} catch/);
+});
+
 // Row shape matching syncRun.js's lastRun($job) query: `{ latest, latestOk }`,
 // each a row_to_json-shaped object (snake_case) or null. `byJob` maps a job
 // literal to that shape; a job with no entry answers { latest: null, latestOk: null }.
@@ -337,7 +401,7 @@ test('getSchedulerStatus never throws when the data_sync_runs read fails, and lo
   const status = await scheduler.getSchedulerStatus();
   assert.equal(status.lastAdpSync, null);
   assert.equal(status.lastAdpSuccess, null);
-  // Every one of the 9 SYNC_RUN_JOBS reads rejects, but only one warning logs.
+  // Every one of the SYNC_RUN_JOBS reads rejects, but only one warning logs.
   assert.equal(warnings, 1);
   for (const job of scheduler.SYNC_RUN_JOBS) {
     assert.deepEqual(status.syncRuns[job], { latest: null, latestOk: null }, `${job} degrades to nulls`);

@@ -21,6 +21,14 @@ const {
 initSentry();
 installConsoleBridge();
 
+// ESPN's scoreboard needs no key and is not quota-metered, so the odds seam
+// (vegasOdds.provider.js) is filled unconditionally at boot, unlike the
+// credential-gated Tank01 syncs (#1234, ADR 0037). The web process needs this
+// too: generateProjections (services/projection.service.js) runs from here.
+const { setVegasOddsProvider } = require('./services/vegasOdds.provider');
+const { espnOddsProvider } = require('./services/espnOdds.provider');
+setVegasOddsProvider(espnOddsProvider);
+
 const authRouter = require('./routes/auth.router');
 const userRouter = require('./routes/user.router');
 const playerRouter = require('./routes/player.router');

@@ -6,6 +6,8 @@ const bootGates = require('./modules/bootGates');
 const { installConsoleBridge, logger } = require('./modules/logger');
 const { initSentry, captureError, flushSentry } = require('./modules/sentry');
 const { startScheduler, stopScheduler, getSchedulerStatus } = require('./modules/scheduler');
+const { setVegasOddsProvider } = require('./services/vegasOdds.provider');
+const { espnOddsProvider } = require('./services/espnOdds.provider');
 const draftSweepLiveness = require('./modules/draftSweepLiveness');
 const { createDraftRoomBroadcast, setDraftRoomBroadcast } = require('./modules/draftRoomBroadcast');
 const { createEmitterTransport } = require('./modules/draftRoomEmitterTransport');
@@ -20,6 +22,11 @@ let heartbeatTimer = null;
 let stopping = false;
 
 installConsoleBridge();
+
+// ESPN's scoreboard needs no key and is not quota-metered, so the odds seam
+// (vegasOdds.provider.js) is filled unconditionally at boot, unlike the
+// credential-gated Tank01 syncs (#1234, ADR 0037).
+setVegasOddsProvider(espnOddsProvider);
 
 async function heartbeat() {
   const scheduler = await getSchedulerStatus();
