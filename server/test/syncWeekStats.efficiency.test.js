@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const scoring = require('../services/scoring.service');
+const finalBox = require('../modules/finalBox');
 
 // The Tank01 plan allows ~1,000 calls a MONTH. The old syncWeekStats box-scored
 // every game in the week on every ~30-minute pass, so a game that finished at
@@ -112,6 +113,32 @@ test('syncWeekStats: an in_progress game is no longer fetched here; a final with
   const { fetched, api } = stubWorld(t, { liveRows });
   await scoring.syncWeekStats({ season: 2026, week: 2, api });
   assert.deepEqual(fetched.map((f) => f.gameId), ['g-final']);
+});
+
+/**
+ * #1221: SF at LAR 2026-09-10 went final at 03:24:57Z; the six-tick sync landed
+ * at 03:35:40Z, inside the 15-minute grace, fetched the Final box and stamped
+ * the game, then the grace timer fired at 03:39:57Z and the recap fetched its
+ * own box: two Tank01 calls where the design pays one. The sync must leave a
+ * final alone while its grace is running; the timer's single fetch serves both
+ * the stamp and the recap. Once the grace is over (or none is armed, a restart)
+ * the sync is still the retry path for a Final box that failed.
+ */
+test('syncWeekStats: a final inside its Final box grace is not fetched; one past its grace is (#1221)', async (t) => {
+  finalBox.__resetFinalBoxState();
+  t.after(() => finalBox.__resetFinalBoxState());
+  const liveRows = [
+    { tank01_game_id: 'g-final-fresh', game_status: 'final', final_stats_synced_at: null },
+    { tank01_game_id: 'g-final-old', game_status: 'final', final_stats_synced_at: null },
+  ];
+  // g-final-fresh went final a moment ago: its grace timer is armed and pending.
+  finalBox.scheduleFinalBox('g-final-fresh', { now: Date.now(), setTimer: () => ({ unref() {} }), onDue: () => {} });
+  const { fetched, stamped, api } = stubWorld(t, { liveRows });
+  const result = await scoring.syncWeekStats({ season: 2026, week: 2, api });
+  assert.deepEqual(fetched.map((f) => f.gameId), ['g-final-old'], 'the fresh final waits for its timer; the old one is the retry path');
+  assert.deepEqual(stamped, ['g-final-old']);
+  assert.equal(result.gamesProcessed, 1);
+  assert.equal(result.gamesSkipped, 1, 'the deferred final counts as skipped this pass');
 });
 
 test('syncWeekStats: the game list comes from live_game_states, not a schedule call', async (t) => {
