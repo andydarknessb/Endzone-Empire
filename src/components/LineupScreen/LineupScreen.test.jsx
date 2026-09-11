@@ -442,12 +442,11 @@ test('numbers repeated starter slots and keeps the Bench independently scrollabl
   expect(screen.getByTestId('lineup-bench-scroll')).toHaveStyle({ overflowY: 'auto' });
 });
 
-// #1209's red-tell: the starter order comes straight from the lineup
-// response's own roster_slots (the League's configured order), with no
-// fantasy-standard DEFAULT_STARTER_SLOT_ORDER import to fall back on (ADR
-// 0029's `pairStartersBySlot`/`lineupEntries` refusal: a guessed default
-// would silently mis-order a commissioner's own slots). A League ordering WR
-// before QB renders in that order.
+// Regression pin, not a red-tell: this passes at base too (the
+// DEFAULT_STARTER_SLOT_ORDER fallback #1209 removed was already dead code —
+// see the `starterSlotOrder` comment in LineupScreen.jsx). It pins that the
+// starter order keeps coming from the lineup response's own roster_slots (the
+// League's configured order) now that the dead fallback is gone.
 test('starter rows follow the League\'s own roster_slots order, with no default fallback', async () => {
   mockGetAll({
     data: lineupResponse({

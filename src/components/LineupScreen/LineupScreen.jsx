@@ -565,8 +565,12 @@ export function LineupEditor({
       || (showEligibility && !eligible);
     const isEmpty = !entry;
     const byeWeek = rosterPlayer?.bye_week ?? entry?.bye_week;
-    // The entity's Number-coerced fact (lineup.service can hand a decimal
-    // back as a string), not the wire's raw `projected_points` re-read here.
+    // The entity's projectedPoints fact (ADR 0029: the one spelling of the
+    // entry shape), not the wire's raw `projected_points` re-read here. The
+    // entity's Number-coercion is defensive, not a fix for this endpoint:
+    // getLineup itself already reduces projected_points to a finite Number
+    // or null before the response ships (lineup.service.js's projection
+    // loop).
     const projectedPoints = (entry ? normalizedEntriesById.get(entry.id)?.projectedPoints : null)
       ?? rosterPlayer?.projected_weekly_points;
     const acquiredDate = rosterPlayer?.acquired_at
@@ -724,13 +728,13 @@ export function LineupEditor({
   });
 
   const rosterSlots = lineup?.rosterSlots || [];
-  // The league's own configured order, straight through - no fantasy-standard
-  // default fallback (ADR 0029's `pairStartersBySlot`/`lineupEntries` refusal:
-  // a guessed default would silently mis-order a commissioner's own slots).
-  // The server already resolves the league's real order before this response
-  // is ever sent (lineup.service.js's own `parse(league.roster_slots,
-  // DEFAULT_ROSTER_SLOTS)`), so a second, client-side default here would only
-  // ever mask a genuinely empty response rather than help one.
+  // The league's own configured order, straight through. The
+  // DEFAULT_STARTER_SLOT_ORDER fallback this replaced was already dead code:
+  // every starter row's count also read from this same (possibly empty)
+  // array (`rosterSlots.find((s) => s.key === type)?.count || 0` below), so
+  // an empty rosterSlots rendered no rows regardless of which order array the
+  // fallback supplied. Removed per #1209 / ADR 0029 as dead-code cleanup, not
+  // a behaviour fix.
   const starterSlotOrder = rosterSlots.map((s) => s.key);
   // The entity's normalized per-entry facts (Number-coerced projectedPoints,
   // among others), keyed by player id, read via `lineupEntries` rather than
