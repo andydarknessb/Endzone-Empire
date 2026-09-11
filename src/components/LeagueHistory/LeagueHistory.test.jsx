@@ -37,12 +37,20 @@ const rulesUnder = (el) => {
   return found;
 };
 
+// seasonArchive() (server/services/seasonArchive.service.js, #1211) decides
+// champions and outcome server-side for both League types: `champions` is
+// always an array of canonical { teamId, name, avatarUrl, avatarStaticUrl }
+// entries (empty when there is none), and a fantasy season's outcome is the
+// explicit 'champion' | 'no_champion' this fixture exercises. The deprecated
+// singular `champion` field is still on the wire (server/routes/league.router.js)
+// but this screen is a pass-through now and never reads it.
 const historyResponse = () => ({
   data: {
     seasons: [
       {
         season: 2026,
-        champion: { teamId: 1, name: 'Sunday Ballers' },
+        outcome: 'champion',
+        champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
         standings: [
           { teamId: 1, name: 'Sunday Ballers', rank: 1, wins: 12, losses: 2, pf: 1502.4 },
         ],
@@ -55,7 +63,8 @@ const historyResponse = () => ({
       },
       {
         season: 2025,
-        champion: null,
+        outcome: 'no_champion',
+        champions: [],
         standings: [
           { teamId: 2, name: "Bob's Team", rank: 1, wins: 10, losses: 4, pf: 1400.0 },
         ],
@@ -74,7 +83,11 @@ test('renders past seasons with champion, standings, trophies, and draft grades'
   expect(await screen.findByText('Season 2026')).toBeInTheDocument();
   expect(screen.getByTestId('champion-2026')).toHaveTextContent('Sunday Ballers');
   expect(screen.getByText('Season 2025')).toBeInTheDocument();
-  expect(screen.getByText('No champion recorded')).toBeInTheDocument();
+  // The intended visible change (#1211, #1199 user story 1): a fantasy
+  // season's no-champion outcome is now decided server-side, so it renders
+  // the explicit "No champion" state that only Pick'em used to show, not the
+  // generic "No champion recorded" fallback for an unknown outcome.
+  expect(screen.getByText('No champion')).toBeInTheDocument();
   expect(screen.getAllByText('Sunday Ballers').length).toBeGreaterThan(0);
   expect(screen.getByText("Bob's Team")).toBeInTheDocument();
 });
@@ -128,7 +141,8 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
       seasons: [
         {
           season: 2026,
-          champion: { teamId: 1, name: 'Sunday Ballers' },
+          outcome: 'champion',
+          champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
           standings: [
             { teamId: 1, name: 'Sunday Ballers', rank: 1, wins: 12, losses: 2, pf: 1502.4 },
             { teamId: 2, name: 'Runner Up', rank: 2, wins: 10, losses: 4, pf: 1400.0 },
@@ -258,7 +272,8 @@ test("a pick'em season's standings render points and correct picks instead of a 
       seasons: [
         {
           season: 2026,
-          champion: { teamId: 1, name: 'Sunday Ballers' },
+          outcome: 'champions',
+          champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
           // The shape rolloverSeason archives for a pick'em-only league:
           // Team identity + scoring totals only, no account identity (#342).
           standings: [
@@ -297,8 +312,7 @@ test("a stripped pick'em standings renders by Team name, and a gone-Team row as 
       seasons: [{
         season: 2026,
         outcome: 'champions',
-        champions: [{ teamId: 1, teamName: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' }],
-        champion: { teamId: 1, name: 'Sunday Ballers' },
+        champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
         // Post-#342 archive: Team identity + scoring totals only. A manager
         // whose Team is gone at rollover archives with teamId/name null and
         // must render as the shared "Former manager" label, never blank.
@@ -333,9 +347,12 @@ test("a Pick'em history panel displays every archived co-champion instead of the
         season: 2026,
         outcome: 'champions',
         champions: [
-          { teamId: 10, teamName: 'Archived Aces', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' },
-          { teamId: 99, teamName: 'Departed Champs', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' },
+          { teamId: 10, name: 'Archived Aces', avatarUrl: null, avatarStaticUrl: null },
+          { teamId: 99, name: 'Departed Champs', avatarUrl: null, avatarStaticUrl: null },
         ],
+        // The deprecated singular compatibility field, deliberately
+        // mismatched: this screen is a pass-through now and must render every
+        // archived co-champion from `champions`, never fall back to this.
         champion: { teamId: 777, name: 'Deprecated Wrong Winner' },
         standings: [
           { teamId: 11, name: 'Drifted Leader', rank: 1, points: 180, correct: 121, pushes: 0 },
@@ -398,7 +415,8 @@ const seasonWithTies = (ties) => ({
     seasons: [
       {
         season: 2026,
-        champion: { teamId: 1, name: 'Sunday Ballers' },
+        outcome: 'champion',
+        champions: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, avatarStaticUrl: null }],
         standings: [
           { teamId: 1, name: 'Sunday Ballers', rank: 1, wins: 8, losses: 4, ties, pf: 1502.4 },
         ],
