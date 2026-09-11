@@ -44,10 +44,17 @@
  *     `pg_advisory_xact_lock(hashtext($1))` inside its own transaction; not
  *     a Sync run.
  *   - `server/services/sleeper.service.js` - ruled on #1251 criterion 7:
- *     `upsertSeasonStats` takes a direct blocking
+ *     `upsertSeasonStats` WILL take a direct blocking
  *     `pg_advisory_xact_lock(23004)` inside its own transaction and is not a
- *     run either. Listed here even though #1206 finds no call there today,
- *     so whichever of #1206/#1251 merges second does not go red on `guards`.
+ *     run either - not yet true of this file (today it is a bare
+ *     `pool.query` upsert with no transaction and no lock; the lock registry
+ *     at `server/modules/advisoryLock.js` says so explicitly). Listed here
+ *     pre-emptively, before #1251 lands the call, so whichever of #1206 and
+ *     #1251 merges second does not go red on `guards`. #1251's own review
+ *     owns checking that its lock actually lands inside a `withTransaction`
+ *     block - a `pg_advisory_xact_lock` issued through a bare `pool.query`
+ *     is transaction-scoped to that one implicit statement and releases
+ *     immediately, serializing nothing (qa-reviewer, #1206 risk review).
  *
  * Run standalone: `npm run check:hand-rolled-sync-run`, which runs this
  * script's own `node --test` file first, then the scan over the real tree -
@@ -171,7 +178,15 @@ function literalChunks(source, file) {
       chunks.push({ text: node.value, line: node.loc ? node.loc.start.line : 0 });
     } else if (node.type === 'TemplateLiteral') {
       for (const quasi of node.quasis) {
-        chunks.push({ text: quasi.value.cooked || '', line: quasi.loc ? quasi.loc.start.line : 0 });
+        // `cooked` is undefined for a quasi with an invalid escape sequence
+        // (e.g. inside a String.raw tagged template); `raw` still carries
+        // the literal source text in that case, so falling back to it keeps
+        // a hand-rolled site from evading the scan through an unrelated
+        // parse quirk (qa-reviewer, #1206 risk review).
+        chunks.push({
+          text: quasi.value.cooked ?? quasi.value.raw ?? '',
+          line: quasi.loc ? quasi.loc.start.line : 0,
+        });
       }
     }
   });
