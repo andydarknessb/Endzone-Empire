@@ -8,12 +8,13 @@
  * the Matchup and Standings slices use). Everything else in this folder is
  * internal.
  *
- * `pairStartersBySlot`, `lineupEntries`, `eligibleSlots` and `locked` are
- * this entity's below-Roster edge for `entities/matchup`: since #1207 that
- * entity's `matchupModel.js` re-exports `pairStartersBySlot` from HERE for
- * one release (ADR 0029's directional import rule extended to the first
- * entity-to-entity edge - pairing starters by slot is a Roster/Lineup fact,
- * not a Matchup one).
+ * `pairStartersBySlot`, `lineupEntries`, `eligibleSlots` and `locked` are all
+ * exported from HERE, but only `pairStartersBySlot` is read by another
+ * entity: since #1207, `entities/matchup`'s `matchupModel.js` re-exports it
+ * from HERE for one release. ADR 0029 itself forbids an entity importing
+ * another entity (lines 31 and 78); this is a temporary exception to that
+ * rule, authorized by #1198 R1's one-release move (pairing starters by slot
+ * is a Roster/Lineup fact, not a Matchup one), and #1210 removes it.
  */
 export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';
