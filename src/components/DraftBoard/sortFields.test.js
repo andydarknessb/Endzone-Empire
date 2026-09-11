@@ -5,7 +5,7 @@ import {
   DESKTOP_SORT_COLUMN_KEYS,
   wireSortName,
 } from './sortFields';
-import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import { STAT_DEFINITIONS } from '../../shared/ui/AbbreviationTooltip';
 // The server owns the accepted `?sort=` set (issue #951). This is the house
 // parity pattern (chatLimits.parity.test.js, stallAnnouncement.parity.test.js):
 // react-scripts' webpack ModuleScopePlugin forbids production code under src/

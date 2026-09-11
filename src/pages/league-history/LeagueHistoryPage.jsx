@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Box } from '@mui/material';
 import EmojiEventsOutlined from '@mui/icons-material/EmojiEventsOutlined';
 import { visuallyHidden } from '@mui/utils';
-import { Badge, Card, GradeChip, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
+import { AbbreviationTooltip, Badge, Card, GradeChip, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { teamStandingFromRow } from '../../entities/standings';
 import { seasonView, useLeagueHistory } from '../../entities/season-archive';
 import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
@@ -291,7 +291,7 @@ function StandingsTable({ standings, pickem, labelledBy }) {
             ) : (
               <>
                 <HeadCell align="right">Record</HeadCell>
-                <HeadCell align="right">PF</HeadCell>
+                <HeadCell align="right"><AbbreviationTooltip term="PF" /></HeadCell>
               </>
             )}
           </Box>

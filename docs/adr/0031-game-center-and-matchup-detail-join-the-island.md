@@ -149,3 +149,17 @@ of ADR 0010: no lint rule enforces the threshold, and the boundary lint rule
 ADR 0020 names as a follow-up would need to reach below-island component
 imports the way it would reach below-island helper imports. Until it exists,
 both halves of the clause bind by review.
+
+## Amendment (2026-09-11, #1246): AbbreviationTooltip's temporary edge closes
+
+`AbbreviationTooltip` reached its second island consumer: the League History
+page composes it in the Final Standings PF header, alongside the Draft
+Grades widget. Ruled under the #1146 amendment's clause, the same way as
+`TeamAvatar` and `initialsFor` before it: it moves to `shared/ui` as the one
+canonical implementation, exported through `shared/ui`'s index. The two
+island consumers (Draft Grades, League History) import it from that index.
+The legacy `src/components` consumers (PlayerDetail, PlayerManagement,
+PlayerQuickView, public RankingTable and PlayerProfilePage, DraftBoard's
+ColumnGuide and PlayerPoolTable) import the concrete `shared/ui/
+AbbreviationTooltip` module instead, the same split as `TeamAvatar`'s. No
+below-island reach for this component remains.

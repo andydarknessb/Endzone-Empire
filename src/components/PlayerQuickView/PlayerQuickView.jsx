@@ -33,7 +33,7 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerAvatar from './PlayerAvatar';
 import PositionChip from './PositionChip';
 import { statLine } from './statLine';
-import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import AbbreviationTooltip from '../../shared/ui/AbbreviationTooltip';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 
 // Module-level: persists the last-selected toggle across dialog opens for the

@@ -23,7 +23,7 @@ import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import PositionChip from '../PlayerQuickView/PositionChip';
 import { statLine } from '../PlayerQuickView/statLine';
-import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import AbbreviationTooltip from '../../shared/ui/AbbreviationTooltip';
 
 function PlayerDetail() {
   const { playerId } = useParams();

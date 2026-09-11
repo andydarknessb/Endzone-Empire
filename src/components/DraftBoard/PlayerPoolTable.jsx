@@ -33,7 +33,7 @@ import { visuallyHidden } from '@mui/utils';
 import InjuryBadge from '../InjuryBadge/InjuryBadge';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PositionChip from '../PlayerQuickView/PositionChip';
-import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../common/AbbreviationTooltip';
+import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../../shared/ui/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
 import { SORT_FIELDS, SORT_FIELDS_BY_KEY, DESKTOP_COLUMNS, DESKTOP_COLUMN_COUNT } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';

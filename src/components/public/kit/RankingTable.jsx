@@ -14,7 +14,7 @@ import SwapVertIcon from '@mui/icons-material/SwapVert';
 import { positionColorVar } from './positionColor';
 import { LoadingRows, EmptyState, ErrorState } from './DataState';
 import { deriveRankingTiers, orderRowsByPosition } from './rankingTiers';
-import AbbreviationTooltip from '../../common/AbbreviationTooltip';
+import AbbreviationTooltip from '../../../shared/ui/AbbreviationTooltip';
 
 const TREND_VALUES = { down: -1, flat: 0, up: 1 };
 

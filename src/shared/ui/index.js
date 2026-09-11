@@ -31,3 +31,10 @@ export { default as TeamAvatar } from './TeamAvatar';
 // canonical `.btn` / `.btn.primary` / `.btn.ghost` implementation the five
 // island sites that used to each define their own copy now compose.
 export { default as DashButton } from './DashButton';
+// An abbreviation/stat term with its definition on hover/focus (#1246, ADR
+// 0031's #1146 amendment): reached its second island consumer (League
+// History, alongside the Draft Grades widget) and moved here as the one
+// canonical implementation. `STAT_DEFINITIONS` and `ABBREVIATION_STYLE` stay
+// exported only from the concrete module - no island consumer needs them
+// through the barrel yet.
+export { default as AbbreviationTooltip } from './AbbreviationTooltip';

@@ -197,6 +197,27 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
   expect(within(table).getByText('4')).toBeInTheDocument();
 });
 
+// #1246: the legacy LeagueHistory component (replaced by this page at
+// #1213) wrapped the PF header in AbbreviationTooltip, exposing the PF
+// definition to keyboard and screen-reader users. The island page lost that
+// when it shipped, since AbbreviationTooltip hadn't yet earned a shared/ui
+// home (ADR 0031's #1146 amendment) - this issue is its second island
+// consumer, closing that edge.
+test('exposes the Final Standings PF header with its shared definition, focusable for keyboard users', async () => {
+  apiClient.get.mockResolvedValue(historyResponse());
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
+  // Scoped to the columnheader itself (not just the panel) so this pins the
+  // tooltip to the PF header specifically, not merely to somewhere on the
+  // season card.
+  const pfHeaderCell = within(table).getByRole('columnheader', { name: 'PF: Points for: total fantasy points scored by this team.' });
+  const pfHeader = within(pfHeaderCell).getByLabelText('PF: Points for: total fantasy points scored by this team.');
+  expect(pfHeader.tabIndex).toBe(0);
+});
+
 test('the Team cell is the row header in Final Standings, Draft Grades, and All-Time, so a cell reads with its Team', async () => {
   apiClient.get.mockResolvedValue({
     data: {

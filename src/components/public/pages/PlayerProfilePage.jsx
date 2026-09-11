@@ -15,7 +15,7 @@ import { positionColorVar } from '../kit/positionColor';
 import { sortGamesByWeek } from '../kit/gameLog';
 import { SCORING_FORMATS, DEFAULT_FORMAT, formatLabel, pointsFor, hasFormatVariants } from '../kit/scoringFormat';
 import publicApiClient from '../../../api/publicApiClient';
-import { STAT_DEFINITIONS } from '../../common/AbbreviationTooltip';
+import { STAT_DEFINITIONS } from '../../../shared/ui/AbbreviationTooltip';
 
 // `testId` is an optional test-only seam: a stat card is a layout container
 // with no role, so the value and its label share no queryable ancestor.
