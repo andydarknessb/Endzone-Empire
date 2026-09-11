@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=Patrick+Hand&amp;display=swap">
+  <style>
+
+[data-theme="dark"]{
+  --bg:#0b1015; --surface:#141b23; --surface2:#1b242f; --surface3:#222e3b;
+  --line:rgba(154,183,211,.12); --line-strong:rgba(154,183,211,.22);
+  --ink:#e8eef4; --dim:#93a4b5; --faint:#8a9bad;
+  --accent:#2fd97b; --accent-soft:rgba(47,217,123,.12); --accent-line:rgba(47,217,123,.35); --on-accent:#0b1015;
+  --home:#7eaaff; --home-soft:rgba(126,170,255,.16); --away:#7ee2a8; --away-soft:rgba(126,226,168,.16);
+  --danger:#ff6b6b; --danger-soft:rgba(255,107,107,.14); --warning:#f0b34e; --warning-soft:rgba(240,179,78,.14);
+  --success:#7ee2a8; --success-soft:rgba(126,226,168,.14);
+  --pos-qb:#ff8a80; --pos-rb:#7ee2a8; --pos-wr:#7fb0ff; --pos-te:#f0b34e; --pos-k:#c4a2f5; --pos-def:#b0bec5; --pos-flex:#93a4b5; --on-pos:#0f1419;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45); --shadow-2:0 6px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg:#eef2f6; --surface:#ffffff; --surface2:#f4f7fa; --surface3:#e6ecf2;
+  --line:rgba(31,45,58,.12); --line-strong:rgba(31,45,58,.22);
+  --ink:#141b23; --dim:#55636f; --faint:#5e6a74;
+  --accent:#0f6a41; --accent-soft:rgba(15,106,65,.12); --accent-line:rgba(15,106,65,.32); --on-accent:#ffffff;
+  --home:#1e5bb8; --home-soft:rgba(30,91,184,.10); --away:#1b7d4f; --away-soft:rgba(27,125,79,.12);
+  --danger:#c62828; --danger-soft:rgba(198,40,40,.10); --warning:#8a5a00; --warning-soft:rgba(138,90,0,.12);
+  --success:#1b7d4f; --success-soft:rgba(27,125,79,.12);
+  --pos-qb:#c62828; --pos-rb:#15663f; --pos-wr:#1e5bb8; --pos-te:#9a5100; --pos-k:#6d28d9; --pos-def:#4b5c66; --pos-flex:#586472; --on-pos:#ffffff;
+  --shadow-1:0 1px 2px rgba(16,24,32,.08); --shadow-2:0 4px 12px rgba(16,24,32,.10);
+}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent);text-decoration:underline}
+.root{width:560px;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.display{font-family:"Barlow Condensed",Impact,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.tile{background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);background:var(--surface2);color:var(--dim);white-space:nowrap}
+.chip.live{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.final{background:var(--success-soft);color:var(--success);border-color:var(--success)}
+.chip.you{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);font-size:10.5px;letter-spacing:.08em}
+.chip.warn{background:var(--warning-soft);color:var(--warning);border-color:var(--warning)}
+.chip.bad{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.sm{height:18px;padding:0 6px;font-size:10px;gap:4px}
+.dot{width:8px;height:8px;border-radius:999px;background:currentColor;flex:none}
+.pos{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:20px;padding:0 6px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--on-pos)}
+.slot{display:inline-flex;align-items:center;justify-content:center;width:44px;height:24px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.06em;background:var(--surface3);color:var(--dim);flex:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid var(--line-strong);color:var(--dim);background:transparent;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.icon{width:38px;padding:0}
+.btn.sm{height:30px;padding:0 12px;font-size:12px;border-radius:8px}
+.btn.sm.icon{width:30px;padding:0}
+.seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg > div{height:30px;padding:0 14px;border-radius:7px;display:flex;align-items:center;font-size:13px;font-weight:600;color:var(--dim)}
+.seg > div.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.hair{height:1px;background:var(--line)}
+.avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--surface3);color:var(--ink);font-weight:700;flex:none;position:relative}
+.kit{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:999px;border:2px solid var(--surface)}
+.pace{height:5px;border-radius:3px;background:var(--surface3);overflow:hidden}
+.pace > div{height:100%;border-radius:3px}
+.range{position:relative;height:6px;border-radius:3px;background:var(--surface3)}
+.range > .band{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--accent-soft);border:1px solid var(--accent-line)}
+.range > .tick{position:absolute;top:-3px;width:2px;height:12px;border-radius:1px;background:var(--accent)}
+.row{display:flex;align-items:center}
+.stack{display:flex;flex-direction:column}
+.grow{flex:1 1 0;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12px;color:var(--faint)}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+svg{display:block}
+
+  </style>
+</helmet>
+<div class="root" data-theme="{{theme}}" style="width: 560px; min-height: 1180px; background: var(--bg); color: var(--ink);">
+<div class="stack" style="padding: 20px 22px 24px; gap: 16px;">
+  <div class="row" style="gap: 14px;">
+    <div class="avatar" style="width: 56px; height: 56px; font-size: 20px;">CL<span class="kit" style="background: #041e42; width: 16px; height: 16px;"></span></div>
+    <div class="stack grow" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="display" style="font-size: 26px; font-weight: 700; line-height: 1; letter-spacing: .01em;">CeeDee Lamb</span><span class="chip sm warn">Q</span></div>
+      <div class="row" style="gap: 8px; font-size: 13px; color: var(--dim);"><span class="pos" style="background: var(--pos-wr);">WR</span><span>DAL · #88</span><span style="color: var(--faint);">·</span><span>Starting WR2 · 5th year</span></div>
+    </div>
+    <div class="btn icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></div>
+  </div>
+
+  <div class="row" style="gap: 8px;"><div class="btn sm primary"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg>Move to bench</div><div class="btn sm"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="12" rx="1.5"/><rect x="11" y="4" width="6" height="12" rx="1.5"/></svg>Compare</div><div class="btn sm">Trade</div><div class="grow"></div><div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="10" r="1.2"/><circle cx="10" cy="10" r="1.2"/><circle cx="15" cy="10" r="1.2"/></svg></div></div>
+
+  <div class="tile stack" style="padding: 12px 14px; gap: 8px; border-color: var(--warning); background: var(--warning-soft);">
+    <div class="row" style="gap: 8px; color: var(--warning); font-weight: 600; font-size: 13px;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 2.5 16h15z"/><path d="M10 8v4M10 14v.5"/></svg><span>Questionable · right ankle</span><span class="grow"></span><span class="note">Updated Fri 4:10 PM</span></div>
+    <span class="note">Full practice Friday. Expected to play without a snap count.</span>
+  </div>
+
+  <div class="card stack" style="padding: 14px 16px; gap: 10px;">
+    <div class="row" style="justify-content: space-between;"><span class="label">This week's game</span><span class="note">Sun 4:25 PM · FOX</span></div>
+    <div class="row" style="gap: 12px;">
+      <span class="display" style="font-size: 22px; font-weight: 700;">DAL vs BAL</span>
+      <div class="grow"></div>
+      <div class="stack num" style="align-items: flex-end; gap: 1px;"><span style="font-size: 14px; font-weight: 600;">BAL -2.5 · O/U 47</span><span class="note">DAL implied 22.3 · 18th of 32</span></div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;">
+      <div class="tile stack" style="padding: 8px 10px; gap: 2px;"><span class="label" style="font-size: 10px;">Weather</span><span class="row" style="gap: 6px; font-size: 13px; font-weight: 600;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M15 5l-1.5 1.5M6.5 13.5 5 15"/></svg>84° · wind 4</span><span class="note">Outdoor · AT&amp;T Stadium roof open</span></div>
+      <div class="tile stack" style="padding: 8px 10px; gap: 2px;"><span class="label" style="font-size: 10px;">Opponent factor</span><span style="font-size: 13px; font-weight: 600; color: var(--danger);">-1.1 · BAL vs WR</span><span class="note">BAL allows 28.1 pts/g to WR</span></div>
+    </div>
+  </div>
+
+  <div class="card stack" style="padding: 14px 16px; gap: 10px;">
+    <div class="row" style="justify-content: space-between;"><span class="label">Projection</span><span class="note">Endzone Forecast</span></div>
+    <div class="row" style="gap: 14px; align-items: baseline;"><span class="display num" style="font-size: 34px; font-weight: 700; line-height: 1;">16.3</span><span class="note num">WR12 this week · floor 6.4 · ceiling 24.1</span></div>
+    <div class="range" style="margin: 6px 0 2px;"><div class="band" style="left: 21%; right: 20%;"></div><div class="tick" style="left: 54%;"></div></div>
+    <div class="row num" style="justify-content: space-between; font-size: 11px; color: var(--faint);"><span>0</span><span>10</span><span>20</span><span>30</span></div>
+    <div class="row" style="gap: 8px; font-size: 12px; color: var(--dim);"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 9v5M10 6.5v.5"/></svg><span>Injury discount applied: minus 1.8 for a Q tag with a full Friday practice.</span></div>
+  </div>
+
+  <div class="card stack" style="padding: 14px 16px; gap: 4px;">
+    <div class="row" style="justify-content: space-between; margin-bottom: 4px;"><span class="label">Usage · last 3 weeks (2 played)</span><span class="row num label" style="gap: 8px; font-size: 10px;"><span style="width: 52px; text-align: right;">Wk 1</span><span style="width: 52px; text-align: right;">Wk 2</span><span style="width: 52px; text-align: right;">Avg</span></span></div>
+    <div class="row num" style="gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px;"><span class="grow" style="color: var(--dim);">Targets</span><span style="width: 52px; text-align: right; ">12</span><span style="width: 52px; text-align: right; ">9</span><span style="width: 52px; text-align: right; font-weight: 600;">10.5</span></div>
+    <div class="row num" style="gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px;"><span class="grow" style="color: var(--dim);">Target share</span><span style="width: 52px; text-align: right; ">31%</span><span style="width: 52px; text-align: right; ">26%</span><span style="width: 52px; text-align: right; font-weight: 600;">28%</span></div>
+    <div class="row num" style="gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px;"><span class="grow" style="color: var(--dim);">Carries</span><span style="width: 52px; text-align: right; ">1</span><span style="width: 52px; text-align: right; ">0</span><span style="width: 52px; text-align: right; font-weight: 600;">0.5</span></div>
+    <div class="row num" style="gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px;"><span class="grow" style="color: var(--dim);">Air yards</span><span style="width: 52px; text-align: right; ">118</span><span style="width: 52px; text-align: right; ">94</span><span style="width: 52px; text-align: right; font-weight: 600;">106</span></div>
+    <div class="row num" style="gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px;"><span class="grow" style="color: var(--dim);">Fantasy pts</span><span style="width: 52px; text-align: right; ">21.4</span><span style="width: 52px; text-align: right; ">13.8</span><span style="width: 52px; text-align: right; font-weight: 600;">17.6</span></div>
+    <div class="row" style="gap: 8px; font-size: 12px; color: var(--dim); padding-top: 8px;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14l5-5 3 3 6-6"/><path d="M13 6h4v4"/></svg><span>Top-3 WR in targets both weeks. Usage is not the question, the ankle is.</span></div>
+  </div>
+
+  <div class="card stack" style="padding: 14px 16px; gap: 8px;">
+    <span class="label">Bench options for this slot</span>
+    <div class="row" style="gap: 12px; padding: 8px 0; border-top: 1px solid var(--line);"><div class="stack grow" style="min-width: 0; gap: 1px;"><span style="font-weight: 600; font-size: 13px;">Rashee Rice</span><span class="note">WR · KC vs ATL · 4:25</span></div><span class="note ellip" style="max-width: 150px;">Higher floor, healthy</span><span class="display num" style="font-size: 20px; font-weight: 700;">15.8</span><div class="btn sm">Swap</div></div><div class="row" style="gap: 12px; padding: 8px 0; border-top: 1px solid var(--line);"><div class="stack grow" style="min-width: 0; gap: 1px;"><span style="font-weight: 600; font-size: 13px;">Jayden Reed</span><span class="note">WR · GB @ LV · Mon</span></div><span class="note ellip" style="max-width: 150px;">Keeps a Monday hedge</span><span class="display num" style="font-size: 20px; font-weight: 700;">12.4</span><div class="btn sm">Swap</div></div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},"$preview":{"width":560,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme === 'light' ? 'light' : 'dark' };
+  }
+}
+</script>
+</body>
+</html>
