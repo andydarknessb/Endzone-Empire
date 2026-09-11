@@ -240,6 +240,12 @@ test('syncAdp match guard: enough usable entries but too few matching a roster r
   });
   assert.equal(fake.matching(update('players')).length, 0, 'the market must not be wiped');
   assert.equal(fake.matching(select('players')).length, 1, 'unlike thin_market, this guard runs after the roster is read');
+  // Same invariant the thin_market test pins (line ~197 above): a refused run
+  // never opens a transaction, whether it is refused for too few entries or
+  // too few matches. Without a registered advisory-lock handler, a guard that
+  // moved inside runSyncJob's transaction would throw "unexpected query" on
+  // that statement rather than merely leave a stray BEGIN uncaught here.
+  assert.equal(fake.matching(/^BEGIN$/).length, 0, 'no transaction is opened on a refused run');
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1, 'exactly one run recorded');
   assert.equal(runOk(runs[0]), false);
