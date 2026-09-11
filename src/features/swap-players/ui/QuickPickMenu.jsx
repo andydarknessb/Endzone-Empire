@@ -8,7 +8,13 @@ import { Menu, MenuItem } from '@mui/material';
  */
 export default function QuickPickMenu({ quickPick, eligible, onClose, onSelect }) {
   return (
-    <Menu anchorEl={quickPick?.anchorEl} open={Boolean(quickPick)} onClose={onClose} data-testid="quick-pick-menu">
+    <Menu
+      anchorEl={quickPick?.anchorEl}
+      open={Boolean(quickPick)}
+      onClose={onClose}
+      data-testid="quick-pick-menu"
+      MenuListProps={{ 'aria-label': 'Eligible players' }}
+    >
       {eligible.length === 0 ? (
         <MenuItem disabled>No eligible players available</MenuItem>
       ) : (

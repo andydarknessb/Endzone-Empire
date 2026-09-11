@@ -111,13 +111,18 @@ export default function LineupLedger({
       </Box>
 
       {/* Bottom tab bar (AC8): only below `sm`, where the two columns above
-          collapse to one. `role="tablist"`/`role="tab"` names the pair
-          without inventing a bespoke pattern; `aria-selected` carries which
-          panel is showing since the panels above are plain, unlabelled Boxes
-          rather than full tabpanel semantics (the page's own landmarks
-          already carry the real navigable structure). */}
+          collapse to one. Plain toggle buttons with `aria-pressed`, NOT
+          `role="tablist"`/`role="tab"`: the ARIA tabs pattern is a
+          behavioural contract (arrow-key roving tabindex, `aria-controls`
+          pointing at a real `role="tabpanel"`) this pair does not implement,
+          and reviewed as a violation for exactly that reason - a screen
+          reader trains a user to press Left/Right on a "tab" and nothing
+          would happen. `aria-pressed` makes the same true claim ("this
+          control is a toggle, and here is its state") without promising
+          keyboard behaviour that isn't there, matching PickWeek's own
+          "All weeks" toggle button (src/features/pick-week/ui/PickWeek.jsx). */}
       <Box
-        role="tablist"
+        role="group"
         aria-label="Lineup section"
         data-testid="lineup-mobile-tabs"
         sx={{
@@ -140,8 +145,7 @@ export default function LineupLedger({
             key={tab.key}
             component="button"
             type="button"
-            role="tab"
-            aria-selected={mobileTab === tab.key}
+            aria-pressed={mobileTab === tab.key}
             onClick={() => setMobileTab(tab.key)}
             sx={{
               ...MIN_TOUCH_TARGET_SX,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LedgerRow from './LedgerRow';
 
@@ -88,7 +88,9 @@ test('a final Game cell shows the final score', () => {
   );
   const cell = screen.getByTestId('ledger-game-cell');
   expect(cell).toHaveAttribute('data-game-state', 'final');
-  expect(cell).toHaveTextContent('27-20');
+  // "Final" is a real word, not implied by colour/chip variant alone (a
+  // final Game cell must be distinguishable the same way pre and live are).
+  expect(cell).toHaveTextContent('Final 27-20');
 });
 
 test('a live Game cell shows the clock and score (placeholder, no situation)', () => {
@@ -171,4 +173,54 @@ test('canDrop renders a drop control that calls onRequestDrop without triggering
 test('canDrop=false renders no drop control', () => {
   render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByRole('button', { name: /drop/i })).toBeNull();
+});
+
+// Regression for a review finding: the drop control used to be nested
+// inside the row's own role="button", so its Enter/Space keydown bubbled up
+// into the row's handler, silently starting a swap instead of dropping the
+// player - a keyboard-only user could never reach Drop. Drop is now a
+// sibling control, so this must never happen again.
+test('activating the drop control by keyboard drops the player, not the row', async () => {
+  const onClick = jest.fn();
+  const onRequestDrop = jest.fn();
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry()}
+      onClick={onClick}
+      canDrop
+      onRequestDrop={onRequestDrop}
+      data-testid="row"
+    />
+  );
+  act(() => screen.getByRole('button', { name: /drop josh allen/i }).focus());
+  await userEvent.keyboard('{Enter}');
+  expect(onRequestDrop).toHaveBeenCalledWith(entry());
+  expect(onClick).not.toHaveBeenCalled();
+});
+
+test('the row has one concise accessible name rather than its concatenated content', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry({ locked: true, edge: { kind: 'factor', text: 'Matchup +3.5' } })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('row')).toHaveAttribute('aria-label', 'Josh Allen, QB, locked');
+});
+
+test('an empty slot has an accessible name naming the slot', () => {
+  render(<LedgerRow slotLabel="WR 2" entry={null} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row')).toHaveAttribute('aria-label', 'Empty WR 2 slot');
+});
+
+test('the drop control is a sibling of the row, not nested inside it (no nested-interactive)', () => {
+  render(
+    <LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />
+  );
+  const dropButton = screen.getByRole('button', { name: /drop josh allen/i });
+  const row = screen.getByTestId('row');
+  expect(row).not.toContainElement(dropButton);
 });

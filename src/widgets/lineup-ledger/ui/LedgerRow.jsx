@@ -46,7 +46,10 @@ function GameCell({ entry, liveRow }) {
     const score = view.teamScore != null && view.opponentScore != null ? `${view.teamScore}-${view.opponentScore} · ` : '';
     return <GameStateChip state="live" data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>;
   }
-  const score = view.teamScore != null && view.opponentScore != null ? `${view.teamScore}-${view.opponentScore}` : 'Final';
+  // "Final" always carries the word, not just the chip's colour (a final
+  // state must not be distinguishable by colour/absence alone, matching the
+  // "pre" and "live" states, which both carry a word of their own).
+  const score = view.teamScore != null && view.opponentScore != null ? `Final ${view.teamScore}-${view.opponentScore}` : 'Final';
   return <GameStateChip state="final" data-testid="ledger-game-cell">{score}</GameStateChip>;
 }
 
@@ -128,42 +131,68 @@ export default function LedgerRow({
     }
   };
 
+  // The row's own accessible name (WAI-ARIA accname: an explicit aria-label
+  // wins outright over the button's accumulated content), so a screen
+  // reader hears one concise phrase per row rather than every chip, the
+  // Edge line and the visually-hidden points caption concatenated together.
+  // Drop is a SIBLING control (see below), not a descendant, so it plays no
+  // part in this label and its own Enter/Space keydown can never bubble
+  // into this row's handler - the fix for both the nested-interactive
+  // violation and the keyboard-unreachable Drop control found in review.
+  const rowLabel = isEmpty
+    ? `Empty ${slotLabel} slot`
+    : [
+        entry.name,
+        slotLabel,
+        entry.locked && 'locked',
+        unavailable && (unavailableLabel(entry.availability.reason) || 'unavailable'),
+      ].filter(Boolean).join(', ');
+
   return (
     <Box
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-disabled={disabled || undefined}
-      aria-pressed={selected || undefined}
-      data-testid={testId}
-      data-spent={entry?.spent ? 'true' : undefined}
-      onClick={disabled ? undefined : onClick}
-      onKeyDown={handleKeyDown}
       sx={{
         display: 'flex',
         alignItems: { xs: 'flex-start', sm: 'center' },
-        flexWrap: 'wrap',
-        gap: '10px',
-        p: '10px 12px',
+        gap: '8px',
         mb: '8px',
-        borderRadius: 'var(--dash-radius-sm)',
-        border: '1px solid',
-        borderStyle: isEmpty ? 'dashed' : 'solid',
-        borderColor: selected || swapHighlighted
-          ? 'var(--dash-accent-line)'
-          : showEligibility && eligible
-            ? 'var(--dash-accent-line)'
-            : entry?.spent
-              ? 'var(--dash-warning)'
-              : 'var(--dash-line)',
-        backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
-          ? 'var(--dash-accent-soft)'
-          : 'var(--dash-surface)',
-        opacity: showEligibility && !eligible && !selected ? 0.45 : 1,
-        cursor: disabled ? 'default' : 'pointer',
-        outline: 'none',
-        '&:focus-visible': { boxShadow: '0 0 0 2px var(--focus-ring)' },
       }}
     >
+      <Box
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled || undefined}
+        aria-pressed={Boolean(selected)}
+        aria-label={rowLabel}
+        data-testid={testId}
+        data-spent={entry?.spent ? 'true' : undefined}
+        onClick={disabled ? undefined : onClick}
+        onKeyDown={handleKeyDown}
+        sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          display: 'flex',
+          alignItems: { xs: 'flex-start', sm: 'center' },
+          flexWrap: 'wrap',
+          gap: '10px',
+          p: '10px 12px',
+          borderRadius: 'var(--dash-radius-sm)',
+          border: '1px solid',
+          borderStyle: isEmpty ? 'dashed' : 'solid',
+          borderColor: selected || swapHighlighted
+            ? 'var(--dash-accent-line)'
+            : showEligibility && eligible
+              ? 'var(--dash-accent-line)'
+              : entry?.spent
+                ? 'var(--dash-warning)'
+                : 'var(--dash-line)',
+          backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
+            ? 'var(--dash-accent-soft)'
+            : 'var(--dash-surface)',
+          opacity: showEligibility && !eligible && !selected ? 0.45 : 1,
+          cursor: disabled ? 'default' : 'pointer',
+          '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
+        }}
+      >
       <PosChip position={slotLabel} data-testid="ledger-slot-chip" />
 
       {isEmpty ? (
@@ -190,7 +219,20 @@ export default function LedgerRow({
               <InjuryTag status={entry.injuryStatus} />
               {entry.locked && (
                 <Tooltip title="Locked: this player's game has kicked off">
-                  <Box component="span" data-testid="ledger-lock-icon" sx={{ display: 'flex', color: 'var(--dash-faint)' }}>
+                  {/* role="img" legitimizes the aria-label on this otherwise
+                      generic span (WAI-ARIA: aria-label is only valid on an
+                      element with an appropriate role) - the same pattern
+                      TeamAvatar's wrapper and my-team-summary's avatar
+                      wrapper already use, rather than relying on MUI
+                      Tooltip's own child-labelling, which would land the
+                      same aria-label on a bare, non-focusable span. */}
+                  <Box
+                    component="span"
+                    role="img"
+                    aria-label="Locked: this player's game has kicked off"
+                    data-testid="ledger-lock-icon"
+                    sx={{ display: 'flex', color: 'var(--dash-faint)' }}
+                  >
                     <LockIcon />
                   </Box>
                 </Tooltip>
@@ -249,24 +291,31 @@ export default function LedgerRow({
                 <span style={visuallyHidden}>Points not available yet</span>
               </Typography>
             </Box>
-
-            {canDrop && (
-              <Tooltip title="Drop player">
-                <IconButton
-                  size="small"
-                  aria-label={`Drop ${entry.name}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onRequestDrop?.(entry);
-                  }}
-                  sx={{ color: 'var(--dash-danger)' }}
-                >
-                  <DropIcon />
-                </IconButton>
-              </Tooltip>
-            )}
           </Box>
         </>
+      )}
+      </Box>
+
+      {/* Drop is a SIBLING of the row's own role="button", not a descendant
+          of it: nesting a real <button> inside role="button" is an
+          axe-core `nested-interactive` violation, is not reliably exposed
+          to a screen reader, and (found in review) let this control's own
+          Enter/Space keydown bubble up into the row's handler, silently
+          starting a swap instead of dropping the player - a keyboard user
+          could never reach Drop at all. As a sibling it is independently
+          focusable and its own native button semantics handle Enter/Space
+          without the row's handler ever seeing the event. */}
+      {canDrop && (
+        <Tooltip title="Drop player">
+          <IconButton
+            size="small"
+            aria-label={`Drop ${entry.name}`}
+            onClick={() => onRequestDrop?.(entry)}
+            sx={{ color: 'var(--dash-danger)', flex: 'none' }}
+          >
+            <DropIcon />
+          </IconButton>
+        </Tooltip>
       )}
     </Box>
   );

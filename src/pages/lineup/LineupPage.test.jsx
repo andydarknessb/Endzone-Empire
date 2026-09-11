@@ -287,13 +287,13 @@ test('the narrow layout renders a bottom Starters/Bench tab bar with 44px target
   renderPage();
   await screen.findByText('Josh Allen');
   const tabs = screen.getByTestId('lineup-mobile-tabs');
-  expect(tabs).toHaveAttribute('role', 'tablist');
-  const buttons = within(tabs).getAllByRole('tab');
+  expect(tabs).toHaveAttribute('role', 'group');
+  const buttons = within(tabs).getAllByRole('button');
   expect(buttons.map((b) => b.textContent)).toEqual(['Starters', 'Bench']);
-  expect(buttons[0]).toHaveAttribute('aria-selected', 'true');
+  expect(buttons[0]).toHaveAttribute('aria-pressed', 'true');
   const user = userEvent.setup();
   await user.click(buttons[1]);
-  expect(buttons[1]).toHaveAttribute('aria-selected', 'true');
+  expect(buttons[1]).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('no "optimal", "optimize" or "range" copy, and no em-dashes, anywhere on the page', async () => {
