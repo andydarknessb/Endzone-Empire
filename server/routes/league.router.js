@@ -1225,9 +1225,11 @@ router.get('/:id/draft-grades', async (req, res) => {
 });
 
 // GET /api/league/:id/history — archived seasons: standings, champions,
-// outcome, trophies, and draft grades per completed season. One
-// seasonArchive() read decides champions and outcome server-side; the route
-// only adds membership and the deprecated singular `champion` projection.
+// outcome, trophies, and draft grades per completed season, plus `allTime`
+// (#1212): the League's all-time Team roster (championships and the
+// all-time Record, CONTEXT.md "Record"). One seasonArchive() read decides
+// all of it server-side; the route only adds membership and the deprecated
+// singular `champion` projection.
 router.get('/:id/history', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -1236,7 +1238,8 @@ router.get('/:id/history', async (req, res) => {
       return res.status(403).json({ error: 'not a member of this league' });
     }
     const { seasonArchive } = require('../services/seasonArchive.service');
-    const seasons = (await seasonArchive({ leagueId })).map((season) => ({
+    const { seasons: archivedSeasons, allTime } = await seasonArchive({ leagueId });
+    const seasons = archivedSeasons.map((season) => ({
       season: season.season,
       outcome: season.outcome,
       champions: season.champions,
@@ -1250,7 +1253,7 @@ router.get('/:id/history', async (req, res) => {
       trophies: season.trophies,
       draftGrades: season.draftGrades,
     }));
-    res.json({ seasons });
+    res.json({ seasons, allTime });
   } catch (error) {
     console.error('Error fetching league history', error);
     res.status(500).json({ error: 'failed to fetch league history' });

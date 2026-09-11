@@ -16,9 +16,21 @@ const pool = require('../modules/pool');
  * scalar column keeps every column typed exactly as a direct SELECT would
  * (`timestamptz[]` still parses to `Date[]`), so the two code paths agree on
  * the wire without a second query.
+ *
+ * `allTime` (#1212) is the League's all-time Team roster: `championships`
+ * plus the all-time Record (CONTEXT.md "Record" — a Team's all-time Record
+ * is the sum of its archived season Records) drawn from every archived
+ * season this same read already fetched. Its one extra ingredient is current
+ * Team identity (CONTEXT.md "Team identity"): the `team_identity_agg` lateral
+ * below `array_agg`s every current `teams` row for the league, correlated
+ * only on `league_id` (not on the season), so it rides on every returned row
+ * unchanged and costs this module a second lateral join rather than a
+ * second `pool.query`. buildAllTime() then sums in JS across every season's
+ * already-decoded `standings` and `champions` — never a second read of
+ * either.
  */
 
-/** One league's archived seasons, newest season first. */
+/** One league's archived seasons (newest first) and its all-time Team roster. */
 async function seasonArchive({ leagueId }) {
   const result = await pool.query(
     `SELECT
@@ -40,10 +52,21 @@ async function seasonArchive({ leagueId }) {
        "trophy_agg"."datas" AS "trophy_datas",
        "trophy_agg"."awarded_ats" AS "trophy_awarded_ats",
        "trophy_agg"."team_names" AS "trophy_team_names",
-       "draft_grades"."grades" AS "draft_grades"
+       "draft_grades"."grades" AS "draft_grades",
+       "team_identity_agg"."ids" AS "all_team_ids",
+       "team_identity_agg"."names" AS "all_team_names",
+       "team_identity_agg"."avatar_urls" AS "all_team_avatar_urls"
      FROM "league_history"
      JOIN "leagues" ON "leagues"."id" = "league_history"."league_id"
      LEFT JOIN "teams" AS "champion_team" ON "champion_team"."id" = "league_history"."champion_team_id"
+     LEFT JOIN LATERAL (
+       SELECT
+         array_agg("teams"."id") AS "ids",
+         array_agg("teams"."name") AS "names",
+         array_agg("teams"."avatar_url") AS "avatar_urls"
+       FROM "teams"
+       WHERE "teams"."league_id" = "league_history"."league_id"
+     ) AS "team_identity_agg" ON true
      LEFT JOIN LATERAL (
        SELECT
          array_agg("trophies"."id" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "ids",
@@ -75,7 +98,9 @@ async function seasonArchive({ leagueId }) {
     [leagueId]
   );
 
-  return result.rows.map(buildSeason);
+  const seasons = result.rows.map(buildSeason);
+  const allTime = buildAllTime(seasons, buildTeamIdentity(result.rows));
+  return { seasons, allTime };
 }
 
 /** Zip one league_history row (plus its lateral aggregates) into a season. */
@@ -151,6 +176,104 @@ function decideChampionsAndOutcome({
   }
 
   return { champions: [], outcome: 'no_champion' };
+}
+
+/**
+ * Current Team identity for every Team in the league, keyed by teamId
+ * (CONTEXT.md "Team identity"): the row set an allTime Team may draw a name
+ * and avatar from. Every returned `result.rows` row carries the identical
+ * `all_team_*` arrays (the lateral is correlated on league_id only), so the
+ * first row is enough; with zero archived seasons there is no row to read
+ * and no teamId that would need one, so an empty map is correct there too.
+ */
+function buildTeamIdentity(rows) {
+  const identity = new Map();
+  const first = rows[0];
+  if (!first || !Array.isArray(first.all_team_ids)) return identity;
+  first.all_team_ids.forEach((teamId, i) => {
+    identity.set(teamId, {
+      name: first.all_team_names[i],
+      avatarUrl: first.all_team_avatar_urls[i],
+    });
+  });
+  return identity;
+}
+
+/**
+ * The League's all-time Team roster (#1212): `championships` plus the
+ * all-time Record (CONTEXT.md "Record"), for every teamId that appears in
+ * any archived season's `standings` or `champions` — never for a current
+ * Team with no archived season (row set rule).
+ *
+ * Record (R2): a Team whose archived standings rows never carry a numeric
+ * `wins` (a pick'em Team — CONTEXT.md "Record" is drawn from finalized
+ * regular-season Matchups, which a pick'em League has none of) keeps
+ * `wins`/`losses`/`ties` at `null`. It is never coerced to `0`, because a
+ * pick'em Team going 0-0 would invent a Record that never happened. A Team
+ * that does have a numeric Record sums it across every season with one.
+ *
+ * Championships (R3): `seasonArchive` has already decided each season's
+ * `champions` (co-champions each own array element); every teamId in it
+ * gets +1. `champions: []` (no champion) or `champions: null` (undeclared
+ * pick'em) contributes nothing.
+ *
+ * Identity (R4): a teamId with no current `teams` row still gets its row,
+ * with `name: null, avatarUrl: null` — the same convention `seasonArchive`
+ * already follows for a fantasy champion whose Team is gone. It never falls
+ * back to an archived `name`.
+ *
+ * Order (R5): `championships` desc, then `wins` desc (`null` sorts as `0`),
+ * then `teamId` asc.
+ */
+function buildAllTime(seasons, identity) {
+  const totals = new Map();
+
+  const totalFor = (teamId) => {
+    if (!totals.has(teamId)) {
+      totals.set(teamId, { championships: 0, wins: null, losses: null, ties: null });
+    }
+    return totals.get(teamId);
+  };
+
+  for (const season of seasons) {
+    if (Array.isArray(season.standings)) {
+      for (const row of season.standings) {
+        if (row == null || row.teamId == null) continue;
+        if (typeof row.wins !== 'number') continue;
+        const total = totalFor(row.teamId);
+        total.wins = (total.wins ?? 0) + row.wins;
+        total.losses = (total.losses ?? 0) + (row.losses ?? 0);
+        total.ties = (total.ties ?? 0) + (row.ties ?? 0);
+      }
+    }
+    if (Array.isArray(season.champions)) {
+      for (const champion of season.champions) {
+        if (champion == null || champion.teamId == null) continue;
+        totalFor(champion.teamId).championships += 1;
+      }
+    }
+  }
+
+  const rows = Array.from(totals, ([teamId, total]) => {
+    const teamIdentity = identity.get(teamId);
+    return {
+      teamId,
+      name: teamIdentity ? teamIdentity.name : null,
+      avatarUrl: teamIdentity ? teamIdentity.avatarUrl : null,
+      championships: total.championships,
+      wins: total.wins,
+      losses: total.losses,
+      ties: total.ties,
+    };
+  });
+
+  rows.sort((a, b) => (
+    b.championships - a.championships
+    || (b.wins ?? 0) - (a.wins ?? 0)
+    || a.teamId - b.teamId
+  ));
+
+  return rows;
 }
 
 /** Parallel array_agg columns -> the same shape getLeagueTrophies() rows. */
