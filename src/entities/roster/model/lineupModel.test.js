@@ -500,4 +500,58 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
       opponent: 'MIA',
     });
   });
+
+  // #1235: the decision-context fields (ADR 0037's "lineup entry carries its
+  // decision context"), each a pass-through of the wire's own field.
+  test('projection, floor and ceiling carry through, coerced the same way projectedPoints already is', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', projection: '18.50', floor: '12.00', ceiling: '24.00' })],
+      league
+    );
+    expect(entries[0]).toMatchObject({ projection: 18.5, floor: 12, ceiling: 24 });
+  });
+
+  test('projection, floor and ceiling are null together when the wire has no estimate', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', projection: null, floor: null, ceiling: null })],
+      league
+    );
+    expect(entries[0]).toMatchObject({ projection: null, floor: null, ceiling: null });
+  });
+
+  test('kickoff and gameKey pass through exactly as opponent already does', () => {
+    const withSchedule = lineupEntries(
+      [row({ id: 1, slot: 'QB', kickoff: '2026-11-01T18:00:00Z', game_key: 'BUF-MIA' })],
+      league
+    );
+    expect(withSchedule[0]).toMatchObject({ kickoff: '2026-11-01T18:00:00Z', gameKey: 'BUF-MIA' });
+
+    const onBye = lineupEntries([row({ id: 1, slot: 'QB', kickoff: null, game_key: null })], league);
+    expect(onBye[0]).toMatchObject({ kickoff: null, gameKey: null });
+  });
+
+  test('unavailable is the server\'s own reason, read alongside the locally-derived availability', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB', onBye: true, unavailable: 'bye' })], league);
+    expect(entries[0].unavailable).toBe('bye');
+    expect(entries[0].availability).toEqual({ available: false, reason: 'bye' });
+  });
+
+  test('a wire row without an unavailable key at all produces unavailable: null', () => {
+    const { unavailable, ...rowWithoutUnavailable } = row({ id: 1, slot: 'QB' });
+    const entries = lineupEntries([rowWithoutUnavailable], league);
+    expect(entries[0].unavailable).toBeNull();
+  });
+
+  test('edge carries the server-computed { kind, text } through verbatim', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', edge: { kind: 'factor', text: 'Matchup +3.5' } })],
+      league
+    );
+    expect(entries[0].edge).toEqual({ kind: 'factor', text: 'Matchup +3.5' });
+  });
+
+  test('a wire row without an edge key at all produces edge: null', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB' })], league);
+    expect(entries[0].edge).toBeNull();
+  });
 });
