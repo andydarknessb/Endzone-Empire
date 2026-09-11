@@ -375,3 +375,54 @@ test('upsertRows: a Tank01 fallback row leaves an existing espn_event_id in plac
   const nullSlots = arrays.filter((arr) => arr.length === 1 && arr[0] === null);
   assert.ok(nullSlots.length >= 1, 'the espn_event_id array carries null for a Tank01 row');
 });
+
+// --- upsertRows: Situation (#1233, ADR 0037) ---------------------------------
+
+test('upsertRows: an ESPN row with a Situation writes all four columns', async (t) => {
+  const fake = upsertWorld(t);
+  await upsertRows([
+    {
+      ...ESPN_ROW,
+      possession: 'BUF',
+      downDistance: '1st & 10',
+      isRedZone: false,
+      lastPlay: 'B.Allen pass complete to K.Coleman for 12 yards',
+    },
+  ]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.match(call.text, /"possession"/);
+  assert.match(call.text, /"down_distance"/);
+  assert.match(call.text, /"is_red_zone"/);
+  assert.match(call.text, /"last_play"/);
+  const arrays = call.params.filter(Array.isArray);
+  assert.ok(arrays.some((arr) => arr.includes('BUF')), 'possession rides the unnest arrays');
+  assert.ok(arrays.some((arr) => arr.includes('1st & 10')), 'down_distance rides the unnest arrays');
+  assert.ok(arrays.some((arr) => arr.includes(false)), 'is_red_zone rides the unnest arrays');
+  assert.ok(
+    arrays.some((arr) => arr.includes('B.Allen pass complete to K.Coleman for 12 yards')),
+    'last_play rides the unnest arrays'
+  );
+});
+
+test('upsertRows: Situation is always overwritten, never COALESCEd like espn_event_id (clears on final/Tank01)', async (t) => {
+  const fake = upsertWorld(t);
+  const tank01Row = normalizeLiveGameEntry(
+    {
+      away: 'BUF', home: 'NYJ', gameID: '20260913_BUF@NYJ', awayPts: '14', homePts: '10',
+      gameClock: '8:42', lineScore: { period: 'Q3', gameClock: '8:42' },
+      gameStatus: 'In Progress', gameStatusCode: '1',
+    },
+    { season: 2026, week: 2 }
+  );
+  await upsertRows([tank01Row]); // Tank01 carries no Situation at all
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.doesNotMatch(
+    call.text,
+    /"possession" = COALESCE/,
+    'possession is always the new value, so a stale one never survives a final or a Tank01 tick'
+  );
+  const arrays = call.params.filter(Array.isArray);
+  const nullSlots = arrays.filter((arr) => arr.length === 1 && arr[0] === null);
+  // espn_event_id, possession, down_distance, is_red_zone, last_play: five null slots.
+  assert.ok(nullSlots.length >= 5, `expected at least 5 null slots, got ${nullSlots.length}`);
+});

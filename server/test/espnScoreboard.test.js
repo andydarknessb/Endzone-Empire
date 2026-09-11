@@ -119,6 +119,11 @@ test('normalizeEspnEvent: a real final event maps to our row shape', () => {
       quarter: 'Final',
       timeRemaining: null, // '0:00' is noise once a game is over
       espnEventId: '401772510', // ESPN's event id, the summary endpoint's key (#1182)
+      // a final game carries no Situation
+      possession: null,
+      downDistance: null,
+      isRedZone: null,
+      lastPlay: null,
     }
   );
 });
@@ -150,6 +155,141 @@ test('normalizeEspnEvent: an in-progress event carries the clock through', () =>
   assert.equal(row.quarter, 'Q3');
   assert.equal(row.timeRemaining, '8:42');
   assert.equal(row.tank01GameId, '20260913_BUF@NYJ');
+  // no situation block on this payload -> all four null, same as an absent block
+  assert.equal(row.possession, null);
+  assert.equal(row.downDistance, null);
+  assert.equal(row.isRedZone, null);
+  assert.equal(row.lastPlay, null);
+});
+
+// --- Situation (#1233, ADR 0037) ---------------------------------------------
+
+test('normalizeEspnEvent: an in-progress event with a situation block parses all four Situation fields', () => {
+  const event = fixture.events.find((e) => e.shortName === 'BUF @ MIA');
+  const row = normalizeEspnEvent(event, { season: 2026, week: 2 });
+  assert.equal(row.gameStatus, 'in_progress');
+  assert.equal(row.possession, 'BUF'); // situation.possession is a team id, not an abbreviation
+  assert.equal(row.downDistance, '1st & 10');
+  assert.equal(row.isRedZone, false);
+  assert.equal(row.lastPlay, 'B.Allen pass complete to K.Coleman for 12 yards');
+});
+
+test('normalizeEspnEvent: possession is resolved through the competitors by team id, not abbreviation', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { displayClock: '2:00', period: 2, type: { state: 'in' } },
+          // '28' names a competitor's team.id; it is not either team's abbreviation.
+          situation: { isRedZone: true, possession: '28', shortDownDistanceText: '3rd & 2' },
+          competitors: [
+            { homeAway: 'home', score: '10', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.possession, 'DEN');
+  assert.equal(row.isRedZone, true);
+});
+
+test('normalizeEspnEvent: possession is folded through the same Team code normalisation as home/away', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { displayClock: '2:00', period: 2, type: { state: 'in' } },
+          situation: { isRedZone: false, possession: '15', shortDownDistanceText: '2nd & 5' },
+          competitors: [
+            { homeAway: 'home', score: '10', team: { id: '15', abbreviation: 'WAS' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'NYG' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  // Same fold espnAbbrToOurs already applies to home/away: WAS -> our WSH.
+  assert.equal(row.possession, 'WSH');
+});
+
+test('normalizeEspnEvent: possession that cannot be resolved is null, the other three fields still parse', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { displayClock: '2:00', period: 2, type: { state: 'in' } },
+          situation: {
+            isRedZone: true,
+            possession: 'not-a-competitor',
+            shortDownDistanceText: '3rd & 2',
+            lastPlay: { text: 'Timeout' },
+          },
+          competitors: [
+            { homeAway: 'home', score: '10', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.possession, null);
+  assert.equal(row.downDistance, '3rd & 2');
+  assert.equal(row.isRedZone, true);
+  assert.equal(row.lastPlay, 'Timeout');
+});
+
+test('normalizeEspnEvent: a scheduled event carries no Situation even if a stray block is present', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { type: { state: 'pre' } },
+          situation: { possession: '15', shortDownDistanceText: '1st & 10', isRedZone: false },
+          competitors: [
+            { homeAway: 'home', score: '0', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '0', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.gameStatus, 'scheduled');
+  assert.equal(row.possession, null);
+  assert.equal(row.downDistance, null);
+  assert.equal(row.isRedZone, null);
+  assert.equal(row.lastPlay, null);
+});
+
+test('normalizeEspnEvent: an in-progress event with the situation block absent (timeout/halftime) clears all four', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { type: { state: 'in' } },
+          competitors: [
+            { homeAway: 'home', score: '10', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.gameStatus, 'in_progress');
+  assert.equal(row.possession, null);
+  assert.equal(row.downDistance, null);
+  assert.equal(row.isRedZone, null);
+  assert.equal(row.lastPlay, null);
 });
 
 test('normalizeEspnEvent: a Washington game keeps WSH in the id', () => {
@@ -224,9 +364,9 @@ test('normalizeEspnEvent: events missing anything load-bearing -> null', () => {
 
 // --- whole-payload normalization --------------------------------------------
 
-test('normalizeEspnScoreboard: a real 16-game week normalizes completely', () => {
+test('normalizeEspnScoreboard: a real 16-game week (plus one in-progress fixture event for Situation, #1233) normalizes completely', () => {
   const { rows, dropped } = normalizeEspnScoreboard(fixture, { season: 2025, week: 1 });
-  assert.equal(rows.length, 16);
+  assert.equal(rows.length, 17);
   assert.deepEqual(dropped, []);
   for (const row of rows) {
     assert.match(row.tank01GameId, /^\d{8}_[A-Z]{2,3}@[A-Z]{2,3}$/);
@@ -234,7 +374,7 @@ test('normalizeEspnScoreboard: a real 16-game week normalizes completely', () =>
     assert.equal(row.week, 1);
     assert.ok(['scheduled', 'in_progress', 'final'].includes(row.gameStatus));
   }
-  assert.equal(new Set(rows.map((r) => r.tank01GameId)).size, 16, 'ids are unique');
+  assert.equal(new Set(rows.map((r) => r.tank01GameId)).size, 17, 'ids are unique');
 });
 
 test('normalizeEspnScoreboard: the Friday Brazil game is dated in ET, not UTC', () => {
@@ -306,5 +446,5 @@ test('fetchLiveRows: hits the free scoreboard endpoint with (week, seasontype, d
   assert.equal(seen.length, 1);
   assert.match(seen[0].url, /site\.api\.espn\.com/);
   assert.deepEqual(seen[0].params, { week: 1, seasontype: 2, dates: 2025 });
-  assert.equal(rows.length, 16);
+  assert.equal(rows.length, 17);
 });
