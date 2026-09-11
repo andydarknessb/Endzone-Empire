@@ -217,6 +217,34 @@ test('normalizeEspnEvent: possession is folded through the same Team code normal
   assert.equal(row.possession, 'WSH');
 });
 
+test('normalizeEspnEvent: a present situation block missing isRedZone is null, not false; the other fields still parse', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { displayClock: '2:00', period: 2, type: { state: 'in' } },
+          situation: {
+            possession: '15',
+            shortDownDistanceText: '2nd & 5',
+            lastPlay: { text: 'Timeout, Kansas City' },
+            // isRedZone key entirely absent — an unobserved fact, not "no".
+          },
+          competitors: [
+            { homeAway: 'home', score: '10', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.isRedZone, null);
+  assert.equal(row.possession, 'KC');
+  assert.equal(row.downDistance, '2nd & 5');
+  assert.equal(row.lastPlay, 'Timeout, Kansas City');
+});
+
 test('normalizeEspnEvent: possession that cannot be resolved is null, the other three fields still parse', () => {
   const row = normalizeEspnEvent(
     {

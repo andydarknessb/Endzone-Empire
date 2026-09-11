@@ -155,7 +155,10 @@ function normalizeEspnSituation(situation, competitors) {
   return {
     possession: resolvePossession(situation.possession, competitors),
     downDistance: situation.shortDownDistanceText || situation.downDistanceText || null,
-    isRedZone: situation.isRedZone === true,
+    // A present block missing the key is an unobserved fact, not "not in the
+    // red zone" — null it like every other missing subfield, rather than
+    // defaulting to false (pl-endzone formal review, #1233).
+    isRedZone: typeof situation.isRedZone === 'boolean' ? situation.isRedZone : null,
     lastPlay: situation.lastPlay && situation.lastPlay.text ? String(situation.lastPlay.text) : null,
   };
 }
