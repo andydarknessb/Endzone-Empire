@@ -279,13 +279,21 @@ function availabilityFor(entry) {
  * calling this.
  *
  * The shape: `{ playerId, name, position, nflTeam, slot, slotIndex,
- * eligibleSlots, locked, availability: { available, reason },
- * projectedPoints, opponent }`. `slotIndex` is the entry's position in the
+ * eligibleSlots, locked, availability: { available, reason }, unavailable,
+ * projectedPoints, projection, floor, ceiling, opponent, kickoff, gameKey,
+ * edge: { kind, text } }`. `slotIndex` is the entry's position in the
  * league's own slot order; a slot the entries carry that the order does not
  * name (BENCH, IR, or a stray key) is appended after the ordered slots, in
  * the order first seen, mirroring `pairStartersBySlot`'s same rule. The
  * returned array is sorted by `slotIndex`, so a caller reads entries already
  * in the league's order rather than sorting them itself.
+ *
+ * `projection` (the Weekly projection's mean), `floor` (its Interval's p10)
+ * and `ceiling` (its p90), `kickoff`, `gameKey`, `unavailable` and `edge` all
+ * arrived with #1235 (ADR 0037: the lineup entry carries its decision
+ * context) - each a straight pass-through of the wire field
+ * `server/services/lineup.service.js`'s `getLineup` now returns, so ticket 5
+ * can render a Ledger row without re-deriving any of them.
  *
  * Nothing consumes this yet (#1207, an expand step under #1198).
  */
@@ -303,6 +311,15 @@ export function lineupEntries(rosterWire, league) {
   const built = rows.map((row) => {
     const r = row || {};
     const points = r.projected_points == null ? NaN : Number(r.projected_points);
+    // Weekly projection mean/Floor(p10)/Ceiling(p90) (CONTEXT.md, Weekly
+    // projection, Interval, Floor and Ceiling; #1235): all three come off the
+    // wire's own `projection`/`floor`/`ceiling` fields, already null together
+    // whenever the server had no estimate (server/services/lineup.service.js),
+    // so this model coerces each independently rather than deriving one from
+    // another.
+    const projection = r.projection == null ? NaN : Number(r.projection);
+    const floor = r.floor == null ? NaN : Number(r.floor);
+    const ceiling = r.ceiling == null ? NaN : Number(r.ceiling);
     const entry = {
       playerId: r.id ?? null,
       name: r.name ?? null,
@@ -310,8 +327,16 @@ export function lineupEntries(rosterWire, league) {
       nflTeam: r.nfl_team ?? null,
       slot: r.slot ?? null,
       projectedPoints: Number.isFinite(points) ? points : null,
+      projection: Number.isFinite(projection) ? projection : null,
+      floor: Number.isFinite(floor) ? floor : null,
+      ceiling: Number.isFinite(ceiling) ? ceiling : null,
       injuryStatus: r.injury_status ?? null,
       opponent: r.opponent ?? null,
+      // `kickoff` and `gameKey` (#1235) are passed through exactly as the
+      // opponent already was above: a missing key or an explicit `null` both
+      // land as `null`, never derived here.
+      kickoff: r.kickoff ?? null,
+      gameKey: r.game_key ?? null,
       onBye: Boolean(r.onBye),
     };
     return {
@@ -319,6 +344,17 @@ export function lineupEntries(rosterWire, league) {
       eligibleSlots: eligibleSlots(entry, league),
       locked: locked(r),
       availability: availabilityFor(entry),
+      // The server's own Unavailable reason (#1235), passed through
+      // unchanged alongside this model's locally-derived `availability`
+      // above - the two can never disagree, since both ultimately read the
+      // same onBye/injury facts, but a consumer that wants the server's own
+      // answer directly (rather than re-deriving it) can read this field.
+      unavailable: r.unavailable ?? null,
+      // The Edge line (CONTEXT.md, Edge line; ADR 0037; #1235): one typed
+      // `{ kind, text }`, computed on the server (`lineup.service.js`'s
+      // `computeEdgeLine`) and passed through verbatim - this entity draws no
+      // conclusions of its own about why to start a player.
+      edge: row && row.edge ? { kind: row.edge.kind ?? null, text: row.edge.text ?? null } : null,
     };
   });
 

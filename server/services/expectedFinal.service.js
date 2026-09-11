@@ -4,6 +4,7 @@ const { availabilityFor } = require('./projectionModel');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { optimalLineup, parseLineupSettings } = require('./lineup.service');
+const { gameStateFor } = require('./gameState');
 
 /**
  * Expected final (CONTEXT.md, Scoring and the week): a starter's, or a
@@ -62,36 +63,13 @@ function expectedFinalForStarter({ projection, points, gameState, round = true }
   return round ? round2(value) : value;
 }
 
-/**
- * With no live row, a game is taken as over this long after its scheduled
- * kickoff. NFL games run about three and a half hours; five leaves room for
- * a long overtime and a weather delay. Without this bound a week the live
- * engine never covered would keep every starter "in progress" forever, at
- * his full projection and counted as remaining.
- */
-const NO_LIVE_ROW_FINAL_AFTER_MS = 5 * 60 * 60 * 1000;
-
-/**
- * Resolve a starter's game state, pure. `liveStatus` is the live table's
- * status for his team or null; `kickoffAt` is the schedule's kickoff or
- * null; `onBye` means no game this week. The live table wins when it has a
- * row; otherwise the schedule decides: before kickoff not started, after it
- * in progress, and well after it (NO_LIVE_ROW_FINAL_AFTER_MS) final.
- */
-function gameStateFor({ liveStatus, kickoffAt, onBye, points, now }) {
-  if (onBye) return 'final';
-  const actual = Number(points) || 0;
-  if (liveStatus === 'final') return 'final';
-  if (liveStatus === 'in_progress') return 'in_progress';
-  if (liveStatus === 'scheduled') return actual > 0 ? 'in_progress' : 'scheduled';
-  const kickoff = kickoffAt && now ? new Date(kickoffAt).getTime() : null;
-  const at = now ? new Date(now).getTime() : null;
-  if (kickoff != null && Number.isFinite(kickoff) && at != null) {
-    if (at - kickoff >= NO_LIVE_ROW_FINAL_AFTER_MS) return 'final';
-    if (at >= kickoff) return 'in_progress';
-  }
-  return actual > 0 ? 'in_progress' : 'scheduled';
-}
+// `gameStateFor` and `NO_LIVE_ROW_FINAL_AFTER_MS` now live in `./gameState`
+// (#1235), a pure leaf shared with `lineup.service.js`'s Edge line
+// (`pace`/`result`): both surfaces must answer "is this game in progress or
+// final" the same way, or the Lineup and the Matchup surfaces can disagree
+// about the same game. Re-exported below unchanged, so every existing
+// consumer of this module (including this file's own test) keeps resolving
+// the identical function.
 
 /** The earliest of the starters' kickoffs as an ISO string, or null. */
 function earliestKickoff(starters) {

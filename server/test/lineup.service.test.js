@@ -66,6 +66,37 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
   assert.equal(entry.onBye, false);
 });
 
+test('annotateLineupEntries: Unavailable reason and the schedule fields (#1235)', () => {
+  const entries = annotateLineupEntries(
+    [
+      { id: 1, nfl_team: 'CHI', injury_status: null, slot: 'BENCH' }, // on bye
+      { id: 2, nfl_team: 'DAL', injury_status: 'O', slot: 'RB' }, // out
+      { id: 3, nfl_team: 'GB', injury_status: 'IR', slot: 'IR' }, // on IR
+      { id: 4, nfl_team: 'KC', injury_status: 'Q', slot: 'QB' }, // Questionable is not Unavailable
+    ],
+    {
+      locked: new Set(),
+      byeByTeam: new Map([['CHI', 8], ['DAL', null], ['GB', null], ['KC', null]]),
+      opponentByTeam: new Map([
+        ['KC', { opponent: 'DEN', kickoffAt: '2026-11-01T18:00:00Z', gameKey: 'KC-DEN' }],
+      ]),
+      selectedWeek: 8,
+    }
+  );
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  assert.equal(byId.get(1).unavailable, 'bye');
+  // A bye week carries no opponent or kickoff either (issue #1235's own rule).
+  assert.equal(byId.get(1).opponent, null);
+  assert.equal(byId.get(1).kickoff, null);
+  assert.equal(byId.get(1).game_key, null);
+  assert.equal(byId.get(2).unavailable, 'out');
+  assert.equal(byId.get(3).unavailable, 'ir');
+  assert.equal(byId.get(4).unavailable, null);
+  assert.equal(byId.get(4).opponent, 'DEN');
+  assert.equal(byId.get(4).kickoff, '2026-11-01T18:00:00Z');
+  assert.equal(byId.get(4).game_key, 'KC-DEN');
+});
+
 test('getLineup returns league-scored current-week projections and preserves unavailable values', async (t) => {
   const entries = [
     { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
@@ -78,6 +109,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     position: 'QB',
     nfl_team: 'KC',
     injury_status: null,
+    injury_detail: null,
     slot: 'QB',
   };
   const projectionCalls = [];
@@ -87,6 +119,9 @@ test('getLineup returns league-scored current-week projections and preserves una
       [1, { points: '16.25', source: 'forecast' }],
       [2, { points: 0, source: 'forecast' }],
       [3, { points: null, source: 'forecast' }],
+      // A spent row joins this same call (#1235, f2) and gets projection,
+      // floor and ceiling by the same rule as any other entry.
+      [44, { points: 20, projection: { mean: 20, p10: 14, p90: 26, factors: {} } }],
     ]);
   });
   const fake = createFakePool([
@@ -103,7 +138,8 @@ test('getLineup returns league-scored current-week projections and preserves una
     [/^SELECT "players"\."id"/, () => ({ rows: entries })],
     [/^SELECT "players"\."position"/, () => ({ rows: [spentEntry] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132)
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
@@ -112,7 +148,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     season: 2026,
     week: 8,
     league: { id: 5, current_season: 2026, current_week: 8 },
-    playerIds: [1, 2, 3],
+    playerIds: [1, 2, 3, 44],
   }]);
   assert.equal(lineup.entries[0].projected_points, 16.25);
   assert.equal(lineup.entries[1].projected_points, 0);
@@ -130,6 +166,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     position: 'QB',
     nfl_team: 'KC',
     injury_status: null,
+    injury_detail: null,
     slot: 'QB',
     spent: true,
     bye_week: null,
@@ -137,6 +174,18 @@ test('getLineup returns league-scored current-week projections and preserves una
     onBye: false,
     valid_stash: false,
     opponent: null,
+    kickoff: null,
+    game_key: null,
+    unavailable: null,
+    // A spent row joins the one projection read (#1235, f2) and gets
+    // projection/floor/ceiling and an Edge line by the same rule as any
+    // other entry - here 'none', since he carries no injury, no live game
+    // data, and is never the starter side of a bench-above-starter match.
+    projected_points: 20,
+    projection: 20,
+    floor: 14,
+    ceiling: 26,
+    edge: { kind: 'none', text: null },
   });
   fake.assertClean();
 });
@@ -172,14 +221,15 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
-    // weekOpponents (#1132): one row per team with a game that week, no BUF row.
-    [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({
+    // weekOpponents (#1132, #1235): one row per team with a game that week, no BUF row.
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({
       rows: [
-        { nfl_team: 'MIN', opponent: 'GB' },
-        { nfl_team: 'DEN', opponent: 'KC' },
-        { nfl_team: 'MIA', opponent: 'WSH' },
+        { nfl_team: 'MIN', opponent: 'GB', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIN-GB' },
+        { nfl_team: 'DEN', opponent: 'KC', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'DEN-KC' },
+        { nfl_team: 'MIA', opponent: 'WSH', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIA-WSH' },
       ],
     })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
@@ -190,10 +240,12 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
   assert.equal(byId.get(3).opponent, null, 'a team with no row that week carries opponent: null');
   assert.equal(byId.get(4).opponent, 'GB', 'bench entries carry it too');
   assert.equal(byId.get(5).opponent, 'WAS', "a raw-coded WSH opponent value folds to WAS, never the schedule's own spelling");
+  assert.equal(byId.get(1).game_key, 'MIN-GB', 'the game key rides the same schedule read');
+  assert.equal(byId.get(3).kickoff, null, 'a team with no row that week carries kickoff: null too');
   assert.equal(
-    fake.matching(/^SELECT "nfl_team", "opponent" FROM "nfl_games"/).length,
+    fake.matching(/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/).length,
     1,
-    'one schedule read for the opponent join, not one per entry'
+    'one schedule read for the opponent/kickoff/game-key join, not one per entry'
   );
   fake.assertClean();
 });
@@ -1951,7 +2003,8 @@ function lineupWorld(t, {
       rows: Object.keys(L_SCHEDULE).map((nfl_team) => ({ nfl_team })),
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: byeRows })],
-    [/^SELECT "nfl_team", "opponent" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132)
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
   ]).install(t);
 }
 
