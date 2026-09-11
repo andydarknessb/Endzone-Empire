@@ -898,6 +898,14 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   });
 
   const applied = runResult && runResult.results ? runResult.results : [runResult];
+  // Notify the Live box source switch (ADR 0035) once each Final box's
+  // transaction has actually COMMITted - never from inside applyWeekStatsUnit
+  // itself (qa-reviewer #1202 risk review): a rolled-back unit must not leave
+  // the in-memory "Final box landed" memo out of step with the DB.
+  const noteFinal = require('../modules/liveBox').noteFinalBoxApplied;
+  for (const r of applied) {
+    if (r && r.isFinal) noteFinal(r.gameId);
+  }
   return {
     season,
     week,
@@ -958,19 +966,30 @@ async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
  * the units applied in earlier iterations stay applied, since each already
  * committed in its own transaction. `failedFetches` rides along on every
  * successful unit's result so it lands in the run's recorded detail.
+ *
+ * Stamps `final_stats_synced_at` inside this unit's own transaction (so the
+ * stamp commits or rolls back with that game's stats), but does NOT notify
+ * the Live box source switch here - that's an in-memory memo, and firing it
+ * before this unit's transaction actually COMMITs would leave it out of step
+ * with the DB on a ROLLBACK (qa-reviewer #1202 risk review). The caller
+ * notifies once runSyncJob resolves, keyed off `isFinal` in this return value.
  */
 async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, maps, failedFetches }) {
   // The Final box landing writes stats and emits no Scoring plays (the
   // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
   // and that difference is not a new play.
   const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal, client });
-  // A final game's stats are now in: never fetch this box score again, and
-  // refuse any Live box that arrives late for it.
+  // A final game's stats are now in: never fetch this box score again.
   if (target.isFinal) {
     await markFinalStatsSynced(target.gameId, client);
-    require('../modules/liveBox').noteFinalBoxApplied(target.gameId);
   }
-  return { gameId: target.gameId, updated: result.updated, plays: result.plays, skipped: failedFetches };
+  return {
+    gameId: target.gameId,
+    isFinal: target.isFinal,
+    updated: result.updated,
+    plays: result.plays,
+    skipped: failedFetches,
+  };
 }
 
 /**
