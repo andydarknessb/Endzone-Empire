@@ -208,7 +208,11 @@ if (!ENABLED) {
 
     assert.deepEqual(noChampion.trophies, [], 'a season with no trophies gets [], not null, and nothing leaks in from another season');
 
-    assert.deepEqual(withChampion.draftGrades, { grades: [{ teamId: champTeamId, name: 'Fantasy Champs', grade: 'A' }] });
+    // draftGrades is `data -> 'grades'` (the array itself), matching what the
+    // pre-ticket route served (`gradesResult.rows[0].data.grades`) and what
+    // LeagueHistory.jsx's `Array.isArray(season.draftGrades)` expects - not
+    // the `{ grades: [...] }` wrapper `league_analytics.data` stores.
+    assert.deepEqual(withChampion.draftGrades, [{ teamId: champTeamId, name: 'Fantasy Champs', grade: 'A' }]);
     assert.equal(noChampion.draftGrades, null);
   });
 

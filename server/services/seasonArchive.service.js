@@ -46,16 +46,16 @@ async function seasonArchive({ leagueId }) {
      LEFT JOIN "teams" AS "champion_team" ON "champion_team"."id" = "league_history"."champion_team_id"
      LEFT JOIN LATERAL (
        SELECT
-         array_agg("trophies"."id" ORDER BY "trophies"."awarded_at" DESC) AS "ids",
-         array_agg("trophies"."league_id" ORDER BY "trophies"."awarded_at" DESC) AS "league_ids",
-         array_agg("trophies"."team_id" ORDER BY "trophies"."awarded_at" DESC) AS "team_ids",
-         array_agg("trophies"."season" ORDER BY "trophies"."awarded_at" DESC) AS "seasons",
-         array_agg("trophies"."week" ORDER BY "trophies"."awarded_at" DESC) AS "weeks",
-         array_agg("trophies"."type" ORDER BY "trophies"."awarded_at" DESC) AS "types",
-         array_agg("trophies"."label" ORDER BY "trophies"."awarded_at" DESC) AS "labels",
-         array_agg("trophies"."data" ORDER BY "trophies"."awarded_at" DESC) AS "datas",
-         array_agg("trophies"."awarded_at" ORDER BY "trophies"."awarded_at" DESC) AS "awarded_ats",
-         array_agg("trophy_team"."name" ORDER BY "trophies"."awarded_at" DESC) AS "team_names"
+         array_agg("trophies"."id" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "ids",
+         array_agg("trophies"."league_id" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "league_ids",
+         array_agg("trophies"."team_id" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "team_ids",
+         array_agg("trophies"."season" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "seasons",
+         array_agg("trophies"."week" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "weeks",
+         array_agg("trophies"."type" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "types",
+         array_agg("trophies"."label" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "labels",
+         array_agg("trophies"."data" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "datas",
+         array_agg("trophies"."awarded_at" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "awarded_ats",
+         array_agg("trophy_team"."name" ORDER BY "trophies"."awarded_at" DESC, "trophies"."id" DESC) AS "team_names"
        FROM "trophies"
        JOIN "teams" AS "trophy_team" ON "trophy_team"."id" = "trophies"."team_id"
        WHERE "trophies"."league_id" = "league_history"."league_id"
@@ -100,15 +100,6 @@ function buildSeason(row) {
     standings: row.standings,
     trophies: zipTrophies(row),
     draftGrades: row.draft_grades != null ? row.draft_grades : null,
-    // Raw fields the route needs to build its deprecated `champion`
-    // compatibility projection unchanged; not part of the module's public
-    // wire shape (that's `champions`/`outcome` above).
-    pickemResult,
-    pickemOnly: row.pickem_only,
-    championTeamId: row.champion_team_id,
-    championName: row.champion_name,
-    championAvatarUrl: row.champion_avatar_url,
-    championAvatarStaticUrl: row.champion_avatar_static_url,
   };
 }
 
