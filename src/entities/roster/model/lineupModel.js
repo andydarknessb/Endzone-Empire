@@ -38,10 +38,50 @@
  * "Doubtful", "Out", "IR") means the feed has flagged the player as
  * something other than healthy, and this model does not narrow that to the
  * literal string "Questionable".
+ *
+ * This module also carries three more roster/lineup facts (#1207, part of
+ * #1198's expand step; nothing consumes them yet):
+ *
+ *   - `pairStartersBySlot`, moved here byte-for-byte from
+ *     `entities/matchup/model/matchupModel.js` (which re-exports it for one
+ *     release) - pairing two sides' starters by slot is a fact about the
+ *     Lineup, not the Matchup.
+ *   - `eligibleSlots(entry, league)` and `locked(entry)`, exported facts
+ *     mirroring LineupScreen.jsx's slot-eligibility and lock reads.
+ *   - `lineupEntries(rosterWire, league)`, a second read model (distinct
+ *     shape from `lineupModel` above) that normalizes the roster wire into
+ *     the entry shape a future lineup surface will read, ordered by the
+ *     league's own `roster_slots`.
  */
+
+import { parseRosterSlots } from '../../../shared/lib';
 
 const BENCH = 'BENCH';
 const IR = 'IR';
+
+// Mirrors POSITION_GROUPS in server/services/lineup.service.js and
+// LineupScreen.jsx: a slot's configured eligiblePositions may name a
+// defensive GROUP key (DL/LB/DB) rather than a specific position, and it
+// expands to every specific position Tank01 reports in that group.
+const POSITION_GROUPS = {
+  DL: ['DL', 'DE', 'DT', 'NT'],
+  LB: ['LB', 'ILB', 'OLB'],
+  DB: ['DB', 'CB', 'S', 'FS', 'SS'],
+};
+
+// injury_status codes that qualify a player for the IR slot
+// (irPolicy.service.js's IR_ELIGIBLE_DESIGNATIONS, CONTEXT.md's IR-eligible).
+const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
+
+function slotEligiblePositions(rosterSlots, slotKey) {
+  const slot = (rosterSlots || []).find((s) => s.key === slotKey);
+  if (!slot) return [];
+  const out = new Set();
+  for (const p of slot.eligiblePositions || []) {
+    (POSITION_GROUPS[p] || [p]).forEach((m) => out.add(m));
+  }
+  return [...out];
+}
 
 /**
  * One lineup row (the wire's `id`, `name`, `position`, `nfl_team`, `slot`,
@@ -159,6 +199,142 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
     for (let i = 0; i < count; i++) rows.push({ slot, home: h[i] || null, away: a[i] || null });
   }
   return rows;
+}
+
+/**
+ * Whether a lineup entry's own game has already kicked off (CONTEXT.md's
+ * Lineup lock), read as a plain fact off the wire's own `locked` boolean -
+ * never recomputed here. Mirrors LineupScreen.jsx's `entry.locked` /
+ * `targetEntry.locked` reads (:188-202) minus the drag-and-drop swap intent:
+ * `canResolveLockedIrStash`'s exception (a locked, no-longer-eligible IR
+ * occupant may still move to BENCH) is a client interaction rule about
+ * WHERE a locked player may go, not a fact about whether he is locked, so it
+ * stays out of this fact and out of `eligibleSlots` below.
+ */
+export function locked(entry) {
+  return Boolean(entry && entry.locked);
+}
+
+/**
+ * Every slot key a player is eligible to occupy right now: BENCH always, IR
+ * only when his injury designation qualifies (IR_ELIGIBLE_DESIGNATIONS), and
+ * each of the league's configured starting slots whose eligiblePositions
+ * (POSITION_GROUPS expanded) includes his position - in the league's own
+ * `roster_slots` order. Mirrors LineupScreen.jsx's
+ * slotEligiblePositions/isEligibleForSlot (:65-79) minus the drag-and-drop
+ * swap intent: `canResolveLockedIrStash`'s exception (a locked player who
+ * lost IR eligibility may still be dragged to BENCH to resolve the stash) is
+ * a rule about which moves a locked player's OWN swap may make, not a fact
+ * about which slots fit him, so it plays no part here.
+ *
+ * `entry` reads `position` and `injuryStatus` (the camelCase shape this
+ * module's builders produce); `league.roster_slots` is parsed the same way
+ * `pairStartersBySlot`'s callers parse it (`parseRosterSlots`, shared/lib).
+ */
+export function eligibleSlots(entry, league) {
+  const rosterSlots = parseRosterSlots(league && league.roster_slots);
+  const position = (entry && entry.position) ?? null;
+  const injuryDesignation = (entry && entry.injuryStatus) ?? null;
+  const out = [BENCH];
+  if (IR_ELIGIBLE_DESIGNATIONS.has(injuryDesignation)) out.push(IR);
+  for (const slot of rosterSlots) {
+    const key = slot && slot.key;
+    if (key == null || key === BENCH || key === IR) continue;
+    if (slotEligiblePositions(rosterSlots, key).includes(position)) out.push(key);
+  }
+  return out;
+}
+
+/**
+ * A lineup entry's availability (CONTEXT.md's Unavailable: on bye, Out, or on
+ * IR - Questionable and Doubtful are NOT unavailable). `reason` is the code
+ * alone ('bye' | 'out' | 'ir' | null), no label; a caller renders its own
+ * copy the way LineupScreen.jsx's UNAVAILABLE_LABELS does. Mirrors
+ * projectionModel.js's `availabilityFor`'s bye/O/IR branches, narrowed to
+ * just `{ available, reason }` - this entity does not model
+ * activeProbability or autoRecommend, which are start/sit advisor concerns.
+ */
+function availabilityFor(entry) {
+  if (entry.onBye) return { available: false, reason: 'bye' };
+  const status = entry.injuryStatus;
+  if (status === 'O') return { available: false, reason: 'out' };
+  if (status === 'IR') return { available: false, reason: 'ir' };
+  return { available: true, reason: null };
+}
+
+/**
+ * One player's slot on one team's lineup card for one week (CONTEXT.md's
+ * Lineup entry), normalized from the roster wire (the same
+ * `GET /api/team/lineup?leagueId=<id>&week=<week>` body `lineupModel` reads,
+ * or its bare `entries` array) plus the league's OWN starting-slot order
+ * (`league.roster_slots`, parsed by `parseRosterSlots`). No default order: a
+ * missing or empty `roster_slots` throws rather than falling back to a
+ * fantasy-standard order that would silently mis-order or mis-place a
+ * commissioner's own slots - the same refusal `pairStartersBySlot` makes for
+ * starter pairing (ADR 0029). A caller waits for the League row before
+ * calling this.
+ *
+ * The shape: `{ playerId, name, position, nflTeam, slot, slotIndex,
+ * eligibleSlots, locked, availability: { available, reason },
+ * projectedPoints, opponent }`. `slotIndex` is the entry's position in the
+ * league's own slot order; a slot the entries carry that the order does not
+ * name (BENCH, IR, or a stray key) is appended after the ordered slots, in
+ * the order first seen, mirroring `pairStartersBySlot`'s same rule. The
+ * returned array is sorted by `slotIndex`, so a caller reads entries already
+ * in the league's order rather than sorting them itself.
+ *
+ * Nothing consumes this yet (#1207, an expand step under #1198).
+ */
+export function lineupEntries(rosterWire, league) {
+  const rosterSlots = parseRosterSlots(league && league.roster_slots);
+  if (rosterSlots.length === 0) {
+    throw new Error('lineupEntries: league.roster_slots is required and must be non-empty');
+  }
+  const orderedKeys = rosterSlots.map((s) => s && s.key).filter((k) => k != null).map(String);
+
+  const rows = Array.isArray(rosterWire)
+    ? rosterWire
+    : Array.isArray(rosterWire && rosterWire.entries) ? rosterWire.entries : [];
+
+  const built = rows.map((row) => {
+    const r = row || {};
+    const points = r.projected_points == null ? NaN : Number(r.projected_points);
+    const entry = {
+      playerId: r.id ?? null,
+      name: r.name ?? null,
+      position: r.position ?? null,
+      nflTeam: r.nfl_team ?? null,
+      slot: r.slot ?? null,
+      projectedPoints: Number.isFinite(points) ? points : null,
+      injuryStatus: r.injury_status ?? null,
+      opponent: r.opponent ?? null,
+      onBye: Boolean(r.onBye),
+    };
+    return {
+      ...entry,
+      eligibleSlots: eligibleSlots(entry, league),
+      locked: locked(r),
+      availability: availabilityFor(entry),
+    };
+  });
+
+  // Stray slots (BENCH, IR, or a key the league's order doesn't name) are
+  // appended after the ordered ones, in the order first seen - the same rule
+  // `pairStartersBySlot` applies to a starter's stray slot.
+  const order = [];
+  const seen = new Set();
+  const add = (key) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    order.push(key);
+  };
+  orderedKeys.forEach(add);
+  built.forEach((e) => add(e.slot == null ? '' : String(e.slot)));
+  const indexOf = new Map(order.map((key, i) => [key, i]));
+
+  return built
+    .map((e) => ({ ...e, slotIndex: indexOf.get(e.slot == null ? '' : String(e.slot)) }))
+    .sort((a, b) => a.slotIndex - b.slotIndex);
 }
 
 export default lineupModel;

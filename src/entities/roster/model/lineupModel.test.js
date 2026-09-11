@@ -1,4 +1,4 @@
-import { lineupModel } from './lineupModel';
+import { lineupModel, locked, eligibleSlots, lineupEntries } from './lineupModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
 // (server/services/lineup.service.js getLineup: id, name, position,
@@ -241,5 +241,170 @@ describe('lineupModel: the one shape from the lineup body', () => {
       entries: [row({ id: 1, slot: 'QB', projected_points: null })],
     });
     expect(model.starters[0].projectedPoints).toBeNull();
+  });
+});
+
+// #1207 (part of #1198): `locked` as an exported fact (LineupScreen.jsx's
+// `entry.locked` reads at :188-202), a plain read of the wire's own boolean -
+// CONTEXT.md's Lineup lock is the player's own game's kickoff, decided
+// server-side; this fact never recomputes it.
+describe('locked: the wire boolean, read as a fact', () => {
+  test('an entry whose game has kicked off (locked: true on the wire) is locked', () => {
+    expect(locked({ locked: true })).toBe(true);
+  });
+
+  test('the same entry with locked: false on the wire is not locked', () => {
+    expect(locked({ locked: false })).toBe(false);
+  });
+
+  test('a missing locked key reads as not locked, and a null entry does not throw', () => {
+    expect(locked({})).toBe(false);
+    expect(locked(null)).toBe(false);
+  });
+});
+
+// #1207 (part of #1198): `eligibleSlots` as an exported fact, mirroring
+// LineupScreen.jsx's slotEligiblePositions/isEligibleForSlot (:65-79) minus
+// the drag-and-drop swap intent (canResolveLockedIrStash's locked-IR-to-BENCH
+// exception, which belongs to the swap interaction, not this fact).
+describe('eligibleSlots: every slot key a player may occupy right now', () => {
+  const league = {
+    roster_slots: [
+      { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+      { key: 'RB', count: 2, eligiblePositions: ['RB'] },
+      { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+      { key: 'DL', count: 1, eligiblePositions: ['DL'] },
+    ],
+  };
+
+  test('a healthy player is eligible for BENCH and every configured slot naming his position', () => {
+    expect(eligibleSlots({ position: 'RB', injuryStatus: null }, league)).toEqual(['BENCH', 'RB', 'FLEX']);
+  });
+
+  test('a group key (DL) expands to every specific position Tank01 reports in that group', () => {
+    expect(eligibleSlots({ position: 'DE', injuryStatus: null }, league)).toEqual(['BENCH', 'DL']);
+  });
+
+  // Red-tell: dropping the IR_ELIGIBLE_DESIGNATIONS check would make IR
+  // eligibility fall through to slotEligiblePositions, which never names 'IR'
+  // in eligiblePositions, so IR would silently disappear for every player.
+  test('a player carrying an IR-eligible injury designation (O or IR) is also eligible for IR', () => {
+    expect(eligibleSlots({ position: 'RB', injuryStatus: 'O' }, league)).toEqual(['BENCH', 'IR', 'RB', 'FLEX']);
+    expect(eligibleSlots({ position: 'RB', injuryStatus: 'IR' }, league)).toEqual(['BENCH', 'IR', 'RB', 'FLEX']);
+  });
+
+  test('a Questionable or Doubtful player is not IR-eligible (only O/IR qualify)', () => {
+    expect(eligibleSlots({ position: 'RB', injuryStatus: 'Q' }, league)).toEqual(['BENCH', 'RB', 'FLEX']);
+    expect(eligibleSlots({ position: 'RB', injuryStatus: 'D' }, league)).toEqual(['BENCH', 'RB', 'FLEX']);
+  });
+
+  test('a position no configured slot names is eligible for BENCH alone', () => {
+    expect(eligibleSlots({ position: 'K', injuryStatus: null }, league)).toEqual(['BENCH']);
+  });
+});
+
+// #1207 (part of #1198): `lineupEntries(rosterWire, league)` normalizes the
+// roster wire once into the entry shape a future lineup surface will read
+// (playerId, slot, slotIndex, eligibleSlots, locked, availability,
+// projectedPoints, ...). Nothing consumes it yet (an expand step); these are
+// the red-tells the ticket names.
+describe('lineupEntries: normalized roster rows, ordered by the league', () => {
+  const league = {
+    roster_slots: [
+      { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+      { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+      { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+    ],
+  };
+
+  test('a missing league.roster_slots throws rather than falling back to a default order', () => {
+    expect(() => lineupEntries([row({ id: 1, slot: 'QB' })], null)).toThrow(/roster_slots/);
+    expect(() => lineupEntries([row({ id: 1, slot: 'QB' })], {})).toThrow(/roster_slots/);
+    expect(() => lineupEntries([row({ id: 1, slot: 'QB' })], { roster_slots: [] })).toThrow(/roster_slots/);
+  });
+
+  // Red-tell (AC): a League ordering FLEX before TE yields entries in that
+  // order; the old fantasy-standard default order (never used here at all)
+  // would put TE first.
+  test('entries come back ordered by the league own roster_slots order, not a default', () => {
+    const flexBeforeTe = {
+      roster_slots: [
+        { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+        { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+        { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+      ],
+    };
+    const entries = lineupEntries(
+      [
+        row({ id: 1, name: 'A TE', slot: 'TE', position: 'TE' }),
+        row({ id: 2, name: 'A FLEX', slot: 'FLEX', position: 'WR' }),
+        row({ id: 3, name: 'A QB', slot: 'QB', position: 'QB' }),
+      ],
+      flexBeforeTe
+    );
+    expect(entries.map((e) => e.slot)).toEqual(['QB', 'FLEX', 'TE']);
+    expect(entries.map((e) => e.slotIndex)).toEqual([0, 1, 2]);
+  });
+
+  test('a slot the league order does not name (BENCH) is appended after the ordered slots', () => {
+    const entries = lineupEntries(
+      [
+        row({ id: 1, name: 'Benched', slot: 'BENCH', position: 'RB' }),
+        row({ id: 2, name: 'A TE', slot: 'TE', position: 'TE' }),
+        row({ id: 3, name: 'A QB', slot: 'QB', position: 'QB' }),
+      ],
+      league
+    );
+    expect(entries.map((e) => e.slot)).toEqual(['QB', 'TE', 'BENCH']);
+  });
+
+  // Red-tell (AC): a starter whose game has kicked off (locked: true on the
+  // wire) is locked; the same entry with locked: false is not.
+  test('locked reflects the wire boolean per entry', () => {
+    const entries = lineupEntries(
+      [
+        row({ id: 1, slot: 'QB', locked: true }),
+        row({ id: 2, name: 'Not locked', slot: 'TE', locked: false }),
+      ],
+      league
+    );
+    expect(entries.find((e) => e.playerId === 1).locked).toBe(true);
+    expect(entries.find((e) => e.playerId === 2).locked).toBe(false);
+  });
+
+  test('availability reports the reason code alone, no label', () => {
+    const entries = lineupEntries(
+      [
+        row({ id: 1, slot: 'QB', onBye: true }),
+        row({ id: 2, name: 'Out', slot: 'TE', injury_status: 'O', onBye: false }),
+        row({ id: 3, name: 'IR-eligible', slot: 'FLEX', position: 'RB', injury_status: 'IR', onBye: false }),
+        row({ id: 4, name: 'Healthy', slot: 'FLEX', position: 'WR', injury_status: null, onBye: false }),
+      ],
+      league
+    );
+    const byId = (id) => entries.find((e) => e.playerId === id);
+    expect(byId(1).availability).toEqual({ available: false, reason: 'bye' });
+    expect(byId(2).availability).toEqual({ available: false, reason: 'out' });
+    expect(byId(3).availability).toEqual({ available: false, reason: 'ir' });
+    expect(byId(4).availability).toEqual({ available: true, reason: null });
+  });
+
+  test('each entry carries its own eligibleSlots, computed the same way the standalone fact does', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB', position: 'QB' })], league);
+    expect(entries[0].eligibleSlots).toEqual(eligibleSlots({ position: 'QB', injuryStatus: null }, league));
+  });
+
+  test('projectedPoints, name, nflTeam and opponent carry through as lineupModel already coerces them', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, name: 'Josh Allen', nfl_team: 'BUF', slot: 'QB', projected_points: '24.30', opponent: 'MIA' })],
+      league
+    );
+    expect(entries[0]).toMatchObject({
+      playerId: 1,
+      name: 'Josh Allen',
+      nflTeam: 'BUF',
+      projectedPoints: 24.3,
+      opponent: 'MIA',
+    });
   });
 });
