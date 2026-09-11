@@ -94,6 +94,17 @@ const historyResponse = () => ({
   },
 });
 
+test('announces the loading region to assistive tech while the history read is in flight', async () => {
+  let resolveGet;
+  apiClient.get.mockReturnValue(new Promise((resolve) => { resolveGet = resolve; }));
+
+  renderHistory();
+
+  expect(screen.getByTestId('page-skeleton')).toHaveAttribute('aria-busy', 'true');
+  resolveGet(historyResponse());
+  await screen.findByText('Season 2026');
+});
+
 test('renders past seasons with champion, standings, trophies, and draft grades', async () => {
   apiClient.get.mockResolvedValue(historyResponse());
 
@@ -184,6 +195,25 @@ test('shows medal indicators for podium ranks in Final Standings', async () => {
   expect(panel.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   const table = within(panel).getByRole('table', { name: 'Final Standings' });
   expect(within(table).getByText('4')).toBeInTheDocument();
+});
+
+test('the Team cell is the row header in Final Standings, Draft Grades, and All-Time, so a cell reads with its Team', async () => {
+  apiClient.get.mockResolvedValue({
+    data: {
+      seasons: [historyResponse().data.seasons[0]],
+      allTime: [{ teamId: 1, name: 'Sunday Ballers', avatarUrl: null, championships: 1, wins: 12, losses: 2, ties: 0 }],
+    },
+  });
+
+  renderHistory();
+
+  const panel = await screen.findByTestId('season-panel-2026');
+  const standingsTable = within(panel).getByRole('table', { name: 'Final Standings' });
+  expect(within(standingsTable).getByRole('rowheader', { name: 'Sunday Ballers' })).toBeInTheDocument();
+
+  openAllTimeTab();
+  const allTimeTable = await screen.findByRole('table', { name: 'All-Time Records' });
+  expect(within(allTimeTable).getByRole('rowheader', { name: 'Sunday Ballers' })).toBeInTheDocument();
 });
 
 test('renders an inline note when trophies failed to load for a season', async () => {
@@ -558,7 +588,10 @@ test('a mixed All-Time roster shows a Record for a fantasy Team and an empty cel
   // eslint-disable-next-line testing-library/no-node-access -- walking up to the row is the only way to scope "this Team's own Record cell"
   const pickemRow = within(table).getByText('Pickem Team').closest('tr');
   const pickemCells = within(pickemRow).getAllByRole('cell');
-  expect(pickemCells[pickemCells.length - 1]).toHaveTextContent('');
+  // A blank cell announces nothing to a screen reader, so the empty Record
+  // cell carries the same aria-hidden dash / visually-hidden "Not available"
+  // pair the missing-rosterValue cell uses, never bare emptiness.
+  expect(pickemCells[pickemCells.length - 1]).toHaveTextContent('Not available');
 });
 
 // Cory's 2026-09-11 ruling on this ticket, settling the note #1211/PR #1222

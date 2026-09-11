@@ -307,7 +307,7 @@ function StandingsTable({ standings, pickem, labelledBy }) {
                   null name is an expected departed manager; a fantasy row's
                   null name is a data bug either way, so there is no reason to
                   branch). */}
-              <BodyCell>{teamNameLabel(team.name)}</BodyCell>
+              <BodyCell asRowHeader>{teamNameLabel(team.name)}</BodyCell>
               {pickem ? (
                 <>
                   <BodyCell align="right">{team.points}</BodyCell>
@@ -344,19 +344,12 @@ function DraftGradesTable({ rows, labelledBy }) {
           {rows.map((row) => (
             <Box component="tr" key={row.teamId}>
               <BodyCell>{row.rank}</BodyCell>
-              <BodyCell>{teamNameLabel(row.name)}</BodyCell>
+              <BodyCell asRowHeader>{teamNameLabel(row.name)}</BodyCell>
               <BodyCell align="center">
                 <GradeChip grade={row.grade} />
               </BodyCell>
               <BodyCell align="right">
-                {row.rosterValue == null ? (
-                  <>
-                    <Box component="span" aria-hidden="true">-</Box>
-                    <Box component="span" sx={visuallyHidden}>Not available</Box>
-                  </>
-                ) : (
-                  row.rosterValue
-                )}
+                {row.rosterValue == null ? <Placeholder /> : row.rosterValue}
               </BodyCell>
             </Box>
           ))}
@@ -387,7 +380,7 @@ function AllTimeCard({ rows }) {
           <Box component="tbody">
             {rows.map((row, index) => (
               <Box component="tr" key={teamRowKey(row.teamId, index)}>
-                <BodyCell>
+                <BodyCell asRowHeader>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
                     <TeamAvatar name={row.name} avatarUrl={row.avatarUrl} size={24} />
                     <Box component="span">{teamNameLabel(row.name)}</Box>
@@ -396,7 +389,7 @@ function AllTimeCard({ rows }) {
                 <BodyCell align="right">{row.championships}</BodyCell>
                 {anyRecord && (
                   <BodyCell align="right">
-                    {row.wins != null ? teamStandingFromRow(row).record : null}
+                    {row.wins != null ? teamStandingFromRow(row).record : <Placeholder />}
                   </BodyCell>
                 )}
               </Box>
@@ -462,14 +455,41 @@ function HeadCell({ children, align = 'left' }) {
   );
 }
 
-function BodyCell({ children, align = 'left' }) {
+// The Team cell is the row header (`th scope="row"`), matching the
+// established island table convention (StandingsTable.jsx, DraftGrades.jsx):
+// a screen reader reading a number cell hears which Team it belongs to.
+function BodyCell({ children, align = 'left', asRowHeader = false }) {
   return (
     <Box
-      component="td"
-      sx={{ textAlign: align, px: 1.25, py: 1, fontSize: '13.5px', color: 'var(--dash-ink)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', borderBottom: '1px solid var(--dash-line)' }}
+      component={asRowHeader ? 'th' : 'td'}
+      {...(asRowHeader ? { scope: 'row' } : {})}
+      sx={{
+        textAlign: align,
+        px: 1.25,
+        py: 1,
+        fontSize: '13.5px',
+        fontWeight: 400,
+        color: 'var(--dash-ink)',
+        fontVariantNumeric: 'tabular-nums',
+        whiteSpace: 'nowrap',
+        borderBottom: '1px solid var(--dash-line)',
+      }}
     >
       {children}
     </Box>
+  );
+}
+
+// The placeholder mark for a cell with no value to show: a dash, no digits.
+// The dash is a visual mark only, so it is aria-hidden and a visually-hidden
+// "Not available" carries the same meaning to a screen reader (matches
+// StandingsTable.jsx's Placeholder and this file's own rosterValue cell).
+function Placeholder() {
+  return (
+    <>
+      <Box component="span" aria-hidden="true">-</Box>
+      <Box component="span" sx={visuallyHidden}>Not available</Box>
+    </>
   );
 }
 
