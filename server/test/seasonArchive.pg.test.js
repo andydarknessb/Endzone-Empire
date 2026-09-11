@@ -262,38 +262,47 @@ if (!ENABLED) {
     // cannot interact with test.before's shared fixture (whose two
     // `assert.equal(spy.count(), 1, ...)` assertions above must stay green
     // and unedited).
+    //
+    // The cleanup hook is registered, and its ids guarded with `if`, before
+    // the first INSERT runs (the file-level test.after above does the same)
+    // so a throw partway through seeding still tears down whatever was
+    // already created instead of orphaning rows in the disposable database.
+    let leagueId;
+    let ownerId;
+    let teamAOwnerId;
+    let teamBOwnerId;
+    t.after(async () => {
+      if (leagueId) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [leagueId]);
+      if (teamAOwnerId) await pool.query('DELETE FROM "users" WHERE "id" = $1', [teamAOwnerId]);
+      if (teamBOwnerId) await pool.query('DELETE FROM "users" WHERE "id" = $1', [teamBOwnerId]);
+      if (ownerId) await pool.query('DELETE FROM "users" WHERE "id" = $1', [ownerId]);
+    });
+
     const owner = await pool.query(
       `INSERT INTO "users" ("username", "email", "password")
        VALUES ('season_archive_alltime_pg', 'season-archive-alltime-pg@example.invalid', 'x')
        RETURNING "id"`
     );
-    const ownerId = owner.rows[0].id;
+    ownerId = owner.rows[0].id;
     const teamAOwner = await pool.query(
       `INSERT INTO "users" ("username", "email", "password")
        VALUES ('season_archive_alltime_pg_a', 'season-archive-alltime-pg-a@example.invalid', 'x')
        RETURNING "id"`
     );
-    const teamAOwnerId = teamAOwner.rows[0].id;
+    teamAOwnerId = teamAOwner.rows[0].id;
     const teamBOwner = await pool.query(
       `INSERT INTO "users" ("username", "email", "password")
        VALUES ('season_archive_alltime_pg_b', 'season-archive-alltime-pg-b@example.invalid', 'x')
        RETURNING "id"`
     );
-    const teamBOwnerId = teamBOwner.rows[0].id;
+    teamBOwnerId = teamBOwner.rows[0].id;
 
     const league = await pool.query(
       `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "pickem_only")
        VALUES ('Season Archive AllTime PG', $1, 'seasarchatpg', false) RETURNING "id"`,
       [ownerId]
     );
-    const leagueId = league.rows[0].id;
-
-    t.after(async () => {
-      await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [leagueId]);
-      await pool.query('DELETE FROM "users" WHERE "id" = $1', [teamAOwnerId]);
-      await pool.query('DELETE FROM "users" WHERE "id" = $1', [teamBOwnerId]);
-      await pool.query('DELETE FROM "users" WHERE "id" = $1', [ownerId]);
-    });
+    leagueId = league.rows[0].id;
 
     // Team A's CURRENT name/avatar differ from every archived standings
     // `name` for it, so allTime.name/avatarUrl prove they read the current
@@ -390,23 +399,29 @@ if (!ENABLED) {
   });
 
   test('allTime (#1212): a League with zero archived seasons returns seasons: [] and allTime: []', async (t) => {
+    // See the previous test: the cleanup hook is registered, ids guarded
+    // with `if`, before the first INSERT runs.
+    let leagueId;
+    let ownerId;
+    t.after(async () => {
+      if (leagueId) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [leagueId]);
+      if (ownerId) await pool.query('DELETE FROM "users" WHERE "id" = $1', [ownerId]);
+    });
+
     const owner = await pool.query(
       `INSERT INTO "users" ("username", "email", "password")
        VALUES ('season_archive_alltime_empty_pg', 'season-archive-alltime-empty-pg@example.invalid', 'x')
        RETURNING "id"`
     );
-    const ownerId = owner.rows[0].id;
+    ownerId = owner.rows[0].id;
+    // invite_code is varchar(12) (server/db/migrations/20260710000001_initial_schema.js) -
+    // 'seasarchatmt' is exactly 12.
     const league = await pool.query(
       `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "pickem_only")
-       VALUES ('Season Archive AllTime Empty PG', $1, 'seasarchatemptypg', false) RETURNING "id"`,
+       VALUES ('Season Archive AllTime Empty PG', $1, 'seasarchatmt', false) RETURNING "id"`,
       [ownerId]
     );
-    const leagueId = league.rows[0].id;
-
-    t.after(async () => {
-      await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [leagueId]);
-      await pool.query('DELETE FROM "users" WHERE "id" = $1', [ownerId]);
-    });
+    leagueId = league.rows[0].id;
 
     const { seasons, allTime } = await seasonArchive({ leagueId });
     assert.deepEqual(seasons, []);
