@@ -726,6 +726,68 @@
      ]
     }
    ]
+  },
+  {
+   "id": "401772999",
+   "name": "Buffalo Bills at Miami Dolphins",
+   "shortName": "BUF @ MIA",
+   "date": "2026-09-13T17:00Z",
+   "competitions": [
+    {
+     "id": "401772999",
+     "date": "2026-09-13T17:00Z",
+     "status": {
+      "clock": 601.0,
+      "displayClock": "10:01",
+      "period": 1,
+      "type": {
+       "id": "2",
+       "name": "STATUS_IN_PROGRESS",
+       "state": "in",
+       "completed": false,
+       "description": "In Progress",
+       "detail": "10:01 - 1st Quarter",
+       "shortDetail": "10:01 - 1st"
+      },
+      "isTBDFlex": false
+     },
+     "situation": {
+      "down": 1,
+      "distance": 10,
+      "downDistanceText": "1st & 10 at MIA 18",
+      "shortDownDistanceText": "1st & 10",
+      "possessionText": "MIA 18",
+      "isRedZone": false,
+      "lastPlay": {
+       "id": "4017729990001",
+       "text": "B.Allen pass complete to K.Coleman for 12 yards"
+      },
+      "possession": "2"
+     },
+     "competitors": [
+      {
+       "id": "15",
+       "homeAway": "home",
+       "score": "0",
+       "team": {
+        "id": "15",
+        "abbreviation": "MIA",
+        "displayName": "Miami Dolphins"
+       }
+      },
+      {
+       "id": "2",
+       "homeAway": "away",
+       "score": "0",
+       "team": {
+        "id": "2",
+        "abbreviation": "BUF",
+        "displayName": "Buffalo Bills"
+       }
+      }
+     ]
+    }
+   ]
   }
  ]
 }

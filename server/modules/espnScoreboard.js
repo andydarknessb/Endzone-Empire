@@ -122,6 +122,48 @@ function mapEspnQuarter(status, gameStatus) {
 }
 
 /**
+ * Pure: resolve a situation block's `possession` (a team id, per ESPN, though
+ * a stray abbreviation is accepted too) to one of our Team codes, by matching
+ * it against the SAME competitors home/away already came from and folding it
+ * through the same normalisation (#1233). Never the raw ESPN value; null when
+ * it names no competitor here.
+ */
+function resolvePossession(possession, competitors) {
+  if (possession == null || possession === '') return null;
+  const raw = String(possession).trim();
+  if (!raw) return null;
+  if (!Array.isArray(competitors)) return null;
+  const match = competitors.find(
+    (c) =>
+      c &&
+      c.team &&
+      (String(c.team.id) === raw || String(c.team.abbreviation || '').toUpperCase() === raw.toUpperCase())
+  );
+  return match ? espnAbbrToOurs(match.team.abbreviation) : null;
+}
+
+/**
+ * Pure: a competition's `situation` block -> our four Situation fields, all
+ * null when the block is absent (ADR 0037: a game not in progress, or an
+ * in-progress game whose block is momentarily missing — a timeout, halftime —
+ * clears the same way).
+ */
+function normalizeEspnSituation(situation, competitors) {
+  if (!situation) {
+    return { possession: null, downDistance: null, isRedZone: null, lastPlay: null };
+  }
+  return {
+    possession: resolvePossession(situation.possession, competitors),
+    downDistance: situation.shortDownDistanceText || situation.downDistanceText || null,
+    // A present block missing the key is an unobserved fact, not "not in the
+    // red zone" — null it like every other missing subfield, rather than
+    // defaulting to false (pl-endzone formal review, #1233).
+    isRedZone: typeof situation.isRedZone === 'boolean' ? situation.isRedZone : null,
+    lastPlay: situation.lastPlay && situation.lastPlay.text ? String(situation.lastPlay.text) : null,
+  };
+}
+
+/**
  * Pure: one ESPN event -> our live_game_states row shape, or null when the
  * event is missing anything load-bearing (both teams, a usable kickoff, or
  * team codes we can't normalize). `tank01GameId` is built from the ET kickoff
@@ -147,6 +189,14 @@ function normalizeEspnEvent(event, { season, week }) {
   const gameStatus = mapEspnStatus(status);
   const clock = status.displayClock ? String(status.displayClock) : null;
 
+  // Situation only comes from an in-progress game (#1233, ADR 0037); a stray
+  // block on a scheduled/final payload is ignored, same as the clearing rule
+  // the poll applies on every write.
+  const situation = normalizeEspnSituation(
+    gameStatus === 'in_progress' ? competition.situation : null,
+    competitors
+  );
+
   return {
     tank01GameId: `${dateKey}_${awayTeam}@${homeTeam}`,
     season,
@@ -165,6 +215,13 @@ function normalizeEspnEvent(event, { season, week }) {
     // (ADR 0035, #1182). Stored on live_game_states so a worker restart
     // mid-game does not have to rebuild it from the scoreboard.
     espnEventId: event && event.id != null ? String(event.id) : null,
+    // Situation (#1233, ADR 0037): who has the ball (a Team code), down and
+    // distance text, the red zone flag, and the last play text. Null off the
+    // field exactly like timeRemaining.
+    possession: situation.possession,
+    downDistance: situation.downDistance,
+    isRedZone: situation.isRedZone,
+    lastPlay: situation.lastPlay,
   };
 }
 
@@ -278,6 +335,8 @@ module.exports = {
   resolveGameIds,
   mapEspnStatus,
   mapEspnQuarter,
+  normalizeEspnSituation,
+  resolvePossession,
   espnAbbrToOurs,
   etDateKey,
   ESPN_SCOREBOARD_URL,
