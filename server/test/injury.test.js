@@ -422,12 +422,14 @@ test('#961 failure: one ok=false row carries the error message, and the run stil
   assert.equal(records[0].params[0], 'injuries');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'scan blew up', 'the error message is in detail');
   // A throw from inside the transaction is the database side. Red-tell:
-  // dropping the write_failed tag in the transaction catch drops this to
-  // sync_failed. Control: 'write_failed' here, 'fetch_failed'/'bad_response' in
+  // dropping the write_failed tag in runSyncJob's per-unit catch drops this to
+  // undefined. Control: 'write_failed' here, 'fetch_failed'/'bad_response' in
   // the two pre-transaction tests below.
   assert.equal(detail.reason, 'write_failed', 'a scan failure is the database side');
+  // ADR 0036: a failed unit is recorded in detail.failed[], one entry per unit
+  // that threw (injuries has exactly one unit, so exactly one entry here).
+  assert.equal(detail.failed[0].message, 'scan blew up', 'the error message is in detail.failed[]');
   // Ruling 1 control: this scan throws but the ROLLBACK succeeds cleanly, so
   // the connection is healthy and must be returned to the pool, not destroyed.
   // Red-tell: destroying on every error path (release with an Error
@@ -551,10 +553,10 @@ test('#1041 connect failure: pool.connect() rejecting records ok=false with reas
   assert.equal(records[0].params[0], 'injuries');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'connection refused by pooler', 'the connect error message is in detail');
-  // Red-tell: dropping the tag line in the new connect() guard (or the guard
-  // itself) drops this to 'sync_failed'.
+  // Red-tell: dropping the default tag in runSyncJob's per-unit catch drops
+  // this to undefined.
   assert.equal(detail.reason, 'write_failed', 'a connect failure is the database side, not unclassified');
+  assert.equal(detail.failed[0].message, 'connection refused by pooler', 'the connect error message is in detail.failed[]');
   assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction opens: connect() never returned a client');
   // No client was ever acquired, so none is left unreleased.
   fake.assertClean();
@@ -586,8 +588,8 @@ test('#1048 rollback rejects: the original error survives and still tags write_f
   assert.equal(records.length, 1, 'exactly one data_sync_runs row despite the rollback failure');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'scan blew up', 'the original error message survives the rollback failure');
   assert.equal(detail.reason, 'write_failed', 'a rollback failure never changes the tag');
+  assert.equal(detail.failed[0].message, 'scan blew up', 'the original error message survives the rollback failure');
 
   // A rejecting ROLLBACK leaves the transaction open on the socket, so the
   // finally now releases the client WITH an Error: pg-pool destroys the
