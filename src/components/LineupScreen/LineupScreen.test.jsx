@@ -442,6 +442,45 @@ test('numbers repeated starter slots and keeps the Bench independently scrollabl
   expect(screen.getByTestId('lineup-bench-scroll')).toHaveStyle({ overflowY: 'auto' });
 });
 
+// #1209's red-tell: the starter order comes straight from the lineup
+// response's own roster_slots (the League's configured order), with no
+// fantasy-standard DEFAULT_STARTER_SLOT_ORDER import to fall back on (ADR
+// 0029's `pairStartersBySlot`/`lineupEntries` refusal: a guessed default
+// would silently mis-order a commissioner's own slots). A League ordering WR
+// before QB renders in that order.
+test('starter rows follow the League\'s own roster_slots order, with no default fallback', async () => {
+  mockGetAll({
+    data: lineupResponse({
+      rosterSlots: [
+        { key: 'WR', count: 2, eligiblePositions: ['WR'] },
+        { key: 'QB', count: 1, eligiblePositions: ['QB'] },
+        { key: 'RB', count: 2, eligiblePositions: ['RB'] },
+        { key: 'TE', count: 1, eligiblePositions: ['TE'] },
+        { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+        { key: 'K', count: 1, eligiblePositions: ['K'] },
+        { key: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+      ],
+    }),
+  });
+
+  renderScreen();
+  await screen.findByText('Patrick Mahomes');
+
+  const order = within(screen.getByTestId('lineup-starters'))
+    .getAllByTestId(/^slot-row-/)
+    .map((row) => row.getAttribute('data-testid'));
+  expect(order.indexOf('slot-row-WR-0')).toBeLessThan(order.indexOf('slot-row-QB-0'));
+});
+
+test('an empty roster_slots renders no starter rows rather than a fantasy-standard default', async () => {
+  mockGetAll({ data: lineupResponse({ rosterSlots: [] }) });
+
+  renderScreen();
+  await screen.findByTestId('lineup-starters');
+
+  expect(screen.queryByTestId('slot-row-QB-0')).not.toBeInTheDocument();
+});
+
 test('renders BYE and LOCKED chips for flagged entries', async () => {
   mockGetAll({ data: lineupResponse() });
 

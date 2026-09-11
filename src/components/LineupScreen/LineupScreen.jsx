@@ -45,51 +45,52 @@ import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import { prefersReducedMotion } from '../../lib/reducedMotionMedia';
-import { lineupAttention, DEFAULT_STARTER_SLOT_ORDER } from '../../lib/lineupAttention';
+import { lineupAttention } from '../../lib/lineupAttention';
 // Concrete module path, not the shared/lib barrel: a legacy consumer (ADR
 // 0031's #1146 amendment) - the index would pull the whole kit, including
 // useEndpoint, into this bundle.
 import { unavailableLabel } from '../../shared/lib/unavailableLabel';
+// ADR 0029: the Roster/Lineup entity is the one spelling of slot eligibility,
+// lock and the normalized entry shape. This legacy page bridges into it
+// through the index only (the sanctioned bridge ADR 0029 names), never an
+// internal path.
+import { eligibleSlots, locked, lineupEntries } from '../../entities/roster';
 
-// Mirrors POSITION_GROUPS in server/services/lineup.service.js — group keys
-// (DL/LB/DB) usable in a slot's eligiblePositions expand to every specific
-// defensive position Tank01 reports in that group.
-const POSITION_GROUPS = {
-  DL: ['DL', 'DE', 'DT', 'NT'],
-  LB: ['LB', 'ILB', 'OLB'],
-  DB: ['DB', 'CB', 'S', 'FS', 'SS'],
-};
 const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
 const PROJECTION_ENGINE_NAME = 'Endzone Forecast';
-const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
+// Which slots Best Ball still lets a manager manage manually (BENCH/IR
+// roster actions) even though starting-slot assignment is read-only. This is
+// page interaction intent, not a fact the entity models, so it stays here.
 const BEST_BALL_MANAGED_SLOTS = new Set(['BENCH', 'IR']);
 
-/** A slot's configured eligiblePositions, with any group key expanded to its member positions. */
-function slotEligiblePositions(rosterSlots, slotKey) {
-  const slot = (rosterSlots || []).find((s) => s.key === slotKey);
-  if (!slot) return [];
-  const out = new Set();
-  for (const p of slot.eligiblePositions || []) {
-    (POSITION_GROUPS[p] || [p]).forEach((m) => out.add(m));
-  }
-  return [...out];
-}
-
-function isEligibleForSlot(position, slot, rosterSlots, injuryDesignation) {
-  if (slot === 'BENCH') return true;
-  if (slot === 'IR') return IR_ELIGIBLE_DESIGNATIONS.has(injuryDesignation);
-  return slotEligiblePositions(rosterSlots, slot).includes(position);
+/**
+ * Every slot key `entry` may occupy right now, read from the Roster entity's
+ * `eligibleSlots` fact rather than re-deriving position-group and
+ * IR-designation matching here. `rosterSlots` is the lineup response's own
+ * parsed roster_slots array (the league's configured order and eligible
+ * positions per slot) - the entity takes a league-shaped object, so it is
+ * wrapped as `{ roster_slots: rosterSlots }` rather than refetched.
+ */
+function eligibleSlotsFor(entry, rosterSlots) {
+  return eligibleSlots(
+    { position: entry?.position ?? null, injuryStatus: entry?.injury_status ?? null },
+    { roster_slots: rosterSlots }
+  );
 }
 
 function isValidIrStash(entry) {
   return Boolean(entry?.valid_stash);
 }
 
+// `canResolveLockedIrStash`'s exception stays on the page as intent (ADR
+// 0029's entity docblocks): which moves a locked player's own swap may make
+// is an interaction rule, not a fact. It reads the underlying lock FACT via
+// the entity's `locked`, though, rather than the wire's `.locked` directly.
 function canResolveLockedIrStash(entry, targetSlot) {
-  return entry?.locked
-    && entry.slot === 'IR'
+  return locked(entry)
+    && entry?.slot === 'IR'
     && !isValidIrStash(entry)
     && targetSlot === 'BENCH';
 }
@@ -188,29 +189,14 @@ function factorChipsFor(side) {
 // must be eligible for each other's slot. A locked occupant can never be a
 // target regardless of position.
 function isEligibleTarget(selectedEntry, targetEntry, slotType, rosterSlots) {
-  if (selectedEntry.locked && !canResolveLockedIrStash(selectedEntry, slotType)) return false;
+  if (locked(selectedEntry) && !canResolveLockedIrStash(selectedEntry, slotType)) return false;
   if (targetEntry?.spent) return false;
   if (!targetEntry) {
-    return isEligibleForSlot(
-      selectedEntry.position,
-      slotType,
-      rosterSlots,
-      selectedEntry.injury_status
-    );
+    return eligibleSlotsFor(selectedEntry, rosterSlots).includes(slotType);
   }
-  if (targetEntry.locked) return false;
-  const aEligible = isEligibleForSlot(
-    selectedEntry.position,
-    targetEntry.slot,
-    rosterSlots,
-    selectedEntry.injury_status
-  );
-  const bEligible = isEligibleForSlot(
-    targetEntry.position,
-    selectedEntry.slot,
-    rosterSlots,
-    targetEntry.injury_status
-  );
+  if (locked(targetEntry)) return false;
+  const aEligible = eligibleSlotsFor(selectedEntry, rosterSlots).includes(targetEntry.slot);
+  const bEligible = eligibleSlotsFor(targetEntry, rosterSlots).includes(selectedEntry.slot);
   return aEligible && bEligible;
 }
 
@@ -579,7 +565,10 @@ export function LineupEditor({
       || (showEligibility && !eligible);
     const isEmpty = !entry;
     const byeWeek = rosterPlayer?.bye_week ?? entry?.bye_week;
-    const projectedPoints = entry?.projected_points ?? rosterPlayer?.projected_weekly_points;
+    // The entity's Number-coerced fact (lineup.service can hand a decimal
+    // back as a string), not the wire's raw `projected_points` re-read here.
+    const projectedPoints = (entry ? normalizedEntriesById.get(entry.id)?.projectedPoints : null)
+      ?? rosterPlayer?.projected_weekly_points;
     const acquiredDate = rosterPlayer?.acquired_at
       ? new Date(rosterPlayer.acquired_at).toLocaleDateString()
       : null;
@@ -735,7 +724,24 @@ export function LineupEditor({
   });
 
   const rosterSlots = lineup?.rosterSlots || [];
-  const starterSlotOrder = rosterSlots.length > 0 ? rosterSlots.map((s) => s.key) : DEFAULT_STARTER_SLOT_ORDER;
+  // The league's own configured order, straight through - no fantasy-standard
+  // default fallback (ADR 0029's `pairStartersBySlot`/`lineupEntries` refusal:
+  // a guessed default would silently mis-order a commissioner's own slots).
+  // The server already resolves the league's real order before this response
+  // is ever sent (lineup.service.js's own `parse(league.roster_slots,
+  // DEFAULT_ROSTER_SLOTS)`), so a second, client-side default here would only
+  // ever mask a genuinely empty response rather than help one.
+  const starterSlotOrder = rosterSlots.map((s) => s.key);
+  // The entity's normalized per-entry facts (Number-coerced projectedPoints,
+  // among others), keyed by player id, read via `lineupEntries` rather than
+  // this page reading `entry.projected_points` raw. `lineupEntries` REFUSES
+  // an empty roster_slots (ADR 0029), so this only runs once the lineup
+  // response's own slot config has arrived.
+  const normalizedEntriesById = new Map(
+    rosterSlots.length > 0
+      ? lineupEntries(entries, { roster_slots: rosterSlots }).map((e) => [e.playerId, e])
+      : []
+  );
 
   // The Bench what-if swap named in the query (#910), resolved against the
   // lineup that actually loaded. It survives only when BOTH ids name rows on
@@ -899,14 +905,10 @@ export function LineupEditor({
     ? entries.filter((e) => {
       const bestBallSourceAllowed = isStandardLeague
         || (BEST_BALL_MANAGED_SLOTS.has(e.slot) && e.slot !== quickPick.slotType);
-      const lockAllowsMove = !e.locked
+      const lockAllowsMove = !locked(e)
         || (isStandardLeague && canResolveLockedIrStash(e, quickPick.slotType));
-      return bestBallSourceAllowed && lockAllowsMove && isEligibleForSlot(
-        e.position,
-        quickPick.slotType,
-        lineup?.rosterSlots,
-        e.injury_status
-      );
+      return bestBallSourceAllowed && lockAllowsMove
+        && eligibleSlotsFor(e, lineup?.rosterSlots).includes(quickPick.slotType);
     })
     : [];
 
