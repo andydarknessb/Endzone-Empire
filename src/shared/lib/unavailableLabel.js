@@ -17,7 +17,13 @@ const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };
  * models read "out"). Folding one of those fallbacks in here would make this
  * helper wrong for the other callers, the same reasoning `parseRosterSlots`
  * documents for its own callers.
+ *
+ * Looks up an OWN property only, so a reason like `'constructor'` or
+ * `'toString'` reads as unknown (null) rather than resolving an inherited
+ * `Object.prototype` member.
  */
 export function unavailableLabel(reason) {
-  return UNAVAILABLE_LABELS[reason] || null;
+  return Object.prototype.hasOwnProperty.call(UNAVAILABLE_LABELS, reason)
+    ? UNAVAILABLE_LABELS[reason]
+    : null;
 }

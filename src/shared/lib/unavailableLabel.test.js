@@ -16,6 +16,16 @@ describe('unavailableLabel', () => {
     expect(unavailableLabel(null)).toBeNull();
     expect(unavailableLabel('')).toBeNull();
   });
+
+  it('returns null for an inherited Object.prototype member, not the member itself', () => {
+    // An own-property-only lookup: {}['constructor'] and {}['toString'] both
+    // resolve to real functions through the prototype chain, and a bracket
+    // lookup with `|| null` would hand one back as if it were a label.
+    expect(unavailableLabel('constructor')).toBeNull();
+    expect(unavailableLabel('toString')).toBeNull();
+    expect(unavailableLabel('__proto__')).toBeNull();
+    expect(unavailableLabel('hasOwnProperty')).toBeNull();
+  });
 });
 
 // The guard (#1208): re-adding a `{ bye: 'on bye', ... }` map anywhere under
@@ -26,13 +36,13 @@ describe('unavailableLabel', () => {
 describe('the bye -> "on bye" map lives in one file', () => {
   const HELPER_PATH = path.join(__dirname, 'unavailableLabel.js');
   const SRC_ROOT = path.join(__dirname, '..', '..');
-  // \bbye\s*:\s*['"`]on bye['"`] - an object-literal entry mapping the key
-  // `bye` to the string 'on bye', in single, double or backtick quotes.
-  const MAP_ENTRY = /\bbye\s*:\s*['"`]on bye['"`]/;
+  // An object-literal entry mapping the key `bye` (quoted or not) to the
+  // string 'on bye', in single, double or backtick quotes either side.
+  const MAP_ENTRY = /['"]?\bbye['"]?\s*:\s*['"`]on bye['"`]/;
 
   function sourceFiles(dir, out = []) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
+      const full = path.join(dir, entry.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- readdir dirent names cannot contain path separators
       if (entry.isDirectory()) {
         sourceFiles(full, out);
         continue;
@@ -53,9 +63,10 @@ describe('the bye -> "on bye" map lives in one file', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('is green at head and red with one map restored (self-check)', () => {
-    const restored = "const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };";
-    expect(MAP_ENTRY.test(restored)).toBe(true);
+  it('the map-entry pattern matches a restored map (quoted or bare key) and not the copy sentences', () => {
+    expect(MAP_ENTRY.test("const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR' };")).toBe(true);
+    expect(MAP_ENTRY.test("const UNAVAILABLE_LABELS = { 'bye': 'on bye', out: 'out', ir: 'on IR' };")).toBe(true);
+    expect(MAP_ENTRY.test('const UNAVAILABLE_LABELS = { "bye": "on bye", out: "out", ir: "on IR" };')).toBe(true);
     expect(MAP_ENTRY.test('byes + " starters on bye"')).toBe(false);
     expect(MAP_ENTRY.test('the label reads "on bye" in copy')).toBe(false);
   });

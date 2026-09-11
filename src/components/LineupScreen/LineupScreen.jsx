@@ -46,7 +46,10 @@ import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
 import { prefersReducedMotion } from '../../lib/reducedMotionMedia';
 import { lineupAttention, DEFAULT_STARTER_SLOT_ORDER } from '../../lib/lineupAttention';
-import { unavailableLabel } from '../../shared/lib';
+// Concrete module path, not the shared/lib barrel: a legacy consumer (ADR
+// 0031's #1146 amendment) - the index would pull the whole kit, including
+// useEndpoint, into this bundle.
+import { unavailableLabel } from '../../shared/lib/unavailableLabel';
 
 // Mirrors POSITION_GROUPS in server/services/lineup.service.js — group keys
 // (DL/LB/DB) usable in a slot's eligiblePositions expand to every specific
