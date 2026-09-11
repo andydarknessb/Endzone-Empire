@@ -57,7 +57,7 @@ const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
 const TradeCenter = lazy(() => import('../TradeCenter/TradeCenter'));
 const TransactionLog = lazy(() => import('../TransactionLog/TransactionLog'));
 const PowerRankings = lazy(() => import('../PowerRankings/PowerRankings'));
-const LeagueHistory = lazy(() => import('../LeagueHistory/LeagueHistory'));
+const LeagueHistoryPage = lazy(() => import('../../pages/league-history'));
 const NotificationPrefs = lazy(() => import('../NotificationPrefs/NotificationPrefs'));
 const AuthenticatedPlayerProfilePage = lazy(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
 const AdminDashboard = lazy(() => import('../AdminDashboard/AdminDashboard'));
@@ -207,7 +207,7 @@ function App() {
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><FantasyOnly><TradeCenter /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><FantasyOnly><PowerRankings /></FantasyOnly></ProtectedRoute>} />
-          <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistory /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistoryPage /></ProtectedRoute>} />
           <Route path="/draft-sim" element={<ProtectedRoute><DraftSimScreen /></ProtectedRoute>} />
           <Route path="/settings/notifications" element={<ProtectedRoute><NotificationPrefs /></ProtectedRoute>} />
           <Route path="/players/:playerId" element={<ProtectedRoute><AuthenticatedPlayerProfilePage /></ProtectedRoute>} />
