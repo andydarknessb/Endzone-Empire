@@ -35,6 +35,8 @@ if (!ENABLED) {
   const PICKEM_SEASON = 2083;
 
   let userId;
+  let teamOwnerAId;
+  let teamOwnerBId;
   let fantasyLeagueId;
   let pickemLeagueId;
   let champTeamId;
@@ -49,6 +51,21 @@ if (!ENABLED) {
        RETURNING "id"`
     );
     userId = user.rows[0].id;
+    // teams has UNIQUE(league_id, owner_id) - one team per user per league -
+    // so each league's two teams need two distinct owners. The two teams in
+    // each league reuse the same pair (fine: the constraint is per league).
+    const teamOwnerA = await pool.query(
+      `INSERT INTO "users" ("username", "email", "password")
+       VALUES ('season_archive_pg_a', 'season-archive-pg-a@example.invalid', 'x')
+       RETURNING "id"`
+    );
+    teamOwnerAId = teamOwnerA.rows[0].id;
+    const teamOwnerB = await pool.query(
+      `INSERT INTO "users" ("username", "email", "password")
+       VALUES ('season_archive_pg_b', 'season-archive-pg-b@example.invalid', 'x')
+       RETURNING "id"`
+    );
+    teamOwnerBId = teamOwnerB.rows[0].id;
 
     const fantasyLeague = await pool.query(
       `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "pickem_only")
@@ -66,22 +83,22 @@ if (!ENABLED) {
 
     const champTeam = await pool.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name") VALUES ($1, $2, 'Fantasy Champs') RETURNING "id"`,
-      [fantasyLeagueId, userId]
+      [fantasyLeagueId, teamOwnerAId]
     );
     champTeamId = champTeam.rows[0].id;
     const otherTeam = await pool.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name") VALUES ($1, $2, 'Fantasy Runners-Up') RETURNING "id"`,
-      [fantasyLeagueId, userId]
+      [fantasyLeagueId, teamOwnerBId]
     );
     otherTeamId = otherTeam.rows[0].id;
     const pickemTeamA = await pool.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name") VALUES ($1, $2, 'Pickem Aces') RETURNING "id"`,
-      [pickemLeagueId, userId]
+      [pickemLeagueId, teamOwnerAId]
     );
     pickemTeamAId = pickemTeamA.rows[0].id;
     const pickemTeamB = await pool.query(
       `INSERT INTO "teams" ("league_id", "owner_id", "name") VALUES ($1, $2, 'Pickem Barons') RETURNING "id"`,
-      [pickemLeagueId, userId]
+      [pickemLeagueId, teamOwnerBId]
     );
     pickemTeamBId = pickemTeamB.rows[0].id;
 
@@ -157,6 +174,8 @@ if (!ENABLED) {
   test.after(async () => {
     if (fantasyLeagueId) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [fantasyLeagueId]);
     if (pickemLeagueId) await pool.query('DELETE FROM "leagues" WHERE "id" = $1', [pickemLeagueId]);
+    if (teamOwnerAId) await pool.query('DELETE FROM "users" WHERE "id" = $1', [teamOwnerAId]);
+    if (teamOwnerBId) await pool.query('DELETE FROM "users" WHERE "id" = $1', [teamOwnerBId]);
     if (userId) await pool.query('DELETE FROM "users" WHERE "id" = $1', [userId]);
     await pool.end();
   });
