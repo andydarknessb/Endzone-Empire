@@ -567,7 +567,10 @@ cost of a draft pick.
 Average draft position: where the wider fantasy market drafts a player. A market
 reference, deliberately distinct from this app's own ranking of him. One market
 serves every league: half-PPR, twelve teams, refreshed daily, and a league
-cannot start its draft while fewer than a hundred players carry one.
+cannot start its draft while fewer than a hundred players carry one. The sync
+itself refuses to write when fewer than that many of the fetched players
+match a roster row, so it can never commit a near-empty market as a
+successful run.
 _Avoid_: rank, position rank
 
 **Draft grade**:
