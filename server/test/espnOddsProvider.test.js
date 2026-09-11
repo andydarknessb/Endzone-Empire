@@ -91,7 +91,9 @@ test('fetchOddsUnits: only the priced game becomes a unit, keyed by the shared g
   assert.equal(quotes[0].gameKey, '2026_02_BUF_MIA');
   assert.equal(quotes[0].total, 47.5);
   assert.equal(quotes[0].spread, -3.5);
-  assert.ok(quotes[0].observedAt instanceof Date);
+  // observed_at is the DB clock (now()), written at INSERT time - see
+  // applyOddsUnit - so a fetched quote carries no timestamp of its own yet.
+  assert.equal(quotes[0].observedAt, undefined);
 });
 
 test('fetchOddsUnits: no priced games at all resolves to zero units, not a refusal', async () => {
@@ -174,14 +176,19 @@ test('syncOdds: an ESPN fetch failure is recorded fetch_failed and rethrown, no 
 // getWeeklyOdds — the seam's read side
 // ---------------------------------------------------------------------------
 
-test('getWeeklyOdds: reads only the newest snapshot per game (criterion 3)', async (t) => {
+test('getWeeklyOdds: reads only the newest snapshot per game (criterion 3), filtered to this provider\'s own source', async (t) => {
   const fake = createFakePool([
     [select('game_odds_snapshots'), (text, params) => {
-      assert.deepEqual(params, [2026, 2]);
+      assert.deepEqual(params, [2026, 2, ESPN_ODDS_SOURCE]);
       // The DISTINCT ON / ORDER BY ... DESC does the newest-per-game work in
       // SQL; the fake just returns what a correct query would already have
       // picked, since this harness does not simulate real row semantics.
-      return { rows: [{ game_key: '2026_02_BUF_MIA', total: '47.5', spread: '-3.5', observed_at: '2026-09-11T18:00:00.000Z' }] };
+      return {
+        rows: [{
+          game_key: '2026_02_BUF_MIA', total: '47.5', spread: '-3.5',
+          observed_at: '2026-09-11T18:00:00.000Z', source: 'espn',
+        }],
+      };
     }],
   ]).install(t);
 

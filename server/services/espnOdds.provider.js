@@ -96,7 +96,6 @@ async function fetchOddsUnits({ season, week, transport }) {
     timeout: ESPN_TIMEOUT_MS,
   });
   const events = response.data && Array.isArray(response.data.events) ? response.data.events : [];
-  const observedAt = new Date();
   const quotes = [];
   for (const event of events) {
     const competition = event && Array.isArray(event.competitions) ? event.competitions[0] : null;
@@ -111,7 +110,7 @@ async function fetchOddsUnits({ season, week, transport }) {
     if (!line) continue; // no odds block — nothing for this game, not a zero line
     const gameKey = buildGameKey({ season, week, away: awayTeam, home: homeTeam });
     if (!gameKey) continue;
-    quotes.push({ gameKey, season, week, total: line.total, spread: line.spread, observedAt });
+    quotes.push({ gameKey, season, week, total: line.total, spread: line.spread });
   }
   return quotes.length > 0 ? [{ quotes }] : [];
 }
@@ -121,19 +120,26 @@ async function fetchOddsUnits({ season, week, transport }) {
  * one unit `fetchOddsUnits` produced, inside the single transaction
  * `runSyncJob` opens for it (ADR 0036, ADR 0037: "writes one odds snapshot
  * per game inside it" — one transaction for the whole slate, not one per
- * game). `ON CONFLICT DO NOTHING` on the table's own unique constraint
- * (game_key, source, observed_at) makes a byte-identical re-fetch at the same
- * instant a no-op rather than an error; a genuine line move gets its own row
- * because `observed_at` is this run's own fetch time.
+ * game). `observed_at` is the DATABASE clock (`now()`), not the app process
+ * clock: Postgres resolves `now()` to the transaction's start time, so every
+ * row this unit writes shares one instant, and reading it off the DB rather
+ * than `new Date()` means the web and worker processes (which can both run
+ * this job, qa-reviewer #1234 finding 3) can never disagree about ordering
+ * from their own clock skew — the read path's `ORDER BY observed_at DESC`
+ * only has to trust one clock. `ON CONFLICT DO NOTHING` on the table's own
+ * unique constraint (game_key, source, observed_at) makes a byte-identical
+ * re-fetch inside the same transaction-instant a no-op rather than an error;
+ * a genuine line move gets its own row because a later run's `now()` is a
+ * later transaction.
  */
 async function applyOddsUnit(client, { quotes }) {
   for (const quote of quotes) {
     await client.query(
       `INSERT INTO "game_odds_snapshots"
          ("season", "week", "game_key", "source", "observed_at", "total", "spread")
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       VALUES ($1, $2, $3, $4, now(), $5, $6)
        ON CONFLICT ("game_key", "source", "observed_at") DO NOTHING`,
-      [quote.season, quote.week, quote.gameKey, ESPN_ODDS_SOURCE, quote.observedAt, quote.total, quote.spread]
+      [quote.season, quote.week, quote.gameKey, ESPN_ODDS_SOURCE, quote.total, quote.spread]
     );
   }
   return { gamesWritten: quotes.length };
@@ -160,23 +166,29 @@ async function syncOdds({ season, week, transport } = {}) {
  * / projection.service.js's `generateProjections`): the newest snapshot per
  * game for the week, never an older one once a newer exists (issue #1234,
  * criterion 3). One round trip via `DISTINCT ON`, ordered newest-first per
- * game, rather than one query per game.
+ * game, rather than one query per game. Filtered to this provider's OWN
+ * `source` (qa-reviewer #1234 finding 4): the table's unique constraint
+ * allows a second source to write the same game_key/observed_at pair, and
+ * without this filter a future second provider's row could win the
+ * newest-per-game pick here and be mislabeled `espn`. `row.source` is read
+ * back rather than assumed for the same reason — it happens to always be
+ * `ESPN_ODDS_SOURCE` today only because the WHERE clause guarantees it.
  */
 async function getWeeklyOdds({ season, week, client } = {}) {
   const db = client || pool;
   const result = await db.query(
-    `SELECT DISTINCT ON ("game_key") "game_key", "total", "spread", "observed_at"
+    `SELECT DISTINCT ON ("game_key") "game_key", "total", "spread", "observed_at", "source"
      FROM "game_odds_snapshots"
-     WHERE "season" = $1 AND "week" = $2
+     WHERE "season" = $1 AND "week" = $2 AND "source" = $3
      ORDER BY "game_key", "observed_at" DESC`,
-    [season, week]
+    [season, week, ESPN_ODDS_SOURCE]
   );
   const map = new Map();
   for (const row of result.rows) {
     map.set(row.game_key, {
       total: row.total == null ? null : Number(row.total),
       spread: row.spread == null ? null : Number(row.spread),
-      source: ESPN_ODDS_SOURCE,
+      source: row.source,
       observedAt: row.observed_at,
     });
   }
