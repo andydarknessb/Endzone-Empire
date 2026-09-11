@@ -1185,14 +1185,22 @@ function normalizeTank01Game(entry) {
  * transaction under NFL_GAMES_BULK_WRITE_LOCK — the same lock
  * syncScheduleFromNflverse takes, so a Tank01 run and an nflverse run started
  * together serialize instead of interleaving their upserts (#1203).
+ *
+ * `failedWeeks` lives ONLY in the recorded data_sync_runs row: applyScheduleUnit's
+ * return value is what runSyncJob both records as the run's detail AND
+ * resolves to, so this wrapper strips failedWeeks back off before returning -
+ * the pre-launch lead note's "Must NOT change: both functions' resolved
+ * bodies... the routes see exactly what they see today" means the RESOLVED
+ * VALUE (and so the JSON both routes forward), not the run detail.
  */
 async function syncSchedule({ season, api = tank01Get } = {}) {
-  return runSyncJob({
+  const { season: resultSeason, gamesUpserted } = await runSyncJob({
     job: 'schedule',
     lock: NFL_GAMES_BULK_WRITE_LOCK,
     fetch: () => fetchScheduleUnits({ season, api }),
     apply: (client, unit) => applyScheduleUnit(client, unit),
   });
+  return { season: resultSeason, gamesUpserted };
 }
 
 /**
@@ -1246,6 +1254,11 @@ async function fetchScheduleUnits({ season, api }) {
  * exactly as they are (an nflverse schedule pass fills them in) — just run on
  * the transaction client instead of the bare pool, and once per fetched game
  * rather than interleaved with the fetch.
+ *
+ * This return value is what runSyncJob records as the run's data_sync_runs
+ * detail (so `failedWeeks` is visible there) AND what it resolves to —
+ * syncSchedule strips `failedWeeks` back off before returning to ITS caller,
+ * so the two stay deliberately different.
  */
 async function applyScheduleUnit(client, { season, games, failedWeeks }) {
   let upserted = 0;

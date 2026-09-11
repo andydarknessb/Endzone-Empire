@@ -374,7 +374,13 @@ test('syncSchedule fetches all 18 weeks before writing, then upserts both team p
   assert.deepEqual(apiCalls, Array.from({ length: 18 }, (_, i) => i + 1), 'exactly one call per regular-season week');
   const writes = fake.matching(insert('nfl_games'));
   assert.equal(writes.length, 36, 'one game per week, two rows per game (home + away perspective)');
-  assert.deepEqual(result, { season: 2026, gamesUpserted: 36, failedWeeks: [] });
+  // The RESOLVED value (and so what both routes forward as JSON) stays
+  // exactly { season, gamesUpserted } - the pre-launch lead note's "the
+  // routes see exactly what they see today". failedWeeks lives only in the
+  // recorded data_sync_runs row, asserted below.
+  assert.deepEqual(result, { season: 2026, gamesUpserted: 36 });
+  const recordedDetail = JSON.parse(fake.matching(insert('data_sync_runs'))[0].params[3]);
+  assert.deepEqual(recordedDetail, { season: 2026, gamesUpserted: 36, failedWeeks: [] });
 
   // Red-tell: remove the lock and this ordering assertion (or the pg
   // serialization test) goes red.
@@ -409,10 +415,14 @@ test('syncSchedule tolerates a throwing week and a non-array week: still calls e
   const result = await syncSchedule({ season: 2026, api });
 
   assert.equal(apiCalls.length, 18, 'every week is still called - Tank01 quota is metered per call regardless of earlier failures');
-  assert.deepEqual(result.failedWeeks.map((f) => f.week), [3, 7]);
-  assert.equal(result.failedWeeks[0].message, 'tank01 quota exceeded');
-  assert.match(result.failedWeeks[1].message, /unexpected getNFLGamesForWeek response shape/);
-  assert.equal(result.gamesUpserted, 32, '16 successful weeks x 2 rows; the other weeks wrote nothing');
+  // Resolved value: exactly { season, gamesUpserted }, no failedWeeks.
+  assert.deepEqual(result, { season: 2026, gamesUpserted: 32 }, '16 successful weeks x 2 rows; the other weeks wrote nothing');
+
+  const recordedDetail = JSON.parse(fake.matching(insert('data_sync_runs'))[0].params[3]);
+  assert.deepEqual(recordedDetail.failedWeeks.map((f) => f.week), [3, 7]);
+  assert.equal(recordedDetail.failedWeeks[0].message, 'tank01 quota exceeded');
+  assert.match(recordedDetail.failedWeeks[1].message, /unexpected getNFLGamesForWeek response shape/);
+  assert.equal(recordedDetail.gamesUpserted, 32);
   fake.assertClean();
 });
 
