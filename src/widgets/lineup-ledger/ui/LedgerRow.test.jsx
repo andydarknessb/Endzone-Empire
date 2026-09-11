@@ -24,10 +24,16 @@ const entry = (overrides = {}) => ({
   ...overrides,
 });
 
+// `data-testid="row"` names the OUTER wrapper (the element
+// tests/e2e/auth-offline.spec.ts asserts CONTAINS the row's text); the
+// covering swap-select button carries the derived `row-select` id, since it
+// holds the interactive semantics (aria-pressed/aria-label/disabled) but no
+// text of its own by design.
+
 test('an empty slot renders a placeholder and no player content', () => {
   render(<LedgerRow slotLabel="QB" entry={null} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByText('Empty')).toBeInTheDocument();
-  expect(screen.getByTestId('row')).toHaveAttribute('aria-label', 'Empty QB slot');
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Empty QB slot');
   expect(screen.queryByTestId('ledger-projection')).toBeNull();
 });
 
@@ -36,23 +42,30 @@ test('an occupied row shows name, position/team code, and calls onClick', async 
   render(<LedgerRow slotLabel="QB" entry={entry()} onClick={onClick} data-testid="row" />);
   expect(screen.getByText('Josh Allen')).toBeInTheDocument();
   expect(screen.getByText('QB · BUF')).toBeInTheDocument();
-  await userEvent.click(screen.getByTestId('row'));
+  await userEvent.click(screen.getByTestId('row-select'));
   expect(onClick).toHaveBeenCalledTimes(1);
+});
+
+// The row's own testid element contains the player's name (e2e contract:
+// tests/e2e/auth-offline.spec.ts reads it via toContainText).
+test('the element carrying the row testid contains the player\'s name', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row')).toHaveTextContent('Josh Allen');
 });
 
 // Formal review finding legacy-controls-dropped-without-a-criterion: the
 // player name is a real link (opens Quick View) again, restored as a
-// sibling control so it is independently clickable without becoming a
-// nested-interactive descendant of the row's own button.
-test('the player name opens Quick View without triggering the row click, and is not nested inside it', async () => {
+// sibling of the swap-select button so it is independently clickable
+// without becoming a nested-interactive descendant of it.
+test('the player name opens Quick View without triggering the row click, and is not nested inside the select button', async () => {
   const onClick = jest.fn();
   const onOpenQuickView = jest.fn();
   render(
     <LedgerRow slotLabel="QB" entry={entry()} onClick={onClick} onOpenQuickView={onOpenQuickView} data-testid="row" />
   );
   const nameLink = screen.getByRole('button', { name: 'Josh Allen' });
-  const row = screen.getByTestId('row');
-  expect(row).not.toContainElement(nameLink);
+  const selectButton = screen.getByTestId('row-select');
+  expect(selectButton).not.toContainElement(nameLink);
   await userEvent.click(nameLink);
   expect(onOpenQuickView).toHaveBeenCalledWith(1);
   expect(onClick).not.toHaveBeenCalled();
@@ -195,8 +208,8 @@ test('a spent row is marked disabled and shows a SPENT indicator', async () => {
   const onClick = jest.fn();
   render(<LedgerRow slotLabel="WR" entry={entry({ spent: true })} onClick={onClick} disabled data-testid="row" />);
   expect(screen.getByTestId('ledger-spent-chip')).toBeInTheDocument();
-  expect(screen.getByTestId('row')).toBeDisabled();
-  await userEvent.click(screen.getByTestId('row'));
+  expect(screen.getByTestId('row-select')).toBeDisabled();
+  await userEvent.click(screen.getByTestId('row-select'));
   expect(onClick).not.toHaveBeenCalled();
 });
 
@@ -256,19 +269,19 @@ test('the row has one concise accessible name rather than its concatenated conte
       data-testid="row"
     />
   );
-  expect(screen.getByTestId('row')).toHaveAttribute('aria-label', 'Josh Allen, QB, locked');
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, locked');
 });
 
 test('an empty slot has an accessible name naming the slot', () => {
   render(<LedgerRow slotLabel="WR 2" entry={null} onClick={jest.fn()} data-testid="row" />);
-  expect(screen.getByTestId('row')).toHaveAttribute('aria-label', 'Empty WR 2 slot');
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Empty WR 2 slot');
 });
 
-test('the drop control is a sibling of the row, not nested inside it (no nested-interactive)', () => {
+test('the drop control is a sibling of the select button, not nested inside it (no nested-interactive)', () => {
   render(
     <LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />
   );
   const dropButton = screen.getByRole('button', { name: /drop josh allen/i });
-  const row = screen.getByTestId('row');
-  expect(row).not.toContainElement(dropButton);
+  const selectButton = screen.getByTestId('row-select');
+  expect(selectButton).not.toContainElement(dropButton);
 });

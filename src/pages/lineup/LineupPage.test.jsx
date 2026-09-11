@@ -238,15 +238,13 @@ test('every Edge line kind from the fixture renders with its own kind attribute'
 
 test('Unavailable reasons show in the projection cell and a dash for points', async () => {
   renderPage();
-  // The row's covering button (`slot-row-BENCH-10`) and its visible content
-  // (`slot-row-BENCH-10-content`) are siblings (formal review fix: the name
-  // is a real, independently clickable link, not a nested-interactive
-  // descendant of the row), so the cells are read from the content sibling,
-  // not `within` the button itself.
-  await screen.findByTestId('slot-row-BENCH-10');
-  const benchRowContent = screen.getByTestId('slot-row-BENCH-10-content');
-  expect(within(benchRowContent).getByTestId('ledger-projection')).toHaveTextContent('out');
-  expect(within(benchRowContent).getByTestId('ledger-points')).toHaveTextContent('-');
+  // `slot-row-BENCH-10` names the row's OUTER wrapper (the element
+  // tests/e2e/auth-offline.spec.ts asserts contains the row's text), which
+  // wraps both the invisible swap-select button and the visible content -
+  // the cells are read from within it directly.
+  const benchRow = await screen.findByTestId('slot-row-BENCH-10');
+  expect(within(benchRow).getByTestId('ledger-projection')).toHaveTextContent('out');
+  expect(within(benchRow).getByTestId('ledger-points')).toHaveTextContent('-');
 });
 
 test('the summary strip shows the score/projected figures and win probability from the matchup entity', async () => {
@@ -263,10 +261,12 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
   apiClient.put.mockResolvedValue({ data: {} });
   renderPage();
 
-  // The row itself (not the player's name, now a separate link) is the
-  // swap-select control.
-  await user.click(await screen.findByTestId('slot-row-BENCH-10'));
-  await user.click(screen.getByTestId('slot-row-WR-0'));
+  // `-select` is the row's own invisible swap-select button (a sibling of
+  // the player's name link, not an ancestor of it); jsdom's click has no
+  // geometric hit-testing, unlike a real browser, so the unit test targets
+  // it directly rather than the outer wrapper a real click would resolve to.
+  await user.click(await screen.findByTestId('slot-row-BENCH-10-select'));
+  await user.click(screen.getByTestId('slot-row-WR-0-select'));
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
@@ -280,7 +280,7 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
 test('a refused swap: clicking a locked starter warns and saves nothing', async () => {
   const user = userEvent.setup();
   renderPage();
-  await user.click(await screen.findByTestId('slot-row-QB-0'));
+  await user.click(await screen.findByTestId('slot-row-QB-0-select'));
   expect(mockNotify).toHaveBeenCalledWith("Locked players can't be moved", { severity: 'warning' });
   expect(apiClient.put).not.toHaveBeenCalled();
 });
@@ -289,7 +289,7 @@ test('best ball refuses a click on a starting slot (no selection, no save)', asy
   const user = userEvent.setup();
   renderPage({ [LEAGUE_URL]: leagueResponse({ best_ball: true }), [LEAGUES_URL]: leaguesListResponse({ best_ball: true }) });
   await screen.findByText('Derrick King');
-  await user.click(screen.getByTestId('slot-row-RB-0'));
+  await user.click(screen.getByTestId('slot-row-RB-0-select'));
   expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
   expect(apiClient.put).not.toHaveBeenCalled();
 });

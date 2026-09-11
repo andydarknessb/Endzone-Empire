@@ -118,6 +118,17 @@ function PlayerAvatar({ name, nflTeam }) {
  * a widget role, restores the name as a real link (dropped without a
  * criterion authorising it), and is why neither control's own keydown can
  * ever bubble into the row's handler.
+ *
+ * `data-testid` (the caller's `testId`) names the OUTER wrapper, not the
+ * covering button: `tests/e2e/auth-offline.spec.ts` asserts
+ * `getByTestId('slot-row-...')` CONTAINS the row's own text (the player's
+ * name, per its own `toContainText` check), and the covering button carries
+ * no text of its own by design - the contract is "the testid'd element
+ * contains the row's text", not "the testid'd element is the interactive
+ * one". The covering button gets its own derived id (`${testId}-select`)
+ * for anything that specifically needs the interactive element (a click, its
+ * `aria-pressed`/`aria-label`/`disabled`), which is every unit test in
+ * LedgerRow.test.jsx.
  */
 export default function LedgerRow({
   slotLabel,
@@ -164,15 +175,18 @@ export default function LedgerRow({
       ].filter(Boolean).join(', ');
 
   return (
-    <Box sx={{ position: 'relative', display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, gap: '8px', mb: '8px' }}>
+    <Box
+      data-testid={testId}
+      data-spent={entry?.spent ? 'true' : undefined}
+      sx={{ position: 'relative', display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, gap: '8px', mb: '8px' }}
+    >
       <Box
         component="button"
         type="button"
         disabled={disabled}
         aria-pressed={Boolean(selected)}
         aria-label={rowLabel}
-        data-testid={testId}
-        data-spent={entry?.spent ? 'true' : undefined}
+        data-testid={testId ? `${testId}-select` : undefined}
         onClick={onClick}
         sx={{
           position: 'absolute',
@@ -192,7 +206,6 @@ export default function LedgerRow({
       />
 
       <Box
-        data-testid={testId ? `${testId}-content` : undefined}
         sx={{
           position: 'relative',
           zIndex: 1,
