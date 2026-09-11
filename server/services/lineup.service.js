@@ -9,6 +9,7 @@ const { requireMember } = require('./leagueMembership.service');
 const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { gameStateFor } = require('./gameState');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -404,17 +405,27 @@ async function spentStartingSlots(client, { teamId, season, week }) {
   const result = await client.query(
     `SELECT "players"."position", "lineup_entries"."player_id" AS "spent_player_id",
             "players"."name", "players"."nfl_team",
-            "players"."injury_status", "lineup_entries"."slot"
+            "players"."injury_status", "players"."injury_detail",
+            "lineup_entries"."slot", "player_stats"."stats" AS "week_stats"
        FROM "lineup_entries"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
         AND "team_players"."player_id" = "lineup_entries"."player_id"
+       LEFT JOIN "player_stats" ON "player_stats"."player_id" = "lineup_entries"."player_id"
+        AND "player_stats"."season" = "lineup_entries"."season"
+        AND "player_stats"."week" = "lineup_entries"."week"
       WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
         AND "lineup_entries"."week" = $3
         AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')
         AND "team_players"."player_id" IS NULL`,
     [teamId, season, week]
   );
+  // `injury_detail` and `week_stats` ride along for the same reason the main
+  // entries query carries them (#1235, f2): a spent row is a settled week's
+  // record of a departed starter, and CONTEXT.md's Lineup entry counts it as
+  // played - "each entry gains" these fields draws no exception for it, so
+  // it joins the same single projection read and gets an Edge line by the
+  // same rule as any other entry (getLineup, below).
   return result.rows.map((row) => ({
     player_id: null,
     id: row.spent_player_id,
@@ -422,8 +433,10 @@ async function spentStartingSlots(client, { teamId, season, week }) {
     position: row.position,
     nfl_team: row.nfl_team,
     injury_status: row.injury_status,
+    injury_detail: row.injury_detail,
     slot: row.slot,
     spent: true,
+    week_stats: row.week_stats,
   }));
 }
 
@@ -654,14 +667,18 @@ async function weekKickoffs(client, { season, week, kickoffCache = null }) {
  *
  * WHY THIS IS ITS OWN QUERY, NOT `weekKickoffs` WIDENED TO CARRY OPPONENT AND
  * GAME KEY TOO - a real alternative, considered and rejected for `weekKickoffs`
- * specifically (see the discussion this function used to carry, still true):
- * `weekKickoffs`'s Map<team, kickoff_at> is read as a bare instant by three
- * functions on the settle/lock-critical path, and reshaping every value there
- * to serve a field only `getLineup` ever reads is the worse trade. That
- * argument is about `weekKickoffs`, not about widening THIS function's own
- * value shape - this query has exactly one caller (`getLineup`), so growing
- * what it returns costs nothing else and saves the second, redundant
- * `kickoff_at` read `getLineup` would otherwise need for the same rows.
+ * specifically: `weekKickoffs`'s Map<team, kickoff_at> is read as a bare
+ * instant by three functions on the settle/lock-critical path (`playerKickoffs`,
+ * `playersNotHeldAtLastKickoff`, and the tie-break inside `weekKickoffs`
+ * itself) - exactly the code #227 and #635 exist because a small mistake there
+ * is a silent scoring bug, and exactly what `settleScoreOfRecord.test.js` pins
+ * down to one read shape on purpose. Reshaping every value there to
+ * `{ kickoffAt, opponent }` to serve a field only `getLineup` ever reads is
+ * the worse trade. That argument is about `weekKickoffs`, not about widening
+ * THIS function's own value shape - this query has exactly one caller
+ * (`getLineup`), so growing what it returns costs nothing else and saves the
+ * second, redundant `kickoff_at` read `getLineup` would otherwise need for
+ * the same rows.
  */
 async function weekOpponents(client, { season, week }) {
   const result = await client.query(
@@ -683,17 +700,16 @@ async function weekOpponents(client, { season, week }) {
 }
 
 /**
- * THE LIVE STATE QUESTION, narrowly (#1235): is a team's NFL game for
- * (season, week) scheduled, in progress, or final, per the live score
- * table? Read once per `getLineup` call, keyed by normalised team code on
- * both `home_team` and `away_team` (the table's own free-text columns,
- * ADR 0011's fold applied here the same way every other schedule lookup
- * applies it). Absence - no live row yet for the game - is not answered
- * here; `computeEdgeLine`'s caller falls back to the kickoff instant and the
- * player's own points on the board, the same fallback `expectedFinal.service`
- * uses for the Matchup surfaces (a deliberately independent, simpler copy:
- * requiring that module from here would cycle, since it already requires
- * `lineup.service` for `optimalLineup`/`parseLineupSettings`).
+ * THE LIVE STATE QUESTION, narrowly (#1235): the live score table's own
+ * status for a team's NFL game in (season, week), read once per `getLineup`
+ * call and keyed by normalised team code on both `home_team` and `away_team`
+ * (the table's own free-text columns, ADR 0011's fold applied here the same
+ * way every other schedule lookup applies it). This is only the live
+ * table's half of the answer - absence (no live row yet for the game) is not
+ * resolved here; `./gameState`'s `gameStateFor` (shared with
+ * `expectedFinal.service.js`'s Matchup surfaces) takes this alongside the
+ * kickoff instant and the player's own points on the board to answer
+ * 'scheduled' | 'in_progress' | 'final'.
  */
 async function weekLiveGameStates(client, { season, week }) {
   const result = await client.query(
@@ -1005,24 +1021,6 @@ function findBenchAboveStarter(entry, entries, rosterSlots) {
 }
 
 /**
- * The Edge line's live-game half (`pace`/`result`): 'scheduled' |
- * 'in_progress' | 'final', pure. The live table wins when it has an answer;
- * with none yet, points already on the board prove the game started, and
- * failing that the schedule's own kickoff decides. Deliberately simpler than
- * `expectedFinal.service`'s `gameStateFor` (no "long past kickoff with no
- * live row" timeout): that module cannot be required here (it already
- * requires `lineup.service`, so the reverse would cycle), and the Edge line
- * only ever needs 'final' when the live table has actually said so.
- */
-function liveGameStateFor({ liveStatus, kickoffAt, actualPoints, now }) {
-  if (liveStatus === 'final') return 'final';
-  if (liveStatus === 'in_progress') return 'in_progress';
-  if (Number.isFinite(actualPoints) && actualPoints > 0) return 'in_progress';
-  if (kickoffAt && now && new Date(now) >= new Date(kickoffAt)) return 'in_progress';
-  return 'scheduled';
-}
-
-/**
  * The Edge line itself (CONTEXT.md, Edge line; ADR 0037; #1235): one typed
  * `{ kind, text }`, first match wins, in the priority the issue and the
  * pre-launch ruling pin:
@@ -1049,7 +1047,9 @@ function computeEdgeLine(entry, { entries, rosterSlots, factors, liveStatus, act
   if (bench) return { kind: 'bench-above-starter', text: `Outprojects ${bench.name} at ${bench.slot}` };
   const factorText = factorEdgeText(factors);
   if (factorText) return { kind: 'factor', text: factorText };
-  const gameState = liveGameStateFor({ liveStatus, kickoffAt: entry.kickoff, actualPoints, now });
+  const gameState = gameStateFor({
+    liveStatus, kickoffAt: entry.kickoff, onBye: Boolean(entry.onBye), points: actualPoints, now,
+  });
   if (gameState === 'in_progress' && Number.isFinite(entry.projection) && entry.projection > 0
       && Number.isFinite(actualPoints)) {
     const pct = Math.round((actualPoints / entry.projection) * 100);
@@ -1130,7 +1130,12 @@ async function getLineup({ leagueId, userId, week }) {
         ? []
         : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
 
-      const playerIds = entries.map((row) => row.id);
+      // Entries and spent rows share one player id list (#1235, f2): a spent
+      // row is a settled week's record of a departed starter (CONTEXT.md,
+      // Lineup entry) and the ticket draws no exception for it, so it joins
+      // the SAME single projection read below rather than a second one.
+      const allRows = [...entries, ...spent];
+      const playerIds = [...new Set(allRows.map((row) => row.id))];
       // Load lazily because scoring.service imports lineup.service. Passing the
       // League and these roster ids selects the scoring-aware weekly engine,
       // rather than the pool-wide extrapolator or a season-level estimate.
@@ -1154,24 +1159,24 @@ async function getLineup({ leagueId, userId, week }) {
       // pre-launch ruling 2). All three come off the SAME distribution object
       // the engine returned, so they are null together whenever it has no
       // estimate - never derived separately here. `week_stats` (the raw
-      // player_stats row this entry's own SELECT already joined) is consumed
-      // here and stripped: it is an internal input to the Edge line below,
-      // never a field the wire carries.
-      for (const entry of entries) {
-        const weekly = weeklyByPlayer.get(entry.id);
+      // player_stats row this row's own SELECT already joined, `entries` and
+      // `spent` alike) is consumed here and stripped: it is an internal input
+      // to the Edge line below, never a field the wire carries.
+      for (const row of allRows) {
+        const weekly = weeklyByPlayer.get(row.id);
         const points = Number(weekly?.points);
-        entry.projected_points = weekly?.points == null || !Number.isFinite(points)
+        row.projected_points = weekly?.points == null || !Number.isFinite(points)
           ? null
           : points;
         const dist = weekly?.projection || null;
         const mean = Number(dist?.mean);
-        entry.projection = dist?.mean == null || !Number.isFinite(mean) ? null : mean;
+        row.projection = dist?.mean == null || !Number.isFinite(mean) ? null : mean;
         const p10 = Number(dist?.p10);
-        entry.floor = dist?.p10 == null || !Number.isFinite(p10) ? null : p10;
+        row.floor = dist?.p10 == null || !Number.isFinite(p10) ? null : p10;
         const p90 = Number(dist?.p90);
-        entry.ceiling = dist?.p90 == null || !Number.isFinite(p90) ? null : p90;
-        entry.actualPoints = entry.week_stats ? calculateFantasyPoints(entry.week_stats, rules) : null;
-        delete entry.week_stats;
+        row.ceiling = dist?.p90 == null || !Number.isFinite(p90) ? null : p90;
+        row.actualPoints = row.week_stats ? calculateFantasyPoints(row.week_stats, rules) : null;
+        delete row.week_stats;
       }
 
       const locked = await lockedPlayerIds(client, {
@@ -1191,30 +1196,31 @@ async function getLineup({ leagueId, userId, week }) {
 
       const settings = parseLineupSettings(league);
       const annotated = annotateLineupEntries(
-        [...entries, ...spent],
+        allRows,
         { locked, byeByTeam, opponentByTeam, selectedWeek: targetWeek }
       );
-      // The Edge line itself, `entries` only - never `spent`: a spent row is a
-      // settled week's record of a departed starter (CONTEXT.md, Lineup
-      // entry) and carries no projection today, so there is nothing for its
-      // Edge line to explain. Computed after `annotateLineupEntries` so every
-      // entry already carries its own `kickoff` and the roster-wide
+      // The Edge line itself, over every row - `entries` AND `spent` alike
+      // (#1235, f2). Computed after `annotateLineupEntries` so every row
+      // already carries its own `kickoff` and the roster-wide
       // `bench-above-starter` comparison reads every entry's finished
-      // `projected_points`.
+      // `projected_points`. A spent row is still excluded as the STARTER side
+      // of that comparison (`findBenchAboveStarter`'s own `other.spent`
+      // guard): a bench player outprojecting a departed starter's frozen
+      // record is not a seat he could actually take.
       const now = new Date();
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
-      for (const entry of entries) {
-        const annotatedEntry = annotatedById.get(entry.id);
-        const weekly = weeklyByPlayer.get(entry.id);
-        annotatedEntry.edge = computeEdgeLine(annotatedEntry, {
+      for (const row of allRows) {
+        const annotatedRow = annotatedById.get(row.id);
+        const weekly = weeklyByPlayer.get(row.id);
+        annotatedRow.edge = computeEdgeLine(annotatedRow, {
           entries: annotated,
           rosterSlots: settings.rosterSlots,
           factors: weekly?.projection?.factors || null,
-          liveStatus: liveByTeam.get(normalizeNflTeam(entry.nfl_team)) ?? null,
-          actualPoints: entry.actualPoints,
+          liveStatus: liveByTeam.get(normalizeNflTeam(row.nfl_team)) ?? null,
+          actualPoints: row.actualPoints,
           now,
         });
-        delete annotatedEntry.actualPoints;
+        delete annotatedRow.actualPoints;
       }
 
       // Returning COMMITs (ADR 0033). Every read above materialized the week

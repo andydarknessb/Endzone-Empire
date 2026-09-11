@@ -109,6 +109,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     position: 'QB',
     nfl_team: 'KC',
     injury_status: null,
+    injury_detail: null,
     slot: 'QB',
   };
   const projectionCalls = [];
@@ -118,6 +119,9 @@ test('getLineup returns league-scored current-week projections and preserves una
       [1, { points: '16.25', source: 'forecast' }],
       [2, { points: 0, source: 'forecast' }],
       [3, { points: null, source: 'forecast' }],
+      // A spent row joins this same call (#1235, f2) and gets projection,
+      // floor and ceiling by the same rule as any other entry.
+      [44, { points: 20, projection: { mean: 20, p10: 14, p90: 26, factors: {} } }],
     ]);
   });
   const fake = createFakePool([
@@ -144,7 +148,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     season: 2026,
     week: 8,
     league: { id: 5, current_season: 2026, current_week: 8 },
-    playerIds: [1, 2, 3],
+    playerIds: [1, 2, 3, 44],
   }]);
   assert.equal(lineup.entries[0].projected_points, 16.25);
   assert.equal(lineup.entries[1].projected_points, 0);
@@ -162,6 +166,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     position: 'QB',
     nfl_team: 'KC',
     injury_status: null,
+    injury_detail: null,
     slot: 'QB',
     spent: true,
     bye_week: null,
@@ -172,6 +177,15 @@ test('getLineup returns league-scored current-week projections and preserves una
     kickoff: null,
     game_key: null,
     unavailable: null,
+    // A spent row joins the one projection read (#1235, f2) and gets
+    // projection/floor/ceiling and an Edge line by the same rule as any
+    // other entry - here 'none', since he carries no injury, no live game
+    // data, and is never the starter side of a bench-above-starter match.
+    projected_points: 20,
+    projection: 20,
+    floor: 14,
+    ceiling: 26,
+    edge: { kind: 'none', text: null },
   });
   fake.assertClean();
 });
