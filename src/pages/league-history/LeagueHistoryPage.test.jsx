@@ -209,7 +209,12 @@ test('exposes the Final Standings PF header with its shared definition, focusabl
   renderHistory();
 
   const panel = await screen.findByTestId('season-panel-2026');
-  const pfHeader = within(panel).getByLabelText('PF: Points for: total fantasy points scored by this team.');
+  const table = within(panel).getByRole('table', { name: 'Final Standings' });
+  // Scoped to the columnheader itself (not just the panel) so this pins the
+  // tooltip to the PF header specifically, not merely to somewhere on the
+  // season card.
+  const pfHeaderCell = within(table).getByRole('columnheader', { name: 'PF: Points for: total fantasy points scored by this team.' });
+  const pfHeader = within(pfHeaderCell).getByLabelText('PF: Points for: total fantasy points scored by this team.');
   expect(pfHeader.tabIndex).toBe(0);
 });
 
