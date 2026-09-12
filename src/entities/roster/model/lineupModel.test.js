@@ -1,4 +1,4 @@
-import { lineupModel, pairStartersBySlot, locked, eligibleSlots, lineupEntries } from './lineupModel';
+import { lineupModel, pairStartersBySlot, locked, eligibleSlots, lineupEntries, isQuestionable } from './lineupModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
 // (server/services/lineup.service.js getLineup: id, name, position,
@@ -417,6 +417,24 @@ describe('eligibleSlots: every slot key a player may occupy right now', () => {
   });
 });
 
+// #1330: isQuestionable is the one spelling of the questionable-class
+// designation (Q, D) - the feed's only two non-null, non-Unavailable codes.
+describe('isQuestionable: the questionable-class injury designation (Q, D)', () => {
+  test('Q and D are questionable', () => {
+    expect(isQuestionable({ injuryStatus: 'Q' })).toBe(true);
+    expect(isQuestionable({ injuryStatus: 'D' })).toBe(true);
+  });
+
+  test('O and IR are Unavailable, not questionable', () => {
+    expect(isQuestionable({ injuryStatus: 'O' })).toBe(false);
+    expect(isQuestionable({ injuryStatus: 'IR' })).toBe(false);
+  });
+
+  test('a healthy (null) designation is not questionable', () => {
+    expect(isQuestionable({ injuryStatus: null })).toBe(false);
+  });
+});
+
 // #1207 (part of #1198): `lineupEntries(rosterWire, league)` normalizes the
 // roster wire once into the entry shape a future lineup surface will read
 // (playerId, slot, slotIndex, eligibleSlots, locked, availability,
@@ -551,6 +569,20 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     const { actualPoints, ...rowWithoutActualPoints } = row({ id: 1, slot: 'QB' });
     const withoutKey = lineupEntries([rowWithoutActualPoints], league);
     expect(withoutKey[0].points).toBeNull();
+  });
+
+  // #1330: injuryDetail is a plain pass-through of the wire's injury_detail,
+  // like kickoff/gameKey/opponent - a row with a detail lands with it, a row
+  // without lands as null.
+  test('injuryDetail passes through the wire injury_detail, null when absent', () => {
+    const withDetail = lineupEntries(
+      [row({ id: 1, slot: 'QB', injury_status: 'Q', injury_detail: 'ankle' })],
+      league
+    );
+    expect(withDetail[0].injuryDetail).toBe('ankle');
+
+    const withoutDetail = lineupEntries([row({ id: 1, slot: 'QB', injury_status: 'Q' })], league);
+    expect(withoutDetail[0].injuryDetail).toBeNull();
   });
 
   test('kickoff and gameKey pass through exactly as opponent already does', () => {

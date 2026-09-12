@@ -8,8 +8,12 @@
  * the Matchup and Standings slices use). Everything else in this folder is
  * internal.
  *
- * `pairStartersBySlot`, `lineupEntries`, `eligibleSlots` and `locked` are all
- * exported from HERE. `pairStartersBySlot` used to be re-exported from
+ * `pairStartersBySlot`, `lineupEntries`, `eligibleSlots`, `locked` and
+ * `isQuestionable` are all exported from HERE - `isQuestionable` (#1330) is
+ * the one spelling of the questionable-class injury designation (Q, D), read
+ * by the team-summary-strip widget rather than that widget inventing its own
+ * designation list (ADR 0029: a widget reads an entity's public surface).
+ * `pairStartersBySlot` used to be re-exported from
  * `entities/matchup`'s `matchupModel.js` too (#1207, one release, since
  * `useMatchup.js` paired starters itself): ADR 0029 forbids an entity
  * importing another entity (lines 31 and 78), and that re-export was the
@@ -20,5 +24,5 @@
  * importing an entity), and nothing under `entities/matchup` imports this
  * entity any more.
  */
-export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked } from './model/lineupModel';
+export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked, isQuestionable } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';
