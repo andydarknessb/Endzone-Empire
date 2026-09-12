@@ -87,6 +87,13 @@ export default function GameCard({
             disabled={view.lock}
             bad={flagged}
             onChange={(value) => onSetConfidence?.(view.gameKey, value)}
+            // A confidence slate is up to sixteen games; the shared "Confidence"
+            // default name (ConfidenceMenu.jsx) leaves every one of them
+            // indistinguishable to a screen reader, since this card is a
+            // title-less Card (deliberately not an announced landmark,
+            // shared/ui/Card.jsx) and the combobox precedes both team buttons
+            // in reading order (accessibility risk review, #1265).
+            aria-label={`Confidence for ${awayTeam} at ${homeTeam}`}
           />
         )}
       </Box>
@@ -223,13 +230,20 @@ function PreLockFooter({ pickedCount, totalManagers }) {
 
 // Live footer: the win probability split (when the poll has one) and the
 // league's reveal tally - counts by team, plus how many have no pick.
+//
+// The visible percentages and SplitBar's own `role="img"` accessible name
+// (both team names and both percentages) say the same thing; without the
+// `aria-hidden` here a screen reader would hear it twice back to back. The
+// same split (visible figures hidden, the bar's own name is the one
+// announcement) matchup-preview's WinProbability already uses for the same
+// reason (accessibility risk review, #1265).
 function LiveFooter({ view, awayTeam, homeTeam, totalManagers }) {
   const probability = view.situation?.homeWinProbability;
   return (
     <Box sx={{ p: '10px 14px 12px 14px' }}>
       {probability != null && (
         <>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--dash-dim)', mb: '5px' }}>
+          <Box aria-hidden="true" sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--dash-dim)', mb: '5px' }}>
             <Typography component="span">
               {`Win probability · `}
               <Box component="b" sx={{ color: 'var(--dash-ink)' }}>{`${homeTeam} ${Math.round(probability * 100)}%`}</Box>

@@ -46,6 +46,12 @@ test('labels the window and renders one card per game', () => {
   expect(screen.getAllByTestId('game-card')).toHaveLength(2);
 });
 
+test('the section is labelled BY the heading (aria-labelledby), never announced twice', () => {
+  render(<KickoffWindowGroup window="sunday-early" views={[view('NYJ|TEN')]} mode="straight" totalManagers={10} />);
+  expect(screen.getByRole('region', { name: 'Sunday Early' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 3, name: 'Sunday Early' })).toBeInTheDocument();
+});
+
 test('an unrecognized window key falls back to its own raw label', () => {
   render(<KickoffWindowGroup window="some-future-window" views={[]} mode="straight" totalManagers={10} />);
   expect(screen.getByText('some-future-window')).toBeInTheDocument();

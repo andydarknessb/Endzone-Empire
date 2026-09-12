@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { DashButton } from '../../../shared/ui';
 
@@ -18,6 +18,17 @@ import { DashButton } from '../../../shared/ui';
  * `gameKeys` (a network failure, PICKEM_DISABLED, PICKEM_NO_SLATE): the
  * per-game failures (PICKEM_LOCKED, PICKEM_BAD_CONFIDENCE) already flag
  * their own GameCard and are never repeated here.
+ *
+ * A successful save flips `isDirty` false, which disables the Save button
+ * this click is still focused on - a disabled `<button>` drops out of the
+ * focusable set, so an unmanaged focus would fall to `<body>` and strand a
+ * keyboard user (accessibility risk review, #1265). This bar owns the click
+ * instead of leaving it to the caller: once `onSave` resolves `{ ok: true
+ * }`, it shows an announced (`role="status"`) confirmation and moves focus
+ * onto it (WCAG 4.1.3 - a save otherwise has no confirmation at all beyond
+ * the button greying out). The confirmation clears itself the moment
+ * `isDirty` goes true again (a new edit), so it never lingers stale over a
+ * pick made after the save.
  */
 export default function SaveBar({
   pickedCount = 0,
@@ -31,6 +42,22 @@ export default function SaveBar({
   const generalError = saveError && (!Array.isArray(saveError.gameKeys) || saveError.gameKeys.length === 0)
     ? saveError.message
     : null;
+
+  const [justSaved, setJustSaved] = useState(false);
+  const statusRef = useRef(null);
+
+  useEffect(() => {
+    if (isDirty) setJustSaved(false);
+  }, [isDirty]);
+
+  useEffect(() => {
+    if (justSaved) statusRef.current?.focus();
+  }, [justSaved]);
+
+  const handleSave = async () => {
+    const result = await onSave?.();
+    if (result?.ok) setJustSaved(true);
+  };
 
   return (
     <Box
@@ -82,10 +109,22 @@ export default function SaveBar({
         </Typography>
       )}
 
+      {justSaved && (
+        <Typography
+          ref={statusRef}
+          role="status"
+          tabIndex={-1}
+          data-testid="save-bar-success"
+          sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-accent)', outline: 'none' }}
+        >
+          Picks saved
+        </Typography>
+      )}
+
       <DashButton
         type="button"
         disabled={!isDirty || saving}
-        onClick={() => onSave?.()}
+        onClick={handleSave}
         data-testid="save-bar-save"
       >
         {saving ? 'Saving' : 'Save picks'}

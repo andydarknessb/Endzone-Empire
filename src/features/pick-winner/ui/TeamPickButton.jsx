@@ -17,10 +17,21 @@ import { getTeamName } from '../lib/teamNames';
  * here from `score` or `picked`.
  *
  * A real `<button>` for every state, per the acceptance criteria: its
- * accessible name is the team's full name (falling back to the Team code
- * when no full name is known), never the bare two-or-three letter code
+ * accessible name NAMES the team (the full name, falling back to the Team
+ * code when no full name is known), never the bare two-or-three letter code
  * alone, and it never drops below the 44px touch target at `xs`, matching
  * the canvas's 64px-tall team row at every width.
+ *
+ * `aria-label` makes this button's whole subtree presentational to
+ * assistive tech (ARIA's name computation short-circuits on an explicit
+ * label), so the record and the live/final score - text that exists
+ * NOWHERE else on the card once a game is live or final (accessibility
+ * risk review, #1265) - would otherwise be lost to a screen reader
+ * entirely. The accessible name is composed instead of a bare team name:
+ * the team always leads it (satisfying "an aria-label naming the team"),
+ * with the record and the score appended only when each is actually
+ * present, so a pre-lock card without either still reads as plain as
+ * "Detroit Lions".
  *
  * The monogram fill is this repo's own NFL team color table
  * (`src/lib/nflTeamColors.js`, the color-literals guard's one allowlisted
@@ -47,9 +58,17 @@ export default function TeamPickButton({
   'data-testid': testId,
 }) {
   const resolvedFullName = fullName || getTeamName(team);
-  const label = resolvedFullName || team;
-  const kit = getTeamKit(team);
   const hasScore = score != null;
+  const kit = getTeamKit(team);
+
+  // The team always leads (an aria-label naming the team), with the record
+  // and the score - each otherwise invisible to assistive tech once this
+  // button's own aria-label takes over its subtree - appended only when
+  // present.
+  const labelParts = [resolvedFullName || team];
+  if (record) labelParts.push(record);
+  if (hasScore) labelParts.push(`${score} points`);
+  const label = labelParts.join(', ');
 
   return (
     <Box
@@ -96,7 +115,13 @@ export default function TeamPickButton({
           fontWeight: 700,
           fontSize: '14px',
           letterSpacing: '0.04em',
-          color: '#ffffff',
+          // 'common.white' is an MUI theme palette reference (the guard's own
+          // docblock: "used via the MUI theme... or palette references"),
+          // never a raw literal, and unlike a `--dash-*` token it stays fixed
+          // regardless of light/dark mode - which is what a monogram needs,
+          // since its fill is a real external NFL color (kit.jersey), not a
+          // themed one.
+          color: 'common.white',
           border: '1px solid var(--dash-line-strong)',
           backgroundColor: kit.jersey,
         }}

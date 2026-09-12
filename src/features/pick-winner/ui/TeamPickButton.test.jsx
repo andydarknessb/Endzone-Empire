@@ -79,7 +79,22 @@ test('a winning team is bordered even when it is not the pick', () => {
 
 test('a losing team dims regardless of whether it was picked', () => {
   render(<TeamPickButton team="DET" fullName="Detroit Lions" picked dim score={7} />);
-  expect(screen.getByRole('button', { name: 'Detroit Lions' })).toHaveStyle({ opacity: 0.7 });
+  expect(screen.getByRole('button', { name: 'Detroit Lions, 7 points' })).toHaveStyle({ opacity: 0.7 });
+});
+
+test('the accessible name folds in the score once one exists, since it appears nowhere else on a live or final card', () => {
+  render(<TeamPickButton team="DET" fullName="Detroit Lions" score={17} />);
+  expect(screen.getByRole('button', { name: 'Detroit Lions, 17 points' })).toBeInTheDocument();
+});
+
+test('the accessible name folds in the record when given', () => {
+  render(<TeamPickButton team="DET" fullName="Detroit Lions" record="6-1 · home 4-0" />);
+  expect(screen.getByRole('button', { name: 'Detroit Lions, 6-1 · home 4-0' })).toBeInTheDocument();
+});
+
+test('the accessible name still leads with the team when both record and score are given', () => {
+  render(<TeamPickButton team="DET" fullName="Detroit Lions" record="6-1 · home 4-0" score={20} />);
+  expect(screen.getByRole('button', { name: 'Detroit Lions, 6-1 · home 4-0, 20 points' })).toBeInTheDocument();
 });
 
 test('possession shows a decorative dot, absent otherwise', () => {

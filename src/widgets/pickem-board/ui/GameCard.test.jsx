@@ -73,7 +73,8 @@ test('state 2: picked, confidence assigned', async () => {
       onSetConfidence={onSetConfidence}
     />
   );
-  expect(screen.getByRole('combobox')).toHaveTextContent('Confidence 14');
+  const combobox = screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' });
+  expect(combobox).toHaveTextContent('Confidence 14');
   const tenButton = screen.getByRole('button', { name: /Titans/i });
   expect(tenButton).toHaveAttribute('aria-pressed', 'true');
   await user.click(screen.getByRole('combobox'));

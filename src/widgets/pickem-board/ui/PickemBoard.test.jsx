@@ -10,8 +10,24 @@ jest.mock('../../../api/apiClient', () => ({
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
+let mobile = false;
+
 beforeEach(() => {
   invalidate(undefined, { reload: false });
+  mobile = false;
+  // Every media query this widget (and pick-week beneath it) reads goes
+  // through useMediaQuery: the theme's `sm` breakpoint (a max-width) reads
+  // `mobile`, matching the same fixture GameCenterPage.test.jsx uses.
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: /max-width/.test(query) ? mobile : false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
 });
 
 afterEach(() => {
@@ -126,4 +142,16 @@ test('picking a winner then saving round-trips through the save bar', async () =
     '/api/pickem/league/1/week/3/picks',
     { picks: [{ gameKey: 'NYJ|TEN', pickedTeam: 'TEN', confidence: null }] }
   );
+});
+
+test('the week stepper grows to the 44px touch target on a phone, matching every other page that composes it', async () => {
+  mobile = true;
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/pickem/league/1/week/3': weekResponse(),
+  });
+  render(<PickemBoard leagueId={LEAGUE_ID} />);
+  await screen.findByTestId('game-card');
+
+  expect(screen.getByRole('button', { name: 'Previous week' })).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
 });

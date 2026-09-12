@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, useMediaQuery } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import PickWeek from '../../../features/pick-week';
 import useBoardPresenter from '../model/useBoardPresenter';
 import KickoffWindowGroup from './KickoffWindowGroup';
@@ -22,6 +23,13 @@ import SaveBar from './SaveBar';
  * games scheduled).
  */
 export default function PickemBoard({ leagueId }) {
+  const theme = useTheme();
+  // `pick-week`'s own 44px touch target below `sm` is opt-in (`fill`); the
+  // Game Center and Lineup pages that already compose it both pass this same
+  // `compact` derivation (accessibility risk review, #1265 - the board's week
+  // stepper was the one control on this screen still stuck at 38px on a phone).
+  const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+
   const {
     week,
     weeks,
@@ -48,7 +56,7 @@ export default function PickemBoard({ leagueId }) {
   return (
     <Box data-testid="pickem-board">
       <Box sx={{ mb: 2 }}>
-        <PickWeek weeks={weeks} value={week ?? undefined} onChange={setWeek} />
+        <PickWeek weeks={weeks} value={week ?? undefined} onChange={setWeek} fill={compact} />
       </Box>
 
       {error && (

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { Box, Typography } from '@mui/material';
 import GameCard from './GameCard';
 
@@ -31,9 +31,11 @@ export default function KickoffWindowGroup({
   onSetConfidence,
 }) {
   const label = WINDOW_LABELS[windowKey] || windowKey;
+  const headingId = useId();
   return (
-    <Box component="section" aria-label={label} data-testid={`kickoff-window-${windowKey}`}>
+    <Box component="section" aria-labelledby={headingId} data-testid={`kickoff-window-${windowKey}`}>
       <Typography
+        id={headingId}
         component="h3"
         sx={{
           m: 0,
