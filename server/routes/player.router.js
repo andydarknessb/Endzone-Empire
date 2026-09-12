@@ -16,6 +16,7 @@ const {
 const { requireMember } = require('../services/leagueMembership.service');
 const irPolicy = require('../services/irPolicy.service');
 const { ACCEPTED_SORT_FIELDS } = require('../services/playerSort');
+const { getPlayerCard } = require('../services/playerCard.service');
 
 const router = express.Router();
 
@@ -728,6 +729,55 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error building player summary', error);
     res.status(500).json({ error: 'failed to fetch player summary' });
+  }
+});
+
+// GET /api/players/:id/card?leagueId=N — the Decision card payload for every
+// Availability context: free agent, on waivers, rostered by another team, or
+// on the caller's own team (#1306, ADR 0040 slice 3). Every projected number
+// is the Weekly projection under the league's own scoring (never Pool
+// projection); `upgrade` is null in a best-ball league and for a player
+// already on the caller's roster. Supersedes `/summary`, which is deleted
+// with PlayerQuickView in a later ticket and is left untouched here. Cached
+// the same 30s TTL, keyed per player and league like `/summary`.
+router.get('/:id/card', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res
+      .status(400)
+      .json({ error: 'player id must be a positive integer' });
+  }
+  const playerId = Number(req.params.id);
+
+  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
+  if (!leagueId || !/^\d+$/.test(leagueId)) {
+    return res
+      .status(400)
+      .json({ error: 'leagueId must be a positive integer' });
+  }
+
+  try {
+    const cacheKey = `card:${playerId}|${leagueId}`;
+    const cached = summaryCacheGet(cacheKey);
+    if (cached) {
+      res.set('Cache-Control', 'private, max-age=30');
+      return res.json(cached);
+    }
+
+    const payload = await getPlayerCard({
+      leagueId: Number(leagueId),
+      userId: req.user.id,
+      playerId,
+      week: req.query.week ? Number(req.query.week) : undefined,
+    });
+
+    summaryCacheSet(cacheKey, payload);
+    res.set('Cache-Control', 'private, max-age=30');
+    res.json(payload);
+  } catch (error) {
+    if (error.statusCode)
+      return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error building player card', error);
+    res.status(500).json({ error: 'failed to fetch player card' });
   }
 });
 
