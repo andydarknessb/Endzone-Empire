@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import apiClient from '../../api/apiClient';
-import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
-import { readHttpFailure } from '../../lib/httpFailure';
+import apiClient from '../../../api/apiClient';
+import { readHttpFailure } from '../../../lib/httpFailure';
 
 /**
  * One week of Pick'em: the slate, my picks, and the picks of everyone else
@@ -10,7 +9,12 @@ import { readHttpFailure } from '../../lib/httpFailure';
  * `savePicks` never throws — a rejected save comes back as
  * `{ ok: false, code, gameKeys }` and is also parked in `saveError`, because
  * the board needs to highlight the exact rows the server refused (a game that
- * kicked off between render and save, or a duplicate confidence value).
+ * kicked off between render and save, or a duplicate confidence value). A
+ * successful save leaves the standings cache (`entities/pickem-standings`)
+ * stale, since saved picks change the standings' made/pending counts, but
+ * clearing it is NOT this hook's job: sibling entities do not import each
+ * other (ADR 0029), so the composer that reads both entities - LeaguePickem.jsx
+ * - clears it when `savePicks` resolves `{ ok: true }`.
  */
 export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
   const [data, setData] = useState(null);
@@ -51,9 +55,6 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
       setSaveError(null);
       try {
         await apiClient.put(`/api/pickem/league/${leagueId}/week/${week}/picks`, { picks });
-        // Saved picks change the standings' made/pending counts: drop the
-        // shared cache so the Standings tab reflects them right away.
-        clearPickemStandingsCache(leagueId);
         await load();
         return { ok: true };
       } catch (requestError) {

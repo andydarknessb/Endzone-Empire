@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
-import { clearPickemSettingsCache, setPickemSettings } from '../../hooks/usePickemSettings';
+import { clearPickemSettingsCache, setPickemSettings } from '../../entities/pickem-game';
 import LeagueRules from './LeagueRules';
 import apiClient from '../../api/apiClient';
 

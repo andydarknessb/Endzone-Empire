@@ -1,5 +1,5 @@
-import { invalidate, setResource } from '../lib/resourceCache';
-import { useResource } from './useResource';
+import { invalidate, setResource } from '../../../lib/resourceCache';
+import { useResource } from '../../../hooks/useResource';
 
 // The Pick'em page and the rules view both read the same settings row on the
 // same visit, and it changes only when the commissioner saves it.

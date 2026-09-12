@@ -1,5 +1,5 @@
-import { invalidate } from '../lib/resourceCache';
-import { useResource } from './useResource';
+import { invalidate } from '../../../lib/resourceCache';
+import { useResource } from '../../../hooks/useResource';
 
 // Standings move only when picks are saved or games resolve, and the two
 // screens that show them (the pick'em-only dashboard, then the Pick'em page's

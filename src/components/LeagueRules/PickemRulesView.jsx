@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert, Box, Button, Skeleton, Stack, Typography } from '@mui/material';
-import { usePickemSettings } from '../../hooks/usePickemSettings';
+import { usePickemSettings } from '../../entities/pickem-game';
 import RuleRow from './RuleRow';
 import { PICKEM_MODE_OPTIONS } from '../LeaguePickem/PickemSettingsPanel';
 

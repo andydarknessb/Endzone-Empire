@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import PickemStandings from './PickemStandings';
 import apiClient from '../../api/apiClient';
-import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+import { clearPickemStandingsCache } from '../../entities/pickem-standings';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,

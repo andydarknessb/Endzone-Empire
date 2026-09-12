@@ -31,11 +31,10 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
-import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
-import { setPickemSettings, usePickemSettings } from '../../hooks/usePickemSettings';
+import { clearPickemStandingsCache } from '../../entities/pickem-standings';
+import { setPickemSettings, usePickemSettings, usePickemWeek } from '../../entities/pickem-game';
 import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import usePickemWeek from './usePickemWeek';
 import PickemWeekBoard from './PickemWeekBoard';
 import PickemStandings from './PickemStandings';
 import PickemSettingsPanel from './PickemSettingsPanel';
@@ -125,6 +124,16 @@ export default function LeaguePickem() {
     week,
     { enabled: enabled && week != null }
   );
+
+  // usePickemWeek (entities/pickem-game) cannot clear the standings cache
+  // itself (entities/pickem-standings): sibling entities do not import each
+  // other (ADR 0029). This page composes both, so it does the invalidation
+  // here, only on an actual save (a PICKEM_LOCKED rejection saved nothing).
+  const handleSavePicks = async (picks) => {
+    const result = await savePicks(picks);
+    if (result.ok) clearPickemStandingsCache(leagueId);
+    return result;
+  };
 
   const handleSaveSettings = async (patch) => {
     setSavingSettings(true);
@@ -259,7 +268,7 @@ export default function LeaguePickem() {
         view={data}
         saving={saving}
         saveError={saveError}
-        onSave={savePicks}
+        onSave={handleSavePicks}
         onDirtyChange={onDirtyChange}
       />
     );
