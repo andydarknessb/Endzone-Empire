@@ -77,6 +77,21 @@ test('a locked row shows the lock icon and not the legacy chip text', () => {
   expect(screen.queryByText('LOCKED')).toBeNull();
 });
 
+// #1317: the avatar's ink is monogramInk(kit.jersey), not the themed
+// var(--text-inverse) - a fixed white or black chosen against the specific
+// jersey, since the jersey itself is a fixed external brand color that never
+// changes with the theme. CHI's jersey (#0b162a) clears 4.5:1 against white;
+// CIN's (#fb4f14) does not.
+test('the avatar ink is white for a jersey that clears 4.5:1 against white (CHI)', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CHI' })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByText('JA')).toHaveStyle({ color: '#ffffff' });
+});
+
+test('the avatar ink is black for a jersey that fails 4.5:1 against white (CIN)', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: 'CIN' })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByText('JA')).toHaveStyle({ color: '#000000' });
+});
+
 test('an injured player shows the injury tag', () => {
   render(<LedgerRow slotLabel="WR" entry={entry({ injuryStatus: 'Q' })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('injury-tag')).toHaveTextContent('Q');

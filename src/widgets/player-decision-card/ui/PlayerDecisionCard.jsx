@@ -18,7 +18,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import { InjuryTag, PosChip, RangeBar } from '../../../shared/ui';
-import { formatKickoff, formatPoints, initialsFor } from '../../../shared/lib';
+import { formatKickoff, formatPoints, initialsFor, monogramInk } from '../../../shared/lib';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
 import { locked } from '../../../entities/roster';
@@ -437,6 +437,12 @@ function DragHandle() {
 // The header's avatar: initials on the NFL team's jersey colour, restated
 // from `lineup-ledger/ui/LedgerRow.jsx`'s own private `PlayerAvatar` (not
 // exported from there for this widget to share) at the header's larger size.
+// The ink is `monogramInk(kit.jersey)` (`shared/lib`, #1301/#1317), the same
+// fixed white-or-black rule `PlayerAvatar` uses and for the same reason: a
+// themed token is the wrong ink for `kit.jersey`, an external NFL brand color
+// that stays fixed across light and dark mode. One 4.5:1 rule covers this
+// 20px bold header too - the stricter normal-text threshold costs nothing
+// here and keeps a single helper for all three monogram sites.
 function HeaderAvatar({ name, nflTeam }) {
   const kit = NFL_TEAM_COLORS[nflTeam] || FALLBACK_KIT;
   return (
@@ -453,7 +459,7 @@ function HeaderAvatar({ name, nflTeam }) {
         fontSize: 20,
         fontWeight: 700,
         bgcolor: kit.jersey,
-        color: 'var(--text-inverse)',
+        color: monogramInk(kit.jersey),
       }}
     >
       {initialsFor(name)}

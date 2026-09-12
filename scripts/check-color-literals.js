@@ -21,7 +21,7 @@ const ALLOWLIST = [
   'src/theme/base.css', // var(--token, fallback) fallbacks for first paint
   'src/theme/contrast.js', // pure math, no colors, but belongs to the system
   'src/lib/nflTeamColors.js', // real NFL team colors (external data)
-  'src/features/pick-winner/lib/monogramInk.js', // fixed white/black ink literals, chosen by contrast against external kit.jersey data, not themed (#1301)
+  'src/shared/lib/monogramInk.js', // fixed white/black ink literals, chosen by contrast against external kit.jersey data, not themed (#1301, promoted from features/pick-winner/lib at #1317)
   'src/components/DraftGradesCard/', // A–F grade scale (data encoding)
   'src/components/LandingPage/LandingPage.css', // accent-tint gradient w/ both themes
   'src/features/celebrate-touchdown/ui/TecmoCutscene.css', // retro CRT scanline/gradient FX (not themeable)

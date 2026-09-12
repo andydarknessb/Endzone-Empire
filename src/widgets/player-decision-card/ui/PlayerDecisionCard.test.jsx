@@ -88,6 +88,22 @@ test('opens with the row\'s own fields immediately, before the context endpoint 
   expect(screen.getByTestId('decision-card-range-bar')).toBeInTheDocument();
 });
 
+// #1317: the header avatar's ink is monogramInk(kit.jersey), not the themed
+// var(--text-inverse) - the same fixed white-or-black rule LedgerRow's
+// PlayerAvatar uses, chosen against the jersey itself rather than the theme.
+// CHI's jersey (#0b162a) clears 4.5:1 against white; CIN's (#fb4f14) does not.
+test('the header avatar ink is white for a jersey that clears 4.5:1 against white (CHI)', async () => {
+  renderCard({ entry: entry({ nflTeam: 'CHI' }) });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.getByText('JA')).toHaveStyle({ color: '#ffffff' });
+});
+
+test('the header avatar ink is black for a jersey that fails 4.5:1 against white (CIN)', async () => {
+  renderCard({ entry: entry({ nflTeam: 'CIN' }) });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.getByText('JA')).toHaveStyle({ color: '#000000' });
+});
+
 test('a null Line hides the Line and Implied team total tiles; a null weather hides the weather tile', async () => {
   apiClient.get.mockResolvedValue({ data: { line: null, weather: null, usage: null } });
   renderCard();

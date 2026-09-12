@@ -1,4 +1,4 @@
-import { contrastRatio } from '../../../theme/contrast';
+import { contrastRatio } from '../../theme/contrast';
 
 // WCAG 1.4.3's normal-text threshold. The monogram glyph is 14px/700, below
 // the 18.66px bold cutoff for "large text", so 4.5:1 applies (issue #1301).
