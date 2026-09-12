@@ -208,17 +208,24 @@ test('no bench options section when the opened player is himself BENCH or IR', a
   expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
 });
 
-// Formal review finding f1: the row path (useSwapPlayers.js onRowClick)
-// refuses to even start a swap on a locked, spent, or (in best ball)
-// starting-slot opened player, before any target is chosen - so bench
-// options must refuse the same way, not merely disable per candidate. One
-// red-tell per case the review named.
-test('f1(a): a locked opened starter offers no bench options at all, even with eligible candidates', async () => {
+// Formal review finding f1 (round 2): the row path (useSwapPlayers.js
+// onRowClick) refuses to even start a swap on a locked, spent, or (in best
+// ball) starting-slot opened player, before any target is chosen - bench
+// options must never offer a move the row would refuse. For locked and
+// spent, AC4's "disabled with the lock shown" is literally achievable: the
+// list stays visible, every Swap is disabled, and the header's Locked/
+// Spent indicator carries the lock for the opened player. Best ball keeps
+// hiding, matching how the page hides the Start/sit panel entirely rather
+// than disabling it. One red-tell per case the review named.
+test('f1(a): a locked opened starter shows bench options, every Swap disabled, the lock shown via the header', async () => {
   const starter = entry({ locked: true });
   const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
   renderCard({ entry: starter, entries: [starter, bench] });
-  await screen.findByRole('heading', { name: 'Josh Allen' });
-  expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+  expect(await screen.findByTestId('decision-card-locked')).toHaveTextContent('Locked');
+  const section = await screen.findByTestId('decision-card-bench-options');
+  expect(within(section).getByRole('button', { name: 'Swap in Bench Guy' })).toBeDisabled();
+  // Not the per-candidate lock note - Bench Guy himself is not locked.
+  expect(within(section).queryByTestId('decision-card-bench-option-lock')).not.toBeInTheDocument();
 });
 
 test('f1(c): best ball offers no bench options for a starting-slot opened player', async () => {
@@ -229,12 +236,13 @@ test('f1(c): best ball offers no bench options for a starting-slot opened player
   expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
 });
 
-test('f1(d): a spent opened player offers no bench options', async () => {
+test('f1(d): a spent opened player shows bench options, every Swap disabled, the state shown via the header', async () => {
   const starter = entry({ spent: true });
   const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
   renderCard({ entry: starter, entries: [starter, bench] });
-  await screen.findByRole('heading', { name: 'Josh Allen' });
-  expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+  expect(await screen.findByTestId('decision-card-spent')).toHaveTextContent('Spent');
+  const section = await screen.findByTestId('decision-card-bench-options');
+  expect(within(section).getByRole('button', { name: 'Swap in Bench Guy' })).toBeDisabled();
 });
 
 test('f1(b): Start never offers a slot whose current occupant is locked', async () => {

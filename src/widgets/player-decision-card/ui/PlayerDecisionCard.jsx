@@ -110,12 +110,28 @@ export default function PlayerDecisionCard({
   const startTargets = entry && !isStarting && !bestBall && !isLocked && !isSpent ? startTargetSlots(entry, list) : [];
   const dropAllowed = entry ? Boolean(!isSpent && canDropEntry?.(entry)) : false;
   const compareCandidates = entry ? list.filter((e) => e && e.playerId !== entry.playerId) : [];
-  // f1(a)/(c)/(d) (formal review): the row path refuses a swap ENTIRELY for a
-  // locked, spent, or (in best ball) starting-slot opened player before a
-  // target is even chosen (useSwapPlayers.js onRowClick's own early
-  // returns). Bench options must refuse the same way, not merely disable
-  // per-candidate the way a locked CANDIDATE already is.
-  const benchOptionsBlocked = isLocked || isSpent || (isStarting && bestBall);
+  // f1(a)/(c)/(d) (formal review, round 2): the row path refuses a swap
+  // ENTIRELY for a locked, spent, or (in best ball) starting-slot opened
+  // player before a target is even chosen (useSwapPlayers.js onRowClick's
+  // own early returns). Bench options must never offer a move the row would
+  // refuse - but AC4's own wording ("a locked player's options are disabled
+  // with the lock shown") is literally achievable for locked and spent:
+  // render the list, disable every Swap, and let the header's Locked/Spent
+  // indicator (`decision-card-locked`/`decision-card-spent`, added for the
+  // accessibility risk review) carry "the lock shown" for THIS player - the
+  // join between those two findings, and the reason there is no duplicate
+  // per-row note for it (that note stays reserved for a locked CANDIDATE,
+  // an independent fact `BenchOptionsSection` already carries). Disabling
+  // rather than hiding also keeps the manager's view of who WOULD have been
+  // available, which hiding would have thrown away.
+  //
+  // Best ball is the one exception that still hides: a best-ball lineup is
+  // not manually managed at all, and the page already hides the Start/sit
+  // panel entirely rather than disabling it for the same reason
+  // (LineupPage.test.jsx, "best ball hides the Start/sit panel entirely") -
+  // this section follows that precedent instead of inventing a new one.
+  const benchSwapForceDisabled = isLocked || isSpent;
+  const benchOptionsHidden = isStarting && bestBall;
 
   return (
     <Drawer
@@ -333,7 +349,14 @@ export default function PlayerDecisionCard({
                 <GameSection entry={entry} line={line} weather={weather} level="h4" />
                 <ProjectionSection entry={entry} level="h4" />
                 <UsageSection usage={usage} level="h4" />
-                <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} level="h4" disabled={benchOptionsBlocked} />
+                <BenchOptionsSection
+                  entry={entry}
+                  entries={list}
+                  onSwap={onSwap}
+                  level="h4"
+                  hidden={benchOptionsHidden}
+                  forceDisableSwap={benchSwapForceDisabled}
+                />
               </Box>
               <Box
                 data-testid={`decision-card-compare-panel-${compareEntry.playerId}`}
@@ -357,7 +380,13 @@ export default function PlayerDecisionCard({
               <GameSection entry={entry} line={line} weather={weather} />
               <ProjectionSection entry={entry} />
               <UsageSection usage={usage} />
-              <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} disabled={benchOptionsBlocked} />
+              <BenchOptionsSection
+                entry={entry}
+                entries={list}
+                onSwap={onSwap}
+                hidden={benchOptionsHidden}
+                forceDisableSwap={benchSwapForceDisabled}
+              />
             </>
           )}
         </>
@@ -581,14 +610,24 @@ function UsageSection({ usage, level }) {
 // with the lock shown as text, matching LedgerRow's own lock treatment in
 // spirit without duplicating its SVG glyph.
 //
-// `disabled` (formal review finding f1(a)/(c)/(d)): the row path
-// (useSwapPlayers.js's onRowClick) refuses to even start a swap on a
-// locked, spent, or (in best ball) starting-slot opened player, before any
-// target is chosen. This section must refuse the same way - hidden
-// entirely, not merely disabled per candidate - so the card never offers a
-// swap the row itself would refuse outright.
-function BenchOptionsSection({ entry, entries, onSwap, level, disabled }) {
-  const options = disabled ? [] : benchOptionsForSlot(entries, entry.slot);
+// `hidden`/`forceDisableSwap` (formal review finding f1(a)/(c)/(d), round
+// 2): the row path (useSwapPlayers.js's onRowClick) refuses to even start a
+// swap on a locked, spent, or (in best ball) starting-slot opened player,
+// before any target is chosen - this section must never offer a move the
+// row would refuse. For locked and spent, AC4's own wording ("a locked
+// player's options are disabled with the lock shown") is literally
+// achievable: `forceDisableSwap` renders the list and disables every Swap
+// regardless of the candidate's own lock, while "the lock shown" for THIS
+// (the opened) player is the header's Locked/Spent indicator, not a
+// duplicate per-row note - that note stays reserved below for a locked
+// CANDIDATE, an independent fact. Best ball is the exception that still
+// hides (`hidden`): a best-ball lineup isn't manually managed at all, the
+// same reason the page hides the Start/sit panel entirely rather than
+// disabling it (LineupPage.test.jsx, "best ball hides the Start/sit panel
+// entirely").
+function BenchOptionsSection({ entry, entries, onSwap, level, hidden, forceDisableSwap }) {
+  if (hidden) return null;
+  const options = benchOptionsForSlot(entries, entry.slot);
   if (options.length === 0) return null;
   return (
     <Section title="Bench options" testId="decision-card-bench-options" level={level}>
@@ -616,7 +655,7 @@ function BenchOptionsSection({ entry, entries, onSwap, level, disabled }) {
             <Button
               size="small"
               variant="outlined"
-              disabled={candidateLocked}
+              disabled={candidateLocked || forceDisableSwap}
               aria-label={`Swap in ${candidate.name}`}
               onClick={() =>
                 onSwap?.([
