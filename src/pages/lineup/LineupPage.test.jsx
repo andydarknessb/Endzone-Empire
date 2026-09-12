@@ -208,6 +208,36 @@ const adviceSuggestion = (over = {}) => ({
   ...over,
 });
 
+// Reads back one element's own generated CSS declarations under a given
+// media condition (`''` for a plain, non-responsive property; a responsive
+// `sx` value compiles its OWN `xs` entry under `@media (min-width:0px)`,
+// never into the unconditional rule, verified directly) - jsdom's
+// `getComputedStyle` does not cascade emotion's CSSOM-inserted, media-
+// conditioned rules (verified: it answers the browser default for every
+// responsive `sx` value regardless of breakpoint), so a responsive `display`
+// toggle can only be proven by reading the generated rule itself, not by
+// asking jsdom what it thinks is visible. Byte-for-byte DashButton.test.jsx's
+// own copy (its own comment names MatchupPreview.test.jsx's copy too), which
+// is why this stays a third small local copy rather than a new shared util.
+const rulesUnder = (el, media = '') => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const norm = (value) => String(value).replace(/\s+/g, '');
+  let found = '';
+  const walk = (rules, condition) => {
+    Array.from(rules).forEach((rule) => {
+      if (rule.media) {
+        walk(rule.cssRules || [], rule.media.mediaText || '');
+        return;
+      }
+      if (rule.selectorText === `.${cls}` && norm(condition) === norm(media)) {
+        found += `${rule.style.cssText};`;
+      }
+    });
+  };
+  Array.from(document.styleSheets).forEach((sheet) => walk(sheet.cssRules, ''));
+  return found;
+};
+
 function mockGetByUrl(map) {
   apiClient.get.mockImplementation((url) =>
     Object.prototype.hasOwnProperty.call(map, url)
@@ -459,18 +489,34 @@ test('best ball hides the Start/sit panel entirely (never calls the advice endpo
   expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/lineup/advice'));
 });
 
-test('the Outlook tab: the phone view control shows the Start/sit panel', async () => {
+test('the Outlook tab: the phone view control toggles which column is hidden below `sm`', async () => {
   const user = userEvent.setup();
   renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
   await screen.findByText('Josh Allen');
 
   const viewControl = screen.getByTestId('lineup-mobile-view');
-  const roster = within(viewControl).getByRole('radio', { name: 'Roster' });
-  const outlook = within(viewControl).getByRole('radio', { name: 'Outlook' });
-  expect(roster).toHaveAttribute('aria-checked', 'true');
+  const rosterRadio = within(viewControl).getByRole('radio', { name: 'Roster' });
+  const outlookRadio = within(viewControl).getByRole('radio', { name: 'Outlook' });
+  expect(rosterRadio).toHaveAttribute('aria-checked', 'true');
 
-  await user.click(outlook);
+  const rosterColumn = screen.getByTestId('lineup-roster-column');
+  const outlookColumn = screen.getByTestId('lineup-outlook-column');
 
-  expect(outlook).toHaveAttribute('aria-checked', 'true');
+  // Roster selected by default (AC5): the Ledger shows below `sm`, the rail
+  // (start-sit-panel, matchup-preview) doesn't; both already show side by
+  // side from `sm`/`md` up regardless, which the toggle never touches. MUI
+  // compiles the `xs` value of a responsive `sx` into `@media (min-width:0px)`
+  // rather than an unconditional base rule (verified directly), so `xs` is
+  // read back under that condition, not `''`.
+  expect(rulesUnder(rosterColumn, '(min-width:0px)')).toContain('display: grid');
+  expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: none');
+  expect(rulesUnder(rosterColumn, '(min-width:600px)')).toContain('display: grid');
+  expect(rulesUnder(outlookColumn, '(min-width:900px)')).toContain('display: grid');
+
+  await user.click(outlookRadio);
+
+  expect(outlookRadio).toHaveAttribute('aria-checked', 'true');
   expect(screen.getByTestId('start-sit-panel')).toBeInTheDocument();
+  expect(rulesUnder(rosterColumn, '(min-width:0px)')).toContain('display: none');
+  expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: grid');
 });

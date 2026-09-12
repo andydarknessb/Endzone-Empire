@@ -63,6 +63,35 @@ test('dismiss hides the suggestion without touching any other', async () => {
   expect(screen.getByText('Other Sit')).toBeInTheDocument();
 });
 
+// Formal risk review findings: dismissing a card left focus with nowhere to
+// land (it fell to `<body>`), and nothing announced the removal.
+test('dismissing a card moves focus to the next remaining card\'s Dismiss button and announces the change', async () => {
+  const user = userEvent.setup();
+  const second = suggestion({
+    slot: 'WR',
+    current: { ...suggestion().current, playerId: 3, name: 'Other Sit' },
+    suggested: { ...suggestion().suggested, playerId: 4, name: 'Other Start' },
+  });
+  render(<StartSitPanel advice={{ suggestions: [suggestion(), second], movePlan: [] }} entries={entries} bestBall={false} />);
+  const cards = screen.getAllByTestId('suggestion-card');
+
+  await user.click(within(cards[0]).getByTestId('suggestion-dismiss'));
+
+  expect(screen.getByTestId('suggestion-dismiss')).toHaveFocus();
+  expect(within(screen.getByTestId('suggestion-card')).getByText('Other Sit')).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Sit Guy over Start Guy suggestion dismissed');
+});
+
+test('dismissing the only remaining card moves focus to the panel itself, never to <body>', async () => {
+  const user = userEvent.setup();
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} />);
+
+  await user.click(screen.getByTestId('suggestion-dismiss'));
+
+  expect(screen.getByTestId('start-sit-panel-content')).toHaveFocus();
+  expect(screen.getByTestId('start-sit-panel-content')).toHaveAttribute('tabindex', '-1');
+});
+
 test('compare is a no-op affordance: it renders but calls only its own callback', async () => {
   const user = userEvent.setup();
   const onCompare = jest.fn();

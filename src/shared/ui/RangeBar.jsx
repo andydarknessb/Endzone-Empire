@@ -23,6 +23,21 @@ import { Box } from '@mui/material';
  * track. A missing Floor or Ceiling renders no band at all (never a guessed
  * one), and a missing projection renders no tick.
  */
+// A finite number from `value`, or null - never a coerced zero. `Number(null)`
+// and `Number('')` are both `0`, which `Number.isFinite` happily accepts, so a
+// plain `Number.isFinite(Number(value))` guard cannot tell "missing" from
+// "zero" (formal risk review finding: it fabricated a "Floor 0.0, Ceiling
+// 0.0" accessible name, and a zero-width band, for a player with no
+// distribution at all). `null`/`undefined`/`''` all read as unknown here,
+// matching `shared/lib/numeric.js`'s own `finite()` contract - restated
+// locally rather than imported so this component keeps SplitBar's
+// dependency-free shape.
+function finite(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function RangeBar({
   floor,
   ceiling,
@@ -35,29 +50,32 @@ export default function RangeBar({
   'data-testid': testId = 'range-bar',
   ...rest
 }) {
-  const domainMin = Number.isFinite(Number(min)) ? Number(min) : 0;
-  const fallbackMax = Math.max(Number(ceiling) || 0, Number(projection) || 0, domainMin + 1);
-  const domainMax = Number.isFinite(Number(max)) ? Number(max) : fallbackMax;
+  const floorValue = finite(floor);
+  const ceilingValue = finite(ceiling);
+  const projectionValue = finite(projection);
+
+  const domainMin = finite(min) ?? 0;
+  const fallbackMax = Math.max(ceilingValue ?? 0, projectionValue ?? 0, domainMin + 1);
+  const domainMax = finite(max) ?? fallbackMax;
   const span = Math.max(domainMax - domainMin, 1e-6);
 
   const pct = (value) => {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return null;
-    return Math.max(0, Math.min(100, ((n - domainMin) / span) * 100));
+    if (value == null) return null;
+    return Math.max(0, Math.min(100, ((value - domainMin) / span) * 100));
   };
 
-  const floorPct = pct(floor);
-  const ceilingPct = pct(ceiling);
-  const projectionPct = pct(projection);
+  const floorPct = pct(floorValue);
+  const ceilingPct = pct(ceilingValue);
+  const projectionPct = pct(projectionValue);
   const hasBand = floorPct != null && ceilingPct != null;
   const bandLeft = hasBand ? Math.min(floorPct, ceilingPct) : 0;
   const bandWidth = hasBand ? Math.max(ceilingPct - floorPct, 0) : 0;
 
   const parts = [];
   if (label) parts.push(label);
-  if (Number.isFinite(Number(floor))) parts.push(`Floor ${Number(floor).toFixed(1)}`);
-  if (Number.isFinite(Number(projection))) parts.push(`Projection ${Number(projection).toFixed(1)}`);
-  if (Number.isFinite(Number(ceiling))) parts.push(`Ceiling ${Number(ceiling).toFixed(1)}`);
+  if (floorValue != null) parts.push(`Floor ${floorValue.toFixed(1)}`);
+  if (projectionValue != null) parts.push(`Projection ${projectionValue.toFixed(1)}`);
+  if (ceilingValue != null) parts.push(`Ceiling ${ceilingValue.toFixed(1)}`);
   const ariaLabel = parts.length > 0 ? parts.join(', ') : 'No projection';
 
   return (

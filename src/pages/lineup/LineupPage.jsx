@@ -293,7 +293,7 @@ export default function LineupPage() {
               </Box>
 
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: '16px', alignItems: 'start' }}>
-                <Box sx={{ display: { xs: mobileSection === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: '16px' }}>
+                <Box data-testid="lineup-roster-column" sx={{ display: { xs: mobileSection === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: '16px' }}>
                   <TeamSummaryStrip
                     leagueId={selectedLeagueId}
                     week={league?.current_week ?? null}
@@ -338,7 +338,7 @@ export default function LineupPage() {
                   )}
                 </Box>
 
-                <Box sx={{ display: { xs: mobileSection === 'outlook' ? 'grid' : 'none', md: 'grid' }, gap: '16px' }}>
+                <Box data-testid="lineup-outlook-column" sx={{ display: { xs: mobileSection === 'outlook' ? 'grid' : 'none', md: 'grid' }, gap: '16px' }}>
                   <StartSitPanel
                     advice={advice}
                     entries={lineup?.entries}

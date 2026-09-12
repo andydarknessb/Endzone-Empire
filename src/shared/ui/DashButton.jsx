@@ -78,18 +78,26 @@ const SIZE_SX = {
   sm: { minHeight: { xs: 44, sm: 32 } },
 };
 
-export default function DashButton({
+// `forwardRef` (#1238): the start-sit-panel widget focuses a sibling
+// Dismiss button after removing a card (a formal risk review finding -
+// dismissing left focus with nowhere to land), which needs a real DOM node
+// back from this component the way any other MUI `Button` composer expects.
+// A plain function component silently drops a `ref` (React logs a warning
+// and hands the composer `null`), so every existing caller's own `ref` usage
+// (none today) stays exactly as it was; this only adds a capability.
+const DashButton = React.forwardRef(function DashButton({
   variant = 'primary',
   size = 'md',
   sx,
   'data-testid': testId = 'dash-button',
   ...rest
-}) {
+}, ref) {
   const variantSx = VARIANT_SX[variant] ?? VARIANT_SX.primary;
   const sizeSx = SIZE_SX[size] ?? SIZE_SX.md;
 
   return (
     <Button
+      ref={ref}
       disableElevation
       data-variant={variant}
       data-size={size}
@@ -103,7 +111,9 @@ export default function DashButton({
       {...rest}
     />
   );
-}
+});
+
+export default DashButton;
 
 // The same component under its name, for `import { DashButton }`.
 export { DashButton };

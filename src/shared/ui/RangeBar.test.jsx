@@ -45,3 +45,22 @@ test('no figures at all names the bar rather than announcing nothing', () => {
   render(<RangeBar />);
   expect(screen.getByRole('img', { name: 'No projection' })).toBeInTheDocument();
 });
+
+// Formal risk review finding: `Number(null)` is `0`, which
+// `Number.isFinite` accepts, so a naive coercion read an explicit `null`
+// (an unavailable player's projection, `server/services/decision.service.js`'s
+// `effectiveProjection`) as a known zero - fabricating "Floor 0.0, Projection
+// 0.0, Ceiling 0.0" in the accessible name and a zero-width band, both
+// contradicting a sighted reader's own dashes.
+test('an explicit null for every figure renders no band, no tick, and never a fabricated 0.0', () => {
+  render(<RangeBar floor={null} ceiling={null} projection={null} data-testid="bar" />);
+  expect(screen.getByRole('img', { name: 'No projection' })).toBeInTheDocument();
+  expect(screen.queryByTestId('bar-band')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('bar-tick')).not.toBeInTheDocument();
+});
+
+test('a null domain min/max never collapses to a fabricated zero either', () => {
+  render(<RangeBar floor={8} projection={14} ceiling={20} min={null} max={null} data-testid="bar" />);
+  expect(screen.getByTestId('bar-band')).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Floor 8.0, Projection 14.0, Ceiling 20.0' })).toBeInTheDocument();
+});

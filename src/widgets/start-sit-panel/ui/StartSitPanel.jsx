@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, DashButton, RangeBar } from '../../../shared/ui';
 import { formatKickoff, formatPoints } from '../../../shared/lib';
 import { buildSuggestionView } from '../lib/suggestionView';
@@ -31,6 +32,17 @@ import { buildSuggestionView } from '../lib/suggestionView';
  */
 export default function StartSitPanel({ advice, entries, bestBall, onApply, onCompare }) {
   const [dismissed, setDismissed] = useState(() => new Set());
+  const [announcement, setAnnouncement] = useState('');
+  // The panel's own content container (formal risk review finding: Dismiss
+  // destroyed its own focus anchor with nothing to replace it, dropping
+  // focus all the way to `<body>`) - a `tabIndex={-1}` node a script can
+  // always focus even though it never enters the Tab order itself, the same
+  // pattern a route change or a closed dialog uses to hand focus somewhere
+  // stable. `dismissButtonRefs` keys a live DOM node per suggestion so a
+  // dismiss can hand focus to the NEXT remaining card's own Dismiss button
+  // (or the previous one, dismissing the last card) instead.
+  const contentRef = useRef(null);
+  const dismissButtonRefs = useRef(new Map());
 
   if (bestBall) return null;
 
@@ -40,11 +52,32 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
   const movePlan = Array.isArray(advice?.movePlan) ? advice.movePlan : [];
   const canApply = movePlan.length > 0;
 
-  const dismiss = (key) => setDismissed((prev) => new Set(prev).add(key));
+  // Focus moves BEFORE the state update commits, while every sibling card
+  // (and its Dismiss button) is still mounted in this same synchronous
+  // handler, to whichever button now sits where the dismissed card was; the
+  // container itself is the fallback once no suggestion remains. A polite
+  // status announces what happened, since removing the card is otherwise a
+  // silent DOM change to a screen-reader user.
+  const dismiss = (view) => {
+    const index = views.findIndex((v) => v.key === view.key);
+    const remaining = views.filter((v) => v.key !== view.key);
+    const target = remaining[index] ?? remaining[index - 1] ?? null;
+    const node = target ? dismissButtonRefs.current.get(target.key) : null;
+    (node || contentRef.current)?.focus();
+    setAnnouncement(`${view.sit.name} over ${view.start.name} suggestion dismissed`);
+    setDismissed((prev) => new Set(prev).add(view.key));
+  };
 
   return (
     <Card title="Endzone Forecast" data-testid="start-sit-panel">
-      <Box sx={{ p: '14px', display: 'grid', gap: '14px' }}>
+      <Box
+        ref={contentRef}
+        tabIndex={-1}
+        data-testid="start-sit-panel-content"
+        sx={{ p: '14px', display: 'grid', gap: '14px', outline: 'none' }}
+      >
+        <span role="status" aria-live="polite" style={visuallyHidden}>{announcement}</span>
+
         {views.length === 0 && (
           <Typography sx={{ fontSize: '13px', color: 'var(--dash-faint)' }} data-testid="start-sit-panel-empty">
             Lineup set
@@ -80,10 +113,16 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
               <PlayerColumn label="Start" player={view.start} domainMin={view.domainMin} domainMax={view.domainMax} />
             </Box>
 
-            <Box data-testid="suggestion-opponent-context" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', fontSize: '12px', color: 'var(--dash-faint)' }}>
-              {view.sit.opponentContext && <span>{view.sit.opponentContext}</span>}
-              {view.start.opponentContext && <span>{view.start.opponentContext}</span>}
-            </Box>
+            {/* One joined text node, not two sibling spans (formal risk
+                review finding: two adjacent spans with only a flex `gap`
+                between them concatenate with no separator in the
+                accessible text, "...RB)vs NYJ..."). */}
+            <Typography
+              data-testid="suggestion-opponent-context"
+              sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
+            >
+              {[view.sit.opponentContext, view.start.opponentContext].filter(Boolean).join(' · ')}
+            </Typography>
 
             {view.decideBy && (
               <Typography data-testid="suggestion-decide-by" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
@@ -104,7 +143,11 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
                 variant="ghost"
                 size="sm"
                 data-testid="suggestion-dismiss"
-                onClick={() => dismiss(view.key)}
+                ref={(node) => {
+                  if (node) dismissButtonRefs.current.set(view.key, node);
+                  else dismissButtonRefs.current.delete(view.key);
+                }}
+                onClick={() => dismiss(view)}
               >
                 Dismiss
               </DashButton>
