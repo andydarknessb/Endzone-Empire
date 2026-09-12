@@ -1212,14 +1212,22 @@ async function getLineup({ leagueId, userId, week }) {
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
         const weekly = weeklyByPlayer.get(row.id);
+        const factors = weekly?.projection?.factors || null;
         annotatedRow.edge = computeEdgeLine(annotatedRow, {
           entries: annotated,
           rosterSlots: settings.rosterSlots,
-          factors: weekly?.projection?.factors || null,
+          factors,
           liveStatus: liveByTeam.get(normalizeNflTeam(row.nfl_team)) ?? null,
           actualPoints: row.actualPoints,
           now,
         });
+        // #1281: the largest Factor's explanation, on the wire beside the
+        // Edge line rather than as a kind of it - the SAME factorEdgeText()
+        // call `computeEdgeLine` uses, but independent of which kind wins,
+        // so an injured or bench-above-starter player still carries it (the
+        // Edge line's own priority order, #1235, is unchanged). Null when no
+        // factor applies.
+        annotatedRow.factorExplanation = factorEdgeText(factors);
         // Kept on the wire as `actualPoints` (#1237, ADR 0037's Ledger row:
         // "projection and points"): the client's points cell reads this
         // directly rather than re-deriving it, the same way it already reads
