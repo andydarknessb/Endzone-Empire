@@ -3,6 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { getTeamKit } from '../../../lib/nflTeamColors';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { getTeamName } from '../lib/teamNames';
+import { monogramInk } from '../lib/monogramInk';
 
 /**
  * pick-winner feature (#1265, ADR 0038 "What to build"): one team's row on a
@@ -115,13 +116,14 @@ export default function TeamPickButton({
           fontWeight: 700,
           fontSize: '14px',
           letterSpacing: '0.04em',
-          // 'common.white' is an MUI theme palette reference (the guard's own
-          // docblock: "used via the MUI theme... or palette references"),
-          // never a raw literal, and unlike a `--dash-*` token it stays fixed
-          // regardless of light/dark mode - which is what a monogram needs,
-          // since its fill is a real external NFL color (kit.jersey), not a
-          // themed one.
-          color: 'common.white',
+          // A fixed white or black, never a themed color: `kit.jersey` is a
+          // real external NFL brand color, not a themed one, so the ink
+          // painted on it has to stay fixed alongside it regardless of
+          // light/dark mode. `monogramInk` (#1301) derives which of the two
+          // clears WCAG 1.4.3's 4.5:1 against this specific jersey - a fixed
+          // white failed CIN, MIA, CAR and LAC, and the neutral fallback kit,
+          // by measurement.
+          color: monogramInk(kit.jersey),
           border: '1px solid var(--dash-line-strong)',
           backgroundColor: kit.jersey,
         }}

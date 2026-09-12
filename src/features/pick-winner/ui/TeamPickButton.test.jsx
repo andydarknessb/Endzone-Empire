@@ -103,3 +103,24 @@ test('possession shows a decorative dot, absent otherwise', () => {
   rerender(<TeamPickButton team="DET" fullName="Detroit Lions" />);
   expect(screen.queryByTestId('possession-dot')).not.toBeInTheDocument();
 });
+
+test('the monogram ink is white for a jersey that clears 4.5:1 against white (#1301)', () => {
+  render(<TeamPickButton team="DET" fullName="Detroit Lions" />);
+  expect(screen.getByText('DET', { selector: '[aria-hidden="true"]' })).toHaveStyle({
+    color: '#ffffff',
+  });
+});
+
+test('the monogram ink is black for a jersey that falls below 4.5:1 against white (#1301)', () => {
+  render(<TeamPickButton team="CIN" fullName="Cincinnati Bengals" />);
+  expect(screen.getByText('CIN', { selector: '[aria-hidden="true"]' })).toHaveStyle({
+    color: '#000000',
+  });
+});
+
+test('the monogram ink is black for an unrecognized team code, which resolves to the fallback jersey (#1301)', () => {
+  render(<TeamPickButton team="ZZZ" />);
+  expect(screen.getByText('ZZZ', { selector: '[aria-hidden="true"]' })).toHaveStyle({
+    color: '#000000',
+  });
+});
