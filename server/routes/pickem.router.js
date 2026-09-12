@@ -73,7 +73,37 @@ router.put('/league/:leagueId/settings', async (req, res) => {
 });
 
 // GET /api/pickem/league/:leagueId/week/:week — the slate, my picks, and
-// everyone else's picks for games that have already kicked off
+// everyone else's picks for games that have already kicked off.
+//
+// Response: { season, week, mode, myPicks, othersPicks, viewerTeamId,
+// games: [{ week, gameKey, teams, kickoffAt, homeTeam, awayTeam, status,
+// homeScore, awayScore, quarter, timeRemaining, tank01GameId, locked,
+// winner, isTie,
+//   pickedCount,          // number of managers with a saved pick, every
+//                         // phase — never a pick's direction or owner
+//   line,                 // { spread, total, observedAt } | null — newest
+//                         // game_odds_snapshots row; favorite is derived
+//                         // client-side from the spread's sign
+//   weather,              // { shortForecast, temperatureF, windSpeedMph,
+//                         // precipitationProbability } | null — null when
+//                         // the game is indoor OR no forecast snapshot
+//                         // exists yet
+//   venue,                // { name, city, indoor, neutralSite } | null
+//   broadcast,            // string | null
+//   records,              // { home: { total, home }, away: { total, road } }
+//                         // | null — CONTEXT.md's Record, cut to the side
+//                         // each team is about to play in
+//   situation,            // { possession, downDistance, redZone, lastPlay,
+//                         // homeWinProbability } | null — LOCKED GAMES ONLY,
+//                         // always null before the game's own kickoff
+//   linescores,           // { home: [...], away: [...] } | null
+//   headline,             // string | null
+// }] }
+//
+// Every field above is read straight from nfl_games/live_game_states/
+// game_odds_snapshots/game_weather_snapshots — no ESPN or NWS call happens
+// on this request; every source is a table another Sync run already wrote.
+// Error codes are unchanged.
 router.get('/league/:leagueId/week/:week', async (req, res) => {
   const leagueId = intParam(req.params.leagueId);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -132,7 +162,9 @@ router.put('/league/:leagueId/week/:week/picks', async (req, res) => {
   }
 });
 
-// GET /api/pickem/league/:leagueId/standings?season= — season leaderboard
+// GET /api/pickem/league/:leagueId/standings?season= — season leaderboard.
+// Each row also carries `previousRank`: the row's rank as of the prior
+// completed week (null in week 1, when there is no prior week to rank).
 router.get('/league/:leagueId/standings', async (req, res) => {
   const leagueId = intParam(req.params.leagueId);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -144,7 +176,12 @@ router.get('/league/:leagueId/standings', async (req, res) => {
     const viewerTeam = await requireMember(pool, { leagueId, userId: req.user.id });
     const league = await pickem.loadLeague(pool, leagueId);
     const season = requestedSeason || league.current_season;
-    const { standings, ...meta } = await pickem.getStandings({ leagueId, season });
+    // previousRank only makes sense against the league's OWN current week — a
+    // request for a past season is already fully played, so it gets no
+    // previousRank field rather than one measured against the wrong season's
+    // clock.
+    const currentWeek = season === league.current_season ? league.current_week : null;
+    const { standings, ...meta } = await pickem.getStandings({ leagueId, season, currentWeek });
     // getStandings carries `userId` on each row as the scoring join key, read
     // by internal callers (e.g. season completion). It is account identity, so
     // a member-facing standings row names the manager by Team identity only:

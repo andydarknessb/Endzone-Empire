@@ -5,6 +5,8 @@ const request = require('supertest');
 const { createFakePool } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const pickemRouter = require('../routes/pickem.router');
+const espnScoreboard = require('../modules/espnScoreboard');
+const nwsWeather = require('../services/nwsWeather.service');
 
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'pickem-route-test-secret';
@@ -79,6 +81,12 @@ function mockPool(t, overrides = []) {
     [/FROM "pickem_picks"/, () => ({ rows: [] })],
     [/"owner_id" AS "user_id"/, () => ({ rows: [] })], // standings members query (#343: no users JOIN)
     [/game_recaps/, () => ({ rows: [] })],
+    // ADR 0038: no game carries a dbGameKey by default (WEEK_ONE_SCHEDULE's
+    // rows carry no game_key), so these two are never even queried in most
+    // tests; present here so a test that DOES attach a game_key still gets a
+    // deterministic answer without touching every other test's fixture.
+    [/FROM "game_odds_snapshots"/, () => ({ rows: [] })],
+    [/FROM "game_weather_snapshots"/, () => ({ rows: [] })],
   ]);
 }
 
@@ -315,6 +323,150 @@ test("an unlocked game never leaks another manager's pick", async (t) => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Line, weather, venue, broadcast, records, situation, pickedCount    *
+ * (#1263, ADR 0038)                                                   *
+ * ------------------------------------------------------------------ */
+
+// AC1's red-tell: pickedCount is a plain tally over EVERY pick, every phase,
+// while othersPicks stays locked-only, unwidened. Two managers pick an
+// UNLOCKED game — if the reveal filter in pickem.service.js's getWeekView
+// (`if (!lockedKeys.has(row.team_pair)) continue;`) were ever loosened,
+// othersPicks would carry 'BUF|MIA' and this test would go red on the
+// `assert.deepEqual(res.body.othersPicks, {})` line below. Confirmed by
+// temporarily deleting that guard locally and watching this test fail before
+// trusting it green (see PR body).
+test("pickedCount counts every saved pick, every phase, without widening the othersPicks lock filter", async (t) => {
+  mockPool(t, [
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['BUF', 'MIA', NEXT_WEEK]]) })],
+    [/FROM "pickem_picks"/, () => ({
+      rows: [
+        { user_id: 5, team_pair: 'BUF|MIA', picked_team: 'MIA', confidence: null, teamId: 50, teamName: 'Rival' },
+        { user_id: 6, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null, teamId: 60, teamName: 'Third' },
+      ],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/week/1').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.games[0].locked, false);
+  assert.equal(res.body.games[0].pickedCount, 2, 'both managers who picked are counted, unlocked or not');
+  assert.deepEqual(res.body.othersPicks, {}, 'nobody sees WHO picked or WHICH WAY before lock');
+
+  // Every other new field is absent too when its source has nothing to say —
+  // the null path, present alongside the populated-path test below.
+  const game = res.body.games[0];
+  assert.equal(game.line, null);
+  assert.equal(game.weather, null);
+  assert.equal(game.venue, null);
+  assert.equal(game.broadcast, null);
+  assert.equal(game.records, null);
+  assert.equal(game.situation, null);
+  assert.equal(game.linescores, null);
+  assert.equal(game.headline, null);
+});
+
+test('the week board is built entirely from tables — no ESPN or NWS call happens on request (AC3)', async (t) => {
+  // The mechanism: spy on the actual outbound-fetch functions the schedule
+  // and weather Sync jobs use, and make them throw if ever invoked. If a
+  // future change read Line/Weather/Venue/Situation live instead of from
+  // game_odds_snapshots/game_weather_snapshots/live_game_states, one of these
+  // would fire and the callCount assertions below would go red.
+  const scoreboardSpy = t.mock.method(espnScoreboard, 'fetchLiveRows', async () => {
+    throw new Error('unexpected ESPN scoreboard call');
+  });
+  const forecastSpy = t.mock.method(nwsWeather, 'getForecastsForGames', async () => {
+    throw new Error('unexpected NWS forecast call');
+  });
+  mockPool(t);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/week/1').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.equal(scoreboardSpy.mock.callCount(), 0, 'no ESPN call was made to build the week board');
+  assert.equal(forecastSpy.mock.callCount(), 0, 'no live NWS fetch was made either');
+});
+
+test('the week board shapes line/weather/venue/broadcast/records/linescores/headline, and gates situation to locked games (AC2 populated path)', async (t) => {
+  mockPool(t, [
+    [/FROM "nfl_games"/, () => ({
+      rows: nflGameRows(1, [['DAL', 'WAS', THURSDAY]]).map((row) => ({
+        ...row, game_key: '2026_01_DAL_WAS', roof: 'outdoors',
+      })),
+    })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [{
+        week: 1, home_team: 'DAL', away_team: 'WAS', game_status: 'in_progress',
+        current_score_home: 10, current_score_away: 7, quarter: '3rd', time_remaining: '5:00',
+        venue_name: 'AT&T Stadium', venue_city: 'Arlington', is_indoor: false, is_neutral_site: false,
+        broadcast: 'FOX',
+        home_record: { total: '5-2', home: '3-0', road: '2-2' },
+        away_record: { total: '3-4', home: '2-1', road: '1-3' },
+        home_win_probability: '0.620', linescores: { home: [7, 3], away: [0, 7] },
+        headline: 'Cowboys lead',
+        possession: 'DAL', down_distance: '2nd & 7', is_red_zone: true,
+        last_play: 'Prescott pass complete',
+      }],
+    })],
+    [/FROM "game_odds_snapshots"/, (text, params) => {
+      assert.deepEqual(params, [['2026_01_DAL_WAS']]);
+      return { rows: [{ game_key: '2026_01_DAL_WAS', total: '47.50', spread: '-3.50', observed_at: '2026-09-11T00:00:00.000Z' }] };
+    }],
+    [/FROM "game_weather_snapshots"/, () => ({
+      rows: [{ game_key: '2026_01_DAL_WAS', short_forecast: 'Clear', temperature_f: 72, wind_speed_mph: 5, precipitation_probability: 0 }],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/week/1').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  const [game] = res.body.games;
+  assert.equal(game.locked, true, 'Thursday has already kicked off');
+  assert.deepEqual(game.line, { spread: -3.5, total: 47.5, observedAt: '2026-09-11T00:00:00.000Z' });
+  assert.deepEqual(game.weather, {
+    shortForecast: 'Clear', temperatureF: 72, windSpeedMph: 5, precipitationProbability: 0,
+  });
+  assert.deepEqual(game.venue, { name: 'AT&T Stadium', city: 'Arlington', indoor: false, neutralSite: false });
+  assert.equal(game.broadcast, 'FOX');
+  assert.deepEqual(game.records, {
+    home: { total: '5-2', home: '3-0' },
+    away: { total: '3-4', road: '1-3' },
+  });
+  assert.deepEqual(game.situation, {
+    possession: 'DAL', downDistance: '2nd & 7', redZone: true,
+    lastPlay: 'Prescott pass complete', homeWinProbability: 0.62,
+  });
+  assert.deepEqual(game.linescores, { home: [7, 3], away: [0, 7] });
+  assert.equal(game.headline, 'Cowboys lead');
+});
+
+test('situation stays null before lock even when the ONLY other game on the slate is already live (AC2)', async (t) => {
+  // Two games, same week: BUF|MIA (Thursday, locked) is scheduled only, and
+  // DAL|WAS (next week) is not locked. Situation must never leak onto the
+  // unlocked game regardless of what live_game_states holds for anyone.
+  mockPool(t, [
+    [/FROM "nfl_games"/, () => ({ rows: nflGameRows(1, [['DAL', 'WAS', NEXT_WEEK]]) })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [{
+        week: 1, home_team: 'DAL', away_team: 'WAS', game_status: 'scheduled',
+        current_score_home: 0, current_score_away: 0,
+        possession: 'DAL', down_distance: '1st & 10', is_red_zone: false, last_play: null,
+      }],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/week/1').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.games[0].locked, false);
+  assert.equal(res.body.games[0].situation, null, 'Situation is locked-games-only, whatever the row holds');
+});
+
+/* ------------------------------------------------------------------ *
  * Saving picks                                                        *
  * ------------------------------------------------------------------ */
 
@@ -490,6 +642,79 @@ test('standings return competition ranks for Pick\'em-only and side-game leagues
       pickemOnly ? "Pick'em-only" : 'side game'
     );
   }
+});
+
+test('standings carry previousRank as of the prior completed week, null in week 1', async (t) => {
+  mockPool(t, [
+    [/SELECT "id", "name", "current_season"/, () => ({
+      rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 3 }],
+    })],
+    [/"owner_id" AS "user_id"/, () => ({
+      rows: [
+        { user_id: MEMBER, team_id: 11, team_name: 'Mine', avatar_url: null, avatar_static_url: null },
+        { user_id: 5, team_id: 12, team_name: 'Theirs', avatar_url: null, avatar_static_url: null },
+      ],
+    })],
+    [/SELECT "user_id", "week", "team_pair"/, () => ({
+      rows: [
+        // Week 1: Theirs wins it. Week 2: Mine wins it — so through week 2
+        // (currentWeek 3's "prior completed week") Mine already leads, while
+        // the FULL-season rank below flips again once week 3 also counts.
+        { user_id: MEMBER, week: 1, team_pair: 'BUF|MIA', picked_team: 'MIA', confidence: null },
+        { user_id: 5, week: 1, team_pair: 'BUF|MIA', picked_team: 'BUF', confidence: null },
+        { user_id: MEMBER, week: 2, team_pair: 'DEN|KC', picked_team: 'KC', confidence: null },
+        { user_id: 5, week: 2, team_pair: 'DEN|KC', picked_team: 'DEN', confidence: null },
+        { user_id: MEMBER, week: 3, team_pair: 'NYG|PHI', picked_team: 'NYG', confidence: null },
+        { user_id: 5, week: 3, team_pair: 'NYG|PHI', picked_team: 'PHI', confidence: null },
+      ],
+    })],
+    [/FROM "nfl_games"/, () => ({
+      rows: [
+        ...nflGameRows(1, [['BUF', 'MIA', '2026-09-10T17:00:00.000Z']]),
+        ...nflGameRows(2, [['DEN', 'KC', '2026-09-17T17:00:00.000Z']]),
+        ...nflGameRows(3, [['NYG', 'PHI', '2026-09-24T17:00:00.000Z']]),
+      ],
+    })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [
+        { week: 1, home_team: 'BUF', away_team: 'MIA', game_status: 'final', current_score_home: 31, current_score_away: 10 },
+        { week: 2, home_team: 'KC', away_team: 'DEN', game_status: 'final', current_score_home: 28, current_score_away: 7 },
+        { week: 3, home_team: 'NYG', away_team: 'PHI', game_status: 'final', current_score_home: 24, current_score_away: 10 },
+      ],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/standings').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  const mine = res.body.standings.find((row) => row.teamName === 'Mine');
+  const theirs = res.body.standings.find((row) => row.teamName === 'Theirs');
+  // Full season (weeks 1-3): Mine wins weeks 2 and 3, Theirs wins week 1 — Mine leads.
+  assert.equal(mine.rank, 1);
+  assert.equal(theirs.rank, 2);
+  // previousRank is as of week 2 only (currentWeek 3's prior completed week):
+  // Theirs won week 1, Mine won week 2 — a genuine 1-1 tie, so both share
+  // rank 1 there (competition ranks), unlike the full-season rank above.
+  assert.equal(mine.previousRank, 1);
+  assert.equal(theirs.previousRank, 1);
+});
+
+test('previousRank is null in week 1 — there is no prior week to rank', async (t) => {
+  mockPool(t, [
+    [/SELECT "id", "name", "current_season"/, () => ({
+      rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 1 }],
+    })],
+    [/"owner_id" AS "user_id"/, () => ({
+      rows: [{ user_id: MEMBER, team_id: 11, team_name: 'Mine', avatar_url: null, avatar_static_url: null }],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/standings').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.standings[0].previousRank, null);
 });
 
 test('an explicit non-numeric season is rejected', async () => {
