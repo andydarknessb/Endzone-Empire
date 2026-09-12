@@ -289,8 +289,10 @@ every field present and nullable, `indoor` explicit, whenever a game exists;
 Pick'em's wire carries four fields (`shortForecast`, `temperatureF`,
 `windSpeedMph`, `precipitationProbability`) and is `null` outright for an
 indoor game or a missing snapshot. The 15 mph wind and 30% precipitation
-display thresholds belong to the Pick'em card alone; the Decision card shows
-whatever value is present.
+display thresholds belong to the Pick'em card alone; the Decision card
+applies no threshold to the values it shows, and shows temperature, wind
+speed and the short forecast (`windGustMph` and `precipitationProbability`
+reach it on the wire but are not displayed).
 _Avoid_: forecast (fine in copy, not as the term)
 
 **Broadcast**:
