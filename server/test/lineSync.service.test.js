@@ -1,14 +1,21 @@
 /**
  * The hourly Line Sync run (#1262, ADR 0038): Record, Venue and Broadcast for
- * a week's slate, read off the free ESPN scoreboard and written onto the
- * seven columns this job owns on `live_game_states` — never the score,
- * status, clock or Situation columns the thirty-second poll owns.
+ * a week's slate, read off the free ESPN scoreboard and upserted onto
+ * `live_game_states`, touching only the seven columns this job owns — never
+ * the score, status, clock or Situation columns the thirty-second poll owns.
+ *
+ * It upserts rather than only updating (qa-reviewer #1262 finding 1): the
+ * poll's own kickoff window only opens once a kickoff has already happened,
+ * so a game's row often does not exist yet when this job runs pre-kickoff —
+ * exactly when Pick'em needs Venue/Broadcast/Record to inform a pick.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fixture = require('./fixtures/espn-scoreboard-2025-w1.json');
-const { createFakePool, update, insert } = require('./helpers/fakePool');
+const { createFakePool, insert } = require('./helpers/fakePool');
 const { fetchLineUnits, applyLineUnit, syncLine, LINE_SYNC_JOB } = require('../services/lineSync.service');
+
+const liveGameStates = insert('live_game_states');
 
 const gbAtChiPayload = () => ({
   events: [
@@ -100,10 +107,19 @@ test('fetchLineUnits: a real 16-game week keeps only events that carry a Venue/B
 // applyLineUnit — the Sync run's apply()
 // ---------------------------------------------------------------------------
 
-test('applyLineUnit: updates exactly the seven Venue/Broadcast/Record columns, never score/status/clock', async (t) => {
+test('applyLineUnit: upserts the base identity plus exactly the seven Venue/Broadcast/Record columns; ON CONFLICT never touches score/status/clock/Situation', async (t) => {
   const fake = createFakePool([
-    [update('live_game_states'), (text, params) => {
-      assert.doesNotMatch(text, /"game_status"|"current_score_home"|"current_score_away"|"quarter"|"time_remaining"|"possession"/);
+    [liveGameStates, (text, params) => {
+      assert.match(text, /"venue_name"/);
+      assert.match(text, /"home_record"/);
+      // The base identity columns an INSERT needs are fine on the column
+      // list; only the ON CONFLICT ... DO UPDATE SET clause matters for
+      // "never touches" — that clause must name none of the poll's columns.
+      const setClause = text.slice(text.indexOf('DO UPDATE SET'));
+      assert.doesNotMatch(
+        setClause,
+        /"game_status"|"current_score_home"|"current_score_away"|"quarter"|"time_remaining"|"possession"|"home_win_probability"|"linescores"|"headline"/
+      );
       return { rows: [{ tank01_game_id: params[0][0] }], rowCount: 1 };
     }],
   ]).install(t);
@@ -112,6 +128,14 @@ test('applyLineUnit: updates exactly the seven Venue/Broadcast/Record columns, n
     rows: [
       {
         tank01GameId: '20260913_GB@CHI',
+        season: 2026,
+        week: 2,
+        homeTeam: 'CHI',
+        awayTeam: 'GB',
+        gameStatus: 'scheduled',
+        startTime: new Date('2026-09-13T17:00:00Z'),
+        currentScoreHome: 0,
+        currentScoreAway: 0,
         venueName: 'Soldier Field',
         venueCity: 'Chicago',
         isIndoor: false,
@@ -123,10 +147,19 @@ test('applyLineUnit: updates exactly the seven Venue/Broadcast/Record columns, n
     ],
   });
   assert.deepEqual(result, { gamesUpdated: 1 });
-  const [call] = fake.matching(update('live_game_states'));
-  assert.deepEqual(call.params[0], ['20260913_GB@CHI']);
-  assert.deepEqual(call.params[1], ['Soldier Field']);
-  assert.deepEqual(call.params[6], [JSON.stringify({ total: '5-7', home: '3-3', road: '2-4' })]);
+  const [call] = fake.matching(liveGameStates);
+  assert.deepEqual(call.params[0], ['20260913_GB@CHI'], 'tank01_game_id is params[0]');
+  assert.deepEqual(call.params[9], ['Soldier Field'], 'venue_name is params[9]');
+  assert.deepEqual(
+    call.params[14],
+    [JSON.stringify({ total: '5-7', home: '3-3', road: '2-4' })],
+    'home_record is params[14]'
+  );
+  assert.deepEqual(
+    call.params[15],
+    [JSON.stringify({ total: '10-2', home: '6-0', road: '4-2' })],
+    'away_record is params[15]'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -138,7 +171,7 @@ const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').tes
 test('syncLine: fetches the slate once outside any transaction, writes inside one transaction, records ok=true', async (t) => {
   const transport = { async get() { return { data: gbAtChiPayload() }; } };
   const fake = createFakePool([
-    [update('live_game_states'), () => ({ rows: [], rowCount: 1 })],
+    [liveGameStates, () => ({ rows: [], rowCount: 1 })],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
@@ -146,21 +179,21 @@ test('syncLine: fetches the slate once outside any transaction, writes inside on
 
   assert.deepEqual(result, { gamesUpdated: 1 });
   assert.equal(fake.matching(/^BEGIN$/).length, 1);
-  assert.equal(fake.matching(update('live_game_states')).length, 1);
+  assert.equal(fake.matching(liveGameStates).length, 1);
   const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
-  const updateIdx = fake.calls.findIndex((c) => update('live_game_states').test(c.text));
-  assert.ok(beginIdx < updateIdx && updateIdx < commitIdx, 'the write sits inside the transaction');
+  const upsertIdx = fake.calls.findIndex((c) => liveGameStates.test(c.text));
+  assert.ok(beginIdx < upsertIdx && upsertIdx < commitIdx, 'the write sits inside the transaction');
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1);
   assert.equal(runs[0].params[2], true, 'ok is true');
   fake.assertClean();
 });
 
-test('syncLine: no lock is taken (this job never races the poll on the columns it owns)', async (t) => {
+test('syncLine: no lock is taken', async (t) => {
   const transport = { async get() { return { data: gbAtChiPayload() }; } };
   const fake = createFakePool([
-    [update('live_game_states'), () => ({ rows: [], rowCount: 1 })],
+    [liveGameStates, () => ({ rows: [], rowCount: 1 })],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 

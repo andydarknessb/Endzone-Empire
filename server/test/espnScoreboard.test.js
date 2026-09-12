@@ -633,6 +633,16 @@ test('normalizeRecord: three cuts by type, null when nothing usable, neutral sit
   assert.equal(normalizeRecord([{ type: 'total', summary: '' }]), null);
 });
 
+test('normalizeRecord: a neutral site with no usable total is null, never an all-null placeholder (#1262 qa-reviewer finding 3)', () => {
+  const homeRoadOnly = [
+    { type: 'home', summary: '5-1' },
+    { type: 'road', summary: '3-3' },
+  ];
+  assert.equal(normalizeRecord(homeRoadOnly, { isNeutralSite: true }), null);
+  // Off a neutral site the same input still returns the split (no total, though).
+  assert.deepEqual(normalizeRecord(homeRoadOnly), { total: null, home: '5-1', road: '3-3' });
+});
+
 test('normalizeLinescoreValues: a missing per-quarter value is null, not dropped; empty/absent is null', () => {
   assert.deepEqual(normalizeLinescoreValues([{ value: 7 }, {}, { value: 3 }]), [7, null, 3]);
   assert.equal(normalizeLinescoreValues([]), null);

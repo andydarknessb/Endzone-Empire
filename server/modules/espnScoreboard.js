@@ -237,8 +237,14 @@ function normalizeRecord(records, { isNeutralSite } = {}) {
     else if (type === 'home') home = summary;
     else if (type === 'road') road = summary;
   }
+  if (isNeutralSite) {
+    // The split is dropped for a neutral site, so what remains is `total`
+    // alone: null it out entirely rather than return an all-null placeholder
+    // when even the total is missing (qa-reviewer #1262 finding 3).
+    return total === null ? null : { total, home: null, road: null };
+  }
   if (total === null && home === null && road === null) return null;
-  return isNeutralSite ? { total, home: null, road: null } : { total, home, road };
+  return { total, home, road };
 }
 
 /**

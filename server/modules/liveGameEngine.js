@@ -296,7 +296,13 @@ const UPSERT_SQL = `
     -- linescores/headline (#1262): the caller only ever supplies a non-null
     -- value once a game is final (see upsertRows below), and COALESCEd like
     -- espn_event_id so a later Tank01 fallback tick, which carries neither,
-    -- can never erase what ESPN already reported.
+    -- can never erase what ESPN already reported. Known limitation
+    -- (qa-reviewer #1262 finding 2): once nothing in a window is in_progress
+    -- the poll stops calling the API at all (nextPollPlan), so the tick that
+    -- flips a game to final is the only chance to capture linescores/
+    -- headline — a headline ESPN's editorial recap has not yet published at
+    -- that exact instant is an honest null forever, same as any other
+    -- unobserved fact in this module, not force-filled or retried.
     "linescores" = COALESCE(EXCLUDED."linescores", "live_game_states"."linescores"),
     "headline" = COALESCE(EXCLUDED."headline", "live_game_states"."headline"),
     "updated_at" = now()
