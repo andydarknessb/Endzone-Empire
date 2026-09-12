@@ -6,7 +6,7 @@ import { formatPoints, initialsFor, unavailableLabel } from '../../../shared/lib
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
 import PlayerNameLink from '../../../components/PlayerQuickView/PlayerNameLink';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
-import { edgeLineColor } from '../lib/edgeLine';
+import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
 import { gameCellView } from '../lib/gameCell';
 
 // A closed padlock: AC3, "locked rows show a lock, not a chip" - a small
@@ -32,9 +32,43 @@ function LockIcon() {
   );
 }
 
-// The Game cell (see ../lib/gameCell.js), rendered as one GameStateChip.
-function GameCell({ entry, liveRow }) {
-  const view = gameCellView(entry, liveRow);
+// The Situation line (CONTEXT.md's Situation; ADR 0037 ticket 9, #1241 AC1):
+// possession and down/distance under the live state chip, with a red zone
+// marker when the flag is set. Fields that are null are omitted entirely
+// (never rendered as the literal word "null"); the line itself renders
+// nothing when neither possession nor down/distance is known yet and the
+// red zone flag is false - a live game with no Situation data yet degrades
+// to the clock/score chip alone rather than an empty line.
+function SituationLine({ possession, downDistance, redZone }) {
+  const parts = [];
+  if (possession) parts.push(`${possession} ball`);
+  if (downDistance) parts.push(downDistance);
+  if (parts.length === 0 && !redZone) return null;
+  return (
+    <Box
+      data-testid="ledger-situation-line"
+      sx={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: 'var(--dash-faint)' }}
+    >
+      {parts.length > 0 && <span>{parts.join(' · ')}</span>}
+      {redZone && (
+        <Box
+          component="span"
+          data-testid="ledger-red-zone-marker"
+          sx={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.03em', color: 'var(--dash-danger)' }}
+        >
+          RZ
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// The Game cell (see ../lib/gameCell.js), rendered as one GameStateChip plus
+// (while live) the Situation line beneath it. `view` is computed once by the
+// caller (LedgerRow, below) so the same read also drives the points cell's
+// live colour and the Edge line's kind transition (AC2/AC3) without a second
+// call to gameCellView.
+function GameCell({ view }) {
   if (!view) return null;
   if (view.kind === 'unavailable') {
     // The chip's own state names the reason (bye/out/ir), never a blanket
@@ -49,7 +83,12 @@ function GameCell({ entry, liveRow }) {
   }
   if (view.kind === 'live') {
     const score = view.teamScore != null && view.opponentScore != null ? `${view.teamScore}-${view.opponentScore} · ` : '';
-    return <GameStateChip state="live" data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>;
+    return (
+      <Box sx={{ display: 'grid', justifyItems: 'flex-end', gap: '2px' }}>
+        <GameStateChip state="live" data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>
+        <SituationLine possession={view.possession} downDistance={view.downDistance} redZone={view.redZone} />
+      </Box>
+    );
   }
   // "Final" always carries the word, not just the chip's colour (a final
   // state must not be distinguishable by colour/absence alone, matching the
@@ -61,15 +100,24 @@ function GameCell({ entry, liveRow }) {
 // The Edge line (CONTEXT.md's Edge line): one icon, one line of text, in the
 // kind's own colour. Renders nothing for `none` or a missing edge, per
 // `computeEdgeLine`'s own contract (server/services/lineup.service.js).
-function EdgeLine({ edge }) {
+//
+// `gameCellKind` (#1241 AC3, ADR 0037 ticket 9) is the same `view.kind`
+// computed once for the Game cell: `displayEdgeKind` (../lib/edgeLine.js)
+// transitions the server's own `pace`/`result` kind instantly with the
+// live game's own state, so the icon/colour and `data-edge-kind` never lag
+// a live-to-final transition the Realtime channel already knows about,
+// even though the server's own `edge.text` only refreshes on the next
+// lineup fetch.
+function EdgeLine({ edge, gameCellKind }) {
   if (!edge || edge.kind === 'none' || !edge.text) return null;
+  const kind = displayEdgeKind(edge.kind, gameCellKind);
   return (
     <Box
       data-testid="ledger-edge-line"
-      data-edge-kind={edge.kind}
-      sx={{ display: 'flex', alignItems: 'center', gap: '5px', mt: '2px', color: edgeLineColor(edge.kind) }}
+      data-edge-kind={kind}
+      sx={{ display: 'flex', alignItems: 'center', gap: '5px', mt: '2px', color: edgeLineColor(kind) }}
     >
-      <EdgeLineIcon kind={edge.kind} />
+      <EdgeLineIcon kind={kind} />
       <Typography component="span" sx={{ fontSize: '11.5px', fontWeight: 600, lineHeight: 1.3 }}>
         {edge.text}
       </Typography>
@@ -147,6 +195,10 @@ export default function LedgerRow({
 }) {
   const isEmpty = !entry;
   const unavailable = !isEmpty && entry.availability && entry.availability.available === false;
+  // Computed once here (rather than inside GameCell) so the same read also
+  // drives the points cell's live colour and the Edge line's kind
+  // transition (#1241 AC2/AC3) without a second call to gameCellView.
+  const view = isEmpty ? null : gameCellView(entry, liveRow);
   const projectionText = isEmpty
     ? null
     : unavailable
@@ -158,8 +210,12 @@ export default function LedgerRow({
   // `formatPoints` already renders a dash for a null value, so an
   // unavailable entry's points (always null on the wire) and a not-yet-
   // started entry's points (also null) both fall through to it without a
-  // separate branch.
+  // separate branch. #1241 AC2: while the game is live (never once final),
+  // the points cell paints in the live colour (`dash-danger`, the same
+  // token the live Game-state chip and the Edge line's own `pace` kind
+  // already use on this card surface) so a live score reads at a glance.
   const pointsText = isEmpty ? null : unavailable ? '-' : formatPoints(entry.points);
+  const pointsColor = !isEmpty && !unavailable && view?.kind === 'live' ? 'var(--dash-danger)' : 'var(--dash-faint)';
 
   // The row's own accessible name (WAI-ARIA accname: an explicit aria-label
   // wins outright over the button's accumulated content), so a screen
@@ -310,11 +366,11 @@ export default function LedgerRow({
               >
                 {`${entry.position ?? ''} · ${entry.nflTeam ?? ''}`}
               </Typography>
-              <EdgeLine edge={entry.edge} />
+              <EdgeLine edge={entry.edge} gameCellKind={view?.kind} />
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <GameCell entry={entry} liveRow={liveRow} />
+              <GameCell view={view} />
 
               <Box sx={{ display: 'grid', textAlign: 'right' }}>
                 <Typography
@@ -324,7 +380,7 @@ export default function LedgerRow({
                 >
                   {projectionText}
                 </Typography>
-                <Typography component="span" data-testid="ledger-points" sx={{ fontSize: '10.5px', color: 'var(--dash-faint)' }}>
+                <Typography component="span" data-testid="ledger-points" sx={{ fontSize: '10.5px', color: pointsColor }}>
                   {pointsText === '-' ? (
                     <>
                       <span aria-hidden="true">-</span>
