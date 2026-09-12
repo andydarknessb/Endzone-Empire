@@ -3,6 +3,7 @@ import { Avatar, Box, IconButton, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
 import { formatPoints, initialsFor, monogramInk, unavailableLabel } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
 import PlayerNameLink from '../../../components/PlayerQuickView/PlayerNameLink';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
@@ -421,7 +422,7 @@ export default function LedgerRow({
             size="small"
             aria-label={`Drop ${entry.name}`}
             onClick={() => onRequestDrop?.(entry)}
-            sx={{ position: 'relative', zIndex: 1, color: 'var(--dash-danger)', flex: 'none' }}
+            sx={{ position: 'relative', zIndex: 1, color: 'var(--dash-danger)', flex: 'none', ...MIN_TOUCH_TARGET_SX }}
           >
             <DropIcon />
           </IconButton>

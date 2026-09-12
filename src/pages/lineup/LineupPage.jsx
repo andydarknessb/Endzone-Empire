@@ -322,6 +322,11 @@ export default function LineupPage() {
                   value={mobileSection}
                   onChange={setMobileSection}
                   data-testid="lineup-mobile-view"
+                  // Mobile-only control (this Box is hidden at `sm` and up):
+                  // grows each segment to the 44px touch target, the same
+                  // override PickWeek's own `fill` usage of this component
+                  // applies (src/features/pick-week/ui/PickWeek.jsx).
+                  sx={{ '& [role="radio"]': { minHeight: 44 } }}
                   options={[
                     { value: 'roster', label: 'Roster' },
                     { value: 'outlook', label: 'Outlook' },
@@ -377,7 +382,7 @@ export default function LineupPage() {
                   )}
                 </Box>
 
-                <Box data-testid="lineup-outlook-column" sx={{ display: { xs: mobileSection === 'outlook' ? 'grid' : 'none', md: 'grid' }, gap: '16px' }}>
+                <Box data-testid="lineup-outlook-column" sx={{ display: { xs: mobileSection === 'outlook' ? 'grid' : 'none', sm: 'grid' }, gap: '16px' }}>
                   <StartSitPanel
                     advice={advice}
                     entries={lineup?.entries}

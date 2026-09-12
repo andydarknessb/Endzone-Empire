@@ -832,7 +832,7 @@ test('best ball hides the Start/sit panel entirely (never calls the advice endpo
   expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/lineup/advice'));
 });
 
-test('the Outlook tab: the phone view control toggles which column is hidden below `sm`', async () => {
+test('the Outlook tab: the phone view control toggles which column is hidden below `sm`, both columns show from `sm` up', async () => {
   const user = userEvent.setup();
   renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
   await screen.findByText('Josh Allen');
@@ -847,14 +847,17 @@ test('the Outlook tab: the phone view control toggles which column is hidden bel
 
   // Roster selected by default (AC5): the Ledger shows below `sm`, the rail
   // (start-sit-panel, matchup-preview) doesn't; both already show side by
-  // side from `sm`/`md` up regardless, which the toggle never touches. MUI
-  // compiles the `xs` value of a responsive `sx` into `@media (min-width:0px)`
-  // rather than an unconditional base rule (verified directly), so `xs` is
-  // read back under that condition, not `''`.
+  // side from `sm` up regardless (the phone toggle itself is hidden at `sm`
+  // and up, so both columns must default to visible there - a real bug found
+  // in mobile review left the outlook column gated on `md` instead, stranding
+  // it with no way to reach it between `sm` and `md`). MUI compiles the `xs`
+  // value of a responsive `sx` into `@media (min-width:0px)` rather than an
+  // unconditional base rule (verified directly), so `xs` is read back under
+  // that condition, not `''`.
   expect(rulesUnder(rosterColumn, '(min-width:0px)')).toContain('display: grid');
   expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: none');
   expect(rulesUnder(rosterColumn, '(min-width:600px)')).toContain('display: grid');
-  expect(rulesUnder(outlookColumn, '(min-width:900px)')).toContain('display: grid');
+  expect(rulesUnder(outlookColumn, '(min-width:600px)')).toContain('display: grid');
 
   await user.click(outlookRadio);
 
@@ -862,6 +865,29 @@ test('the Outlook tab: the phone view control toggles which column is hidden bel
   expect(screen.getByTestId('start-sit-panel')).toBeInTheDocument();
   expect(rulesUnder(rosterColumn, '(min-width:0px)')).toContain('display: none');
   expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: grid');
+});
+
+// Red-tell (mobile review): the phone Outlook toggle's segments rendered at
+// 30px (the SegmentedControl kit's own default), under the repo's 44px
+// touch-target standard - reverting the `sx` override on this usage turns
+// this case red and no other. Same technique as PickWeek.test.jsx's own
+// "meets the 44px touch target" test (`sx`'s nested `[role="radio"]`
+// selector compiles to a rule whose selector starts with, but is not equal
+// to, the radiogroup's own class, so it is read by tail, not by exact match).
+test('the phone Outlook toggle meets the 44px touch target', async () => {
+  renderPage();
+  await screen.findByText('Josh Allen');
+
+  const viewControl = screen.getByTestId('lineup-mobile-view');
+  const cls = Array.from(viewControl.classList).find((c) => c.startsWith('css-'));
+  let tail = '';
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      tail += `${rule.selectorText.slice(`.${cls}`.length).trim()}|${rule.style.cssText};`;
+    });
+  });
+  expect(tail).toMatch(/\[role="radio"\]\|[^|]*min-height: 44px/);
 });
 
 // #1239 AC1-AC7: the Bye cluster grid and its attention chip. The default
