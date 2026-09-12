@@ -594,6 +594,22 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(entries[0].edge).toBeNull();
   });
 
+  // #1281: the largest Factor's explanation, independent of the Edge line -
+  // computed on the server from the same factorEdgeText(factors) call that
+  // can win the Edge line's 'factor' kind, but here unconditionally.
+  test('factorExplanation carries the server-computed string through verbatim', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', edge: { kind: 'injury', text: 'Questionable' }, factorExplanation: 'Matchup +3.5' })],
+      league
+    );
+    expect(entries[0].factorExplanation).toBe('Matchup +3.5');
+  });
+
+  test('a wire row without a factorExplanation key at all produces factorExplanation: null', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB' })], league);
+    expect(entries[0].factorExplanation).toBeNull();
+  });
+
   test('irAttested and validStash pass through as booleans (#1237)', () => {
     const entries = lineupEntries(
       [row({ id: 1, slot: 'IR', ir_attested: true, valid_stash: true })],
