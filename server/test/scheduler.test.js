@@ -459,6 +459,39 @@ test('getSchedulerStatus.syncRuns maps outcome from detail.reason, not from ok a
   assert.equal(status.syncRuns.adp.latest.outcome, 'ok');
 });
 
+test('getSchedulerStatus.syncRuns reports failedWeeks from detail.failedWeeks.length, independent of outcome (#1242)', async (t) => {
+  dataSyncRunsPool({
+    // ok: true with 13 skipped weeks still reports outcome: 'ok' - the count
+    // is not derived into a new outcome.
+    schedule: {
+      latest: { id: 20, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: { failedWeeks: Array.from({ length: 13 }, (_, i) => i + 1) } },
+      latestOk: { id: 20, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: { failedWeeks: Array.from({ length: 13 }, (_, i) => i + 1) } },
+    },
+    // detail present, no failedWeeks key at all.
+    adp: {
+      latest: { id: 21, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: { matched: 200 } },
+      latestOk: { id: 21, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: { matched: 200 } },
+    },
+    // failedWeeks present but not an array: null, never a throw.
+    'week-stats': {
+      latest: { id: 22, finished_at: '2026-09-10T12:00:00.000Z', ok: false, detail: { failedWeeks: 'oops' } },
+      latestOk: null,
+    },
+    // legacy row: detail itself is null.
+    injuries: {
+      latest: { id: 23, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: null },
+      latestOk: { id: 23, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail: null },
+    },
+  }).install(t);
+  const status = await scheduler.getSchedulerStatus();
+  assert.equal(status.syncRuns.schedule.latest.failedWeeks, 13);
+  assert.equal(status.syncRuns.schedule.latest.outcome, 'ok', 'outcome keeps the #1205 vocabulary regardless of the count');
+  assert.equal(status.syncRuns.adp.latest.failedWeeks, null, 'no failedWeeks key on detail');
+  assert.equal(status.syncRuns['week-stats'].latest.failedWeeks, null, 'failedWeeks present but not an array');
+  assert.equal(status.syncRuns.injuries.latest.failedWeeks, null, 'legacy row: detail itself is null');
+  assert.deepEqual(status.syncRuns.injuries.latestOk, { finishedAt: new Date('2026-09-10T12:00:00.000Z') }, 'latestOk keeps its { finishedAt } shape');
+});
+
 // ---- scoring is decoupled from syncing -------------------------------------
 
 test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', async (t) => {
