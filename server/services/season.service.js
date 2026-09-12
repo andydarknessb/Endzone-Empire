@@ -179,6 +179,28 @@ function round2(x) {
 }
 
 /**
+ * Pure: the number of playoff rounds needed to reduce `playoffTeams` entrants
+ * to one champion — the same halving `pairBySeed` performs bracket round by
+ * bracket round, and `finalizeWeekAndAdvance` plays out one round per week:
+ * `ceil(log2(n))`. Fewer than two entrants means no bracket is ever played.
+ */
+function playoffRounds(playoffTeams) {
+  const n = Math.max(0, Number(playoffTeams) || 0);
+  return n < 2 ? 0 : Math.ceil(Math.log2(n));
+}
+
+/**
+ * Pure: the last week of `league`'s season a fantasy matchup can still be
+ * played — its last playoff week, `regular_season_weeks` plus the rounds
+ * `playoffRounds` derives from `playoff_teams`. A league with fewer than two
+ * playoff teams ends at its last regular-season week.
+ */
+function lastPlayoffWeek(league) {
+  const regularWeeks = Number(league && league.regular_season_weeks) || 0;
+  return regularWeeks + playoffRounds(league && league.playoff_teams);
+}
+
+/**
  * The schedule work itself, on a caller-supplied client. Owns no transaction:
  * the exported generateRegularSeason decides which client this runs on and who
  * BEGINs/COMMITs around it. `forUpdate` selects the league read text - the two
@@ -500,4 +522,6 @@ module.exports = {
   generateRegularSeason,
   getStandings,
   finalizeWeekAndAdvance,
+  playoffRounds,
+  lastPlayoffWeek,
 };

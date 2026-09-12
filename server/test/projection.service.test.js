@@ -50,6 +50,7 @@ function mockPool(t, {
   byeRows = [],
   runRow = null,
   cachedRows = [],
+  leagueRow = null,
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -57,6 +58,7 @@ function mockPool(t, {
     const text = String(sql);
     calls.push({ text, params });
     if (onQuery) onQuery(text, params);
+    if (text.includes('FROM "leagues" WHERE "id" = $1')) return { rows: leagueRow ? [leagueRow] : [] };
     if (text.includes('FROM "projection_runs"')) return { rows: runRow ? [runRow] : [] };
     if (text.includes('INSERT INTO "projection_runs"')) {
       return { rows: [{ id: 99, generated_at: new Date('2026-09-10T00:00:00Z'), input_cutoff: params[4] }] };
@@ -1431,4 +1433,128 @@ test('invalidation uses the injected client and never the ambient pool', async (
   const store = fakeRunStore([runRowFor(2026, 4, 'hash-a')]);
   const out = await projection.invalidateWeeklyProjectionRuns({ season: 2026, fromWeek: 4, client: store });
   assert.equal(out.deletedRuns, 1);
+});
+
+// ---------------------------------------------------------------------------
+// getRestOfSeason (#1305): v2 rest-of-season totals over the Weekly
+// projection cache, from a league's current week through its last playoff
+// week.
+// ---------------------------------------------------------------------------
+
+test('getRestOfSeason: a bye in a covered week contributes zero, so the total equals the sum of the other covered weeks', async (t) => {
+  const leagueRow = {
+    id: 1, scoring_rules: null, best_ball: false,
+    current_season: SEASON, current_week: 15, regular_season_weeks: 14, playoff_teams: 4,
+  }; // lastPlayoffWeek = 16: weeks 15 (plays) and 16 (bye) are covered.
+  const byeRows = Array.from({ length: 18 }, (_, i) => i + 1)
+    .filter((week) => week !== 16)
+    .map((week) => ({ nfl_team: 'BUF', week }));
+
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    leagueRow,
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 10, { rushingYards: 80, rushingTDs: 0 })),
+    byeRows,
+  });
+
+  const result = await projection.getRestOfSeason([1], 1);
+
+  // The same bundle, generated directly: week 15's own number, independent of
+  // getRestOfSeason's loop, is what the total must equal since week 16
+  // contributes nothing.
+  const week15 = await projection.generateProjections({
+    season: SEASON, week: 15, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+  });
+  const week15Projection = week15.projections.get(1);
+  const point = week15Projection.median != null ? week15Projection.median : week15Projection.mean;
+  assert.ok(point > 0, 'week 15 must project a real number for this to be a meaningful check');
+
+  const totals = result.get(1);
+  assert.equal(totals.total, Math.round(point * 100) / 100);
+  assert.equal(totals.perGame, totals.total, 'exactly one covered week actually counted');
+
+  // Week 16 really was generated and is unavailable, not simply skipped.
+  const week16 = await projection.generateProjections({
+    season: SEASON, week: 16, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+  });
+  assert.equal(week16.projections.get(1).factors.availability.available, false);
+  assert.equal(week16.projections.get(1).factors.availability.reason, 'bye');
+});
+
+test('getRestOfSeason: a week every requested player already has cached is never regenerated', async (t) => {
+  const leagueRow = {
+    id: 1, scoring_rules: null, best_ball: false,
+    current_season: SEASON, current_week: 16, regular_season_weeks: 14, playoff_teams: 4,
+  }; // lastPlayoffWeek = 16: exactly one covered week.
+  const cachedRow = {
+    player_id: 1, mean: 12.34, median: 12.34, p10: 5, p25: 9, p75: 15, p90: 20,
+    active_probability: 1, confidence: 'medium', sample_size: 4,
+    factors: { availability: { available: true } },
+  };
+  const runRow = { id: 501, input_cutoff: null, source_coverage: {}, generated_at: new Date('2026-09-10T00:00:00Z') };
+
+  const calls = mockPool(t, {
+    players: [player(1, 'RB')],
+    leagueRow,
+    runRow,
+    cachedRows: [cachedRow],
+  });
+
+  const result = await projection.getRestOfSeason([1], 1);
+  assert.equal(result.get(1).total, 12.34);
+  // Every requested player's row was already cached: loadFeatureBundle's
+  // weekly-stats read (the signature of an actual generateProjections call)
+  // never ran. (generateProjections is a bare in-module call, so spying on
+  // the exported projection.generateProjections would not observe it; this
+  // query-level fingerprint is the thing that is actually invoked.)
+  const statsReads = () => calls.filter((c) => c.text.includes('FROM "player_stats"')).length;
+  assert.equal(statsReads(), 0);
+
+  const before = calls.length;
+  const again = await projection.getRestOfSeason([1], 1);
+  assert.equal(again.get(1).total, 12.34);
+  assert.equal(statsReads(), 0, 'still zero generation reads after a second call');
+  assert.ok(calls.length > before, 'the second call still issued its own league/cache reads');
+});
+
+test('getRestOfSeason: positionRank/groupSize rank total within the requested pool only, ties sharing a rank', async (t) => {
+  const leagueRow = {
+    id: 1, scoring_rules: null, best_ball: false,
+    current_season: SEASON, current_week: 16, regular_season_weeks: 14, playoff_teams: 4,
+  };
+  const row = (playerId, points) => ({
+    player_id: playerId, mean: points, median: points, p10: null, p25: null, p75: null, p90: null,
+    active_probability: 1, confidence: 'medium', sample_size: 4,
+    factors: { availability: { available: true } },
+  });
+  const runRow = { id: 9, input_cutoff: null, source_coverage: {}, generated_at: new Date('2026-09-10T00:00:00Z') };
+
+  mockPool(t, {
+    players: [player(1, 'RB'), player(2, 'RB'), player(3, 'RB'), player(4, 'WR')],
+    leagueRow,
+    runRow,
+    cachedRows: [row(1, 20), row(2, 20), row(3, 10), row(4, 5)],
+  });
+
+  const result = await projection.getRestOfSeason([1, 2, 3, 4], 1);
+  assert.equal(result.get(1).positionRank, 1, 'tied for the top RB score');
+  assert.equal(result.get(2).positionRank, 1, 'ties share a rank, RANK() not ROW_NUMBER()');
+  assert.equal(result.get(3).positionRank, 3, 'the next rank skips past the tie, same as RANK()');
+  assert.equal(result.get(1).groupSize, 3, 'the WR in the pool never joins the RB group');
+  assert.equal(result.get(4).positionRank, 1, 'the lone WR ranks first in a pool of one');
+  assert.equal(result.get(4).groupSize, 1);
+});
+
+test('getRestOfSeason: an empty playerIds list short-circuits without querying anything', async (t) => {
+  const calls = mockPool(t, {});
+  assert.deepEqual(await projection.getRestOfSeason([], 1), new Map());
+  assert.equal(calls.length, 0, 'no query is issued for an empty player list');
+});
+
+test('getRestOfSeason: an unknown league is a 404', async (t) => {
+  mockPool(t, {}); // leagueRow defaults to null -> "FROM leagues" resolves empty
+  await assert.rejects(
+    () => projection.getRestOfSeason([1], 999),
+    (err) => err.statusCode === 404
+  );
 });
