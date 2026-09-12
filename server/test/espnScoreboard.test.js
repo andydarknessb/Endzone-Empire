@@ -7,6 +7,11 @@ const {
   resolveGameIds,
   mapEspnStatus,
   mapEspnQuarter,
+  normalizeVenue,
+  normalizeBroadcast,
+  normalizeRecord,
+  normalizeLinescoreValues,
+  normalizeHeadline,
   espnAbbrToOurs,
   etDateKey,
   fetchLiveRows,
@@ -124,6 +129,17 @@ test('normalizeEspnEvent: a real final event maps to our row shape', () => {
       downDistance: null,
       isRedZone: null,
       lastPlay: null,
+      homeWinProbability: null,
+      // this fixture event carries no venue/broadcast/record/linescore/headline blocks
+      venueName: null,
+      venueCity: null,
+      isIndoor: null,
+      isNeutralSite: null,
+      broadcast: null,
+      homeRecord: null,
+      awayRecord: null,
+      linescores: null,
+      headline: null,
     }
   );
 });
@@ -388,6 +404,256 @@ test('normalizeEspnEvent: events missing anything load-bearing -> null', () => {
     normalizeEspnEvent({ competitions: [{ ...base.competitions[0], date: 'nope' }] }, at),
     null
   );
+});
+
+// --- Venue, Broadcast, Record, win probability, linescores, headline (#1262, ADR 0038) ---
+
+const gbAtChiEvent = () => ({
+  competitions: [
+    {
+      date: '2026-09-13T17:00Z',
+      status: { type: { state: 'post', completed: true } },
+      venue: { fullName: 'Soldier Field', address: { city: 'Chicago' }, indoor: false },
+      neutralSite: false,
+      broadcasts: [{ names: ['FOX'] }, { names: ['NFL+'] }],
+      headlines: [{ shortLinkText: 'Packers hold off Bears in division opener' }],
+      competitors: [
+        {
+          homeAway: 'home',
+          score: '20',
+          team: { abbreviation: 'CHI' },
+          records: [
+            { type: 'total', summary: '5-7' },
+            { type: 'home', summary: '3-3' },
+            { type: 'road', summary: '2-4' },
+          ],
+          linescores: [{ value: 0 }, { value: 7 }, { value: 6 }, { value: 7 }],
+        },
+        {
+          homeAway: 'away',
+          score: '24',
+          team: { abbreviation: 'GB' },
+          records: [
+            { type: 'total', summary: '10-2' },
+            { type: 'home', summary: '6-0' },
+            { type: 'road', summary: '4-2' },
+          ],
+          linescores: [{ value: 7 }, { value: 10 }, { value: 0 }, { value: 7 }],
+        },
+      ],
+    },
+  ],
+});
+
+test('normalizeEspnEvent: every Venue/Broadcast/Record/linescores/headline field present parses fully (#1262)', () => {
+  const row = normalizeEspnEvent(gbAtChiEvent(), { season: 2026, week: 2 });
+  assert.equal(row.venueName, 'Soldier Field');
+  assert.equal(row.venueCity, 'Chicago');
+  assert.equal(row.isIndoor, false);
+  assert.equal(row.isNeutralSite, false);
+  assert.equal(row.broadcast, 'FOX, NFL+'); // every broadcasts[].names entry flattened and joined
+  assert.deepEqual(row.homeRecord, { total: '5-7', home: '3-3', road: '2-4' });
+  assert.deepEqual(row.awayRecord, { total: '10-2', home: '6-0', road: '4-2' });
+  assert.deepEqual(row.linescores, { home: [0, 7, 6, 7], away: [7, 10, 0, 7] });
+  assert.equal(row.headline, 'Packers hold off Bears in division opener');
+});
+
+test('normalizeEspnEvent: every Venue/Broadcast/Record/linescores/headline field absent maps to null, never a placeholder (#1262)', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { type: { state: 'pre' } },
+          competitors: [
+            { homeAway: 'home', score: '0', team: { abbreviation: 'CHI' } },
+            { homeAway: 'away', score: '0', team: { abbreviation: 'GB' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.venueName, null);
+  assert.equal(row.venueCity, null);
+  assert.equal(row.isIndoor, null);
+  assert.equal(row.isNeutralSite, null);
+  assert.equal(row.broadcast, null);
+  assert.equal(row.homeRecord, null);
+  assert.equal(row.awayRecord, null);
+  assert.equal(row.linescores, null);
+  assert.equal(row.headline, null);
+});
+
+test('normalizeEspnEvent: a neutral-site game drops the home/road Record split and keeps the total (CONTEXT.md Venue, #1262)', () => {
+  const event = gbAtChiEvent();
+  event.competitions[0].neutralSite = true;
+  const row = normalizeEspnEvent(event, { season: 2026, week: 2 });
+  assert.equal(row.isNeutralSite, true);
+  assert.deepEqual(row.homeRecord, { total: '5-7', home: null, road: null });
+  assert.deepEqual(row.awayRecord, { total: '10-2', home: null, road: null });
+});
+
+test('normalizeEspnEvent: an in-progress event with a probability block carries home win probability, folded into Situation (#1262)', () => {
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { displayClock: '5:00', period: 3, type: { state: 'in' } },
+          situation: {
+            possession: '15',
+            shortDownDistanceText: '2nd & 5',
+            isRedZone: false,
+            lastPlay: { text: 'Timeout', probability: { homeWinPercentage: 0.732 } },
+          },
+          competitors: [
+            { homeAway: 'home', score: '17', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.homeWinProbability, 0.732);
+});
+
+test('normalizeEspnEvent: a situation block with no probability, or no lastPlay at all, leaves home win probability null (#1262)', () => {
+  const noProbability = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { displayClock: '5:00', period: 3, type: { state: 'in' } },
+          situation: { possession: '15', isRedZone: false, lastPlay: { text: 'Timeout' } },
+          competitors: [
+            { homeAway: 'home', score: '17', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(noProbability.homeWinProbability, null);
+
+  const noLastPlay = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { displayClock: '5:00', period: 3, type: { state: 'in' } },
+          situation: { possession: '15', isRedZone: false },
+          competitors: [
+            { homeAway: 'home', score: '17', team: { id: '15', abbreviation: 'KC' } },
+            { homeAway: 'away', score: '14', team: { id: '28', abbreviation: 'DEN' } },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(noLastPlay.homeWinProbability, null);
+});
+
+test('normalizeEspnEvent: a Washington game normalizes its team code consistently across every new field too (#1262 AC4)', () => {
+  // espnScoreboard.js's own documented rule (see ESPN_TO_OUR_ABBR above):
+  // this module's team-code columns (tank01GameId/homeTeam/awayTeam,
+  // possession, and now Venue/Broadcast/Record) all fold through the SAME
+  // espnAbbrToOurs as Tank01's own join-key spelling, WSH — never a second,
+  // inconsistent path that could leave a stray 'WAS' on one field and 'WSH'
+  // on another for the same game.
+  const row = normalizeEspnEvent(
+    {
+      competitions: [
+        {
+          date: '2026-09-13T17:00Z',
+          status: { type: { state: 'pre' } },
+          venue: { fullName: 'Northwest Stadium', address: { city: 'Landover' }, indoor: false },
+          neutralSite: false,
+          broadcasts: [{ names: ['FOX'] }],
+          competitors: [
+            {
+              homeAway: 'home',
+              score: '0',
+              team: { abbreviation: 'WAS' }, // ESPN spells it WAS
+              records: [{ type: 'total', summary: '4-8' }],
+            },
+            {
+              homeAway: 'away',
+              score: '0',
+              team: { abbreviation: 'NYG' },
+              records: [{ type: 'total', summary: '6-6' }],
+            },
+          ],
+        },
+      ],
+    },
+    { season: 2026, week: 2 }
+  );
+  assert.equal(row.homeTeam, 'WSH', 'never WAS, even though ESPN spelled it WAS');
+  assert.equal(row.tank01GameId, '20260913_NYG@WSH');
+  // Record is keyed by home/away position, not by team code, so it carries no
+  // separate WAS/WSH spelling of its own to drift out of sync.
+  assert.deepEqual(row.homeRecord, { total: '4-8', home: null, road: null });
+  assert.deepEqual(row.awayRecord, { total: '6-6', home: null, road: null });
+});
+
+// --- pure normalizers, unit-level (#1262) ------------------------------------
+
+test('normalizeVenue: reads fullName/address.city/indoor, all null when absent', () => {
+  assert.deepEqual(normalizeVenue({ fullName: 'Lambeau Field', address: { city: 'Green Bay' }, indoor: false }), {
+    venueName: 'Lambeau Field',
+    venueCity: 'Green Bay',
+    isIndoor: false,
+  });
+  assert.deepEqual(normalizeVenue(null), { venueName: null, venueCity: null, isIndoor: null });
+  assert.deepEqual(normalizeVenue({}), { venueName: null, venueCity: null, isIndoor: null });
+});
+
+test('normalizeBroadcast: flattens every entry\'s names, null when there are none', () => {
+  assert.equal(normalizeBroadcast([{ names: ['CBS'] }]), 'CBS');
+  assert.equal(normalizeBroadcast([{ names: ['CBS'] }, { names: ['Paramount+', 'NFL+'] }]), 'CBS, Paramount+, NFL+');
+  assert.equal(normalizeBroadcast([]), null);
+  assert.equal(normalizeBroadcast(null), null);
+  assert.equal(normalizeBroadcast([{ names: [] }]), null);
+});
+
+test('normalizeRecord: three cuts by type, null when nothing usable, neutral site drops the split', () => {
+  const records = [
+    { type: 'total', summary: '8-4' },
+    { type: 'home', summary: '5-1' },
+    { type: 'road', summary: '3-3' },
+  ];
+  assert.deepEqual(normalizeRecord(records), { total: '8-4', home: '5-1', road: '3-3' });
+  assert.deepEqual(normalizeRecord(records, { isNeutralSite: true }), { total: '8-4', home: null, road: null });
+  assert.equal(normalizeRecord(null), null);
+  assert.equal(normalizeRecord([]), null);
+  assert.equal(normalizeRecord([{ type: 'total', summary: '' }]), null);
+});
+
+test('normalizeRecord: a neutral site with no usable total is null, never an all-null placeholder (#1262 qa-reviewer finding 3)', () => {
+  const homeRoadOnly = [
+    { type: 'home', summary: '5-1' },
+    { type: 'road', summary: '3-3' },
+  ];
+  assert.equal(normalizeRecord(homeRoadOnly, { isNeutralSite: true }), null);
+  // Off a neutral site the same input still returns the split (no total, though).
+  assert.deepEqual(normalizeRecord(homeRoadOnly), { total: null, home: '5-1', road: '3-3' });
+});
+
+test('normalizeLinescoreValues: a missing per-quarter value is null, not dropped; empty/absent is null', () => {
+  assert.deepEqual(normalizeLinescoreValues([{ value: 7 }, {}, { value: 3 }]), [7, null, 3]);
+  assert.equal(normalizeLinescoreValues([]), null);
+  assert.equal(normalizeLinescoreValues(null), null);
+});
+
+test('normalizeHeadline: reads headlines[0].shortLinkText, null when absent', () => {
+  assert.equal(normalizeHeadline([{ shortLinkText: 'Big win' }]), 'Big win');
+  assert.equal(normalizeHeadline([]), null);
+  assert.equal(normalizeHeadline(null), null);
+  assert.equal(normalizeHeadline([{}]), null);
 });
 
 // --- whole-payload normalization --------------------------------------------

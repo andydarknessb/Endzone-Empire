@@ -350,6 +350,73 @@ test('tickUnlocked runs the hourly odds sync in its own containment', () => {
   assert.match(tickBody, /try \{\s*await runHourlyOddsSync\(\);\s*\} catch/);
 });
 
+// ---- hourly game-context Sync run (#1262, ADR 0038) ------------------------
+// Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
+// CONTEXT.md's Line is the spread/total Sync run tested above as
+// runHourlyOddsSync.
+
+test('runHourlyGameContextSync runs once per hour, syncing every distinct live-league week', async (t) => {
+  const gameContextSync = require('../services/gameContextSync.service');
+  const calls = [];
+  t.mock.method(gameContextSync, 'syncGameContext', async ({ season, week }) => {
+    calls.push({ season, week });
+    return { gamesUpdated: 1 };
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
+  ]).install(t);
+
+  const first = new Date('2026-09-13T12:00:00Z');
+  assert.deepEqual(await scheduler.runHourlyGameContextSync({ now: first }), [{ gamesUpdated: 1 }]);
+  assert.deepEqual(calls, [{ season: 2026, week: 2 }]);
+
+  // A tick 10 minutes later is not due yet.
+  const soon = new Date('2026-09-13T12:10:00Z');
+  assert.equal(await scheduler.runHourlyGameContextSync({ now: soon }), null);
+  assert.equal(calls.length, 1);
+
+  // An hour later it runs again.
+  const later = new Date('2026-09-13T13:01:00Z');
+  await scheduler.runHourlyGameContextSync({ now: later });
+  assert.equal(calls.length, 2);
+});
+
+test('runHourlyGameContextSync syncs every distinct (season, week) a live league is on, and one week failing does not stop another', async (t) => {
+  const gameContextSync = require('../services/gameContextSync.service');
+  const calls = [];
+  t.mock.method(gameContextSync, 'syncGameContext', async ({ season, week }) => {
+    calls.push({ season, week });
+    if (week === 2) throw new Error('ESPN unavailable');
+    return { gamesUpdated: 3 };
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({
+      rows: [
+        { current_season: 2026, current_week: 2 },
+        { current_season: 2026, current_week: 3 },
+      ],
+    })],
+  ]).install(t);
+
+  // A day past the previous test's own last stamp, so this module-level
+  // interval gate (shared across every test in this file) is unambiguously
+  // due regardless of run order.
+  const results = await scheduler.runHourlyGameContextSync({ now: new Date('2026-09-14T12:00:00Z') });
+  assert.deepEqual(calls, [{ season: 2026, week: 2 }, { season: 2026, week: 3 }]);
+  assert.deepEqual(results, [{ gamesUpdated: 3 }], 'the failed week is skipped, not thrown');
+});
+
+test('tickUnlocked runs the hourly game context sync in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runHourlyGameContextSync\(\);\s*\} catch/);
+});
+
 // Row shape matching syncRun.js's lastRun($job) query: `{ latest, latestOk }`,
 // each a row_to_json-shaped object (snake_case) or null. `byJob` maps a job
 // literal to that shape; a job with no entry answers { latest: null, latestOk: null }.
