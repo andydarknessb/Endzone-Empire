@@ -236,12 +236,11 @@ Per #1304 (ADR 0040 slice 1), `PlayerAvatar` moves from
 is exported through `shared/ui`'s index. It continues to import `initialsFor`
 from the concrete `shared/lib/initials` module, exactly as `TeamAvatar` does
 (#1146 amendment above), for the same bundle and ADR 0014 harness-guard
-reason. The ten legacy `src/components` importers (`DraftBoardMatrix`,
-`PlayerPoolTable`, `SimPickFeed`, `SimPlayerPool`, `SimReport`,
-`GlobalPlayerSearch`, `PlayerDetail`, `PlayerManagement`, `PlayerQuickView`,
-`RosterPanel`) import the concrete `shared/ui/PlayerAvatar` module instead,
-not the index, the same split as `TeamAvatar`'s; the two island widgets that
-already composed it below the island (`retro-scoreboard`'s `LineupsCard`,
+reason. Its three legacy `src/components` importers (`PlayerDetail`,
+`PlayerManagement`, `PlayerQuickView`) import the concrete
+`shared/ui/PlayerAvatar` module instead, not the index, the same split as
+`TeamAvatar`'s; the two island widgets that already composed it below the
+island (`retro-scoreboard`'s `LineupsCard`,
 `slot-comparison`'s `SlotComparison`) now import it from the `shared/ui`
 index alongside `Card`/`InjuryTag`/`PosChip`. The #1146 amendment's
 `initialsFor` bullet above describes `PlayerAvatar` as "the legacy
