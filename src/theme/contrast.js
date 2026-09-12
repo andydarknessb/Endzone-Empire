@@ -12,6 +12,40 @@
  * Compositing is standard source-over alpha blending, rounded to 8-bit channels
  * the way a browser rasterises it, so `rgba(0, 0, 0, 0.5)` over `#ffffff`
  * measures exactly as `#808080` does.
+ *
+ * `contrastRatio` models the LAYERED case only: `fg` painted over `bg` painted
+ * over `backdrop`, one thing stacked on another. It cannot be pointed at two
+ * sibling tints sitting side by side on the same surface (two heat-strip
+ * buckets, two badge tints) - that is a different question, not a layering
+ * one, and asking it anyway silently returns nonsense: `bg` is resolved to a
+ * solid first, so an opaque sibling (or one already at alpha 1) throws away
+ * `backdrop` entirely, and `fg` then composites onto that sibling instead of
+ * onto the shared surface. `contrastRatio(rgba(accent, .85), accent, surface)`
+ * returns exactly 1.00 in both themes for this reason, not because the two
+ * tints are indistinguishable. The correct sibling measurement needs no new
+ * export: resolve each tint's luminance over the shared surface separately
+ * with `relativeLuminance(tint, surface)`, then apply the same WCAG formula
+ * `contrastRatio` uses by hand:
+ *
+ *   const l1 = relativeLuminance(tintA, surface);
+ *   const l2 = relativeLuminance(tintB, surface);
+ *   const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+ *
+ * which gives 1.39 for the light-theme `dash-accent` h3/h4 heat-strip pair
+ * (0.85 alpha vs. opaque, both over `dash-surface`) - the ticket's own
+ * example of the sibling case (#1298, #1299).
+ *
+ * The opaque-sibling shape above is the loud failure: it returns exactly
+ * 1.00, which announces itself. Two TRANSLUCENT siblings are the quiet one -
+ * `bg` still carries alpha, so it does not discard `backdrop`, and the
+ * misuse returns a plausible WRONG number instead of a telltale 1.00. The
+ * same `dash-accent` heat strip's h1/h2 pair (0.35 vs. 0.6 alpha) measures
+ * 1.34 from the misuse against the correct 1.60, and h2/h3 (0.6 vs. 0.85)
+ * measures 1.22 against the correct 1.71: close enough to a real ratio that
+ * a reader who expects the 1.00 tell, sees a different number, and
+ * concludes they are fine, is exactly wrong. The two-call
+ * `relativeLuminance` recipe above is the only correct measurement for
+ * EITHER shape, opaque or translucent.
  */
 
 const HEX_BODY = /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
