@@ -34,6 +34,18 @@
  * which gives 1.39 for the light-theme `dash-accent` h3/h4 heat-strip pair
  * (0.85 alpha vs. opaque, both over `dash-surface`) - the ticket's own
  * example of the sibling case (#1298, #1299).
+ *
+ * The opaque-sibling shape above is the loud failure: it returns exactly
+ * 1.00, which announces itself. Two TRANSLUCENT siblings are the quiet one -
+ * `bg` still carries alpha, so it does not discard `backdrop`, and the
+ * misuse returns a plausible WRONG number instead of a telltale 1.00. The
+ * same `dash-accent` heat strip's h1/h2 pair (0.35 vs. 0.6 alpha) measures
+ * 1.34 from the misuse against the correct 1.60, and h2/h3 (0.6 vs. 0.85)
+ * measures 1.22 against the correct 1.71: close enough to a real ratio that
+ * a reader who expects the 1.00 tell, sees a different number, and
+ * concludes they are fine, is exactly wrong. The two-call
+ * `relativeLuminance` recipe above is the only correct measurement for
+ * EITHER shape, opaque or translucent.
  */
 
 const HEX_BODY = /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;

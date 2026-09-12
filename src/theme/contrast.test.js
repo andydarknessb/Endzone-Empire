@@ -94,6 +94,23 @@ describe('sibling tints on one surface (contrastRatio cannot measure this)', () 
     const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
     expect(ratio).toBeCloseTo(1.39, 2);
   });
+
+  // The quiet failure: two TRANSLUCENT siblings (h1 0.35 alpha, h2 0.6 alpha).
+  // `bg` still carries alpha here, so it does not discard `backdrop` the way
+  // the opaque h3/h4 case above does - the misuse returns a plausible WRONG
+  // number (1.34) instead of a telltale 1.00, against the correct 1.60.
+  test('two translucent siblings: the misuse returns a plausible wrong number, not 1.00', () => {
+    const H1_TINT = 'rgba(15, 106, 65, 0.35)';
+    const H2_TINT = 'rgba(15, 106, 65, 0.6)';
+
+    const misuse = contrastRatio(H1_TINT, H2_TINT, SURFACE);
+    expect(misuse).toBeCloseTo(1.34, 2);
+
+    const l1 = relativeLuminance(H1_TINT, SURFACE);
+    const l2 = relativeLuminance(H2_TINT, SURFACE);
+    const correct = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    expect(correct).toBeCloseTo(1.6, 2);
+  });
 });
 
 describe('a backdrop is required for alpha', () => {
