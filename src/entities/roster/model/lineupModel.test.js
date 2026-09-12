@@ -558,6 +558,17 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(onBye[0]).toMatchObject({ kickoff: null, gameKey: null });
   });
 
+  // #1239: byeWeek is the player's own NFL bye week (a week number), distinct
+  // from onBye (whether that week is the one currently selected) - the
+  // bye-cluster widget groups entries by this across future weeks.
+  test('byeWeek passes through as a number, and null when the wire has none', () => {
+    const withBye = lineupEntries([row({ id: 1, slot: 'QB', bye_week: '9' })], league);
+    expect(withBye[0].byeWeek).toBe(9);
+
+    const withoutBye = lineupEntries([row({ id: 1, slot: 'QB', bye_week: null })], league);
+    expect(withoutBye[0].byeWeek).toBeNull();
+  });
+
   test('unavailable is the server\'s own reason, read alongside the locally-derived availability', () => {
     const entries = lineupEntries([row({ id: 1, slot: 'QB', onBye: true, unavailable: 'bye' })], league);
     expect(entries[0].unavailable).toBe('bye');
