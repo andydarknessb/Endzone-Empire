@@ -11,6 +11,9 @@ export { default as Skeleton } from './Skeleton';
 // Game Center / Matchup Detail pieces (ADR 0031, #891).
 export { default as StatTile } from './StatTile';
 export { default as SplitBar } from './SplitBar';
+// The Floor-to-Ceiling band with a mean tick (#1238, ADR 0037 AC1): composed
+// by the Start/sit advice panel, one bar per sit/start player.
+export { default as RangeBar } from './RangeBar';
 export { default as PosChip } from './PosChip';
 export { default as SegmentedControl } from './SegmentedControl';
 // The injury designation tag (ADR 0031, #903): composed by the slot-comparison

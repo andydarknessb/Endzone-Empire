@@ -94,3 +94,13 @@ test('component passes through: a RouterLink with `to` renders an anchor with th
     '/league/5/lineup'
   );
 });
+
+// Red-tell (#1238): dropping the forwardRef (back to a plain function
+// component) leaves `ref.current` null - the same shape SegmentedControl's
+// own forwardRef red-tell guards (SegmentedControl.test.jsx). start-sit-panel's
+// Dismiss focus fix stands on this ref reaching the underlying button.
+test('forwards a ref to the underlying button element', () => {
+  const ref = React.createRef();
+  render(<DashButton ref={ref}>Apply</DashButton>);
+  expect(ref.current).toBe(screen.getByRole('button', { name: 'Apply' }));
+});

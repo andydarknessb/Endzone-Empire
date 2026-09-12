@@ -116,3 +116,43 @@ test('no matchup this week renders the empty state, never an error', async () =>
   renderStrip({ lineup: lineup([]) });
   expect(await screen.findByText('No matchup this week')).toBeInTheDocument();
 });
+
+// #1238 AC4: the advice tile.
+test('the advice tile shows the gain and swap count when the advice names a suggestion', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({
+    lineup: lineup([]),
+    advice: { suggestions: [{ slot: 'RB' }], movePlan: [{ playerId: 1, toSlot: 'RB' }], projectedTotal: 90, optimalTotal: 96.5 },
+  });
+  expect(await screen.findByTestId('strip-advice')).toHaveTextContent('+6.5 pts · 1 swap');
+});
+
+test('the advice tile pluralizes two or more swaps', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({
+    lineup: lineup([]),
+    advice: { suggestions: [{ slot: 'RB' }, { slot: 'WR' }], movePlan: [], projectedTotal: 90, optimalTotal: 100 },
+  });
+  expect(await screen.findByTestId('strip-advice')).toHaveTextContent('2 swaps');
+});
+
+test('the advice tile reads "Lineup set" when there is no suggestion', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]), advice: { suggestions: [], movePlan: [] } });
+  expect(await screen.findByTestId('strip-advice')).toHaveTextContent('Lineup set');
+});
+
+test('the advice tile also reads "Lineup set" with no advice prop at all (best ball)', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]) });
+  expect(await screen.findByTestId('strip-advice')).toHaveTextContent('Lineup set');
+});
+
+test('the advice tile renders even when the matchup read errors, never hidden behind it', async () => {
+  mockGetByUrl({ [LIST_URL]: Promise.reject(new Error('boom')) });
+  renderStrip({
+    lineup: lineup([]),
+    advice: { suggestions: [{ slot: 'RB' }], movePlan: [], projectedTotal: 90, optimalTotal: 96.5 },
+  });
+  expect(await screen.findByTestId('strip-advice')).toHaveTextContent('+6.5 pts · 1 swap');
+});
