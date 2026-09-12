@@ -15,7 +15,7 @@ import ByeClusterGrid from '../../widgets/bye-cluster';
 import { useSwapPlayers, QuickPickMenu } from '../../features/swap-players';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import { useApplyAdvice } from '../../features/apply-advice';
-import PlayerQuickView from '../../components/PlayerQuickView/PlayerQuickView';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { useAdvice } from './model/useAdvice';
@@ -57,22 +57,21 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  *
  * Deliberately deferred, per the issue's own scope: the live Game cell's
  * full Situation treatment (ticket 9 - this ticket's Game cell shows clock
- * and score only). The Decision card (glossary: "Tapping a row opens the
- * Decision card") is not built by this ticket either - no acceptance
- * criterion here names it, and Trade/acquisition-detail stay off this page
- * until it lands; Drop keeps its own row control in the meantime, matching
- * AC6's "Swap, quick pick, drop and undo behave as today".
+ * and score only).
  *
  * The player name and the empty-roster "Browse Players" action - both
  * legacy controls this page dropped in an earlier revision with no
  * acceptance criterion authorising either - are restored (formal review
  * finding legacy-controls-dropped-without-a-criterion): the name reopens
- * the existing `PlayerQuickView` this page now owns, and `emptyRoster`
- * below gates a dedicated empty state distinct from the draft-in-progress
- * one. Team Record/Rank and the per-row Trade control stay dropped: both
- * are reachable elsewhere (the Dashboard's my-team-summary; the Decision
- * card once it lands), and restoring them here would be new surface this
- * page's own criteria do not ask for.
+ * the Decision card this page now owns (#1240, replacing the earlier
+ * `PlayerQuickView` wiring here - that dialog itself is untouched and still
+ * serves every other surface), and `emptyRoster` below gates a dedicated
+ * empty state distinct from the draft-in-progress one. Team Record/Rank
+ * stays dropped: it is reachable elsewhere (the Dashboard's
+ * my-team-summary), and restoring it here would be new surface this page's
+ * own criteria do not ask for. The per-row Trade control stays dropped too -
+ * Trade now lives on the Decision card (#1240 AC2/AC5), not as a second
+ * per-row control this page would otherwise need to keep in sync with it.
  */
 export default function LineupPage() {
   const { leagues, selectedLeagueId, setSelectedLeagueId, loading: leaguesLoading, error: leaguesError } =
@@ -80,7 +79,11 @@ export default function LineupPage() {
   const { league, teams, viewerTeamId, loading: leagueLoading, error: leagueError } = useLeague(selectedLeagueId);
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
-  const [quickViewId, setQuickViewId] = useState(null);
+  // The Decision card (#1240, ADR 0037): which rostered player's card is
+  // open, replacing the player quick view on Lineup only (the ruling on the
+  // issue thread) - `components/PlayerQuickView` itself is untouched and
+  // still serves every other surface.
+  const [decisionCardEntryId, setDecisionCardEntryId] = useState(null);
   // The phone Outlook tab (AC5, #1238): which half of the page a narrow
   // viewport shows, the Ledger (Roster) or the rail (Outlook). Irrelevant at
   // `sm` and up, where both already show side by side.
@@ -360,7 +363,7 @@ export default function LineupPage() {
                       onRowClick={swap.onRowClick}
                       canDropEntry={canDropEntry}
                       onRequestDrop={drop.requestDrop}
-                      onOpenQuickView={setQuickViewId}
+                      onOpenDecisionCard={setDecisionCardEntryId}
                     />
                   )}
                 </Box>
@@ -393,11 +396,18 @@ export default function LineupPage() {
         onSelect={swap.handleQuickPickSelect}
       />
       <DropConfirmationDialog entry={drop.dropCandidate} onClose={drop.closeDropConfirmation} onConfirm={drop.confirmDrop} />
-      <PlayerQuickView
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
-        leagueId={Number(selectedLeagueId)}
+      <PlayerDecisionCard
+        open={decisionCardEntryId != null}
+        onClose={() => setDecisionCardEntryId(null)}
+        entry={(lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null}
+        entries={lineup?.entries}
+        leagueId={selectedLeagueId}
+        week={lineup?.week}
+        bestBall={bestBall}
+        leagueUnsettled={leagueUnsettled}
+        onSwap={swap.performMove}
+        onRequestDrop={drop.requestDrop}
+        canDropEntry={canDropEntry}
       />
     </Box>
   );

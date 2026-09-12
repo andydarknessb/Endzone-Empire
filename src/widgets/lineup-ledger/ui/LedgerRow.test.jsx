@@ -54,20 +54,20 @@ test('the element carrying the row testid contains the player\'s name', () => {
 });
 
 // Formal review finding legacy-controls-dropped-without-a-criterion: the
-// player name is a real link (opens Quick View) again, restored as a
+// player name is a real link (opens the Decision card, #1240) again, restored as a
 // sibling of the swap-select button so it is independently clickable
 // without becoming a nested-interactive descendant of it.
-test('the player name opens Quick View without triggering the row click, and is not nested inside the select button', async () => {
+test('the player name opens the Decision card without triggering the row click, and is not nested inside the select button', async () => {
   const onClick = jest.fn();
-  const onOpenQuickView = jest.fn();
+  const onOpenDecisionCard = jest.fn();
   render(
-    <LedgerRow slotLabel="QB" entry={entry()} onClick={onClick} onOpenQuickView={onOpenQuickView} data-testid="row" />
+    <LedgerRow slotLabel="QB" entry={entry()} onClick={onClick} onOpenDecisionCard={onOpenDecisionCard} data-testid="row" />
   );
   const nameLink = screen.getByRole('button', { name: 'Josh Allen' });
   const selectButton = screen.getByTestId('row-select');
   expect(selectButton).not.toContainElement(nameLink);
   await userEvent.click(nameLink);
-  expect(onOpenQuickView).toHaveBeenCalledWith(1);
+  expect(onOpenDecisionCard).toHaveBeenCalledWith(1);
   expect(onClick).not.toHaveBeenCalled();
 });
 
