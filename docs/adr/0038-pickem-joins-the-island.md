@@ -70,3 +70,10 @@ separate hourly job from the Line's own Sync run (job `odds`, in
 context" names the group of Record, Venue and Broadcast, not the glossary's
 Line. Which columns are written on the hourly cadence versus the
 thirty-second poll is unchanged from the ruling above.
+
+## Amendment (2026-09-12, #1294): the Weather reads stay independent
+
+#1294: the Pick'em Weather read is deliberately independent of the
+decision-card Weather read (ADR 0037); the shapes converge only when a shared
+wire shape is decided, and the trigger for that decision is a third weather
+consumer.

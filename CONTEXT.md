@@ -280,6 +280,19 @@ Where an NFL game is played: the stadium, whether it is indoor (weather does
 not apply) and whether it is a neutral site (neither team is at home).
 _Avoid_: stadium (fine in copy, not as the term), location
 
+**Weather**:
+A game's forecast, read from `game_weather_snapshots` at the nearest horizon.
+The Decision card and Pick'em each read it independently (#1294, no shared
+shape): the Decision card's wire carries six fields (`indoor`, `temperatureF`,
+`windSpeedMph`, `windGustMph`, `precipitationProbability`, `shortForecast`),
+every field present and nullable, `indoor` explicit, whenever a game exists;
+Pick'em's wire carries four fields (`shortForecast`, `temperatureF`,
+`windSpeedMph`, `precipitationProbability`) and is `null` outright for an
+indoor game or a missing snapshot. The 15 mph wind and 30% precipitation
+display thresholds belong to the Pick'em card alone; the Decision card shows
+whatever value is present.
+_Avoid_: forecast (fine in copy, not as the term)
+
 **Broadcast**:
 The national network or service carrying an NFL game.
 _Avoid_: channel, TV, coverage

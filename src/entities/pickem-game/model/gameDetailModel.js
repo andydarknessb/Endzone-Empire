@@ -22,10 +22,14 @@ export function favoriteFromLine(line, homeTeam, awayTeam) {
 }
 
 /**
- * Wind and precipitation chance are hidden below the glossary's display
- * thresholds (CONTEXT.md, Venue/Weather: "the 15 mph / 30% display
- * thresholds"); an indoor game has no weather at all, which the server
- * already models as a null `weather`, so this returns null right through.
+ * Wind and precipitation chance are hidden below the glossary's Pick'em-only
+ * display thresholds (CONTEXT.md, Weather: 15 mph / 30%); an indoor game has
+ * no weather at all, which the server already models as a null `weather`, so
+ * this returns null right through.
+ *
+ * This read is independent of `entities/line/model/lineModel`'s own Weather
+ * read (CONTEXT.md, Weather; #1294, ADR 0038 amendment) — the two mirror
+ * different server contracts and are not unified here.
  */
 export function weatherDisplayModel(weather) {
   if (!weather) return null;
