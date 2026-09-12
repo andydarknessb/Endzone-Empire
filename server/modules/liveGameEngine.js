@@ -290,7 +290,7 @@ const UPSERT_SQL = `
     "is_red_zone" = EXCLUDED."is_red_zone",
     "last_play" = EXCLUDED."last_play",
     -- home_win_probability (#1262): folded into Situation (CONTEXT.md), same
-    -- always-overwritten treatment as the four fields above — it clears
+    -- always-overwritten treatment as the four fields above, so it clears
     -- alongside them once a game is no longer in progress.
     "home_win_probability" = EXCLUDED."home_win_probability",
     -- linescores/headline (#1262): the caller only ever supplies a non-null
@@ -300,7 +300,7 @@ const UPSERT_SQL = `
     -- (qa-reviewer #1262 finding 2): once nothing in a window is in_progress
     -- the poll stops calling the API at all (nextPollPlan), so the tick that
     -- flips a game to final is the only chance to capture linescores/
-    -- headline — a headline ESPN's editorial recap has not yet published at
+    -- headline; a headline ESPN's editorial recap has not yet published at
     -- that exact instant is an honest null forever, same as any other
     -- unobserved fact in this module, not force-filled or retried.
     "linescores" = COALESCE(EXCLUDED."linescores", "live_game_states"."linescores"),
