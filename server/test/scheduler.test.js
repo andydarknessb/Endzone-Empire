@@ -1102,3 +1102,151 @@ test('a season with no week-18 rows on file is held (and warned about), never co
   assert.equal(world.calls.filter((c) => /fn_normalize_nfl_team|game_recaps/.test(c.text)).length, 0, 'gate closed: no slate read');
   assert.ok(warnings.some((w) => /week 18 has no games on file/.test(w)));
 });
+
+// ---- nightly projection run (#1305) -----------------------------------
+
+test('runNightlyProjectionFill queries leagues with the same live-season eligibility the hourly syncs use', async (t) => {
+  const fake = createFakePool([
+    [/FROM "leagues"/, (text) => {
+      assert.match(text, /"draft_status" = 'complete'/);
+      assert.match(text, /"season_status" <> 'complete'/);
+      return { rows: [] };
+    }],
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-12T06:00:00Z') });
+  assert.deepEqual(result, { weeksGenerated: 0, weeksSkipped: 0, failed: [] });
+});
+
+test('runNightlyProjectionFill fills every week from each league\'s current week through its OWN last playoff week', async (t) => {
+  const projection = require('../services/projection.service');
+  const calls = [];
+  t.mock.method(projection, 'getWeeklyProjections', async ({ season, week, league, playerIds }) => {
+    calls.push({ leagueId: league.id, season, week, playerIds: [...playerIds] });
+    return { projections: new Map(playerIds.map((id) => [id, { median: 10, cached: false }])) };
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({
+      rows: [
+        // 14 regular weeks + 2 rounds (4 playoff teams) -> last playoff week 16.
+        { id: 1, current_season: 2026, current_week: 15, regular_season_weeks: 14, playoff_teams: 4 },
+        // 13 regular weeks + 3 rounds (6 playoff teams, a bye in round one) -> also week 16.
+        { id: 2, current_season: 2026, current_week: 10, regular_season_weeks: 13, playoff_teams: 6 },
+      ],
+    })],
+    [/FROM "team_players" WHERE "league_id" = \$1/, (text, params) => ({
+      rows: [{ player_id: params[0] === 1 ? 101 : 201 }],
+    })],
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  // A day of its own: the day-stamp gate is shared module state across every
+  // test in this file, same as lastAdpSyncDay above.
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T06:00:00Z') });
+
+  const league1Weeks = calls.filter((c) => c.leagueId === 1).map((c) => c.week);
+  const league2Weeks = calls.filter((c) => c.leagueId === 2).map((c) => c.week);
+  assert.deepEqual(league1Weeks, [15, 16]);
+  assert.deepEqual(league2Weeks, [10, 11, 12, 13, 14, 15, 16]);
+  assert.equal(result.weeksGenerated, league1Weeks.length + league2Weeks.length);
+  assert.equal(result.weeksSkipped, 0);
+  assert.equal(result.failed.length, 0);
+});
+
+test('runNightlyProjectionFill skips a week every rostered player already has cached, and runs at most once per local day', async (t) => {
+  const projection = require('../services/projection.service');
+  let call = 0;
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
+    call += 1;
+    const cachedFlag = call === 1; // first week fully cached, second week needs generation
+    return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: cachedFlag }])) };
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({
+      rows: [{ id: 1, current_season: 2026, current_week: 15, regular_season_weeks: 14, playoff_teams: 4 }],
+    })],
+    [/FROM "team_players"/, () => ({ rows: [{ player_id: 101 }] })],
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const first = new Date('2026-09-16T06:00:00Z');
+  const result = await scheduler.runNightlyProjectionFill({ now: first });
+  assert.equal(result.weeksSkipped, 1);
+  assert.equal(result.weeksGenerated, 1);
+  assert.equal(call, 2);
+
+  // Same local day: the pass does not run again.
+  const laterSameDay = new Date('2026-09-16T20:00:00Z');
+  assert.equal(await scheduler.runNightlyProjectionFill({ now: laterSameDay }), null);
+  assert.equal(call, 2, 'no further getWeeklyProjections calls on the second same-day tick');
+});
+
+test('one league\'s failure does not stop another\'s fill, and the day is still stamped', async (t) => {
+  const projection = require('../services/projection.service');
+  t.mock.method(projection, 'getWeeklyProjections', async ({ league, playerIds }) => {
+    if (league.id === 1) throw new Error('feature bundle unavailable');
+    return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({
+      rows: [
+        { id: 1, current_season: 2026, current_week: 16, regular_season_weeks: 14, playoff_teams: 4 },
+        { id: 2, current_season: 2026, current_week: 16, regular_season_weeks: 14, playoff_teams: 4 },
+      ],
+    })],
+    [/FROM "team_players"/, () => ({ rows: [{ player_id: 101 }] })],
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
+
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T06:00:00Z') });
+  assert.deepEqual(result.failed.map((f) => f.leagueId), [1]);
+  assert.equal(result.weeksGenerated, 1, 'league 2 still filled despite league 1 failing');
+  // console.error's own %s substitution is not performed by this mock, so the
+  // logged line is the literal format string with its args space-joined
+  // after it, not interpolated into it.
+  assert.ok(errors.some((e) => e.includes('nightly projection fill failed for league') && e.includes('feature bundle unavailable')));
+
+  // The day is still stamped: a same-day retry does not re-run the pass.
+  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T08:00:00Z') }), null);
+});
+
+test('records one Sync run for the whole pass, counting (league, week) pairs generated and skipped', async (t) => {
+  const projection = require('../services/projection.service');
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
+    { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
+  ));
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({
+      rows: [{ id: 1, current_season: 2026, current_week: 16, regular_season_weeks: 14, playoff_teams: 4 }],
+    })],
+    [/FROM "team_players"/, () => ({ rows: [{ player_id: 101 }] })],
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-14T06:00:00Z') });
+  const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
+  assert.ok(inserted, 'one data_sync_runs row is written');
+  assert.equal(inserted.params[0], 'nightly-projection-run');
+  const detail = JSON.parse(inserted.params[3]);
+  assert.equal(detail.weeksGenerated, 1);
+  assert.equal(detail.weeksSkipped, 0);
+  assert.equal(detail.leagues, 1);
+});
+
+test('tickUnlocked runs the nightly projection fill right after the holdout snapshot pass, in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runNightlyProjectionFill\(\);\s*\} catch/);
+  const holdoutAt = tickBody.indexOf('runHoldoutSnapshots();');
+  const fillAt = tickBody.indexOf('runNightlyProjectionFill();');
+  assert.ok(holdoutAt !== -1 && fillAt !== -1 && holdoutAt < fillAt, 'holdout runs before the fill, never after');
+});

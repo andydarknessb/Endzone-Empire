@@ -6,7 +6,7 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
-const { lastRun } = require('./syncRun');
+const { lastRun, recordDataSyncRun } = require('./syncRun');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -60,6 +60,9 @@ let lastRetentionDay = null;
 // intact by the wipe guard) does stamp, so it does not hammer FFC all day - the
 // stale freshness signal is what surfaces the problem instead.
 let lastAdpSyncDay = null;
+// Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
+// and correction passes above.
+let lastProjectionFillDay = null;
 
 async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
@@ -107,6 +110,14 @@ async function tickUnlocked() {
       await runHoldoutSnapshots();
     } catch (err) {
       console.error('holdout snapshot pass failed (will retry next tick):', err.message);
+    }
+    // After the holdout deadline duty above, never ahead of it: a nightly fill
+    // across every in-season league's rosters can run long, and the one duty
+    // with a hard real-world deadline must never sit behind it (#1305).
+    try {
+      await runNightlyProjectionFill();
+    } catch (err) {
+      console.error('nightly projection fill failed (will retry next tick):', err.message);
     }
     const waivers = await processAllDueWaivers();
     if (waivers.length > 0) {
@@ -490,6 +501,89 @@ async function runHoldoutSnapshots() {
 }
 
 /**
+ * Nightly projection run (#1305): for every fantasy league whose season is
+ * live (`fantasySeasonLiveWhereSql` — draft complete, season not yet
+ * complete, the same eligibility the hourly odds/game-context syncs above
+ * use), generate `free_baseline_v2` Weekly projections for every currently
+ * rostered player, for every week from the league's current week through its
+ * last playoff week (`season.service.lastPlayoffWeek`). `getWeeklyProjections`
+ * (projection.service.js) owns the cache itself: a (season, week,
+ * scoring_hash, model_version) run that already has every rostered player's
+ * row is a cache hit and is never regenerated here, which is what lets this
+ * run every night at no cost once a season's weeks are filled.
+ *
+ * Runs at most once per local calendar day; one league's failure is logged
+ * and does not stop another's (same per-unit isolation as
+ * `runHourlyOddsSync`). Because this is a single pass over every eligible
+ * league rather than a per-unit feed sync, it records its own Sync run
+ * directly via `recordDataSyncRun` rather than through `runSyncJob` — one row
+ * for the whole pass, `detail.weeksGenerated`/`detail.weeksSkipped` counting
+ * (league, week) pairs, not players.
+ */
+async function runNightlyProjectionFill({ now = new Date() } = {}) {
+  const today = now.toLocaleDateString('en-CA');
+  if (lastProjectionFillDay === today) return null;
+  const startedAt = new Date();
+
+  const leaguesResult = await pool.query(
+    `SELECT "id", "current_season", "current_week", "regular_season_weeks", "playoff_teams"
+     FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+
+  const projection = require('../services/projection.service');
+  const { lastPlayoffWeek } = require('../services/season.service');
+
+  let weeksGenerated = 0;
+  let weeksSkipped = 0;
+  const failed = [];
+
+  for (const league of leaguesResult.rows) {
+    try {
+      const rosterResult = await pool.query(
+        `SELECT DISTINCT "player_id" FROM "team_players" WHERE "league_id" = $1`,
+        [league.id]
+      );
+      const playerIds = rosterResult.rows.map((r) => r.player_id);
+      if (playerIds.length === 0) continue;
+
+      const throughWeek = lastPlayoffWeek(league);
+      for (let week = league.current_week; week <= throughWeek; week++) {
+        const run = await projection.getWeeklyProjections({
+          season: league.current_season, week, league, playerIds,
+        });
+        // A week is a cache HIT only when every rostered player's row came
+        // back already cached (getWeeklyProjections's own hit/miss rule,
+        // mirrored here rather than re-decided); any generation at all,
+        // partial included, counts this week as generated.
+        const allCached = playerIds.every((id) => {
+          const p = run.projections.get(id);
+          return !!p && p.cached === true;
+        });
+        if (allCached) weeksSkipped += 1; else weeksGenerated += 1;
+      }
+    } catch (err) {
+      console.error('nightly projection fill failed for league %s:', league.id, err.message);
+      failed.push({ leagueId: league.id, message: err.message });
+    }
+  }
+
+  lastProjectionFillDay = today;
+  await recordDataSyncRun({
+    job: 'nightly-projection-run',
+    startedAt,
+    ok: failed.length === 0,
+    detail: { weeksGenerated, weeksSkipped, leagues: leaguesResult.rows.length, failed },
+  });
+  if (weeksGenerated > 0 || weeksSkipped > 0) {
+    console.log(
+      `scheduler: nightly projection fill generated ${weeksGenerated} week(s), ` +
+      `skipped ${weeksSkipped} already-cached week(s) across ${leaguesResult.rows.length} league(s)`
+    );
+  }
+  return { weeksGenerated, weeksSkipped, failed };
+}
+
+/**
  * Mon-Thu nflverse IDP-finalization pass: patch in sack/TFL/fumble-return
  * yardage and individual safety for the prior week's defenders (see
  * nflverseSync.service) and re-score any league whose scores moved. Runs at
@@ -788,6 +882,7 @@ module.exports = {
   runHourlyOddsSync,
   runHourlyGameContextSync,
   runHoldoutSnapshots,
+  runNightlyProjectionFill,
   runPickemWeekSync,
   runPickemSeasonCompletion,
   INTERVAL_MS,
