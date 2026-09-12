@@ -188,6 +188,14 @@ async function syncOdds({ season, week, transport } = {}) {
 async function getWeeklyOdds({ season, week, client, observedAtOrBefore } = {}) {
   const db = client || pool;
   const bound = observedAtOrBefore != null ? new Date(observedAtOrBefore) : null;
+  // A malformed bound must fail LOUDLY, not become a silently unbounded (or
+  // silently odds-free, once a caller's own catch degrades it) read: an
+  // Invalid Date is still truthy, and comparing it against `observed_at`
+  // would either error confusingly deep in Postgres or, worse, behave as no
+  // filter at all — exactly the leak this bound exists to prevent.
+  if (bound && Number.isNaN(bound.getTime())) {
+    throw new Error(`getWeeklyOdds: observedAtOrBefore is not a valid date/instant: ${observedAtOrBefore}`);
+  }
   const params = [season, week, ESPN_ODDS_SOURCE];
   let where = `"season" = $1 AND "week" = $2 AND "source" = $3`;
   if (bound) {

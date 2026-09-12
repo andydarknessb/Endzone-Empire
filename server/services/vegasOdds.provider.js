@@ -31,7 +31,12 @@
  * the observation time, and the engine reads the snapshot.
  *
  * A real provider must return a Map<gameKey, GameOdds> and must not fabricate
- * an entry for a game the book has not priced.
+ * an entry for a game the book has not priced. A real provider ALSO MUST
+ * honor `observedAtOrBefore` when a caller supplies one (#1268, ADR 0039): a
+ * holdout capture depends on it to bound its own read, and a provider that
+ * silently ignored the argument would hand a capture an unbounded read with
+ * no error and no trace. `espnOdds.provider.js` is the reference
+ * implementation; a future provider is held to the same contract.
  *
  * @typedef {Object} GameOdds
  * @property {number} total       - the over/under, in points

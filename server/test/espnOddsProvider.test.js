@@ -228,6 +228,13 @@ test('getWeeklyOdds: observedAtOrBefore bounds the read - the earlier snapshot w
   bounded.assertClean();
 });
 
+test('getWeeklyOdds: an unparseable observedAtOrBefore rejects loudly instead of silently reading unbounded', async () => {
+  await assert.rejects(
+    getWeeklyOdds({ season: 2026, week: 2, observedAtOrBefore: 'not-a-date' }),
+    /observedAtOrBefore is not a valid date\/instant/
+  );
+});
+
 test('getWeeklyOdds: absent bound issues no observed_at filter and reads the newest snapshot regardless', async (t) => {
   const later = new Date('2026-09-11T20:00:00.000Z');
   const fake = createFakePool([
