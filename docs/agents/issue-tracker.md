@@ -13,6 +13,12 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+## Triage proposals and approval
+
+The fleet's Principal (fleet ADR 0011) reads every open issue that is unrouted or carries `needs-triage` or `question` and posts one `## Triage proposal (advisory)` comment on it, applying the `triage-proposed` label. The proposal is not a ruling and no agent acts on it. It becomes one only when the repository owner replies on the issue with a comment that begins `Approved` (adopt as written) or `Approved with: <edits>` (adopt with the edits folded in). On that comment the Principal posts `## Ruling`, applies `ready-for-agent`, `ready-for-human` or `needs-info` as ruled, and removes `triage-proposed`. Closing an issue and the `wontfix` and `duplicate` labels remain the owner's hands in every case.
+
+Because the fleet's sessions act under the owner's own GitHub login, no fleet session in any role may post a comment whose body begins with `Approved`; a fleet hook refuses it. Agents that agree with a proposal say so in other words and leave the decision to the owner. Any other reply from the owner is a conversation, not a re-proposal; a proposal is re-issued only when the issue body changes afterwards or the owner asks for one in a comment.
+
 ## Closing issues from pull requests
 
 Pull requests here merge into `integration`; promotion to `main` (the default branch) is a separate, human step. GitHub only honours closing keywords natively on merges into the default branch, so on its own `Closes #N` in a PR body does nothing in this repository (#330).
