@@ -378,6 +378,44 @@ test('a null Situation renders no Situation line and no "null" text anywhere on 
   expect(container.textContent).not.toMatch(/null/);
 });
 
+// #1292: a Realtime row update carrying `last_play` shows it on the
+// Situation line; a null `last_play` omits it.
+test('a Realtime row update carrying last_play shows it on the Situation line', async () => {
+  liveGameRows = [{ tank01_game_id: 'g1', game_status: 'scheduled' }];
+  renderPage();
+  await screen.findByText('Josh Allen');
+  await waitForLiveGameChannel();
+
+  pushLiveGameRow({
+    tank01_game_id: 'g1', game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+    current_score_home: 3, current_score_away: 7, quarter: 'Q1', time_remaining: '9:00',
+    possession: 'BUF', down_distance: '1st & 10', last_play: 'Allen pass complete to Diggs for 12 yards',
+  });
+
+  await waitFor(() => expect(firstGameCell()).toHaveAttribute('data-game-state', 'live'));
+  const situation = screen.getByTestId('ledger-situation-line');
+  expect(situation).toHaveTextContent('Allen pass complete to Diggs for 12 yards');
+});
+
+test('a Realtime row update with a null last_play omits it from the Situation line', async () => {
+  liveGameRows = [{ tank01_game_id: 'g1', game_status: 'scheduled' }];
+  const { container } = renderPage();
+  await screen.findByText('Josh Allen');
+  await waitForLiveGameChannel();
+
+  pushLiveGameRow({
+    tank01_game_id: 'g1', game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+    current_score_home: 3, current_score_away: 7, quarter: 'Q1', time_remaining: '9:00',
+    possession: 'BUF', down_distance: '1st & 10', last_play: null,
+  });
+
+  await waitFor(() => expect(firstGameCell()).toHaveAttribute('data-game-state', 'live'));
+  const situation = screen.getByTestId('ledger-situation-line');
+  expect(situation).toHaveTextContent('BUF ball');
+  expect(situation).toHaveTextContent('1st & 10');
+  expect(container.textContent).not.toMatch(/null/);
+});
+
 test('a red zone flag shows the marker on the live row', async () => {
   liveGameRows = [{ tank01_game_id: 'g1', game_status: 'scheduled' }];
   renderPage();
