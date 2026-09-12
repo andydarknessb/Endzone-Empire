@@ -171,6 +171,11 @@ test('state 6: final, missed pick - the miss names the pick and the loser dims',
   const jetsButton = screen.getByRole('button', { name: /Jets/i });
   expect(jetsButton).toHaveAttribute('aria-pressed', 'true');
   expect(jetsButton).toHaveStyle({ opacity: 0.7 });
+  // #1318: a dimmed button is a disabled button - today's only caller relies
+  // on that pairing to stay clear of WCAG 1.4.3's contrast floor (the
+  // inactive-component exemption), so a dim with no disabled is a defect.
+  expect(jetsButton).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Titans/i })).toBeDisabled();
 });
 
 test('state 7: final, no pick made', () => {
