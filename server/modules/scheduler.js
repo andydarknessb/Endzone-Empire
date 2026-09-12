@@ -99,9 +99,9 @@ async function tickUnlocked() {
       console.error('hourly odds sync failed (will retry next tick):', err.message);
     }
     try {
-      await runHourlyLineSync();
+      await runHourlyGameContextSync();
     } catch (err) {
-      console.error('hourly line sync failed (will retry next tick):', err.message);
+      console.error('hourly game context sync failed (will retry next tick):', err.message);
     }
     try {
       await runHoldoutSnapshots();
@@ -324,34 +324,41 @@ async function runHourlyOddsSync({ now = new Date() } = {}) {
   return results;
 }
 
-const LINE_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1262, ADR 0038)
-let lastLineSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
+const GAME_CONTEXT_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1262, ADR 0038)
+let lastGameContextSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
 
 /**
- * Hourly Line Sync run (#1262, ADR 0038): Record, Venue and Broadcast for
- * every live fantasy league's current slate(s), same interval-gate and
- * per-week isolation shape as `runHourlyOddsSync` above (and the same
- * `fantasySeasonLiveWhereSql()` predicate, so a league mid-transition to a
- * new week still gets both weeks' slates updated). A single week's throw is
- * logged and does not stop the others; the interval is stamped once the set
- * of weeks is known, so a read failure here retries next tick.
+ * Hourly game-context Sync run (#1262, ADR 0038): Record, Venue and
+ * Broadcast for every live fantasy league's current slate(s), same
+ * interval-gate and per-week isolation shape as `runHourlyOddsSync` above
+ * (and the same `fantasySeasonLiveWhereSql()` predicate, so a league
+ * mid-transition to a new week still gets both weeks' slates updated). A
+ * single week's throw is logged and does not stop the others; the interval
+ * is stamped once the set of weeks is known, so a read failure here retries
+ * next tick.
+ *
+ * Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
+ * CONTEXT.md's Line is the spread/total Sync run `runHourlyOddsSync` already
+ * runs above. A second hourly scoreboard fetch alongside that one is
+ * deliberate, not an oversight — see services/gameContextSync.service.js's
+ * own module doc for why the two are not folded together.
  */
-async function runHourlyLineSync({ now = new Date() } = {}) {
-  if (now.getTime() - lastLineSyncAt < LINE_SYNC_INTERVAL_MS) return null;
+async function runHourlyGameContextSync({ now = new Date() } = {}) {
+  if (now.getTime() - lastGameContextSyncAt < GAME_CONTEXT_SYNC_INTERVAL_MS) return null;
   const leaguesResult = await pool.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
   );
-  lastLineSyncAt = now.getTime();
-  const lineSync = require('../services/lineSync.service');
+  lastGameContextSyncAt = now.getTime();
+  const gameContextSync = require('../services/gameContextSync.service');
   const results = [];
   for (const row of leaguesResult.rows) {
     const season = row.current_season;
     const week = row.current_week;
     try {
-      results.push(await lineSync.syncLine({ season, week }));
+      results.push(await gameContextSync.syncGameContext({ season, week }));
     } catch (err) {
-      console.error('line sync failed for %s week %s:', season, week, err.message);
+      console.error('game context sync failed for %s week %s:', season, week, err.message);
     }
   }
   return results;
@@ -641,7 +648,7 @@ function stopScheduler() {
  */
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
-  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds', 'line-sync',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds', 'game-context',
 ];
 
 // The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
@@ -779,7 +786,7 @@ module.exports = {
   injuryGameWindowMs,
   runDailyAdpSync,
   runHourlyOddsSync,
-  runHourlyLineSync,
+  runHourlyGameContextSync,
   runHoldoutSnapshots,
   runPickemWeekSync,
   runPickemSeasonCompletion,

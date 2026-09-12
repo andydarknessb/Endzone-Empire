@@ -8,8 +8,8 @@
  *
  * Split by writer, per ADR 0038's ruling:
  *  - venue_name/venue_city/is_indoor/is_neutral_site/broadcast/home_record/
- *    away_record: written by the hourly Line Sync run
- *    (services/lineSync.service.js) from `competitions[0].venue`,
+ *    away_record: written by the hourly game-context Sync run
+ *    (services/gameContextSync.service.js) from `competitions[0].venue`,
  *    `competitions[0].neutralSite`, `competitions[0].broadcasts[]` and
  *    `competitors[].records[]`.
  *  - home_win_probability: folded into Situation (CONTEXT.md) and written by

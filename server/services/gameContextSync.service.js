@@ -4,19 +4,38 @@ const { runSyncJob } = require('../modules/syncRun');
 const espnScoreboard = require('../modules/espnScoreboard');
 
 /**
- * The hourly Line Sync run (#1262, ADR 0038): Record, Venue and Broadcast for
- * every game on a week's slate, read off the same free ESPN scoreboard the
- * clock engine already polls (modules/espnScoreboard.js), and written onto
- * `live_game_states` — the row the thirty-second poll (liveGameEngine.js)
- * already owns for the clock, score and Situation. Split from that poll
- * because these three facts change on the timescale of an hour (a broadcast
- * swap, a record after last night's game), not thirty seconds; polling the
- * free endpoint hourly just for these costs nothing extra since
- * espnScoreboard.js already resolves each event's Tank01-style game id.
+ * The hourly game-context Sync run (#1262, ADR 0038): Record, Venue and
+ * Broadcast for every game on a week's slate, read off the same free ESPN
+ * scoreboard the clock engine already polls (modules/espnScoreboard.js), and
+ * written onto `live_game_states` — the row the thirty-second poll
+ * (liveGameEngine.js) already owns for the clock, score and Situation. Split
+ * from that poll because these three facts change on the timescale of an
+ * hour (a broadcast swap, a record after last night's game), not thirty
+ * seconds.
+ *
+ * Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
+ * CONTEXT.md's Line is specifically "the spread and the total ... its own
+ * Sync run", which is the ALREADY-EXISTING hourly job in
+ * services/espnOdds.provider.js (job 'odds'). Record/Venue/Broadcast are a
+ * different glossary noun each; "game context" is this job's own name for
+ * that group, not a glossary term.
+ *
+ * A second hourly scoreboard fetch, not folded into the odds Sync run
+ * (pl-endzone formal review, #1262 f2, raised with Cory as ticket wording
+ * this ambiguous rather than held against the IC): the two jobs write
+ * different tables (`game_odds_snapshots` vs. `live_game_states`) under
+ * different contracts (append-only snapshot vs. upsert-in-place), and
+ * espnOdds.provider.js's own fetch is deliberately scoped to just the
+ * `odds[]` block (ADR 0037) — reaching into it for venue/broadcasts/records
+ * too would widen a working, tested job's surface for a second table it has
+ * no other reason to know about. The scoreboard endpoint is free and
+ * unmetered (espnScoreboard.js's own module doc), so two fetches an hour
+ * cost nothing a shared one would meaningfully save. Kept deliberately
+ * separate; revisit only if the endpoint ever becomes metered.
  *
  * A Sync run (ADR 0036) like every other feed sync: `fetch()` outside any
  * transaction, `apply()` once inside its own transaction, one `data_sync_runs`
- * row per run (job 'line-sync'). No lock: the ON CONFLICT SET clause below
+ * row per run (job 'game-context'). No lock: the ON CONFLICT SET clause below
  * only ever touches the seven columns this job owns (never score/status/
  * clock/Situation/win probability/linescores/headline, which stay the
  * poll's alone), so the two writers can never clobber each other's columns —
@@ -38,7 +57,7 @@ const espnScoreboard = require('../modules/espnScoreboard');
  * written — every other column, including one the poll has already advanced
  * (score, clock, Situation), is left exactly as the poll last wrote it.
  */
-const LINE_SYNC_JOB = 'line-sync';
+const GAME_CONTEXT_SYNC_JOB = 'game-context';
 
 /**
  * `fetch()`: one scoreboard fetch for the whole (season, week) slate, then
@@ -48,9 +67,9 @@ const LINE_SYNC_JOB = 'line-sync';
  * Zero such events resolves to zero units, not a refusal: an early-week
  * scoreboard with no venue/broadcast assigned yet is an expected state.
  */
-async function fetchLineUnits({ season, week, transport }) {
+async function fetchGameContextUnits({ season, week, transport }) {
   const { rows } = await espnScoreboard.fetchLiveRows({ season, week, transport });
-  const withLineFields = rows.filter(
+  const withGameContextFields = rows.filter(
     (r) =>
       r.venueName != null ||
       r.venueCity != null ||
@@ -60,7 +79,7 @@ async function fetchLineUnits({ season, week, transport }) {
       r.homeRecord != null ||
       r.awayRecord != null
   );
-  return withLineFields.length > 0 ? [{ rows: withLineFields }] : [];
+  return withGameContextFields.length > 0 ? [{ rows: withGameContextFields }] : [];
 }
 
 const UPSERT_SQL = `
@@ -94,9 +113,9 @@ const UPSERT_SQL = `
  * `apply(client, unit)`: one bulk upsert for the whole unit's rows, inside
  * the transaction `runSyncJob` opens. A game with no existing row gets one
  * minted here (see the module doc above); a game the poll already has a row
- * for gets only its seven Line Sync columns touched.
+ * for gets only its seven game-context columns touched.
  */
-async function applyLineUnit(client, { rows }) {
+async function applyGameContextUnit(client, { rows }) {
   const result = await client.query(UPSERT_SQL, [
     rows.map((r) => r.tank01GameId),
     rows.map((r) => r.season),
@@ -119,22 +138,22 @@ async function applyLineUnit(client, { rows }) {
 }
 
 /**
- * Run the Line Sync for one (season, week) slate. `transport` is
+ * Run the game-context Sync for one (season, week) slate. `transport` is
  * test-injected; production hits ESPN's free scoreboard directly, same as
  * espnScoreboard.js and espnOdds.provider.js.
  */
-async function syncLine({ season, week, transport } = {}) {
+async function syncGameContext({ season, week, transport } = {}) {
   return runSyncJob({
-    job: LINE_SYNC_JOB,
+    job: GAME_CONTEXT_SYNC_JOB,
     lock: null,
-    fetch: () => fetchLineUnits({ season, week, transport }),
-    apply: (client, unit) => applyLineUnit(client, unit),
+    fetch: () => fetchGameContextUnits({ season, week, transport }),
+    apply: (client, unit) => applyGameContextUnit(client, unit),
   });
 }
 
 module.exports = {
-  LINE_SYNC_JOB,
-  fetchLineUnits,
-  applyLineUnit,
-  syncLine,
+  GAME_CONTEXT_SYNC_JOB,
+  fetchGameContextUnits,
+  applyGameContextUnit,
+  syncGameContext,
 };

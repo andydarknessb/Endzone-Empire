@@ -313,8 +313,9 @@ function normalizeEspnEvent(event, { season, week }) {
   );
 
   // Venue/Broadcast/Record (#1262, ADR 0038): read unconditionally — the
-  // hourly Line Sync run is the writer that decides which columns these ride
-  // on, this parser just reports what the payload carries.
+  // hourly game-context Sync run (services/gameContextSync.service.js) is
+  // the writer that decides which columns these ride on, this parser just
+  // reports what the payload carries.
   const venue = normalizeVenue(competition.venue);
   const isNeutralSite = typeof competition.neutralSite === 'boolean' ? competition.neutralSite : null;
   const broadcast = normalizeBroadcast(competition.broadcasts);
@@ -353,8 +354,9 @@ function normalizeEspnEvent(event, { season, week }) {
     // Win probability (#1262): folded into Situation per CONTEXT.md, cleared
     // together with the four fields above.
     homeWinProbability: situation.homeWinProbability,
-    // Venue/Broadcast/Record (#1262, ADR 0038): written by the hourly Line
-    // Sync run, not this poll — see liveGameEngine.js/lineSync.service.js.
+    // Venue/Broadcast/Record (#1262, ADR 0038): written by the hourly
+    // game-context Sync run, not this poll — see
+    // liveGameEngine.js/gameContextSync.service.js.
     venueName: venue.venueName,
     venueCity: venue.venueCity,
     isIndoor: venue.isIndoor,

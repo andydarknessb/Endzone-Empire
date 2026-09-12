@@ -1,19 +1,28 @@
 /**
- * The hourly Line Sync run (#1262, ADR 0038): Record, Venue and Broadcast for
- * a week's slate, read off the free ESPN scoreboard and upserted onto
- * `live_game_states`, touching only the seven columns this job owns — never
- * the score, status, clock or Situation columns the thirty-second poll owns.
+ * The hourly game-context Sync run (#1262, ADR 0038): Record, Venue and
+ * Broadcast for a week's slate, read off the free ESPN scoreboard and
+ * upserted onto `live_game_states`, touching only the seven columns this job
+ * owns — never the score, status, clock or Situation columns the
+ * thirty-second poll owns.
  *
  * It upserts rather than only updating (qa-reviewer #1262 finding 1): the
  * poll's own kickoff window only opens once a kickoff has already happened,
  * so a game's row often does not exist yet when this job runs pre-kickoff —
  * exactly when Pick'em needs Venue/Broadcast/Record to inform a pick.
+ *
+ * Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
+ * CONTEXT.md's Line is the spread/total Sync run in espnOdds.provider.js.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fixture = require('./fixtures/espn-scoreboard-2025-w1.json');
 const { createFakePool, insert } = require('./helpers/fakePool');
-const { fetchLineUnits, applyLineUnit, syncLine, LINE_SYNC_JOB } = require('../services/lineSync.service');
+const {
+  fetchGameContextUnits,
+  applyGameContextUnit,
+  syncGameContext,
+  GAME_CONTEXT_SYNC_JOB,
+} = require('../services/gameContextSync.service');
 
 const liveGameStates = insert('live_game_states');
 
@@ -57,12 +66,12 @@ const gbAtChiPayload = () => ({
 });
 
 // ---------------------------------------------------------------------------
-// fetchLineUnits — the Sync run's fetch()
+// fetchGameContextUnits — the Sync run's fetch()
 // ---------------------------------------------------------------------------
 
-test('fetchLineUnits: an event carrying Venue/Broadcast/Record becomes one unit for the whole slate', async () => {
+test('fetchGameContextUnits: an event carrying Venue/Broadcast/Record becomes one unit for the whole slate', async () => {
   const transport = { async get() { return { data: gbAtChiPayload() }; } };
-  const units = await fetchLineUnits({ season: 2026, week: 2, transport });
+  const units = await fetchGameContextUnits({ season: 2026, week: 2, transport });
   assert.equal(units.length, 1, 'one unit for the whole slate');
   assert.equal(units[0].rows.length, 1);
   const [row] = units[0].rows;
@@ -72,8 +81,8 @@ test('fetchLineUnits: an event carrying Venue/Broadcast/Record becomes one unit 
   assert.deepEqual(row.homeRecord, { total: '5-7', home: '3-3', road: '2-4' });
 });
 
-test('fetchLineUnits: an event with none of Venue/Broadcast/Record resolves to zero units, not a refusal', async () => {
-  const noLineFields = {
+test('fetchGameContextUnits: an event with none of Venue/Broadcast/Record resolves to zero units, not a refusal', async () => {
+  const noGameContextFields = {
     events: [
       {
         shortName: 'DAL @ PHI',
@@ -90,24 +99,24 @@ test('fetchLineUnits: an event with none of Venue/Broadcast/Record resolves to z
       },
     ],
   };
-  const transport = { async get() { return { data: noLineFields }; } };
-  const units = await fetchLineUnits({ season: 2026, week: 2, transport });
+  const transport = { async get() { return { data: noGameContextFields }; } };
+  const units = await fetchGameContextUnits({ season: 2026, week: 2, transport });
   assert.deepEqual(units, []);
 });
 
-test('fetchLineUnits: a real 16-game week keeps only events that carry a Venue/Broadcast/Record field', async () => {
+test('fetchGameContextUnits: a real 16-game week keeps only events that carry a Venue/Broadcast/Record field', async () => {
   const transport = { async get() { return { data: fixture }; } };
-  const units = await fetchLineUnits({ season: 2025, week: 1, transport });
+  const units = await fetchGameContextUnits({ season: 2025, week: 1, transport });
   // The shared fixture (used by espnScoreboard.test.js/espnOddsProvider.test.js)
   // carries no venue/broadcasts/records blocks on any event.
   assert.deepEqual(units, []);
 });
 
 // ---------------------------------------------------------------------------
-// applyLineUnit — the Sync run's apply()
+// applyGameContextUnit — the Sync run's apply()
 // ---------------------------------------------------------------------------
 
-test('applyLineUnit: upserts the base identity plus exactly the seven Venue/Broadcast/Record columns; ON CONFLICT never touches score/status/clock/Situation', async (t) => {
+test('applyGameContextUnit: upserts the base identity plus exactly the seven Venue/Broadcast/Record columns; ON CONFLICT never touches score/status/clock/Situation', async (t) => {
   const fake = createFakePool([
     [liveGameStates, (text, params) => {
       assert.match(text, /"venue_name"/);
@@ -124,7 +133,7 @@ test('applyLineUnit: upserts the base identity plus exactly the seven Venue/Broa
     }],
   ]).install(t);
 
-  const result = await applyLineUnit(fake, {
+  const result = await applyGameContextUnit(fake, {
     rows: [
       {
         tank01GameId: '20260913_GB@CHI',
@@ -163,19 +172,19 @@ test('applyLineUnit: upserts the base identity plus exactly the seven Venue/Broa
 });
 
 // ---------------------------------------------------------------------------
-// syncLine — the Sync run test, via the existing sync-run harness
+// syncGameContext — the Sync run test, via the existing sync-run harness
 // ---------------------------------------------------------------------------
 
 const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
 
-test('syncLine: fetches the slate once outside any transaction, writes inside one transaction, records ok=true', async (t) => {
+test('syncGameContext: fetches the slate once outside any transaction, writes inside one transaction, records ok=true', async (t) => {
   const transport = { async get() { return { data: gbAtChiPayload() }; } };
   const fake = createFakePool([
     [liveGameStates, () => ({ rows: [], rowCount: 1 })],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  const result = await syncLine({ season: 2026, week: 2, transport });
+  const result = await syncGameContext({ season: 2026, week: 2, transport });
 
   assert.deepEqual(result, { gamesUpdated: 1 });
   assert.equal(fake.matching(/^BEGIN$/).length, 1);
@@ -190,25 +199,25 @@ test('syncLine: fetches the slate once outside any transaction, writes inside on
   fake.assertClean();
 });
 
-test('syncLine: no lock is taken', async (t) => {
+test('syncGameContext: no lock is taken', async (t) => {
   const transport = { async get() { return { data: gbAtChiPayload() }; } };
   const fake = createFakePool([
     [liveGameStates, () => ({ rows: [], rowCount: 1 })],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  await syncLine({ season: 2026, week: 2, transport });
+  await syncGameContext({ season: 2026, week: 2, transport });
   assert.equal(fake.matching(/pg_advisory_xact_lock/).length, 0);
 });
 
-test('syncLine: a week with no Venue/Broadcast/Record fields opens no transaction and still records an ok run', async (t) => {
-  const noLineFields = { events: [] };
-  const transport = { async get() { return { data: noLineFields }; } };
+test('syncGameContext: a week with no Venue/Broadcast/Record fields opens no transaction and still records an ok run', async (t) => {
+  const noGameContextFields = { events: [] };
+  const transport = { async get() { return { data: noGameContextFields }; } };
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  const result = await syncLine({ season: 2026, week: 2, transport });
+  const result = await syncGameContext({ season: 2026, week: 2, transport });
   assert.deepEqual(result, { results: [] });
   assert.equal(fake.matching(/^BEGIN$/).length, 0);
   const runs = dataSyncRuns(fake.calls);
@@ -216,13 +225,13 @@ test('syncLine: a week with no Venue/Broadcast/Record fields opens no transactio
   fake.assertClean();
 });
 
-test('syncLine: an ESPN fetch failure is recorded fetch_failed and rethrown, no transaction opens', async (t) => {
+test('syncGameContext: an ESPN fetch failure is recorded fetch_failed and rethrown, no transaction opens', async (t) => {
   const transport = { async get() { throw new Error('ESPN unavailable'); } };
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  await assert.rejects(syncLine({ season: 2026, week: 2, transport }), /ESPN unavailable/);
+  await assert.rejects(syncGameContext({ season: 2026, week: 2, transport }), /ESPN unavailable/);
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1);
   assert.equal(runs[0].params[2], false);
@@ -231,6 +240,6 @@ test('syncLine: an ESPN fetch failure is recorded fetch_failed and rethrown, no 
   assert.equal(fake.matching(/^BEGIN$/).length, 0);
 });
 
-test('LINE_SYNC_JOB is the job literal recorded on data_sync_runs', () => {
-  assert.equal(LINE_SYNC_JOB, 'line-sync');
+test('GAME_CONTEXT_SYNC_JOB is the job literal recorded on data_sync_runs', () => {
+  assert.equal(GAME_CONTEXT_SYNC_JOB, 'game-context');
 });
