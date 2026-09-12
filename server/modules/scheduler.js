@@ -527,15 +527,32 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * the whole pass, exactly as every other feed sync in this module does.
  * `fetch()` reads the eligible leagues and each one's current roster (no
  * transaction, no lock: nothing else bulk-writes these rows); `apply(client,
- * unit)` fills one league's remaining weeks on that unit's own transactional
- * client, inside `getWeeklyProjections`. One league throwing does not stop
- * another's: `runSyncJob` attempts every unit and only rethrows the first
- * failure after every unit has been tried, so a prior unit's weeks are
- * already committed regardless. That rethrow is caught here and the day is
- * deliberately left UNSTAMPED whenever it fires, success-path stamp only: a
- * transient failure gets retried inside the same off-peak window rather than
- * losing the whole night, and a league that keeps failing just means the
- * other, now-cached leagues are cheap no-ops on the retry.
+ * unit)` fills one league's remaining weeks, one per unit. One league
+ * throwing does not stop another's: `runSyncJob` attempts every unit and only
+ * rethrows the first failure after every unit has been tried, so a prior
+ * unit's weeks are already committed regardless. That rethrow is caught here
+ * and the day is deliberately left UNSTAMPED whenever it fires, success-path
+ * stamp only: a transient failure gets retried inside the same off-peak
+ * window rather than losing the whole night, and a league that keeps failing
+ * just means the other, now-cached leagues are cheap no-ops on the retry.
+ *
+ * `apply` deliberately never passes its `client` argument into
+ * `getWeeklyProjections` (#1305 f5): that function's cache writer
+ * (`saveProjections`) and the weather lookup it calls both log-and-continue on
+ * a failed query, a contract that only holds in autocommit. Hosted inside
+ * `runSyncJob`'s per-unit transaction, a swallowed failure either aborts the
+ * transaction so the NEXT week's query throws a misleading 25P02 (rolling
+ * back every earlier week for that league too), or - worse, when the failure
+ * lands on the unit's LAST query - leaves nothing left to run, so
+ * `withTransaction`'s own COMMIT is answered with a silent ROLLBACK and no
+ * error: `ok: true` gets recorded with real-looking `weeksGenerated` counts
+ * for a league that persisted nothing. Calling it with no `client` runs it
+ * against the pool instead, autocommitting per statement exactly as it does
+ * on the live request path and as it did before this file routed through
+ * `runSyncJob`; each week's cache row is already an idempotent upsert, so
+ * nothing here needs the unit's transaction anyway. The weather provider's
+ * own HTTP fetches also stay off that transaction this way, matching ADR
+ * 0036's "fetch outside any transaction" for the same reason.
  *
  * Runs at most once per local calendar day, and only inside
  * `NIGHTLY_PROJECTION_FILL_UTC_HOUR`.
@@ -565,7 +582,10 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
         }
         return units;
       },
-      apply: async (client, { league, playerIds }) => {
+      // The unit's transactional client is intentionally unused here (#1305
+      // f5, see docblock above): getWeeklyProjections must run against the
+      // pool, in autocommit, not inside this transaction.
+      apply: async (_client, { league, playerIds }) => {
         const projection = require('../services/projection.service');
         const { lastPlayoffWeek } = require('../services/season.service');
         const throughWeek = lastPlayoffWeek(league);
@@ -573,7 +593,7 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
         let weeksSkipped = 0;
         for (let week = league.current_week; week <= throughWeek; week++) {
           const run = await projection.getWeeklyProjections({
-            season: league.current_season, week, league, playerIds, client,
+            season: league.current_season, week, league, playerIds,
           });
           // A week is a cache HIT only when every rostered player's row came
           // back already cached (getWeeklyProjections's own hit/miss rule,

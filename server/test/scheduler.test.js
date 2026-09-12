@@ -1143,11 +1143,12 @@ test('runNightlyProjectionFill queries leagues with the same live-season eligibi
 test('runNightlyProjectionFill fills every week from each league\'s current week through its OWN last playoff week', async (t) => {
   const projection = require('../services/projection.service');
   const calls = [];
-  t.mock.method(projection, 'getWeeklyProjections', async ({ season, week, league, playerIds }) => {
-    calls.push({ leagueId: league.id, season, week, playerIds: [...playerIds] });
+  t.mock.method(projection, 'getWeeklyProjections', async (args) => {
+    const { league, week, playerIds } = args;
+    calls.push({ leagueId: league.id, week, args });
     return { projections: new Map(playerIds.map((id) => [id, { median: 10, cached: false }])) };
   });
-  createFakePool([
+  const fake = createFakePool([
     [/FROM "leagues"/, () => ({
       rows: [
         // 14 regular weeks + 2 rounds (4 playoff teams) -> last playoff week 16.
@@ -1163,7 +1164,8 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
       rows: [{ player_id: params[0] === 1 ? 101 : 201 }],
     })],
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-  ]).install(t);
+  ]);
+  fake.install(t);
 
   const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T09:00:00Z') });
 
@@ -1174,6 +1176,24 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
   assert.equal(result.weeksGenerated, league1Weeks.length + league2Weeks.length);
   assert.equal(result.weeksSkipped, 0);
   assert.equal(result.leagues, 2);
+
+  // #1305 f5: apply must never host getWeeklyProjections' writes inside the
+  // unit's transaction. A `client` key here would mean the caller handed it
+  // the per-unit transactional client instead of letting it autocommit
+  // against the pool.
+  assert.ok(calls.length > 0);
+  for (const c of calls) assert.ok(!('client' in c.args), 'getWeeklyProjections must never receive a client');
+
+  // #1305 f6: the shape every real multi-league night actually records -
+  // runSyncJob's `{ results: [...] }` for more than one unit - carrying each
+  // league's own weeksGenerated/weeksSkipped, not just the summed return value.
+  const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
+  assert.ok(inserted, 'one data_sync_runs row is written');
+  const detail = JSON.parse(inserted.params[3]);
+  assert.equal(detail.results.length, 2);
+  const byLeague = new Map(detail.results.map((r) => [r.leagueId, r]));
+  assert.deepEqual(byLeague.get(1), { leagueId: 1, weeksGenerated: 2, weeksSkipped: 0 });
+  assert.deepEqual(byLeague.get(2), { leagueId: 2, weeksGenerated: 5, weeksSkipped: 0 });
 });
 
 test('runNightlyProjectionFill skips a week every rostered player already has cached, and runs at most once per local day', async (t) => {
