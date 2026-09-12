@@ -18,6 +18,7 @@ import { useApplyAdvice } from '../../features/apply-advice';
 import PlayerDecisionCard from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
+import { useLiveScores } from './model/useLiveScores';
 import { useAdvice } from './model/useAdvice';
 import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
 
@@ -113,6 +114,13 @@ export default function LineupPage() {
   const gameKeys = Array.from(new Set((lineup?.entries || []).map((e) => e.gameKey).filter(Boolean)));
   const liveGames = useLiveGameStates(selectedLeagueId, gameKeys);
   const liveGamesByKey = new Map(liveGames.map((row) => [String(row.tank01_game_id), row]));
+
+  // Live points (AC2, #1241, ADR 0037 ticket 9): the same scores socket Game
+  // Center and Matchup Detail already read, subscribed once here and handed
+  // to both the Ledger (a per-player delta patched onto `raw`, below) and
+  // the team-summary-strip's live totals (`scoreEvent`, applied by that
+  // widget's own model).
+  const { scoreEvent } = useLiveScores({ leagueId: selectedLeagueId, setRaw, refetch });
 
   const swap = useSwapPlayers({
     leagueId: selectedLeagueId,
@@ -330,6 +338,7 @@ export default function LineupPage() {
                     lineup={lineup}
                     advice={advice}
                     worstByeCluster={worstCluster}
+                    scoreEvent={scoreEvent}
                   />
 
                   {swap.selectedEntry && (

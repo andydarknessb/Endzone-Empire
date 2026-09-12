@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -45,18 +45,48 @@ jest.mock('../../components/Snackbar/SnackbarProvider', () => ({
 }));
 
 let liveGameRows = [];
+let liveGameHandler = null;
 function installSupabase() {
   const inFn = jest.fn().mockImplementation((column, ids) =>
     Promise.resolve({ data: liveGameRows.filter((r) => ids.includes(r.tank01_game_id)), error: null })
   );
   supabase.from.mockReturnValue({ select: jest.fn().mockReturnValue({ in: inFn }) });
-  const channelObj = { on: jest.fn(() => channelObj), subscribe: jest.fn(() => channelObj) };
+  const channelObj = {
+    on: jest.fn((_event, _filter, cb) => { liveGameHandler = cb; return channelObj; }),
+    subscribe: jest.fn(() => channelObj),
+  };
   supabase.channel.mockReturnValue(channelObj);
 }
+// Delivers one realtime UPDATE payload to the live_game_states channel (AC1,
+// AC6: "a Realtime row update moving a cell from pre to live").
+const pushLiveGameRow = (row) => act(() => { liveGameHandler?.({ new: row }); });
+
+// The test socket factory (AC11/#1241 AC6: "a socket score update changing
+// points and the strip"): the app's own seam (src/api/socket.js's
+// window.__ENDZONE_TEST_SOCKET_FACTORY__), driven directly rather than a
+// real socket.io-client connection - the same pattern useMatchup.test.js and
+// the Game Center page test use.
+function makeFakeSocket() {
+  const handlers = {};
+  return {
+    emit: jest.fn(),
+    on: jest.fn((event, cb) => { handlers[event] = cb; }),
+    io: { on: jest.fn(), off: jest.fn() },
+    disconnect: jest.fn(),
+    fire: (event, payload) => act(() => { handlers[event]?.(payload); }),
+  };
+}
+let socket;
 
 beforeEach(() => {
   invalidate(undefined, { reload: false });
   installSupabase();
+  liveGameHandler = null;
+  socket = undefined;
+  window.__ENDZONE_TEST_SOCKET_FACTORY__ = () => {
+    socket = makeFakeSocket();
+    return socket;
+  };
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
   window.matchMedia = jest.fn().mockImplementation((query) => ({
     matches: false,
@@ -72,6 +102,7 @@ beforeEach(() => {
 afterEach(() => {
   jest.clearAllMocks();
   liveGameRows = [];
+  delete window.__ENDZONE_TEST_SOCKET_FACTORY__;
 });
 
 const LEAGUES_URL = '/api/league';
@@ -291,6 +322,125 @@ test('both Game cell states render: pre-kickoff and final (from the faked Supaba
   );
   const states = screen.getAllByTestId('ledger-game-cell').map((c) => c.getAttribute('data-game-state'));
   expect(states).toContain('pre');
+});
+
+// #1241 AC1/AC2/AC3/AC6 (ADR 0037 ticket 9): the Realtime live wiring - a
+// row moving from pre to live with Situation, a null Situation, a red zone
+// flag, a socket score update moving points and the strip, and the
+// transition to final.
+
+// `liveGameHandler` is only set once useLiveGameStates' own initial fetch
+// resolves and it opens the channel; waiting for it before pushing avoids a
+// race against that fetch (the "Josh Allen" text depends only on the
+// separate lineup fetch resolving, not this one).
+const waitForLiveGameChannel = () => waitFor(() => expect(liveGameHandler).not.toBeNull());
+// The chip's DOM node itself is replaced (not just re-attributed) between
+// "pre" and "live" - the live state wraps the chip and the Situation line in
+// one extra Box - so every assertion after a push re-queries fresh rather
+// than holding a reference captured before it.
+const firstGameCell = () => screen.getAllByTestId('ledger-game-cell')[0];
+
+test('a Realtime row update moves a cell from pre to live with the Situation line', async () => {
+  // Seeded as a non-final row so useLiveGameStates' own channel subscribes
+  // to it (open = every non-final row from the initial read); the Game
+  // cell itself still reads "pre" until the push below.
+  liveGameRows = [{ tank01_game_id: 'g1', game_status: 'scheduled' }];
+  renderPage();
+  await screen.findByText('Josh Allen');
+  expect(firstGameCell()).toHaveAttribute('data-game-state', 'pre');
+  await waitForLiveGameChannel();
+
+  pushLiveGameRow({
+    tank01_game_id: 'g1', game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+    current_score_home: 3, current_score_away: 7, quarter: 'Q1', time_remaining: '9:00',
+    possession: 'BUF', down_distance: '1st & 10',
+  });
+
+  await waitFor(() => expect(firstGameCell()).toHaveAttribute('data-game-state', 'live'));
+  const situation = screen.getByTestId('ledger-situation-line');
+  expect(situation).toHaveTextContent('BUF ball');
+  expect(situation).toHaveTextContent('1st & 10');
+});
+
+test('a null Situation renders no Situation line and no "null" text anywhere on the page', async () => {
+  liveGameRows = [{ tank01_game_id: 'g1', game_status: 'scheduled' }];
+  const { container } = renderPage();
+  await screen.findByText('Josh Allen');
+  await waitForLiveGameChannel();
+
+  pushLiveGameRow({
+    tank01_game_id: 'g1', game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+    current_score_home: 0, current_score_away: 0, quarter: null, time_remaining: null,
+  });
+
+  await waitFor(() => expect(firstGameCell()).toHaveAttribute('data-game-state', 'live'));
+  expect(screen.queryByTestId('ledger-situation-line')).toBeNull();
+  expect(container.textContent).not.toMatch(/null/);
+});
+
+test('a red zone flag shows the marker on the live row', async () => {
+  liveGameRows = [{ tank01_game_id: 'g1', game_status: 'scheduled' }];
+  renderPage();
+  await screen.findByText('Josh Allen');
+  await waitForLiveGameChannel();
+
+  pushLiveGameRow({
+    tank01_game_id: 'g1', game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+    current_score_home: 3, current_score_away: 7, quarter: 'Q1', time_remaining: '2:14',
+    possession: 'BUF', down_distance: '2nd & Goal', is_red_zone: true,
+  });
+
+  expect(await screen.findByTestId('ledger-red-zone-marker')).toBeInTheDocument();
+});
+
+test('a socket score update changes the points cell and the summary strip (the existing scores socket)', async () => {
+  // Derrick King's own game (g2) live, so the points cell's live colour
+  // assertion below is meaningful (AC2's live colour is driven by the Game
+  // cell's own state, not the scores socket alone).
+  liveGameRows = [
+    { tank01_game_id: 'g2', game_status: 'in_progress', home_team: 'BAL', away_team: 'CIN', current_score_home: 20, current_score_away: 10 },
+  ];
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ status: 'live', home_score: '20', away_score: '10', home_expected_final: '95.0' })] },
+  });
+  const kingRow = await screen.findByTestId('slot-row-RB-0');
+  await waitFor(() => expect(within(kingRow).getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'live'));
+  expect(await screen.findByTestId('strip-score')).toHaveTextContent('20.0 / 95.0');
+
+  socket.fire('scores:updated', {
+    scored: [{ matchupId: 55, homeScore: 26.5, awayScore: 10 }],
+    plays: [{ playerId: 2, pointsDelta: 6.5, isTouchdown: true }],
+  });
+
+  await waitFor(() => expect(within(kingRow).getByTestId('ledger-points')).toHaveTextContent('6.5'));
+  expect(within(kingRow).getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-danger)' });
+  await waitFor(() => expect(screen.getByTestId('strip-score')).toHaveTextContent('26.5 / 95.0'));
+});
+
+test('the transition to final: a stale "pace" Edge line displays as "result" the instant the live row reads final', async () => {
+  liveGameRows = [{ tank01_game_id: 'g3', game_status: 'in_progress' }];
+  renderPage({
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [
+          entryRow({
+            id: 60, name: 'Pace Guy', position: 'RB', slot: 'BENCH', nfl_team: 'MIA',
+            game_key: 'g3', edge: { kind: 'pace', text: '62% of projection so far' },
+          }),
+        ],
+      }),
+    },
+  });
+  const row = await screen.findByTestId('slot-row-BENCH-60');
+  expect(within(row).getByTestId('ledger-edge-line')).toHaveAttribute('data-edge-kind', 'pace');
+  await waitForLiveGameChannel();
+
+  pushLiveGameRow({
+    tank01_game_id: 'g3', game_status: 'final', home_team: 'MIA', away_team: 'NYJ',
+    current_score_home: 24, current_score_away: 17,
+  });
+
+  await waitFor(() => expect(within(row).getByTestId('ledger-edge-line')).toHaveAttribute('data-edge-kind', 'result'));
 });
 
 test('every Edge line kind from the fixture renders with its own kind attribute', async () => {
