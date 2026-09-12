@@ -4,6 +4,7 @@ const { logTransaction } = require('./activity.service');
 const { RECAPS_TABLE_SQL, isMissingRecapStorage } = require('../modules/recapStorage');
 const { isPickemOnly } = require('./leagueType');
 const { teamIdentityColumns, teamIdentityJoin } = require('./teamIdentity');
+const { isIndoorGame } = require('./nwsWeather.service');
 
 /**
  * League Pick'em — pick the winner of every NFL game, every week.
@@ -88,10 +89,12 @@ function slotKey(week, gameKey) {
  * Pure: build the pickable slate.
  *
  * @param {Array} gameRows rows from `nfl_games` — `{ week, nfl_team, opponent,
- *   kickoff_at }`, both team columns ALREADY normalized in SQL. Two rows
- *   describe each game (one per team); the game's kickoff is the MIN of the
- *   pair, so a half-synced schedule can never push a lock later than the
- *   earliest evidence we have.
+ *   kickoff_at, game_key, roof }`, both team columns ALREADY normalized in
+ *   SQL. Two rows describe each game (one per team); the game's kickoff is
+ *   the MIN of the pair, so a half-synced schedule can never push a lock
+ *   later than the earliest evidence we have. `game_key` and `roof` are the
+ *   same value on both rows of a pair (nflverse's own both-perspectives game
+ *   id, and the schedule's roof vocabulary); either row supplies them.
  * @param {Array} lgsRows rows from `live_game_states`, also already
  *   normalized. Optional and frequently EMPTY (future weeks) — every field it
  *   supplies degrades to null/'scheduled' rather than dropping the game.
@@ -114,8 +117,19 @@ function deriveSlateFromRows(gameRows, lgsRows) {
     const week = row.week == null ? null : Number(row.week);
     const mapKey = slotKey(week, key);
     const existing = pairs.get(mapKey);
-    if (!existing) pairs.set(mapKey, { week, gameKey: key, kickoff });
-    else if (kickoff < existing.kickoff) existing.kickoff = kickoff;
+    if (!existing) {
+      pairs.set(mapKey, {
+        week,
+        gameKey: key,
+        kickoff,
+        dbGameKey: row.game_key || null,
+        roof: row.roof || null,
+      });
+    } else {
+      if (kickoff < existing.kickoff) existing.kickoff = kickoff;
+      if (!existing.dbGameKey && row.game_key) existing.dbGameKey = row.game_key;
+      if (!existing.roof && row.roof) existing.roof = row.roof;
+    }
   }
 
   const games = [];
@@ -135,6 +149,28 @@ function deriveSlateFromRows(gameRows, lgsRows) {
       quarter: live && live.quarter != null ? live.quarter : null,
       timeRemaining: live && live.time_remaining != null ? live.time_remaining : null,
       tank01GameId: live && live.tank01_game_id != null ? live.tank01_game_id : null,
+      // Schedule facts (ADR 0038): present from the schedule sync alone, no
+      // live_game_states row required.
+      dbGameKey: entry.dbGameKey,
+      roof: entry.roof,
+      // Game-context Sync (hourly) and the thirty-second poll both write onto
+      // the same live_game_states row; every field below degrades to null
+      // when that row, or that particular column on it, is absent.
+      venueName: live && live.venue_name != null ? String(live.venue_name) : null,
+      venueCity: live && live.venue_city != null ? String(live.venue_city) : null,
+      isIndoor: live && live.is_indoor != null ? Boolean(live.is_indoor) : null,
+      isNeutralSite: live && live.is_neutral_site != null ? Boolean(live.is_neutral_site) : null,
+      broadcast: live && live.broadcast != null ? String(live.broadcast) : null,
+      homeRecord: live && live.home_record != null ? live.home_record : null,
+      awayRecord: live && live.away_record != null ? live.away_record : null,
+      homeWinProbability:
+        live && live.home_win_probability != null ? Number(live.home_win_probability) : null,
+      linescores: live && live.linescores != null ? live.linescores : null,
+      headline: live && live.headline != null ? String(live.headline) : null,
+      possession: live && live.possession != null ? String(live.possession) : null,
+      downDistance: live && live.down_distance != null ? String(live.down_distance) : null,
+      isRedZone: live && live.is_red_zone != null ? Boolean(live.is_red_zone) : null,
+      lastPlay: live && live.last_play != null ? String(live.last_play) : null,
     });
   }
   games.sort(
@@ -193,6 +229,102 @@ function isGameLocked(game, now = new Date()) {
   if (!game || !game.kickoffAt) return false;
   const at = now instanceof Date ? now : new Date(now);
   return new Date(game.kickoffAt).getTime() <= at.getTime();
+}
+
+/* ------------------------------------------------------------------ *
+ * Week-board field builders (ADR 0038) — each pure, each null when its *
+ * own source has nothing, per the ADR's "insight is not a term" ruling *
+ * ------------------------------------------------------------------ */
+
+/** Pure: `{ spread, total, observedAt }` from the newest odds snapshot row, or null. */
+function buildLine(snapshotRow) {
+  if (!snapshotRow) return null;
+  return {
+    spread: snapshotRow.spread == null ? null : Number(snapshotRow.spread),
+    total: snapshotRow.total == null ? null : Number(snapshotRow.total),
+    observedAt: snapshotRow.observed_at,
+  };
+}
+
+/**
+ * Pure: weather is null outright for an indoor game (there is nothing to
+ * report) or when no forecast snapshot exists yet — never a fields-null
+ * object, unlike the Decision card's own weather shape.
+ */
+function buildWeather(roof, snapshotRow) {
+  if (isIndoorGame({ roof })) return null;
+  if (!snapshotRow) return null;
+  return {
+    shortForecast: snapshotRow.short_forecast || null,
+    temperatureF: snapshotRow.temperature_f == null ? null : Number(snapshotRow.temperature_f),
+    windSpeedMph: snapshotRow.wind_speed_mph == null ? null : Number(snapshotRow.wind_speed_mph),
+    precipitationProbability:
+      snapshotRow.precipitation_probability == null ? null : Number(snapshotRow.precipitation_probability),
+  };
+}
+
+/** Pure: `{ name, city, indoor, neutralSite }` from the derived game, or null. */
+function buildVenue(game) {
+  if (!game) return null;
+  const { venueName, venueCity, isIndoor, isNeutralSite } = game;
+  if (venueName == null && venueCity == null && isIndoor == null && isNeutralSite == null) return null;
+  return { name: venueName, city: venueCity, indoor: isIndoor, neutralSite: isNeutralSite };
+}
+
+/**
+ * Pure: `{ away: { total, road }, home: { total, home } }` — CONTEXT.md's
+ * Record, cut to the side each team is about to play in. Null when neither
+ * side's Record has been synced yet.
+ */
+function buildRecords(game) {
+  if (!game) return null;
+  const { homeRecord, awayRecord } = game;
+  if (homeRecord == null && awayRecord == null) return null;
+  return {
+    home: homeRecord == null ? null : { total: homeRecord.total ?? null, home: homeRecord.home ?? null },
+    away: awayRecord == null ? null : { total: awayRecord.total ?? null, road: awayRecord.road ?? null },
+  };
+}
+
+/**
+ * Pure: CONTEXT.md's Situation, locked games only — an unlocked game is
+ * always null here regardless of what live_game_states happens to hold, and
+ * a locked game with no Situation columns written yet is null too.
+ */
+function buildSituation(game, locked) {
+  if (!locked || !game) return null;
+  const { possession, downDistance, isRedZone, lastPlay, homeWinProbability } = game;
+  if (
+    possession == null &&
+    downDistance == null &&
+    isRedZone == null &&
+    lastPlay == null &&
+    homeWinProbability == null
+  ) {
+    return null;
+  }
+  return {
+    possession,
+    downDistance,
+    redZone: isRedZone,
+    lastPlay,
+    homeWinProbability,
+  };
+}
+
+/**
+ * Pure: `previousRank` support — rerun `computePickemStandings` over only the
+ * weeks strictly before `currentWeek`, so a mid-season standings response can
+ * show each team's rank as of the prior completed week. Week 1 (or an
+ * unknown current week) has no prior week at all, so it returns an empty map
+ * and every row's `previousRank` reads back null.
+ */
+function computePreviousRanks({ members, games, picks, mode, currentWeek }) {
+  if (!currentWeek || Number(currentWeek) <= 1) return new Map();
+  const priorGames = (games || []).filter((game) => Number(game.week) < Number(currentWeek));
+  const priorPicks = (picks || []).filter((pick) => Number(pick.week) < Number(currentWeek));
+  const priorStandings = computePickemStandings({ members, games: priorGames, picks: priorPicks, mode });
+  return new Map(priorStandings.map((row) => [row.userId, row.rank]));
 }
 
 /**
@@ -476,7 +608,7 @@ const SLATE_GAMES_SQL = `
   SELECT "week",
          fn_normalize_nfl_team("nfl_team") AS "nfl_team",
          fn_normalize_nfl_team("opponent") AS "opponent",
-         "kickoff_at"
+         "kickoff_at", "game_key", "roof"
     FROM "nfl_games"
    WHERE "season" = $1 AND "opponent" IS NOT NULL AND "kickoff_at" IS NOT NULL`;
 
@@ -485,7 +617,10 @@ const SLATE_LIVE_SQL = `
          fn_normalize_nfl_team("home_team") AS "home_team",
          fn_normalize_nfl_team("away_team") AS "away_team",
          "game_status", "current_score_home", "current_score_away",
-         "quarter", "time_remaining"
+         "quarter", "time_remaining",
+         "venue_name", "venue_city", "is_indoor", "is_neutral_site", "broadcast",
+         "home_record", "away_record", "home_win_probability", "linescores", "headline",
+         "possession", "down_distance", "is_red_zone", "last_play"
     FROM "live_game_states"
    WHERE "season" = $1`;
 
@@ -496,6 +631,25 @@ const SLATE_RECAPS_SQL = `
          "home_score", "away_score"
     FROM ${RECAPS_TABLE_SQL}
    WHERE "season" = $1`;
+
+// ADR 0038: the newest sportsbook quote per game, keyed by nfl_games.game_key
+// (the both-perspectives id game_odds_snapshots already uses) rather than by
+// the pick'em team-pair key — DISTINCT ON picks the latest observed_at per
+// game in one round trip for the whole week's slate.
+const WEEK_LINES_SQL = `
+  SELECT DISTINCT ON ("game_key") "game_key", "total", "spread", "observed_at"
+    FROM "game_odds_snapshots"
+   WHERE "game_key" = ANY($1::text[])
+   ORDER BY "game_key", "observed_at" DESC`;
+
+// The forecast nearest kickoff per game — smallest horizon_hours wins, same
+// convention as decisionCardContext.service.js's loadWeather.
+const WEEK_WEATHER_SQL = `
+  SELECT DISTINCT ON ("game_key") "game_key", "short_forecast", "temperature_f",
+         "wind_speed_mph", "precipitation_probability"
+    FROM "game_weather_snapshots"
+   WHERE "game_key" = ANY($1::text[])
+   ORDER BY "game_key", "horizon_hours" ASC`;
 
 const UPSERT_PICKS_SQL = `
   INSERT INTO "pickem_picks"
@@ -626,7 +780,10 @@ async function getSeasonSlate({ season, db = pool }) {
 /**
  * A member's view of one week: the slate, their own picks, and everyone
  * else's picks FOR LOCKED GAMES ONLY. The per-game reveal is the whole point
- * of the lock — never widen this filter.
+ * of the lock — never widen this filter. `pickedCount` is the one exception
+ * (ADR 0038): a count of every manager who has picked that game, EVERY
+ * phase, computed from the same `stored` rows but never leaking who or which
+ * way — it is a tally, not a projection of any pick's fields.
  */
 async function getWeekView({ leagueId, userId, season, week, mode, now = new Date() }) {
   const slate = await getWeekSlate({ season, week });
@@ -647,9 +804,53 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
     [leagueId, season, week]
   );
 
+  // ADR 0038: Line and weather are read off nfl_games.game_key, the same
+  // both-perspectives id game_odds_snapshots/game_weather_snapshots already
+  // use — never the pick'em team-pair key, and never a live ESPN/NWS call.
+  const dbGameKeys = [...new Set(slate.map((game) => game.dbGameKey).filter(Boolean))];
+  const [lines, weathers] = await Promise.all([
+    dbGameKeys.length ? pool.query(WEEK_LINES_SQL, [dbGameKeys]) : Promise.resolve({ rows: [] }),
+    dbGameKeys.length ? pool.query(WEEK_WEATHER_SQL, [dbGameKeys]) : Promise.resolve({ rows: [] }),
+  ]);
+  const lineByGameKey = new Map(lines.rows.map((row) => [row.game_key, row]));
+  const weatherByGameKey = new Map(weathers.rows.map((row) => [row.game_key, row]));
+
+  const pickedCountByKey = new Map();
+  for (const row of stored.rows) {
+    pickedCountByKey.set(row.team_pair, (pickedCountByKey.get(row.team_pair) || 0) + 1);
+  }
+
   const games = slate.map((game) => {
     const { winner, isTie } = winnerOf(game);
-    return { ...game, locked: isGameLocked(game, now), winner, isTie };
+    const locked = isGameLocked(game, now);
+    const lineRow = game.dbGameKey ? lineByGameKey.get(game.dbGameKey) : null;
+    const weatherRow = game.dbGameKey ? weatherByGameKey.get(game.dbGameKey) : null;
+    return {
+      week: game.week,
+      gameKey: game.gameKey,
+      teams: game.teams,
+      kickoffAt: game.kickoffAt,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      status: game.status,
+      homeScore: game.homeScore,
+      awayScore: game.awayScore,
+      quarter: game.quarter,
+      timeRemaining: game.timeRemaining,
+      tank01GameId: game.tank01GameId,
+      locked,
+      winner,
+      isTie,
+      pickedCount: pickedCountByKey.get(game.gameKey) || 0,
+      line: buildLine(lineRow),
+      weather: buildWeather(game.roof, weatherRow),
+      venue: buildVenue(game),
+      broadcast: game.broadcast,
+      records: buildRecords(game),
+      situation: buildSituation(game, locked),
+      linescores: game.linescores,
+      headline: game.headline,
+    };
   });
   const lockedKeys = new Set(games.filter((game) => game.locked).map((game) => game.gameKey));
 
@@ -751,7 +952,7 @@ async function upsertPicks({ leagueId, userId, season, week, picks, now = new Da
  * final standings inside its completion transaction), and `games` lets a
  * caller that already holds the season slate skip re-deriving it.
  */
-async function loadStandings({ leagueId, season, db, games, includeFormerPickers }) {
+async function loadStandings({ leagueId, season, db, games, includeFormerPickers, currentWeek = null }) {
   const settings = await getSettings(leagueId, db);
   const members = await db.query(
     // "teams"."owner_id" AS "user_id" is the JOIN KEY only: it matches a
@@ -799,23 +1000,43 @@ async function loadStandings({ leagueId, season, db, games, includeFormerPickers
     }
   }
 
+  const mappedPicks = stored.rows.map((row) => ({
+    userId: row.user_id,
+    week: Number(row.week),
+    gameKey: row.team_pair,
+    pickedTeam: row.picked_team,
+    confidence: row.confidence == null ? null : Number(row.confidence),
+  }));
+
   const standings = computePickemStandings({
     members: participants,
     games: slate,
-    picks: stored.rows.map((row) => ({
-      userId: row.user_id,
-      week: Number(row.week),
-      gameKey: row.team_pair,
-      pickedTeam: row.picked_team,
-      confidence: row.confidence == null ? null : Number(row.confidence),
-    })),
+    picks: mappedPicks,
     mode: settings.mode,
   });
-  return { season, mode: settings.mode, standings };
+
+  // previousRank (ADR 0038) is member-facing only: getCompletionStandings
+  // never passes currentWeek, so its rows keep their exact pre-existing shape
+  // for the season-completion consumers that already read this function.
+  if (currentWeek == null) {
+    return { season, mode: settings.mode, standings };
+  }
+  const previousRankByUserId = computePreviousRanks({
+    members: participants,
+    games: slate,
+    picks: mappedPicks,
+    mode: settings.mode,
+    currentWeek,
+  });
+  const standingsWithPreviousRank = standings.map((row) => ({
+    ...row,
+    previousRank: previousRankByUserId.has(row.userId) ? previousRankByUserId.get(row.userId) : null,
+  }));
+  return { season, mode: settings.mode, standings: standingsWithPreviousRank };
 }
 
-async function getStandings({ leagueId, season, db = pool, games = null }) {
-  return loadStandings({ leagueId, season, db, games, includeFormerPickers: false });
+async function getStandings({ leagueId, season, db = pool, games = null, currentWeek = null }) {
+  return loadStandings({ leagueId, season, db, games, includeFormerPickers: false, currentWeek });
 }
 
 /**
@@ -841,6 +1062,12 @@ module.exports = {
   validatePicksPayload,
   scorePickemWeek,
   computePickemStandings,
+  computePreviousRanks,
+  buildLine,
+  buildWeather,
+  buildVenue,
+  buildRecords,
+  buildSituation,
   // I/O
   loadLeague,
   getSettings,

@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlayerPoolTable from './PlayerPoolTable';
 import { SORT_FIELDS, SORT_KEYS } from './sortFields';
-import AbbreviationTooltip, { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import AbbreviationTooltip, { STAT_DEFINITIONS } from '../../shared/ui/AbbreviationTooltip';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 
 // Parity guard for issue #163: the desktop table's TableSortLabel headers

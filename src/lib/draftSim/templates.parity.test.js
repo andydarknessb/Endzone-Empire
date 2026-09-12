@@ -16,13 +16,11 @@ import { DEFAULT_ROSTER_SLOTS as SERVER_DEFAULT_ROSTER_SLOTS } from '../../../se
 // reference, so the constant this test pins is byte-for-byte the one every
 // server consumer resolves.
 //
-// This comparison is WHOLE-OBJECT (toEqual on the full arrays), unlike
-// lineupAttention.parity.test.js's keys-only compare. That test's client
-// mirror (DEFAULT_STARTER_SLOT_ORDER) only carries slot keys, so keys-only is
-// all there is to pin. This copy carries `count` and `eligiblePositions` on
-// every slot too, and a drift in either is real: a wrong `count` changes how
-// many starters a slot holds, and a wrong `eligiblePositions` changes which
-// positions can fill it. Only comparing keys would let both drift silently.
+// This comparison is WHOLE-OBJECT (toEqual on the full arrays). This copy
+// carries `count` and `eligiblePositions` on every slot, and a drift in
+// either is real: a wrong `count` changes how many starters a slot holds, and
+// a wrong `eligiblePositions` changes which positions can fill it. Only
+// comparing keys would let both drift silently.
 //
 // Compared as an ORDERED list, not a sorted set: the simulator derives
 // STANDARD_LINEUP directly from this array and iterates slots in this order,
@@ -31,8 +29,10 @@ import { DEFAULT_ROSTER_SLOTS as SERVER_DEFAULT_ROSTER_SLOTS } from '../../../se
 //
 // The house pattern for exactly this: stallAnnouncement.parity.test.js
 // (LIFECYCLE_KINDS), chatLimits.parity.test.js (MAX_CHAT_CHARS),
-// useLeagueChat.humanType.parity.test.js (LEAGUE_CHAT), lineupAttention's own
-// parity test (DEFAULT_STARTER_SLOT_ORDER, keys-only).
+// useLeagueChat.humanType.parity.test.js (LEAGUE_CHAT). lineupAttention no
+// longer keeps a client-side default to mirror here (#1210 deleted
+// DEFAULT_STARTER_SLOT_ORDER, the pairing default's sibling - both guessed at
+// a fantasy-standard shape ADR 0029 disallows).
 describe('draftSim templates DEFAULT_ROSTER_SLOTS parity with the server roster', () => {
   it('mirrors server DEFAULT_ROSTER_SLOTS as a whole object, in order', () => {
     expect(CLIENT_DEFAULT_ROSTER_SLOTS).toEqual(SERVER_DEFAULT_ROSTER_SLOTS);

@@ -5,6 +5,7 @@ import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
 import { matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
 import { useMatchup, matchupStatusView } from '../../../entities/matchup';
+import { pairStartersBySlot } from '../../../entities/roster';
 import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';
 import { useMatchupView } from '../../../features/toggle-matchup-view';
@@ -16,17 +17,21 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
  *
  *   - The league, through the shared league cache (useLeague / ADR 0004):
  *     its name for the breadcrumb and the LED board, its `roster_slots` keys
- *     in commissioner order as the `slotOrder` the entity pairs starters by
- *     (IDP slots included; pairing refuses without it, so both lineup views
- *     render nothing until the league row arrives), and its `best_ball` flag
- *     for the bench-left rule.
+ *     in commissioner order as the `slotOrder` THIS page model pairs starters
+ *     by (IDP slots included; pairing refuses without it, so both lineup
+ *     views render nothing until the league row arrives), and its `best_ball`
+ *     flag for the bench-left rule.
  *   - The Matchup as a read model (entities/matchup, ADR 0029) with the score
  *     feed and the Team identity feed composed inside the hook: `matchup`
  *     (the scoreboard, with the live NFL game rows on `.games`, #885),
  *     `detail` (the lineup payload beneath it: benches, the viewer's Team id,
- *     the what-if, `is_playoff`) and `starterRows`, the ONE paired row list
- *     both views render. A `scores:updated` event moves the model with no
- *     refetch; a reconnect refetches silently.
+ *     the what-if, `is_playoff`) and the two sides' unpaired `homeStarters`/
+ *     `awayStarters`. This page model pairs them itself (#1210: pairing
+ *     starters by slot is a Roster/Lineup fact, ADR 0029, so it lives in
+ *     `entities/roster`'s `pairStartersBySlot`, never inside the Matchup
+ *     entity) with the `slotOrder` below, into `starterRows`, the ONE paired
+ *     row list both views render. A `scores:updated` event moves the model
+ *     with no refetch; a reconnect refetches silently.
  *   - The status chip and the started state are the server's status fact
  *     (ADR 0030) read through the entity's one predicate, never a timer.
  *     `isLive` is the exact live status (not the started state) and gates
@@ -166,10 +171,20 @@ export function useMatchupPage(leagueId, matchupId) {
     }
   }, [handlePlays]);
 
-  const { matchup, detail, starterRows, loading, error } = useMatchup(leagueId, matchupId, {
+  const { matchup, detail, homeStarters, awayStarters, loading, error } = useMatchup(leagueId, matchupId, {
     onScores: handleScores,
     slotOrder,
   });
+
+  // Starters arrive from the entity unpaired (#1210); the page model pairs
+  // them by slot (entities/roster's fact, ADR 0029) and refuses without the
+  // league's slot order exactly as the entity used to, so both lineup views
+  // render nothing until the league row arrives rather than pairing against a
+  // fantasy-standard default that mis-places IDP starters.
+  const starterRows = useMemo(
+    () => pairStartersBySlot(homeStarters, awayStarters, slotOrder),
+    [homeStarters, awayStarters, slotOrder]
+  );
 
   useEffect(() => {
     detailRef.current = detail;

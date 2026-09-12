@@ -10,6 +10,14 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 | `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
 | `wontfix`                  | `wontfix`            | Will not be actioned                     |
 
+One more label belongs to the fleet's Principal role (fleet ADR 0011) and maps to no skill role:
+
+| Label in our tracker | Meaning |
+| -------------------- | ------- |
+| `triage-proposed`    | The fleet Principal has posted an advisory `## Triage proposal` on this issue and is waiting for the owner's `Approved` comment. Removed by whoever applies a routing label; never removed by the Principal. |
+
+An issue carrying none of the six labels above is **unrouted** and counts as needing triage exactly as `needs-triage` does; nothing applies `needs-triage` automatically.
+
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.

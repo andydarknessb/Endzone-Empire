@@ -1,0 +1,152 @@
+{
+  "pages": [
+    {
+      "id": "my-team",
+      "name": "My Team"
+    },
+    {
+      "id": "directions",
+      "name": "Directions"
+    },
+    {
+      "id": "fsd",
+      "name": "FSD plan"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "My Team · Desktop",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1640,
+      "page": "my-team"
+    },
+    {
+      "file": "PlayerDecisionCard.dc.html",
+      "title": "Player decision card · Drawer",
+      "x": 1540,
+      "y": 0,
+      "w": 560,
+      "h": 1180,
+      "page": "my-team"
+    },
+    {
+      "file": "MyTeamMobile.dc.html",
+      "title": "My Team · Mobile",
+      "x": 2200,
+      "y": 0,
+      "w": 390,
+      "h": 1660,
+      "page": "my-team"
+    },
+    {
+      "file": "MobileDecisionSheet.dc.html",
+      "title": "Decision sheet · Mobile",
+      "x": 2690,
+      "y": 0,
+      "w": 390,
+      "h": 900,
+      "page": "my-team"
+    },
+    {
+      "file": "DirectionA.dc.html",
+      "title": "A · Decision ledger",
+      "x": 0,
+      "y": 0,
+      "w": 720,
+      "h": 700,
+      "page": "directions"
+    },
+    {
+      "file": "DirectionB.dc.html",
+      "title": "B · Command table",
+      "x": 820,
+      "y": 0,
+      "w": 720,
+      "h": 700,
+      "page": "directions"
+    },
+    {
+      "file": "DirectionC.dc.html",
+      "title": "C · Slot board",
+      "x": 1640,
+      "y": 0,
+      "w": 720,
+      "h": 700,
+      "page": "directions"
+    },
+    {
+      "file": "FsdSliceMap.dc.html",
+      "title": "FSD slice map",
+      "x": 0,
+      "y": 0,
+      "w": 1200,
+      "h": 1040,
+      "page": "fsd"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "page": "my-team",
+      "x": 0,
+      "y": -150,
+      "w": 560,
+      "text": "Lineup redesign · static mockups, Week 3 sample data.\nDirection A (decision ledger) chosen; B and C are on the Directions page.\nToken source: src/theme/tokens.js via the Game Center canvas. Type: Barlow Condensed + Archivo.\nGlossary: Ledger row, Game cell, Edge line, Decision card, Bye cluster, Floor/Ceiling, Situation, Line, Usage (CONTEXT.md). Rulings in ADR 0037."
+    },
+    {
+      "id": "row-anatomy",
+      "page": "my-team",
+      "x": 600,
+      "y": -150,
+      "w": 460,
+      "text": "Row anatomy: Slot · Avatar (team kit dot) · Player (pos, team, injury) · Game (pre: opp, kickoff, spread, O/U, implied total, weather; live: clock, score, RZ, situation; final: score) · Edge (one line: injury/practice, matchup rank, or pace) · Proj · Pts.\nLocked rows show the lock, not a chip. Highlight rows carry a 3px accent inset."
+    },
+    {
+      "id": "espn-fields",
+      "page": "my-team",
+      "x": 1540,
+      "y": -260,
+      "w": 560,
+      "text": "Rulings (ADR 0037):\n• Situation (possession, down and distance, red zone, last play) is read by the existing 30 s scoreboard poll and stored on live_game_states, which Realtime already pushes.\n• The Line (spread, total) comes from an ESPN odds provider behind the existing odds seam, one hourly Sync run per slate. Implied team total is derived on the Decision card only.\n• Weather is the NWS snapshot with the shortest horizon; indoor from nfl_games.roof. ESPN weather is not read.\n• The Live box already reads ESPN's summary endpoint (box, scoring plays, drives); nothing here changes it."
+    },
+    {
+      "id": "data-sources",
+      "page": "my-team",
+      "x": 2200,
+      "y": -200,
+      "w": 560,
+      "text": "Rulings:\n• The lineup entry carries projection, Floor (p10), Ceiling (p90), kickoff, game key, opponent and a typed Edge line, computed server-side so every league type gets the same row. Advice stays the suggestions endpoint.\n• The Decision card fetches Line, weather and Usage on open.\n• Usage v1 = targets, carries, air yards, target share, fantasy points from nflverse weekly. Snap counts are a follow-up ticket.\n• No news panel: no news column exists. Injury detail comes from the players row."
+    },
+    {
+      "id": "mobile-notes",
+      "page": "my-team",
+      "x": 2690,
+      "y": -120,
+      "w": 380,
+      "text": "Mobile: rows stack game state under the name, Pts + Proj right. Starters / Bench / Outlook tabs replace the rail. Tap a row → decision sheet. Bottom tab bar, 44px targets. Breakpoint ~900px."
+    },
+    {
+      "id": "dir-note",
+      "page": "directions",
+      "x": 0,
+      "y": -110,
+      "w": 560,
+      "text": "Three low-fi directions. A was built because rows keep the slot order managers already scan, the rail gives reasons room, and it collapses to one column on phones. B wins for power users on desktop; C is the most fun on game day."
+    },
+    {
+      "id": "fsd-note",
+      "page": "fsd",
+      "x": 0,
+      "y": -110,
+      "w": 560,
+      "text": "Extends the FSD island on integration (ADR 0017, 0020, 0029). Green tiles are new slices. ESPN, odds, weather and usage arrive through entities; widgets read entities and never fetch."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "my-team"
+  }
+}

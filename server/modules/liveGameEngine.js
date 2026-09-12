@@ -258,11 +258,15 @@ const UPSERT_SQL = `
   INSERT INTO "live_game_states"
     ("tank01_game_id", "season", "week", "home_team", "away_team", "game_status",
      "start_time", "current_score_home", "current_score_away", "quarter",
-     "time_remaining", "last_updated", "espn_event_id")
+     "time_remaining", "last_updated", "espn_event_id",
+     "possession", "down_distance", "is_red_zone", "last_play",
+     "home_win_probability", "linescores", "headline")
   SELECT * FROM unnest(
     $1::text[], $2::int[], $3::int[], $4::text[], $5::text[],
     $6::text[]::game_status_type[], $7::timestamptz[], $8::int[], $9::int[],
-    $10::text[], $11::text[], $12::timestamptz[], $13::text[]
+    $10::text[], $11::text[], $12::timestamptz[], $13::text[],
+    $14::text[], $15::text[], $16::bool[], $17::text[],
+    $18::numeric[], $19::jsonb[], $20::text[]
   )
   ON CONFLICT ("tank01_game_id") DO UPDATE SET
     "season" = EXCLUDED."season",
@@ -277,6 +281,30 @@ const UPSERT_SQL = `
     "time_remaining" = EXCLUDED."time_remaining",
     "last_updated" = EXCLUDED."last_updated",
     "espn_event_id" = COALESCE(EXCLUDED."espn_event_id", "live_game_states"."espn_event_id"),
+    -- Situation (#1233, ADR 0037): unlike espn_event_id, always overwritten
+    -- (never COALESCEd) so a game going final, or a Tank01 fallback tick that
+    -- carries no Situation at all, clears a stale down and distance rather
+    -- than leaving one that outlives its play.
+    "possession" = EXCLUDED."possession",
+    "down_distance" = EXCLUDED."down_distance",
+    "is_red_zone" = EXCLUDED."is_red_zone",
+    "last_play" = EXCLUDED."last_play",
+    -- home_win_probability (#1262): folded into Situation (CONTEXT.md), same
+    -- always-overwritten treatment as the four fields above, so it clears
+    -- alongside them once a game is no longer in progress.
+    "home_win_probability" = EXCLUDED."home_win_probability",
+    -- linescores/headline (#1262): the caller only ever supplies a non-null
+    -- value once a game is final (see upsertRows below), and COALESCEd like
+    -- espn_event_id so a later Tank01 fallback tick, which carries neither,
+    -- can never erase what ESPN already reported. Known limitation
+    -- (qa-reviewer #1262 finding 2): once nothing in a window is in_progress
+    -- the poll stops calling the API at all (nextPollPlan), so the tick that
+    -- flips a game to final is the only chance to capture linescores/
+    -- headline; a headline ESPN's editorial recap has not yet published at
+    -- that exact instant is an honest null forever, same as any other
+    -- unobserved fact in this module, not force-filled or retried.
+    "linescores" = COALESCE(EXCLUDED."linescores", "live_game_states"."linescores"),
+    "headline" = COALESCE(EXCLUDED."headline", "live_game_states"."headline"),
     "updated_at" = now()
   RETURNING "tank01_game_id", "game_status"
 `;
@@ -387,6 +415,23 @@ async function upsertRows(rows) {
     // A Tank01 fallback row carries no ESPN id; the COALESCE in UPSERT_SQL
     // keeps the stored one rather than nulling it (#1182).
     rows.map((r) => (r.espnEventId != null ? String(r.espnEventId) : null)),
+    // Situation (#1233): a Tank01 fallback row carries none of these either
+    // (undefined), which becomes null here and is written as-is (no
+    // COALESCE) — see the comment on UPSERT_SQL.
+    rows.map((r) => (r.possession != null ? String(r.possession) : null)),
+    rows.map((r) => (r.downDistance != null ? String(r.downDistance) : null)),
+    rows.map((r) => (typeof r.isRedZone === 'boolean' ? r.isRedZone : null)),
+    rows.map((r) => (r.lastPlay != null ? String(r.lastPlay) : null)),
+    // home_win_probability (#1262): a Tank01 fallback row carries none
+    // (undefined), which becomes null here and is written as-is, same as the
+    // Situation fields above.
+    rows.map((r) => (typeof r.homeWinProbability === 'number' ? r.homeWinProbability : null)),
+    // linescores/headline (#1262): only forwarded once a game is final — a
+    // pre-final tick (or a Tank01 fallback row, which parses neither at all)
+    // sends null, and the COALESCE in UPSERT_SQL keeps whatever was already
+    // written rather than clearing it.
+    rows.map((r) => (r.gameStatus === 'final' && r.linescores != null ? JSON.stringify(r.linescores) : null)),
+    rows.map((r) => (r.gameStatus === 'final' && r.headline != null ? String(r.headline) : null)),
   ]);
 
   // Freshly-final games: arm the Final box (#1186, ADR 0035). Fifteen minutes

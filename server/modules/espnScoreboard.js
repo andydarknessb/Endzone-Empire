@@ -122,6 +122,163 @@ function mapEspnQuarter(status, gameStatus) {
 }
 
 /**
+ * Pure: resolve a situation block's `possession` (a team id, per ESPN, though
+ * a stray abbreviation is accepted too) to one of our Team codes, by matching
+ * it against the SAME competitors home/away already came from and folding it
+ * through the same normalisation (#1233). Never the raw ESPN value; null when
+ * it names no competitor here.
+ */
+function resolvePossession(possession, competitors) {
+  if (possession == null || possession === '') return null;
+  const raw = String(possession).trim();
+  if (!raw) return null;
+  if (!Array.isArray(competitors)) return null;
+  const match = competitors.find(
+    (c) =>
+      c &&
+      c.team &&
+      (String(c.team.id) === raw || String(c.team.abbreviation || '').toUpperCase() === raw.toUpperCase())
+  );
+  return match ? espnAbbrToOurs(match.team.abbreviation) : null;
+}
+
+/**
+ * Pure: a competition's `situation` block -> our five Situation fields, all
+ * null when the block is absent (ADR 0037: a game not in progress, or an
+ * in-progress game whose block is momentarily missing — a timeout, halftime —
+ * clears the same way). `homeWinProbability` joins the other four under
+ * #1262/ADR 0038: CONTEXT.md's Situation entry names it explicitly ("the home
+ * side's win probability as the scoreboard computes it after that play"), so
+ * it is read from the same block and clears with the rest, never COALESCEd.
+ */
+function normalizeEspnSituation(situation, competitors) {
+  if (!situation) {
+    return {
+      possession: null,
+      downDistance: null,
+      isRedZone: null,
+      lastPlay: null,
+      homeWinProbability: null,
+    };
+  }
+  return {
+    possession: resolvePossession(situation.possession, competitors),
+    downDistance: situation.shortDownDistanceText || situation.downDistanceText || null,
+    // A present block missing the key is an unobserved fact, not "not in the
+    // red zone" — null it like every other missing subfield, rather than
+    // defaulting to false (pl-endzone formal review, #1233).
+    isRedZone: typeof situation.isRedZone === 'boolean' ? situation.isRedZone : null,
+    lastPlay: situation.lastPlay && situation.lastPlay.text ? String(situation.lastPlay.text) : null,
+    homeWinProbability: normalizeHomeWinProbability(situation.lastPlay),
+  };
+}
+
+/**
+ * Pure: `situation.lastPlay.probability.homeWinPercentage` -> a 0..1 number,
+ * or null when absent or not a finite number (#1262). Never a placeholder —
+ * an unobserved probability is an unobserved fact, same treatment as the
+ * other Situation subfields above.
+ */
+function normalizeHomeWinProbability(lastPlay) {
+  const pct = lastPlay && lastPlay.probability ? lastPlay.probability.homeWinPercentage : undefined;
+  return typeof pct === 'number' && Number.isFinite(pct) ? pct : null;
+}
+
+/**
+ * Pure: a competition's `venue` block -> our three Venue fields (CONTEXT.md:
+ * the stadium, whether it's indoor, whether it's a neutral site), all null
+ * when the block is absent (#1262).
+ */
+function normalizeVenue(venue) {
+  if (!venue) return { venueName: null, venueCity: null, isIndoor: null };
+  return {
+    venueName: venue.fullName ? String(venue.fullName) : null,
+    venueCity: venue.address && venue.address.city ? String(venue.address.city) : null,
+    isIndoor: typeof venue.indoor === 'boolean' ? venue.indoor : null,
+  };
+}
+
+/**
+ * Pure: `broadcasts[]` -> one Broadcast string (CONTEXT.md: the national
+ * network or service carrying the game) — every entry's `names` flattened
+ * and joined, or null when the block is absent or carries no name (#1262).
+ */
+function normalizeBroadcast(broadcasts) {
+  if (!Array.isArray(broadcasts)) return null;
+  const names = [];
+  for (const entry of broadcasts) {
+    if (entry && Array.isArray(entry.names)) {
+      for (const name of entry.names) {
+        if (name) names.push(String(name));
+      }
+    }
+  }
+  return names.length > 0 ? names.join(', ') : null;
+}
+
+/**
+ * Pure: one competitor's `records[]` -> our Record shape (CONTEXT.md: three
+ * cuts, each a "W-L" string) — `{ total, home, road }`, or null when nothing
+ * usable is present. A neutral-site game drops the home/road split and keeps
+ * only the total (CONTEXT.md's Venue entry: "a Venue that is neutral drops
+ * the split and keeps the total"), since neither team is truly home or road
+ * there (#1262).
+ */
+function normalizeRecord(records, { isNeutralSite } = {}) {
+  if (!Array.isArray(records)) return null;
+  let total = null;
+  let home = null;
+  let road = null;
+  for (const record of records) {
+    const type = record && record.type ? String(record.type).toLowerCase() : '';
+    const summary = record && record.summary ? String(record.summary) : null;
+    if (!summary) continue;
+    if (type === 'total') total = summary;
+    else if (type === 'home') home = summary;
+    else if (type === 'road') road = summary;
+  }
+  if (isNeutralSite) {
+    // The split is dropped for a neutral site, so what remains is `total`
+    // alone: null it out entirely rather than return an all-null placeholder
+    // when even the total is missing (qa-reviewer #1262 finding 3).
+    return total === null ? null : { total, home: null, road: null };
+  }
+  if (total === null && home === null && road === null) return null;
+  return { total, home, road };
+}
+
+/**
+ * Pure: one competitor's `linescores[]` -> an array of per-quarter values (a
+ * missing value is null, not dropped, so the array stays quarter-indexed), or
+ * null when the block is absent or empty (#1262).
+ */
+function normalizeLinescoreValues(linescores) {
+  if (!Array.isArray(linescores) || linescores.length === 0) return null;
+  return linescores.map((entry) => (entry && typeof entry.value === 'number' ? entry.value : null));
+}
+
+/**
+ * Pure: both competitors' `linescores[]` -> one jsonb shape
+ * `{ home: [...], away: [...] }`, or null when neither side carries any
+ * (#1262). Written only once a game is final (liveGameEngine.js), but the
+ * parser itself is unconditional — it reports whatever the payload carries.
+ */
+function normalizeLinescores(homeCompetitor, awayCompetitor) {
+  const home = normalizeLinescoreValues(homeCompetitor && homeCompetitor.linescores);
+  const away = normalizeLinescoreValues(awayCompetitor && awayCompetitor.linescores);
+  return home === null && away === null ? null : { home, away };
+}
+
+/**
+ * Pure: `competitions[0].headlines[0].shortLinkText` -> a string, or null
+ * when absent (#1262).
+ */
+function normalizeHeadline(headlines) {
+  const text = Array.isArray(headlines) && headlines[0] ? headlines[0].shortLinkText : null;
+  return text ? String(text) : null;
+}
+
+/**
  * Pure: one ESPN event -> our live_game_states row shape, or null when the
  * event is missing anything load-bearing (both teams, a usable kickoff, or
  * team codes we can't normalize). `tank01GameId` is built from the ET kickoff
@@ -147,6 +304,28 @@ function normalizeEspnEvent(event, { season, week }) {
   const gameStatus = mapEspnStatus(status);
   const clock = status.displayClock ? String(status.displayClock) : null;
 
+  // Situation only comes from an in-progress game (#1233, ADR 0037); a stray
+  // block on a scheduled/final payload is ignored, same as the clearing rule
+  // the poll applies on every write.
+  const situation = normalizeEspnSituation(
+    gameStatus === 'in_progress' ? competition.situation : null,
+    competitors
+  );
+
+  // Venue/Broadcast/Record (#1262, ADR 0038): read unconditionally — the
+  // hourly game-context Sync run (services/gameContextSync.service.js) is
+  // the writer that decides which columns these ride on, this parser just
+  // reports what the payload carries.
+  const venue = normalizeVenue(competition.venue);
+  const isNeutralSite = typeof competition.neutralSite === 'boolean' ? competition.neutralSite : null;
+  const broadcast = normalizeBroadcast(competition.broadcasts);
+  const homeRecord = normalizeRecord(home.records, { isNeutralSite });
+  const awayRecord = normalizeRecord(away.records, { isNeutralSite });
+  // linescores/headline (#1262): also read unconditionally here — it is the
+  // thirty-second poll that only writes them once a game is final.
+  const linescores = normalizeLinescores(home, away);
+  const headline = normalizeHeadline(competition.headlines);
+
   return {
     tank01GameId: `${dateKey}_${awayTeam}@${homeTeam}`,
     season,
@@ -165,6 +344,30 @@ function normalizeEspnEvent(event, { season, week }) {
     // (ADR 0035, #1182). Stored on live_game_states so a worker restart
     // mid-game does not have to rebuild it from the scoreboard.
     espnEventId: event && event.id != null ? String(event.id) : null,
+    // Situation (#1233, ADR 0037): who has the ball (a Team code), down and
+    // distance text, the red zone flag, and the last play text. Null off the
+    // field exactly like timeRemaining.
+    possession: situation.possession,
+    downDistance: situation.downDistance,
+    isRedZone: situation.isRedZone,
+    lastPlay: situation.lastPlay,
+    // Win probability (#1262): folded into Situation per CONTEXT.md, cleared
+    // together with the four fields above.
+    homeWinProbability: situation.homeWinProbability,
+    // Venue/Broadcast/Record (#1262, ADR 0038): written by the hourly
+    // game-context Sync run, not this poll — see
+    // liveGameEngine.js/gameContextSync.service.js.
+    venueName: venue.venueName,
+    venueCity: venue.venueCity,
+    isIndoor: venue.isIndoor,
+    isNeutralSite,
+    broadcast,
+    homeRecord,
+    awayRecord,
+    // linescores/headline (#1262): written by the poll, but only once final
+    // (liveGameEngine.js gates that, not this parser).
+    linescores,
+    headline,
   };
 }
 
@@ -278,6 +481,15 @@ module.exports = {
   resolveGameIds,
   mapEspnStatus,
   mapEspnQuarter,
+  normalizeEspnSituation,
+  resolvePossession,
+  normalizeHomeWinProbability,
+  normalizeVenue,
+  normalizeBroadcast,
+  normalizeRecord,
+  normalizeLinescoreValues,
+  normalizeLinescores,
+  normalizeHeadline,
   espnAbbrToOurs,
   etDateKey,
   ESPN_SCOREBOARD_URL,

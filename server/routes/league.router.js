@@ -1224,8 +1224,11 @@ router.get('/:id/draft-grades', async (req, res) => {
   }
 });
 
-// GET /api/league/:id/history — archived seasons: standings, champion,
-// trophies, and draft grades per completed season
+// GET /api/league/:id/history — archived seasons: standings, champions,
+// outcome, trophies, and draft grades per completed season, plus `allTime`
+// (#1212): the League's all-time Team roster (championships and the
+// all-time Record, CONTEXT.md "Record"). One seasonArchive() read decides
+// all of it server-side; the route only adds membership.
 router.get('/:id/history', async (req, res) => {
   const leagueId = intParam(req.params.id);
   if (!leagueId) return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -1233,86 +1236,17 @@ router.get('/:id/history', async (req, res) => {
     if (!(await isMember(pool, leagueId, req.user.id))) {
       return res.status(403).json({ error: 'not a member of this league' });
     }
-    const historyResult = await pool.query(
-      `SELECT "league_history"."season", "league_history"."standings",
-              "league_history"."pickem_result",
-              "leagues"."pickem_only",
-              "league_history"."champion_team_id", "teams"."name" AS "champion_name",
-              "teams"."avatar_url" AS "champion_avatar_url",
-              "teams"."avatar_static_url" AS "champion_avatar_static_url"
-       FROM "league_history"
-       JOIN "leagues" ON "leagues"."id" = "league_history"."league_id"
-       LEFT JOIN "teams" ON "teams"."id" = "league_history"."champion_team_id"
-       WHERE "league_history"."league_id" = $1
-       ORDER BY "league_history"."season" DESC`,
-      [leagueId]
-    );
-    const trophies = require('../services/trophy.service');
-    const seasons = [];
-    for (const row of historyResult.rows) {
-      const pickemResult = row.pickem_result && typeof row.pickem_result === 'string'
-        ? JSON.parse(row.pickem_result)
-        : row.pickem_result;
-      const champions = pickemResult && Array.isArray(pickemResult.champions)
-        ? pickemResult.champions
-        : null;
-      const firstPickemChampion = champions && champions[0];
-      let seasonTrophies = [];
-      let trophiesErrored = false;
-      try {
-        seasonTrophies = (await trophies.getLeagueTrophies({ leagueId, season: row.season })).filter(
-          (t) => t.week === 0
-        );
-      } catch (error) {
-        console.error('Error fetching season trophies for league history', error);
-        trophiesErrored = true;
-      }
-
-      let draftGrades = null;
-      let draftGradesErrored = false;
-      try {
-        const gradesResult = await pool.query(
-          `SELECT "data" FROM "league_analytics"
-           WHERE "league_id" = $1 AND "season" = $2 AND "type" = 'draft_grades'`,
-          [leagueId, row.season]
-        );
-        draftGrades = gradesResult.rows[0] ? gradesResult.rows[0].data.grades : null;
-      } catch (error) {
-        console.error('Error fetching draft grades for league history', error);
-        draftGradesErrored = true;
-      }
-
-      seasons.push({
-        season: row.season,
-        outcome: pickemResult ? pickemResult.outcome : null,
-        champions,
-        // Deprecated compatibility projection. Declaration order has no
-        // championship significance; new consumers use `champions`.
-        champion: pickemResult
-          ? (firstPickemChampion
-              ? {
-                  teamId: firstPickemChampion.teamId,
-                  name: firstPickemChampion.teamName,
-                  avatarUrl: firstPickemChampion.avatarUrl,
-                  avatarStaticUrl: firstPickemChampion.avatarStaticUrl,
-                }
-              : null)
-          : (!row.pickem_only && row.champion_team_id
-              ? {
-                  teamId: row.champion_team_id,
-                  name: row.champion_name,
-                  avatarUrl: row.champion_avatar_url,
-                  avatarStaticUrl: row.champion_avatar_static_url,
-                }
-              : null),
-        standings: row.standings,
-        trophies: seasonTrophies,
-        trophiesErrored,
-        draftGrades,
-        draftGradesErrored,
-      });
-    }
-    res.json({ seasons });
+    const { seasonArchive } = require('../services/seasonArchive.service');
+    const { seasons: archivedSeasons, allTime } = await seasonArchive({ leagueId });
+    const seasons = archivedSeasons.map((season) => ({
+      season: season.season,
+      outcome: season.outcome,
+      champions: season.champions,
+      standings: season.standings,
+      trophies: season.trophies,
+      draftGrades: season.draftGrades,
+    }));
+    res.json({ seasons, allTime });
   } catch (error) {
     console.error('Error fetching league history', error);
     res.status(500).json({ error: 'failed to fetch league history' });

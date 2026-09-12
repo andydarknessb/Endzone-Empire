@@ -1,0 +1,470 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=Patrick+Hand&amp;display=swap">
+  <style>
+
+[data-theme="dark"]{
+  --bg:#0b1015; --surface:#141b23; --surface2:#1b242f; --surface3:#222e3b;
+  --line:rgba(154,183,211,.12); --line-strong:rgba(154,183,211,.22);
+  --ink:#e8eef4; --dim:#93a4b5; --faint:#8a9bad;
+  --accent:#2fd97b; --accent-soft:rgba(47,217,123,.12); --accent-line:rgba(47,217,123,.35); --on-accent:#0b1015;
+  --home:#7eaaff; --home-soft:rgba(126,170,255,.16); --away:#7ee2a8; --away-soft:rgba(126,226,168,.16);
+  --danger:#ff6b6b; --danger-soft:rgba(255,107,107,.14); --warning:#f0b34e; --warning-soft:rgba(240,179,78,.14);
+  --success:#7ee2a8; --success-soft:rgba(126,226,168,.14);
+  --pos-qb:#ff8a80; --pos-rb:#7ee2a8; --pos-wr:#7fb0ff; --pos-te:#f0b34e; --pos-k:#c4a2f5; --pos-def:#b0bec5; --pos-flex:#93a4b5; --on-pos:#0f1419;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45); --shadow-2:0 6px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg:#eef2f6; --surface:#ffffff; --surface2:#f4f7fa; --surface3:#e6ecf2;
+  --line:rgba(31,45,58,.12); --line-strong:rgba(31,45,58,.22);
+  --ink:#141b23; --dim:#55636f; --faint:#5e6a74;
+  --accent:#0f6a41; --accent-soft:rgba(15,106,65,.12); --accent-line:rgba(15,106,65,.32); --on-accent:#ffffff;
+  --home:#1e5bb8; --home-soft:rgba(30,91,184,.10); --away:#1b7d4f; --away-soft:rgba(27,125,79,.12);
+  --danger:#c62828; --danger-soft:rgba(198,40,40,.10); --warning:#8a5a00; --warning-soft:rgba(138,90,0,.12);
+  --success:#1b7d4f; --success-soft:rgba(27,125,79,.12);
+  --pos-qb:#c62828; --pos-rb:#15663f; --pos-wr:#1e5bb8; --pos-te:#9a5100; --pos-k:#6d28d9; --pos-def:#4b5c66; --pos-flex:#586472; --on-pos:#ffffff;
+  --shadow-1:0 1px 2px rgba(16,24,32,.08); --shadow-2:0 4px 12px rgba(16,24,32,.10);
+}
+*{box-sizing:border-box}
+body{margin:0}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent);text-decoration:underline}
+.root{width:1440px;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.display{font-family:"Barlow Condensed",Impact,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.tile{background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);background:var(--surface2);color:var(--dim);white-space:nowrap}
+.chip.live{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.final{background:var(--success-soft);color:var(--success);border-color:var(--success)}
+.chip.you{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);font-size:10.5px;letter-spacing:.08em}
+.chip.warn{background:var(--warning-soft);color:var(--warning);border-color:var(--warning)}
+.chip.bad{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+.chip.sm{height:18px;padding:0 6px;font-size:10px;gap:4px}
+.dot{width:8px;height:8px;border-radius:999px;background:currentColor;flex:none}
+.pos{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:20px;padding:0 6px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--on-pos)}
+.slot{display:inline-flex;align-items:center;justify-content:center;width:44px;height:24px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.06em;background:var(--surface3);color:var(--dim);flex:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:9px;font-size:13px;font-weight:600;border:1px solid var(--line-strong);color:var(--dim);background:transparent;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.icon{width:38px;padding:0}
+.btn.sm{height:30px;padding:0 12px;font-size:12px;border-radius:8px}
+.btn.sm.icon{width:30px;padding:0}
+.seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg > div{height:30px;padding:0 14px;border-radius:7px;display:flex;align-items:center;font-size:13px;font-weight:600;color:var(--dim)}
+.seg > div.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.hair{height:1px;background:var(--line)}
+.avatar{display:flex;align-items:center;justify-content:center;border-radius:999px;background:var(--surface3);color:var(--ink);font-weight:700;flex:none;position:relative}
+.kit{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:999px;border:2px solid var(--surface)}
+.pace{height:5px;border-radius:3px;background:var(--surface3);overflow:hidden}
+.pace > div{height:100%;border-radius:3px}
+.range{position:relative;height:6px;border-radius:3px;background:var(--surface3)}
+.range > .band{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--accent-soft);border:1px solid var(--accent-line)}
+.range > .tick{position:absolute;top:-3px;width:2px;height:12px;border-radius:1px;background:var(--accent)}
+.row{display:flex;align-items:center}
+.stack{display:flex;flex-direction:column}
+.grow{flex:1 1 0;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12px;color:var(--faint)}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+svg{display:block}
+
+  </style>
+</helmet>
+<div class="root" data-theme="{{theme}}" style="width: 1440px; min-height: 1640px; background: var(--bg); color: var(--ink);">
+<div class="row" style="height: 56px; padding: 0 24px; gap: 24px; background: var(--surface); border-bottom: 1px solid var(--line);">
+  <div class="row display" style="gap: 10px; font-size: 22px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">
+    <div style="width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16c3-9 7-12 12-12 0 5-3 9-12 12z"/><path d="m8 12 4-4M9 13l1-1M11 9l1-1"/></svg></div>
+    <span>Endzone Empire</span>
+  </div>
+  <div class="row" style="gap: 4px; margin-left: 8px;">
+    <div style="padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--dim); background: transparent;">Dashboard</div><div style="padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--accent); background: var(--accent-soft);">Lineup</div><div style="padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--dim); background: transparent;">Game Center</div><div style="padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--dim); background: transparent;">Players</div><div style="padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--dim); background: transparent;">Waivers</div><div style="padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--dim); background: transparent;">Trades</div>
+  </div>
+  <div class="grow"></div>
+  <div class="row" style="gap: 6px; color: var(--dim);">
+    <div class="btn icon" style="border: 0;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/></svg></div>
+    <div class="btn icon" style="border: 0;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 2h-13z"/><path d="M8.5 17.5a1.5 1.5 0 0 0 3 0"/></svg></div>
+    <div class="avatar" style="width: 32px; height: 32px; font-size: 12px; background: var(--home-soft); color: var(--home);">CA</div>
+  </div>
+</div>
+<div style="max-width: 1240px; margin: 0 auto; padding: 24px 24px 40px;">
+  <div class="stack" style="gap: 6px; margin-bottom: 18px;">
+  <div class="row" style="gap: 8px; font-size: 13px; color: var(--faint);"><span>Leagues</span><span>/</span><span>Northwoods League</span><span>/</span><span style="color: var(--dim);">Lineup</span></div>
+  <div class="row" style="justify-content: space-between; gap: 24px;">
+    <div class="row" style="gap: 16px;">
+      <div class="avatar" style="width: 56px; height: 56px; font-size: 20px; background: var(--home-soft); color: var(--home);">FF</div>
+      <div class="stack">
+        <div class="row" style="gap: 10px;"><h1 class="display" style="margin: 0; font-size: 36px; font-weight: 700; letter-spacing: .02em; line-height: 1.05; text-transform: uppercase;">Fargo Frostbite</h1><span class="chip you">Your team</span></div>
+        <div class="row" style="gap: 10px; font-size: 13px; color: var(--dim);"><span class="num">2-0 · 3rd of 12</span><span style="color: var(--faint);">·</span><span class="num">FAAB $87</span><span style="color: var(--faint);">·</span><span class="row" style="gap: 6px; color: var(--faint); font-size: 12px;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 8A6.5 6.5 0 0 0 4.5 6.5M4 12a6.5 6.5 0 0 0 11.5 1.5"/><path d="M16 3v5h-5M4 17v-5h5"/></svg><span>Scores synced 3:42 PM · next pass in 8 min</span></span></div>
+      </div>
+    </div>
+    <div class="row" style="gap: 12px;"><div class="row" style="gap: 6px;">
+  <div class="btn icon" aria-label="Previous week"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5"/></svg></div>
+  <div class="seg"><div>Wk 1</div><div>Wk 2</div><div class="on">Wk 3</div><div>Wk 4</div></div>
+  <div class="btn icon" aria-label="Next week"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg></div>
+</div><div class="btn primary"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2 4 11h5l-1 7 7-9h-5z"/></svg>Apply advice</div></div>
+  </div>
+</div>
+  <div class="card row" style="margin-bottom: 18px; overflow: hidden;">
+  <div class="stack" style="gap: 2px; padding: 12px 18px; min-width: 220px;">
+    <span class="label">Week 3 · vs Duluth Dockworkers</span>
+    <div class="row" style="gap: 10px; align-items: baseline;"><span class="display num" style="font-size: 26px; font-weight: 700; line-height: 1.05;">76.6</span><span class="note num">of 128.4 proj</span></div>
+    <div class="split" style="display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--surface3); margin-top: 4px;"><div style="width: 54%; background: var(--home);"></div><div style="width: 46%; background: var(--away);"></div></div>
+    <span class="note num">Dockworkers 71.2 · proj 121.9</span>
+  </div>
+  <div class="stack" style="gap: 2px; padding: 12px 18px; min-width: 0; border-left: 1px solid var(--line);">
+  <span class="label">Start/Sit advice</span>
+  <span class="display num" style="font-size: 26px; font-weight: 700; line-height: 1.05; color: var(--accent);">+3.5</span>
+  <span class="note ellip">1 swap · Rice for Lamb</span>
+</div>
+  <div class="stack" style="gap: 2px; padding: 12px 18px; min-width: 0; border-left: 1px solid var(--line);">
+  <span class="label">Yet to play</span>
+  <span class="display num" style="font-size: 26px; font-weight: 700; line-height: 1.05; color: var(--ink);">3 of 9</span>
+  <span class="note ellip">Starters · 6 locked</span>
+</div>
+  <div class="stack" style="gap: 2px; padding: 12px 18px; min-width: 0; border-left: 1px solid var(--line);">
+  <span class="label">Win probability</span>
+  <span class="display num" style="font-size: 26px; font-weight: 700; line-height: 1.05; color: var(--ink);">58%</span>
+  <span class="note ellip">Up from 51% at kickoff</span>
+</div>
+  <div class="stack grow" style="gap: 6px; padding: 12px 18px; border-left: 1px solid var(--line);">
+    <span class="label">Needs attention</span>
+    <div class="row" style="gap: 8px; flex-wrap: wrap;"><span class="chip warn"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 2.5 16h15z"/><path d="M10 8v4M10 14v.5"/></svg>Lamb Q · ankle</span><span class="chip warn">Hubbard on bye</span><span class="chip bad">Wk 5 · 3 byes</span></div>
+  </div>
+</div>
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start;">
+    <div class="stack" style="min-width: 0;">
+      <div class="card" style="overflow: hidden;">
+  <div class="row" style="justify-content: space-between; padding: 14px 18px 8px;">
+    <div class="row" style="gap: 10px;"><span class="display" style="font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">Starters</span><span class="note">9 of 9 filled</span></div>
+    
+  </div>
+  <div class="label" style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; padding: 8px 16px 6px; font-size: 10px;">
+  <span>Slot</span><span></span><span>Player</span><span>Game</span><span>Edge</span><span style="text-align: right;">Proj</span><span style="text-align: right;">Pts</span><span></span>
+</div>
+  <div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">QB</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">JA<span class="kit" style="background: #00338d;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Josh Allen</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-qb);">QB</span><span class="note">BUF</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm live"><span class="dot"></span>Q3 10:12</span><span class="num" style="font-size: 12px; font-weight: 600; white-space: nowrap;">BUF 21 · MIA 14</span></div>
+      <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim);"><span class="row" style="gap: 4px; color: var(--danger); font-weight: 600;"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="10" rx="1"/><path d="M3 10h14"/></svg>RZ</span><span class="ellip">BUF ball · 1st &amp; 10 · MIA 18</span></div>
+    </div>
+    <div class="stack" style="gap: 4px;"><div class="pace"><div style="width: 83%; background: var(--accent);"></div></div><span class="note">83% of projection</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">22.4</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--danger);">18.6</span><span class="label" style="font-size: 10px;">Live</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">RB</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">BR<span class="kit" style="background: #a71930;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Bijan Robinson</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-rb);">RB</span><span class="note">ATL</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+    <div class="row" style="gap: 8px; font-size: 13px;"><span style="font-weight: 600;">@ KC</span><span style="color: var(--faint);">Sun 4:25 PM</span></div>
+    <div class="row" style="gap: 10px; font-size: 12px; color: var(--dim);"><span class="num ellip">KC -3.5 · O/U 49.5</span><span class="row" style="gap: 4px; flex: none;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 15a7 7 0 0 1 14 0z"/><path d="M2 15h16M10 8V6"/></svg>Dome</span></div>
+  </div>
+    <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim); min-width: 0;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2"/></svg><span class="ellip">Opp +1.2 · KC vs RB</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">17.8</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">RB</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">JG<span class="kit" style="background: #0076b6;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Jahmyr Gibbs</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-rb);">RB</span><span class="note">DET</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm live"><span class="dot"></span>Q3 4:48</span><span class="num" style="font-size: 12px; font-weight: 600; white-space: nowrap;">DET 17 · ARI 20</span></div>
+      <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim);"><span class="ellip">ARI ball · 3rd &amp; 7 · DET 44</span></div>
+    </div>
+    <div class="stack" style="gap: 4px;"><div class="pace"><div style="width: 62%; background: var(--accent);"></div></div><span class="note">62% of projection</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">14.9</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--danger);">9.2</span><span class="label" style="font-size: 10px;">Live</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">WR</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">JJ<span class="kit" style="background: #4f2683;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Justin Jefferson</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-wr);">WR</span><span class="note">MIN</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm final">Final</span><span class="num" style="font-size: 12px; font-weight: 600; color: var(--dim);">MIN 27 · CIN 24</span></div>
+      <span class="note ellip">@ CIN</span>
+    </div>
+    <span class="note">Beat proj by 7.3</span>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">19.1</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--ink);">26.4</span><span class="label" style="font-size: 10px;">Final</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: var(--accent-soft); border-top: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--accent);">
+    <span class="slot" style="">WR</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">CL<span class="kit" style="background: #041e42;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">CeeDee Lamb</span><span class="chip sm warn">Q</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-wr);">WR</span><span class="note">DAL</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+    <div class="row" style="gap: 8px; font-size: 13px;"><span style="font-weight: 600;">vs BAL</span><span style="color: var(--faint);">Sun 4:25 PM</span></div>
+    <div class="row" style="gap: 10px; font-size: 12px; color: var(--dim);"><span class="num ellip">BAL -2.5 · O/U 47</span><span class="row" style="gap: 4px; flex: none;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.5 1.5M13.5 13.5 15 15M15 5l-1.5 1.5M6.5 13.5 5 15"/></svg>84° · wind 4</span></div>
+  </div>
+    <div class="row" style="gap: 6px; font-size: 12px; color: var(--warning); min-width: 0;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 2.5 16h15z"/><path d="M10 8v4M10 14v.5"/></svg><span class="ellip">Ankle · full Fri</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">16.3</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">TE</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">SL<span class="kit" style="background: #0076b6;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Sam LaPorta</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-te);">TE</span><span class="note">DET</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm live"><span class="dot"></span>Q3 4:48</span><span class="num" style="font-size: 12px; font-weight: 600; white-space: nowrap;">DET 17 · ARI 20</span></div>
+      <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim);"><span class="ellip">3 targets · 2 rec · 31 yds</span></div>
+    </div>
+    <div class="stack" style="gap: 4px;"><div class="pace"><div style="width: 54%; background: var(--accent);"></div></div><span class="note">54% of projection</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">11.2</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--danger);">6.1</span><span class="label" style="font-size: 10px;">Live</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="font-size: 10px;">FLEX</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">CB<span class="kit" style="background: #fb4f14;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Chase Brown</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-rb);">RB</span><span class="note">CIN</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm final">Final</span><span class="num" style="font-size: 12px; font-weight: 600; color: var(--dim);">MIN 27 · CIN 24</span></div>
+      <span class="note ellip">vs MIN</span>
+    </div>
+    <span class="note">Under proj by 1.3</span>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">12.6</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--ink);">11.3</span><span class="label" style="font-size: 10px;">Final</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">K</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">JB<span class="kit" style="background: #0076b6;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Jake Bates</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-k);">K</span><span class="note">DET</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm live"><span class="dot"></span>Q3 4:48</span><span class="num" style="font-size: 12px; font-weight: 600; white-space: nowrap;">DET 17 · ARI 20</span></div>
+      <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim);"><span class="ellip">1/1 FG · 2/2 XP</span></div>
+    </div>
+    <div class="stack" style="gap: 4px;"><div class="pace"><div style="width: 60%; background: var(--accent);"></div></div><span class="note">60% of projection</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">8.4</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--danger);">5.0</span><span class="label" style="font-size: 10px;">Live</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">DEF</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">S<span class="kit" style="background: #ffb612;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Steelers</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-def);">DEF</span><span class="note">PIT</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+    <div class="row" style="gap: 8px; font-size: 13px;"><span style="font-weight: 600;">vs LAC</span><span style="color: var(--faint);">Sun 8:20 PM</span></div>
+    <div class="row" style="gap: 10px; font-size: 12px; color: var(--dim);"><span class="num ellip">PIT -1 · O/U 41.5</span><span class="row" style="gap: 4px; flex: none;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 12a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 1.5A3.2 3.2 0 0 1 15 12z"/><path d="M8 14l-1 3M12 14l-1 3"/></svg>58° · rain · wind 12</span></div>
+  </div>
+    <div class="row" style="gap: 6px; font-size: 12px; color: var(--dim); min-width: 0;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2"/></svg><span class="ellip">Opp +0.8 · LAC line</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">7.9</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div>
+</div>
+      <div class="card" style="overflow: hidden; margin-top: 18px;">
+  <div class="row" style="justify-content: space-between; padding: 14px 18px 8px;">
+    <div class="row" style="gap: 10px;"><span class="display" style="font-size: 20px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">Bench</span><span class="note">6 of 7 · sorted by projection</span></div>
+    <span class="note num">Bench points left on the table this season: 41.8</span>
+  </div>
+  <div class="label" style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; padding: 8px 16px 6px; font-size: 10px;">
+  <span>Slot</span><span></span><span>Player</span><span>Game</span><span>Edge</span><span style="text-align: right;">Proj</span><span style="text-align: right;">Pts</span><span></span>
+</div>
+  <div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: var(--accent-soft); border-top: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--accent);">
+    <span class="slot" style="">WR</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">RR<span class="kit" style="background: #e31837;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Rashee Rice</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-wr);">WR</span><span class="note">KC</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+    <div class="row" style="gap: 8px; font-size: 13px;"><span style="font-weight: 600;">vs ATL</span><span style="color: var(--faint);">Sun 4:25 PM</span></div>
+    <div class="row" style="gap: 10px; font-size: 12px; color: var(--dim);"><span class="num ellip">KC -3.5 · O/U 49.5</span><span class="row" style="gap: 4px; flex: none;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 15a7 7 0 0 1 14 0z"/><path d="M2 15h16M10 8V6"/></svg>Dome</span></div>
+  </div>
+    <div class="row" style="gap: 6px; font-size: 12px; color: var(--accent); min-width: 0;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14l5-5 3 3 6-6"/><path d="M13 6h4v4"/></svg><span class="ellip">Above Lamb at WR</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">15.8</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">WR</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">JR<span class="kit" style="background: #203731;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Jayden Reed</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-wr);">WR</span><span class="note">GB</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+    <div class="row" style="gap: 8px; font-size: 13px;"><span style="font-weight: 600;">@ LV</span><span style="color: var(--faint);">Mon 8:15 PM</span></div>
+    <div class="row" style="gap: 10px; font-size: 12px; color: var(--dim);"><span class="num ellip">GB -4 · O/U 44</span><span class="row" style="gap: 4px; flex: none;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 15a7 7 0 0 1 14 0z"/><path d="M2 15h16M10 8V6"/></svg>Dome</span></div>
+  </div>
+    
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">12.4</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">TE</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">BB<span class="kit" style="background: #000000;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Brock Bowers</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-te);">TE</span><span class="note">LV</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+    <div class="row" style="gap: 8px; font-size: 13px;"><span style="font-weight: 600;">vs GB</span><span style="color: var(--faint);">Mon 8:15 PM</span></div>
+    <div class="row" style="gap: 10px; font-size: 12px; color: var(--dim);"><span class="num ellip">GB -4 · O/U 44</span><span class="row" style="gap: 4px; flex: none;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 15a7 7 0 0 1 14 0z"/><path d="M2 15h16M10 8V6"/></svg>Dome</span></div>
+  </div>
+    
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">10.9</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">RB</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">CH<span class="kit" style="background: #0085ca;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Chuba Hubbard</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-rb);">RB</span><span class="note">CAR</span></div>
+    </div>
+    <div class="stack" style="gap: 2px; min-width: 0;"><span class="chip sm warn" style="align-self: flex-start;">Bye</span><span class="note ellip">No game this week</span></div>
+    
+    <div class="stack" style="align-items: flex-end;"><span style="font-size: 13px; font-weight: 600; color: var(--warning); white-space: nowrap;">on bye</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">RB</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">TB<span class="kit" style="background: #9aa0a6;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Tank Bigsby</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-rb);">RB</span><span class="note">JAX</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm final">Final</span><span class="num" style="font-size: 12px; font-weight: 600; color: var(--dim);">TB 31 · JAX 20</span></div>
+      <span class="note ellip">@ TB</span>
+    </div>
+    <span class="note">Under proj by 3.4</span>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">8.1</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--ink);">4.7</span><span class="label" style="font-size: 10px;">Final</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div><div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">QB</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">BM<span class="kit" style="background: #d50a0a;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Baker Mayfield</span><span style="color: var(--faint); display: inline-flex;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-qb);">QB</span><span class="note">TB</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+      <div class="row" style="gap: 8px;"><span class="chip sm final">Final</span><span class="num" style="font-size: 12px; font-weight: 600; color: var(--dim);">TB 31 · JAX 20</span></div>
+      <span class="note ellip">vs JAX</span>
+    </div>
+    <span class="note">Beat proj by 6.7</span>
+    <div class="stack num" style="align-items: flex-end;"><span style="font-size: 15px; font-weight: 600;">18.2</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--ink);">24.9</span><span class="label" style="font-size: 10px;">Final</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="9" width="10" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg></div>
+  </div>
+  <div class="row" style="padding: 14px 18px; border-top: 1px solid var(--line); gap: 12px;">
+    <span class="display" style="font-size: 16px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--dim);">IR</span><span class="note">1 of 1</span>
+  </div>
+  <div style="display: grid; grid-template-columns: 52px 40px minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.95fr) 64px 64px 38px; gap: 14px; align-items: center; padding: 10px 16px; min-height: 64px; background: transparent; border-top: 1px solid var(--line); ">
+    <span class="slot" style="">IR</span>
+    <div class="avatar" style="width: 36px; height: 36px; font-size: 13px;">CM<span class="kit" style="background: #aa0000;"></span></div>
+    <div class="stack" style="gap: 2px; min-width: 0;">
+      <div class="row" style="gap: 6px; min-width: 0;"><span class="ellip" style="font-size: 14px; font-weight: 600;">Christian McCaffrey</span><span class="chip sm bad">IR</span></div>
+      <div class="row" style="gap: 6px;"><span class="pos" style="background: var(--pos-rb);">RB</span><span class="note">SF</span></div>
+    </div>
+    <div class="stack" style="gap: 3px; min-width: 0;">
+    <div class="row" style="gap: 8px; font-size: 13px;"><span style="font-weight: 600;">@ LAR</span><span style="color: var(--faint);">Thu 8:15 PM</span></div>
+    <div class="row" style="gap: 10px; font-size: 12px; color: var(--dim);"><span class="num ellip"></span></div>
+  </div>
+    <div class="row" style="gap: 6px; font-size: 12px; color: var(--warning); min-width: 0;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 2.5 16h15z"/><path d="M10 8v4M10 14v.5"/></svg><span class="ellip">Achilles · Wk 6</span></div>
+    <div class="stack" style="align-items: flex-end;"><span style="font-size: 13px; font-weight: 600; color: var(--warning); white-space: nowrap;">on IR</span><span class="label" style="font-size: 10px;">Proj</span></div>
+    <div class="stack num" style="align-items: flex-end;"><span class="display" style="font-size: 22px; font-weight: 700; line-height: 1; color: var(--faint);">–</span><span class="label" style="font-size: 10px;">Pts</span></div>
+    <div class="btn sm icon" style="border: 0; color: var(--faint);"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></div>
+  </div>
+</div>
+    </div>
+    <div class="stack" style="gap: 16px;">
+      <div class="card" style="overflow: hidden;">
+  <div class="row" style="justify-content: space-between; padding: 14px 18px 10px;">
+    <div class="row" style="gap: 8px;"><span style="color: var(--accent); display: inline-flex;"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2 4 11h5l-1 7 7-9h-5z"/></svg></span><span class="display" style="font-size: 18px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">Start / Sit</span></div>
+    <span class="chip">1 swap</span>
+  </div>
+  <div class="hair"></div>
+  <div class="stack" style="padding: 14px 18px; gap: 12px;">
+    <div class="row" style="gap: 10px;">
+      <div class="stack grow" style="gap: 2px; min-width: 0;"><span class="label" style="color: var(--danger);">Sit</span><span class="ellip" style="font-weight: 600;">CeeDee Lamb</span><span class="note">WR · DAL · Q ankle</span></div>
+      <span style="color: var(--faint); display: inline-flex;"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11l-3-3M16 13H5l3 3"/></svg></span>
+      <div class="stack grow" style="gap: 2px; min-width: 0; text-align: right;"><span class="label" style="color: var(--accent);">Start</span><span class="ellip" style="font-weight: 600;">Rashee Rice</span><span class="note">WR · KC · healthy</span></div>
+    </div>
+    <div class="stack" style="gap: 6px;">
+      <div class="row" style="justify-content: space-between; font-size: 12px;"><div class="stack"><span class="note">Lamb floor 6.4</span><span class="note">ceiling 24.1</span></div><div class="stack" style="text-align: right;"><span class="note">Rice floor 9.8</span><span class="note">ceiling 21.6</span></div></div>
+      <div class="range"><div class="band" style="left: 20%; right: 20%;"></div><div class="tick" style="left: 54%;"></div><div class="tick" style="left: 52%; background: var(--warning);"></div></div>
+      <div class="row" style="gap: 8px; flex-wrap: wrap;"><span class="chip sm warn">Lean</span><span class="note">Rice has the higher floor. Lamb keeps the ceiling if he plays every snap.</span></div>
+    </div>
+    <div class="stack" style="gap: 6px; font-size: 12px; color: var(--dim);">
+      <div class="row" style="gap: 8px;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2"/></svg><span>BAL allows the 4th-fewest points to WR. KC vs ATL has the week's 2nd-highest total.</span></div>
+      <div class="row" style="gap: 8px;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/></svg><span>Both kick off Sun 4:25 PM. Decide by 4:20.</span></div>
+    </div>
+    <div class="row" style="gap: 8px;"><div class="btn sm primary">Apply swap</div><div class="btn sm">Compare</div><div class="btn sm" style="border: 0; color: var(--faint);">Dismiss</div></div>
+  </div>
+</div>
+      <div class="card" style="overflow: hidden;">
+  <div class="row" style="justify-content: space-between; padding: 14px 18px 10px;">
+    <span class="display" style="font-size: 18px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">Bye clusters</span>
+    <span class="note">Wk 4 to 10</span>
+  </div>
+  <div class="hair"></div>
+  <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; padding: 14px 18px 8px;">
+    <div class="tile stack" style="align-items: center; gap: 4px; padding: 8px 4px; "><span class="label" style="font-size: 10px; white-space: nowrap;">Wk 4</span><span class="display num" style="font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink);">0</span><div class="stack" style="gap: 2px; align-items: center;"></div></div><div class="tile stack" style="align-items: center; gap: 4px; padding: 8px 4px; border-color: var(--danger); background: var(--danger-soft);"><span class="label" style="font-size: 10px; white-space: nowrap;">Wk 5</span><span class="display num" style="font-size: 20px; font-weight: 700; line-height: 1; color: var(--danger);">3</span><div class="stack" style="gap: 2px; align-items: center;"><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-rb);">RB</span><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-rb);">RB</span><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-wr);">WR</span></div></div><div class="tile stack" style="align-items: center; gap: 4px; padding: 8px 4px; "><span class="label" style="font-size: 10px; white-space: nowrap;">Wk 6</span><span class="display num" style="font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink);">1</span><div class="stack" style="gap: 2px; align-items: center;"><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-te);">TE</span></div></div><div class="tile stack" style="align-items: center; gap: 4px; padding: 8px 4px; "><span class="label" style="font-size: 10px; white-space: nowrap;">Wk 7</span><span class="display num" style="font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink);">1</span><div class="stack" style="gap: 2px; align-items: center;"><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-qb);">QB</span></div></div><div class="tile stack" style="align-items: center; gap: 4px; padding: 8px 4px; "><span class="label" style="font-size: 10px; white-space: nowrap;">Wk 8</span><span class="display num" style="font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink);">0</span><div class="stack" style="gap: 2px; align-items: center;"></div></div><div class="tile stack" style="align-items: center; gap: 4px; padding: 8px 4px; border-color: var(--warning);"><span class="label" style="font-size: 10px; white-space: nowrap;">Wk 9</span><span class="display num" style="font-size: 20px; font-weight: 700; line-height: 1; color: var(--warning);">2</span><div class="stack" style="gap: 2px; align-items: center;"><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-wr);">WR</span><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-def);">DEF</span></div></div><div class="tile stack" style="align-items: center; gap: 4px; padding: 8px 4px; "><span class="label" style="font-size: 10px; white-space: nowrap;">Wk 10</span><span class="display num" style="font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink);">1</span><div class="stack" style="gap: 2px; align-items: center;"><span class="pos" style="min-width: 26px; height: 16px; font-size: 9px; background: var(--pos-k);">K</span></div></div>
+  </div>
+  <div class="row" style="gap: 8px; padding: 4px 18px 14px; font-size: 12px; color: var(--dim);"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 2.5 16h15z"/><path d="M10 8v4M10 14v.5"/></svg><span>Week 5: Robinson, Hubbard and Reed all sit. Waivers close Tue 11:59 PM.</span></div>
+</div>
+      <div class="card" style="overflow: hidden;">
+  <div class="row" style="justify-content: space-between; padding: 14px 18px 10px;">
+    <span class="display" style="font-size: 18px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;">Opponent this week</span>
+    <a href="#" style="font-size: 12px; font-weight: 600;">Matchup</a>
+  </div>
+  <div class="hair"></div>
+  <div class="stack" style="padding: 14px 18px; gap: 10px;">
+    <div class="row" style="gap: 12px;"><div class="avatar" style="width: 36px; height: 36px; font-size: 13px; background: var(--away-soft); color: var(--away);">DD</div><div class="stack grow" style="min-width: 0;"><span class="ellip" style="font-weight: 600;">Duluth Dockworkers</span><span class="note num">1-1 · 7th · 71.2 live, 121.9 proj</span></div></div>
+    <div class="stack" style="gap: 6px; font-size: 12px; color: var(--dim);">
+      <div class="row" style="justify-content: space-between;"><span>Their best remaining</span><span class="num" style="color: var(--ink);">P. Mahomes · KC · 21.6</span></div>
+      <div class="row" style="justify-content: space-between;"><span>Yet to play</span><span class="num" style="color: var(--ink);">5 starters</span></div>
+      <div class="row" style="justify-content: space-between;"><span>Shared game</span><span class="num" style="color: var(--ink);">ATL @ KC · both sides</span></div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark","section":"Theme"},"$preview":{"width":1440,"height":1640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme === 'light' ? 'light' : 'dark' };
+  }
+}
+</script>
+</body>
+</html>

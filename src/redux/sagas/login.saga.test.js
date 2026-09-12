@@ -4,7 +4,7 @@ import loginSaga, { loginUser, logoutUser } from './login.saga';
 import apiClient, { getToken, clearToken } from '../../api/apiClient';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useLeague, clearLeagueCache } from '../../hooks/useLeague';
-import { usePickemStandings, clearPickemStandingsCache } from '../../hooks/usePickemStandings';
+import { usePickemStandings, clearPickemStandingsCache } from '../../entities/pickem-standings';
 import { setResource } from '../../lib/resourceCache';
 
 // Warm the shared league entry the way a visited page would.

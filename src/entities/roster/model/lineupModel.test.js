@@ -1,4 +1,4 @@
-import { lineupModel, locked, eligibleSlots, lineupEntries } from './lineupModel';
+import { lineupModel, pairStartersBySlot, locked, eligibleSlots, lineupEntries } from './lineupModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
 // (server/services/lineup.service.js getLineup: id, name, position,
@@ -97,6 +97,24 @@ describe('lineupModel: the one shape from the lineup body', () => {
       spent: false,
       opponent: 'KC',
     });
+  });
+
+  test('passes through rosterSlots, benchSlots, irSlots and currentWeek unchanged (#1237)', () => {
+    const rosterSlots = [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }];
+    const model = lineupModel({ ...body, rosterSlots, benchSlots: 6, irSlots: 1 });
+    expect(model.rosterSlots).toBe(rosterSlots);
+    expect(model.benchSlots).toBe(6);
+    expect(model.irSlots).toBe(1);
+    expect(model.currentWeek).toBe(4);
+  });
+
+  test('a missing rosterSlots/benchSlots/irSlots/currentWeek reads as the empty shape, never throws', () => {
+    const { rosterSlots, benchSlots, irSlots, currentWeek, ...rest } = body;
+    const model = lineupModel(rest);
+    expect(model.rosterSlots).toEqual([]);
+    expect(model.benchSlots).toBeNull();
+    expect(model.irSlots).toBeNull();
+    expect(model.currentWeek).toBeNull();
   });
 
   test('a non-null opponent on the wire produces the same value on the modeled entry and the corresponding starter', () => {
@@ -207,24 +225,21 @@ describe('lineupModel: the one shape from the lineup body', () => {
   });
 
   test('a null/missing body maps to the empty shape rather than throwing', () => {
-    expect(lineupModel(null)).toEqual({
+    const empty = {
       week: null,
       season: null,
       teamId: null,
+      currentWeek: null,
+      rosterSlots: [],
+      benchSlots: null,
+      irSlots: null,
       entries: [],
       starters: [],
       benchCount: 0,
       questionable: 0,
-    });
-    expect(lineupModel(undefined)).toEqual({
-      week: null,
-      season: null,
-      teamId: null,
-      entries: [],
-      starters: [],
-      benchCount: 0,
-      questionable: 0,
-    });
+    };
+    expect(lineupModel(null)).toEqual(empty);
+    expect(lineupModel(undefined)).toEqual(empty);
   });
 
   test('a projected_points wire string (a pg decimal) coerces to a number', () => {
@@ -241,6 +256,99 @@ describe('lineupModel: the one shape from the lineup body', () => {
       entries: [row({ id: 1, slot: 'QB', projected_points: null })],
     });
     expect(model.starters[0].projectedPoints).toBeNull();
+  });
+});
+
+// #1207 (part of #1198, R1): `pairStartersBySlot`, moved here byte-for-byte
+// from `entities/matchup/model/matchupModel.js`, which re-exported it for one
+// release; these cases moved with it from that module's test file when #1210
+// closed the exception (R5 of #1198: tests replace, not layer).
+describe('pairStartersBySlot: starters paired by slot, in the league order', () => {
+  const player = (overrides = {}) => ({
+    id: 1,
+    name: 'P. Mahomes',
+    slot: 'QB',
+    position: 'QB',
+    points: 24.1,
+    ...overrides,
+  });
+
+  // A standard (offense-only) league order; the pairing needs an explicit order
+  // now - there is no silent default.
+  const STANDARD = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
+
+  const shortHome = [player({ id: 1, name: "Ja'Marr Chase", slot: 'WR', position: 'WR' })];
+  const fullAway = [
+    player({ id: 2, name: 'Trevor Lawrence', slot: 'QB' }),
+    player({ id: 3, name: 'Jonathan Taylor', slot: 'RB', position: 'RB' }),
+    player({ id: 4, name: 'DJ Moore', slot: 'WR', position: 'WR' }),
+    player({ id: 5, name: 'Cam Little', slot: 'K', position: 'K' }),
+    player({ id: 6, name: 'Los Angeles Rams', slot: 'DEF', position: 'DEF' }),
+    player({ id: 7, name: 'Emmanuel Ogbah', slot: 'D LINE', position: 'DL' }),
+  ];
+
+  test('pairs by slot key, never by index, and leaves the unfilled side empty', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway, STANDARD);
+    // 'D LINE' is a slot only the starters carry, so it is appended after the
+    // league order rather than dropped.
+    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['QB', null, 'Trevor Lawrence'],
+      ['RB', null, 'Jonathan Taylor'],
+      ['WR', "Ja'Marr Chase", 'DJ Moore'],
+      ['K', null, 'Cam Little'],
+      ['DEF', null, 'Los Angeles Rams'],
+      ['D LINE', null, 'Emmanuel Ogbah'],
+    ]);
+  });
+
+  test('pairs the nth starter of a multi-count slot with the nth on the other side', () => {
+    const home = [player({ id: 1, name: 'H RB1', slot: 'RB' }), player({ id: 2, name: 'H RB2', slot: 'RB' })];
+    const away = [player({ id: 3, name: 'A RB1', slot: 'RB' })];
+    expect(pairStartersBySlot(home, away, ['RB']).map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['RB', 'H RB1', 'A RB1'],
+      ['RB', 'H RB2', null],
+    ]);
+  });
+
+  test('follows the league slotOrder when given, then appends slots only the starters know about', () => {
+    const rows = pairStartersBySlot(shortHome, fullAway, ['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    expect(rows.map((r) => r.slot)).toEqual(['QB', 'RB', 'WR', 'D LINE', 'K', 'DEF']);
+    const extra = pairStartersBySlot([player({ id: 9, name: 'Flex Guy', slot: 'IDP FLEX' })], [], ['QB']);
+    expect(extra.map((r) => r.slot)).toEqual(['IDP FLEX']);
+  });
+
+  test('under an IDP slot order places defensive starters on their own rows, in order', () => {
+    // An IDP league carries defensive slots the fantasy-standard default never
+    // knew; they must land on their own rows in the commissioner's order, not
+    // sink to the end or share an offensive row.
+    const idpOrder = ['QB', 'RB', 'WR', 'DL', 'LB', 'DB'];
+    const home = [
+      player({ id: 1, name: 'Josh Allen', slot: 'QB' }),
+      player({ id: 2, name: 'Myles Garrett', slot: 'DL', position: 'DL' }),
+      player({ id: 3, name: 'Fred Warner', slot: 'LB', position: 'LB' }),
+      player({ id: 4, name: 'Derwin James', slot: 'DB', position: 'DB' }),
+    ];
+    const away = [
+      player({ id: 5, name: 'Micah Parsons', slot: 'DL', position: 'DL' }),
+      player({ id: 6, name: 'Roquan Smith', slot: 'LB', position: 'LB' }),
+    ];
+    const rows = pairStartersBySlot(home, away, idpOrder);
+    expect(rows.map((r) => [r.slot, r.home?.name ?? null, r.away?.name ?? null])).toEqual([
+      ['QB', 'Josh Allen', null],
+      ['DL', 'Myles Garrett', 'Micah Parsons'],
+      ['LB', 'Fred Warner', 'Roquan Smith'],
+      ['DB', 'Derwin James', null],
+    ]);
+  });
+
+  test('pairing with no slot order is refused and returns no rows', () => {
+    // Red-tell (AC1): reinstating a default order inside the pairing function
+    // turns THIS case red and no other - every other case passes an explicit
+    // order, so a default would change only the refusal.
+    expect(pairStartersBySlot(shortHome, fullAway)).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, [])).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, null)).toEqual([]);
+    expect(pairStartersBySlot(shortHome, fullAway, [null, undefined])).toEqual([]);
   });
 });
 
@@ -406,5 +514,121 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
       projectedPoints: 24.3,
       opponent: 'MIA',
     });
+  });
+
+  // #1235: the decision-context fields (ADR 0037's "lineup entry carries its
+  // decision context"), each a pass-through of the wire's own field.
+  test('projection, floor and ceiling carry through, coerced the same way projectedPoints already is', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', projection: '18.50', floor: '12.00', ceiling: '24.00' })],
+      league
+    );
+    expect(entries[0]).toMatchObject({ projection: 18.5, floor: 12, ceiling: 24 });
+  });
+
+  test('projection, floor and ceiling are null together when the wire has no estimate', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', projection: null, floor: null, ceiling: null })],
+      league
+    );
+    expect(entries[0]).toMatchObject({ projection: null, floor: null, ceiling: null });
+  });
+
+  test('points carries through from the wire\'s actualPoints, coerced the same way projectedPoints already is (#1237)', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB', actualPoints: '18.50' })], league);
+    expect(entries[0].points).toBe(18.5);
+  });
+
+  test('a null or missing actualPoints reads as points: null, never 0', () => {
+    const withNull = lineupEntries([row({ id: 1, slot: 'QB', actualPoints: null })], league);
+    expect(withNull[0].points).toBeNull();
+    const { actualPoints, ...rowWithoutActualPoints } = row({ id: 1, slot: 'QB' });
+    const withoutKey = lineupEntries([rowWithoutActualPoints], league);
+    expect(withoutKey[0].points).toBeNull();
+  });
+
+  test('kickoff and gameKey pass through exactly as opponent already does', () => {
+    const withSchedule = lineupEntries(
+      [row({ id: 1, slot: 'QB', kickoff: '2026-11-01T18:00:00Z', game_key: 'BUF-MIA' })],
+      league
+    );
+    expect(withSchedule[0]).toMatchObject({ kickoff: '2026-11-01T18:00:00Z', gameKey: 'BUF-MIA' });
+
+    const onBye = lineupEntries([row({ id: 1, slot: 'QB', kickoff: null, game_key: null })], league);
+    expect(onBye[0]).toMatchObject({ kickoff: null, gameKey: null });
+  });
+
+  // #1239: byeWeek is the player's own NFL bye week (a week number), distinct
+  // from onBye (whether that week is the one currently selected) - the
+  // bye-cluster widget groups entries by this across future weeks.
+  test('byeWeek passes through as a number, and null when the wire has none', () => {
+    const withBye = lineupEntries([row({ id: 1, slot: 'QB', bye_week: '9' })], league);
+    expect(withBye[0].byeWeek).toBe(9);
+
+    const withoutBye = lineupEntries([row({ id: 1, slot: 'QB', bye_week: null })], league);
+    expect(withoutBye[0].byeWeek).toBeNull();
+  });
+
+  test('unavailable is the server\'s own reason, read alongside the locally-derived availability', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB', onBye: true, unavailable: 'bye' })], league);
+    expect(entries[0].unavailable).toBe('bye');
+    expect(entries[0].availability).toEqual({ available: false, reason: 'bye' });
+  });
+
+  test('a wire row without an unavailable key at all produces unavailable: null', () => {
+    const { unavailable, ...rowWithoutUnavailable } = row({ id: 1, slot: 'QB' });
+    const entries = lineupEntries([rowWithoutUnavailable], league);
+    expect(entries[0].unavailable).toBeNull();
+  });
+
+  test('edge carries the server-computed { kind, text } through verbatim', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', edge: { kind: 'factor', text: 'Matchup +3.5' } })],
+      league
+    );
+    expect(entries[0].edge).toEqual({ kind: 'factor', text: 'Matchup +3.5' });
+  });
+
+  test('a wire row without an edge key at all produces edge: null', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB' })], league);
+    expect(entries[0].edge).toBeNull();
+  });
+
+  // #1281: the largest Factor's explanation, independent of the Edge line -
+  // computed on the server from the same factorEdgeText(factors) call that
+  // can win the Edge line's 'factor' kind, but here unconditionally.
+  test('factorExplanation carries the server-computed string through verbatim', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'QB', edge: { kind: 'injury', text: 'Questionable' }, factorExplanation: 'Matchup +3.5' })],
+      league
+    );
+    expect(entries[0].factorExplanation).toBe('Matchup +3.5');
+  });
+
+  test('a wire row without a factorExplanation key at all produces factorExplanation: null', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB' })], league);
+    expect(entries[0].factorExplanation).toBeNull();
+  });
+
+  test('irAttested and validStash pass through as booleans (#1237)', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'IR', ir_attested: true, valid_stash: true })],
+      league
+    );
+    expect(entries[0].irAttested).toBe(true);
+    expect(entries[0].validStash).toBe(true);
+  });
+
+  test('a wire row without ir_attested/valid_stash keys reads both as false', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'IR' })], league);
+    expect(entries[0].irAttested).toBe(false);
+    expect(entries[0].validStash).toBe(false);
+  });
+
+  test('spent passes through as a boolean (#1237)', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'WR', spent: true })], league);
+    expect(entries[0].spent).toBe(true);
+    const notSpent = lineupEntries([row({ id: 1, slot: 'WR' })], league);
+    expect(notSpent[0].spent).toBe(false);
   });
 });

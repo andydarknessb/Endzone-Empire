@@ -38,3 +38,15 @@ export { parseRosterSlots } from './rosterSlots';
 // the retro-scoreboard widget model and the slot-comparison widget model
 // each carried an identical bye/out/ir label object.
 export { unavailableLabel } from './unavailableLabel';
+// Bye cluster computation (CONTEXT.md, Bye cluster; #1239, ADR 0031's
+// second-island-consumer threshold): born here rather than below the
+// island because it is domain-meaningful and the bye-cluster widget's grid
+// and the Lineup page (for the summary strip's attention chip) both need
+// it from the moment it exists.
+export { computeByeClusters, worstByeCluster } from './byeClusters';
+// The monogram ink rule (#1301, ADR 0031's second-island-consumer clause):
+// white or black on a `kit.jersey` fill, whichever clears WCAG 4.5:1 against
+// that specific external brand color. Promoted from
+// `features/pick-winner/lib/monogramInk` once lineup-ledger and
+// player-decision-card (#1317) joined pick-winner as consumers.
+export { monogramInk } from './monogramInk';

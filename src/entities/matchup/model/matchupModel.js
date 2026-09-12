@@ -1,5 +1,4 @@
 import { applyTeamProfileUpdate } from '../../../lib/teamProfileEvents';
-import { pairStartersBySlot } from '../../roster';
 
 /**
  * The Matchup read model, pure (ADR 0029: the entities layer's first slice; ADR
@@ -204,13 +203,3 @@ export function matchupStatusView(status) {
     hasStarted: KNOWN_STATUSES.has(status) ? STARTED_STATUSES.has(status) : null,
   };
 }
-
-/**
- * Pairs the two starter arrays into one row per slot INSTANCE, matched by slot
- * key and never by array index (see `entities/roster/model/lineupModel.js` for
- * the full docblock). Moved there byte-for-byte in behaviour (#1207, ADR 0029:
- * pairing is a Roster/Lineup fact, not a Matchup one) and re-exported HERE for
- * one release so this module's existing internal imports (`useMatchup.js`, this
- * file's own test) keep working unchanged.
- */
-export { pairStartersBySlot };

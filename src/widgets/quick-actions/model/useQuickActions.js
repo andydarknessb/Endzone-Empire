@@ -82,9 +82,10 @@ const GROUPS = [
 // The league's starting-slot config, as the lineupAttention helper wants it.
 // `roster_slots` rides on the league row (SELECT leagues.*); it is jsonb, so it
 // arrives parsed, but a string is tolerated defensively (shared/lib's
-// parseRosterSlots, #1165). When it is absent the helper reads 0 empty slots
-// (nothing to compare a fill against) while byes still register off the
-// default starter order.
+// parseRosterSlots, #1165). When it is absent the helper has no starting slot
+// to inspect at all (#1210 deleted its fantasy-standard default), so both
+// signals read empty - 0 empty slots and no starter flagged on bye - until the
+// league's own slots arrive, never a guess at which keys are starters.
 function rosterSlotsOf(league) {
   return parseRosterSlots(league?.roster_slots);
 }

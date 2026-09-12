@@ -42,7 +42,7 @@ import './App.css';
 
 const LeagueManagement = lazy(() => import('../LeagueManagement/LeagueManagement'));
 const LeagueDiscovery = lazy(() => import('../LeagueDiscovery/LeagueDiscovery'));
-const TeamLineup = lazy(() => import('../LineupScreen/TeamLineup'));
+const LineupPage = lazy(() => import('../../pages/lineup'));
 const PlayerManagement = lazy(() => import('../PlayerManagement/PlayerManagement'));
 const LeagueDashboardPage = lazy(() => import('../../pages/league-dashboard'));
 const MatchupPage = lazy(() => import('../../pages/matchup'));
@@ -51,13 +51,13 @@ const CommissionerConsolePage = lazy(() => import('../../pages/commissioner-cons
 const DraftBoard = lazy(() => import('../DraftBoard/DraftBoard'));
 const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
 const LeagueRules = lazy(() => import('../LeagueRules/LeagueRules'));
-const LeaguePickem = lazy(() => import('../LeaguePickem/LeaguePickem'));
+const PickemPage = lazy(() => import('../../pages/pickem'));
 const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
 const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
 const TradeCenter = lazy(() => import('../TradeCenter/TradeCenter'));
 const TransactionLog = lazy(() => import('../TransactionLog/TransactionLog'));
 const PowerRankings = lazy(() => import('../PowerRankings/PowerRankings'));
-const LeagueHistory = lazy(() => import('../LeagueHistory/LeagueHistory'));
+const LeagueHistoryPage = lazy(() => import('../../pages/league-history'));
 const NotificationPrefs = lazy(() => import('../NotificationPrefs/NotificationPrefs'));
 const AuthenticatedPlayerProfilePage = lazy(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
 const AdminDashboard = lazy(() => import('../AdminDashboard/AdminDashboard'));
@@ -192,7 +192,7 @@ function App() {
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/league/join" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
           <Route path="/discover" element={<ProtectedRoute><LeagueDiscovery /></ProtectedRoute>} />
-          <Route path="/team" element={<ProtectedRoute><TeamLineup /></ProtectedRoute>} />
+          <Route path="/team" element={<ProtectedRoute><LineupPage /></ProtectedRoute>} />
           <Route path="/player" element={<ProtectedRoute><PlayerManagement /></ProtectedRoute>} />
           <Route path="/league/:leagueId" element={<ProtectedRoute><LeagueDashboardPage /></ProtectedRoute>} />
           <Route path="/league/:leagueId/matchups/:matchupId" element={<ProtectedRoute><FantasyOnly><MatchupPage /></FantasyOnly></ProtectedRoute>} />
@@ -201,13 +201,13 @@ function App() {
           <Route path="/league/:leagueId/draft-settings" element={<ProtectedRoute><FantasyOnly><DraftSettings /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/commissioner" element={<ProtectedRoute><CommissionerConsolePage /></ProtectedRoute>} />
           <Route path="/league/:leagueId/rules" element={<ProtectedRoute><LeagueRules /></ProtectedRoute>} />
-          <Route path="/league/:leagueId/pickem" element={<ProtectedRoute><LeaguePickem /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/pickem" element={<ProtectedRoute><PickemPage /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><FantasyOnly><LegacyLineupRedirect /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><FantasyOnly><WaiverWire /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><FantasyOnly><TradeCenter /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><FantasyOnly><PowerRankings /></FantasyOnly></ProtectedRoute>} />
-          <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistory /></ProtectedRoute>} />
+          <Route path="/league/:leagueId/history" element={<ProtectedRoute><LeagueHistoryPage /></ProtectedRoute>} />
           <Route path="/draft-sim" element={<ProtectedRoute><DraftSimScreen /></ProtectedRoute>} />
           <Route path="/settings/notifications" element={<ProtectedRoute><NotificationPrefs /></ProtectedRoute>} />
           <Route path="/players/:playerId" element={<ProtectedRoute><AuthenticatedPlayerProfilePage /></ProtectedRoute>} />

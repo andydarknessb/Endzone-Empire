@@ -54,7 +54,9 @@ import LastPlays from './ui/LastPlays';
  *     "Show Benches" is retired, and the Standard view's Bench card carries
  *     the benches.
  *
- * Both views render the SAME `starterRows` the entity hook pairs (ADR 0029),
+ * Both views render the SAME `starterRows` the page model pairs (#1210:
+ * pairing is a Roster/Lineup fact, ADR 0029, paired here via
+ * `entities/roster`'s `pairStartersBySlot`, never inside the Matchup entity),
  * so the two agree slot for slot under any league slot order. The status chip
  * is the server's status fact (ADR 0030) read through the entity's one
  * predicate: the header chip and the strip's chip carry the same label and

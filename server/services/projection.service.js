@@ -2,6 +2,7 @@ const pool = require('../modules/pool');
 const model = require('./projectionModel');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoring.service');
+const { lastPlayoffWeek } = require('./season.service');
 const { expertCoverage, getExpertProvider } = require('./expertProjection.provider');
 const {
   vegasCoverage, getVegasOddsProvider, impliedTeamPoints,
@@ -49,9 +50,14 @@ class ProjectionError extends Error {
  * is what lets the start/sit path upgrade without touching a single other
  * caller.
  *
- * Rest-of-season projections are a third, separate horizon (see
- * `getRestOfSeasonProjections`) and are deliberately left on the original
- * producer.
+ * Rest of season is a third, separate horizon, and it too has two
+ * producers: `getRestOfSeasonProjections` stays on the original pool-wide
+ * extrapolator (a flat weekly value x remaining weeks), and `getRestOfSeason`
+ * (#1305) is its v2 twin — it sums a SPECIFIC set of players' already-cached
+ * `free_baseline_v2` Weekly projections from a league's current week through
+ * its last playoff week, the same cache `getWeeklyProjections` reads and
+ * fills, so a week the nightly projection run (server/modules/scheduler.js)
+ * already generated is never regenerated here.
  */
 
 // ---------------------------------------------------------------------------
@@ -495,6 +501,13 @@ async function generateProjections({
   // Overridable so scripts/backtest-weekly-projections.js can sweep
   // half-life / shrinkage alternatives against the same weeks.
   modelConstants = model.MODEL_CONSTANTS,
+  // The odds seam's read bound, and NOTHING else (#1268, ADR 0039): forwarded
+  // untouched to `getWeeklyOdds({ observedAtOrBefore })`. `input_cutoff` (the
+  // week's first kickoff) is never this value. `holdout.service.js`'s
+  // `snapshotWeek` is the only caller that passes one, its own effective
+  // capture cutoff; the live path and the versioned cache path below both
+  // pass nothing, so the odds read stays newest-wins with no bound there.
+  oddsObservedAtOrBefore = null,
   // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5), forwarded
   // unchanged into every per-player projectFromBundle call. Validated at the
   // top of the function body, before ANY other logic - so an empty
@@ -538,7 +551,9 @@ async function generateProjections({
   try {
     const oddsProvider = getVegasOddsProvider();
     if (oddsProvider.available) {
-      oddsByGameKey = await oddsProvider.getWeeklyOdds({ season, week, client });
+      oddsByGameKey = await oddsProvider.getWeeklyOdds({
+        season, week, client, observedAtOrBefore: oddsObservedAtOrBefore,
+      });
     }
   } catch (err) {
     console.error('projections: odds lookup failed, continuing without it:', err.message);
@@ -834,6 +849,101 @@ async function getWeeklyProjections({
 }
 
 /**
+ * `free_baseline_v2` rest-of-season totals for a specific set of players in
+ * one league: the sum of their already-cached Weekly projections (see
+ * `getWeeklyProjections` above) from the league's current week through its
+ * last playoff week (`season.service.lastPlayoffWeek`), with an Unavailable
+ * week (CONTEXT.md: bye, Out, IR) contributing zero. Reads the SAME cache the
+ * nightly projection run fills (server/modules/scheduler.js,
+ * `runNightlyProjectionFill`, #1305): a week that run already generated here
+ * is never regenerated, and a week this call generates is cached for the
+ * next one — `getWeeklyProjections` owns that cache-hit/miss decision, this
+ * function never duplicates it.
+ *
+ * Returns `Map<playerId, { total, perGame, positionRank, groupSize }>`.
+ * `perGame` averages over the player's AVAILABLE covered weeks only (an
+ * Unavailable week does not dilute it, the same rule `total` follows); a
+ * player with no available covered week yet reports 0 in both, never a
+ * division by zero. `positionRank`/`groupSize` rank `total` within THIS
+ * pool, among players sharing the same position — the same RANK() shape
+ * (ties share a rank) `scoring.service.getSeasonPositionRank` uses — never a
+ * league- or pool-wide rank, because this pool is whatever `playerIds` asked
+ * about.
+ */
+async function getRestOfSeason(playerIds, leagueId, { client = pool } = {}) {
+  const ids = [...new Set((Array.isArray(playerIds) ? playerIds : []).map(Number).filter(Number.isInteger))];
+  if (ids.length === 0) return new Map();
+
+  const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+  const league = leagueResult.rows[0];
+  if (!league) throw new ProjectionError(404, 'league not found');
+
+  const playersResult = await client.query(
+    `SELECT "id", "position" FROM "players" WHERE "id" = ANY($1::int[])`,
+    [ids]
+  );
+  const positionById = new Map(playersResult.rows.map((r) => [r.id, r.position]));
+
+  const totals = new Map(ids.map((id) => [id, 0]));
+  const coveredGames = new Map(ids.map((id) => [id, 0]));
+
+  const fromWeek = Number(league.current_week) || 0;
+  const throughWeek = lastPlayoffWeek(league);
+  for (let week = fromWeek; week <= throughWeek; week++) {
+    const run = await getWeeklyProjections({
+      season: league.current_season, week, league, playerIds: ids, client,
+    });
+    for (const id of ids) {
+      const projection = run.projections.get(id);
+      if (!projection) continue;
+      const unavailable = !!(projection.factors
+        && projection.factors.availability
+        && projection.factors.availability.available === false);
+      if (unavailable) continue; // bye/Out/IR: zero, and never counted toward perGame
+      const point = projection.median != null ? projection.median : projection.mean;
+      if (point == null) continue;
+      totals.set(id, Math.round((totals.get(id) + Number(point)) * 100) / 100);
+      coveredGames.set(id, coveredGames.get(id) + 1);
+    }
+  }
+
+  // positionRank/groupSize: RANK() semantics (ties share a rank), scoped to
+  // THIS pool only, partitioned by each player's own position code.
+  const byPosition = new Map();
+  for (const id of ids) {
+    const position = positionById.get(id) ?? null;
+    if (!byPosition.has(position)) byPosition.set(position, []);
+    byPosition.get(position).push(id);
+  }
+  const rankById = new Map();
+  for (const group of byPosition.values()) {
+    const sorted = [...group].sort((a, b) => totals.get(b) - totals.get(a));
+    let rank = 0;
+    let lastTotal = null;
+    sorted.forEach((id, index) => {
+      const total = totals.get(id);
+      if (lastTotal === null || total !== lastTotal) rank = index + 1;
+      lastTotal = total;
+      rankById.set(id, rank);
+    });
+  }
+
+  const out = new Map();
+  for (const id of ids) {
+    const games = coveredGames.get(id);
+    const total = totals.get(id);
+    const position = positionById.get(id) ?? null;
+    out.set(id, {
+      total,
+      perGame: games > 0 ? Math.round((total / games) * 100) / 100 : 0,
+      positionRank: rankById.get(id) ?? null,
+      groupSize: (byPosition.get(position) || []).length,
+    });
+  }
+  return out;
+}
+
+/**
  * Adapter: a v2 run -> the legacy `Map<playerId, { points, source }>` every
  * existing consumer expects, with the new fields carried alongside so callers
  * can adopt them one at a time.
@@ -873,6 +983,7 @@ module.exports = {
   getPositionDefense,
   // free_baseline_v2
   getWeeklyProjections,
+  getRestOfSeason,
   invalidateWeeklyProjectionRuns,
   generateProjections,
   projectFromBundle,

@@ -1,5 +1,8 @@
 import { colorTokens, scaleTokens } from './tokens';
-import { contrastRatio } from './contrast';
+import { contrastRatio, relativeLuminance } from './contrast';
+import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../lib/nflTeamColors';
+import { monogramInk } from '../shared/lib/monogramInk';
+import { BUCKET_OPACITY } from '../widgets/pickem-standings/ui/StandingsTable';
 
 // WCAG 2.1 AA thresholds: 4.5:1 for normal body text, 3:1 for large text and
 // UI component text (e.g. button labels). Each pairing below is a
@@ -225,11 +228,17 @@ const PAIRINGS = [
     'surface'
   ),
   // The remaining #354 sweep candidates need no PAIRINGS row:
-  //   - LeagueHistory's champion banner (LeagueHistory.jsx) and SimPickFeed's
-  //     active-team row (SimPickFeed.jsx) both paint `accent-soft` inside a
-  //     MUI Paper/Accordion, whose background is `background.paper` ==
-  //     `surface` (AppThemeProvider.jsx). Same backdrop as the two rows at the
-  //     top of this block, so nothing new to measure.
+  //   - SimPickFeed's active-team row (SimPickFeed.jsx) paints `accent-soft`
+  //     inside a MUI Paper/Accordion, whose background is `background.paper`
+  //     == `surface` (AppThemeProvider.jsx). Same backdrop as the two rows at
+  //     the top of this block, so nothing new to measure.
+  //   - LeagueHistory's champion banner moved off this MUI pairing at #1213:
+  //     it now lives at `src/pages/league-history/LeagueHistoryPage.jsx`, on
+  //     the dash-* kit, and paints `dash-ink` on `dash-accent-soft` inside a
+  //     `shared/ui` Card (`dash-surface`). That pairing is already a
+  //     registered row below ("the me-row team name on the accent tint over
+  //     a card"), so this move needed no new measurement either - it is kept
+  //     checked under its new home, not newly covered by it.
   //   - LandingPage.css's own `accent-soft` consumer, the `landing-cta-pulse`
   //     keyframe, animates a `box-shadow` ring around a button; no text sits
   //     on it.
@@ -483,6 +492,84 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
       const over = backdrop === undefined ? undefined : tokens[backdrop] ?? backdrop;
       const ratio = contrastRatio(tokens[fg], tokens[bg], over);
       expect(ratio).toBeGreaterThanOrEqual(min);
+    }
+  );
+});
+
+// External-data lane (issue #1301, ADR 0010): every PAIRINGS row above
+// resolves its background through this file's own `tokens` map, so a
+// pairing whose background comes from an external table - a brand color this
+// app does not control - has no lane at all. `NFL_TEAM_COLORS` (plus its
+// `FALLBACK_KIT`) is exactly that: the Pick'em team monogram
+// (`TeamPickButton.jsx`) paints `monogramInk(jersey)` on `kit.jersey`, and
+// this describe certifies exactly that pairing - `monogramInk` clearing
+// AA_TEXT against every jersey it can be asked to ink - theme-independent
+// since both colors are fixed literals rather than `--dash-*` tokens.
+// `TeamPickButton.test.jsx` is what pins the component to actually calling
+// `monogramInk` rather than a fixed literal; this lane only certifies the
+// function.
+//
+// Per ADR 0010 ("A green check certifies exactly what that check reads, and
+// nothing adjacent"), this is not a blanket certification of every
+// `kit.jersey` consumer - only of `monogramInk` itself. `LedgerRow.jsx`'s
+// `PlayerAvatar` and `PlayerDecisionCard.jsx`'s `HeaderAvatar` both call
+// `monogramInk(kit.jersey)` too (#1317, the second and third consumers that
+// triggered this function's promotion to `shared/lib`), but each component's
+// own test file (`LedgerRow.test.jsx`, `PlayerDecisionCard.test.jsx`) is what
+// pins IT to actually calling `monogramInk`, the same division of labour
+// `TeamPickButton.test.jsx` already has with this lane. The next external
+// palette (a sponsor table, an opponent kit) gets its own lane by adding to
+// this map.
+describe('external color data: monogram ink on kit.jersey', () => {
+  const jerseysByLabel = {
+    ...NFL_TEAM_COLORS,
+    FALLBACK_KIT: FALLBACK_KIT,
+  };
+
+  test.each(Object.entries(jerseysByLabel))(
+    "monogramInk clears AA (4.5:1) on %s's jersey",
+    (_label, kit) => {
+      const ink = monogramInk(kit.jersey);
+      expect(contrastRatio(ink, kit.jersey)).toBeGreaterThanOrEqual(AA_TEXT);
+    }
+  );
+});
+
+// Heat-strip fill recurrence guard (issue #1319, WCAG 1.4.11): the HeatStrip
+// bucket fill (StandingsTable.jsx) is a graphical object - dash-accent at a
+// bucket-indexed BUCKET_OPACITY, layered over the opaque dash-surface3 track -
+// that none of the PAIRINGS rows above see (every dash-surface3 row up there
+// is a text pairing). #1298 landed the shared opaque track without this lane,
+// so BUCKET_OPACITY going under the 3:1 non-text floor for the two faintest
+// buckets (h1 1.68:1 light / 2.15:1 dark, h2 2.59:1 light) shipped with
+// nothing turning red; #1319 raised the ramp and this guards it from
+// regressing back down. Per contrast.js's own doctrine, this is the layered
+// fg-over-opaque-bg shape (not two siblings sharing a surface), but it still
+// uses the two-call relativeLuminance recipe rather than contrastRatio
+// directly, matching the recipe #1299 established for every graphical-object
+// pairing in this suite rather than special-casing this one. BUCKET_OPACITY
+// is imported (not copied) so this lane always measures the real ramp.
+function withAlpha(hex, alpha) {
+  const body = hex.replace('#', '');
+  const r = parseInt(body.slice(0, 2), 16);
+  const g = parseInt(body.slice(2, 4), 16);
+  const b = parseInt(body.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+describe.each(['light', 'dark'])('%s theme heat-strip fill contrast (#1319)', (mode) => {
+  const track = colorTokens[mode]['dash-surface3'];
+  const accent = colorTokens[mode]['dash-accent'];
+
+  test.each(Object.entries(BUCKET_OPACITY))(
+    'bucket %s fill meets AA_LARGE (3:1) against the dash-surface3 track',
+    (_bucket, alpha) => {
+      const fillLuminance = relativeLuminance(withAlpha(accent, alpha), track);
+      const trackLuminance = relativeLuminance(track);
+      const lighter = Math.max(fillLuminance, trackLuminance);
+      const darker = Math.min(fillLuminance, trackLuminance);
+      const ratio = (lighter + 0.05) / (darker + 0.05);
+      expect(ratio).toBeGreaterThanOrEqual(AA_LARGE);
     }
   );
 });

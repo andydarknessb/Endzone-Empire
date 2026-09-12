@@ -19,11 +19,11 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import InjuryBadge from '../InjuryBadge/InjuryBadge';
-import PlayerAvatar from '../PlayerQuickView/PlayerAvatar';
-import PositionChip from '../PlayerQuickView/PositionChip';
-import { statLine } from '../PlayerQuickView/statLine';
-import AbbreviationTooltip from '../common/AbbreviationTooltip';
+import InjuryBadge from '../../shared/ui/InjuryBadge';
+import PlayerAvatar from '../../shared/ui/PlayerAvatar';
+import PositionChip from '../../shared/ui/PositionChip';
+import { statLine } from '../../shared/ui/statLine';
+import AbbreviationTooltip from '../../shared/ui/AbbreviationTooltip';
 
 function PlayerDetail() {
   const { playerId } = useParams();

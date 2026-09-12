@@ -1,8 +1,8 @@
 import React from 'react';
 import { Alert, Box, Button, Skeleton, Stack, Typography } from '@mui/material';
-import { usePickemSettings } from '../../hooks/usePickemSettings';
+import { usePickemSettings } from '../../entities/pickem-game';
 import RuleRow from './RuleRow';
-import { PICKEM_MODE_OPTIONS } from '../LeaguePickem/PickemSettingsPanel';
+import { PICKEM_MODE_OPTIONS } from '../../widgets/pickem-settings';
 
 /**
  * The read-only rulebook of a pick'em-only league. Everything but the scoring

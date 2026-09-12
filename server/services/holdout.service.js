@@ -60,6 +60,13 @@
  *   tightening input to the cutoff, never its source.
  * - **No outcomes here, ever.** Evaluation joins `player_stats` at read
  *   time. Nothing in this module writes to a prediction row after capture.
+ * - **The odds read is bounded by this cutoff too, explicitly.** The Line
+ *   (CONTEXT.md) is read newest-wins with no bound on the live path (#1268,
+ *   ADR 0039); a capture cannot rely on that alone, so `snapshotWeek` passes
+ *   its own effective cutoff — the same instant the clock guard above already
+ *   enforces — as `oddsObservedAtOrBefore` on every arm's projection run,
+ *   never `input_cutoff` (the week's first kickoff, which bounds nothing
+ *   about the market).
  *
  * `holdout_capture_status` is the operational companion (mutable, upserted
  * every attempt) so completeness and failures survive worker restarts and
@@ -623,6 +630,10 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
       runsByKind.set(arm.kind, await projection.generateProjections({
         season, week, rules, playerIds, hashValue: scoringHash, client: conn,
         weatherService: false, modelConstants: arm.constants,
+        // The odds read is bounded by this capture's own effective cutoff
+        // (never `input_cutoff`), so a snapshot cannot read a quote observed
+        // after the moment it certifies as pre-kickoff (#1268, ADR 0039).
+        oddsObservedAtOrBefore: cutoff,
       }));
     }
 

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const pool = require('../modules/pool');
+const { createFakePool, insert } = require('./helpers/fakePool');
 const { parseArgs, checkOutcome } = require('../../scripts/backfill-defense-season-stats');
 const { syncPlayerSeasonStats, DEFENSIVE_POSITIONS, IDP_POSITIONS } = require('../services/scoring.service');
 
@@ -112,86 +112,91 @@ test('DEFENSIVE_POSITIONS covers team defenses plus every IDP code', () => {
   assert.ok(!IDP_POSITIONS.includes('DEF'));
 });
 
+// #1204: syncPlayerSeasonStats now runs through runSyncJob (ADR 0036) - its
+// fetch (the cutoff lookup and the weekly-rollup read) still runs on the bare
+// pool, but its write now runs on the transaction client under
+// PLAYERS_BULK_WRITE_LOCK (ADR 0033), not the bare pool these tests used to
+// mock alone. createFakePool.install(t) mocks both pool.query AND
+// pool.connect, so the client-side write is observable too.
+
 test('syncPlayerSeasonStats scopes to the given positions and sums weekly points', async (t) => {
-  const queries = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    queries.push({ text, params });
-    if (text.includes('FROM "player_stats"')) {
-      return { rows: [
-        // Two 22-point DEF weeks; the aggregate of these stats would score 21.
-        { player_id: 6721, season: 2025, stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 90 }, fantasy_points: '22.00' },
-        { player_id: 6721, season: 2025, stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 95 }, fantasy_points: '22.00' },
-      ] };
-    }
-    return { rows: [] };
-  });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [/FROM "player_stats"/, () => ({ rows: [
+      // Two 22-point DEF weeks; the aggregate of these stats would score 21.
+      { player_id: 6721, season: 2025, stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 90 }, fantasy_points: '22.00' },
+      { player_id: 6721, season: 2025, stats: { sack: 2, pointsAllowed: 0, yardsAllowed: 95 }, fantasy_points: '22.00' },
+    ] }), 'pool'],
+    [insert('player_season_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
 
   const out = await syncPlayerSeasonStats({ currentSeason: 2026, positions: DEFENSIVE_POSITIONS });
   assert.equal(out.seasonsUpserted, 1);
 
-  const weekly = queries.find((q) => q.text.includes('FROM "player_stats"'));
+  const weekly = fake.calls.find((q) => q.text.includes('FROM "player_stats"'));
   assert.match(weekly.text, /JOIN "players"/);
   assert.match(weekly.text, /"p"\."position" = ANY\(\$2\)/);
   assert.deepEqual(weekly.params, [2026, DEFENSIVE_POSITIONS]);
 
-  const upsert = queries.find((q) => q.text.includes('INSERT INTO "player_season_stats"'));
-  const [playerId, season, games, stats, points] = upsert.params;
-  assert.equal(playerId, 6721);
-  assert.equal(season, 2025);
-  assert.equal(games, 2);
-  assert.deepEqual(JSON.parse(stats), { sack: 4, pointsAllowed: 0, yardsAllowed: 185 });
-  assert.equal(points, 44); // 22 + 22, NOT the 21 the aggregate would score
+  // #1251: the write is now one bulk `unnest` upsert, so params are parallel
+  // arrays (one entry per player:season row) rather than one scalar per column.
+  const upsert = fake.matching(insert('player_season_stats'))[0];
+  const [playerIds, seasons, games, stats, points] = upsert.params;
+  assert.deepEqual(playerIds, [6721]);
+  assert.deepEqual(seasons, [2025]);
+  assert.deepEqual(games, [2]);
+  assert.deepEqual(JSON.parse(stats[0]), { sack: 4, pointsAllowed: 0, yardsAllowed: 185 });
+  assert.deepEqual(points, [44]); // 22 + 22, NOT the 21 the aggregate would score
+  fake.assertClean();
 });
 
 test('the derived season cutoff ignores pick\'em-only leagues', async (t) => {
-  const queries = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    queries.push({ text, params });
-    if (text.includes('MAX("current_season")')) return { rows: [{ s: 2026 }] };
-    return { rows: [] };
-  });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [/MAX\("current_season"\)/, () => ({ rows: [{ s: 2026 }] }), 'pool'],
+    [/FROM "player_stats"/, () => ({ rows: [] }), 'pool'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
 
   await syncPlayerSeasonStats({});
-  const cutoff = queries.find((q) => q.text.includes('MAX("current_season")'));
+  const cutoff = fake.calls.find((q) => q.text.includes('MAX("current_season")'));
   assert.ok(cutoff, 'expected a derived-cutoff query when no currentSeason is given');
   // A pick'em-only league's current_season is seeded from the NFL schedule
   // and can reach the next season before any fantasy league rolls over; it
   // must never widen the backfill cutoff.
   assert.match(cutoff.text, /"pickem_only" = false/);
-  const weekly = queries.find((q) => q.text.includes('FROM "player_stats"'));
+  const weekly = fake.calls.find((q) => q.text.includes('FROM "player_stats"'));
   assert.deepEqual(weekly.params, [2026]);
+  fake.assertClean();
 });
 
 test('syncPlayerSeasonStats without positions stays unscoped (no players join)', async (t) => {
-  const queries = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    queries.push({ text, params });
-    return { rows: [] };
-  });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [/FROM "player_stats"/, () => ({ rows: [] }), 'pool'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
 
   await syncPlayerSeasonStats({ currentSeason: 2026 });
-  const weekly = queries.find((q) => q.text.includes('FROM "player_stats"'));
+  const weekly = fake.calls.find((q) => q.text.includes('FROM "player_stats"'));
   assert.ok(!weekly.text.includes('JOIN "players"'));
   assert.deepEqual(weekly.params, [2026]);
+  fake.assertClean();
 });
 
 test('syncPlayerSeasonStats scores a week itself when the stored points are unusable', async (t) => {
-  const queries = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    queries.push({ text, params });
-    if (text.includes('FROM "player_stats"')) {
-      return { rows: [
-        { player_id: 900, season: 2025, stats: { soloTackle: 6, assistedTackle: 4 }, fantasy_points: null },
-      ] };
-    }
-    return { rows: [] };
-  });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [/FROM "player_stats"/, () => ({ rows: [
+      { player_id: 900, season: 2025, stats: { soloTackle: 6, assistedTackle: 4 }, fantasy_points: null },
+    ] }), 'pool'],
+    [insert('player_season_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
 
   await syncPlayerSeasonStats({ currentSeason: 2026, positions: IDP_POSITIONS });
-  const upsert = queries.find((q) => q.text.includes('INSERT INTO "player_season_stats"'));
-  assert.equal(upsert.params[4], 8); // 6 solo + 4 assists * 0.5, recomputed
+  const upsert = fake.matching(insert('player_season_stats'))[0];
+  assert.deepEqual(upsert.params[4], [8]); // 6 solo + 4 assists * 0.5, recomputed
+  fake.assertClean();
 });

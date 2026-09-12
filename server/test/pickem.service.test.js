@@ -496,6 +496,109 @@ test('computePickemStandings lists members who never picked, at zero', () => {
   ]);
 });
 
+test('computePreviousRanks is empty in week 1 (and with no currentWeek at all)', () => {
+  const members = [{ userId: 1, teamName: 'Zebras' }, { userId: 2, teamName: 'Aces' }];
+  const games = [finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10, 1)];
+  const picks = [{ userId: 1, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' }];
+  assert.deepEqual(pickem.computePreviousRanks({ members, games, picks, mode: 'straight', currentWeek: 1 }), new Map());
+  assert.deepEqual(pickem.computePreviousRanks({ members, games, picks, mode: 'straight', currentWeek: null }), new Map());
+  assert.deepEqual(pickem.computePreviousRanks({ members, games, picks, mode: 'straight' }), new Map());
+});
+
+test('computePreviousRanks ranks only the weeks strictly before currentWeek', () => {
+  const members = [{ userId: 1, teamName: 'Zebras' }, { userId: 2, teamName: 'Aces' }];
+  const games = [
+    finalGame('BUF|MIA', 'BUF', 'MIA', 30, 10, 1),
+    finalGame('DEN|KC', 'KC', 'DEN', 28, 7, 2),
+  ];
+  const picks = [
+    { userId: 1, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'BUF' }, // Zebras right in week 1
+    { userId: 2, week: 1, gameKey: 'BUF|MIA', pickedTeam: 'MIA' }, // Aces wrong in week 1
+    { userId: 2, week: 2, gameKey: 'DEN|KC', pickedTeam: 'KC' }, // Aces right in week 2
+  ];
+  // As of week 1 only (currentWeek 2's prior week): Zebras lead 1-0.
+  const throughWeek1 = pickem.computePreviousRanks({ members, games, picks, mode: 'straight', currentWeek: 2 });
+  assert.equal(throughWeek1.get(1), 1, 'Zebras');
+  assert.equal(throughWeek1.get(2), 2, 'Aces');
+  // As of week 2 (currentWeek 3's prior week): Zebras is 1/1, Aces is also
+  // 1/1 (wrong in week 1, right in week 2) — a genuine points-and-correct
+  // tie, so both share rank 1 (competition ranks, like co-champions).
+  const throughWeek2 = pickem.computePreviousRanks({ members, games, picks, mode: 'straight', currentWeek: 3 });
+  assert.equal(throughWeek2.get(1), 1, 'Zebras');
+  assert.equal(throughWeek2.get(2), 1, 'Aces');
+});
+
+/* ------------------------------------------------------------------ *
+ * Week-board field builders (#1263, ADR 0038)                         *
+ * ------------------------------------------------------------------ */
+
+test('buildLine is null with no snapshot, and shaped from one otherwise', () => {
+  assert.equal(pickem.buildLine(null), null, 'null path: no game_odds_snapshots row yet');
+  assert.deepEqual(
+    pickem.buildLine({ spread: '-3.50', total: '47.00', observed_at: '2026-09-10T12:00:00.000Z' }),
+    { spread: -3.5, total: 47, observedAt: '2026-09-10T12:00:00.000Z' },
+    'populated path'
+  );
+});
+
+test('buildWeather is null for an indoor game or with no snapshot, and shaped otherwise', () => {
+  assert.equal(pickem.buildWeather('dome', { short_forecast: 'Sunny', temperature_f: 70 }), null, 'null path: indoor never reports weather, even with a snapshot');
+  assert.equal(pickem.buildWeather('outdoors', null), null, 'null path: no snapshot yet');
+  assert.deepEqual(
+    pickem.buildWeather('outdoors', {
+      short_forecast: 'Windy', temperature_f: 55, wind_speed_mph: 18, precipitation_probability: 20,
+    }),
+    { shortForecast: 'Windy', temperatureF: 55, windSpeedMph: 18, precipitationProbability: 20 },
+    'populated path'
+  );
+});
+
+test('buildVenue is null with nothing synced, and shaped otherwise', () => {
+  assert.equal(
+    pickem.buildVenue({ venueName: null, venueCity: null, isIndoor: null, isNeutralSite: null }),
+    null,
+    'null path'
+  );
+  assert.deepEqual(
+    pickem.buildVenue({ venueName: 'Highmark Stadium', venueCity: 'Orchard Park', isIndoor: false, isNeutralSite: false }),
+    { name: 'Highmark Stadium', city: 'Orchard Park', indoor: false, neutralSite: false },
+    'populated path'
+  );
+});
+
+test('buildRecords is null with nothing synced, and cuts each side to the Venue it is about to play in', () => {
+  assert.equal(pickem.buildRecords({ homeRecord: null, awayRecord: null }), null, 'null path');
+  assert.deepEqual(
+    pickem.buildRecords({
+      homeRecord: { total: '5-2', home: '3-0', road: '2-2' },
+      awayRecord: { total: '3-4', home: '2-1', road: '1-3' },
+    }),
+    { home: { total: '5-2', home: '3-0' }, away: { total: '3-4', road: '1-3' } },
+    'populated path: home gets its home cut, away gets its road cut'
+  );
+});
+
+test('buildSituation is always null before lock, even when live_game_states already has it, and shaped once locked', () => {
+  const live = {
+    possession: 'BUF', downDistance: '2nd & 7', isRedZone: true,
+    lastPlay: 'Allen pass complete', homeWinProbability: 0.62,
+  };
+  assert.equal(pickem.buildSituation(live, false), null, 'never surfaced before lock, whatever the row holds');
+  assert.equal(
+    pickem.buildSituation(
+      { possession: null, downDistance: null, isRedZone: null, lastPlay: null, homeWinProbability: null },
+      true
+    ),
+    null,
+    'null path: locked, but nothing written yet'
+  );
+  assert.deepEqual(
+    pickem.buildSituation(live, true),
+    { possession: 'BUF', downDistance: '2nd & 7', redZone: true, lastPlay: 'Allen pass complete', homeWinProbability: 0.62 },
+    'populated path'
+  );
+});
+
 /* ------------------------------------------------------------------ *
  * I/O — every schedule read goes through fn_normalize_nfl_team        *
  * ------------------------------------------------------------------ */

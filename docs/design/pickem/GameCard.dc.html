@@ -1,0 +1,257 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: var(--accent); } a:hover { color: var(--ink); }
+    .t-light {
+      --bg: #eef2f6; --surface: #ffffff; --surface2: #f4f7fa; --surface3: #e6ecf2;
+      --line: rgba(31, 45, 58, 0.12); --line-strong: rgba(31, 45, 58, 0.22);
+      --ink: #141b23; --dim: #55636f; --faint: #5e6a74;
+      --accent: #0f6a41; --accent-soft: rgba(15, 106, 65, 0.12); --accent-line: rgba(15, 106, 65, 0.32); --on-accent: #ffffff;
+      --home: #1e5bb8; --home-soft: rgba(30, 91, 184, 0.10); --away: #1b7d4f; --away-soft: rgba(27, 125, 79, 0.08);
+      --danger: #c62828; --danger-soft: rgba(198, 40, 40, 0.10);
+      --warning: #8a5a00; --warning-soft: rgba(138, 90, 0, 0.12);
+      --shadow-1: 0 1px 2px rgba(16, 24, 32, 0.08);
+    }
+    .t-dark {
+      --bg: #0b1015; --surface: #141b23; --surface2: #1b242f; --surface3: #222e3b;
+      --line: rgba(154, 183, 211, 0.12); --line-strong: rgba(154, 183, 211, 0.22);
+      --ink: #e8eef4; --dim: #93a4b5; --faint: #8a9bad;
+      --accent: #2fd97b; --accent-soft: rgba(47, 217, 123, 0.12); --accent-line: rgba(47, 217, 123, 0.35); --on-accent: #0b1015;
+      --home: #7eaaff; --home-soft: rgba(126, 170, 255, 0.16); --away: #7ee2a8; --away-soft: rgba(126, 226, 168, 0.16);
+      --danger: #ff6b6b; --danger-soft: rgba(255, 107, 107, 0.14);
+      --warning: #f0b34e; --warning-soft: rgba(240, 179, 78, 0.14);
+      --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+    }
+    .board { font-family: "Archivo", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.45; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+    .display { font-family: "Barlow Condensed", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; }
+    .cell { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+    .lbl b { color: var(--ink); }
+    .note { font-size: 12px; color: var(--dim); }
+    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.2; white-space: nowrap; background: var(--surface2); color: var(--dim); border: 1px solid var(--line); }
+    .badge.live { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
+    .badge.success { background: var(--away-soft); color: var(--away); border-color: var(--away); }
+    .badge.danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+    .badge.warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: currentColor; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-1); overflow: hidden; }
+    .card.final { background: var(--surface2); }
+    .card.flagged { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+    .card-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0 14px; font-size: 12px; color: var(--faint); }
+    .card-head .kick { font-weight: 600; color: var(--dim); }
+    .card-head .spacer { flex: 1; }
+    .teams { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 10px 14px 0 14px; }
+    .team { display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); text-align: left; font: inherit; color: var(--ink); }
+    .team.picked { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+    .team.won { border-color: var(--away); }
+    .team.dis { opacity: 0.7; }
+    .mono { flex: none; width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 0.04em; color: #ffffff; border: 1px solid var(--line-strong); }
+    .tname { min-width: 0; flex: 1; }
+    .tname .abbr { font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 18px; letter-spacing: 0.06em; line-height: 1; }
+    .tname .full { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tname .rec { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+    .score { font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .score.lost { color: var(--faint); font-weight: 500; }
+    .radio { flex: none; width: 18px; height: 18px; border-radius: 999px; border: 2px solid var(--line-strong); }
+    .team.picked .radio { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--surface); }
+    .fav { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--home); background: var(--home-soft); border-radius: 4px; padding: 2px 4px; margin-left: 6px; vertical-align: middle; }
+    .poss { width: 8px; height: 8px; border-radius: 999px; background: var(--warning); margin-left: 6px; display: inline-block; vertical-align: middle; }
+    .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 14px 0 14px; font-size: 12px; color: var(--dim); }
+    .meta .it { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .meta svg { width: 14px; height: 14px; color: var(--faint); }
+    .cons { padding: 10px 14px 12px 14px; }
+    .cons .row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--dim); margin-bottom: 5px; }
+    .cons .row b { color: var(--ink); font-weight: 600; }
+    .bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--surface3); }
+    .bar .a { background: var(--away); }
+    .bar .h { background: var(--home); }
+    .conf { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 12px; font-weight: 600; color: var(--ink); }
+    .conf .n { font-family: "Barlow Condensed", Impact, sans-serif; font-size: 16px; font-weight: 700; color: var(--accent); }
+    .conf.empty { color: var(--faint); border-style: dashed; }
+    .conf.empty .n { color: var(--faint); }
+    .conf.bad { border-color: var(--danger); color: var(--danger); }
+    .conf.bad .n { color: var(--danger); }
+    .headline { padding: 10px 14px 12px 14px; font-size: 12.5px; color: var(--dim); border-top: 1px solid var(--line); margin-top: 10px; }
+    .err { display: flex; align-items: center; gap: 8px; padding: 8px 14px; margin: 10px 14px 12px 14px; border-radius: 8px; background: var(--danger-soft); color: var(--danger); font-size: 12px; font-weight: 600; }
+    .sk { background: var(--surface3); border-radius: 6px; }
+    .lines { display: flex; gap: 6px; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+    .lines span { min-width: 18px; text-align: center; }
+  </style>
+</helmet>
+<div class="board {{themeClass}}" style="min-height: 1560px; padding: 32px 48px 48px 48px; box-sizing: border-box;">
+  <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px;">
+    <h1 class="display" style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: 0.06em;">Game card states</h1>
+    <span style="font-size: 13px; color: var(--dim);">One component, eleven states. Detail rows appear only when the source has the field for that phase of the game; the league's split appears only once the game is locked.</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 24px;">
+
+    <div class="cell">
+      <span class="lbl"><b>1 · Open, no pick</b> · pre-game</span>
+      <div class="card">
+        <div class="card-head"><span class="kick">Sun 1:00 PM</span><span>·</span><span>CBS</span><span class="spacer"></span><span class="badge">TEN -1.5 · O/U 38.5</span><span class="conf empty">Confidence <span class="n">--</span></span></div>
+        <div class="teams">
+          <div class="team"><span class="mono" style="background: #115740;">NYJ</span><span class="tname"><span class="abbr">NYJ</span><span class="full">New York Jets</span><span class="rec">3-4 · road 1-3</span></span><span class="radio"></span></div>
+          <div class="team"><span class="mono" style="background: #4495d2;">TEN</span><span class="tname"><span class="abbr">TEN<span class="fav">FAV</span></span><span class="full">Tennessee Titans</span><span class="rec">2-5 · home 2-1</span></span><span class="radio"></span></div>
+        </div>
+        <div class="meta"><span class="it">Nissan Stadium · Nashville</span><span class="it">Partly sunny · 86° · wind 16 mph</span></div>
+        <div class="cons"><div class="row"><span><b>9</b> of 10 managers have picked</span><span>League picks reveal at kickoff</span></div></div>
+      </div>
+      <span class="note">Records split by venue because road and home form differ; the split is dropped on a neutral site. FAV is derived from the spread sign. Wind shows at 15 mph or more, rain at 30% or more.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>2 · Picked</b> · confidence assigned</span>
+      <div class="card">
+        <div class="card-head"><span class="kick">Sun 1:00 PM</span><span>·</span><span>FOX</span><span class="spacer"></span><span class="badge">DET -7 · O/U 49.5</span><span class="conf">Confidence <span class="n">14</span></span></div>
+        <div class="teams">
+          <div class="team"><span class="mono" style="background: #a08a5a;">NO</span><span class="tname"><span class="abbr">NO</span><span class="full">New Orleans Saints</span><span class="rec">2-5 · road 0-3</span></span><span class="radio"></span></div>
+          <div class="team picked"><span class="mono" style="background: #0076b6;">DET</span><span class="tname"><span class="abbr">DET<span class="fav">FAV</span></span><span class="full">Detroit Lions</span><span class="rec">6-1 · home 4-0</span></span><span class="radio"></span></div>
+        </div>
+        <div class="meta"><span class="it">Ford Field · Detroit</span><span class="it">Indoor</span></div>
+        <div class="cons"><div class="row"><span><b>9</b> of 10 managers have picked</span><span>League picks reveal at kickoff</span></div></div>
+      </div>
+      <span class="note">The confidence chip opens a menu of 1 to 16; numbers already used on other games are disabled there.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>3 · Picked</b> · straight-up mode</span>
+      <div class="card">
+        <div class="card-head"><span class="kick">Sun 4:25 PM</span><span>·</span><span>CBS</span><span class="spacer"></span><span class="badge">MIN -1.5 · O/U 46.5</span></div>
+        <div class="teams">
+          <div class="team picked"><span class="mono" style="background: #204e32;">GB</span><span class="tname"><span class="abbr">GB</span><span class="full">Green Bay Packers</span><span class="rec">5-2 · road 2-1</span></span><span class="radio"></span></div>
+          <div class="team"><span class="mono" style="background: #4f2683;">MIN</span><span class="tname"><span class="abbr">MIN<span class="fav">FAV</span></span><span class="full">Minnesota Vikings</span><span class="rec">4-3 · home 3-1</span></span><span class="radio"></span></div>
+        </div>
+        <div class="meta"><span class="it">U.S. Bank Stadium · Minneapolis</span><span class="it">Indoor</span></div>
+        <div class="cons"><div class="row"><span><b>8</b> of 10 managers have picked</span><span>League picks reveal at kickoff</span></div></div>
+      </div>
+      <span class="note">Same card, no confidence chip. Worth 1 point.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>4 · Live</b> · locked at kickoff</span>
+      <div class="card">
+        <div class="card-head"><span class="badge live"><span class="dot"></span>Q3 · 11:30</span><span class="spacer"></span><span class="badge">Locked</span><span class="conf">Confidence <span class="n">10</span></span></div>
+        <div class="teams">
+          <div class="team picked"><span class="mono" style="background: #29126f;">BAL</span><span class="tname"><span class="abbr">BAL<span class="poss" title="Possession"></span></span><span class="full">Baltimore Ravens</span><span class="rec">4-3 · road 2-2</span></span><span class="score">17</span></div>
+          <div class="team"><span class="mono" style="background: #003b75;">IND</span><span class="tname"><span class="abbr">IND</span><span class="full">Indianapolis Colts</span><span class="rec">5-2 · home 3-0</span></span><span class="score">20</span></div>
+        </div>
+        <div class="meta"><span class="it" style="color: var(--ink); font-weight: 600;">2nd &amp; 10 at IND 25</span><span class="it">BAL ball</span><span class="it">Lucas Oil Stadium</span></div>
+        <div class="cons"><div class="row"><span>Win probability · <b>IND 61%</b></span><span>BAL 39%</span></div><div class="bar"><span class="a" style="width: 39%;"></span><span class="h" style="width: 61%;"></span></div><div class="row" style="margin-top: 8px; margin-bottom: 0;"><span>League picks · <b>BAL</b> 7, IND 2</span><span>1 no pick</span></div></div>
+      </div>
+      <span class="note">Score, clock, Situation and win probability ride the live game row at the 30-second cadence the clock already uses. Locked, so the league's picks are now shown.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>5 · Final</b> · correct pick</span>
+      <div class="card final">
+        <div class="card-head"><span class="kick">Thu 8:20 PM</span><span>·</span><span>NBC</span><span class="spacer"></span><span class="badge">Final</span><span class="badge success">Correct · +9</span></div>
+        <div class="teams">
+          <div class="team dis"><span class="mono" style="background: #002a5c;">NE</span><span class="tname"><span class="abbr">NE</span><span class="full">New England Patriots</span><span class="lines"><span>0</span><span>7</span><span>3</span><span>0</span></span></span><span class="score lost">10</span></div>
+          <div class="team picked won"><span class="mono" style="background: #002a5c;">SEA</span><span class="tname"><span class="abbr">SEA</span><span class="full">Seattle Seahawks</span><span class="lines"><span>0</span><span>0</span><span>3</span><span>10</span></span></span><span class="score">13</span></div>
+        </div>
+        <div class="headline">Seahawks pick off Drake Maye 3 times to beat Patriots 13-10 in Super Bowl rematch</div>
+      </div>
+      <span class="note">Quarter-by-quarter line and the recap headline replace the pre-game rows.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>6 · Final</b> · missed pick</span>
+      <div class="card final">
+        <div class="card-head"><span class="kick">Fri 8:35 PM</span><span>·</span><span>Netflix</span><span class="spacer"></span><span class="badge">Final</span><span class="badge danger">Missed · LAR</span></div>
+        <div class="teams">
+          <div class="team won"><span class="mono" style="background: #aa0000;">SF</span><span class="tname"><span class="abbr">SF</span><span class="full">San Francisco 49ers</span><span class="lines"><span>7</span><span>10</span><span>3</span><span>7</span></span></span><span class="score">27</span></div>
+          <div class="team picked dis"><span class="mono" style="background: #003594;">LAR</span><span class="tname"><span class="abbr">LAR</span><span class="full">Los Angeles Rams</span><span class="lines"><span>0</span><span>7</span><span>0</span><span>0</span></span></span><span class="score lost">7</span></div>
+        </div>
+        <div class="headline">49ers cruise past Rams 27-7 in the first NFL game played in Australia</div>
+      </div>
+      <span class="note">Your pick keeps its highlight so the miss is legible at a glance.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>7 · Final</b> · no pick made</span>
+      <div class="card final">
+        <div class="card-head"><span class="kick">Sun 1:00 PM</span><span>·</span><span>FOX</span><span class="spacer"></span><span class="badge">Final</span><span class="badge">No pick</span></div>
+        <div class="teams">
+          <div class="team dis"><span class="mono" style="background: #a71930;">ATL</span><span class="tname"><span class="abbr">ATL</span><span class="full">Atlanta Falcons</span></span><span class="score lost">17</span></div>
+          <div class="team won"><span class="mono" style="background: #000000;">PIT</span><span class="tname"><span class="abbr">PIT</span><span class="full">Pittsburgh Steelers</span></span><span class="score">24</span></div>
+        </div>
+        <div class="headline">Steelers lean on the run game to hold off Falcons 24-17</div>
+      </div>
+      <span class="note">Counts as neither correct nor missed; the standings pending column never includes it.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>8 · Tie</b> · nobody credited</span>
+      <div class="card final">
+        <div class="card-head"><span class="kick">Sun 4:25 PM</span><span>·</span><span>FOX</span><span class="spacer"></span><span class="badge">Final · OT</span><span class="badge warning">Tie · no credit</span></div>
+        <div class="teams">
+          <div class="team picked"><span class="mono" style="background: #008e97;">MIA</span><span class="tname"><span class="abbr">MIA</span><span class="full">Miami Dolphins</span></span><span class="score">20</span></div>
+          <div class="team"><span class="mono" style="background: #000000;">LV</span><span class="tname"><span class="abbr">LV</span><span class="full">Las Vegas Raiders</span></span><span class="score">20</span></div>
+        </div>
+        <div class="headline">Dolphins and Raiders trade field goals in overtime and settle for a 20-20 tie</div>
+      </div>
+      <span class="note">Server rule: ties credit nobody, so the confidence is simply not earned.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>9 · Flagged</b> · save rejected</span>
+      <div class="card flagged">
+        <div class="card-head"><span class="kick">Sun 8:20 PM</span><span>·</span><span>NBC</span><span class="spacer"></span><span class="badge">DAL -3 · O/U 48.5</span><span class="conf bad">Confidence <span class="n">14</span></span></div>
+        <div class="teams">
+          <div class="team picked"><span class="mono" style="background: #002a5c;">DAL</span><span class="tname"><span class="abbr">DAL<span class="fav">FAV</span></span><span class="full">Dallas Cowboys</span><span class="rec">4-3 · road 1-2</span></span><span class="radio"></span></div>
+          <div class="team"><span class="mono" style="background: #003c7f;">NYG</span><span class="tname"><span class="abbr">NYG</span><span class="full">New York Giants</span><span class="rec">2-5 · home 1-2</span></span><span class="radio"></span></div>
+        </div>
+        <div class="err"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7.5"></circle><path d="M10 6.5v4"></path><path d="M10 13.5h.01"></path></svg>Rank 14 is already on NO at DET. Pick a different rank.</div>
+      </div>
+      <span class="note">PICKEM_BAD_CONFIDENCE and PICKEM_LOCKED both name gameKeys, so the flag lands on the exact card.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>10 · Loading</b> · skeleton</span>
+      <div class="card">
+        <div class="card-head"><span class="sk" style="width: 90px; height: 12px;"></span><span class="spacer"></span><span class="sk" style="width: 120px; height: 20px; border-radius: 999px;"></span></div>
+        <div class="teams">
+          <div class="team"><span class="sk" style="width: 36px; height: 36px; border-radius: 999px;"></span><span class="tname" style="display: flex; flex-direction: column; gap: 6px;"><span class="sk" style="width: 48px; height: 14px;"></span><span class="sk" style="width: 120px; height: 10px;"></span></span></div>
+          <div class="team"><span class="sk" style="width: 36px; height: 36px; border-radius: 999px;"></span><span class="tname" style="display: flex; flex-direction: column; gap: 6px;"><span class="sk" style="width: 48px; height: 14px;"></span><span class="sk" style="width: 120px; height: 10px;"></span></span></div>
+        </div>
+        <div class="meta"><span class="sk" style="width: 160px; height: 10px;"></span><span class="sk" style="width: 90px; height: 10px;"></span></div>
+        <div class="cons"><div class="sk" style="width: 100%; height: 8px; border-radius: 999px;"></div></div>
+      </div>
+      <span class="note">Shape matches the loaded card so nothing jumps when data lands.</span>
+    </div>
+
+    <div class="cell">
+      <span class="lbl"><b>11 · Bare</b> · no detail yet</span>
+      <div class="card">
+        <div class="card-head"><span class="kick">Mon 8:15 PM</span><span class="spacer"></span><span class="conf empty">Confidence <span class="n">--</span></span></div>
+        <div class="teams">
+          <div class="team"><span class="mono" style="background: #0a2343;">DEN</span><span class="tname"><span class="abbr">DEN</span><span class="full">Denver Broncos</span></span><span class="radio"></span></div>
+          <div class="team"><span class="mono" style="background: #e31837;">KC</span><span class="tname"><span class="abbr">KC</span><span class="full">Kansas City Chiefs</span></span><span class="radio"></span></div>
+        </div>
+        <div class="cons"><div class="row"><span><b>8</b> of 10 managers have picked</span><span>League picks reveal at kickoff</span></div></div>
+      </div>
+      <span class="note">Picks never depend on the detail fields. A future week with no line, forecast or records yet simply has no rows, no placeholder dashes.</span>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Board"},"$preview":{"width":1440,"height":1560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.theme ?? 'light') === 'dark' ? 't-dark' : 't-light' };
+  }
+}
+</script>
+</body>
+</html>

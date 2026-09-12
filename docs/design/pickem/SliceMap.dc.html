@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #0f6a41; } a:hover { color: #141b23; }
+    .board { font-family: "Archivo", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.45; color: #141b23; background: #eef2f6; -webkit-font-smoothing: antialiased; }
+    .display { font-family: "Barlow Condensed", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; }
+    .card { background: #ffffff; border: 1px solid rgba(31, 45, 58, 0.12); border-radius: 14px; box-shadow: 0 1px 2px rgba(16, 24, 32, 0.08); overflow: hidden; }
+    .card-h { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid rgba(31, 45, 58, 0.12); }
+    .card-h .t { font-family: "Barlow Condensed", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; font-size: 17px; font-weight: 600; }
+    .card-h .tail { margin-left: auto; font-size: 12px; color: #5e6a74; }
+    .tree { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.6; padding: 14px 18px; white-space: pre; color: #141b23; }
+    .tree .l { color: #5e6a74; }
+    .tree .n { color: #0f6a41; font-weight: 600; }
+    .tree .x { color: #55636f; }
+    .layer { display: flex; align-items: stretch; gap: 12px; }
+    .layer .tag { flex: none; width: 92px; display: flex; align-items: center; justify-content: center; font-family: "Barlow Condensed", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; font-size: 14px; font-weight: 700; border-radius: 10px; color: #ffffff; }
+    .box { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border: 1px solid rgba(31, 45, 58, 0.22); border-radius: 10px; background: #f4f7fa; }
+    .chip { display: inline-flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: 8px; background: #ffffff; border: 1px solid rgba(31, 45, 58, 0.12); min-width: 0; }
+    .chip .k { font-size: 12.5px; font-weight: 600; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .chip .d { font-size: 11px; color: #55636f; }
+    .arrow { display: flex; justify-content: center; color: #5e6a74; padding: 2px 0 2px 104px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #5e6a74; padding: 9px 12px; border-bottom: 1px solid rgba(31, 45, 58, 0.12); background: #f4f7fa; white-space: nowrap; }
+    td { padding: 8px 12px; border-bottom: 1px solid rgba(31, 45, 58, 0.12); font-size: 12.5px; vertical-align: top; }
+    td code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; color: #0f6a41; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .pre { background: rgba(30, 91, 184, 0.10); color: #1e5bb8; }
+    .live { background: rgba(15, 106, 65, 0.12); color: #0f6a41; }
+    .fin { background: rgba(31, 45, 58, 0.12); color: #55636f; }
+    .no { background: rgba(198, 40, 40, 0.10); color: #c62828; }
+  </style>
+</helmet>
+<div class="board" style="min-height: 1460px; padding: 32px 48px 48px 48px; box-sizing: border-box;">
+  <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px;">
+    <h1 class="display" style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: 0.06em;">Pick'em slice map</h1>
+    <span style="font-size: 13px; color: #55636f;">Feature-Sliced Design cut, following the Matchup and League Dashboard islands already in the repo (ADR 0017, 0020, 0025).</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 520px minmax(0, 1fr); gap: 24px; align-items: start;">
+
+    <div class="card">
+      <div class="card-h"><span class="t">Proposed folders</span><span class="tail">replaces src/components/LeaguePickem</span></div>
+<div class="tree"><span class="l">src/</span>
+<span class="l">├─</span> <span class="n">shared/</span>
+<span class="l">│  ├─</span> lib/kickoff.js                 <span class="x">existing formatter, reuse</span>
+<span class="l">│  └─</span> ui/{Card,StatTile,SplitBar,Badge,SegmentedControl,DashButton,TeamAvatar}
+<span class="l">├─</span> <span class="n">entities/</span>
+<span class="l">│  ├─</span> pickem-game/
+<span class="l">│  │  ├─</span> model/gameModel.js           <span class="x">gameKey, teams, kickoff, lock, phase</span>
+<span class="l">│  │  ├─</span> model/gameDetailModel.js     <span class="x">line, weather, records, venue, broadcast, situation</span>
+<span class="l">│  │  ├─</span> model/usePickemWeek.js       <span class="x">moved from components/LeaguePickem</span>
+<span class="l">│  │  └─</span> index.js
+<span class="l">│  └─</span> pickem-standings/
+<span class="l">│     ├─</span> model/standingsModel.js      <span class="x">rank ties, accuracy, best week, trend</span>
+<span class="l">│     ├─</span> model/usePickemStandings.js  <span class="x">moved from hooks/</span>
+<span class="l">│     └─</span> index.js
+<span class="l">├─</span> <span class="n">features/</span>
+<span class="l">│  ├─</span> pick-winner/ui/TeamPickButton.jsx
+<span class="l">│  ├─</span> set-confidence/ui/ConfidenceMenu.jsx    <span class="x">used-number exclusion</span>
+<span class="l">│  ├─</span> save-picks/model/useSavePicks.js        <span class="x">dirty state, PUT, flagged gameKeys</span>
+<span class="l">│  └─</span> pick-week/                              <span class="x">existing slice, reuse</span>
+<span class="l">├─</span> <span class="n">widgets/</span>
+<span class="l">│  ├─</span> pickem-board/ui/{PickemBoard,GameCard,SlateGroup,SaveBar}.jsx
+<span class="l">│  ├─</span> pickem-board/model/useBoardPresenter.js <span class="x">groups by kickoff window</span>
+<span class="l">│  ├─</span> pickem-standings/ui/StandingsTable.jsx
+<span class="l">│  └─</span> pickem-settings/ui/CommissionerPanel.jsx
+<span class="l">└─</span> <span class="n">pages/</span>
+<span class="l">   └─</span> pickem/PickemPage.jsx                   <span class="x">route /league/:leagueId/pickem</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <div class="card">
+        <div class="card-h"><span class="t">Data flow</span><span class="tail">imports point downward only</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 18px;">
+          <div class="layer"><span class="tag" style="background: #4b5c66;">ESPN</span><div class="box"><span class="chip"><span class="k">scoreboard?week=N</span><span class="d">odds, records, venue, broadcasts, situation, linescores, headlines</span></span><span class="chip"><span class="k">forecast snapshots</span><span class="d">existing table: temperature, wind, precipitation chance</span></span><span class="chip"><span class="k">summary?event=ID</span><span class="d">already read by the Live box</span></span></div></div>
+          <div class="arrow">↓</div>
+          <div class="layer"><span class="tag" style="background: #1e5bb8;">Server</span><div class="box"><span class="chip"><span class="k">odds Sync run · hourly</span><span class="d">game_odds_snapshots</span></span><span class="chip"><span class="k">game-context job · hourly</span><span class="d">records, venue, broadcast on the live game row</span></span><span class="chip"><span class="k">clock poll · 30 s</span><span class="d">Situation, win probability, linescores, headline on the live game row</span></span><span class="chip"><span class="k">GET /api/pickem/league/:id/week/:w</span><span class="d">games[] gains line, weather, venue, broadcast, records, situation, linescores, headline, pickedCount; all optional</span></span></div></div>
+          <div class="arrow">↓</div>
+          <div class="layer"><span class="tag" style="background: #0f6a41;">Entities</span><div class="box"><span class="chip"><span class="k">pickem-game</span><span class="d">pure model + fetch hook</span></span><span class="chip"><span class="k">pickem-standings</span><span class="d">pure model + fetch hook</span></span></div></div>
+          <div class="arrow">↓</div>
+          <div class="layer"><span class="tag" style="background: #8a5a00;">Features</span><div class="box"><span class="chip"><span class="k">pick-winner</span></span><span class="chip"><span class="k">set-confidence</span></span><span class="chip"><span class="k">save-picks</span></span><span class="chip"><span class="k">pick-week</span></span></div></div>
+          <div class="arrow">↓</div>
+          <div class="layer"><span class="tag" style="background: #6d28d9;">Widgets</span><div class="box"><span class="chip"><span class="k">pickem-board</span><span class="d">composes GameCard from the four features</span></span><span class="chip"><span class="k">pickem-standings</span></span><span class="chip"><span class="k">pickem-settings</span></span></div></div>
+          <div class="arrow">↓</div>
+          <div class="layer"><span class="tag" style="background: #141b23;">Page</span><div class="box"><span class="chip"><span class="k">pages/pickem</span><span class="d">tabs, week, dirty-guard dialog</span></span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 24px;">
+    <div class="card-h"><span class="t">ESPN fields on the card</span><span class="tail">verified against the live scoreboard on 2026-09-11 · nothing here costs Tank01 quota</span></div>
+    <table>
+      <thead><tr><th>JSON path</th><th>Shows as</th><th>Pre-game</th><th>Live</th><th>Final</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td><code>competitions[0].odds[0].details / overUnder</code></td><td>"DET -7 · O/U 49.5" badge, FAV tag</td><td><span class="pill pre">yes</span></td><td><span class="pill no">gone</span></td><td><span class="pill no">gone</span></td><td>Odds drop out of the payload at kickoff; the hourly snapshot table already keeps every reading, so the newest one is the line.</td></tr>
+        <tr><td><code>competitors[].records[] (total, home, road)</code></td><td>"5-2 · road 2-1" under each team</td><td><span class="pill pre">yes</span></td><td><span class="pill live">yes</span></td><td><span class="pill fin">yes</span></td><td>Show road for the away team and home for the home team; that is the split that informs a pick.</td></tr>
+        <tr><td><code>competitions[0].venue.fullName / indoor</code></td><td>Venue row, "Indoor" replaces weather</td><td><span class="pill pre">yes</span></td><td><span class="pill live">yes</span></td><td><span class="pill fin">yes</span></td><td>SoFi reports indoor=false; trust the flag.</td></tr>
+        <tr><td><code>events[].weather.displayValue / temperature</code></td><td>Not used</td><td><span class="pill pre">yes</span></td><td><span class="pill live">yes</span></td><td><span class="pill no">gone</span></td><td>Weather comes from the existing forecast snapshots instead (wind and rain chance matter to a pick); indoor venues show "Indoor".</td></tr>
+        <tr><td><code>competitions[0].broadcasts[].names</code></td><td>"FOX", "ESPN/ABC", "Netflix"</td><td><span class="pill pre">yes</span></td><td><span class="pill live">yes</span></td><td><span class="pill fin">yes</span></td><td>Join multiple names with a slash.</td></tr>
+        <tr><td><code>competitions[0].neutralSite</code></td><td>Warning-colored note on the meta row</td><td><span class="pill pre">yes</span></td><td><span class="pill live">yes</span></td><td><span class="pill fin">yes</span></td><td>Home-field record is meaningless when true; drop the home/road split on that card.</td></tr>
+        <tr><td><code>situation.downDistanceText / possession</code></td><td>"2nd &amp; 10 at IND 25 · BAL ball", possession dot</td><td><span class="pill no">no</span></td><td><span class="pill live">yes</span></td><td><span class="pill no">gone</span></td><td>possession is an ESPN team id; map through competitors[].id.</td></tr>
+        <tr><td><code>situation.lastPlay.probability.homeWinPercentage</code></td><td>Win probability split bar</td><td><span class="pill no">no</span></td><td><span class="pill live">yes</span></td><td><span class="pill no">gone</span></td><td>New nullable column on the live game row; reuses shared/ui/SplitBar.</td></tr>
+        <tr><td><code>competitors[].linescores[].value</code></td><td>Quarter line under the team name</td><td><span class="pill no">no</span></td><td><span class="pill live">partial</span></td><td><span class="pill fin">yes</span></td><td>Five entries when there is overtime.</td></tr>
+        <tr><td><code>competitions[0].headlines[0].shortLinkText</code></td><td>Recap line at the foot of a Final card</td><td><span class="pill no">no</span></td><td><span class="pill no">no</span></td><td><span class="pill fin">yes</span></td><td>Plain text only; the linked story is external.</td></tr>
+        <tr><td><code>competitors[].team.color</code></td><td>Monogram fill</td><td><span class="pill pre">yes</span></td><td><span class="pill live">yes</span></td><td><span class="pill fin">yes</span></td><td>Logos are external images the CSP blocks, so the monogram is the mark. Lighten near-black fills in dark mode.</td></tr>
+        <tr><td><code>competitions[0].predictor, competitors[].leaders, odds.moneyline</code></td><td>Not used</td><td><span class="pill no">absent</span></td><td><span class="pill no">absent</span></td><td><span class="pill no">absent</span></td><td>Not present in the scoreboard payload this season; do not design around them.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -6,6 +6,7 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
+const { lastRun, runSyncJob } = require('./syncRun');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -59,6 +60,9 @@ let lastRetentionDay = null;
 // intact by the wipe guard) does stamp, so it does not hammer FFC all day - the
 // stale freshness signal is what surfaces the problem instead.
 let lastAdpSyncDay = null;
+// Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
+// and correction passes above.
+let lastProjectionFillDay = null;
 
 async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
@@ -68,7 +72,9 @@ async function tickUnlocked() {
     // corrections and finalization so the holdout captures corrected inputs,
     // then the holdout capture itself — a duty with a hard real-world
     // deadline must not sit behind waivers, trades, or live scoring, any of
-    // which can throw and abort the rest of a tick.
+    // which can throw and abort the rest of a tick. The nightly projection
+    // fill is neither a freshness nor a deadline duty (#1305 f2) — it runs
+    // last, beside runRetention, and only inside its own off-peak window.
     try {
       await runDailyStatCorrections();
     } catch (err) {
@@ -91,6 +97,16 @@ async function tickUnlocked() {
       await runDailyAdpSync();
     } catch (err) {
       console.error('daily adp sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runHourlyOddsSync();
+    } catch (err) {
+      console.error('hourly odds sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runHourlyGameContextSync();
+    } catch (err) {
+      console.error('hourly game context sync failed (will retry next tick):', err.message);
     }
     try {
       await runHoldoutSnapshots();
@@ -152,6 +168,15 @@ async function tickUnlocked() {
       if (synced) ticksSinceSync = 0;
     }
     await runRetention();
+    // Last, beside the other once-a-day housekeeping pass, and never ahead of
+    // a time-sensitive duty above: this can run long (every in-season
+    // league's whole roster), so it only starts inside its own off-peak
+    // window, never at the first tick after midnight (#1305 f2).
+    try {
+      await runNightlyProjectionFill();
+    } catch (err) {
+      console.error('nightly projection fill failed (will retry next tick):', err.message);
+    }
     lastTickError = null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
@@ -181,20 +206,18 @@ function injuryGameWindowMs(quotaMode) {
 }
 
 /**
- * The last successful injury sync, read from data_sync_runs rather than a
- * module variable (#1188): the in-memory day stamp reset on every worker
- * restart, so "daily" ran 3.4 times a day. Null when no successful run exists
- * or the read fails (which then runs the sync: the safe direction).
+ * The last successful injury sync, read via `lastRun('injuries')`
+ * (server/modules/syncRun.js, ADR 0036, #1205) rather than a hand-rolled
+ * query: the in-memory day stamp reset on every worker restart, so "daily"
+ * ran 3.4 times a day (#1188). Null when no successful run exists or the read
+ * fails (which then runs the sync: the safe direction). Deliberately reads
+ * `latestOk`, not `latest`: a failed run must not move the once-a-day gate,
+ * so the next tick retries it.
  */
 async function lastInjurySyncAt() {
   try {
-    const res = await pool.query(
-      `SELECT "finished_at" FROM "data_sync_runs"
-        WHERE "job" = 'injuries' AND "ok" = true
-        ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
-    );
-    const row = res.rows[0];
-    return row && row.finished_at ? new Date(row.finished_at) : null;
+    const { latestOk } = await lastRun('injuries');
+    return latestOk ? latestOk.finishedAt : null;
   } catch (err) {
     console.warn('runDailyInjurySync: data_sync_runs read failed, treating as never run:', err.message);
     return null;
@@ -273,6 +296,86 @@ async function runDailyAdpSync({ now = new Date() } = {}) {
   const result = await adp.syncAdp();
   lastAdpSyncDay = today;
   return result;
+}
+
+const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
+let lastOddsSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
+
+/**
+ * Hourly Line refresh (#1234, ADR 0036/0037): ESPN's scoreboard needs no key
+ * and is not quota-metered, so unlike the injury sync this job has no
+ * credential gate, and an in-memory interval gate is safe even across a
+ * worker restart - the worst case is one extra free, unmetered fetch, not a
+ * wasted budget. Runs the odds Sync run (services/espnOdds.provider.js) once
+ * per distinct (season, week) slate any live fantasy league is currently on,
+ * read with the same `fantasySeasonLiveWhereSql()` predicate
+ * `syncAndScoreLiveWeeks` uses below (that function then dedupes in JS and
+ * keeps each league's id; this one only needs the distinct pairs, so it lets
+ * SQL do the DISTINCT and discards ids) - so a league mid-transition to a new
+ * week still gets both weeks' slates priced.
+ * A single week's throw is logged and does not stop the other weeks' syncs;
+ * the interval is stamped once the set of weeks is known, so a read failure
+ * here retries next tick same as everywhere else in this module.
+ */
+async function runHourlyOddsSync({ now = new Date() } = {}) {
+  if (now.getTime() - lastOddsSyncAt < ODDS_SYNC_INTERVAL_MS) return null;
+  const leaguesResult = await pool.query(
+    `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
+     WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+  lastOddsSyncAt = now.getTime();
+  const odds = require('../services/espnOdds.provider');
+  const results = [];
+  for (const row of leaguesResult.rows) {
+    const season = row.current_season;
+    const week = row.current_week;
+    try {
+      results.push(await odds.syncOdds({ season, week }));
+    } catch (err) {
+      console.error('odds sync failed for %s week %s:', season, week, err.message);
+    }
+  }
+  return results;
+}
+
+const GAME_CONTEXT_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1262, ADR 0038)
+let lastGameContextSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
+
+/**
+ * Hourly game-context Sync run (#1262, ADR 0038): Record, Venue and
+ * Broadcast for every live fantasy league's current slate(s), same
+ * interval-gate and per-week isolation shape as `runHourlyOddsSync` above
+ * (and the same `fantasySeasonLiveWhereSql()` predicate, so a league
+ * mid-transition to a new week still gets both weeks' slates updated). A
+ * single week's throw is logged and does not stop the others; the interval
+ * is stamped once the set of weeks is known, so a read failure here retries
+ * next tick.
+ *
+ * Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
+ * CONTEXT.md's Line is the spread/total Sync run `runHourlyOddsSync` already
+ * runs above. A second hourly scoreboard fetch alongside that one is
+ * deliberate, not an oversight — see services/gameContextSync.service.js's
+ * own module doc for why the two are not folded together.
+ */
+async function runHourlyGameContextSync({ now = new Date() } = {}) {
+  if (now.getTime() - lastGameContextSyncAt < GAME_CONTEXT_SYNC_INTERVAL_MS) return null;
+  const leaguesResult = await pool.query(
+    `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
+     WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+  lastGameContextSyncAt = now.getTime();
+  const gameContextSync = require('../services/gameContextSync.service');
+  const results = [];
+  for (const row of leaguesResult.rows) {
+    const season = row.current_season;
+    const week = row.current_week;
+    try {
+      results.push(await gameContextSync.syncGameContext({ season, week }));
+    } catch (err) {
+      console.error('game context sync failed for %s week %s:', season, week, err.message);
+    }
+  }
+  return results;
 }
 
 async function tick() {
@@ -398,6 +501,133 @@ async function runHoldoutSnapshots() {
       f.season, f.week, f.profileName, f.message
     );
   }
+}
+
+// Off-peak only (#1305 f2): an early-morning UTC hour with no NFL game in
+// progress on any day of the week (Thursday/Sunday/Monday night windows all
+// fall between roughly 00:00 and 04:00 UTC the following calendar day; this
+// sits well clear of that and of the Sunday slate, which starts at 17:00
+// UTC). `render.yaml` sets no TZ, so this is deliberately a UTC hour, never
+// "local" or "the first tick after midnight".
+const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
+
+/**
+ * Nightly projection run (#1305): for every fantasy league whose season is
+ * live (`fantasySeasonLiveWhereSql` — draft complete, season not yet
+ * complete, the same eligibility the hourly odds/game-context syncs above
+ * use), generate `free_baseline_v2` Weekly projections for every currently
+ * rostered player, for every week from the league's current week through its
+ * last playoff week (`season.service.lastPlayoffWeek`). `getWeeklyProjections`
+ * (projection.service.js) owns the cache itself: a (season, week,
+ * scoring_hash, model_version) run that already has every rostered player's
+ * row is a cache hit and is never regenerated here, which is what lets this
+ * run every night at no cost once a season's weeks are filled.
+ *
+ * A Sync run per ADR 0036: `runSyncJob` owns the one `data_sync_runs` row for
+ * the whole pass, exactly as every other feed sync in this module does.
+ * `fetch()` reads the eligible leagues and each one's current roster (no
+ * transaction, no lock: nothing else bulk-writes these rows); `apply(client,
+ * unit)` fills one league's remaining weeks, one per unit. One league
+ * throwing does not stop another's: `runSyncJob` attempts every unit and only
+ * rethrows the first failure after every unit has been tried, so a prior
+ * unit's weeks are already committed regardless. That rethrow is caught here
+ * and the day is deliberately left UNSTAMPED whenever it fires, success-path
+ * stamp only: a transient failure gets retried inside the same off-peak
+ * window rather than losing the whole night, and a league that keeps failing
+ * just means the other, now-cached leagues are cheap no-ops on the retry.
+ *
+ * `apply` deliberately never passes its `client` argument into
+ * `getWeeklyProjections` (#1305 f5): that function's cache writer
+ * (`saveProjections`) and the weather lookup it calls both log-and-continue on
+ * a failed query, a contract that only holds in autocommit. Hosted inside
+ * `runSyncJob`'s per-unit transaction, a swallowed failure either aborts the
+ * transaction so the NEXT week's query throws a misleading 25P02 (rolling
+ * back every earlier week for that league too), or - worse, when the failure
+ * lands on the unit's LAST query - leaves nothing left to run, so
+ * `withTransaction`'s own COMMIT is answered with a silent ROLLBACK and no
+ * error: `ok: true` gets recorded with real-looking `weeksGenerated` counts
+ * for a league that persisted nothing. Calling it with no `client` runs it
+ * against the pool instead, autocommitting per statement exactly as it does
+ * on the live request path and as it did before this file routed through
+ * `runSyncJob`; each week's cache row is already an idempotent upsert, so
+ * nothing here needs the unit's transaction anyway. The weather provider's
+ * own HTTP fetches also stay off that transaction this way, matching ADR
+ * 0036's "fetch outside any transaction" for the same reason.
+ *
+ * Runs at most once per local calendar day, and only inside
+ * `NIGHTLY_PROJECTION_FILL_UTC_HOUR`.
+ */
+async function runNightlyProjectionFill({ now = new Date() } = {}) {
+  if (now.getUTCHours() !== NIGHTLY_PROJECTION_FILL_UTC_HOUR) return null;
+  const today = now.toLocaleDateString('en-CA');
+  if (lastProjectionFillDay === today) return null;
+
+  let outcome;
+  try {
+    outcome = await runSyncJob({
+      job: 'nightly-projection-run',
+      fetch: async () => {
+        const leaguesResult = await pool.query(
+          `SELECT "id", "current_season", "current_week", "regular_season_weeks", "playoff_teams"
+           FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
+        );
+        const units = [];
+        for (const league of leaguesResult.rows) {
+          const rosterResult = await pool.query(
+            `SELECT DISTINCT "player_id" FROM "team_players" WHERE "league_id" = $1`,
+            [league.id]
+          );
+          const playerIds = rosterResult.rows.map((r) => r.player_id);
+          if (playerIds.length > 0) units.push({ league, playerIds });
+        }
+        return units;
+      },
+      // The unit's transactional client is intentionally unused here (#1305
+      // f5, see docblock above): getWeeklyProjections must run against the
+      // pool, in autocommit, not inside this transaction.
+      apply: async (_client, { league, playerIds }) => {
+        const projection = require('../services/projection.service');
+        const { lastPlayoffWeek } = require('../services/season.service');
+        const throughWeek = lastPlayoffWeek(league);
+        let weeksGenerated = 0;
+        let weeksSkipped = 0;
+        for (let week = league.current_week; week <= throughWeek; week++) {
+          const run = await projection.getWeeklyProjections({
+            season: league.current_season, week, league, playerIds,
+          });
+          // A week is a cache HIT only when every rostered player's row came
+          // back already cached (getWeeklyProjections's own hit/miss rule,
+          // mirrored here rather than re-decided); any generation at all,
+          // partial included, counts this week as generated.
+          const allCached = playerIds.every((id) => {
+            const p = run.projections.get(id);
+            return !!p && p.cached === true;
+          });
+          if (allCached) weeksSkipped += 1; else weeksGenerated += 1;
+        }
+        return { leagueId: league.id, weeksGenerated, weeksSkipped };
+      },
+    });
+  } catch (err) {
+    // Unstamped on purpose (see docblock): a same-day retry is owed.
+    console.error('nightly projection fill failed (will retry within the window):', err.message);
+    return null;
+  }
+
+  lastProjectionFillDay = today;
+  // `runSyncJob` resolves to the single unit's own return value when exactly
+  // one unit ran, or `{ results: [...] }` for zero or more than one (never
+  // a refusal: `fetch` above has no refusal path).
+  const perLeague = outcome && Array.isArray(outcome.results) ? outcome.results : (outcome ? [outcome] : []);
+  const weeksGenerated = perLeague.reduce((sum, r) => sum + (r.weeksGenerated || 0), 0);
+  const weeksSkipped = perLeague.reduce((sum, r) => sum + (r.weeksSkipped || 0), 0);
+  if (weeksGenerated > 0 || weeksSkipped > 0) {
+    console.log(
+      `scheduler: nightly projection fill generated ${weeksGenerated} week(s), ` +
+      `skipped ${weeksSkipped} already-cached week(s) across ${perLeague.length} league(s)`
+    );
+  }
+  return { weeksGenerated, weeksSkipped, leagues: perLeague.length };
 }
 
 /**
@@ -551,35 +781,135 @@ function stopScheduler() {
 }
 
 /**
+ * Every feed-sync job the Sync run module records (ADR 0036), in the order
+ * `syncRuns` below reports them. Declared once so `getSchedulerStatus` and any
+ * future reader share one spelling (#1205). `live-box` is deliberately
+ * excluded: its data_sync_runs row is a source-switch signal, not a Sync run
+ * (#1197 R5, ADR 0035).
+ */
+const SYNC_RUN_JOBS = [
+  'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds', 'game-context',
+];
+
+// The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
+// syncRun.js). Anything else - a legacy row written before that module
+// existed, such as an old ADP row's `reason: 'thin_market'` - reports
+// outcome: null rather than inventing a value (#1205).
+const SYNC_RUN_OUTCOMES = new Set(['refused', 'fetch_failed', 'bad_response', 'write_failed']);
+
+/**
+ * `{ finishedAt, ok, outcome, failedWeeks }` for one `lastRun(job).latest`
+ * row, or null. `failedWeeks` (#1242) is `detail.failedWeeks.length` when
+ * `detail` is an object and `detail.failedWeeks` is an array, else `null` -
+ * the key absent, present but not an array, or `detail` itself null, missing,
+ * or not an object (a legacy row) all read as `null`, never a throw. It is
+ * read-only and never feeds `outcome`: an `ok` run with 13 failed weeks still
+ * reports `outcome: 'ok'`.
+ */
+function toLatestStatus(latest) {
+  if (!latest) return null;
+  const detail = latest.detail;
+  const isDetailObject = detail !== null && typeof detail === 'object';
+  const reason = isDetailObject && detail.reason;
+  const failedWeeks = isDetailObject && Array.isArray(detail.failedWeeks) ? detail.failedWeeks.length : null;
+  return {
+    finishedAt: latest.finishedAt,
+    ok: latest.ok,
+    outcome: latest.ok ? 'ok' : (SYNC_RUN_OUTCOMES.has(reason) ? reason : null),
+    failedWeeks,
+  };
+}
+
+/** `{ finishedAt }` for one `lastRun(job).latestOk` row, or null. */
+function toLatestOkStatus(latestOk) {
+  return latestOk ? { finishedAt: latestOk.finishedAt } : null;
+}
+
+/**
+ * One job's `lastRun` read, never rejecting: resolves `{ job, run, failed }`,
+ * `run` being `null` on a failed read so the caller can degrade that job to
+ * `{ latest: null, latestOk: null }` without a try/catch of its own.
+ */
+async function readSyncRunStatus(job) {
+  try {
+    return { job, run: await lastRun(job), failed: false };
+  } catch (err) {
+    return { job, run: null, failed: true, message: err.message };
+  }
+}
+
+/**
  * Snapshot of scheduler health for the /api/health and /api/admin endpoints.
- * Async because it also reports the latest ADP market sync (#747), read from
- * data_sync_runs. It must NEVER throw: health probes and the worker heartbeat
- * call it, so a read failure degrades to lastAdpSync: null, not an exception.
+ * Async because it reads every feed-sync job's latest Sync run (ADR 0036) via
+ * `lastRun(job)` (server/modules/syncRun.js): `lastRun` is the one round trip
+ * every Sync run job reads back through, and each job gets its own read so
+ * one job's failure cannot hide another's status. It must NEVER throw: health
+ * probes and the worker heartbeat call it every 60s, so a read failure
+ * degrades that job to nulls, not an exception - and however many of the
+ * `SYNC_RUN_JOBS` reads fail in one call, at most one warning is logged for
+ * it, not one per job (#1205).
+ *
+ * `lastAdpSync` reports the latest ADP run regardless of outcome (unchanged
+ * behaviour since #747, still `{ finishedAt, ok, matched }`); `lastAdpSuccess`
+ * reports the latest OK run - "last successful sync" (CONTEXT.md) - as
+ * `{ finishedAt, matched }`, `ok` being implied true (#1201). Both are derived
+ * from the same `lastRun('adp')` read `syncRuns.adp` uses, not a second query.
+ *
+ * `syncRuns` (#1205) is new: an object keyed by job literal (`SYNC_RUN_JOBS`),
+ * each value `{ latest, latestOk }`. `latest` is
+ * `{ finishedAt, ok, outcome, failedWeeks }` (`failedWeeks` added by #1242,
+ * see `toLatestStatus`) or null when the job has never run (or its migration
+ * has not landed:
+ * nothing to read is indistinguishable from nothing recorded yet). `latestOk`
+ * is `{ finishedAt }` or null. This widens only the admin route and the
+ * worker heartbeat's job status - `publishSchedulerStatus`
+ * (server/routes/health.router.js) keeps its existing whitelist, so the
+ * public `/api/health` payload is unchanged.
  */
 async function getSchedulerStatus() {
+  const results = await Promise.all(SYNC_RUN_JOBS.map(readSyncRunStatus));
+
+  const syncRuns = {};
+  let warned = false;
+  const byJob = {};
+  for (const { job, run, failed, message } of results) {
+    byJob[job] = run;
+    if (failed) {
+      if (!warned) {
+        // Never throw (health probes and the worker heartbeat depend on it),
+        // but do not degrade silently: a permanently broken read (dropped
+        // table, a permission change) would otherwise be indistinguishable
+        // from "no run yet" (#747 review 750-f4).
+        console.warn('getSchedulerStatus: data_sync_runs read failed for job %s, reporting nulls:', job, message);
+        warned = true;
+      }
+      syncRuns[job] = { latest: null, latestOk: null };
+      continue;
+    }
+    syncRuns[job] = { latest: toLatestStatus(run.latest), latestOk: toLatestOkStatus(run.latestOk) };
+  }
+
   let lastAdpSync = null;
-  try {
-    const res = await pool.query(
-      `SELECT "finished_at", "ok", "detail" FROM "data_sync_runs"
-       WHERE "job" = 'adp' ORDER BY "finished_at" DESC, "id" DESC LIMIT 1`
-    );
-    const row = res.rows[0];
-    if (row) {
+  let lastAdpSuccess = null;
+  const adp = byJob.adp;
+  if (adp) {
+    if (adp.latest) {
       lastAdpSync = {
-        finishedAt: row.finished_at,
-        ok: row.ok,
-        matched: row.detail && row.detail.matched != null ? row.detail.matched : null,
+        finishedAt: adp.latest.finishedAt,
+        ok: adp.latest.ok,
+        matched: adp.latest.detail && adp.latest.detail.matched != null ? adp.latest.detail.matched : null,
       };
     }
-  } catch (err) {
-    // Never throw (health probes and the worker heartbeat depend on it), but do
-    // not degrade silently: a permanently broken read (dropped table, a
-    // permission change) would otherwise be indistinguishable from "no run yet"
-    // (#747 review 750-f4).
-    console.warn('getSchedulerStatus: data_sync_runs read failed, reporting lastAdpSync=null:', err.message);
-    lastAdpSync = null;
+    if (adp.latestOk) {
+      lastAdpSuccess = {
+        finishedAt: adp.latestOk.finishedAt,
+        matched: adp.latestOk.detail && adp.latestOk.detail.matched != null ? adp.latestOk.detail.matched : null,
+      };
+    }
   }
-  return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync };
+
+  return { lastTickAt, lastTickError, lastSyncAt, lastAdpSync, lastAdpSuccess, syncRuns };
 }
 
 module.exports = {
@@ -589,13 +919,17 @@ module.exports = {
   draftTick,
   alertCloseMatchups,
   getSchedulerStatus,
+  SYNC_RUN_JOBS,
   syncAndScoreLiveWeeks,
   syncEveryTicks,
   runDailyInjurySync,
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
+  runHourlyOddsSync,
+  runHourlyGameContextSync,
   runHoldoutSnapshots,
+  runNightlyProjectionFill,
   runPickemWeekSync,
   runPickemSeasonCompletion,
   INTERVAL_MS,

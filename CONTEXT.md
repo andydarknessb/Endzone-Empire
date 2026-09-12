@@ -241,9 +241,79 @@ The scheduled start of an NFL game. It is the clock every time-sensitive rule
 keys off: lineup locks, pick'em locks and holdout capture deadlines.
 _Avoid_: game time, start time
 
+**Kickoff window**:
+The games on a slate that share a kickoff time, read as a group: Thursday
+night, Sunday early, Sunday late, Sunday night, Monday night. The board groups
+picks by it, and "the window locks" means every game in it has kicked off.
+_Avoid_: slot, wave, time slot
+
 **Bye week**:
 A week in which an NFL team does not play, so none of its players can score.
 Derived from the season schedule rather than supplied.
+
+**Situation**:
+Where an in-progress NFL game stands beyond its clock and score: which team
+has the ball, the down and distance, whether the ball is in the red zone,
+the last play, and the home side's win probability as the scoreboard
+computes it after that play. Read from the same scoreboard poll as the clock and
+carried on the same live game row, so it reaches clients the way the clock
+does.
+_Avoid_: game state (the clock row as a whole), drive, play-by-play (the
+Live box's source, not this)
+
+**Line**:
+The betting market's view of one NFL game: the spread and the total, read
+from the free scoreboard once an hour as its own Sync run. A line is a
+snapshot with a time; the newest one is the line.
+_Avoid_: odds (the provider vocabulary), Vegas, over/under (the total's
+market name, fine in copy, not as the term)
+
+**Record**:
+A team's win-loss summary going into a game, in three cuts: total, home and
+road. The cut that informs a pick is the one the team is about to play in
+(road for the visitor, home for the host), so a Venue that is neutral drops
+the split and keeps the total.
+_Avoid_: standing (that is the league table), form
+
+**Venue**:
+Where an NFL game is played: the stadium, whether it is indoor (weather does
+not apply) and whether it is a neutral site (neither team is at home).
+_Avoid_: stadium (fine in copy, not as the term), location
+
+**Weather**:
+A game's forecast, read from `game_weather_snapshots` at the nearest horizon.
+The Decision card and Pick'em each read it independently (#1294, no shared
+shape): the Decision card's wire carries six fields (`indoor`, `temperatureF`,
+`windSpeedMph`, `windGustMph`, `precipitationProbability`, `shortForecast`),
+every field present and nullable, `indoor` explicit, whenever a game exists;
+Pick'em's wire carries four fields (`shortForecast`, `temperatureF`,
+`windSpeedMph`, `precipitationProbability`) and is `null` outright for an
+indoor game or a missing snapshot. The 15 mph wind and 30% precipitation
+display thresholds belong to the Pick'em card alone; the Decision card
+applies no threshold to the values it shows, and shows temperature, wind
+speed and the short forecast (`windGustMph` and `precipitationProbability`
+reach it on the wire but are not displayed).
+_Avoid_: forecast (fine in copy, not as the term)
+
+**Broadcast**:
+The national network or service carrying an NFL game.
+_Avoid_: channel, TV, coverage
+
+**Linescore**:
+A side's points by period on the live game row, written once the game is
+final.
+_Avoid_: box score (the full stat line, not this), score (the running total,
+not the by-period breakdown)
+
+**Headline**:
+The scoreboard's one-line summary of a final game, written once the game is
+final.
+_Avoid_: summary, recap (implies prose, not the scoreboard's one line)
+
+**Implied team total**:
+The points a Line expects one team to score: half the total, plus or minus
+half the spread. Shown on the Decision card, never on a Ledger row.
+_Avoid_: implied points, team projection (a projection is the engine's)
 
 **Bye overlap**:
 A candidate player sharing a bye week with one or more players already on a
@@ -567,7 +637,10 @@ cost of a draft pick.
 Average draft position: where the wider fantasy market drafts a player. A market
 reference, deliberately distinct from this app's own ranking of him. One market
 serves every league: half-PPR, twelve teams, refreshed daily, and a league
-cannot start its draft while fewer than a hundred players carry one.
+cannot start its draft while fewer than a hundred players carry one. The sync
+itself refuses to write when fewer than that many of the fetched players
+match a roster row, so it can never commit a near-empty market as a
+successful run.
 _Avoid_: rank, position rank
 
 **Draft grade**:
@@ -614,7 +687,10 @@ _Avoid_: lineup
 
 **Lineup**:
 The subset of a roster a team starts in one week, one player per starting slot.
-_Avoid_: roster, starting roster
+Also the surface where a manager sets it: the page is called Lineup, and its
+heading is the team's name.
+_Avoid_: roster, starting roster, My Team (a third name for the surface), Team
+page
 
 **Unavailable**:
 A player who cannot play this week: on bye, Out, or on IR. His projection
@@ -623,18 +699,63 @@ counts as zero wherever a total is summed, and every surface shows the reason
 not unavailable.
 _Avoid_: inactive, injured
 
-**Roster Management presentation**:
+**Ledger row**:
 The single row presentation every occupied Lineup row uses, whether
-Starter, Bench, or IR: profile image, position, Bye, status, and
-acquisition detail, plus the row actions player quick view, Trade, Drop,
-and Undo. It names a row shape, not a screen: it is distinct from Roster
-(everything a team holds) and Lineup (the surface that presents rows in
-this shape). The name descends from the Roster Management table Lineup
-absorbed and removed (spec #575, ADR 0019); the sentence-case form
-'Roster management' survives only as that removed table's historical
-accessible name, used in the Lineup test suite's assertion that no such
-table remains.
-_Avoid_: Roster, Lineup, a separate Roster Management table
+Starter, Bench, or IR: slot, profile image with the NFL team's colour, name
+with injury designation and lock, position and Team code, the Game cell,
+the Edge line, projection and points. Tapping a player's name opens the
+Decision card; the one tap on the row itself is swap-select, on every form
+factor (#1240 ruling). Trade, Drop and acquisition detail live on the
+Decision card, and Undo stays a toast after a drop. It
+names a row shape, not a screen: it is distinct from Roster (everything a
+team holds) and Lineup (the surface that presents rows in this shape). It
+supersedes the Roster Management presentation, which descended from the
+Roster Management table Lineup absorbed and removed (spec #575, ADR 0019);
+the sentence-case form 'Roster management' survives only as that removed
+table's historical accessible name, used in the Lineup test suite's
+assertion that no such table remains.
+_Avoid_: Roster Management presentation (superseded), lineup row, player
+row, Roster, Lineup, a separate Roster Management table
+
+**Game cell**:
+The part of a Ledger row that says where the player's NFL game stands this
+week: before kickoff the opponent, kickoff, spread, total and weather; during
+the game the clock, score and situation; after it the final score. An
+Unavailable player's Game cell carries the reason instead.
+_Avoid_: matchup column (a Matchup is the fantasy pairing), status cell
+
+**Edge line**:
+The one line on a Ledger row that answers "why start him": in priority
+order, the injury designation with its detail; a bench player projecting
+above the starter at his slot; the largest Factor in the player's Weekly
+projection; pace against projection while live; beat or under projection
+once final. One line, never a list.
+_Avoid_: insight, note, reason column, matchup rank (the engine's opponent
+Factor is the source, not a separate defense-versus-position table)
+
+**Decision card**:
+The player detail a manager opens from a Ledger row: a drawer on desktop, a
+sheet on a phone. It carries the injury designation and detail, the game
+with implied team total and weather, the Weekly projection with its Floor
+and Ceiling, the largest Factor's explanation, usage, the bench options for
+the player's slot, and the Trade and Drop actions. It replaces the player
+quick view on the Lineup surface only; quick view stays elsewhere.
+_Avoid_: player drawer, player sheet, quick view (on Lineup)
+
+**Usage**:
+A player's opportunity counts from the week stats feed, shown on the
+Decision card for the last three weeks beside the season average: targets,
+carries, air yards, target share and fantasy points. Snap counts are not
+usage until a snap feed exists. Distinct from the engine's usage blend,
+which is a Factor.
+_Avoid_: opportunity, workload, snaps (unqualified)
+
+**Bye cluster**:
+Two or more rostered players, IR excluded, sharing one future bye week
+inside the next seven weeks. The count carries the judgment: two is worth
+noticing, three or more is a warning. Distinct from Bye overlap, which is a
+neutral fact about one candidate.
+_Avoid_: bye clustering, bye conflict, bye collision
 
 **Lineup entry**:
 One player's slot on one team's lineup card for one week. A lineup entry
@@ -936,6 +1057,26 @@ the week's slate. A side game in a fantasy league, or the whole game in a
 pick'em league. Independent of rosters and matchups; each pick locks at its
 own game's kickoff.
 
+**Pick**:
+A manager's chosen winner for one game on the slate. It locks at that game's
+kickoff, is revealed to the rest of the league at lock and never before, and
+in Confidence mode carries a confidence.
+_Avoid_: selection, bet, choice
+
+**Scoring mode**:
+How a league's pick'em turns correct picks into points, chosen by the
+commissioner before the season's first pick and fixed after. **Straight-up**:
+one point per correct pick. **Confidence**: each pick carries a confidence
+and a correct pick earns that many points. A tied game credits nobody in
+either mode.
+_Avoid_: format, game type
+
+**Confidence**:
+The number, 1 up to the slate size, a manager attaches to a pick in
+Confidence mode, each number used at most once across the week. A correct
+pick earns exactly its confidence in points.
+_Avoid_: rank, weight, points (what it becomes, not what it is)
+
 ### The projection engine
 
 Engine, unqualified, always means this one, here and throughout Evaluation. The
@@ -996,13 +1137,22 @@ _Avoid_: release, build
 
 **Interval**:
 The band around a projection expressing how uncertain it is.
-_Avoid_: confidence, margin, error bar
+_Avoid_: confidence, margin, error bar, range
+
+**Floor** and **Ceiling**:
+The manager-facing names for the ends of an Interval: Floor is its 10th
+percentile, Ceiling its 90th. They are presentation names for the interval,
+never a separate estimate.
+_Avoid_: low, high, worst case, best case, range
 
 **Start/sit advice**:
 The engine's recommendation about which rostered players to start, including an
 explicit "too close to call" answer when two players' distributions overlap
-enough that no honest edge exists.
-_Avoid_: optimal lineup
+enough that no honest edge exists. Applying advice means making exactly the
+moves the advice names, one manager action for all of them; it never
+re-assigns the whole lineup.
+_Avoid_: optimal lineup, optimize (as a manager action), optimal (in
+user-facing copy)
 
 **Optimizer**:
 The assignment routine that fills every starting slot to maximize projected

@@ -31,8 +31,9 @@ import GamesTile from './GamesTile';
  *     reads each side's name, score, Expected final and Players remaining, the
  *     week and the status.
  *   - `leagueName`: the league's name for the board's top line.
- *   - `rows`: the paired starter rows the entity hands down
- *     (`[{ slot, home, away }]`, pairStartersBySlot), rendered as given.
+ *   - `rows`: the paired starter rows the Matchup page model hands down
+ *     (`[{ slot, home, away }]`, `pairStartersBySlot` from `entities/roster`;
+ *     #1210 moved the pairing out of `entities/matchup`), rendered as given.
  *   - `games`: the live_game_states rows on `model.games`.
  *   - `activePlay`: `{ side, type, isTouchdown, nflTeam, opponent }` or null;
  *     a touchdown dashes that side's sprite, a moment play flashes the callout.

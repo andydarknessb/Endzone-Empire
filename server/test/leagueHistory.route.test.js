@@ -18,7 +18,10 @@ const app = express();
 app.use(express.json());
 app.use('/api/league', leagueRouter);
 
-const champions = [
+// Raw pickem_result.champions shape as archived: teamName plus scoring
+// fields. seasonArchive() narrows each element to the canonical
+// { teamId, name, avatarUrl, avatarStaticUrl } shape on the wire.
+const rawPickemChampions = [
   {
     teamId: 10,
     teamName: 'Archived Aces',
@@ -39,6 +42,28 @@ const champions = [
   },
 ];
 
+const canonicalPickemChampions = [
+  { teamId: 10, name: 'Archived Aces', avatarUrl: '/aces.png', avatarStaticUrl: null },
+  { teamId: 99, name: 'Departed Champs', avatarUrl: null, avatarStaticUrl: '/departed.png' },
+];
+
+// No-trophy/no-draft-grades lateral aggregate columns: array_agg over zero
+// matching rows yields one row of NULLs (not zero rows), which
+// seasonArchive.service.js's zipTrophies reads back as [].
+const NO_TROPHIES = {
+  trophy_ids: null,
+  trophy_league_ids: null,
+  trophy_team_ids: null,
+  trophy_seasons: null,
+  trophy_weeks: null,
+  trophy_types: null,
+  trophy_labels: null,
+  trophy_datas: null,
+  trophy_awarded_ats: null,
+  trophy_team_names: null,
+};
+const NO_DRAFT_GRADES = { draft_grades: null };
+
 test("GET history returns archived Pick'em champions and explicit no-champion state", async (t) => {
   let historySql = null;
   t.mock.method(pool, 'query', async (sql) => {
@@ -58,10 +83,21 @@ test("GET history returns archived Pick'em champions and explicit no-champion st
             pickem_result: JSON.stringify({
               outcome: 'champions',
               mode: 'straight',
-              champions,
+              champions: rawPickemChampions,
               provenance: { source: 'season_completion' },
               declaredAt: '2027-01-11T06:00:00.000Z',
             }),
+            trophy_ids: [77],
+            trophy_league_ids: [5],
+            trophy_team_ids: [777],
+            trophy_seasons: [2026],
+            trophy_weeks: [0],
+            trophy_types: ['pickem_champion'],
+            trophy_labels: ["2026 Pick'em Champion"],
+            trophy_datas: [{}],
+            trophy_awarded_ats: [new Date('2027-01-05T00:00:00.000Z')],
+            trophy_team_names: ['Wrong Live Winner'],
+            ...NO_DRAFT_GRADES,
           },
           {
             season: 2025,
@@ -77,14 +113,12 @@ test("GET history returns archived Pick'em champions and explicit no-champion st
               provenance: { source: 'legacy_league_history_awards' },
               declaredAt: '2026-01-11T06:00:00.000Z',
             },
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
           },
         ],
       };
     }
-    if (text.includes('FROM "trophies" JOIN "teams"')) {
-      return { rows: [{ id: 77, week: 0, type: 'pickem_champion', team_id: 777, team_name: 'Wrong Live Winner' }] };
-    }
-    if (text.includes('FROM "league_analytics"')) return { rows: [] };
     throw new Error(`Unexpected SQL: ${text}`);
   });
   const token = signToken({ id: 7, username: 'member' });
@@ -97,18 +131,12 @@ test("GET history returns archived Pick'em champions and explicit no-champion st
   assert.match(historySql, /"league_history"\."pickem_result"/);
   assert.match(historySql, /"leagues"\."pickem_only"/);
   assert.equal(response.body.seasons[0].outcome, 'champions');
-  assert.deepEqual(response.body.seasons[0].champions, champions);
-  assert.deepEqual(response.body.seasons[0].champion, {
-    teamId: 10,
-    name: 'Archived Aces',
-    avatarUrl: '/aces.png',
-    avatarStaticUrl: null,
-  });
-  assert.equal(response.body.seasons[0].champion.name, 'Archived Aces');
+  assert.deepEqual(response.body.seasons[0].champions, canonicalPickemChampions);
+  assert.equal('champion' in response.body.seasons[0], false);
   assert.equal(response.body.seasons[0].trophies[0].team_name, 'Wrong Live Winner');
   assert.equal(response.body.seasons[1].outcome, 'no_champion');
   assert.deepEqual(response.body.seasons[1].champions, []);
-  assert.equal(response.body.seasons[1].champion, null);
+  assert.equal('champion' in response.body.seasons[1], false);
 });
 
 test("GET history never promotes an ambiguous Pick'em legacy pointer as a champion", async (t) => {
@@ -127,6 +155,8 @@ test("GET history never promotes an ambiguous Pick'em legacy pointer as a champi
             champion_name: 'Ambiguous Legacy Winner',
             champion_avatar_url: null,
             champion_avatar_static_url: null,
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
           },
           {
             season: 2025,
@@ -137,12 +167,12 @@ test("GET history never promotes an ambiguous Pick'em legacy pointer as a champi
             champion_name: 'Fantasy Champion',
             champion_avatar_url: '/fantasy.png',
             champion_avatar_static_url: null,
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
           },
         ],
       };
     }
-    if (text.includes('FROM "trophies" JOIN "teams"')) return { rows: [] };
-    if (text.includes('FROM "league_analytics"')) return { rows: [] };
     throw new Error(`Unexpected SQL: ${text}`);
   });
   const token = signToken({ id: 7, username: 'member' });
@@ -153,13 +183,8 @@ test("GET history never promotes an ambiguous Pick'em legacy pointer as a champi
 
   assert.equal(response.status, 200);
   assert.equal(response.body.seasons[0].champions, null);
-  assert.equal(response.body.seasons[0].champion, null);
-  assert.deepEqual(response.body.seasons[1].champion, {
-    teamId: 20,
-    name: 'Fantasy Champion',
-    avatarUrl: '/fantasy.png',
-    avatarStaticUrl: null,
-  });
+  assert.equal('champion' in response.body.seasons[0], false);
+  assert.equal('champion' in response.body.seasons[1], false);
 });
 
 // The frozen archive is served to every league member, so a served standings
@@ -213,7 +238,9 @@ test('GET history serves standings by Team identity only, for both league types'
             champion_name: null,
             champion_avatar_url: null,
             champion_avatar_static_url: null,
-            pickem_result: { outcome: 'champions', mode: 'straight', champions, provenance: { source: 'season_completion' }, declaredAt: '2027-01-11T06:00:00.000Z' },
+            pickem_result: { outcome: 'champions', mode: 'straight', champions: rawPickemChampions, provenance: { source: 'season_completion' }, declaredAt: '2027-01-11T06:00:00.000Z' },
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
           },
           {
             season: 2025,
@@ -224,12 +251,12 @@ test('GET history serves standings by Team identity only, for both league types'
             champion_avatar_url: null,
             champion_avatar_static_url: null,
             pickem_result: null,
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
           },
         ],
       };
     }
-    if (text.includes('FROM "trophies" JOIN "teams"')) return { rows: [] };
-    if (text.includes('FROM "league_analytics"')) return { rows: [] };
     throw new Error(`Unexpected SQL: ${text}`);
   });
   const token = signToken({ id: 7, username: 'member' });
@@ -266,4 +293,213 @@ test('GET history serves standings by Team identity only, for both league types'
 
   // champion_user_id appears nowhere in the served payload.
   assert.equal(JSON.stringify(response.body).includes('champion_user_id'), false);
+});
+
+// allTime (#1212): the League's all-time Team roster. The exact shape is
+// { teamId, name, avatarUrl, championships, wins, losses, ties } — no
+// avatarStaticUrl, unlike a season's `champions` element.
+test('GET history allTime: sums championships and Record across seasons, from current Team identity', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    if (text.startsWith('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
+    if (text.includes('FROM "league_history"')) {
+      const identityColumns = {
+        all_team_ids: [10, 20],
+        all_team_names: ['Current Aces', 'Current Barons'],
+        all_team_avatar_urls: ['/current-aces.png', null],
+      };
+      return {
+        rows: [
+          {
+            season: 2026,
+            standings: [
+              { teamId: 10, name: 'Legacy Aces', wins: 8, losses: 5, ties: 1, pf: 1, pa: 1, winPct: 0.6, streak: 'W1', rank: 1 },
+              { teamId: 20, name: 'Legacy Barons', wins: 5, losses: 8, ties: 0, pf: 1, pa: 1, winPct: 0.4, streak: 'L1', rank: 2 },
+            ],
+            pickem_only: false,
+            champion_team_id: 10,
+            champion_name: 'Legacy Aces',
+            champion_avatar_url: null,
+            champion_avatar_static_url: null,
+            pickem_result: null,
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
+            ...identityColumns,
+          },
+          {
+            season: 2025,
+            standings: [
+              { teamId: 10, name: 'Legacy Aces', wins: 10, losses: 3, ties: 0, pf: 1, pa: 1, winPct: 0.77, streak: 'W3', rank: 1 },
+              { teamId: 20, name: 'Legacy Barons', wins: 3, losses: 10, ties: 0, pf: 1, pa: 1, winPct: 0.23, streak: 'L3', rank: 2 },
+            ],
+            pickem_only: false,
+            champion_team_id: null,
+            champion_name: null,
+            champion_avatar_url: null,
+            champion_avatar_static_url: null,
+            pickem_result: null,
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
+            ...identityColumns,
+          },
+        ],
+      };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  const token = signToken({ id: 7, username: 'member' });
+
+  const response = await request(app)
+    .get('/api/league/5/history')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.allTime, [
+    { teamId: 10, name: 'Current Aces', avatarUrl: '/current-aces.png', championships: 1, wins: 18, losses: 8, ties: 1 },
+    { teamId: 20, name: 'Current Barons', avatarUrl: null, championships: 0, wins: 8, losses: 18, ties: 0 },
+  ]);
+});
+
+test("GET history allTime: a pick'em Team has no Record (never 0); co-champions each still count, and a NON-champion pick'em Team still gets a row", async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    if (text.startsWith('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
+    if (text.includes('FROM "league_history"')) {
+      return {
+        rows: [
+          {
+            season: 2026,
+            standings: [
+              { teamId: 30, name: 'Pickem Aces', points: 171, correct: 120, incorrect: 10, pushes: 0, pending: 0, made: 130, weekly: {}, rank: 1 },
+              { teamId: 40, name: 'Pickem Barons', points: 171, correct: 120, incorrect: 10, pushes: 0, pending: 0, made: 130, weekly: {}, rank: 1 },
+              // Red-tell (#1212): a non-champion pick'em Team (never in
+              // `champions`, so nothing but this standings row would ever add
+              // it to allTime) must still appear, with championships: 0 and
+              // Record: null - the row-set rule is "any archived standings OR
+              // champions", not "champions, or a standings row with a
+              // numeric wins".
+              { teamId: 45, name: 'Pickem Ravens', points: 90, correct: 60, incorrect: 70, pushes: 0, pending: 0, made: 130, weekly: {}, rank: 3 },
+            ],
+            pickem_only: true,
+            champion_team_id: null,
+            champion_name: null,
+            champion_avatar_url: null,
+            champion_avatar_static_url: null,
+            pickem_result: {
+              outcome: 'champions',
+              mode: 'straight',
+              champions: [
+                { teamId: 30, teamName: 'Pickem Aces', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' },
+                { teamId: 40, teamName: 'Pickem Barons', avatarUrl: null, avatarStaticUrl: null, points: 171, correct: 120, mode: 'straight' },
+              ],
+              provenance: { source: 'season_completion' },
+              declaredAt: '2027-01-11T06:00:00.000Z',
+            },
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
+            all_team_ids: [30, 40, 45],
+            all_team_names: ['Pickem Aces', 'Pickem Barons', 'Pickem Ravens'],
+            all_team_avatar_urls: [null, null, null],
+          },
+        ],
+      };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  const token = signToken({ id: 7, username: 'member' });
+
+  const response = await request(app)
+    .get('/api/league/5/history')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.allTime, [
+    { teamId: 30, name: 'Pickem Aces', avatarUrl: null, championships: 1, wins: null, losses: null, ties: null },
+    { teamId: 40, name: 'Pickem Barons', avatarUrl: null, championships: 1, wins: null, losses: null, ties: null },
+    { teamId: 45, name: 'Pickem Ravens', avatarUrl: null, championships: 0, wins: null, losses: null, ties: null },
+  ]);
+});
+
+test('GET history allTime: a gone Team still gets a row (name/avatarUrl null); a current Team with no archived season does not appear', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    if (text.startsWith('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
+    if (text.includes('FROM "league_history"')) {
+      return {
+        rows: [
+          {
+            season: 2026,
+            standings: [
+              { teamId: 50, name: 'Archived Gone Team', wins: 4, losses: 9, ties: 0, pf: 1, pa: 1, winPct: 0.3, streak: 'L2', rank: 2 },
+            ],
+            pickem_only: false,
+            champion_team_id: 50,
+            champion_name: 'Archived Gone Team',
+            champion_avatar_url: null,
+            champion_avatar_static_url: null,
+            pickem_result: null,
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
+            // team 50 (in the archive) has no current teams row; team 60 is a
+            // current Team with no archived season and must not appear below.
+            all_team_ids: [60],
+            all_team_names: ['Brand New Team'],
+            all_team_avatar_urls: [null],
+          },
+        ],
+      };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  const token = signToken({ id: 7, username: 'member' });
+
+  const response = await request(app)
+    .get('/api/league/5/history')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.allTime, [
+    { teamId: 50, name: null, avatarUrl: null, championships: 1, wins: 4, losses: 9, ties: 0 },
+  ]);
+});
+
+test('GET history allTime: order is championships desc, then wins desc (null sorts as 0), then teamId asc', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    if (text.startsWith('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
+    if (text.includes('FROM "league_history"')) {
+      return {
+        rows: [
+          {
+            season: 2026,
+            standings: [
+              { teamId: 100, name: 'Team 100', wins: 5, losses: 5, ties: 0, pf: 1, pa: 1, winPct: 0.5, streak: 'W1', rank: 1 },
+              { teamId: 50, name: 'Team 50', wins: 5, losses: 5, ties: 0, pf: 1, pa: 1, winPct: 0.5, streak: 'W1', rank: 1 },
+              { teamId: 200, name: 'Team 200', wins: 3, losses: 7, ties: 0, pf: 1, pa: 1, winPct: 0.3, streak: 'L1', rank: 3 },
+            ],
+            pickem_only: false,
+            champion_team_id: null,
+            champion_name: null,
+            champion_avatar_url: null,
+            champion_avatar_static_url: null,
+            pickem_result: null,
+            ...NO_TROPHIES,
+            ...NO_DRAFT_GRADES,
+            all_team_ids: [100, 50, 200],
+            all_team_names: ['Team 100', 'Team 50', 'Team 200'],
+            all_team_avatar_urls: [null, null, null],
+          },
+        ],
+      };
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  });
+  const token = signToken({ id: 7, username: 'member' });
+
+  const response = await request(app)
+    .get('/api/league/5/history')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.allTime.map((row) => row.teamId), [50, 100, 200]);
 });

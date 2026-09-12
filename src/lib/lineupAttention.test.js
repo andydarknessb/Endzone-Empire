@@ -1,4 +1,4 @@
-import { lineupAttention, DEFAULT_STARTER_SLOT_ORDER } from './lineupAttention';
+import { lineupAttention } from './lineupAttention';
 
 // A standard 9-starter roster shape (matches lineup.service DEFAULT_ROSTER_SLOTS
 // keys/counts), used as the required-slots config in most cases below.
@@ -67,17 +67,18 @@ describe('lineupAttention', () => {
     expect(lineupAttention()).toEqual({ emptyStarterSlots: 0, startersOnBye: [] });
   });
 
-  test('with no roster_slots config, empty-slot count is 0 but byes are still read via the default starter order', () => {
-    // No required-slots config (a loading or legacy league): nothing to compare a
-    // fill against, so emptyStarterSlots is 0; a starter on bye is still found by
-    // the default starter slot keys.
+  test('with no roster_slots config, both signals read empty: no default starter order (#1210)', () => {
+    // No required-slots config (a loading or legacy league): there is no
+    // starting slot to inspect at all, so emptyStarterSlots is 0 and a starter
+    // on bye goes unflagged until the league's own slots arrive - never a
+    // fantasy-standard default's guess at which keys are starters.
     const entries = [
       { slot: 'QB', onBye: true, name: 'Bye QB' },
       { slot: 'BENCH', onBye: true, name: 'Bench' },
     ];
     const result = lineupAttention({ rosterSlots: [], entries });
     expect(result.emptyStarterSlots).toBe(0);
-    expect(result.startersOnBye.map((e) => e.name)).toEqual(['Bye QB']);
+    expect(result.startersOnBye).toEqual([]);
   });
 
   test('a custom roster shape (non-default keys) is honored for both signals', () => {
@@ -97,9 +98,5 @@ describe('lineupAttention', () => {
     const result = lineupAttention({ rosterSlots: slots, entries });
     expect(result.emptyStarterSlots).toBe(1);
     expect(result.startersOnBye.map((e) => e.name)).toEqual(['QB1']);
-  });
-
-  test('exposes the standard starter order it falls back to', () => {
-    expect(DEFAULT_STARTER_SLOT_ORDER).toEqual(['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF']);
   });
 });

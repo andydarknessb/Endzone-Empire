@@ -1,8 +1,7 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
 const clock = require('../modules/clock');
-const { isTransientDatabaseError } = require('../modules/dbRetry');
-const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
+const { PLAYERS_BULK_WRITE_LOCK, NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { withTransaction } = require('../modules/withTransaction');
 const { tank01Get } = require('../modules/tank01Client');
 const {
@@ -14,7 +13,7 @@ const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { fantasySideWhereSql } = require('./leagueType');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
-const { recordDataSyncRun } = require('./dataSyncRuns');
+const { runSyncJob } = require('../modules/syncRun');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -440,23 +439,51 @@ function missingTeamDefenses(existingNflTeams) {
  * (see normalizeTank01DstStats) — so they're seeded directly from the same
  * 32-team list syncWeekStats matches box scores against. Idempotent: safe to
  * re-run, since missingTeamDefenses skips any team that already has a row.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job
+ * 'team-defenses', sharing PLAYERS_BULK_WRITE_LOCK with the other players-
+ * table-family jobs (#1204). The one unit (every missing team this fetch
+ * found) inserts in a single transaction: a mid-run insert failure now rolls
+ * the whole unit back instead of leaving the teams inserted before it (the
+ * previous per-team try/catch swallowed and continued past a failure).
+ * Resolved value is unchanged: `{ teamsInserted, totalDefTeams }`.
  */
 async function syncTeamDefenses() {
+  return runSyncJob({
+    job: 'team-defenses',
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: fetchTeamDefensesUnit,
+    apply: (client, unit) => applyTeamDefensesUnit(client, unit),
+  });
+}
+
+/**
+ * fetch() for the team-defenses job: the existing-DEF-rows read, before any
+ * transaction or lock. NOT closed by PLAYERS_BULK_WRITE_LOCK: this read runs
+ * on the bare pool before the lock is taken, so two overlapping runs can both
+ * read the same "missing" list before either inserts (the lock only
+ * serializes the inserts themselves, into one after the other, not this
+ * read). `players` carries no UNIQUE constraint over (name, position) to
+ * catch the resulting double-insert - a pre-existing gap (the old
+ * unlocked, uncoordinated code had the same window), not one this ticket
+ * opened or closed.
+ */
+async function fetchTeamDefensesUnit() {
   const existing = await pool.query(`SELECT "nfl_team" FROM "players" WHERE "position" = 'DEF'`);
   const missing = missingTeamDefenses(existing.rows.map((r) => r.nfl_team));
-  let inserted = 0;
+  return [{ missing, existingCount: existing.rows.length }];
+}
+
+/** apply(client, unit) for the team-defenses job: runs inside runSyncJob's withTransaction, under PLAYERS_BULK_WRITE_LOCK. */
+async function applyTeamDefensesUnit(client, { missing, existingCount }) {
   for (const name of missing) {
-    try {
-      await pool.query(
-        `INSERT INTO "players" ("name", "position", "nfl_team") VALUES ($1, 'DEF', $1)`,
-        [name]
-      );
-      inserted += 1;
-    } catch (err) {
-      console.error('DEF backfill failed for %s:', name, err.message);
-    }
+    await client.query(
+      `INSERT INTO "players" ("name", "position", "nfl_team") VALUES ($1, 'DEF', $1)`,
+      [name]
+    );
   }
-  return { teamsInserted: inserted, totalDefTeams: existing.rows.length + inserted };
+  return { teamsInserted: missing.length, totalDefTeams: existingCount + missing.length };
 }
 
 /**
@@ -676,8 +703,12 @@ async function loadWeekMaps({ season, week }) {
  * @param {boolean} [args.suppressPlays]  write stats but emit no Scoring plays
  *   (the switch-pass rule, ADR 0035: the first apply after a source change,
  *   including the Final box landing, must not replay a touchdown cutscene)
+ * @param {object} [args.client]  a checked-out transaction client (ADR 0033);
+ *   defaults to the ambient pool for every caller outside a Sync run's own
+ *   per-unit transaction (the Live box poll, the recap path, and every test
+ *   that predates the week-stats Sync run migration, #1202) - unchanged.
  */
-async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPlays = false }) {
+async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPlays = false, client = pool }) {
   const { idByExternal, metaById, defByTeamCode, prevById, opponentByTeam, finalSyncedGameIds } = maps;
   const live = liveBox || tank01BoxSource.fromBox(box);
   // Final guard (#1186, ADR 0035): once the Final box has landed for a game
@@ -693,7 +724,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
   const plays = [];
 
   const upsertStats = async (playerId, stats, points) => {
-    await pool.query(
+    await client.query(
       `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT ("player_id", "season", "week")
@@ -828,6 +859,15 @@ function gamesNeedingBoxScore(rows) {
  *
  * Returns typed touchdown events (`plays`) for the live UI — see
  * applyGameBoxScore.
+ *
+ * A Sync run (CONTEXT.md, ADR 0036, #1202): the target-list read above stays
+ * a plain pool read (it decides WHAT to fetch, same as every job's setup),
+ * then `runSyncJob({ job: 'week-stats', ... })` owns the shape from there -
+ * fetchWeekStatsUnits pulls every target's box outside any transaction,
+ * applyWeekStatsUnit writes one game per unit inside its own transaction, and
+ * exactly one `data_sync_runs` row records the whole run. No job lock: the
+ * writes are per-game `player_stats` rows, the same rows the Live box poll
+ * upserts, and a slate-wide lock would stall it (ADR 0036).
  */
 async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   const stateRes = await pool.query(
@@ -873,15 +913,60 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   }
 
   const maps = await loadWeekMaps({ season, week });
+  // Mutated by fetchWeekStatsUnits, read back once runSyncJob resolves: fetch
+  // fully completes before any unit is applied (runSyncJob awaits it first),
+  // so this is never read while still being written.
+  const failedFetches = [];
 
-  let updated = 0;
-  let gamesProcessed = 0;
-  const plays = [];
+  const runResult = await runSyncJob({
+    job: 'week-stats',
+    lock: null,
+    fetch: () => fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }),
+    apply: (client, unit) => applyWeekStatsUnit(client, unit, { season, week, maps }),
+  });
+
+  const applied = runResult && runResult.results ? runResult.results : [runResult];
+  // Notify the Live box source switch (ADR 0035) once each Final box's
+  // transaction has actually COMMITted - never from inside applyWeekStatsUnit
+  // itself (qa-reviewer #1202 risk review): a rolled-back unit must not leave
+  // the in-memory "Final box landed" memo out of step with the DB.
+  const noteFinal = require('../modules/liveBox').noteFinalBoxApplied;
+  for (const r of applied) {
+    if (r && r.isFinal) noteFinal(r.gameId);
+  }
+  return {
+    season,
+    week,
+    playersUpdated: applied.reduce((sum, r) => sum + (r ? r.updated : 0), 0),
+    gamesProcessed: applied.length,
+    gamesSkipped: gamesSkipped + failedFetches.length,
+    plays: applied.flatMap((r) => (r ? r.plays : [])),
+  };
+}
+
+/**
+ * fetch() for the week-stats job (#1202): one Tank01 box-score call per
+ * target game, at the same pauseMs cadence and the same quota cost as the
+ * pre-Sync-run loop - fetch-all never adds calls. A game whose call fails is
+ * pushed onto the caller's `failedFetches` and left out of the returned
+ * units, rather than aborting the rest of the slate the way a bare throw
+ * would; zero units on a slate with live targets is tagged `fetch_failed`
+ * (ADR 0036) - Tank01 answered for none of the games this pass needed.
+ *
+ * Returns `{ units, detail: { skipped } }` (runSyncJob's fetch-detail wrapper,
+ * #1202) rather than a bare units array: `skipped` is run-level detail - it
+ * belongs to the WHOLE slate, not to any one game's own apply result - and a
+ * slate with two or more units has no single result to carry it on. This is
+ * what makes the recorded run's `detail.skipped` reliable regardless of how
+ * many games ended up applying (formal review, PR #1244 f1).
+ */
+async function fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }) {
+  const units = [];
   for (const target of targets) {
     try {
       // Backfill callers pace the box-score calls to stay under the provider's
       // per-second rate limit; live callers leave this at 0.
-      if (pauseMs > 0 && gamesProcessed > 0) {
+      if (pauseMs > 0 && units.length > 0) {
         await new Promise((resolve) => setTimeout(resolve, pauseMs));
       }
       // Every target here is Final box work (gamesNeedingBoxScore) or a
@@ -894,28 +979,54 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
         transport: api,
       });
       const box = tank01Body(boxResponse.data) || {};
-      gamesProcessed += 1;
       const liveBox = tank01BoxSource.fromBox(box);
-      // The Final box landing writes stats and emits no Scoring plays (the
-      // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
-      // and that difference is not a new play.
-      const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal });
-      updated += result.updated;
-      plays.push(...result.plays);
-      // A final game's stats are now in: never fetch this box score again, and
-      // refuse any Live box that arrives late for it.
-      if (target.isFinal) {
-        await markFinalStatsSynced(target.gameId);
-        require('../modules/liveBox').noteFinalBoxApplied(target.gameId);
-      }
+      units.push({ target, liveBox });
     } catch (err) {
-      // Correction-route retries are safe because every stat write is an
-      // upsert. Do not hide pool starvation as a single skipped NFL game.
-      if (isTransientDatabaseError(err)) throw err;
-      console.error('Stat sync failed for game %s:', target.gameId, err.message);
+      console.error('Box fetch failed for game %s:', target.gameId, err.message);
+      failedFetches.push(target.gameId);
     }
   }
-  return { season, week, playersUpdated: updated, gamesProcessed, gamesSkipped, plays };
+  if (units.length === 0) {
+    const error = new Error(`syncWeekStats: every box fetch failed (${targets.length} target(s))`);
+    error.syncFailureReason = 'fetch_failed';
+    throw error;
+  }
+  return { units, detail: { skipped: failedFetches } };
+}
+
+/**
+ * apply() for the week-stats job (#1202): one game per unit, each in its own
+ * transaction via runSyncJob/withTransaction (ADR 0036/0033), no job lock. A
+ * unit that throws is recorded write_failed and rolled back by runSyncJob;
+ * the units applied in earlier iterations stay applied, since each already
+ * committed in its own transaction. The failed-fetch list is NOT carried on
+ * this return value - it is run-level detail, not any one unit's, and rides
+ * instead on fetchWeekStatsUnits' own `{ units, detail: { skipped } }`
+ * wrapper, which runSyncJob merges into the recorded row regardless of how
+ * many units applied (formal review, PR #1244 f1).
+ *
+ * Stamps `final_stats_synced_at` inside this unit's own transaction (so the
+ * stamp commits or rolls back with that game's stats), but does NOT notify
+ * the Live box source switch here - that's an in-memory memo, and firing it
+ * before this unit's transaction actually COMMITs would leave it out of step
+ * with the DB on a ROLLBACK (qa-reviewer #1202 risk review). The caller
+ * notifies once runSyncJob resolves, keyed off `isFinal` in this return value.
+ */
+async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, maps }) {
+  // The Final box landing writes stats and emits no Scoring plays (the
+  // switch-pass rule, ADR 0035): its numbers may exceed the last Live box
+  // and that difference is not a new play.
+  const result = await applyGameBoxScore({ liveBox, season, week, maps, suppressPlays: target.isFinal, client });
+  // A final game's stats are now in: never fetch this box score again.
+  if (target.isFinal) {
+    await markFinalStatsSynced(target.gameId, client);
+  }
+  return {
+    gameId: target.gameId,
+    isFinal: target.isFinal,
+    updated: result.updated,
+    plays: result.plays,
+  };
 }
 
 /**
@@ -923,9 +1034,13 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
  * separate from the recap row: a recap can be regenerated without re-spending a
  * box-score call, and a stat re-sync (admin/correction route) can clear the
  * stamp if it ever needs to.
+ *
+ * `client` defaults to the ambient pool for every caller outside a Sync run's
+ * per-unit transaction; syncWeekStats' own apply (#1202) passes its unit's
+ * transaction client so the stamp commits or rolls back with that game's stats.
  */
-async function markFinalStatsSynced(tank01GameId) {
-  await pool.query(
+async function markFinalStatsSynced(tank01GameId, client = pool) {
+  await client.query(
     `UPDATE "live_game_states" SET "final_stats_synced_at" = now(), "updated_at" = now()
       WHERE "tank01_game_id" = $1`,
     [tank01GameId]
@@ -955,65 +1070,38 @@ function normalizeInjuryStatus(raw) {
  * before best-effort push.
  */
 async function syncInjuries({ api = tank01Get } = {}) {
-  // #961: every run appends exactly one data_sync_runs row so a failed injury
-  // sync stops being invisible. startedAt is captured before the upstream fetch
-  // (mirroring the ADP precedent) so the record spans the slowest part of the
-  // run. syncInjuries has TWO outcomes and no refusal: it returns, or it throws.
-  // An empty or fully unmatched feed is a legitimate ok=true run with
-  // playersUpdated 0 (the loop leaves unmatched rows untouched), not a refusal.
-  const startedAt = new Date();
-  let result;
-  try {
-    result = await runInjurySync(api);
-  } catch (error) {
-    // Every throw is recorded before it is rethrown, and reason answers the
-    // highest-value operational question this row exists for: was it upstream
-    // (Tank01, which is quota-metered) or was it us (our database)? The four
-    // reasons mirror the ADP job's vocabulary so two rows in one table read in
-    // one language, and each throw site tags its own (runInjurySync sets
-    // error.syncFailureReason):
-    //   fetch_failed  - the Tank01 getNFLPlayerList call itself threw (network,
-    //                   HTTP error, quota refusal). Upstream. Check Tank01.
-    //   bad_response  - Tank01 answered but the payload shape was wrong (the 502
-    //                   guard). Upstream contract drift. (ADP: adp.service.js:203.)
-    //   write_failed  - the database side threw (connect, lock, scan, bulk
-    //                   UPDATE, IR flag pass), rolled back. Ours. Check the DB.
-    //     - pool.connect() itself failing (pool exhaustion or refusal, the
-    //       #839 shape) is tagged in its own guard, above the transaction
-    //       try, since no client exists yet to roll back or release.
-    //     - a ROLLBACK that itself rejects (#1048) never changes the tag: the
-    //       rollback failure is attached as error.rollbackError and logged,
-    //       and the original error is what gets tagged write_failed and rethrown.
-    //   sync_failed   - reserved for a genuinely unclassified error (e.g. a bug
-    //                   in the feed-mapping loop), so the three above never blur.
-    // The record is written on the POOL, outside the transaction, so a
-    // rolled-back run still leaves its failure row; both paths carry the message.
-    await recordDataSyncRun({
-      job: 'injuries',
-      startedAt,
-      ok: false,
-      detail: { reason: error.syncFailureReason || 'sync_failed', message: error.message },
-    });
-    throw error;
-  }
-  // Success is recorded OUTSIDE the try: a best-effort record that somehow threw
-  // must not be re-caught and rewritten as a failure. The recorder swallows its
-  // own errors, so this never throws; if the swallow were removed, this run's
-  // correct result would surface the record's error instead.
-  await recordDataSyncRun({
+  // Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+  // the advisory lock and the one data_sync_runs row per run - the shape
+  // #961 hand-rolled here is now written once, in server/modules/syncRun.js.
+  // syncInjuries has TWO outcomes and no refusal: it returns, or it throws (an
+  // empty or fully unmatched feed is a legitimate ok=true run with
+  // playersUpdated 0, not a refusal, so fetchInjuryUnits never returns
+  // `{ refused: true }`). The IR flag push is deliberately OUTSIDE runSyncJob:
+  // it must run only after the designation write has committed, and it is not
+  // part of the shape the module owns.
+  let irFlagsForPush = [];
+  const result = await runSyncJob({
     job: 'injuries',
-    startedAt,
-    ok: true,
-    detail: {
-      playersUpdated: result.playersUpdated,
-      irFlags: result.irFlags,
-      teamChanges: result.teamChanges,
-    },
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: () => fetchInjuryUnits(api),
+    apply: (client, feedByExternal) => applyInjuryUnit(client, feedByExternal, (flags) => { irFlagsForPush = flags; }),
   });
+  try {
+    const { sendIrFlagPushes } = require('./irPolicy.service');
+    await sendIrFlagPushes(irFlagsForPush);
+  } catch (error) {
+    console.error('IR flag push failed:', error.message);
+  }
   return result;
 }
 
-async function runInjurySync(api) {
+/**
+ * fetch() for the injuries job: runs before any transaction or lock. Returns
+ * one unit - a Map keyed by external_id, the whole Tank01 player list boiled
+ * down to what apply needs - since this job's entire feed is one atomic write
+ * (ADR 0036: "injuries: one unit, the Tank01 player list").
+ */
+async function fetchInjuryUnits(api) {
   let response;
   try {
     response = await api('/getNFLPlayerList');
@@ -1021,6 +1109,8 @@ async function runInjurySync(api) {
     // Upstream: the Tank01 call itself threw. Tagged here because such an error
     // carries no statusCode, so it cannot be told apart from a database failure
     // downstream without a tag - the exact conflation finding 1 called out.
+    // runSyncJob tags an untagged throw fetch_failed anyway; this tag is set
+    // explicitly so the site that knows WHY (an upstream call) says so.
     error.syncFailureReason = error.syncFailureReason || 'fetch_failed';
     throw error;
   }
@@ -1051,125 +1141,103 @@ async function runInjurySync(api) {
       team: entry.team ? String(entry.team) : null,
     });
   }
+  return [feedByExternal];
+}
 
-  let irFlags;
-  let matchedCount = 0;
-  let teamCorrections = 0;
-  try {
-    // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK, and the
-    // release rule (ADR 0033). This one catch now covers BOTH failure modes:
-    // pool.connect() itself failing (the #839 shape - withTransaction propagates
-    // it untouched, with no client to ROLLBACK or release, so the connection
-    // error is never turned into a TypeError that swallows it) AND any
-    // in-transaction failure (withTransaction has already rolled back, attached
-    // error.rollbackError on a rejecting ROLLBACK, logged once, and destroyed or
-    // returned the connection). The wrapper rethrows the ORIGINAL error
-    // untouched, so tagging it write_failed here is correct for both.
-    ({ irFlags, matchedCount, teamChanges: teamCorrections } = await withTransaction(
-      pool,
-      async (client) => {
-        // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
-        // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
-        // different order across its wipe and bulk set. Both writers take one
-        // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK) as the FIRST
-        // statement after BEGIN, before any row lock, so they cannot interleave into
-        // a deadlock cycle. Blocking xact form (pg_advisory_xact_lock): the second
-        // sync waits rather than skipping. The wait ends when the other sync's
-        // transaction finishes (no network I/O inside either transaction, so it is
-        // short) OR when statement_timeout fires (pool.js sets it on every pooled
-        // connection, 15s web / 30s worker, and it counts lock-wait time), whichever
-        // comes first. The designation write below is a SINGLE bulk statement (#929),
-        // not the ~3,000 sequential single-row writes the per-player loop once took.
-        // The lock is transaction-scoped, so it is held for the whole transaction:
-        // the scan, that one bulk write, and the IR flag pass (flagRecoveredIrStashes,
-        // still inside this transaction below - a select over the current IR stashes
-        // plus one notify insert per flagged stash, usually none), released at COMMIT.
-        // That is a far shorter hold than the loop's, so a 57014 cancellation of a
-        // blocked wait is far less likely to be reached in the first place. The lock
-        // releases with the transaction either way, so there is no explicit unlock and
-        // nothing strands behind the pooler (#839): with COMMIT, with ROLLBACK, or,
-        // when the ROLLBACK itself rejects, with the connection withTransaction
-        // destroys, which drops the socket so Postgres frees the session's locks on
-        // disconnect.
-        await client.query('SELECT pg_advisory_xact_lock($1)', [PLAYERS_BULK_WRITE_LOCK]);
-        const playersResult = await client.query(
-          `SELECT "id", "external_id", "injury_status", "nfl_team"
-             FROM "players" WHERE "external_id" IS NOT NULL
-             FOR UPDATE`
-        );
-        // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
-        // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
-        // designation writes null into both text columns, and nulls survive into the
-        // text[] as SQL NULL. transitions is built over the SAME matches and drives
-        // both playersUpdated and the IR flag pass, independent of which rows the
-        // statement actually writes.
-        const transitions = [];
-        const ids = [];
-        const statuses = [];
-        const details = [];
-        const teams = [];
-        let teamChanges = 0;
-        for (const player of playersResult.rows) {
-          const feed = feedByExternal.get(String(player.external_id));
-          if (!feed) continue; // not in the feed — leave untouched
-          // A feed entry with no team keeps the label the row already has, so a
-          // blank can never wipe one; see the map build above.
-          const team = feed.team === null ? player.nfl_team : feed.team;
-          if (team !== player.nfl_team) teamChanges += 1;
-          ids.push(player.id);
-          statuses.push(feed.status);
-          details.push(feed.detail);
-          teams.push(team);
-          transitions.push({
-            playerId: player.id,
-            previousDesignation: player.injury_status,
-            currentDesignation: feed.status,
-          });
-        }
-        // One bulk UPDATE replaces the per-player loop. The three-column
-        // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
-        // three columns unchanged), so an unchanged row costs no write and the FOR
-        // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
-        // on a non-empty id list the way syncAdp guards its own bulk set.
-        if (ids.length > 0) {
-          await client.query(
-            `UPDATE "players" p
-                SET "injury_status" = v."status", "injury_detail" = v."detail",
-                    "nfl_team" = v."team"
-               FROM (SELECT unnest($1::int[]) AS "id",
-                            unnest($2::text[]) AS "status",
-                            unnest($3::text[]) AS "detail",
-                            unnest($4::text[]) AS "team") v
-              WHERE p."id" = v."id"
-                AND (p."injury_status" IS DISTINCT FROM v."status"
-                     OR p."injury_detail" IS DISTINCT FROM v."detail"
-                     OR p."nfl_team" IS DISTINCT FROM v."team")`,
-            [ids, statuses, details, teams]
-          );
-        }
-        const { flagRecoveredIrStashes } = require('./irPolicy.service');
-        return {
-          irFlags: await flagRecoveredIrStashes(client, transitions),
-          matchedCount: transitions.length,
-          teamChanges,
-        };
-      },
-      { label: 'injuries' }
-    ));
-  } catch (error) {
-    // The database side threw (connect, lock, FOR UPDATE scan, bulk UPDATE, or IR
-    // flag pass). Tagged so the failure row reads "ours", distinct from an
-    // upstream fetch_failed.
-    error.syncFailureReason = error.syncFailureReason || 'write_failed';
-    throw error;
+/**
+ * apply(client, unit) for the injuries job: runs inside runSyncJob's
+ * withTransaction, after the module has already taken PLAYERS_BULK_WRITE_LOCK
+ * on this client. `onIrFlags` hands the committed IR-flag rows back to
+ * syncInjuries by closure, since the push they drive must fire only once this
+ * transaction has committed - after runSyncJob resolves, not inside apply.
+ *
+ * Returns exactly the shape recorded as this run's data_sync_runs detail on
+ * success, and returned to syncInjuries's own caller: `{ playersUpdated,
+ * irFlags, teamChanges }`.
+ */
+async function applyInjuryUnit(client, feedByExternal, onIrFlags) {
+  // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
+  // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
+  // different order across its wipe and bulk set. Both writers take one
+  // transaction-scoped advisory lock (PLAYERS_BULK_WRITE_LOCK), taken by
+  // runSyncJob as the FIRST statement after BEGIN, before any row lock, so
+  // they cannot interleave into a deadlock cycle. Blocking xact form
+  // (pg_advisory_xact_lock): the second sync waits rather than skipping. The
+  // wait ends when the other sync's transaction finishes (no network I/O
+  // inside either transaction, so it is short) OR when statement_timeout
+  // fires (pool.js sets it on every pooled connection, 15s web / 30s worker,
+  // and it counts lock-wait time), whichever comes first. The designation
+  // write below is a SINGLE bulk statement (#929), not the ~3,000 sequential
+  // single-row writes the per-player loop once took. The lock is
+  // transaction-scoped, so it is held for the whole transaction: the scan,
+  // that one bulk write, and the IR flag pass (flagRecoveredIrStashes, still
+  // inside this transaction below - a select over the current IR stashes plus
+  // one notify insert per flagged stash, usually none), released at COMMIT.
+  // That is a far shorter hold than the loop's, so a 57014 cancellation of a
+  // blocked wait is far less likely to be reached in the first place. The lock
+  // releases with the transaction either way, so there is no explicit unlock
+  // and nothing strands behind the pooler (#839): with COMMIT, with ROLLBACK,
+  // or, when the ROLLBACK itself rejects, with the connection withTransaction
+  // destroys, which drops the socket so Postgres frees the session's locks on
+  // disconnect.
+  const playersResult = await client.query(
+    `SELECT "id", "external_id", "injury_status", "nfl_team"
+       FROM "players" WHERE "external_id" IS NOT NULL
+       FOR UPDATE`
+  );
+  // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
+  // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
+  // designation writes null into both text columns, and nulls survive into the
+  // text[] as SQL NULL. transitions is built over the SAME matches and drives
+  // both playersUpdated and the IR flag pass, independent of which rows the
+  // statement actually writes.
+  const transitions = [];
+  const ids = [];
+  const statuses = [];
+  const details = [];
+  const teams = [];
+  let teamChanges = 0;
+  for (const player of playersResult.rows) {
+    const feed = feedByExternal.get(String(player.external_id));
+    if (!feed) continue; // not in the feed — leave untouched
+    // A feed entry with no team keeps the label the row already has, so a
+    // blank can never wipe one; see the map build above.
+    const team = feed.team === null ? player.nfl_team : feed.team;
+    if (team !== player.nfl_team) teamChanges += 1;
+    ids.push(player.id);
+    statuses.push(feed.status);
+    details.push(feed.detail);
+    teams.push(team);
+    transitions.push({
+      playerId: player.id,
+      previousDesignation: player.injury_status,
+      currentDesignation: feed.status,
+    });
   }
-
-  try {
-    const { sendIrFlagPushes } = require('./irPolicy.service');
-    await sendIrFlagPushes(irFlags);
-  } catch (error) {
-    console.error('IR flag push failed:', error.message);
+  // One bulk UPDATE replaces the per-player loop. The three-column
+  // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
+  // three columns unchanged), so an unchanged row costs no write and the FOR
+  // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
+  // on a non-empty id list the way syncAdp guards its own bulk set.
+  if (ids.length > 0) {
+    await client.query(
+      `UPDATE "players" p
+          SET "injury_status" = v."status", "injury_detail" = v."detail",
+              "nfl_team" = v."team"
+         FROM (SELECT unnest($1::int[]) AS "id",
+                      unnest($2::text[]) AS "status",
+                      unnest($3::text[]) AS "detail",
+                      unnest($4::text[]) AS "team") v
+        WHERE p."id" = v."id"
+          AND (p."injury_status" IS DISTINCT FROM v."status"
+               OR p."injury_detail" IS DISTINCT FROM v."detail"
+               OR p."nfl_team" IS DISTINCT FROM v."team")`,
+      [ids, statuses, details, teams]
+    );
   }
+  const { flagRecoveredIrStashes } = require('./irPolicy.service');
+  const irFlags = await flagRecoveredIrStashes(client, transitions);
+  onIrFlags(irFlags);
   // playersUpdated counts feed matches (the length of transitions), not the
   // statement's rowCount: under the no-op predicate the two legitimately
   // differ, and the count an admin reads must not silently shrink to the
@@ -1181,7 +1249,7 @@ async function runInjurySync(api) {
   // found because a player's stat line landed in a week his listed team had not
   // played), and a run that silently stopped correcting teams reads as a
   // healthy run without it. Expect a handful in-season and 0 on a quiet day.
-  return { playersUpdated: matchedCount, irFlags: irFlags.length, teamChanges: teamCorrections };
+  return { playersUpdated: transitions.length, irFlags: irFlags.length, teamChanges };
 }
 
 /**
@@ -1216,44 +1284,117 @@ function normalizeTank01Game(entry) {
  * Pull the real NFL schedule into nfl_games — one row per team per week,
  * keyed by Tank01 team abbreviations (matching players.nfl_team from
  * syncPlayers) — powering lineup locks and bye detection. One
- * getNFLGamesForWeek call per regular-season week; idempotent upserts.
+ * getNFLGamesForWeek call per regular-season week (18, never more — Tank01 is
+ * quota-metered), all 18 issued before any write.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job 'schedule'.
+ * `fetchScheduleUnits` keeps the per-week tolerance the old interleaved loop
+ * had — a week whose call throws, or whose body is not an array, is skipped
+ * and logged rather than failing the whole run — but every fetch now runs
+ * BEFORE the single write transaction, so a throwing week can no longer leave
+ * some weeks upserted and others not. If every week fails, the run is
+ * fetch_failed and nothing is written (today's fully-empty-feed case left the
+ * same nothing-written outcome, just with no run row to show it). Otherwise
+ * one unit (every game fetched across all weeks) is written in one
+ * transaction under NFL_GAMES_BULK_WRITE_LOCK — the same lock
+ * syncScheduleFromNflverse takes, so a Tank01 run and an nflverse run started
+ * together serialize instead of interleaving their upserts (#1203).
+ *
+ * `failedWeeks` lives ONLY in the recorded data_sync_runs row: applyScheduleUnit's
+ * return value is what runSyncJob both records as the run's detail AND
+ * resolves to, so this wrapper strips failedWeeks back off before returning -
+ * the pre-launch lead note's "Must NOT change: both functions' resolved
+ * bodies... the routes see exactly what they see today" means the RESOLVED
+ * VALUE (and so the JSON both routes forward), not the run detail.
  */
-async function syncSchedule({ season }) {
-  let upserted = 0;
+async function syncSchedule({ season, api = tank01Get } = {}) {
+  const { season: resultSeason, gamesUpserted } = await runSyncJob({
+    job: 'schedule',
+    lock: NFL_GAMES_BULK_WRITE_LOCK,
+    fetch: () => fetchScheduleUnits({ season, api }),
+    apply: (client, unit) => applyScheduleUnit(client, unit),
+  });
+  return { season: resultSeason, gamesUpserted };
+}
+
+/**
+ * fetch() for the schedule job: runs before any transaction or lock. Issues
+ * all 18 getNFLGamesForWeek calls (never short-circuits on a per-week
+ * failure, since Tank01's quota is metered per call regardless of outcome)
+ * and returns ONE unit — every normalized game across every week that
+ * answered, plus the weeks that did not (`failedWeeks: [{ week, message }]`).
+ * A week whose call throws, or whose response body is not an array, is
+ * caught, logged and added to `failedWeeks`; every other week still
+ * contributes its games. Throws (tagged `fetch_failed`) only when EVERY week
+ * failed — there is then nothing to write, and the caller sees that as a
+ * failed run instead of a silent zero.
+ */
+async function fetchScheduleUnits({ season, api }) {
+  const games = [];
+  const failedWeeks = [];
   for (let week = 1; week <= 18; week++) {
     try {
-      const response = await tank01Get('/getNFLGamesForWeek', {
+      const response = await api('/getNFLGamesForWeek', {
         params: { week, seasonType: 'reg', season },
       });
-      const games = tank01Body(response.data) || [];
-      if (!Array.isArray(games)) continue;
-      for (const entry of games) {
+      const weekGames = tank01Body(response.data) || [];
+      if (!Array.isArray(weekGames)) {
+        throw new Error('unexpected getNFLGamesForWeek response shape');
+      }
+      for (const entry of weekGames) {
         const game = normalizeTank01Game(entry);
         if (!game) continue;
-        const gameKey = buildGameKey({ season, week, away: game.away, home: game.home });
-        for (const [team, opponent, side] of [
-          [game.home, game.away, 'home'],
-          [game.away, game.home, 'away'],
-        ]) {
-          // game_key/home_away are additive: Tank01 carries no venue, roof,
-          // surface or rest data, so those columns are left exactly as they
-          // are (an nflverse schedule pass fills them in).
-          await pool.query(
-            `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at", "game_key", "home_away")
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT ("season", "week", "nfl_team")
-             DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at",
-                           "game_key" = EXCLUDED."game_key", "home_away" = EXCLUDED."home_away"`,
-            [season, week, team, opponent, game.kickoffAt, gameKey, side]
-          );
-          upserted += 1;
-        }
+        games.push({ week, ...game });
       }
     } catch (err) {
       console.error('schedule sync failed for week %s:', week, err.message);
+      failedWeeks.push({ week, message: err.message });
     }
   }
-  return { season, gamesUpserted: upserted };
+  if (failedWeeks.length === 18) {
+    const allFailed = new Error('schedule sync: every week failed to fetch');
+    allFailed.syncFailureReason = 'fetch_failed';
+    throw allFailed;
+  }
+  return [{ season, games, failedWeeks }];
+}
+
+/**
+ * apply(client, unit) for the schedule job: runs inside runSyncJob's
+ * withTransaction, after the module has already taken
+ * NFL_GAMES_BULK_WRITE_LOCK on this client. Same per-team upsert the old
+ * per-week loop ran, unchanged — game_key/home_away are additive, and Tank01
+ * carries no venue, roof, surface or rest data, so those columns are left
+ * exactly as they are (an nflverse schedule pass fills them in) — just run on
+ * the transaction client instead of the bare pool, and once per fetched game
+ * rather than interleaved with the fetch.
+ *
+ * This return value is what runSyncJob records as the run's data_sync_runs
+ * detail (so `failedWeeks` is visible there) AND what it resolves to —
+ * syncSchedule strips `failedWeeks` back off before returning to ITS caller,
+ * so the two stay deliberately different.
+ */
+async function applyScheduleUnit(client, { season, games, failedWeeks }) {
+  let upserted = 0;
+  for (const { week, home, away, kickoffAt } of games) {
+    const gameKey = buildGameKey({ season, week, away, home });
+    for (const [team, opponent, side] of [
+      [home, away, 'home'],
+      [away, home, 'away'],
+    ]) {
+      await client.query(
+        `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "opponent", "kickoff_at", "game_key", "home_away")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT ("season", "week", "nfl_team")
+         DO UPDATE SET "opponent" = EXCLUDED."opponent", "kickoff_at" = EXCLUDED."kickoff_at",
+                       "game_key" = EXCLUDED."game_key", "home_away" = EXCLUDED."home_away"`,
+        [season, week, team, opponent, kickoffAt, gameKey, side]
+      );
+      upserted += 1;
+    }
+  }
+  return { season, gamesUpserted: upserted, failedWeeks };
 }
 
 // Fantasy-relevant positions — Tank01's full player list includes every
@@ -1336,41 +1477,103 @@ function normalizePlayerEntry(entry) {
  * feed's null through (a hand-run sync is a deliberate act, and clearing a
  * released player is a legitimate outcome of it), while the unattended daily
  * pass keeps the existing label instead.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job 'players',
+ * sharing PLAYERS_BULK_WRITE_LOCK with the other players-table-family jobs
+ * (#1204). The one unit (every parsed feed entry) upserts in a single
+ * transaction: a mid-run upsert failure now rolls the whole unit back instead
+ * of leaving the players upserted before it (the previous per-player
+ * try/catch swallowed and continued past a failure). Resolved shape is
+ * unchanged: `{ season, playersUpserted, skippedNonFantasy }` - but a feed
+ * carrying a duplicate `external_id` now counts it once in `playersUpserted`
+ * (#1251's JS-side dedup, applySyncPlayersUnit's own docblock), where the old
+ * per-row loop counted it twice.
  */
-async function syncPlayers({ season }) {
-  const response = await tank01Get('/getNFLPlayerList');
+async function syncPlayers({ season, api = tank01Get }) {
+  return runSyncJob({
+    job: 'players',
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: () => fetchSyncPlayersUnit({ season, api }),
+    apply: (client, unit) => applySyncPlayersUnit(client, unit),
+  });
+}
+
+/**
+ * fetch() for the players job: the Tank01 player-list call, before any
+ * transaction or lock. `api` mirrors syncSchedule/syncInjuries's own
+ * injectable default (`api = tank01Get`) — a test seam, not a behavior
+ * change: production always calls the real tank01Get.
+ */
+async function fetchSyncPlayersUnit({ season, api }) {
+  const response = await api('/getNFLPlayerList');
   const entries = tank01Body(response.data) || [];
   if (!Array.isArray(entries)) {
     const err = new Error('unexpected getNFLPlayerList response shape');
     err.statusCode = 502;
+    err.syncFailureReason = 'bad_response';
     throw err;
   }
-  let upserted = 0;
+  return [{ season, entries }];
+}
+
+/**
+ * apply(client, unit) for the players job: runs inside runSyncJob's
+ * withTransaction, under PLAYERS_BULK_WRITE_LOCK.
+ *
+ * One bulk `unnest` upsert (#1251), the same shape #904/#929 moved
+ * `syncInjuries` to and Sleeper's `upsertSeasonStats` already uses: a
+ * constant number of write statements per unit, independent of row count, so
+ * the hold under 23004 stays short enough that a concurrent holder's wait
+ * cannot reach pool.js's statement_timeout (15s web / 30s worker, SQLSTATE
+ * 57014). `ON CONFLICT DO UPDATE` raises 21000 if the same `external_id`
+ * appears twice in one statement, so a duplicate key within the batch is
+ * deduped in JS first (last entry wins) and counted once in
+ * `playersUpserted`. An empty batch (every entry skipped) issues no write
+ * statement, mirroring `syncInjuries`/`syncAdp`'s own guard.
+ */
+async function applySyncPlayersUnit(client, { season, entries }) {
   let skipped = 0;
+  // Keyed by the NUMERIC external_id (the actual ::int[] conflict target),
+  // not the parsed string, so two entries whose ids differ as text but
+  // coincide as integers ('4432' vs '04432') still collide in JS instead of
+  // reaching ON CONFLICT DO UPDATE as two array elements for the same row
+  // (21000, qa-reviewer #1251). A duplicate within one feed batch keeps only
+  // its last entry - the per-row loop's last-write-wins tolerance, preserved
+  // here in JS instead.
+  const byExternalId = new Map();
   for (const raw of entries) {
     const parsed = normalizePlayerEntry(raw);
     if (!parsed) {
       skipped += 1;
       continue;
     }
-    try {
-      await pool.query(
-        `INSERT INTO "players" ("external_id", "name", "position", "nfl_team", "photo_url", "jersey_number")
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT ("external_id")
-         DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
-                       "nfl_team" = EXCLUDED."nfl_team",
-                       -- keep an existing headshot/jersey if a later feed omits it
-                       "photo_url" = COALESCE(EXCLUDED."photo_url", "players"."photo_url"),
-                       "jersey_number" = COALESCE(EXCLUDED."jersey_number", "players"."jersey_number")`,
-        [parsed.externalId, parsed.name, parsed.position, parsed.nflTeam, parsed.photoUrl, parsed.jerseyNumber]
-      );
-      upserted += 1;
-    } catch (err) {
-      console.error('player sync: upsert failed for external_id %s:', parsed.externalId, err.message);
-    }
+    byExternalId.set(Number(parsed.externalId), parsed);
   }
-  return { season, playersUpserted: upserted, skippedNonFantasy: skipped };
+  const rows = Array.from(byExternalId.values());
+  if (rows.length > 0) {
+    await client.query(
+      `INSERT INTO "players" ("external_id", "name", "position", "nfl_team", "photo_url", "jersey_number")
+       SELECT * FROM unnest($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
+       ON CONFLICT ("external_id")
+       DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
+                     "nfl_team" = EXCLUDED."nfl_team",
+                     -- keep an existing headshot/jersey if a later feed omits it
+                     "photo_url" = COALESCE(EXCLUDED."photo_url", "players"."photo_url"),
+                     "jersey_number" = COALESCE(EXCLUDED."jersey_number", "players"."jersey_number")`,
+      [
+        rows.map((r) => r.externalId),
+        rows.map((r) => r.name),
+        rows.map((r) => r.position),
+        rows.map((r) => r.nflTeam),
+        // null (not '') survives text[], so a feed that omits photo_url/jersey_number
+        // keeps the stored value through the COALESCE above rather than clearing it.
+        rows.map((r) => r.photoUrl),
+        rows.map((r) => r.jerseyNumber),
+      ]
+    );
+  }
+  return { season, playersUpserted: rows.length, skippedNonFantasy: skipped };
 }
 
 /**
@@ -1564,8 +1767,28 @@ function buildPlayerSummary({
  * `positions: DEFENSIVE_POSITIONS` (or run
  * scripts/backfill-defense-season-stats.js) to roll up DEF/IDP only — Sleeper
  * never writes rows for those positions, so the scoped upsert is safe.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
+ * the advisory lock and the one data_sync_runs row per run, job
+ * 'season-stats', sharing PLAYERS_BULK_WRITE_LOCK with the other
+ * players-table-family jobs (#1204). The one unit (every player:season
+ * rollup this fetch computed) upserts in a single transaction: a mid-run
+ * upsert failure now rolls the whole unit back instead of leaving the rollups
+ * upserted before it (the previous per-rollup try/catch swallowed and
+ * continued past a failure). Resolved value is unchanged: `{ cutoffSeason,
+ * seasonsUpserted }`.
  */
 async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
+  return runSyncJob({
+    job: 'season-stats',
+    lock: PLAYERS_BULK_WRITE_LOCK,
+    fetch: () => fetchSyncPlayerSeasonStatsUnit({ currentSeason, positions }),
+    apply: (client, unit) => applySyncPlayerSeasonStatsUnit(client, unit),
+  });
+}
+
+/** fetch() for the season-stats job: the cutoff lookup and the weekly-rollup read, before any transaction or lock. */
+async function fetchSyncPlayerSeasonStatsUnit({ currentSeason, positions } = {}) {
   let cutoff = Number(currentSeason);
   if (!Number.isInteger(cutoff)) {
     // Pick'em-only leagues are excluded from the derived cutoff: their
@@ -1604,35 +1827,56 @@ async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
     byKey.get(key).rows.push(row);
   }
 
-  let upserted = 0;
-  for (const { playerId, season, rows } of byKey.values()) {
-    const { games, stats } = aggregateSeasonStats(rows.map((r) => r.stats));
+  return [{ cutoff, entries: Array.from(byKey.values()) }];
+}
+
+/**
+ * apply(client, unit) for the season-stats job: runs inside runSyncJob's
+ * withTransaction, under PLAYERS_BULK_WRITE_LOCK.
+ *
+ * One bulk `unnest` upsert (#1251), the exact column list and conflict
+ * clause Sleeper's `upsertSeasonStats` already uses for the same table (the
+ * shape is copied, not the function): a constant number of write statements
+ * per unit, independent of row count. `entries` is already unique per
+ * `player:season` from the fetch's grouping, so no JS-side dedup is needed
+ * here the way the players job needs one. Sleeper's own writer now takes the
+ * same 23004 lock inside its own transaction (see `sleeper.service.js`), so
+ * the two writers of `player_season_stats` serialize instead of racing to a
+ * deadlock. An empty batch issues no write statement.
+ */
+async function applySyncPlayerSeasonStatsUnit(client, { cutoff, entries }) {
+  const rows = entries.map(({ playerId, season, rows: weekRows }) => {
+    const { games, stats } = aggregateSeasonStats(weekRows.map((r) => r.stats));
     // Sum the stored weekly points rather than scoring the aggregate: the
     // teamDefense pointsAllowed/yardsAllowed rules are per-game tier tables,
     // so scoring a season total tier-matches once instead of once per week.
     // For linear categories the two are identical under default rules.
-    const points = Math.round(rows.reduce((sum, r) => {
+    const points = Math.round(weekRows.reduce((sum, r) => {
       // Careful: Number(null) is 0, which would silently score a missing week
       // as zero instead of recomputing it.
       const weekPoints = r.fantasy_points == null ? NaN : Number(r.fantasy_points);
       return sum + (Number.isFinite(weekPoints) ? weekPoints : calculateFantasyPoints(r.stats));
     }, 0) * 100) / 100;
-    try {
-      await pool.query(
-        `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT ("player_id", "season")
-         DO UPDATE SET "games_played" = EXCLUDED."games_played",
-                       "stats" = EXCLUDED."stats",
-                       "fantasy_points" = EXCLUDED."fantasy_points"`,
-        [playerId, season, games, JSON.stringify(stats), points]
-      );
-      upserted += 1;
-    } catch (err) {
-      console.error('season-stat backfill failed for player %s season %s:', playerId, season, err.message);
-    }
+    return { playerId, season, games, stats, points };
+  });
+  if (rows.length > 0) {
+    await client.query(
+      `INSERT INTO "player_season_stats" ("player_id", "season", "games_played", "stats", "fantasy_points")
+       SELECT * FROM unnest($1::int[], $2::int[], $3::int[], $4::jsonb[], $5::numeric[])
+       ON CONFLICT ("player_id", "season")
+       DO UPDATE SET "games_played" = EXCLUDED."games_played",
+                     "stats" = EXCLUDED."stats",
+                     "fantasy_points" = EXCLUDED."fantasy_points"`,
+      [
+        rows.map((r) => r.playerId),
+        rows.map((r) => r.season),
+        rows.map((r) => r.games),
+        rows.map((r) => JSON.stringify(r.stats)),
+        rows.map((r) => r.points),
+      ]
+    );
   }
-  return { cutoffSeason: cutoff, seasonsUpserted: upserted };
+  return { cutoffSeason: cutoff, seasonsUpserted: rows.length };
 }
 
 /**

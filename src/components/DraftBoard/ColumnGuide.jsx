@@ -12,7 +12,7 @@ import {
   ListItemText,
 } from '@mui/material';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import { STAT_DEFINITIONS } from '../common/AbbreviationTooltip';
+import { STAT_DEFINITIONS } from '../../shared/ui/AbbreviationTooltip';
 import { SORT_FIELDS } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 

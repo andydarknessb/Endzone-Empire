@@ -513,8 +513,14 @@ if (!ENABLED) {
         position: 'RB',
         nfl_team: 'PGK',
         injury_status: null,
+        // #1235 (f2): injury_detail and week_stats ride along now, so this
+        // entry gets an Edge line by the same rule as any other; neither
+        // player has an injury_detail value or a player_stats row seeded
+        // above, so both are null.
+        injury_detail: null,
         slot: 'RB',
         spent: true,
+        week_stats: null,
       }],
       'the off-roster starter and nothing else: not the rostered starter, not the off-roster BENCH/IR rows, not another week'
     );

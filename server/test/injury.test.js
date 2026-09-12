@@ -413,7 +413,15 @@ test('#961 failure: one ok=false row carries the error message, and the run stil
 
   // Red-tell for the rethrow half of criterion 3: swallowing the rethrow makes
   // this reject-assertion red (syncInjuries would resolve instead).
-  await assert.rejects(syncInjuries({ api: healthyToQuestionableApi }), /scan blew up/);
+  const promise = syncInjuries({ api: healthyToQuestionableApi });
+  await assert.rejects(promise, /scan blew up/);
+  const error = await promise.catch((e) => e);
+  // Red-tell: dropping runSyncJob's tagReason fallback for a per-unit throw
+  // (server/modules/syncRun.js) drops this, and detail.failed[0].reason below,
+  // to undefined. The run's own detail.reason (asserted next) is a literal
+  // 'write_failed' set unconditionally at the record call, so it cannot pin
+  // this fallback by itself - the per-unit tag is what can.
+  assert.equal(error.syncFailureReason, 'write_failed', 'the rejected error carries the same tag callers read');
 
   const records = dataSyncRuns(fake.calls);
   // Red-tell for the record half of criterion 3: deleting the failure record
@@ -422,12 +430,11 @@ test('#961 failure: one ok=false row carries the error message, and the run stil
   assert.equal(records[0].params[0], 'injuries');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'scan blew up', 'the error message is in detail');
-  // A throw from inside the transaction is the database side. Red-tell:
-  // dropping the write_failed tag in the transaction catch drops this to
-  // sync_failed. Control: 'write_failed' here, 'fetch_failed'/'bad_response' in
-  // the two pre-transaction tests below.
-  assert.equal(detail.reason, 'write_failed', 'a scan failure is the database side');
+  assert.equal(detail.reason, 'write_failed', 'the run outcome is write_failed');
+  // ADR 0036: a failed unit is recorded in detail.failed[], one entry per unit
+  // that threw (injuries has exactly one unit, so exactly one entry here).
+  assert.equal(detail.failed[0].message, 'scan blew up', 'the error message is in detail.failed[]');
+  assert.equal(detail.failed[0].reason, 'write_failed', 'the per-unit tag (not the record\'s literal reason above) is what the fallback drives');
   // Ruling 1 control: this scan throws but the ROLLBACK succeeds cleanly, so
   // the connection is healthy and must be returned to the pool, not destroyed.
   // Red-tell: destroying on every error path (release with an Error
@@ -464,17 +471,20 @@ test('#961 upstream failure: an api() throw records ok=false with reason "fetch_
   // statusCode, so only a tag distinguishes it from a database failure - which
   // is the whole point of splitting the reason (finding 1): "upstream or us" is
   // the highest-value question the row answers, and this sync is quota-metered.
-  // Red-tell: dropping the fetch_failed tag in runInjurySync's api() catch drops
-  // this to sync_failed. Control: reason is 'fetch_failed' here, 'bad_response'
-  // in the shape-guard test, 'write_failed' in the in-transaction test.
+  // Red-tell: an untagged fetch throw is tagged fetch_failed by runSyncJob's own
+  // fetch-catch fallback (server/modules/syncRun.js's tagReason, also pinned
+  // directly in syncRun.test.js); this test pins that the SAME tag reaches the
+  // rejected error syncInjuries's own callers see, not just the recorded row.
+  // Control: reason is 'fetch_failed' here, 'bad_response' in the shape-guard
+  // test, 'write_failed' in the in-transaction test.
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  await assert.rejects(
-    syncInjuries({ api: async () => { throw new Error('Tank01 timed out'); } }),
-    /Tank01 timed out/,
-  );
+  const promise = syncInjuries({ api: async () => { throw new Error('Tank01 timed out'); } });
+  await assert.rejects(promise, /Tank01 timed out/);
+  const error = await promise.catch((e) => e);
+  assert.equal(error.syncFailureReason, 'fetch_failed', 'the rejected error carries the same tag the record uses');
 
   const records = dataSyncRuns(fake.calls);
   assert.equal(records.length, 1, 'exactly one data_sync_runs row on an upstream failure');
@@ -514,11 +524,11 @@ test('#961 bad response: a non-array getNFLPlayerList body records ok=false with
   fake.assertClean();
 });
 
-test('#1041 connect failure: pool.connect() rejecting records ok=false with reason "write_failed", not "sync_failed"', async (t) => {
+test('#1041 connect failure: pool.connect() rejecting records ok=false with reason "write_failed"', async (t) => {
   // The #839 shape: pool exhaustion or refusal makes pool.connect() itself
   // throw, above the transaction try/catch/finally (no client exists yet to
   // ROLLBACK or release). Before this fix that throw carried no
-  // syncFailureReason and fell through to the sync_failed fallback, even
+  // syncFailureReason and fell through to an unclassified fallback, even
   // though it is unambiguously the database side. Control: 'write_failed'
   // here matches the in-transaction test above; 'fetch_failed'/'bad_response'
   // are the two upstream sibling tests.
@@ -540,10 +550,15 @@ test('#1041 connect failure: pool.connect() rejecting records ok=false with reas
   // rejected. A TypeError about `release` reaching the caller (the hazard the
   // ticket exists to avoid) would also make this reject, so only the message
   // proves the original connection error survived intact.
-  await assert.rejects(
-    syncInjuries({ api: healthyToQuestionableApi }),
-    /connection refused by pooler/,
-  );
+  const promise = syncInjuries({ api: healthyToQuestionableApi });
+  await assert.rejects(promise, /connection refused by pooler/);
+  const error = await promise.catch((e) => e);
+  // Red-tell: dropping runSyncJob's tagReason fallback for a per-unit throw
+  // (server/modules/syncRun.js) drops this, and detail.failed[0].reason below,
+  // to undefined. The run's own detail.reason (asserted next) is a literal
+  // 'write_failed' set unconditionally at the record call, so it cannot pin
+  // this fallback by itself - the per-unit tag is what can.
+  assert.equal(error.syncFailureReason, 'write_failed', 'the rejected error carries the same tag callers read');
 
   const records = dataSyncRuns(fake.calls);
   assert.equal(records.length, 1, 'exactly one data_sync_runs row on a connect failure');
@@ -551,10 +566,9 @@ test('#1041 connect failure: pool.connect() rejecting records ok=false with reas
   assert.equal(records[0].params[0], 'injuries');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'connection refused by pooler', 'the connect error message is in detail');
-  // Red-tell: dropping the tag line in the new connect() guard (or the guard
-  // itself) drops this to 'sync_failed'.
-  assert.equal(detail.reason, 'write_failed', 'a connect failure is the database side, not unclassified');
+  assert.equal(detail.reason, 'write_failed', 'a connect failure is the database side');
+  assert.equal(detail.failed[0].message, 'connection refused by pooler', 'the connect error message is in detail.failed[]');
+  assert.equal(detail.failed[0].reason, 'write_failed', 'the per-unit tag (not the record\'s literal reason above) is what the fallback drives');
   assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction opens: connect() never returned a client');
   // No client was ever acquired, so none is left unreleased.
   fake.assertClean();
@@ -586,8 +600,8 @@ test('#1048 rollback rejects: the original error survives and still tags write_f
   assert.equal(records.length, 1, 'exactly one data_sync_runs row despite the rollback failure');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'scan blew up', 'the original error message survives the rollback failure');
   assert.equal(detail.reason, 'write_failed', 'a rollback failure never changes the tag');
+  assert.equal(detail.failed[0].message, 'scan blew up', 'the original error message survives the rollback failure');
 
   // A rejecting ROLLBACK leaves the transaction open on the socket, so the
   // finally now releases the client WITH an Error: pg-pool destroys the

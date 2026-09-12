@@ -108,3 +108,16 @@ On-the-clock module - `deriveOnTheClock`, `isTeamOnTheClock`, `isUrgent`,
 same way every other shared module is. The Draft entity's model now imports it
 from there, which is `shared`, not a reach below the island. The Draft
 entity's below-island edge count is zero.
+
+## Amendment (2026-09-11, #1269): the entity carve-out is entity-only
+
+This ADR's 2026-09-05 amendment states the entity import rule directionally
+and names the Matchup entity's below-island edges as its sanctioned
+instances; it governs entities only. A widget or feature slice is governed by
+ADR 0031's amendment of this same date, which states the slice-level rule
+under the same plumbing-vs-domain test this amendment already applies to
+entities.
+
+A reader reaching for the criterion "widgets read only entities and shared"
+should read ADR 0031's amendment instead, not this one; this ADR's own
+carve-out, and its Status line, are unchanged.

@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Box, Chip, List, ListItem, Paper, Stack, Typography,
 } from '@mui/material';
-import PositionChip from '../PlayerQuickView/PositionChip';
+import PositionChip from '../../shared/ui/PositionChip';
 
 /**
  * Running commentary on the draft: newest pick first, your own picks called out,

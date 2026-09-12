@@ -375,3 +375,130 @@ test('upsertRows: a Tank01 fallback row leaves an existing espn_event_id in plac
   const nullSlots = arrays.filter((arr) => arr.length === 1 && arr[0] === null);
   assert.ok(nullSlots.length >= 1, 'the espn_event_id array carries null for a Tank01 row');
 });
+
+// --- upsertRows: Situation (#1233, ADR 0037) ---------------------------------
+
+// UPSERT_SQL's column list ends "...espn_event_id, possession, down_distance,
+// is_red_zone, last_play" ($13..$17), so upsertRows must bind them at exactly
+// params[12..16] in that order. Pin the indices, not just "some array
+// contains the value" — a transposition (e.g. possession/downDistance
+// swapped) would pass a substring/inclusion check silently, and Postgres
+// would accept it too (both are text[] casts), writing the wrong text to an
+// anon-readable column on every live tick.
+test('upsertRows: an ESPN row with a Situation binds possession/downDistance/isRedZone/lastPlay at $14..$17 in order', async (t) => {
+  const fake = upsertWorld(t);
+  await upsertRows([
+    {
+      ...ESPN_ROW,
+      possession: 'BUF',
+      downDistance: '1st & 10',
+      isRedZone: false,
+      lastPlay: 'B.Allen pass complete to K.Coleman for 12 yards',
+    },
+  ]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.match(call.text, /"possession"/);
+  assert.match(call.text, /"down_distance"/);
+  assert.match(call.text, /"is_red_zone"/);
+  assert.match(call.text, /"last_play"/);
+  assert.equal(call.params.length, 20, 'the upsert binds exactly $1..$20');
+  assert.deepEqual(call.params[13], ['BUF'], 'possession is params[13] ($14)');
+  assert.deepEqual(call.params[14], ['1st & 10'], 'down_distance is params[14] ($15)');
+  assert.deepEqual(call.params[15], [false], 'is_red_zone is params[15] ($16)');
+  assert.deepEqual(
+    call.params[16],
+    ['B.Allen pass complete to K.Coleman for 12 yards'],
+    'last_play is params[16] ($17)'
+  );
+});
+
+test('upsertRows: Situation is always overwritten, never COALESCEd like espn_event_id (clears on final/Tank01)', async (t) => {
+  const fake = upsertWorld(t);
+  const tank01Row = normalizeLiveGameEntry(
+    {
+      away: 'BUF', home: 'NYJ', gameID: '20260913_BUF@NYJ', awayPts: '14', homePts: '10',
+      gameClock: '8:42', lineScore: { period: 'Q3', gameClock: '8:42' },
+      gameStatus: 'In Progress', gameStatusCode: '1',
+    },
+    { season: 2026, week: 2 }
+  );
+  await upsertRows([tank01Row]); // Tank01 carries no Situation at all
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.doesNotMatch(
+    call.text,
+    /"possession" = COALESCE/,
+    'possession is always the new value, so a stale one never survives a final or a Tank01 tick'
+  );
+  assert.deepEqual(call.params[13], [null], 'possession is null, not undefined, for a Tank01 row');
+  assert.deepEqual(call.params[14], [null], 'down_distance is null for a Tank01 row');
+  assert.deepEqual(call.params[15], [null], 'is_red_zone is null for a Tank01 row');
+  assert.deepEqual(call.params[16], [null], 'last_play is null for a Tank01 row');
+});
+
+// --- upsertRows: win probability, linescores, headline (#1262, ADR 0038) ----
+
+test('upsertRows: an in-progress ESPN row updates home_win_probability at $18, alongside Situation', async (t) => {
+  const fake = upsertWorld(t);
+  await upsertRows([{ ...ESPN_ROW, homeWinProbability: 0.732 }]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.match(call.text, /"home_win_probability"/);
+  assert.equal(call.params.length, 20, 'the upsert binds exactly $1..$20');
+  assert.deepEqual(call.params[17], [0.732], 'home_win_probability is params[17] ($18)');
+});
+
+test('upsertRows: home_win_probability is always overwritten, never COALESCEd (clears like the rest of Situation)', async (t) => {
+  const fake = upsertWorld(t);
+  const tank01Row = normalizeLiveGameEntry(
+    {
+      away: 'BUF', home: 'NYJ', gameID: '20260913_BUF@NYJ', awayPts: '14', homePts: '10',
+      gameClock: '8:42', lineScore: { period: 'Q3', gameClock: '8:42' },
+      gameStatus: 'In Progress', gameStatusCode: '1',
+    },
+    { season: 2026, week: 2 }
+  ); // carries no homeWinProbability at all
+  await upsertRows([tank01Row]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.doesNotMatch(call.text, /"home_win_probability" = COALESCE/);
+  assert.deepEqual(call.params[17], [null], 'home_win_probability is null, not undefined, for a Tank01 row');
+});
+
+test('upsertRows: linescores and headline are withheld pre-final even when the row carries values', async (t) => {
+  const fake = upsertWorld(t);
+  await upsertRows([
+    {
+      ...ESPN_ROW,
+      gameStatus: 'in_progress', // not final yet
+      linescores: { home: [7, 3], away: [0, 7] },
+      headline: 'Bills lead at the half',
+    },
+  ]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.match(call.text, /"linescores"/);
+  assert.match(call.text, /"headline"/);
+  assert.deepEqual(call.params[18], [null], 'linescores withheld before final');
+  assert.deepEqual(call.params[19], [null], 'headline withheld before final');
+});
+
+test('upsertRows: the first final poll writes linescores and headline, COALESCEd so a later fallback tick cannot erase them', async (t) => {
+  const fake = upsertWorld(t);
+  await upsertRows([
+    {
+      ...ESPN_ROW,
+      gameStatus: 'final',
+      linescores: { home: [7, 3, 7, 7], away: [0, 7, 7, 3] },
+      headline: 'Bills hold on late',
+    },
+  ]);
+  const [call] = fake.matching(insert('live_game_states'));
+  assert.match(
+    call.text,
+    /"linescores" = COALESCE\(EXCLUDED\."linescores", "live_game_states"\."linescores"\)/,
+    'a later tick with no linescores (Tank01 fallback) cannot null a final game\'s box'
+  );
+  assert.match(
+    call.text,
+    /"headline" = COALESCE\(EXCLUDED\."headline", "live_game_states"\."headline"\)/
+  );
+  assert.deepEqual(call.params[18], [JSON.stringify({ home: [7, 3, 7, 7], away: [0, 7, 7, 3] })]);
+  assert.deepEqual(call.params[19], ['Bills hold on late']);
+});

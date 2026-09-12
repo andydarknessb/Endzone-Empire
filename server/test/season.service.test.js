@@ -6,7 +6,52 @@ const {
   computeStandings,
   pairBySeed,
   getStandings,
+  playoffRounds,
+  lastPlayoffWeek,
 } = require('../services/season.service');
+
+// --- playoffRounds / lastPlayoffWeek (#1305) ---
+
+test('playoffRounds: fewer than two playoff teams play no bracket at all', () => {
+  assert.equal(playoffRounds(0), 0);
+  assert.equal(playoffRounds(1), 0);
+  assert.equal(playoffRounds(null), 0);
+  assert.equal(playoffRounds(undefined), 0);
+});
+
+test('playoffRounds: each round halves the field to one champion', () => {
+  assert.equal(playoffRounds(2), 1);
+  assert.equal(playoffRounds(4), 2);
+  assert.equal(playoffRounds(6), 3, 'byes in round one still cost a full round');
+  assert.equal(playoffRounds(8), 3);
+});
+
+test('lastPlayoffWeek: two leagues with different playoff lengths end on different weeks', () => {
+  assert.equal(
+    lastPlayoffWeek({ regular_season_weeks: 14, playoff_teams: 4 }),
+    16,
+    '14 regular weeks + 2 rounds'
+  );
+  assert.equal(
+    lastPlayoffWeek({ regular_season_weeks: 14, playoff_teams: 8 }),
+    17,
+    '14 regular weeks + 3 rounds: the SAME regular season, a longer bracket'
+  );
+  assert.equal(
+    lastPlayoffWeek({ regular_season_weeks: 13, playoff_teams: 2 }),
+    14,
+    '13 regular weeks + 1 round: a shorter regular season AND a shorter bracket'
+  );
+});
+
+test('lastPlayoffWeek: no playoff bracket ends the season at the last regular week', () => {
+  assert.equal(lastPlayoffWeek({ regular_season_weeks: 14, playoff_teams: 0 }), 14);
+});
+
+test('lastPlayoffWeek: a missing or malformed league fails closed to 0, never NaN', () => {
+  assert.equal(lastPlayoffWeek(null), 0);
+  assert.equal(lastPlayoffWeek({}), 0);
+});
 
 // --- roundRobinPairings ---
 
