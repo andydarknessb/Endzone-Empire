@@ -163,3 +163,68 @@ PlayerQuickView, public RankingTable and PlayerProfilePage, DraftBoard's
 ColumnGuide and PlayerPoolTable) import the concrete `shared/ui/
 AbbreviationTooltip` module instead, the same split as `TeamAvatar`'s. No
 below-island reach for this component remains.
+
+## Amendment (2026-09-11, #1269): the slice-level below-island rule, stated
+
+This ADR's own sentence above (Game Center and Matchup Detail's widget and
+feature slices "read only `entities/matchup` and `shared`") and its
+counterparts on ADR 0037 (Lineup's slices "read only `entities` and `shared`")
+and ADR 0038 (Pick'em's slices "read only `entities/pickem-game`,
+`entities/pickem-standings` and `shared`") were each copied forward as a
+criterion, and #1237 AC1 turned this ADR's wording into a criterion no island
+PR meets: this ADR's own Consequences bullet and its 2026-09-10 amendments
+above already sanction a widget or feature slice reaching below the island,
+on a different test, and the reviewer on #1237 cited ADR 0029, which governs
+the entity carve-out only (see that ADR's amendment of this date). None of
+the three sentences is edited; each is read under the replacement below from
+this date forward, the way this ADR's own Status line already supersedes ADR
+0029's scope without touching ADR 0029's text. This amendment carries the
+reading for all three; neither ADR 0037 nor ADR 0038 is touched.
+
+Tickets stop writing "widgets read only entities and shared." The
+replacement, stated once so a brief can quote it verbatim:
+
+> Slices import `entities` and `shared` through their index files; every
+> below-island edge is named with its reason in the slice's index docblock
+> (ADR 0031).
+
+The slice-level test, stated completely: a widget or feature slice depends on
+nothing above it in the island (no page; widgets never import widgets) and
+imports `entities` and `shared` through their index files. Below the island,
+it may reach further in two ways:
+
+- Plumbing with no domain meaning - a fetch client, an HTTP failure reader, a
+  snackbar provider, a generic event helper - may be reached indefinitely and
+  does not count toward the second-consumer threshold below.
+- A helper with domain meaning may be reached until a second island slice
+  consumes it. At that point it is promoted: a pure function to `shared/lib`,
+  a hook or a read model to an entity. A promotion is a move, never a copy,
+  the same way the win-probability arithmetic and the On-the-clock derivation
+  moved under this ADR's and ADR 0029's earlier amendments. (The parallel rule
+  for a presentational component, promoted to `shared/ui` at its second
+  island consumer, is already stated for widgets and features by this ADR's
+  2026-09-10 amendment above; this amendment restates only the helper test
+  that amendment did not cover, not a third promotion home.)
+
+A promotion that needs an entity slice that has not been approved stays a
+named held-open edge instead of a promotion, the way the Draft entity's
+`deriveOnTheClock` edge was held open until ADR 0029's #997 amendment closed
+it. Today's instance: `useLeague`, read by eight widgets, would promote to a
+League entity, and a League entity was refused (#942, ruling R4). `useLeague`
+stays below the island as a named held-open edge until a League entity is
+ruled.
+
+The legacy `src/components` tree counts as the legacy tree for this rule,
+exactly as it already does for the component reach this ADR's 2026-09-10
+amendment sanctions (`AbbreviationTooltip`'s instance, above).
+
+Every below-island edge, of either kind, is named with its reason in the
+slice's index docblock. That docblock is the audit surface for this rule
+until the boundary lint rule ADR 0020 names as a follow-up exists, unaudited
+in the sense of ADR 0010, exactly as the rest of this ADR's import rules are.
+
+The second-consumer threshold has already fired, unacted on, for several
+below-island modules at `integration` as of 2026-09-11; #1272 lists them with
+their promotion homes and carries out the moves this rule requires. This
+amendment itself moves nothing (ruling R3 on #1269: this ticket changes no
+source).
