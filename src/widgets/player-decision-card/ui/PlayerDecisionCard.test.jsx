@@ -59,6 +59,7 @@ const entry = (over = {}) => ({
   locked: false,
   spent: false,
   edge: null,
+  factorExplanation: null,
   ...over,
 });
 
@@ -143,15 +144,33 @@ test('usage renders the weekly rows and the season average', async () => {
   expect(within(table).getByText('Season avg')).toBeInTheDocument();
 });
 
-test('the largest Factor\'s explanation renders only when the Edge line kind is "factor"', async () => {
-  renderCard({ entry: entry({ edge: { kind: 'factor', text: 'Matchup +3.5' } }) });
+test('the largest Factor\'s explanation renders from factorExplanation, not from the Edge line', async () => {
+  renderCard({ entry: entry({ edge: { kind: 'result', text: 'Beat projection' }, factorExplanation: 'Matchup +3.5' }) });
   expect(await screen.findByTestId('decision-card-factor')).toHaveTextContent('Matchup +3.5');
 });
 
-test('no Factor tile when the Edge line is a different kind', async () => {
-  renderCard({ entry: entry({ edge: { kind: 'result', text: 'Beat projection' } }) });
+test('no Factor tile when factorExplanation is null', async () => {
+  renderCard({ entry: entry({ edge: { kind: 'factor', text: 'Matchup +3.5' }, factorExplanation: null }) });
   await screen.findByRole('heading', { name: 'Josh Allen' });
   expect(screen.queryByTestId('decision-card-factor')).not.toBeInTheDocument();
+});
+
+// #1281: the point of the ticket - an injured player can show BOTH the
+// injury tile and his largest Factor's explanation at once, which he could
+// not before (the Factor tile was gated on the Edge line's own kind, and
+// injury always outranks factor there, #1235's priority order).
+test('the injury tile and the Factor tile render together, independent of which Edge kind won', async () => {
+  renderCard({
+    entry: entry({
+      injuryStatus: 'Q',
+      edge: { kind: 'injury', text: 'Questionable, hamstring' },
+      factorExplanation: 'Matchup +3.5',
+    }),
+  });
+  const injuryTile = await screen.findByTestId('decision-card-injury');
+  expect(injuryTile).toHaveTextContent('Questionable');
+  expect(injuryTile).toHaveTextContent('Questionable, hamstring');
+  expect(await screen.findByTestId('decision-card-factor')).toHaveTextContent('Matchup +3.5');
 });
 
 test('the injury tile is hidden for a healthy player', async () => {

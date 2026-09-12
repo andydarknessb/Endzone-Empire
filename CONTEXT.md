@@ -722,9 +722,9 @@ Factor is the source, not a separate defense-versus-position table)
 The player detail a manager opens from a Ledger row: a drawer on desktop, a
 sheet on a phone. It carries the injury designation and detail, the game
 with implied team total and weather, the Weekly projection with its Floor
-and Ceiling, usage, the bench options for the player's slot, and the Trade
-and Drop actions. It replaces the player quick view on the Lineup surface
-only; quick view stays elsewhere.
+and Ceiling, the largest Factor's explanation, usage, the bench options for
+the player's slot, and the Trade and Drop actions. It replaces the player
+quick view on the Lineup surface only; quick view stays elsewhere.
 _Avoid_: player drawer, player sheet, quick view (on Lineup)
 
 **Usage**:

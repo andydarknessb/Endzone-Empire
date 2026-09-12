@@ -404,6 +404,12 @@ export function lineupEntries(rosterWire, league) {
       // `computeEdgeLine`) and passed through verbatim - this entity draws no
       // conclusions of its own about why to start a player.
       edge: row && row.edge ? { kind: row.edge.kind ?? null, text: row.edge.text ?? null } : null,
+      // The largest Factor's explanation (#1281): computed on the server
+      // (`lineup.service.js`'s `factorEdgeText`) independent of which Edge
+      // line kind won, and passed through verbatim here alongside `edge` -
+      // this entity draws no conclusions of its own about which Factor is
+      // largest.
+      factorExplanation: row && row.factorExplanation != null ? row.factorExplanation : null,
     };
   });
 

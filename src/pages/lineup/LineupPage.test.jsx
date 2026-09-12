@@ -615,6 +615,7 @@ test('the opponent/kickoff line and the largest Factor\'s explanation render at 
           entryRow({
             id: 50, name: 'Factor Guy', position: 'WR', slot: 'BENCH', nfl_team: 'MIA',
             opponent: 'NYJ', kickoff: '2026-09-14T13:00:00Z', edge: { kind: 'factor', text: 'Matchup +3.5' },
+            factorExplanation: 'Matchup +3.5',
           }),
         ],
       }),

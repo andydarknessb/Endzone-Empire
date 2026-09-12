@@ -544,23 +544,15 @@ function GameSection({ entry, line, weather, level }) {
 }
 
 // AC2: mean, Floor, Ceiling on the shared RangeBar, and the largest Factor's
-// explanation. NOT a null-source rule (formal review finding f5, correcting
-// an earlier version of this comment): `entry.edge` always names a real
-// Edge line kind when one applies, and a Factor can genuinely exist while
-// still going unrendered here, because `computeEdgeLine`
-// (server/services/lineup.service.js) is first-match-wins in priority order
-// injury, bench-above-starter, factor, pace, result, none - a higher-
-// priority kind outranks and hides a real Factor rather than there being no
-// Factor to show. So this tile is absent for an injured player, a bench
-// player outprojecting his slot's starter, and a live or final game, even
-// when a Factor is the largest thing shaping the projection. Surfacing the
-// Factor text regardless of Edge-line priority needs the projection's own
-// factors object, which neither `useDecisionCardLine` nor
-// `useDecisionCardUsage` carries and which comment 2 on the issue marks
-// both entity slices read-only for - out of this ticket's fence, filed as a
-// follow-up rather than widened into here.
+// explanation. `entry.factorExplanation` (#1281) rides the lineup entry as
+// its own field, independent of the Edge line: `lineup.service.js` sets it
+// from the SAME `factorEdgeText(factors)` call that can win the Edge line's
+// `factor` kind, but unconditionally, so it renders here even when a
+// higher-priority kind (injury, bench-above-starter) won the Edge line
+// instead - an injured player can show both his injury tile and his
+// largest Factor's explanation at once. Null when no factor applies.
 function ProjectionSection({ entry, level }) {
-  const factorText = entry.edge && entry.edge.kind === 'factor' ? entry.edge.text : null;
+  const factorText = entry.factorExplanation || null;
   return (
     <Section title="Weekly projection" testId="decision-card-projection" level={level}>
       <RangeBar

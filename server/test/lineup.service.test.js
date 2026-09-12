@@ -189,7 +189,55 @@ test('getLineup returns league-scored current-week projections and preserves una
     // points cell source; null here since this row carries no week_stats.
     actualPoints: null,
     edge: { kind: 'none', text: null },
+    // #1281: rides beside `edge`, independent of which kind won - here null
+    // since this row's projection carries no factors at all (`factors: {}`).
+    factorExplanation: null,
   });
+  fake.assertClean();
+});
+
+test("an injured player still carries the largest Factor's explanation, independent of which Edge kind won (#1281)", async (t) => {
+  const entries = [
+    { id: 1, name: 'Edge Case', position: 'WR', nfl_team: 'MIN', injury_status: 'Q', injury_detail: null, slot: 'WR', ir_attested: false },
+  ];
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map([
+    [1, {
+      points: 12,
+      projection: {
+        mean: 12,
+        p10: 8,
+        p90: 16,
+        factors: { opponent: { available: true, pointsContribution: 2 } },
+      },
+    }],
+  ]));
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ id }) => ({ player_id: id })),
+    })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games" WHERE "season" = \$1 AND "week" = \$2 AND "kickoff_at"/, () => ({ rows: [] })], // kickedOffTeams
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+
+  // The injury designation wins the Edge line (first-match-wins, #1235's
+  // priority order, unchanged by this ticket)...
+  assert.deepEqual(lineup.entries[0].edge, { kind: 'injury', text: 'questionable' });
+  // ...but the Factor explanation is computed independent of which kind won,
+  // from the SAME factorEdgeText(factors) call, so both can render together
+  // on the Decision card.
+  assert.equal(lineup.entries[0].factorExplanation, 'Matchup +2');
   fake.assertClean();
 });
 
