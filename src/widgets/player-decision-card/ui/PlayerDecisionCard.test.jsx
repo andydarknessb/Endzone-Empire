@@ -208,6 +208,42 @@ test('no bench options section when the opened player is himself BENCH or IR', a
   expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
 });
 
+// Formal review finding f1: the row path (useSwapPlayers.js onRowClick)
+// refuses to even start a swap on a locked, spent, or (in best ball)
+// starting-slot opened player, before any target is chosen - so bench
+// options must refuse the same way, not merely disable per candidate. One
+// red-tell per case the review named.
+test('f1(a): a locked opened starter offers no bench options at all, even with eligible candidates', async () => {
+  const starter = entry({ locked: true });
+  const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  renderCard({ entry: starter, entries: [starter, bench] });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+});
+
+test('f1(c): best ball offers no bench options for a starting-slot opened player', async () => {
+  const starter = entry();
+  const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  renderCard({ entry: starter, entries: [starter, bench], bestBall: true });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+});
+
+test('f1(d): a spent opened player offers no bench options', async () => {
+  const starter = entry({ spent: true });
+  const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  renderCard({ entry: starter, entries: [starter, bench] });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+});
+
+test('f1(b): Start never offers a slot whose current occupant is locked', async () => {
+  const bench = entry({ slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const lockedStarter = entry({ playerId: 9, name: 'Locked Starter', slot: 'QB', locked: true });
+  renderCard({ entry: bench, entries: [bench, lockedStarter] });
+  expect(await screen.findByTestId('decision-card-start-action')).toBeDisabled();
+});
+
 test('Bench moves a starter to BENCH with one move', async () => {
   const onSwap = jest.fn();
   renderCard({ onSwap });
@@ -319,6 +355,16 @@ test('the close control calls onClose', async () => {
   const onClose = jest.fn();
   renderCard({ onClose });
   await userEvent.click(await screen.findByTestId('decision-card-close'));
+  expect(onClose).toHaveBeenCalled();
+});
+
+// AC6: "both close on Escape and on the close control" - formal review
+// finding f7, previously untested (the suite's only Escape closed a menu).
+test('Escape closes the card', async () => {
+  const onClose = jest.fn();
+  renderCard({ onClose });
+  await screen.findByTestId('decision-card');
+  await userEvent.keyboard('{Escape}');
   expect(onClose).toHaveBeenCalled();
 });
 

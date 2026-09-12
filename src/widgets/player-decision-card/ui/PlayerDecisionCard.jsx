@@ -105,17 +105,30 @@ export default function PlayerDecisionCard({
 
   const isStarting = entry ? entry.slot !== 'BENCH' && entry.slot !== 'IR' : false;
   const isLocked = entry ? locked(entry) : false;
+  const isSpent = Boolean(entry?.spent);
   const benchAllowed = isStarting && !bestBall && !isLocked;
-  const startTargets = entry && !isStarting && !bestBall && !isLocked ? startTargetSlots(entry) : [];
-  const dropAllowed = entry ? Boolean(!entry.spent && canDropEntry?.(entry)) : false;
+  const startTargets = entry && !isStarting && !bestBall && !isLocked && !isSpent ? startTargetSlots(entry, list) : [];
+  const dropAllowed = entry ? Boolean(!isSpent && canDropEntry?.(entry)) : false;
   const compareCandidates = entry ? list.filter((e) => e && e.playerId !== entry.playerId) : [];
+  // f1(a)/(c)/(d) (formal review): the row path refuses a swap ENTIRELY for a
+  // locked, spent, or (in best ball) starting-slot opened player before a
+  // target is even chosen (useSwapPlayers.js onRowClick's own early
+  // returns). Bench options must refuse the same way, not merely disable
+  // per-candidate the way a locked CANDIDATE already is.
+  const benchOptionsBlocked = isLocked || isSpent || (isStarting && bestBall);
 
   return (
     <Drawer
       anchor={isMobile ? 'bottom' : 'right'}
       open={isOpen}
       onClose={handleClose}
-      transitionDuration={0}
+      // Formal review finding f8: PlayerQuickView, the dialog this card
+      // replaces on Lineup, deliberately sets `{ appear: 0, enter: 0, exit:
+      // 120 }` (instant open, a brief exit) rather than flattening both to
+      // zero; an earlier revision here shipped the flattened, test-only-
+      // looking value to production with no stated reason. Matching that
+      // precedent rather than re-arguing it.
+      transitionDuration={{ appear: 0, enter: 0, exit: 120 }}
       PaperProps={{
         role: 'dialog',
         'aria-modal': true,
@@ -292,6 +305,20 @@ export default function PlayerDecisionCard({
             // navigation can tell the two players' Game/Usage/Weekly
             // projection headings apart; the sections nested under it step
             // down to `h4` to keep that outline properly nested.
+            //
+            // Both panels render AC2's own section order (Injury, Game,
+            // Projection, Usage) - formal review finding f4: an earlier
+            // revision put the compared player's Projection before Game and
+            // dropped Injury entirely, an asymmetry the de-duplication fix
+            // introduced rather than the original design. Injury is
+            // deliberately restored on BOTH sides: hiding one player's
+            // injury designation makes a side-by-side start-sit comparison
+            // read thinner than the single-card view it stands next to.
+            // Bench options stay primary-only: they manage the PRIMARY
+            // player's own slot (AC4), and offering them a second time for
+            // the compared player would mean managing two different slots
+            // from one Compare view, which is new surface no criterion asks
+            // for here.
             <Box
               data-testid="decision-card-compare"
               sx={{
@@ -306,7 +333,7 @@ export default function PlayerDecisionCard({
                 <GameSection entry={entry} line={line} weather={weather} level="h4" />
                 <ProjectionSection entry={entry} level="h4" />
                 <UsageSection usage={usage} level="h4" />
-                <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} level="h4" />
+                <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} level="h4" disabled={benchOptionsBlocked} />
               </Box>
               <Box
                 data-testid={`decision-card-compare-panel-${compareEntry.playerId}`}
@@ -318,8 +345,9 @@ export default function PlayerDecisionCard({
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Box>
-                <ProjectionSection entry={compareEntry} level="h4" />
+                <InjurySection entry={compareEntry} level="h4" />
                 <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
+                <ProjectionSection entry={compareEntry} level="h4" />
                 <UsageSection usage={compareUsage} level="h4" />
               </Box>
             </Box>
@@ -329,7 +357,7 @@ export default function PlayerDecisionCard({
               <GameSection entry={entry} line={line} weather={weather} />
               <ProjectionSection entry={entry} />
               <UsageSection usage={usage} />
-              <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} />
+              <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} disabled={benchOptionsBlocked} />
             </>
           )}
         </>
@@ -469,8 +497,21 @@ function GameSection({ entry, line, weather, level }) {
 }
 
 // AC2: mean, Floor, Ceiling on the shared RangeBar, and the largest Factor's
-// explanation (the Edge line's own text when its kind is 'factor' - hidden
-// otherwise, the tile's own null-source rule).
+// explanation. NOT a null-source rule (formal review finding f5, correcting
+// an earlier version of this comment): `entry.edge` always names a real
+// Edge line kind when one applies, and a Factor can genuinely exist while
+// still going unrendered here, because `computeEdgeLine`
+// (server/services/lineup.service.js) is first-match-wins in priority order
+// injury, bench-above-starter, factor, pace, result, none - a higher-
+// priority kind outranks and hides a real Factor rather than there being no
+// Factor to show. So this tile is absent for an injured player, a bench
+// player outprojecting his slot's starter, and a live or final game, even
+// when a Factor is the largest thing shaping the projection. Surfacing the
+// Factor text regardless of Edge-line priority needs the projection's own
+// factors object, which neither `useDecisionCardLine` nor
+// `useDecisionCardUsage` carries and which comment 2 on the issue marks
+// both entity slices read-only for - out of this ticket's fence, filed as a
+// follow-up rather than widened into here.
 function ProjectionSection({ entry, level }) {
   const factorText = entry.edge && entry.edge.kind === 'factor' ? entry.edge.text : null;
   return (
@@ -539,8 +580,15 @@ function UsageSection({ usage, level }) {
 // performs for every other action here) and a locked candidate disabled
 // with the lock shown as text, matching LedgerRow's own lock treatment in
 // spirit without duplicating its SVG glyph.
-function BenchOptionsSection({ entry, entries, onSwap, level }) {
-  const options = benchOptionsForSlot(entries, entry.slot);
+//
+// `disabled` (formal review finding f1(a)/(c)/(d)): the row path
+// (useSwapPlayers.js's onRowClick) refuses to even start a swap on a
+// locked, spent, or (in best ball) starting-slot opened player, before any
+// target is chosen. This section must refuse the same way - hidden
+// entirely, not merely disabled per candidate - so the card never offers a
+// swap the row itself would refuse outright.
+function BenchOptionsSection({ entry, entries, onSwap, level, disabled }) {
+  const options = disabled ? [] : benchOptionsForSlot(entries, entry.slot);
   if (options.length === 0) return null;
   return (
     <Section title="Bench options" testId="decision-card-bench-options" level={level}>

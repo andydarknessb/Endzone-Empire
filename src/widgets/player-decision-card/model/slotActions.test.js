@@ -46,12 +46,28 @@ describe('benchOptionsForSlot', () => {
 
 describe('startTargetSlots', () => {
   test('every eligible slot minus BENCH and IR', () => {
-    expect(startTargetSlots(entry({ eligibleSlots: ['BENCH', 'IR', 'RB', 'FLEX'] }))).toEqual(['RB', 'FLEX']);
+    expect(startTargetSlots(entry({ eligibleSlots: ['BENCH', 'IR', 'RB', 'FLEX'] }), [])).toEqual(['RB', 'FLEX']);
   });
 
   test('empty for a missing entry or eligibleSlots', () => {
-    expect(startTargetSlots(null)).toEqual([]);
-    expect(startTargetSlots({})).toEqual([]);
+    expect(startTargetSlots(null, [])).toEqual([]);
+    expect(startTargetSlots({}, [])).toEqual([]);
+  });
+
+  // Formal review finding f1(b): isEligibleTarget (useSwapPlayers.js) refuses
+  // a locked TARGET outright, so Start must never offer a slot whose current
+  // occupant is locked - a red-tell for the bug the review found (an earlier
+  // revision offered it regardless).
+  test('excludes a slot whose current occupant is locked', () => {
+    const bench = entry({ playerId: 1, eligibleSlots: ['BENCH', 'RB', 'FLEX'] });
+    const lockedStarter = entry({ playerId: 9, slot: 'RB', locked: true });
+    const openFlex = entry({ playerId: 10, slot: 'FLEX', locked: false });
+    expect(startTargetSlots(bench, [bench, lockedStarter, openFlex])).toEqual(['FLEX']);
+  });
+
+  test('an empty starting slot (no occupant row at all) is still offered', () => {
+    const bench = entry({ playerId: 1, eligibleSlots: ['BENCH', 'RB'] });
+    expect(startTargetSlots(bench, [bench])).toEqual(['RB']);
   });
 });
 

@@ -13,12 +13,16 @@ import { locked } from '../../../entities/roster';
  * slot of its own to fill) gets an empty list, which is that section's own
  * null-source hide rule.
  *
- * `startTargetSlots(entry)` / `movesToStart(entry, targetSlot, entries)`:
- * the header's "start" action for a bench or IR player (AC2's "move to
- * bench or start"). `startTargetSlots` is every starting slot type the
- * player is eligible for (BENCH/IR excluded). `movesToStart` builds the one
- * or two moves a tap on one of those slots performs: a swap with whoever
- * currently occupies that slot type, or - when nobody does - a bare
+ * `startTargetSlots(entry, entries)` / `movesToStart(entry, targetSlot,
+ * entries)`: the header's "start" action for a bench or IR player (AC2's
+ * "move to bench or start"). `startTargetSlots` is every starting slot type
+ * the player is eligible for (BENCH/IR excluded) whose current occupant, if
+ * any, is not locked - a locked occupant is a move `isEligibleTarget`
+ * refuses on the row path (`features/swap-players/model/useSwapPlayers.js`
+ * `:79-89`), formal review finding f1(b): this card must never offer a move
+ * the row itself would refuse. `movesToStart` builds the one or two moves a
+ * tap on one of those (already-filtered) slots performs: a swap with
+ * whoever currently occupies that slot type, or - when nobody does - a bare
  * one-way move.
  *
  * KNOWN SIMPLIFICATION (flagged rather than guessed at further, per the
@@ -47,10 +51,20 @@ export function benchOptionsForSlot(entries, slot) {
     .map((entry) => ({ entry, locked: locked(entry) }));
 }
 
-/** Every starting slot type `entry` is eligible for (BENCH/IR excluded). */
-export function startTargetSlots(entry) {
+/**
+ * Every starting slot type `entry` is eligible for (BENCH/IR excluded),
+ * minus any slot whose current occupant is locked - `isEligibleTarget`
+ * refuses a locked target outright (formal review finding f1(b)), so this
+ * card never lists a slot Start could not actually complete.
+ */
+export function startTargetSlots(entry, entries) {
   if (!entry || !Array.isArray(entry.eligibleSlots)) return [];
-  return entry.eligibleSlots.filter((s) => s !== 'BENCH' && s !== 'IR');
+  const list = Array.isArray(entries) ? entries : [];
+  return entry.eligibleSlots.filter((s) => {
+    if (s === 'BENCH' || s === 'IR') return false;
+    const occupant = list.find((e) => e && e.slot === s && e.playerId !== entry.playerId);
+    return !occupant || !locked(occupant);
+  });
 }
 
 /** The move(s) tapping `targetSlot` performs for `entry` (see docblock above). */

@@ -404,7 +404,11 @@ const decisionContextUrl = (playerId) => `/api/team/lineup/${playerId}/context?l
 test('the player name opens the Decision card with the row\'s own fields, and every section fills in once its context resolves', async () => {
   const user = userEvent.setup();
   renderPage({
-    [decisionContextUrl(1)]: {
+    // Formal review finding f6: AC8's "every section with data" case must
+    // cover the injury tile at page level too, not only in the widget's own
+    // suite - Bench Guy (id 10) already carries an injury designation and
+    // the matching injury Edge line in the shared fixture.
+    [decisionContextUrl(10)]: {
       data: {
         line: { spread: -3, total: 47, impliedTeamTotal: 22, observedAt: '2026-09-14T00:00:00Z' },
         weather: { indoor: false, temperatureF: 45, windSpeedMph: 10, windGustMph: 18, precipitationProbability: 20, shortForecast: 'Cloudy' },
@@ -415,17 +419,44 @@ test('the player name opens the Decision card with the row\'s own fields, and ev
       },
     },
   });
-  await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
+  // Bench Guy (id 10) already carries an injury designation and the
+  // matching injury Edge line in the shared fixture.
+  await user.click(await screen.findByRole('button', { name: 'Bench Guy' }));
 
   const card = await screen.findByTestId('decision-card');
-  expect(within(card).getByRole('heading', { name: 'Josh Allen' })).toBeInTheDocument();
+  expect(within(card).getByRole('heading', { name: 'Bench Guy' })).toBeInTheDocument();
   // The row's own fields (AC1: paints immediately, before the extras load).
   expect(within(card).getByTestId('decision-card-range-bar')).toBeInTheDocument();
+  expect(within(card).getByTestId('decision-card-injury')).toHaveTextContent('Out');
 
   expect(await within(card).findByTestId('decision-card-line')).toHaveTextContent('Line: -3 / 47');
   expect(within(card).getByTestId('decision-card-implied-total')).toHaveTextContent('22.0');
   expect(within(card).getByTestId('decision-card-weather')).toHaveTextContent('45°F');
   expect(within(card).getByTestId('decision-card-usage-table')).toHaveTextContent('Wk 3');
+});
+
+// Formal review finding f6: the opponent/kickoff line and the Factor line,
+// the two remaining "every section with data" cases AC8 asks for that the
+// page test did not yet cover.
+test('the opponent/kickoff line and the largest Factor\'s explanation render at page level', async () => {
+  const user = userEvent.setup();
+  renderPage({
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [
+          entryRow({
+            id: 50, name: 'Factor Guy', position: 'WR', slot: 'BENCH', nfl_team: 'MIA',
+            opponent: 'NYJ', kickoff: '2026-09-14T13:00:00Z', edge: { kind: 'factor', text: 'Matchup +3.5' },
+          }),
+        ],
+      }),
+    },
+    [decisionContextUrl(50)]: { data: { line: null, weather: null, usage: null } },
+  });
+  await user.click(await screen.findByRole('button', { name: 'Factor Guy' }));
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByTestId('decision-card-opponent')).toHaveTextContent('vs NYJ');
+  expect(await within(card).findByTestId('decision-card-factor')).toHaveTextContent('Matchup +3.5');
 });
 
 test('with no Line, weather or usage from the context endpoint, those tiles are hidden - AC3\'s null-source rule', async () => {
