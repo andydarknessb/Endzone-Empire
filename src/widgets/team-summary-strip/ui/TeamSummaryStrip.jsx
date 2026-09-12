@@ -30,11 +30,13 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * only the chips this codebase actually computes, ready for the other two
  * to join it once a ticket builds them, rather than fabricating chips no
  * criterion asks for. `worstByeCluster` is the page's own read
- * (`src/lib/byeClusters.js`, the SAME computation the bye-cluster widget's
- * grid uses - ADR 0020/0029's "a widget may not import another widget's
- * internals", so the page computes once and hands the answer to both), and
- * the chip only shows at the warning threshold (three or more byes), not at
- * two (CONTEXT.md's Bye cluster: two is merely notable).
+ * (`shared/lib`'s `computeByeClusters`/`worstByeCluster` - promoted there,
+ * not kept below the island, since a second island slice, the bye-cluster
+ * widget, reaches it too, ADR 0031), passed down because this widget has no
+ * other way to reach the bye-cluster widget's own internals (ADR 0020/0029:
+ * "a widget may not import another widget's"). The chip only shows at the
+ * warning threshold (three or more byes), not at two (CONTEXT.md's Bye
+ * cluster: two is merely notable).
  *
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens already
  * registered in tokens.contrast.test.js (the stat-tile faint/ink pair, the

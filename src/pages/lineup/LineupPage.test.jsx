@@ -561,8 +561,15 @@ test('a cluster of two is notable: the tile, the naming line, but no attention c
   expect(screen.queryByTestId('attention-chip-bye-cluster')).not.toBeInTheDocument();
 });
 
+// The league fixture below deliberately carries a NON-default
+// waiver_period_hours (48, not the byeClusterCopy fallback of 24) - formal
+// review finding f4: with the default value, the naming line's "24 hours"
+// text is produced by the copy helper's own `?? 24` fallback regardless of
+// whether league.waiver_period_hours actually reaches the page, so a broken
+// prop chain would pass unnoticed. Asserting 48 here proves the wiring.
 test('a cluster of three is a warning: the tile, the named players and waiver copy, and the summary strip chip', async () => {
   renderPage({
+    [LEAGUE_URL]: leagueResponse({ waiver_period_hours: 48 }),
     [LINEUP_URL]: {
       data: lineupBody({
         extraEntries: [
@@ -578,7 +585,7 @@ test('a cluster of three is a warning: the tile, the named players and waiver co
   expect(wk5).toHaveAttribute('data-severity', 'warning');
   expect(within(wk5).getByText('3')).toBeInTheDocument();
   expect(within(grid).getByTestId('bye-cluster-line')).toHaveTextContent(
-    'Week 5: Robinson, Hubbard and Reed sit. Waivers clear in 24 hours.'
+    'Week 5: Robinson, Hubbard and Reed sit. Waivers clear in 48 hours.'
   );
   expect(await screen.findByTestId('attention-chip-bye-cluster')).toHaveTextContent('Wk 5 · 3 byes');
 });

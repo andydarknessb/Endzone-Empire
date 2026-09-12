@@ -5,7 +5,7 @@ import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../share
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
-import { computeByeClusters, worstByeCluster } from '../../lib/byeClusters';
+import { computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
@@ -44,13 +44,16 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * hidden below `md`).
  *
  * Ticket 7 (#1239) stacks the bye-cluster widget's grid into the same
- * Outlook tab, under start-sit-panel: the page computes the cluster read
- * once (`src/lib/byeClusters.js`, off `lineup.entries` - no new endpoint)
- * and hands it to both the grid and the team-summary-strip's own worst-
- * cluster attention chip, the same "value two widgets both need is passed
- * down by the page" rule `useLineupData`/`useAdvice` already follow. Hidden
- * entirely on a past week (`isPastWeek` below): a settled week is a record,
- * not an outlook.
+ * Outlook tab, under start-sit-panel, computed off `lineup.entries` with no
+ * new endpoint (`shared/lib`'s `computeByeClusters`/`worstByeCluster` -
+ * promoted there, not kept below the island, since it is domain-meaningful
+ * and this page and the bye-cluster widget both reach it, ADR 0031). The
+ * page and the widget each call that shared pure function independently
+ * (the widget already holds the raw entries and computes its own grid); the
+ * page's OWN answer is handed only to the team-summary-strip's attention
+ * chip, which has no other way to reach a bye-cluster widget's internals.
+ * Hidden entirely on a past week (`isPastWeek` below): a settled week is a
+ * record, not an outlook.
  *
  * Deliberately deferred, per the issue's own scope: the live Game cell's
  * full Situation treatment (ticket 9 - this ticket's Game cell shows clock
@@ -167,11 +170,13 @@ export default function LineupPage() {
 
   // The Bye cluster grid (#1239, AC5): "past weeks show no grid (the week as
   // played has no outlook)" - a week strictly before the league's current
-  // week is a settled record, never an outlook. Computed once here (not
-  // inside either widget) because the team-summary-strip's attention chip
-  // and the bye-cluster widget's own grid both need the SAME worst-cluster
-  // answer (`src/lib/byeClusters.js`) - the "value two widgets both need is
-  // passed down by the page" rule `useLineupData`/`useAdvice` already follow.
+  // week is a settled record, never an outlook. `worstCluster` is computed
+  // here, not inside team-summary-strip, because that widget cannot reach
+  // the bye-cluster widget's own internals (a widget may not import
+  // another widget's - ADR 0020/0029); it calls the SAME shared pure
+  // function (`shared/lib`'s `computeByeClusters`/`worstByeCluster`) the
+  // bye-cluster widget itself independently calls on the raw entries this
+  // page already passes it.
   const isPastWeek = Boolean(lineup && lineup.week != null && lineup.currentWeek != null && lineup.week < lineup.currentWeek);
   const byeClusters = !isPastWeek && lineup ? computeByeClusters({ entries: lineup.entries, fromWeek: lineup.week }) : [];
   const worstCluster = worstByeCluster(byeClusters);

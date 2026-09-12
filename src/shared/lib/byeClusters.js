@@ -1,17 +1,18 @@
 /**
- * Bye cluster computation (CONTEXT.md, Bye cluster; #1239, ADR 0037/0038's
- * parent spec #1232: "computed client-side from the per-player bye week the
- * lineup payload already carries"): rostered players excluding IR, grouped
- * by bye week, for the seven weeks after a given week. Two is notable, three
- * or more is a warning.
+ * Bye cluster computation (CONTEXT.md, Bye cluster; #1239, ADR 0037/parent
+ * spec #1232: "computed client-side from the per-player bye week the lineup
+ * payload already carries"): rostered players excluding IR, grouped by bye
+ * week, for the seven weeks after a given week. Two is notable, three or
+ * more is a warning.
  *
- * Lifted out to `src/lib` rather than kept inside the bye-cluster widget
- * (matching `lineupAttention.js`'s own precedent, #643): the bye-cluster
- * widget's grid and the team-summary-strip widget's attention chip both need
- * the SAME worst-cluster answer, and a widget may not import another
- * widget's internals (ADR 0020/0029) - only a shared `lib` module, read by
- * each independently (or by the page and passed down), keeps the two from
- * ever disagreeing about which week is worst.
+ * Born in `shared/lib` rather than `src/lib` (ADR 0031, docs/adr/0031-game-
+ * center-and-matchup-detail-join-the-island.md:198-200): a pure helper with
+ * domain meaning is promoted once a second island slice consumes it, and
+ * this one is consumed by two - `pages/lineup` and `widgets/bye-cluster` -
+ * from the moment it exists, so it never belongs below the island at all.
+ * `src/lib/lineupAttention.js` is NOT a precedent to follow here: it is one
+ * of the modules #1272 exists to move out of `src/lib` for the same reason,
+ * awaiting its own promotion, not a sanctioned pattern.
  *
  * Reads `entities/roster`'s modeled entry shape (`slot`, `spent`, `byeWeek`,
  * `playerId`, `name`, `position`) - no network, no React, pure.

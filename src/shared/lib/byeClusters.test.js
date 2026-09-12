@@ -92,7 +92,7 @@ describe('worstByeCluster', () => {
     expect(worstByeCluster(clusters)).toBeNull();
   });
 
-  test('the highest-count week at two or more, earliest week on a tie', () => {
+  test('the highest-count week at two or more', () => {
     const entries = [
       entry({ playerId: 1, name: 'A', byeWeek: 5 }),
       entry({ playerId: 2, name: 'B', byeWeek: 5 }),
@@ -102,6 +102,22 @@ describe('worstByeCluster', () => {
     ];
     const clusters = computeByeClusters({ entries, fromWeek: 3 });
     expect(worstByeCluster(clusters)).toMatchObject({ week: 9, count: 3 });
+  });
+
+  // f6 (formal review): the prior version of this fixture never exercised
+  // the tie-break branch at all (its two counts were 2 and 3) - this one
+  // ties two weeks at the top count and pins that the earlier week wins.
+  test('earliest week wins a tie at the top count', () => {
+    const entries = [
+      entry({ playerId: 1, name: 'A', byeWeek: 5 }),
+      entry({ playerId: 2, name: 'B', byeWeek: 5 }),
+      entry({ playerId: 3, name: 'C', byeWeek: 5 }),
+      entry({ playerId: 4, name: 'D', byeWeek: 9 }),
+      entry({ playerId: 5, name: 'E', byeWeek: 9 }),
+      entry({ playerId: 6, name: 'F', byeWeek: 9 }),
+    ];
+    const clusters = computeByeClusters({ entries, fromWeek: 3 });
+    expect(worstByeCluster(clusters)).toMatchObject({ week: 5, count: 3 });
   });
 
   test('empty/missing input is safe', () => {
