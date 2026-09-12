@@ -38,18 +38,16 @@ const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'va
  * itself focusable and a keyboard-only user at a narrow width would
  * otherwise never be able to scroll it. The heat strip's `aria-label`
  * distinguishes a week that has not happened yet from one the team simply
- * made no picks in. A KNOWN, UNRESOLVED limitation from the risk review,
- * filed as #1298: the heat strip's fill is the only VISUAL channel carrying
- * its value, which is WCAG 1.4.1 Use of Color, not 1.4.11 non-text contrast
- * (1.4.11 is unsatisfiable here in principle, not just within these tokens -
- * four adjacent steps at 3:1 each need roughly 3^4 ~= 81:1 end to end, and no
- * two colours anywhere exceed 21:1, so no token or hue could ever clear that
- * bar). The real fix is a visible non-colour encoding - a value, a pattern,
- * or fewer buckets - which changes what the commissioned heat strip looks
- * like, so it is #1298's design decision, not this widget's. Every cell now
- * carries a hairline border so individual weeks stay locatable regardless of
- * fill, and the underlying values are always available to assistive tech via
- * `aria-label`.
+ * made no picks in. #1298 (WCAG 1.4.1 Use of Color, ruled - not 1.4.11
+ * non-text contrast, which is unsatisfiable here in principle: four adjacent
+ * steps at 3:1 each need roughly 3^4 ~= 81:1 end to end, and no two colours
+ * anywhere exceed 21:1): bucket identity used to reach a sighted viewer
+ * through fill lightness alone. Each heat cell now carries a second,
+ * non-colour channel - a bucket-indexed fill height inside the 14px square -
+ * so bucket reads by shape as well as tint; see `HeatStrip` below. Every
+ * cell still carries a hairline border so individual weeks stay locatable
+ * regardless of fill, and the underlying values are always available to
+ * assistive tech via `aria-label`.
  */
 export default function StandingsTable({ leagueId, seasons }) {
   const {
@@ -347,6 +345,28 @@ function heatCellLabel(cell, currentWeek) {
 // hairline border on every cell (not just the best-week outline) keeps
 // individual weeks locatable for a sighted low-vision viewer even where two
 // adjacent buckets' fills sit close together.
+//
+// #1298 (WCAG 1.4.1): bucket identity used to reach a sighted viewer through
+// fill lightness alone. Each cell now carries a second, non-colour channel:
+// an inner fill that rises to a bucket-indexed HEIGHT of the 14px square (h1
+// a quarter, h2 half, h3 three-quarters, h4 full), so bucket reads by shape
+// as well as tint. The tint and its per-bucket opacity move onto that inner
+// fill so the outer cell's hairline border and the best-week outline are
+// never themselves faded. Every cell (bucketed or not) shares the same
+// dash-surface3 track as its base: an earlier version left a bucketed
+// cell's own background transparent, which put the h1/h2 fill directly on
+// the row's own backdrop - and that backdrop varied by row, worst case the
+// viewer row's accent-soft tint, the same hue as the fill (h1 measured
+// 1.46:1 light / 1.80:1 dark there). A shared opaque track does NOT clear
+// 3:1 for the faintest buckets either (h1 1.68:1 light / 2.15:1 dark, h2
+// 2.59:1 light against dash-surface3 - h2 dark and h3/h4 both themes do
+// clear it); what it fixes is that the backdrop is now constant and never
+// the fill's own hue, so the worst case no longer depends on which row a
+// cell is in, and (verified by rendering both at 14px) it reads as
+// perceptibly more distinct than the transparent version did. As a side
+// effect it also keeps a "0 points" h1 cell visibly distinct from a
+// not-played cell: the latter is the bare track, the former is the same
+// track with a small fill on it. A not-played cell renders no inner fill.
 function HeatStrip({ heat, currentWeek }) {
   return (
     <Box data-testid="pickem-standings-heat" sx={{ display: 'flex', gap: '3px' }}>
@@ -360,23 +380,40 @@ function HeatStrip({ heat, currentWeek }) {
           role="img"
           aria-label={heatCellLabel(cell, currentWeek)}
           sx={{
+            position: 'relative',
             width: 14,
             height: 14,
             borderRadius: '4px',
             border: '1px solid var(--dash-line)',
             boxSizing: 'border-box',
-            backgroundColor: cell.bucket ? 'var(--dash-accent)' : 'var(--dash-surface3)',
-            opacity: BUCKET_OPACITY[cell.bucket] ?? 1,
+            overflow: 'hidden',
+            backgroundColor: 'var(--dash-surface3)',
+            opacity: 1,
             outline: cell.isBest ? '2px solid var(--dash-warning)' : 'none',
             outlineOffset: '1px',
           }}
-        />
+        >
+          {cell.bucket && (
+            <Box
+              data-testid="pickem-standings-heat-cell-fill"
+              style={{ height: `${BUCKET_HEIGHT[cell.bucket]}%`, opacity: BUCKET_OPACITY[cell.bucket] }}
+              sx={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'var(--dash-accent)',
+              }}
+            />
+          )}
+        </Box>
       ))}
     </Box>
   );
 }
 
 const BUCKET_OPACITY = { h1: 0.35, h2: 0.6, h3: 0.85, h4: 1 };
+const BUCKET_HEIGHT = { h1: 25, h2: 50, h3: 75, h4: 100 };
 
 // Categorical only: the entity's `trend` is 'up' | 'down' | 'flat' | null
 // (no rank-delta magnitude), so this renders a direction, never a number the

@@ -37,6 +37,28 @@ function mockStandings({ standings, viewerTeamId = null, loading = false, error 
   });
 }
 
+// jsdom's getComputedStyle resolves neither which rule wins nor a `var()`
+// value (widgets/standings-table/ui/StandingsTable.test.jsx's own
+// `rulesUnder`, the same pattern here), so a colour set through `sx` as
+// `var(--dash-*)` is read from the emotion-inserted stylesheet directly
+// rather than through computed style.
+const allRules = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  let text = '';
+  const visit = (rules) => {
+    Array.from(rules || []).forEach((rule) => {
+      if (rule.cssRules) {
+        visit(rule.cssRules);
+        return;
+      }
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      text += `${rule.style.cssText};`;
+    });
+  };
+  Array.from(document.styleSheets).forEach((sheet) => visit(sheet.cssRules));
+  return text;
+};
+
 afterEach(() => {
   usePickemStandings.mockReset();
 });
@@ -101,6 +123,73 @@ test('heat cell shading buckets: a played week buckets by its share of the best 
   // Week 5 was never picked: not-played, distinct from a bucketed zero week.
   expect(byWeek(5)).toHaveAttribute('data-bucket', 'not-played');
   expect(byWeek(5)).not.toHaveAttribute('data-best');
+});
+
+test('heat cell bucket is also visible without colour (#1298, WCAG 1.4.1): each bucket fills a distinct height, and the border/outline are never faded', () => {
+  mockStandings({
+    standings: [
+      baseRow({
+        teamId: 1,
+        // Same shape as the bucket-boundary test above, so week 4 is both
+        // h4 and the best week.
+        weekly: { 1: 25, 2: 50, 3: 75, 4: 100 },
+      }),
+    ],
+  });
+  render(<StandingsTable leagueId={7} />);
+
+  const cells = screen.getAllByTestId('pickem-standings-heat-cell');
+  const byWeek = (week) => cells.find((cell) => cell.getAttribute('data-week') === String(week));
+
+  const fillOf = (cell) => within(cell).queryByTestId('pickem-standings-heat-cell-fill');
+
+  expect(fillOf(byWeek(1))).toHaveStyle({ height: '25%' });
+  expect(fillOf(byWeek(2))).toHaveStyle({ height: '50%' });
+  expect(fillOf(byWeek(3))).toHaveStyle({ height: '75%' });
+  expect(fillOf(byWeek(4))).toHaveStyle({ height: '100%' });
+  // Week 5 is not-played: no inner fill at all, not a fill at some height.
+  expect(fillOf(byWeek(5))).not.toBeInTheDocument();
+
+  // The best-week outline and every cell's hairline border used to sit
+  // under the same sub-1 opacity as the bucket tint; that opacity now lives
+  // only on the inner fill, so the cell itself is never faded.
+  expect(byWeek(1)).toHaveStyle({ opacity: '1' });
+  expect(byWeek(4)).toHaveStyle({ opacity: '1' });
+  expect(fillOf(byWeek(1))).toHaveStyle({ opacity: '0.35' });
+});
+
+test('heat cell track: a played-but-scored-0 week (h1) and a not-played week share the same base track, distinguished by the presence of a fill (#1298 risk review)', () => {
+  mockStandings({
+    standings: [
+      // Best week is week 2 at 100 pts, so week 1's 0 points buckets h1
+      // (heatBuckets.js) rather than landing outside the strip entirely.
+      baseRow({ teamId: 1, weekly: { 1: 0, 2: 100 } }),
+    ],
+  });
+  render(<StandingsTable leagueId={7} />);
+
+  const cells = screen.getAllByTestId('pickem-standings-heat-cell');
+  const byWeek = (week) => cells.find((cell) => cell.getAttribute('data-week') === String(week));
+  const fillOf = (cell) => within(cell).queryByTestId('pickem-standings-heat-cell-fill');
+
+  const scoredZero = byWeek(1);
+  const notPlayed = byWeek(5);
+  expect(scoredZero).toHaveAttribute('data-bucket', 'h1');
+  expect(notPlayed).toHaveAttribute('data-bucket', 'not-played');
+
+  // Same neutral track on both, so the ONLY visible difference is the fill.
+  // The cell's background comes from `sx` (an emotion class), not an inline
+  // style, and jsdom's getComputedStyle resolves neither the winning rule
+  // nor a `var()` value, so `toHaveStyle`/`.style` reads empty on both and a
+  // comparison between them would pass no matter what the two cells actually
+  // render (risk review: caught exactly that on this line). Reading the
+  // emotion-inserted rule directly, and pinning it to the real expected
+  // token rather than to each other, is what actually catches a regression
+  // back to a transparent bucketed cell.
+  expect(allRules(scoredZero)).toMatch(/background-color:\s*var\(--dash-surface3\)/);
+  expect(allRules(notPlayed)).toMatch(/background-color:\s*var\(--dash-surface3\)/);
+  expect(fillOf(scoredZero)).toBeInTheDocument();
+  expect(fillOf(notPlayed)).not.toBeInTheDocument();
 });
 
 test('trend arrows: up, down, flat and null each render their own mark', () => {
