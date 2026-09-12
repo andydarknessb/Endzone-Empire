@@ -31,6 +31,22 @@ const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'va
  *
  * Renders from the standings entity only (`usePickemStandingsTable`); the
  * widget never calls a fetch client itself.
+ *
+ * Accessibility (risk review, #1266): the scroll container carries its own
+ * `tabIndex={0}` + label + focus ring (the same pattern
+ * src/widgets/nfl-game-strip uses), since none of the table's cell content is
+ * itself focusable and a keyboard-only user at a narrow width would
+ * otherwise never be able to scroll it. The heat strip's `aria-label`
+ * distinguishes a week that has not happened yet from one the team simply
+ * made no picks in. A KNOWN, UNRESOLVED limitation from the risk review: the
+ * heat strip's four opacity buckets do not clear WCAG 1.4.11's 3:1 non-text
+ * contrast between every adjacent pair (measured 1.3-1.9:1 in both themes;
+ * the ceiling between the lightest and darkest cell is only ~5.6:1 light /
+ * 7.5:1 dark, which cannot fit four 3:1-separated steps at all) - a fix needs
+ * either a new token (more than one hue, not just accent's alpha) or fewer
+ * buckets, both design decisions outside this ticket's scope. Every cell now
+ * carries a hairline border so individual weeks stay locatable regardless of
+ * fill, and the underlying values are always available via `aria-label`.
  */
 export default function StandingsTable({ leagueId, seasons }) {
   const {
@@ -102,7 +118,16 @@ export default function StandingsTable({ leagueId, seasons }) {
           </Typography>
         </Box>
       ) : (
-        <Box data-testid="pickem-standings-scroll" sx={{ overflowX: 'auto' }}>
+        <Box
+          data-testid="pickem-standings-scroll"
+          tabIndex={0}
+          role="group"
+          aria-label="Standings table, scrollable"
+          sx={{
+            overflowX: 'auto',
+            '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
+          }}
+        >
           <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--dash-font-body)' }}>
             <Box component="thead">
               <Box component="tr">
@@ -135,7 +160,7 @@ function StandingsRow({ row, currentWeek }) {
   return (
     <Box
       component="tr"
-      data-testid={row.isViewer ? 'pickem-standings-you-row' : undefined}
+      data-testid={row.isViewer ? 'pickem-standings-you-row' : `pickem-standings-row-${row.teamId ?? row.teamName}`}
       data-viewer-team={row.isViewer || undefined}
       sx={{
         ...(row.isViewer
@@ -181,7 +206,7 @@ function StandingsRow({ row, currentWeek }) {
         <AccuracyBar accuracy={row.accuracy} />
       </BodyCell>
       <BodyCell>
-        <HeatStrip heat={row.heat} />
+        <HeatStrip heat={row.heat} currentWeek={currentWeek} />
       </BodyCell>
       <BodyCell align="right">
         <TrendMark trend={row.trend} />
@@ -269,11 +294,17 @@ function MedalIcon({ rank }) {
 // foreground/background pairing.
 function AccuracyBar({ accuracy }) {
   const pct = accuracy == null ? null : Math.max(0, Math.min(100, Math.round(accuracy * 100)));
+  // The bar is decorative reinforcement of the visible percentage text
+  // beside it once there is one: `role="img"` + `aria-label` only carries
+  // real information when there is NO other text on the row saying so - the
+  // "no decided picks yet" state, where the visible text is a bare "-".
+  // Labelling the bar in the pct != null case as well would announce the
+  // same "Accuracy 65%" fact three times (column header, this label, the
+  // visible "65%" text).
   return (
     <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
       <Box
-        role="img"
-        aria-label={pct == null ? 'No decided picks yet' : `Accuracy ${pct}%`}
+        {...(pct == null ? { role: 'img', 'aria-label': 'No decided picks yet' } : { 'aria-hidden': 'true' })}
         data-testid="pickem-standings-accuracy-bar"
         sx={{ width: 64, height: 6, borderRadius: 'var(--radius-pill)', backgroundColor: 'var(--dash-surface3)', overflow: 'hidden' }}
       >
@@ -288,10 +319,32 @@ function AccuracyBar({ accuracy }) {
   );
 }
 
+// A week's accessible label. `points == null` covers two different facts a
+// sighted user reads apart at a glance (an unfilled cell vs. a future one)
+// but which the aria-label must say in words: a week strictly after
+// `currentWeek` (the widget's own "how far the season has gotten" reading,
+// model/usePickemStandingsTable.js) has not happened yet, while a week at or
+// before it that still carries no points means the team made no picks that
+// week (pickem.service.js's `scorePickemWeek` never writes a `weekly` entry
+// for a week nobody on that team picked). `currentWeek == null` (nobody in
+// the league has picked anything yet) treats every week as not-yet-played.
+function heatCellLabel(cell, currentWeek) {
+  if (cell.points != null) {
+    return `Week ${cell.week}: ${cell.points} points${cell.isBest ? ', best week' : ''}`;
+  }
+  if (currentWeek == null || cell.week > currentWeek) {
+    return `Week ${cell.week}: not played yet`;
+  }
+  return `Week ${cell.week}: no picks made`;
+}
+
 // The eighteen-week heat strip: coloured, text-free cells (heatBuckets.js
 // owns which bucket each week falls into), the best week outlined. Each cell
-// carries its meaning in an aria-label rather than visible text.
-function HeatStrip({ heat }) {
+// carries its meaning in an aria-label rather than visible text, and a thin
+// hairline border on every cell (not just the best-week outline) keeps
+// individual weeks locatable for a sighted low-vision viewer even where two
+// adjacent buckets' fills sit close together.
+function HeatStrip({ heat, currentWeek }) {
   return (
     <Box data-testid="pickem-standings-heat" sx={{ display: 'flex', gap: '3px' }}>
       {(heat || []).map((cell) => (
@@ -302,15 +355,13 @@ function HeatStrip({ heat }) {
           data-bucket={cell.bucket || 'not-played'}
           data-best={cell.isBest || undefined}
           role="img"
-          aria-label={
-            cell.points == null
-              ? `Week ${cell.week}: no picks made`
-              : `Week ${cell.week}: ${cell.points} points${cell.isBest ? ', best week' : ''}`
-          }
+          aria-label={heatCellLabel(cell, currentWeek)}
           sx={{
             width: 14,
             height: 14,
             borderRadius: '4px',
+            border: '1px solid var(--dash-line)',
+            boxSizing: 'border-box',
             backgroundColor: cell.bucket ? 'var(--dash-accent)' : 'var(--dash-surface3)',
             opacity: BUCKET_OPACITY[cell.bucket] ?? 1,
             outline: cell.isBest ? '2px solid var(--dash-warning)' : 'none',
@@ -329,9 +380,13 @@ const BUCKET_OPACITY = { h1: 0.35, h2: 0.6, h3: 0.85, h4: 1 };
 // entity does not provide.
 function TrendMark({ trend }) {
   if (trend == null) {
+    // No previous rank to compare against (the first week a team has one,
+    // entities/pickem-standings's `trend`) - visually blank rather than the
+    // same faint dash `flat` uses, so a sighted viewer does not read "held
+    // its rank" for a team with no prior week to hold it against; a screen
+    // reader still gets the distinct "not available" label.
     return (
-      <Box component="span" data-testid="pickem-standings-trend" sx={{ color: 'var(--dash-faint)' }}>
-        <span aria-hidden="true">-</span>
+      <Box component="span" data-testid="pickem-standings-trend">
         <span style={visuallyHidden}>Trend: not available</span>
       </Box>
     );

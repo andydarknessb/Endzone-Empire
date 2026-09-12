@@ -149,11 +149,77 @@ test('a failed read shows a compact error and no table', () => {
   expect(screen.queryByTestId('pickem-standings-scroll')).not.toBeInTheDocument();
 });
 
-test('a loading read shows skeleton rows, not the you-row or an error', () => {
+test('a loading read shows skeleton rows, not the you-row or an error, and reports aria-busy on the owning card', () => {
   mockStandings({ standings: [], loading: true });
   render(<StandingsTable leagueId={7} />);
   expect(screen.getAllByTestId('pickem-standings-skeleton').length).toBeGreaterThan(0);
   expect(screen.queryByTestId('pickem-standings-error')).not.toBeInTheDocument();
+  expect(screen.getByTestId('pickem-standings')).toHaveAttribute('aria-busy', 'true');
+});
+
+test('a ready read clears aria-busy on the owning card', () => {
+  mockStandings({ standings: [baseRow()] });
+  render(<StandingsTable leagueId={7} />);
+  expect(screen.getByTestId('pickem-standings')).toHaveAttribute('aria-busy', 'false');
+});
+
+test('the scroll container is a keyboard-reachable, labelled scrollport (risk review: no cell content is itself focusable)', () => {
+  mockStandings({ standings: [baseRow()] });
+  render(<StandingsTable leagueId={7} />);
+  const scroller = screen.getByTestId('pickem-standings-scroll');
+  expect(scroller).toHaveAttribute('tabindex', '0');
+  expect(scroller).toHaveAccessibleName('Standings table, scrollable');
+});
+
+test('heat strip labels: a week at or before the current week with no points is "no picks made"; a week after it is "not played yet" (risk review)', () => {
+  mockStandings({
+    standings: [
+      baseRow({ teamId: 1, teamName: 'Skips Weeks', weekly: { 1: 10, 3: 20 } }),
+      baseRow({ teamId: 2, teamName: 'Every Week', rank: 2, weekly: { 1: 5, 2: 8, 3: 12 } }),
+    ],
+  });
+  render(<StandingsTable leagueId={7} />);
+
+  // currentWeek is 3 (the highest week any row carries).
+  const skipsRow = screen.getByTestId('pickem-standings-row-1');
+  const cellsInRow = within(skipsRow).getAllByTestId('pickem-standings-heat-cell');
+  const week2 = cellsInRow.find((cell) => cell.getAttribute('data-week') === '2');
+  const week5 = cellsInRow.find((cell) => cell.getAttribute('data-week') === '5');
+  expect(week2).toHaveAttribute('aria-label', 'Week 2: no picks made');
+  expect(week5).toHaveAttribute('aria-label', 'Week 5: not played yet');
+});
+
+test('trend: a flat mark shows a visible glyph, but "no previous rank" renders nothing visible (risk review: the two must not look identical)', () => {
+  mockStandings({
+    standings: [
+      baseRow({ teamId: 1, teamName: 'Flat Team', rank: 1, previousRank: 1 }),
+      baseRow({ teamId: 2, teamName: 'New Team', rank: 2, previousRank: null }),
+    ],
+  });
+  render(<StandingsTable leagueId={7} />);
+
+  const marks = screen.getAllByTestId('pickem-standings-trend');
+  const [flatMark, nullMark] = marks;
+  // The visible flat glyph is the en dash character; the null case renders
+  // no visible mark at all (its hidden "not available" text carries none).
+  expect(flatMark).toHaveTextContent('–');
+  expect(nullMark).not.toHaveTextContent('–');
+});
+
+test('accuracy bar: a decided team hides the redundant bar label (the visible percent text already carries it); an undecided team labels the bar itself', () => {
+  mockStandings({
+    standings: [
+      baseRow({ teamId: 1, teamName: 'Decided', correct: 5, incorrect: 0 }),
+      baseRow({ teamId: 2, teamName: 'Undecided', rank: 2, correct: 0, incorrect: 0 }),
+    ],
+  });
+  render(<StandingsTable leagueId={7} />);
+
+  const bars = screen.getAllByTestId('pickem-standings-accuracy-bar');
+  expect(bars[0]).toHaveAttribute('aria-hidden', 'true');
+  expect(bars[0]).not.toHaveAttribute('role');
+  expect(bars[1]).toHaveAttribute('role', 'img');
+  expect(bars[1]).toHaveAccessibleName('No decided picks yet');
 });
 
 test('house style: no em-dash anywhere in the rendered card', () => {
