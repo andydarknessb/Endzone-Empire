@@ -75,6 +75,27 @@ describe('alpha compositing over a backdrop', () => {
   });
 });
 
+describe('sibling tints on one surface (contrastRatio cannot measure this)', () => {
+  // Light-theme dash-accent (#0f6a41) at the heat-strip's h3 (0.85 alpha) and
+  // h4 (opaque) buckets, both sitting on dash-surface (#ffffff) - see #1298,
+  // the ticket that hit this trap producing its numbers, and #1299's docblock
+  // paragraph above.
+  const SURFACE = '#ffffff';
+  const ACCENT = '#0f6a41';
+  const H3_TINT = 'rgba(15, 106, 65, 0.85)';
+
+  test('pointed at two siblings directly, contrastRatio returns exactly 1.00', () => {
+    expect(contrastRatio(H3_TINT, ACCENT, SURFACE)).toBe(1);
+  });
+
+  test('the correct recipe: two relativeLuminance calls over the shared surface', () => {
+    const l1 = relativeLuminance(H3_TINT, SURFACE);
+    const l2 = relativeLuminance(ACCENT, SURFACE);
+    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    expect(ratio).toBeCloseTo(1.39, 2);
+  });
+});
+
 describe('a backdrop is required for alpha', () => {
   test('an alpha background without a backdrop throws and says why', () => {
     expect(() => contrastRatio('#ffffff', 'rgba(0, 0, 0, 0.5)')).toThrow(/backdrop/i);

@@ -12,6 +12,28 @@
  * Compositing is standard source-over alpha blending, rounded to 8-bit channels
  * the way a browser rasterises it, so `rgba(0, 0, 0, 0.5)` over `#ffffff`
  * measures exactly as `#808080` does.
+ *
+ * `contrastRatio` models the LAYERED case only: `fg` painted over `bg` painted
+ * over `backdrop`, one thing stacked on another. It cannot be pointed at two
+ * sibling tints sitting side by side on the same surface (two heat-strip
+ * buckets, two badge tints) - that is a different question, not a layering
+ * one, and asking it anyway silently returns nonsense: `bg` is resolved to a
+ * solid first, so an opaque sibling (or one already at alpha 1) throws away
+ * `backdrop` entirely, and `fg` then composites onto that sibling instead of
+ * onto the shared surface. `contrastRatio(rgba(accent, .85), accent, surface)`
+ * returns exactly 1.00 in both themes for this reason, not because the two
+ * tints are indistinguishable. The correct sibling measurement needs no new
+ * export: resolve each tint's luminance over the shared surface separately
+ * with `relativeLuminance(tint, surface)`, then apply the same WCAG formula
+ * `contrastRatio` uses by hand:
+ *
+ *   const l1 = relativeLuminance(tintA, surface);
+ *   const l2 = relativeLuminance(tintB, surface);
+ *   const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+ *
+ * which gives 1.39 for the light-theme `dash-accent` h3/h4 heat-strip pair
+ * (0.85 alpha vs. opaque, both over `dash-surface`) - the ticket's own
+ * example of the sibling case (#1298, #1299).
  */
 
 const HEX_BODY = /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
