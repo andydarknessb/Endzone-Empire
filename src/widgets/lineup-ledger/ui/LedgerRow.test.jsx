@@ -407,6 +407,15 @@ test('canDrop renders a drop control that calls onRequestDrop without triggering
   expect(onClick).not.toHaveBeenCalled();
 });
 
+// Red-tell (mobile review): the drop control rendered at 26x26px (MUI's
+// IconButton size="small" default), under the repo's 44px touch-target
+// standard - dropping the MIN_TOUCH_TARGET_SX override turns this case red.
+test('canDrop renders a drop control that meets the 44px touch target', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />);
+  const drop = screen.getByRole('button', { name: /drop josh allen/i });
+  expect(drop).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
+});
+
 test('canDrop=false renders no drop control', () => {
   render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByRole('button', { name: /drop/i })).toBeNull();
