@@ -31,10 +31,9 @@ const decisionCardContextService = require('./decisionCardContext.service');
  */
 
 class PlayerCardError extends Error {
-  constructor(statusCode, message, code = null) {
+  constructor(statusCode, message) {
     super(message);
     this.statusCode = statusCode;
-    this.code = code;
   }
 }
 
@@ -47,14 +46,44 @@ function pointsOf(projections, playerId) {
 }
 
 /**
+ * The identity set `playerId` belongs to, under the SAME partition
+ * `player.router.js`'s `player_identities` CTE uses (normalized name +
+ * position + Team code): every `players` row a duplicate-source sync could
+ * have produced for one real athlete. `playerId` itself is always included,
+ * even when no duplicate exists. A plain `players` row never carries
+ * `identity_ids` (that field only exists as the CTE's window alias), so
+ * both `availabilityFor` and the own-roster Upgrade check resolve it here
+ * rather than reading a field that was never on the row (formal review f1).
+ */
+async function loadIdentityIds(playerId) {
+  const result = await pool.query(
+    `WITH "target" AS (
+       SELECT LOWER(REGEXP_REPLACE(TRIM("name"), '\\s+', ' ', 'g')) AS "name_key",
+              "position",
+              COALESCE(fn_normalize_nfl_team("nfl_team"), '') AS "team_key"
+       FROM "players" WHERE "id" = $1
+     )
+     SELECT "players"."id" FROM "players", "target"
+     WHERE LOWER(REGEXP_REPLACE(TRIM("players"."name"), '\\s+', ' ', 'g')) = "target"."name_key"
+       AND "players"."position" = "target"."position"
+       AND COALESCE(fn_normalize_nfl_team("players"."nfl_team"), '') = "target"."team_key"`,
+    [playerId]
+  );
+  const ids = result.rows.map((r) => r.id);
+  return ids.length > 0 ? ids : [playerId];
+}
+
+/**
  * Internal: shared plumbing for `upgradesFor` and `getPlayerCard`. Materializes
  * the caller's lineup exactly as `decision.service.waiverSuggestions` does,
  * then makes ONE `getWeekProjections` call covering both the caller's current
  * starters and every requested `playerIds`, so the Weekly projection behind
  * `decision.projWeek.points` and the one behind `decision.upgrade` are the
  * same producer call (Ruling item 2). `upgrades` is `null` for a player on
- * the caller's own roster or in a best-ball league (Upgrade is undefined
- * there, ADR 0040).
+ * the caller's own roster (checked over the FULL identity set `loadIdentityIds`
+ * resolves, not the bare requested id - a duplicate-source players row for a
+ * rostered athlete must still read as "already yours", formal review f1) or
+ * in a best-ball league (Upgrade is undefined there, ADR 0040).
  */
 async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
@@ -108,7 +137,14 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
 
   const upgrades = new Map();
   for (const id of ids) {
-    if (league.best_ball || ownRosterIds.has(id)) {
+    if (league.best_ball) {
+      upgrades.set(id, null);
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop -- one identity lookup per
+    // requested candidate; ids.length is 1 for the card's own call site.
+    const identityIds = await loadIdentityIds(id);
+    if (identityIds.some((identityId) => ownRosterIds.has(identityId))) {
       upgrades.set(id, null);
       continue;
     }
@@ -133,13 +169,17 @@ async function upgradesFor({ league, team, season, week, playerIds }) {
  * `availability` (Ruling item 6): `state` is computed the same way
  * `player.router.js`'s list loop (`attachLeagueAvailability`) computes it,
  * duplicated here on purpose rather than shared - the router's loop is left
- * as is in this ticket and adopts this function in #1309. The extra fields
- * (`teamId`, `teamName`, `availableAt`, `rosterCapacity`, `rosterCount`,
- * `faabRemaining`, `waiverPriority`) are the same ones the players-list
- * `context` object already publishes for the caller's own team.
+ * as is in this ticket and adopts this function in #1309. `identityIds`
+ * (via `loadIdentityIds`, formal review f1) matches the same duplicate-source
+ * players rows the router's `player_identities` CTE collapses, not just the
+ * bare requested id, so a duplicate row for a rostered or waivered athlete is
+ * never mistaken for a free agent. The extra fields (`teamId`, `teamName`,
+ * `availableAt`, `rosterCapacity`, `rosterCount`, `faabRemaining`,
+ * `waiverPriority`) are the same ones the players-list `context` object
+ * already publishes for the caller's own team.
  */
 async function availabilityFor({ league, team, player }) {
-  const identityIds = player.identity_ids || [player.id];
+  const identityIds = await loadIdentityIds(player.id);
 
   const [rosterResult, waiverResult, rosterCountResult, rosterCapacity] = await Promise.all([
     pool.query(
@@ -194,6 +234,15 @@ async function availabilityFor({ league, team, player }) {
  * the nightly projection run, #1305, already fills); the bye week is
  * `'bye'` with no points; a week `projection.factors.availability` marks
  * unavailable is `'unavailable'` with `reason` 'out' or 'on IR'.
+ *
+ * Open interpretation (formal review f3, not settled by the Ruling or ADR
+ * 0040-0042): a past, non-bye week with no `player_stats` row at all (a
+ * healthy scratch, a mid-season signing, an unsynced week) still ships
+ * `kind: 'actual'`, with `points: null` rather than `0` - the row was never
+ * played FOR this player, so `null` says "no number", the same "hide rather
+ * than guess" rule ADR 0040 applies to a missing tile. A dedicated
+ * `kind: 'unavailable'`/no-data kind for this case is a reasonable
+ * alternative the client ticket (#1307) may prefer instead.
  */
 async function buildWeeklyBars({ league, player, season, currentWeek, opponentByWeek, byeWeek, rules }) {
   const statsResult = await pool.query(

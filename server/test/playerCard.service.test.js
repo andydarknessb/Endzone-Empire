@@ -54,6 +54,8 @@ function buildHandlers({
   rosteredBy = null, // { team_id, team_name } | null
   waiverRow = null, // { available_at } | null
   rosterCount = 0,
+  identityIds = [player.id], // every players row loadIdentityIds resolves for this player
+  ownRosterRows = [], // rows for the caller's OWN team_players (own-roster Upgrade check)
 } = {}) {
   return [
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [league] })],
@@ -61,7 +63,8 @@ function buildHandlers({
     [/^SELECT \* FROM "players" WHERE "id" = \$1$/, () => ({ rows: [player] })],
     [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
-    [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
+    [/^WITH "target" AS \(/, () => ({ rows: identityIds.map((id) => ({ id })) })],
+    [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: ownRosterRows })],
     [/^SELECT "id", "position" FROM "players" WHERE "id" = ANY/, () => ({ rows: [{ id: player.id, position: player.position }] })],
     [/^SELECT "team_players"\."team_id", "teams"\."name"/, () => ({ rows: rosteredBy ? [rosteredBy] : [] })],
     [/^SELECT "available_at" FROM "waiver_players"/, () => ({ rows: waiverRow ? [waiverRow] : [] })],
@@ -116,6 +119,19 @@ test('getPlayerCard: a best_ball league yields upgrade: null', async (t) => {
   assert.equal(card.decision.upgrade, null);
 });
 
+test('getPlayerCard: a past, non-bye week with no player_stats row ships kind "actual" with points null (formal review f3, open interpretation)', async (t) => {
+  const league = { ...LEAGUE, current_week: 3 };
+  createFakePool(buildHandlers({ league })).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.weeks[0].kind, 'actual');
+  assert.equal(card.weeks[0].points, null);
+  assert.equal(card.weeks[1].kind, 'actual');
+  assert.equal(card.weeks[1].points, null);
+});
+
 test('getPlayerCard: a player on bye in week N yields weeks[N-1].kind === "bye" with no points', async (t) => {
   createFakePool(buildHandlers()).install(t);
   mockServices(t, { byeWeek: 5 });
@@ -146,7 +162,7 @@ test('getPlayerCard: seasonEnd equals the league\'s last playoff week', async (t
   assert.equal(card.decision.ros.throughWeek, card.seasonEnd);
 });
 
-test('getPlayerCard: projWeek.points is the one getWeekProjections call for the current week', async (t) => {
+test('getPlayerCard: projWeek.points is the one getWeekProjections call for the current week, under the league\'s own scoring', async (t) => {
   createFakePool(buildHandlers()).install(t);
   const { weekProjectionCalls } = mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
 
@@ -155,6 +171,33 @@ test('getPlayerCard: projWeek.points is the one getWeekProjections call for the 
   assert.equal(weekProjectionCalls.length, 1);
   assert.equal(weekProjectionCalls[0].season, LEAGUE.current_season);
   assert.equal(weekProjectionCalls[0].week, LEAGUE.current_week);
+  // formal review f2: the ticket exists because waiverSuggestions calls
+  // getWeekProjections with no `league` (routes to default-scoring pool
+  // extrapolation) - assert the actual call carries the league object and
+  // the player, not just that A call happened, so dropping `league` here
+  // goes red.
+  assert.equal(weekProjectionCalls[0].league, LEAGUE);
+  assert.ok(weekProjectionCalls[0].playerIds.includes(PLAYER.id));
   assert.equal(card.decision.projWeek.week, LEAGUE.current_week);
   assert.equal(card.decision.projWeek.points, 14.5);
+});
+
+// ---------------------------------------------------------------------------
+// formal review f1: identity resolution (a plain `players` row never carries
+// `identity_ids` - that only exists as player.router.js's list CTE alias)
+// ---------------------------------------------------------------------------
+
+test('getPlayerCard: the caller\'s roster holding a SIBLING identity row (not the requested id itself) still reads my_team and upgrade: null', async (t) => {
+  const SIBLING_ID = 999; // same real athlete as PLAYER.id, a duplicate players row
+  createFakePool(buildHandlers({
+    identityIds: [PLAYER.id, SIBLING_ID],
+    ownRosterRows: [{ player_id: SIBLING_ID }],
+    rosteredBy: { team_id: TEAM.id, team_name: TEAM.name },
+  })).install(t);
+  mockServices(t, { weekPoints: new Map([[PLAYER.id, 12]]) });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.availability.state, 'my_team');
+  assert.equal(card.decision.upgrade, null);
 });
