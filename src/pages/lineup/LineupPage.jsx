@@ -192,8 +192,16 @@ export default function LineupPage() {
   const byeClusters = !isPastWeek && lineup ? computeByeClusters({ entries: lineup.entries, fromWeek: lineup.week }) : [];
   const worstCluster = worstByeCluster(byeClusters);
 
+  // `width: 100%` on the root is load-bearing beside `mx: auto`: this page is
+  // a flex item of the app shell's column flexbox (components/App/App.jsx),
+  // and auto cross-axis margins switch a flex item from `stretch` to
+  // fit-content sizing, so without an explicit width the root grows to its
+  // content's min-content width - which the scrollable week strip sets to the
+  // full 18-week run (a scroll container still contributes its whole content
+  // width to intrinsic sizing). On a phone that made the entire page ~1100px
+  // wide (measured on device, PR #1323).
   return (
-    <Box sx={{ maxWidth: 1180, mx: 'auto', px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 3 } }}>
+    <Box data-testid="lineup-page" sx={{ width: '100%', maxWidth: 1180, mx: 'auto', px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 3 } }}>
       {leaguesError && (
         <Typography role="alert" sx={{ mb: 2, color: 'var(--dash-danger)' }} data-testid="leagues-error">
           {leaguesError}

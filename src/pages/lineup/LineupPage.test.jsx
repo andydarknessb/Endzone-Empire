@@ -867,6 +867,20 @@ test('the Outlook tab: the phone view control toggles which column is hidden bel
   expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: grid');
 });
 
+// Red-tell (measured on device, PR #1323): the page root is a flex item of
+// the app shell's column flexbox with auto cross-axis margins, which turns
+// off `stretch` and sizes it to its content's min-content width - the
+// scrollable week strip's full 18-week run, ~1100px on a phone. Only an
+// explicit `width: 100%` pins it to the viewport; jsdom lays nothing out, so
+// this reads the rule itself. Dropping `width` from the root turns this red.
+test('the page root is pinned to 100% width so the week strip cannot widen it inside the shell flexbox', async () => {
+  renderPage();
+  await screen.findByText('Josh Allen');
+  const own = rulesUnder(screen.getByTestId('lineup-page'));
+  expect(own).toMatch(/(^|[^-])width: 100%/);
+  expect(own).toMatch(/max-width: 1180px/);
+});
+
 // Red-tell (mobile review): the phone Outlook toggle's segments rendered at
 // 30px (the SegmentedControl kit's own default), under the repo's 44px
 // touch-target standard - reverting the `sx` override on this usage turns
