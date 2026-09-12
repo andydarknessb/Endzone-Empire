@@ -66,19 +66,26 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
       const bp = Number.isFinite(b.projection) ? b.projection : -Infinity;
       return bp - ap;
     })
-    .map((candidate) => ({
-      entry: candidate,
-      locked: locked(candidate),
-      // Formal review round 3 finding s3: a legality helper's default must
-      // never be "allowed" - omitting `entry` (or `bestBall`/
-      // `leagueUnsettled`, which read as falsy the same way) used to fail
-      // OPEN, re-enabling a locked candidate's own Swap for any caller that
-      // didn't pass every option. The candidate's own lock is the floor
-      // regardless of what the caller supplies.
-      swapEligible: entry
-        ? isEligibleMove({ selectedEntry: entry, targetEntry: candidate, targetSlot: slot, bestBall, leagueUnsettled })
-        : !locked(candidate),
-    }));
+    .map((candidate) => {
+      const candidateLocked = locked(candidate);
+      return {
+        entry: candidate,
+        locked: candidateLocked,
+        // Formal review round 3 finding s3, comment corrected at round 4's
+        // t1: a legality helper's default must never be "allowed" -
+        // omitting `entry` used to fail OPEN, re-enabling a locked
+        // candidate's own Swap. (Omitting only `bestBall`/`leagueUnsettled`
+        // with `entry` still supplied is NOT the same failure: those two
+        // just drop their own two refusals - `isEligibleMove`'s candidate-
+        // lock check, `locked(targetEntry)`, is unconditional and always
+        // refuses a locked candidate regardless of what else is omitted.)
+        // The candidate's own lock is the floor when `entry` itself is
+        // absent, matching what `isEligibleMove` would enforce anyway.
+        swapEligible: entry
+          ? isEligibleMove({ selectedEntry: entry, targetEntry: candidate, targetSlot: slot, bestBall, leagueUnsettled })
+          : !candidateLocked,
+      };
+    });
 }
 
 /**

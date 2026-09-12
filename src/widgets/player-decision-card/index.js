@@ -31,10 +31,15 @@
  * is established practice on this island already:
  * `commissioner-strip/ui/CommissionerStrip.jsx` imports
  * `features/advance-week`, `draft-grades/ui/DraftGrades.jsx` imports
- * `features/toggle-grade-details`, `draft-order/ui/DraftOrderPanel.jsx`
- * imports `features/autodraft-toggle`, and `join-requests/ui/
- * JoinRequests.jsx` imports `features/decide-join-request`. This is a
- * fifth instance of that pattern, not an exception to one:
+ * `features/toggle-grade-details`, and `join-requests/ui/JoinRequests.jsx`
+ * imports `features/decide-join-request` (round 4 finding t2, correcting an
+ * earlier version of this list: `draft-order/ui/DraftOrderPanel.jsx`
+ * imports `features/autodraft-toggle`'s internal `ui/AutodraftToggle.jsx`
+ * path directly - that feature has no `index.js` at all, and ADR 0020
+ * itself names `widgets/draft-order` as the slice that "predates the index
+ * rule and does not follow it", so it is the ADR's own counter-example, not
+ * a fourth instance of the pattern this note cites). This is a fourth
+ * instance of that pattern, not an exception to one:
  *   - `src/features/swap-players` (`isEligibleMove`, `model/
  *     slotActions.js` and `ui/PlayerDecisionCard.jsx`): the pure legality
  *     rule `useSwapPlayers`' own `onRowClick`/`isEligibleTarget` enforce.

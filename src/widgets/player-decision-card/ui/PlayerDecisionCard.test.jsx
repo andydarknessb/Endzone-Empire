@@ -37,6 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.restoreAllMocks(); // s2 spies on movesToStart; never let a failure leak it (round 4 finding t3)
   jest.clearAllMocks();
 });
 
@@ -275,7 +276,9 @@ test('s2: an empty move list from movesToStart is never handed to onSwap', async
   renderCard({ entry: bench, entries: [bench, starter], onSwap });
   await userEvent.click(await screen.findByTestId('decision-card-start-action'));
   expect(onSwap).not.toHaveBeenCalled();
-  slotActions.movesToStart.mockRestore();
+  // Teardown is the suite's own afterEach (jest.restoreAllMocks, round 4
+  // finding t3) - a failure above must not leave this spy live for the
+  // tests that follow.
 });
 
 // r2 (round 2): the same refusal for a SPENT occupant, not just a locked one.
