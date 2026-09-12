@@ -38,15 +38,18 @@ const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'va
  * itself focusable and a keyboard-only user at a narrow width would
  * otherwise never be able to scroll it. The heat strip's `aria-label`
  * distinguishes a week that has not happened yet from one the team simply
- * made no picks in. A KNOWN, UNRESOLVED limitation from the risk review: the
- * heat strip's four opacity buckets do not clear WCAG 1.4.11's 3:1 non-text
- * contrast between every adjacent pair (measured 1.3-1.9:1 in both themes;
- * the ceiling between the lightest and darkest cell is only ~5.6:1 light /
- * 7.5:1 dark, which cannot fit four 3:1-separated steps at all) - a fix needs
- * either a new token (more than one hue, not just accent's alpha) or fewer
- * buckets, both design decisions outside this ticket's scope. Every cell now
+ * made no picks in. A KNOWN, UNRESOLVED limitation from the risk review,
+ * filed as #1298: the heat strip's fill is the only VISUAL channel carrying
+ * its value, which is WCAG 1.4.1 Use of Color, not 1.4.11 non-text contrast
+ * (1.4.11 is unsatisfiable here in principle, not just within these tokens -
+ * four adjacent steps at 3:1 each need roughly 3^4 ~= 81:1 end to end, and no
+ * two colours anywhere exceed 21:1, so no token or hue could ever clear that
+ * bar). The real fix is a visible non-colour encoding - a value, a pattern,
+ * or fewer buckets - which changes what the commissioned heat strip looks
+ * like, so it is #1298's design decision, not this widget's. Every cell now
  * carries a hairline border so individual weeks stay locatable regardless of
- * fill, and the underlying values are always available via `aria-label`.
+ * fill, and the underlying values are always available to assistive tech via
+ * `aria-label`.
  */
 export default function StandingsTable({ leagueId, seasons }) {
   const {
