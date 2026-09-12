@@ -22,9 +22,16 @@ import { formatKickoff, unavailableLabel } from '../../../shared/lib';
  *   - `{ kind: 'pre', opponent, kickoff }` - opponent is a Team code or
  *     null (a bye or an unsynced slate, CONTEXT.md's opponent), kickoff is
  *     already formatted ("Sun 1:00 PM") or null.
- *   - `{ kind: 'live', trailing, teamScore, opponentScore }` - trailing is
- *     "Q3 6:42" when both are known, else "Live"; either score is null when
- *     the row cannot be matched to the entry's own NFL team.
+ *   - `{ kind: 'live', trailing, teamScore, opponentScore, possession,
+ *     downDistance, redZone, lastPlay }` - trailing is "Q3 6:42" when both
+ *     are known, else "Live"; either score is null when the row cannot be
+ *     matched to the entry's own NFL team. The four Situation fields
+ *     (CONTEXT.md's Situation; ADR 0037's `live_game_states` columns added
+ *     for this ticket) are passed through exactly as `home_team`/`away_team`
+ *     already are: `possession` arrives already folded to a Team code by
+ *     the same server-side normalisation (never re-derived here, AC4),
+ *     `downDistance` and `lastPlay` are the feed's own text or null, and
+ *     `redZone` always coerces to a real boolean.
  *   - `{ kind: 'final', teamScore, opponentScore }`.
  */
 export function gameCellView(entry, liveRow) {
@@ -41,7 +48,16 @@ export function gameCellView(entry, liveRow) {
   if (status === 'in_progress') {
     const trailing = `${liveRow.quarter || ''} ${liveRow.time_remaining || ''}`.trim() || 'Live';
     const { teamScore, opponentScore } = scoresFor(entry, liveRow);
-    return { kind: 'live', trailing, teamScore, opponentScore };
+    return {
+      kind: 'live',
+      trailing,
+      teamScore,
+      opponentScore,
+      possession: liveRow.possession ?? null,
+      downDistance: liveRow.down_distance ?? null,
+      redZone: Boolean(liveRow.is_red_zone),
+      lastPlay: liveRow.last_play ?? null,
+    };
   }
   return { kind: 'pre', opponent: entry.opponent, kickoff: formatKickoff(entry.kickoff) };
 }
