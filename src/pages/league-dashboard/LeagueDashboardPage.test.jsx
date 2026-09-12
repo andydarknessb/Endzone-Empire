@@ -56,16 +56,12 @@ jest.mock('../../components/TrophyCase/TrophyCase', () => {
       ReactLib.createElement('div', { 'data-testid': 'trophy-case' }, `trophies ${leagueId}`),
   };
 });
-jest.mock('../../components/LeaguePickem/PickemStandings', () => {
+jest.mock('../../widgets/pickem-standings', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
-    default: ({ leagueId, season }) =>
-      ReactLib.createElement(
-        'div',
-        { 'data-testid': 'pickem-standings' },
-        `pickem ${leagueId} ${String(season)}`
-      ),
+    default: ({ leagueId }) =>
+      ReactLib.createElement('div', { 'data-testid': 'pickem-standings' }, `pickem ${leagueId}`),
   };
 });
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Typography, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import PickWeek from '../../../features/pick-week';
@@ -21,8 +21,23 @@ import SaveBar from './SaveBar';
  * uses), the loading skeleton (one GameCard per state, since the real
  * count is exactly what has not loaded yet), and an empty week (no NFL
  * games scheduled).
+ *
+ * Three optional callbacks (#1267, `pages/pickem`) let a composing page keep
+ * an unsaved-picks guard and the cross-entity standings invalidation of its
+ * own, without this widget losing ownership of its own week state:
+ * `onDirtyChange(isDirty)` mirrors the draft's dirty flag out on every
+ * change; `onRequestWeekChange(nextWeek, apply)`, when given, is called in
+ * place of switching the week directly - the page decides whether to call
+ * `apply()` right away or park it behind its own confirmation;
+ * `onSaved(result)` fires with the save's own `{ ok, ... }` result once a
+ * save resolves, which is how the page - the composer of both
+ * `entities/pickem-game` and `entities/pickem-standings` - knows to clear
+ * the standings cache a save just made stale (sibling entities do not
+ * import each other, ADR 0029; `entities/pickem-game`'s `usePickemWeek.js`
+ * docblock states this contract). None of the three changes this widget's
+ * standalone behaviour when omitted.
  */
-export default function PickemBoard({ leagueId }) {
+export default function PickemBoard({ leagueId, onDirtyChange, onRequestWeekChange, onSaved }) {
   const theme = useTheme();
   // `pick-week`'s own 44px touch target below `sm` is opt-in (`fill`); the
   // Game Center and Lineup pages that already compose it both pass this same
@@ -53,10 +68,28 @@ export default function PickemBoard({ leagueId }) {
 
   const ready = !loading && !error;
 
+  useEffect(() => {
+    if (onDirtyChange) onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  const requestWeek = (nextWeek) => {
+    if (onRequestWeekChange) {
+      onRequestWeekChange(nextWeek, () => setWeek(nextWeek));
+    } else {
+      setWeek(nextWeek);
+    }
+  };
+
+  const handleSave = async () => {
+    const result = await onSave();
+    if (onSaved) onSaved(result);
+    return result;
+  };
+
   return (
     <Box data-testid="pickem-board">
       <Box sx={{ mb: 2 }}>
-        <PickWeek weeks={weeks} value={week ?? undefined} onChange={setWeek} fill={compact} />
+        <PickWeek weeks={weeks} value={week ?? undefined} onChange={requestWeek} fill={compact} />
       </Box>
 
       {error && (
@@ -104,7 +137,7 @@ export default function PickemBoard({ leagueId }) {
           isDirty={isDirty}
           saving={saving}
           saveError={saveError}
-          onSave={onSave}
+          onSave={handleSave}
         />
       )}
     </Box>
