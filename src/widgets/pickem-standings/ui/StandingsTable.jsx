@@ -355,11 +355,16 @@ function heatCellLabel(cell, currentWeek) {
 // never themselves faded. Every cell (bucketed or not) shares the same
 // dash-surface3 track as its base: an earlier version left a bucketed
 // cell's own background transparent, which put the h1/h2 fill directly on
-// the row's own backdrop (worst case: the viewer row's accent-soft tint,
-// the same hue as the fill) and made the new height channel nearly
-// invisible right where it matters most - the faintest buckets. A shared
-// opaque track fixes that (verified by rendering both at 14px) and, as a
-// side effect, keeps a "0 points" h1 cell visibly distinct from a
+// the row's own backdrop - and that backdrop varied by row, worst case the
+// viewer row's accent-soft tint, the same hue as the fill (h1 measured
+// 1.46:1 light / 1.80:1 dark there). A shared opaque track does NOT clear
+// 3:1 for the faintest buckets either (h1 1.68:1 light / 2.15:1 dark, h2
+// 2.59:1 light against dash-surface3 - h2 dark and h3/h4 both themes do
+// clear it); what it fixes is that the backdrop is now constant and never
+// the fill's own hue, so the worst case no longer depends on which row a
+// cell is in, and (verified by rendering both at 14px) it reads as
+// perceptibly more distinct than the transparent version did. As a side
+// effect it also keeps a "0 points" h1 cell visibly distinct from a
 // not-played cell: the latter is the bare track, the former is the same
 // track with a small fill on it. A not-played cell renders no inner fill.
 function HeatStrip({ heat, currentWeek }) {

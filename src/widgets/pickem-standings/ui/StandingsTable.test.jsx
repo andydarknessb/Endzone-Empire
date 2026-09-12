@@ -37,6 +37,28 @@ function mockStandings({ standings, viewerTeamId = null, loading = false, error 
   });
 }
 
+// jsdom's getComputedStyle resolves neither which rule wins nor a `var()`
+// value (widgets/standings-table/ui/StandingsTable.test.jsx's own
+// `rulesUnder`, the same pattern here), so a colour set through `sx` as
+// `var(--dash-*)` is read from the emotion-inserted stylesheet directly
+// rather than through computed style.
+const allRules = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  let text = '';
+  const visit = (rules) => {
+    Array.from(rules || []).forEach((rule) => {
+      if (rule.cssRules) {
+        visit(rule.cssRules);
+        return;
+      }
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      text += `${rule.style.cssText};`;
+    });
+  };
+  Array.from(document.styleSheets).forEach((sheet) => visit(sheet.cssRules));
+  return text;
+};
+
 afterEach(() => {
   usePickemStandings.mockReset();
 });
@@ -156,7 +178,16 @@ test('heat cell track: a played-but-scored-0 week (h1) and a not-played week sha
   expect(notPlayed).toHaveAttribute('data-bucket', 'not-played');
 
   // Same neutral track on both, so the ONLY visible difference is the fill.
-  expect(scoredZero).toHaveStyle({ backgroundColor: notPlayed.style.backgroundColor });
+  // The cell's background comes from `sx` (an emotion class), not an inline
+  // style, and jsdom's getComputedStyle resolves neither the winning rule
+  // nor a `var()` value, so `toHaveStyle`/`.style` reads empty on both and a
+  // comparison between them would pass no matter what the two cells actually
+  // render (risk review: caught exactly that on this line). Reading the
+  // emotion-inserted rule directly, and pinning it to the real expected
+  // token rather than to each other, is what actually catches a regression
+  // back to a transparent bucketed cell.
+  expect(allRules(scoredZero)).toMatch(/background-color:\s*var\(--dash-surface3\)/);
+  expect(allRules(notPlayed)).toMatch(/background-color:\s*var\(--dash-surface3\)/);
   expect(fillOf(scoredZero)).toBeInTheDocument();
   expect(fillOf(notPlayed)).not.toBeInTheDocument();
 });
