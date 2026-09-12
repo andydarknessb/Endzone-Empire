@@ -501,10 +501,21 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
 // app does not control - has no lane at all. `NFL_TEAM_COLORS` (plus its
 // `FALLBACK_KIT`) is exactly that: the Pick'em team monogram
 // (`TeamPickButton.jsx`) paints `monogramInk(jersey)` on `kit.jersey`, and
-// this describe is the guard for that pairing, theme-independent since both
-// colors are fixed literals rather than `--dash-*` tokens. The next external
-// palette (a sponsor table, an opponent kit) gets the same lane by adding to
-// this map, per ADR 0010: the convention ships with its consumer.
+// this describe certifies exactly that pairing - `monogramInk` clearing
+// AA_TEXT against every jersey it can be asked to ink - theme-independent
+// since both colors are fixed literals rather than `--dash-*` tokens.
+// `TeamPickButton.test.jsx` is what pins the component to actually calling
+// `monogramInk` rather than a fixed literal; this lane only certifies the
+// function.
+//
+// Per ADR 0010 ("the guard certifies exactly the pairings it lists"), this
+// is not a blanket certification of every `kit.jersey` consumer: at least
+// two others (`LedgerRow.jsx`'s `PlayerAvatar`, `PlayerDecisionCard.jsx`)
+// paint text on the same external table using a themed `text-inverse`
+// token rather than `monogramInk`, and are outside this ticket's scope -
+// surfaced to the project lead rather than folded in here silently. The
+// next external palette (a sponsor table, an opponent kit) gets its own
+// lane by adding to this map.
 describe('external color data: monogram ink on kit.jersey', () => {
   const jerseysByLabel = {
     ...NFL_TEAM_COLORS,
