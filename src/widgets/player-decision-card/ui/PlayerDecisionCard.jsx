@@ -124,6 +124,17 @@ export default function PlayerDecisionCard({
   const startTargets = entry && !isStarting
     ? startTargetSlots(entry, list, { bestBall, leagueUnsettled })
     : [];
+  // Formal review round 3 finding s2: `movesToStart` returns `[]` as its own
+  // refusal for the rare case `startTargets` goes stale (the menu stayed
+  // open across a refetch or another move), but `onSwap` is `performMove`,
+  // which PUTs an empty `moves` array and reports "Lineup saved" just as
+  // readily as a real move - an empty array is a refusal only if the CALLER
+  // treats it as one. This is that treatment, used by both call sites below
+  // instead of each re-deriving the same guard.
+  const startInto = (slot) => {
+    const moves = movesToStart(entry, slot, list, { bestBall, leagueUnsettled });
+    if (moves.length > 0) onSwap?.(moves);
+  };
   const dropAllowed = entry ? Boolean(!isSpent && canDropEntry?.(entry)) : false;
   const compareCandidates = entry ? list.filter((e) => e && e.playerId !== entry.playerId) : [];
   // Best ball still hides bench options entirely (a best-ball lineup isn't
@@ -228,7 +239,7 @@ export default function PlayerDecisionCard({
                 aria-expanded={startTargets.length > 1 ? Boolean(startMenuAnchor) : undefined}
                 onClick={(event) =>
                   startTargets.length === 1
-                    ? onSwap?.(movesToStart(entry, startTargets[0], list, { bestBall, leagueUnsettled }))
+                    ? startInto(startTargets[0])
                     : setStartMenuAnchor(event.currentTarget)
                 }
                 sx={MIN_TOUCH_TARGET_SX}
@@ -248,7 +259,7 @@ export default function PlayerDecisionCard({
                   key={slot}
                   onClick={() => {
                     setStartMenuAnchor(null);
-                    onSwap?.(movesToStart(entry, slot, list, { bestBall, leagueUnsettled }));
+                    startInto(slot);
                   }}
                 >
                   {slot}

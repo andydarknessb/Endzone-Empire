@@ -69,9 +69,15 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
     .map((candidate) => ({
       entry: candidate,
       locked: locked(candidate),
+      // Formal review round 3 finding s3: a legality helper's default must
+      // never be "allowed" - omitting `entry` (or `bestBall`/
+      // `leagueUnsettled`, which read as falsy the same way) used to fail
+      // OPEN, re-enabling a locked candidate's own Swap for any caller that
+      // didn't pass every option. The candidate's own lock is the floor
+      // regardless of what the caller supplies.
       swapEligible: entry
         ? isEligibleMove({ selectedEntry: entry, targetEntry: candidate, targetSlot: slot, bestBall, leagueUnsettled })
-        : true,
+        : !locked(candidate),
     }));
 }
 
@@ -105,8 +111,12 @@ export function movesToStart(entry, targetSlot, entries, { bestBall, leagueUnset
   );
   // Callers build this list from `startTargetSlots`, which only offers a
   // slot with at least one eligible occupant, so this should always find
-  // one; an empty move list is the safe refusal if that invariant is ever
-  // violated (e.g. a stale menu selection against changed data).
+  // one; an empty array is the refusal for the rare case that invariant is
+  // stale (e.g. the menu stayed open across a refetch). Formal review round
+  // 3 finding s2: an empty array is a refusal ONLY if the caller treats it
+  // as one - `onSwap` is `performMove`, which PUTs `moves: []` and reports
+  // success on an empty array just as readily as a real move. Every caller
+  // MUST check `.length` before calling `onSwap` with this return value.
   if (!occupant) return [];
   return [
     { playerId: entry.playerId, slot: targetSlot },

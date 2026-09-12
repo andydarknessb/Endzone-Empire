@@ -43,7 +43,28 @@ function canResolveLockedIrStash(entry, targetSlot, bestBall) {
  * (the locked-source exception, a locked target, and the reciprocal
  * `eligibleSlots` check). `isEligibleTarget` below is now a thin wrapper
  * that closes over this hook's own `selectedEntry`/`bestBall`/
- * `leagueUnsettled`; nothing about the Ledger's own behaviour changes.
+ * `leagueUnsettled`.
+ *
+ * NOT byte-for-byte behaviour-preserving for the Ledger, and deliberately
+ * so (formal review round 3 finding s1, correcting an earlier version of
+ * this comment that claimed otherwise): the old `isEligibleTarget` body had
+ * no `bestBall` term of its own at all, so in best ball it answered `true`
+ * for a starting-slot target during a BENCH-row selection (best ball still
+ * lets a manager select a BENCH/IR row - `onRowClick`'s own gate only
+ * blocks selecting a STARTING row). `LineupLedger.jsx`'s `isEligibleTarget`
+ * calls fed that `true` into `eligible`, which painted every starting row
+ * as a highlighted, clickable target whose click `onRowClick` then silently
+ * dropped (its OWN best-ball gate refuses the target slot there, same as it
+ * always did - only the Ledger's own highlighting/disabling of that row
+ * changes). This version answers `false` there instead, so those rows are
+ * now fully disabled during a best-ball selection rather than painted as
+ * live and then refusing on click - a real behaviour change, and a
+ * correctness improvement over what shipped before this refactor, not a
+ * side effect to revert. `leagueUnsettled` and a spent `selectedEntry` are
+ * both new terms too, but neither is reachable through the Ledger today:
+ * `onRowClick` already refuses a spent entry before it can become
+ * `selectedEntry`, and `LineupPage.jsx` already disables the whole Ledger
+ * (`disabled={leagueUnsettled}`) whenever the league is unsettled.
  */
 export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBall, leagueUnsettled }) {
   if (leagueUnsettled) return false;

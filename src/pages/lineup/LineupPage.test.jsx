@@ -121,9 +121,14 @@ const lineupBody = (overrides = {}) => ({
   irSlots: 1,
   entries: [
     // Locked QB, pre-kickoff Game cell, no live row for its game key.
+    // Formal review round 3 finding s4: floor/ceiling bracket the
+    // projection explicitly (the fixture's own default floor/ceiling, 5/15,
+    // sit below Josh Allen's 24.3 projection - a shape the domain cannot
+    // produce, since Floor and Ceiling are the same distribution's 10th and
+    // 90th percentile as the mean).
     entryRow({
       id: 1, name: 'Josh Allen', position: 'QB', slot: 'QB', nfl_team: 'BUF',
-      opponent: 'KC', game_key: 'g1', locked: true, projection: 24.3,
+      opponent: 'KC', game_key: 'g1', locked: true, projection: 24.3, floor: 18, ceiling: 30,
     }),
     // Unlocked RB, final Game cell (liveGameRows below), Edge line kind "result".
     entryRow({
@@ -426,7 +431,7 @@ test('the player name opens the Decision card with the row\'s own fields, and ev
   // subject would pass this assertion even with the mean broken.
   expect(within(card).getByTestId('decision-card-range-bar')).toHaveAttribute(
     'aria-label',
-    'Josh Allen, Floor 5.0, Projection 24.3, Ceiling 15.0'
+    'Josh Allen, Floor 18.0, Projection 24.3, Ceiling 30.0'
   );
 
   expect(await within(card).findByTestId('decision-card-line')).toHaveTextContent('Line: -3 / 47');

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
+import * as slotActions from '../model/slotActions';
 
 /**
  * player-decision-card widget tests (#1240). LineupPage.test.jsx (AC8) covers
@@ -259,6 +260,22 @@ test('f1(b): Start never offers a slot whose current occupant is locked', async 
   const lockedStarter = entry({ playerId: 9, name: 'Locked Starter', slot: 'QB', locked: true });
   renderCard({ entry: bench, entries: [bench, lockedStarter] });
   expect(await screen.findByTestId('decision-card-start-action')).toBeDisabled();
+});
+
+// s2 (round 3): if movesToStart's own invariant is ever stale (the menu
+// stayed open across a refetch) and it returns [] as its refusal, the
+// CALLER must honour that refusal rather than handing an empty moves array
+// to onSwap - which is performMove, a real PUT that would report "Lineup
+// saved" for a write that changed nothing.
+test('s2: an empty move list from movesToStart is never handed to onSwap', async () => {
+  const onSwap = jest.fn();
+  jest.spyOn(slotActions, 'movesToStart').mockReturnValue([]);
+  const bench = entry({ slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const starter = entry({ playerId: 9, name: 'Starter', slot: 'QB' });
+  renderCard({ entry: bench, entries: [bench, starter], onSwap });
+  await userEvent.click(await screen.findByTestId('decision-card-start-action'));
+  expect(onSwap).not.toHaveBeenCalled();
+  slotActions.movesToStart.mockRestore();
 });
 
 // r2 (round 2): the same refusal for a SPENT occupant, not just a locked one.

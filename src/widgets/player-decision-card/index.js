@@ -19,9 +19,22 @@
  *     for the same reason.
  *
  * ONE MORE EDGE, of a different kind, added in the formal review's round 2
- * (findings r1/r2/r3/r4/r5) and called out separately because it is not a
- * plumbing exception under the amendment above - it is a widget reading a
- * FEATURE, which ADR 0020 otherwise reserves for a page to compose:
+ * (findings r1/r2/r3/r4/r5) and called out separately from the plumbing
+ * edges above because it is a widget reading a FEATURE - a real edge worth
+ * naming, though NOT a boundary violation (formal review round 3 finding
+ * s5, correcting an earlier version of this note that claimed ADR 0020
+ * reserves this for a page: it does not - ADR 0020's own sideways rule,
+ * "Widgets do not import each other; a value two widgets both need is
+ * passed down by the page, not shared sideways", is widget-to-WIDGET only,
+ * and says nothing about widget-to-feature either way). Widget-to-feature
+ * through the feature's own public index (the one rule ADR 0020 does state)
+ * is established practice on this island already:
+ * `commissioner-strip/ui/CommissionerStrip.jsx` imports
+ * `features/advance-week`, `draft-grades/ui/DraftGrades.jsx` imports
+ * `features/toggle-grade-details`, `draft-order/ui/DraftOrderPanel.jsx`
+ * imports `features/autodraft-toggle`, and `join-requests/ui/
+ * JoinRequests.jsx` imports `features/decide-join-request`. This is a
+ * fifth instance of that pattern, not an exception to one:
  *   - `src/features/swap-players` (`isEligibleMove`, `model/
  *     slotActions.js` and `ui/PlayerDecisionCard.jsx`): the pure legality
  *     rule `useSwapPlayers`' own `onRowClick`/`isEligibleTarget` enforce.
@@ -31,13 +44,8 @@
  *     to route through the one rule rather than patch a fourth
  *     enumeration, which is only possible by reading it from where it
  *     lives. `isEligibleMove` is exported as a plain pure function (no
- *     hook, no side effect, no `useSwapPlayers` state) precisely so a
- *     widget can read it without pulling in the hook's own React/state
- *     surface - but the edge is still real, and if that boundary should
- *     hold harder than this, the fix is moving `isEligibleMove` to
- *     `entities/roster` or `shared/lib` (either is fed by the same
- *     roster/eligibility facts already there) rather than importing a
- *     feature, not reverting to a second, drifting copy of the rule.
+ *     hook, no side effect, no `useSwapPlayers` state), so this widget
+ *     reads it without pulling in the hook's own React/state surface.
  */
 export { default as PlayerDecisionCard } from './ui/PlayerDecisionCard';
 export { default } from './ui/PlayerDecisionCard';

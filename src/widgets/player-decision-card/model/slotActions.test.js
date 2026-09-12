@@ -43,10 +43,17 @@ describe('benchOptionsForSlot', () => {
     expect(result.locked).toBe(true);
   });
 
-  test('swapEligible defaults true with no opened entry given (a pure listing read)', () => {
-    const candidate = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'] });
-    const [result] = benchOptionsForSlot([candidate], 'RB');
-    expect(result.swapEligible).toBe(true);
+  // Formal review round 3 finding s3: a legality helper's default must
+  // never be "allowed" - with no opened entry given, the candidate's own
+  // lock is still the floor, not a blanket true.
+  test('with no opened entry given, swapEligible still floors to the candidate\'s own lock', () => {
+    const unlockedCandidate = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'] });
+    const [unlockedResult] = benchOptionsForSlot([unlockedCandidate], 'RB');
+    expect(unlockedResult.swapEligible).toBe(true);
+
+    const lockedCandidate = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], locked: true });
+    const [lockedResult] = benchOptionsForSlot([lockedCandidate], 'RB');
+    expect(lockedResult.swapEligible).toBe(false);
   });
 
   // Formal review round 2 (r1/r3): swapEligible routes through the SAME

@@ -142,6 +142,23 @@ test('isEligibleTarget refuses an ineligible slot pairing and allows a matching 
   expect(result.current.isEligibleTarget(null, 'BENCH')).toBe(true);
 });
 
+// Formal review round 3 finding s1: no prior case exercised isEligibleTarget
+// with bestBall true, so 18 passing tests proved nothing about the one
+// reachable behaviour change the isEligibleMove extraction introduced - a
+// starting-slot target now correctly refused during a BENCH-row selection
+// in best ball, where the old body had no bestBall term of its own at all.
+test('isEligibleTarget refuses a starting-slot target in best ball, even mid-selection from BENCH', () => {
+  const benchPlayer = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const starter = entry({ playerId: 1, slot: 'QB', eligibleSlots: ['BENCH', 'QB'] });
+  const { result } = setup({ entries: [benchPlayer, starter], bestBall: true });
+  // Selecting a BENCH/IR row is allowed in best ball (onRowClick's own gate
+  // only blocks a STARTING row); the starting slot must still be refused
+  // as a TARGET.
+  act(() => result.current.onRowClick(benchPlayer, 'BENCH'));
+  expect(result.current.selectedEntry).toEqual(benchPlayer);
+  expect(result.current.isEligibleTarget(starter, 'QB')).toBe(false);
+});
+
 // AC9 coverage gap (formal review finding
 // ac9-enforcement-refusal-coverage-gaps): a locked, no-longer-eligible IR
 // occupant may resolve to BENCH (already covered above) but the same
