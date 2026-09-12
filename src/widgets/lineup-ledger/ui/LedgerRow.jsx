@@ -32,17 +32,23 @@ function LockIcon() {
   );
 }
 
-// The Situation line (CONTEXT.md's Situation; ADR 0037 ticket 9, #1241 AC1):
-// possession and down/distance under the live state chip, with a red zone
-// marker when the flag is set. Fields that are null are omitted entirely
-// (never rendered as the literal word "null"); the line itself renders
-// nothing when neither possession nor down/distance is known yet and the
-// red zone flag is false - a live game with no Situation data yet degrades
-// to the clock/score chip alone rather than an empty line.
-function SituationLine({ possession, downDistance, redZone }) {
+// The Situation line (CONTEXT.md's Situation; ADR 0037 ticket 9, #1241 AC1;
+// last play added #1292): possession, down/distance and the last play under
+// the live state chip, in that order, with a red zone marker when the flag
+// is set. Fields that are null are omitted entirely (never rendered as the
+// literal word "null"); the line itself renders nothing when none of
+// possession, down/distance or last play is known yet and the red zone flag
+// is false - a live game with no Situation data yet degrades to the
+// clock/score chip alone rather than an empty line. Pushing `lastPlay` into
+// `parts` (rather than appending after this guard) means a row carrying only
+// a last play - no possession, no down/distance, red zone false - still
+// renders the line, and the existing `parts.join(' · ')` below gives it the
+// same middot separator with no separator at all for a single part.
+function SituationLine({ possession, downDistance, lastPlay, redZone }) {
   const parts = [];
   if (possession) parts.push(`${possession} ball`);
   if (downDistance) parts.push(downDistance);
+  if (lastPlay) parts.push(lastPlay);
   if (parts.length === 0 && !redZone) return null;
   return (
     <Box
@@ -86,7 +92,7 @@ function GameCell({ view }) {
     return (
       <Box sx={{ display: 'grid', justifyItems: 'flex-end', gap: '2px' }}>
         <GameStateChip state="live" data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>
-        <SituationLine possession={view.possession} downDistance={view.downDistance} redZone={view.redZone} />
+        <SituationLine possession={view.possession} downDistance={view.downDistance} lastPlay={view.lastPlay} redZone={view.redZone} />
       </Box>
     );
   }

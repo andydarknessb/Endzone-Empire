@@ -220,6 +220,67 @@ test('a live Game cell with a null Situation renders no Situation line and no "n
   expect(screen.getByTestId('row')).not.toHaveTextContent('null');
 });
 
+// #1292: the last play joins the Situation line, after possession and
+// down/distance, using the same middot separator - no new separator, no
+// em-dash.
+test('a live Game cell with a last play shows it on the Situation line after possession and down/distance', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry()}
+      liveRow={{
+        game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+        current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
+        possession: 'BUF', down_distance: '2nd & 7', is_red_zone: false, last_play: 'Allen pass complete to Diggs for 12 yards',
+      }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  const situation = screen.getByTestId('ledger-situation-line');
+  expect(situation).toHaveTextContent('BUF ball · 2nd & 7 · Allen pass complete to Diggs for 12 yards');
+});
+
+// A null last play (the feed has none yet) is a live game state on its own
+// and must still render the Situation line - not dropped by the early-return
+// guard - while never rendering the literal word "null".
+test('a live Game cell with only a last play (no possession or down/distance) still shows the Situation line', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry()}
+      liveRow={{
+        game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+        current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
+        possession: null, down_distance: null, is_red_zone: false, last_play: 'Timeout Kansas City',
+      }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  const situation = screen.getByTestId('ledger-situation-line');
+  expect(situation).toHaveTextContent('Timeout Kansas City');
+});
+
+test('a live Game cell with a null last play omits it from the Situation line, never as the literal "null"', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry()}
+      liveRow={{
+        game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+        current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
+        possession: 'BUF', down_distance: '2nd & 7', is_red_zone: false, last_play: null,
+      }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  const situation = screen.getByTestId('ledger-situation-line');
+  expect(situation).toHaveTextContent('BUF ball · 2nd & 7');
+  expect(situation).not.toHaveTextContent('null');
+});
+
 // A pre-kickoff or final Game cell never paints the points cell in the live
 // colour, even when the wire happens to carry a points value.
 test('a pre-kickoff Game cell keeps the points cell in the faint colour, never the live colour', () => {
