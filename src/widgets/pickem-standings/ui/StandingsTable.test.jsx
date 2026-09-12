@@ -103,6 +103,39 @@ test('heat cell shading buckets: a played week buckets by its share of the best 
   expect(byWeek(5)).not.toHaveAttribute('data-best');
 });
 
+test('heat cell bucket is also visible without colour (#1298, WCAG 1.4.1): each bucket fills a distinct height, and the border/outline are never faded', () => {
+  mockStandings({
+    standings: [
+      baseRow({
+        teamId: 1,
+        // Same shape as the bucket-boundary test above, so week 4 is both
+        // h4 and the best week.
+        weekly: { 1: 25, 2: 50, 3: 75, 4: 100 },
+      }),
+    ],
+  });
+  render(<StandingsTable leagueId={7} />);
+
+  const cells = screen.getAllByTestId('pickem-standings-heat-cell');
+  const byWeek = (week) => cells.find((cell) => cell.getAttribute('data-week') === String(week));
+
+  const fillOf = (cell) => within(cell).queryByTestId('pickem-standings-heat-cell-fill');
+
+  expect(fillOf(byWeek(1))).toHaveStyle({ height: '25%' });
+  expect(fillOf(byWeek(2))).toHaveStyle({ height: '50%' });
+  expect(fillOf(byWeek(3))).toHaveStyle({ height: '75%' });
+  expect(fillOf(byWeek(4))).toHaveStyle({ height: '100%' });
+  // Week 5 is not-played: no inner fill at all, not a fill at some height.
+  expect(fillOf(byWeek(5))).not.toBeInTheDocument();
+
+  // The best-week outline and every cell's hairline border used to sit
+  // under the same sub-1 opacity as the bucket tint; that opacity now lives
+  // only on the inner fill, so the cell itself is never faded.
+  expect(byWeek(1)).toHaveStyle({ opacity: '1' });
+  expect(byWeek(4)).toHaveStyle({ opacity: '1' });
+  expect(fillOf(byWeek(1))).toHaveStyle({ opacity: '0.35' });
+});
+
 test('trend arrows: up, down, flat and null each render their own mark', () => {
   mockStandings({
     standings: [
