@@ -47,6 +47,32 @@ test('saving the scoring mode is disabled until a different mode is chosen, and 
   expect(onSave).toHaveBeenCalledWith({ mode: 'confidence' });
 });
 
+// Accessibility risk review, #1267: a successful mode save disables the Save
+// button the click is still focused on (mode === settings.mode once the
+// write-through lands), so a confirmation must pick up the focus instead of
+// letting it fall to <body> with no announcement (WCAG 4.1.3) - the same
+// fix widgets/pickem-board's SaveBar already carries (#1265).
+test('a successful scoring-mode save moves focus onto a confirmation instead of stranding it', async () => {
+  const user = userEvent.setup();
+  let currentSettings = settings({ enabled: true });
+  const onSave = jest.fn(async (patch) => {
+    currentSettings = { ...currentSettings, ...patch };
+    return { ok: true };
+  });
+  const { rerender } = render(
+    <CommissionerPanel settings={currentSettings} saving={false} error={null} onSave={onSave} />
+  );
+
+  await user.click(screen.getByRole('radio', { name: /Confidence/ }));
+  await user.click(screen.getByRole('button', { name: /Save scoring mode/i }));
+  rerender(<CommissionerPanel settings={currentSettings} saving={false} error={null} onSave={onSave} />);
+
+  const confirmation = await screen.findByTestId('pickem-settings-mode-saved');
+  expect(confirmation).toHaveTextContent('Scoring mode saved');
+  expect(confirmation).toHaveFocus();
+  expect(screen.getByRole('button', { name: /Save scoring mode/i })).toBeDisabled();
+});
+
 test('a rejected save surfaces the server error', () => {
   render(
     <CommissionerPanel

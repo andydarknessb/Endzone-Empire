@@ -160,6 +160,12 @@ test('a commissioner sees the settings widget instead of the disabled notice, an
   );
   // Write-through: the board mounts off the saved row with no follow-up GET.
   expect(await screen.findByRole('button', { name: /Jets/i })).toBeInTheDocument();
+  // Accessibility risk review, #1267: the settings widget stays mounted at
+  // the same tree position whether Pick'em is on or off, so the switch the
+  // click is still focused on is never unmounted out from under it (a
+  // remount would drop focus to <body> with no warning, WCAG 4.1.2).
+  expect(toggle).toHaveFocus();
+  expect(toggle).toBeChecked();
 });
 
 test('an enabled league renders the board for a member, with no settings widget', async () => {
@@ -207,6 +213,14 @@ test('switching weeks with unsaved picks asks before discarding them', async () 
   await user.click(screen.getByRole('button', { name: 'Next week' }));
 
   const dialog = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
+  // Accessibility risk review, #1267: the consequence sentence is
+  // announced on open, not just the title (the same DropConfirmationDialog
+  // pairing this repo already treats as its standard for a destructive
+  // confirmation).
+  expect(dialog).toHaveAttribute('aria-describedby');
+  const describedById = dialog.getAttribute('aria-describedby');
+  const description = within(dialog).getByText(/throws them away/i);
+  expect(description).toHaveAttribute('id', describedById);
   await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
   expect(await screen.findByRole('button', { name: /Jets/i })).toHaveAttribute('aria-pressed', 'true');
 
@@ -217,6 +231,42 @@ test('switching weeks with unsaved picks asks before discarding them', async () 
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith(`/api/pickem/league/${LEAGUE_ID}/week/4`)
   );
+});
+
+// Accessibility risk review, #1267: `SegmentedControl`'s own composer
+// contract (shared/ui/SegmentedControl.jsx) - an arrow key carries DOM
+// focus onto the neighbour segment BEFORE reporting it, so a controlled
+// group that denies the reported value (this guard, while the board is
+// dirty) leaves focus on a segment that is not the one still checked
+// unless something moves it back. This is the keyboard path the mouse-only
+// "switching weeks"/"switching to Standings" tests above do not exercise.
+test('an arrow-key section switch denied by the unsaved-picks guard returns focus to the segment still checked', async () => {
+  const user = userEvent.setup();
+  mockRequests();
+  renderPage();
+
+  await user.click(await screen.findByRole('button', { name: /Jets/i }));
+
+  const picksRadio = screen.getByRole('radio', { name: 'Picks' });
+  const standingsRadio = screen.getByRole('radio', { name: 'Standings' });
+  picksRadio.focus();
+  await user.keyboard('{ArrowRight}');
+  // The arrow-key move carries DOM focus onto Standings before reporting it
+  // (SegmentedControl.jsx's own composer contract), and this guard denies
+  // the value - it is still unchecked even though it took focus.
+  expect(standingsRadio).toHaveAttribute('aria-checked', 'false');
+
+  // MUI's Dialog takes focus into itself on open (its own standard modal
+  // behaviour) and, by default, restores focus to whatever had it when the
+  // dialog opened - Standings, still unchecked - once it closes. Without
+  // this fix's `cancel` callback that leaves a screen-reader user's focus
+  // parked on a segment that does not match what is on screen; asserted
+  // here is the state that persists once the dialog is gone.
+  const dialog = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
+  await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
+
+  await waitFor(() => expect(picksRadio).toHaveFocus());
+  expect(picksRadio).toHaveAttribute('aria-checked', 'true');
 });
 
 test('switching to Standings with unsaved picks asks before discarding them too', async () => {

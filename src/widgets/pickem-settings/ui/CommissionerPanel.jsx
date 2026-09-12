@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -46,6 +46,29 @@ export default function CommissionerPanel({ settings, saving, error, onSave, emb
   useEffect(() => {
     setMode(settings.mode);
   }, [settings.mode]);
+
+  // A successful mode save disables the Save button the click is still
+  // focused on (`settings.mode` catches up to `mode`, below) - a disabled
+  // `<button>` drops out of the focusable set, so an unmanaged focus would
+  // fall to `<body>` with no confirmation at all beyond the button greying
+  // out (WCAG 4.1.3, accessibility risk review #1267 - the same shape
+  // `widgets/pickem-board`'s SaveBar was already fixed for, #1265). This
+  // moves focus onto a confirmation instead, once the save actually lands.
+  const [justSaved, setJustSaved] = useState(false);
+  const statusRef = useRef(null);
+
+  useEffect(() => {
+    if (mode !== settings.mode) setJustSaved(false);
+  }, [mode, settings.mode]);
+
+  useEffect(() => {
+    if (justSaved) statusRef.current?.focus();
+  }, [justSaved]);
+
+  const handleSaveMode = async () => {
+    const result = await onSave({ mode });
+    if (result?.ok) setJustSaved(true);
+  };
 
   const body = (
     <Box sx={{ display: 'grid', gap: 2 }}>
@@ -100,13 +123,23 @@ export default function CommissionerPanel({ settings, saving, error, onSave, emb
         <Button
           variant="outlined"
           disabled={saving || mode === settings.mode}
-          onClick={() => onSave({ mode })}
+          onClick={handleSaveMode}
         >
           Save scoring mode
         </Button>
         <Typography sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
           The mode can only change before the season&apos;s first pick.
         </Typography>
+        {justSaved && (
+          <Typography
+            ref={statusRef}
+            tabIndex={-1}
+            data-testid="pickem-settings-mode-saved"
+            sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-accent)', outline: 'none' }}
+          >
+            Scoring mode saved
+          </Typography>
+        )}
       </Box>
     </Box>
   );

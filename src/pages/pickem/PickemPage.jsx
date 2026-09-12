@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
   Box,
@@ -64,19 +64,38 @@ export default function PickemPage() {
   };
 
   const [boardDirty, setBoardDirty] = useState(false);
-  const [pendingNav, setPendingNav] = useState(null); // { apply: () => void }
+  const [pendingNav, setPendingNav] = useState(null); // { apply, cancel }
+
+  // The section switch is `shared/ui/SegmentedControl`'s own roving-focus
+  // radiogroup: an arrow key moves DOM focus onto the neighbour segment
+  // BEFORE reporting it (SegmentedControl.jsx's own composer contract - "a
+  // controlled group must let the arrow keys move the selection, as APG
+  // requires"). Denying the value here (as this guard does while dirty)
+  // still lets focus land on the now-unchecked segment; `cancel` below is
+  // what restores it to the segment that is actually still checked, once
+  // "Keep editing" (or Escape/backdrop) closes the dialog with nothing
+  // applied. `sectionsRef` is the SegmentedControl's own forwarded ref (the
+  // `role="radiogroup"` node).
+  const sectionsRef = useRef(null);
+  const focusCheckedSection = () => {
+    sectionsRef.current?.querySelector('[role="radio"][aria-checked="true"]')?.focus();
+  };
 
   const requestTab = (value) => {
     if (boardDirty && value !== tab) {
-      setPendingNav({ apply: () => setTab(value) });
+      setPendingNav({ apply: () => setTab(value), cancel: focusCheckedSection });
       return;
     }
     setTab(value);
   };
 
-  const handleRequestWeekChange = (nextWeek, apply) => {
+  // `pickem-board`'s own week stepper is the same SegmentedControl shape
+  // (`features/pick-week`), so the board hands back a matching `cancel`
+  // alongside `apply` - it owns the ref into its own week control, this
+  // page only decides whether to gate the change.
+  const handleRequestWeekChange = (nextWeek, { apply, cancel }) => {
     if (boardDirty) {
-      setPendingNav({ apply });
+      setPendingNav({ apply, cancel });
       return;
     }
     apply();
@@ -97,6 +116,16 @@ export default function PickemPage() {
     setPendingNav(null);
   };
 
+  // "Keep editing" (or Escape/backdrop): nothing applied, so the segment
+  // that is still checked needs DOM focus back - MUI's own restore-focus
+  // already ran by the time the Dialog is done closing, so this call (one
+  // frame later) is the one that wins.
+  const cancelNav = () => {
+    const cancel = pendingNav?.cancel;
+    setPendingNav(null);
+    if (cancel) requestAnimationFrame(cancel);
+  };
+
   const { settings, error: settingsError, refetch: reloadSettings } = usePickemSettings(leagueId);
   const [settingsSaveError, setSettingsSaveError] = useState(null);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -109,8 +138,10 @@ export default function PickemPage() {
       // Write-through: the saved row reaches this page (and the League Rules
       // read-only view) with no follow-up request.
       setPickemSettings(leagueId, res.data);
+      return { ok: true };
     } catch (requestError) {
       setSettingsSaveError(readHttpFailure(requestError).message || requestError.message || 'Request failed');
+      return { ok: false };
     } finally {
       setSavingSettings(false);
     }
@@ -133,26 +164,15 @@ export default function PickemPage() {
         <Skeleton height={360} />
       </Box>
     );
-  } else if (!enabled) {
-    body = settings.isCommissioner ? (
-      <CommissionerPanel
-        settings={settings}
-        saving={savingSettings}
-        error={settingsSaveError}
-        onSave={handleSaveSettings}
-        lockedOn={isPickemOnly(league)}
-      />
-    ) : (
-      <Card title="Pick&apos;em is off" data-testid="pickem-disabled">
-        <Box sx={{ p: 2.25 }}>
-          <Typography sx={{ fontSize: '13px', color: 'var(--dash-dim)' }}>
-            Your commissioner hasn&apos;t enabled Pick&apos;em for this league yet. Ask them to switch it
-            on and the whole league can start picking games.
-          </Typography>
-        </Box>
-      </Card>
-    );
   } else {
+    // The commissioner panel renders at this same tree position whether
+    // Pick'em is on or off, so flipping the switch (which flips `enabled`)
+    // never unmounts it: React reconciles the same element type in place
+    // and only its props change. An earlier version branched the whole body
+    // on `enabled`, which put the panel on two different branches of a
+    // ternary - a real unmount/remount that dropped the just-toggled
+    // Switch's own focus to `<body>` with no warning (accessibility risk
+    // review, #1267).
     body = (
       <>
         {settings.isCommissioner && (
@@ -167,45 +187,62 @@ export default function PickemPage() {
           </Box>
         )}
 
-        <Box sx={{ mb: 2 }}>
-          <SegmentedControl
-            aria-label="Pick'em sections"
-            data-testid="pickem-sections"
-            value={tab}
-            onChange={requestTab}
-            options={TAB_ITEMS.map(([value, label]) => ({ value, label }))}
-          />
-        </Box>
-
-        {tab === 'picks' ? (
-          <Box>
-            {/* pickem-board's own kickoff-window sections are h3 (ADR 0038,
-                a page composes it): this h2 is the heading between them and
-                the page's own h1, so the order never skips a level (AC4). */}
-            <Typography
-              component="h2"
-              sx={{
-                m: 0,
-                mb: 1.5,
-                fontFamily: 'var(--dash-font-display)',
-                fontSize: '17px',
-                fontWeight: 600,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'var(--dash-ink)',
-              }}
-            >
-              Picks
-            </Typography>
-            <PickemBoard
-              leagueId={leagueId}
-              onDirtyChange={setBoardDirty}
-              onRequestWeekChange={handleRequestWeekChange}
-              onSaved={handleBoardSaved}
-            />
-          </Box>
+        {!enabled ? (
+          !settings.isCommissioner && (
+            <Card title="Pick&apos;em is off" data-testid="pickem-disabled">
+              <Box sx={{ p: 2.25 }}>
+                <Typography sx={{ fontSize: '13px', color: 'var(--dash-dim)' }}>
+                  Your commissioner hasn&apos;t enabled Pick&apos;em for this league yet. Ask them to
+                  switch it on and the whole league can start picking games.
+                </Typography>
+              </Box>
+            </Card>
+          )
         ) : (
-          <PickemStandings leagueId={leagueId} />
+          <>
+            <Box sx={{ mb: 2 }}>
+              <SegmentedControl
+                ref={sectionsRef}
+                aria-label="Pick'em sections"
+                data-testid="pickem-sections"
+                value={tab}
+                onChange={requestTab}
+                options={TAB_ITEMS.map(([value, label]) => ({ value, label }))}
+              />
+            </Box>
+
+            {tab === 'picks' ? (
+              <Box>
+                {/* pickem-board's own kickoff-window sections are h3 (ADR
+                    0038, a page composes it): this h2 is the heading
+                    between them and the page's own h1, so the order never
+                    skips a level (AC4). */}
+                <Typography
+                  component="h2"
+                  sx={{
+                    m: 0,
+                    mb: 1.5,
+                    fontFamily: 'var(--dash-font-display)',
+                    fontSize: '17px',
+                    fontWeight: 600,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--dash-ink)',
+                  }}
+                >
+                  Picks
+                </Typography>
+                <PickemBoard
+                  leagueId={leagueId}
+                  onDirtyChange={setBoardDirty}
+                  onRequestWeekChange={handleRequestWeekChange}
+                  onSaved={handleBoardSaved}
+                />
+              </Box>
+            ) : (
+              <PickemStandings leagueId={leagueId} />
+            )}
+          </>
         )}
       </>
     );
@@ -239,15 +276,20 @@ export default function PickemPage() {
 
       {body}
 
-      <Dialog open={pendingNav != null} onClose={() => setPendingNav(null)} aria-labelledby="pickem-discard-title">
+      <Dialog
+        open={pendingNav != null}
+        onClose={cancelNav}
+        aria-labelledby="pickem-discard-title"
+        aria-describedby="pickem-discard-description"
+      >
         <DialogTitle id="pickem-discard-title">Discard unsaved picks?</DialogTitle>
         <DialogContent>
-          <DialogContentText>
+          <DialogContentText id="pickem-discard-description">
             You have picks on this week that haven&apos;t been saved. Leaving now throws them away.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPendingNav(null)}>Keep editing</Button>
+          <Button onClick={cancelNav}>Keep editing</Button>
           <Button color="error" onClick={confirmDiscard}>Discard picks</Button>
         </DialogActions>
       </Dialog>
