@@ -357,16 +357,36 @@ function heatCellLabel(cell, currentWeek) {
 // cell's own background transparent, which put the h1/h2 fill directly on
 // the row's own backdrop - and that backdrop varied by row, worst case the
 // viewer row's accent-soft tint, the same hue as the fill (h1 measured
-// 1.46:1 light / 1.80:1 dark there). A shared opaque track does NOT clear
-// 3:1 for the faintest buckets either (h1 1.68:1 light / 2.15:1 dark, h2
-// 2.59:1 light against dash-surface3 - h2 dark and h3/h4 both themes do
-// clear it); what it fixes is that the backdrop is now constant and never
-// the fill's own hue, so the worst case no longer depends on which row a
-// cell is in, and (verified by rendering both at 14px) it reads as
-// perceptibly more distinct than the transparent version did. As a side
-// effect it also keeps a "0 points" h1 cell visibly distinct from a
-// not-played cell: the latter is the bare track, the former is the same
-// track with a small fill on it. A not-played cell renders no inner fill.
+// 1.46:1 light / 1.80:1 dark there). A shared opaque track fixes that: the
+// backdrop is now constant and never the fill's own hue, so the worst case
+// no longer depends on which row a cell is in, and (verified by rendering
+// both at 14px) it reads as perceptibly more distinct than the transparent
+// version did. As a side effect it also keeps a "0 points" h1 cell visibly
+// distinct from a not-played cell: the latter is the bare track, the former
+// is the same track with a small fill on it. A not-played cell renders no
+// inner fill.
+//
+// #1319 (WCAG 1.4.11): the #1298 track fixed the backdrop but the fill's own
+// opacity ramp - BUCKET_OPACITY = { h1: 0.35, h2: 0.6, h3: 0.85, h4: 1 },
+// carried over unchanged from before the height channel existed - still fell
+// short of the 3:1 non-text floor against dash-surface3 for the faintest two
+// buckets (h1 1.68:1 light / 2.15:1 dark, h2 2.59:1 light; h2 dark and h3/h4
+// both themes already cleared it). The dash-line hairline cannot stand in as
+// the bar's edge (1.24:1 light / 1.26:1 dark against the track). Raising the
+// floor was preferred over a new or darker track token (dash-surface3 is
+// shared under five text pairings, tokens.contrast.test.js) or an
+// opaque-fill-only ramp (which would erase the tint reinforcement height
+// already carries): BUCKET_OPACITY is now { h1: 0.75, h2: 0.85, h3: 0.95,
+// h4: 1 }, measuring 3.43:1 / 4.86:1 (h1), 4.17:1 / 5.80:1 (h2), 5.07:1 /
+// 6.87:1 (h3), 5.59:1 / 7.45:1 (h4) against the track - every bucket clears
+// 3:1 in both themes. The tint ramp between neighbouring buckets compresses
+// to about 1.2:1; that is accepted because height, not tint, has carried the
+// bucket channel since #1298. The recurrence guard lives in
+// tokens.contrast.test.js, which composites dash-accent at each bucket's
+// alpha over dash-surface3 directly (never via contrastRatio on sibling
+// fills, which silently misreads the opaque-sibling case - see contrast.js)
+// and asserts 3:1; BUCKET_OPACITY is exported here so that lane always
+// measures the real ramp rather than a copy of it.
 function HeatStrip({ heat, currentWeek }) {
   return (
     <Box data-testid="pickem-standings-heat" sx={{ display: 'flex', gap: '3px' }}>
@@ -412,7 +432,7 @@ function HeatStrip({ heat, currentWeek }) {
   );
 }
 
-const BUCKET_OPACITY = { h1: 0.35, h2: 0.6, h3: 0.85, h4: 1 };
+export const BUCKET_OPACITY = { h1: 0.75, h2: 0.85, h3: 0.95, h4: 1 };
 const BUCKET_HEIGHT = { h1: 25, h2: 50, h3: 75, h4: 100 };
 
 // Categorical only: the entity's `trend` is 'up' | 'down' | 'flat' | null

@@ -1,7 +1,8 @@
 import { colorTokens, scaleTokens } from './tokens';
-import { contrastRatio } from './contrast';
+import { contrastRatio, relativeLuminance } from './contrast';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../lib/nflTeamColors';
 import { monogramInk } from '../shared/lib/monogramInk';
+import { BUCKET_OPACITY } from '../widgets/pickem-standings/ui/StandingsTable';
 
 // WCAG 2.1 AA thresholds: 4.5:1 for normal body text, 3:1 for large text and
 // UI component text (e.g. button labels). Each pairing below is a
@@ -530,6 +531,45 @@ describe('external color data: monogram ink on kit.jersey', () => {
     (_label, kit) => {
       const ink = monogramInk(kit.jersey);
       expect(contrastRatio(ink, kit.jersey)).toBeGreaterThanOrEqual(AA_TEXT);
+    }
+  );
+});
+
+// Heat-strip fill recurrence guard (issue #1319, WCAG 1.4.11): the HeatStrip
+// bucket fill (StandingsTable.jsx) is a graphical object - dash-accent at a
+// bucket-indexed BUCKET_OPACITY, layered over the opaque dash-surface3 track -
+// that none of the PAIRINGS rows above see (every dash-surface3 row up there
+// is a text pairing). #1298 landed the shared opaque track without this lane,
+// so BUCKET_OPACITY going under the 3:1 non-text floor for the two faintest
+// buckets (h1 1.68:1 light / 2.15:1 dark, h2 2.59:1 light) shipped with
+// nothing turning red; #1319 raised the ramp and this guards it from
+// regressing back down. Per contrast.js's own doctrine, this is the layered
+// fg-over-opaque-bg shape (not two siblings sharing a surface), but it still
+// uses the two-call relativeLuminance recipe rather than contrastRatio
+// directly, matching the recipe #1299 established for every graphical-object
+// pairing in this suite rather than special-casing this one. BUCKET_OPACITY
+// is imported (not copied) so this lane always measures the real ramp.
+function withAlpha(hex, alpha) {
+  const body = hex.replace('#', '');
+  const r = parseInt(body.slice(0, 2), 16);
+  const g = parseInt(body.slice(2, 4), 16);
+  const b = parseInt(body.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+describe.each(['light', 'dark'])('%s theme heat-strip fill contrast (#1319)', (mode) => {
+  const track = colorTokens[mode]['dash-surface3'];
+  const accent = colorTokens[mode]['dash-accent'];
+
+  test.each(Object.entries(BUCKET_OPACITY))(
+    'bucket %s fill meets AA_LARGE (3:1) against the dash-surface3 track',
+    (_bucket, alpha) => {
+      const fillLuminance = relativeLuminance(withAlpha(accent, alpha), track);
+      const trackLuminance = relativeLuminance(track);
+      const lighter = Math.max(fillLuminance, trackLuminance);
+      const darker = Math.min(fillLuminance, trackLuminance);
+      const ratio = (lighter + 0.05) / (darker + 0.05);
+      expect(ratio).toBeGreaterThanOrEqual(AA_LARGE);
     }
   );
 });
