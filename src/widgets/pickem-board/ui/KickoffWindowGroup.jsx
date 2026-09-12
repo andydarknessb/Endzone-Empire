@@ -24,7 +24,7 @@ export default function KickoffWindowGroup({
   mode,
   totalManagers,
   slateSize,
-  confidenceUsedBy,
+  confidenceUsedByFor,
   flaggedMessages = {},
   loading = false,
   onPickWinner,
@@ -56,7 +56,7 @@ export default function KickoffWindowGroup({
             mode={mode}
             totalManagers={totalManagers}
             slateSize={slateSize}
-            confidenceUsedBy={confidenceUsedBy}
+            confidenceUsedBy={confidenceUsedByFor ? confidenceUsedByFor(view.gameKey) : []}
             flaggedMessage={flaggedMessages[view.gameKey] ?? null}
             loading={loading}
             onPickWinner={onPickWinner}

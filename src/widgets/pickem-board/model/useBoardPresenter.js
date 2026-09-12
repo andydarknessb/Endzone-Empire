@@ -47,6 +47,13 @@ export function useBoardPresenter(leagueId) {
   const games = data?.games || [];
   const mode = data?.mode || 'straight';
 
+  // usePickemWeek reads `loading: false` the instant it is disabled (no week
+  // known yet), which is correct for THAT hook but would flash this board's
+  // empty state before the league's own `current_week` has even arrived:
+  // while the week is still unknown, this board is waiting on the league
+  // read, not on a week fetch that was never issued.
+  const loading = effectiveWeek == null ? leagueLoading : weekState.loading;
+
   const savePicksApi = useSavePicks({
     myPicks: data?.myPicks,
     savePicks: weekState.savePicks,
@@ -97,7 +104,7 @@ export function useBoardPresenter(leagueId) {
     weeks: WEEKS,
     setWeek,
     mode,
-    loading: weekState.loading,
+    loading,
     error: weekState.error,
     totalManagers,
     slateSize: views.length,
