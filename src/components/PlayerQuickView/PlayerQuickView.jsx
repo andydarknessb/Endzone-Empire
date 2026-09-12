@@ -29,10 +29,10 @@ import { useTheme } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import InjuryBadge from '../InjuryBadge/InjuryBadge';
-import PlayerAvatar from './PlayerAvatar';
-import PositionChip from './PositionChip';
-import { statLine } from './statLine';
+import InjuryBadge from '../../shared/ui/InjuryBadge';
+import PlayerAvatar from '../../shared/ui/PlayerAvatar';
+import PositionChip from '../../shared/ui/PositionChip';
+import { statLine } from '../../shared/ui/statLine';
 import AbbreviationTooltip from '../../shared/ui/AbbreviationTooltip';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 

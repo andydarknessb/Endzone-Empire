@@ -132,6 +132,10 @@ Ruled under that clause:
   `shared/lib` index, per ADR 0020's amendment; the legacy
   `PlayerQuickView/PlayerAvatar`, outside that layer, imports the concrete
   `shared/lib/initials` module instead, the same split as `TeamAvatar`'s.
+  (2026-09-12, #1304: `PlayerAvatar` itself moved into `shared/ui` alongside
+  `TeamAvatar` and imports the concrete `shared/lib/initials` module exactly as
+  `TeamAvatar` does; the sentence above describes its state before that move
+  and is kept as history, not as the current layout.)
 - `AbbreviationTooltip` has one island consumer (Draft Grades) and stays below
   the island at `src/components/common/AbbreviationTooltip`: a documented
   temporary edge under this clause until a second island consumer earns it a

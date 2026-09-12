@@ -1,7 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
-import { Card, InjuryTag, PosChip } from '../../../shared/ui';
-import PlayerAvatar from '../../../components/PlayerQuickView/PlayerAvatar';
+import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
 import { lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
 

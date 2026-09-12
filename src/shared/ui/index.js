@@ -44,3 +44,15 @@ export { default as AbbreviationTooltip } from './AbbreviationTooltip';
 // A player's Game cell state (#1237, ADR 0037): pre-kickoff, live, final or
 // bye, on the kit's Badge. Composed by the Lineup page's lineup-ledger widget.
 export { default as GameStateChip } from './GameStateChip';
+// PositionChip, PlayerAvatar, InjuryBadge and statLine (#1304, ADR 0031/0040
+// slice 1): the full-profile / quick-view player kit, moved here from
+// `src/components/PlayerQuickView` and `src/components/InjuryBadge` alongside
+// TeamAvatar's own #1146 move. Only the two island widget consumers
+// (retro-scoreboard's LineupsCard, slot-comparison's SlotComparison) import
+// PlayerAvatar from this index; legacy `src/components` importers take the
+// concrete module paths instead, for the same bundle/harness-guard reason
+// TeamAvatar's legacy consumers do.
+export { default as PositionChip, positionColorSx } from './PositionChip';
+export { default as PlayerAvatar } from './PlayerAvatar';
+export { default as InjuryBadge } from './InjuryBadge';
+export { statLine } from './statLine';

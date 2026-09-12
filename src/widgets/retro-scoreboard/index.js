@@ -13,8 +13,9 @@
  * `entities/matchup` through their index files (since #1137, `playLabel`
  * moved there too), plus the sanctioned reach below the island:
  * `src/lib/nflTeamColors` (the touchdown sprite kits and the field green the
- * kits are checked against) and `src/components/PlayerQuickView/PlayerAvatar`
- * (the headshot). It imports no widget, feature or page.
+ * kits are checked against) and `src/shared/ui/PlayerAvatar` (the headshot,
+ * reached through the `shared/ui` index since #1304). It imports no widget,
+ * feature or page.
  */
 export { default as RetroScoreboard } from './ui/RetroScoreboard';
 export { default } from './ui/RetroScoreboard';

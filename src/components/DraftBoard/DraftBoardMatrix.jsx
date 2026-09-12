@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useRef, useState, useEffect } from 'react';
 import { Paper, Box, Chip, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
-import PositionChip from '../PlayerQuickView/PositionChip';
+import PositionChip from '../../shared/ui/PositionChip';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { isTeamOnTheClock } from '../../shared/lib/onTheClock';
 

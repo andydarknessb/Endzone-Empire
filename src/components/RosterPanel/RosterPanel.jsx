@@ -2,7 +2,7 @@ import React, { useEffect, useId, useMemo } from 'react';
 import {
   Box, Chip, List, ListItem, Paper, Typography,
 } from '@mui/material';
-import PositionChip from '../PlayerQuickView/PositionChip';
+import PositionChip from '../../shared/ui/PositionChip';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 
 /**
