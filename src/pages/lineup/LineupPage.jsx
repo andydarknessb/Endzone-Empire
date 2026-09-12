@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
-import { Badge, Card, Skeleton, TeamAvatar } from '../../shared/ui';
+import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
@@ -9,11 +9,14 @@ import PickWeek from '../../features/pick-week';
 import LineupLedger from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
+import StartSitPanel from '../../widgets/start-sit-panel';
 import { useSwapPlayers, QuickPickMenu } from '../../features/swap-players';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
+import { useApplyAdvice } from '../../features/apply-advice';
 import PlayerQuickView from '../../components/PlayerQuickView/PlayerQuickView';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
+import { useAdvice } from './model/useAdvice';
 import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
 
 const MIN_WEEK = 1;
@@ -31,10 +34,17 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * both need: the fetched lineup (`model/useLineupData.js`), handed down to
  * both the Ledger and the summary strip rather than each fetching it again.
  *
- * Deliberately deferred, per the issue's own scope: the advice tile (ticket
- * 6), the narrow-width Outlook rail (ticket 6), and the live Game cell's full
- * Situation treatment (ticket 9 - this ticket's Game cell shows clock and
- * score only). The Decision card (glossary: "Tapping a row opens the
+ * Ticket 6 (#1238) lands the advice tile and the phone Outlook tab: the
+ * start-sit-panel widget and the apply-advice feature, both composed here,
+ * plus a page-owned "Roster / Outlook" segmented control below `sm` that
+ * shows either the Ledger (Starters/Bench, its own existing tab bar
+ * unchanged) or the rail (start-sit-panel and matchup-preview, otherwise
+ * hidden below `md`). Ticket 7 stacks the Bye cluster grid into the same
+ * Outlook tab.
+ *
+ * Deliberately deferred, per the issue's own scope: the live Game cell's
+ * full Situation treatment (ticket 9 - this ticket's Game cell shows clock
+ * and score only). The Decision card (glossary: "Tapping a row opens the
  * Decision card") is not built by this ticket either - no acceptance
  * criterion here names it, and Trade/acquisition-detail stay off this page
  * until it lands; Drop keeps its own row control in the meantime, matching
@@ -58,6 +68,10 @@ export default function LineupPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [week, setWeek] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
+  // The phone Outlook tab (AC5, #1238): which half of the page a narrow
+  // viewport shows, the Ledger (Roster) or the rail (Outlook). Irrelevant at
+  // `sm` and up, where both already show side by side.
+  const [mobileSection, setMobileSection] = useState('roster');
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
 
@@ -93,6 +107,14 @@ export default function LineupPage() {
     leagueUnsettled,
   });
   const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch });
+
+  // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
+  // start-sit-panel widget, the team-summary-strip widget's advice tile and
+  // the apply-advice feature below - the same "value two widgets both need
+  // is passed down by the page" rule `useLineupData` already follows for the
+  // lineup itself. Best ball never calls the endpoint at all.
+  const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
+  const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw });
 
   // The Bench what-if swap (#910), read once and resolved against whichever
   // lineup actually loaded.
@@ -248,13 +270,36 @@ export default function LineupPage() {
                 <PickWeek weeks={WEEKS} value={currentWeekValue ?? MIN_WEEK} onChange={changeWeek} fill={compact} />
               </Box>
 
+              {/* The phone Outlook tab (AC5, #1238): below `sm`, where the
+                  rail is otherwise hidden entirely, this picks between the
+                  Ledger (Roster) and the rail (Outlook: start-sit-panel,
+                  matchup-preview, and ticket 7's Bye cluster grid). It is a
+                  page-level control, separate from the Ledger's own
+                  Starters/Bench tab bar (widgets/lineup-ledger), because the
+                  Outlook content is page-composed from widgets the Ledger
+                  itself never imports (ADR 0020). */}
+              <Box sx={{ display: { xs: 'block', sm: 'none' }, mb: 2 }}>
+                <SegmentedControl
+                  aria-label="Lineup view"
+                  fill
+                  value={mobileSection}
+                  onChange={setMobileSection}
+                  data-testid="lineup-mobile-view"
+                  options={[
+                    { value: 'roster', label: 'Roster' },
+                    { value: 'outlook', label: 'Outlook' },
+                  ]}
+                />
+              </Box>
+
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: '16px', alignItems: 'start' }}>
-                <Box sx={{ display: 'grid', gap: '16px' }}>
+                <Box sx={{ display: { xs: mobileSection === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: '16px' }}>
                   <TeamSummaryStrip
                     leagueId={selectedLeagueId}
                     week={league?.current_week ?? null}
                     viewerTeamId={viewerTeamId}
                     lineup={lineup}
+                    advice={advice}
                   />
 
                   {swap.selectedEntry && (
@@ -293,7 +338,13 @@ export default function LineupPage() {
                   )}
                 </Box>
 
-                <Box sx={{ display: { xs: 'none', md: 'grid' }, gap: '16px' }}>
+                <Box sx={{ display: { xs: mobileSection === 'outlook' ? 'grid' : 'none', md: 'grid' }, gap: '16px' }}>
+                  <StartSitPanel
+                    advice={advice}
+                    entries={lineup?.entries}
+                    bestBall={bestBall}
+                    onApply={applyAdvice.apply}
+                  />
                   <MatchupPreview leagueId={selectedLeagueId} />
                 </Box>
               </Box>
