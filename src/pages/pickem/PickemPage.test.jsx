@@ -17,8 +17,8 @@ jest.mock('../../api/apiClient', () => ({
  * Page-composition tests for `pages/pickem` (#1267, ADR 0038). Every branch
  * of the board and standings themselves already has dedicated coverage
  * (widgets/pickem-board and widgets/pickem-standings' own suites, moved and
- * expanded from LeaguePickem.jsx's own by #1265/#1266); this suite proves
- * the page composes them correctly - the disabled/PICKEM_DISABLED state, the
+ * expanded from the deleted legacy page's own by #1265/#1266); this suite
+ * proves the page composes them correctly - the disabled/PICKEM_DISABLED state, the
  * commissioner settings widget, the section switch, and the unsaved-picks
  * guard on both a week change and a section switch (ADR 0038's page slice,
  * AC3) - a representative end-to-end check rather than a re-test of a unit
@@ -308,4 +308,97 @@ test('saving picks invalidates the cached standings so the Standings tab reflect
     const standingsCallsAfter = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
     expect(standingsCallsAfter).toBeGreaterThan(standingsCallsBefore);
   });
+});
+
+// Formal review f3: the deleted legacy page's own test, title unedited. The
+// standings body names the mode in force, so a scoring-mode change must not
+// leave the cached table captioned with the old one - the resource cache
+// reaches a mount already on screen (src/lib/resourceCache.js's own
+// `listeners` map), so the Standings tab does not need to be left and
+// re-entered to see it.
+test("a scoring-mode change invalidates the cached standings (the caption names the mode)", async () => {
+  const user = userEvent.setup();
+  mockRequests({ settings: { enabled: true, mode: 'straight', isCommissioner: true } });
+  apiClient.put.mockResolvedValue({ data: { enabled: true, mode: 'confidence', isCommissioner: true } });
+  renderPage();
+
+  await screen.findByRole('button', { name: /Jets/i });
+  await user.click(screen.getByRole('radio', { name: 'Standings' }));
+  await screen.findByTestId('pickem-standings');
+  const standingsCallsBefore = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+
+  await user.click(screen.getByRole('radio', { name: /Confidence/ }));
+  await user.click(screen.getByRole('button', { name: /Save scoring mode/i }));
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+
+  await waitFor(() => {
+    const standingsCallsAfter = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+    expect(standingsCallsAfter).toBeGreaterThan(standingsCallsBefore);
+  });
+});
+
+// The mirror of "saving picks invalidates the cached standings" above: a
+// PICKEM_LOCKED rejection saved nothing, so nothing should have gone stale.
+test('a rejected picks save does not invalidate the cached standings', async () => {
+  const user = userEvent.setup();
+  mockRequests();
+  apiClient.put.mockRejectedValue({
+    response: { data: { error: 'that game already kicked off', code: 'PICKEM_LOCKED', gameKeys: ['NYJ|TEN'] } },
+  });
+  renderPage();
+
+  await screen.findByRole('button', { name: /Jets/i });
+  await user.click(screen.getByRole('radio', { name: 'Standings' }));
+  await screen.findByTestId('pickem-standings');
+  const standingsCallsBefore = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+
+  await user.click(screen.getByRole('radio', { name: 'Picks' }));
+  await user.click(await screen.findByRole('button', { name: /Titans/i }));
+  await user.click(screen.getByTestId('save-bar-save'));
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+
+  // A picked-but-unsaved board is dirty (the rejected save changed nothing)
+  // and normally parks the tab switch behind the discard dialog - orthogonal
+  // to what this test is checking, so clear it if it appears.
+  await user.click(screen.getByRole('radio', { name: 'Standings' }));
+  const dialog = screen.queryByRole('dialog', { name: /Discard unsaved picks/i });
+  if (dialog) await user.click(within(dialog).getByRole('button', { name: 'Discard picks' }));
+  await screen.findByTestId('pickem-standings');
+  const standingsCallsAfter = apiClient.get.mock.calls.filter(([u]) => u.includes('/standings')).length;
+  expect(standingsCallsAfter).toBe(standingsCallsBefore);
+});
+
+test('a deep link straight to the Standings tab renders it directly, with no Picks fetch', async () => {
+  mockRequests();
+  renderWithProviders(<PickemPage />, {
+    route: `/league/${LEAGUE_ID}/pickem?tab=standings`,
+    path: '/league/:leagueId/pickem',
+  });
+
+  expect(await screen.findByTestId('pickem-standings')).toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/week/'));
+});
+
+// Formal review f5: the risk review's roving-focus fix (f1) covers both the
+// section switch (tested above) and the week stepper, which shares the same
+// SegmentedControl contract inside widgets/pickem-board - this exercises the
+// week half.
+test('an arrow-key week change denied by the unsaved-picks guard returns focus to the week still selected', async () => {
+  const user = userEvent.setup();
+  mockRequests({ weeks: { 3: weekResponse(3), 4: weekResponse(4) } });
+  renderPage();
+
+  await user.click(await screen.findByRole('button', { name: /Jets/i }));
+
+  const week3Radio = screen.getByRole('radio', { name: 'Wk 3' });
+  const week4Radio = screen.getByRole('radio', { name: 'Wk 4' });
+  week3Radio.focus();
+  await user.keyboard('{ArrowRight}');
+  expect(week4Radio).toHaveAttribute('aria-checked', 'false');
+
+  const dialog = await screen.findByRole('dialog', { name: /Discard unsaved picks/i });
+  await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
+
+  await waitFor(() => expect(week3Radio).toHaveFocus());
+  expect(week3Radio).toHaveAttribute('aria-checked', 'true');
 });

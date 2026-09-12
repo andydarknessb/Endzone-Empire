@@ -18,12 +18,6 @@ test('a standalone panel renders in a titled card and can turn Pick\'em on', asy
   expect(onSave).toHaveBeenCalledWith({ enabled: true });
 });
 
-test('embedded drops the card shell and heading', () => {
-  render(<CommissionerPanel settings={settings()} saving={false} error={null} onSave={jest.fn()} embedded />);
-  expect(screen.queryByRole('heading', { name: 'Commissioner settings' })).not.toBeInTheDocument();
-  expect(screen.getByTestId('pickem-settings')).toBeInTheDocument();
-});
-
 test('a pick\'em-only league locks the enable switch and only exposes the scoring mode', () => {
   render(
     <CommissionerPanel settings={settings({ enabled: true })} saving={false} error={null} onSave={jest.fn()} lockedOn />

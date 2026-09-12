@@ -22,23 +22,28 @@ export const PICKEM_MODE_OPTIONS = Object.freeze([
 ]);
 
 /**
- * Commissioner controls (#1267, ADR 0038: moved from
- * `src/components/LeaguePickem/PickemSettingsPanel`, island styling, same
- * props contract). The scoring mode is a one-way door for the season: once
- * anyone has made a pick, the server returns 409 PICKEM_MODE_LOCKED rather
- * than retroactively reinterpreting every stored confidence, so the radio is
+ * Commissioner controls (#1267, ADR 0038: moved from the deleted legacy
+ * settings panel under `src/components`, island styling, same props
+ * contract). The scoring mode is a one-way door for the season: once anyone
+ * has made a pick, the server returns 409 PICKEM_MODE_LOCKED rather than
+ * retroactively reinterpreting every stored confidence, so the radio is
  * left enabled and the refusal is surfaced as an error, which is the only
  * honest way to show a rule the client can't evaluate on its own.
  *
- * `embedded` drops the Card shell for use inside the page's own
- * "Commissioner settings" section; standalone (the disabled-state CTA) keeps
- * it, titled to match every other island Card (h2, shared/ui).
+ * Always rendered in its own titled Card (h2, shared/ui), whether Pick'em is
+ * on or off - the legacy panel's `embedded`/accordion mode (collapsed once
+ * enabled) is intentionally dropped, formal review f4: this ticket's own
+ * acceptance criteria only ask that "commissioner sees the settings widget",
+ * and always-visible is the simpler, lower-risk shape - collapsing it would
+ * mean re-deriving the same "stay mounted at one tree position" care this
+ * ticket's accessibility fix (f4 in the risk review) just added, for a
+ * legacy UX nicety no criterion requires.
  *
  * `lockedOn` is the pick'em-only league: pick'em is the league's only game, so
  * the enable switch is replaced by a static line and only the mode is
  * editable.
  */
-export default function CommissionerPanel({ settings, saving, error, onSave, embedded = false, lockedOn = false }) {
+export default function CommissionerPanel({ settings, saving, error, onSave, lockedOn = false }) {
   const [mode, setMode] = useState(settings.mode);
 
   // Another commissioner (or another tab) may have changed the mode since this
@@ -143,8 +148,6 @@ export default function CommissionerPanel({ settings, saving, error, onSave, emb
       </Box>
     </Box>
   );
-
-  if (embedded) return <Box data-testid="pickem-settings">{body}</Box>;
 
   return (
     <Card title="Commissioner settings" data-testid="pickem-settings">

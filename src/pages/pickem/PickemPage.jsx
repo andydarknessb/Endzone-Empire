@@ -31,24 +31,25 @@ const TAB_VALUES = TAB_ITEMS.map(([value]) => value);
 
 /**
  * The Pick'em page slice (#1267, ADR 0038), on the existing
- * `/league/:leagueId/pickem` route in place of the legacy
- * `src/components/LeaguePickem`, deleted with this ticket (no shim, the
- * ruling on #1246). Composes `widgets/pickem-board`, `widgets/pickem-standings`
- * and `widgets/pickem-settings`, each reading only `entities` and `shared`
- * (ADR 0020/0029); the page itself reaches `entities/pickem-game`'s
+ * `/league/:leagueId/pickem` route in place of the legacy page component
+ * under `src/components` (deleted with this ticket, no shim, the ruling on
+ * #1246). Composes `widgets/pickem-board`, `widgets/pickem-standings` and
+ * `widgets/pickem-settings`, each reading only `entities` and `shared` (ADR
+ * 0020/0029); the page itself reaches `entities/pickem-game`'s
  * `usePickemSettings` directly for the one thing both the layout (enabled?
  * commissioner?) and the settings widget need, the same "page owns the value
  * two slices both need" rule `pages/lineup` already follows.
  *
- * Section lives in the URL (`?tab=`, LeaguePickem.jsx's own precedent) so a
- * manager can link straight to Standings.
+ * Section lives in the URL (`?tab=`, the deleted legacy page's own
+ * precedent) so a manager can link straight to Standings.
  *
  * The unsaved-picks guard: `pickem-board` still owns its own week state (ADR
  * 0038, `useBoardPresenter`'s own docblock), so this page never lifts it -
  * it only listens. `onDirtyChange` mirrors the board's draft dirty flag out
  * to `boardDirty`, and `onRequestWeekChange` lets the board ask before
  * switching weeks; both a week change and a Standings tab switch while dirty
- * are parked behind the same confirmation dialog LeaguePickem.jsx used.
+ * are parked behind the same confirmation dialog the deleted legacy page
+ * used.
  */
 export default function PickemPage() {
   const { leagueId } = useParams();
@@ -138,6 +139,10 @@ export default function PickemPage() {
       // Write-through: the saved row reaches this page (and the League Rules
       // read-only view) with no follow-up request.
       setPickemSettings(leagueId, res.data);
+      // The standings body names the mode in force (formal review f3, the
+      // deleted legacy page's own rule): a mode change must not leave a
+      // cached table captioned with the old one.
+      clearPickemStandingsCache(leagueId);
       return { ok: true };
     } catch (requestError) {
       setSettingsSaveError(readHttpFailure(requestError).message || requestError.message || 'Request failed');

@@ -2,8 +2,8 @@
  * Public surface of the pickem-settings widget (#1267, ADR 0038). The page
  * composes `CommissionerPanel` from here; `PICKEM_MODE_OPTIONS` is exported
  * for the two below-page consumers that must read the same scoring-mode
- * copy the panel itself renders (ADR 0038's "What to build" - moved from
- * `src/components/LeaguePickem/PickemSettingsPanel`):
+ * copy the panel itself renders (ADR 0038's "What to build" - moved from the
+ * deleted legacy settings panel under `src/components`):
  *
  *   - `src/components/common/LeagueTypeFields.jsx` - the league-type create
  *     dialogs' scoring-mode picker.
