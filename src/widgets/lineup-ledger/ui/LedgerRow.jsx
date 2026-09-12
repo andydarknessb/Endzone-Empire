@@ -131,9 +131,12 @@ function EdgeLine({ edge, gameCellKind }) {
   );
 }
 
-// The player's avatar: initials on the NFL team's jersey colour (CONTEXT.md's
-// Ledger row, "avatar with the NFL team colour"). No photo plumbing on this
-// endpoint yet, matching the entity's own scope. The label ink is
+// The player's avatar: the headshot (`photoUrl`, the players row's own
+// `photo_url` carried on the lineup entry) with initials on the NFL team's
+// jersey colour underneath as the fallback (CONTEXT.md's Ledger row, "avatar
+// with the NFL team colour") - MUI's Avatar shows its children whenever `src`
+// is absent or fails to load, so a team defense (no headshot) and a broken
+// image both land on the same monogram. The label ink is
 // `monogramInk(kit.jersey)` (`shared/lib`, #1301/#1317), not a themed token: a
 // themed token is the wrong ink for a background the theme does not change -
 // `kit.jersey` is a real external NFL brand color
@@ -142,11 +145,13 @@ function EdgeLine({ edge, gameCellKind }) {
 // light and dark mode, so the ink drawn on it has to stay fixed alongside it
 // too. The themed text-inverse token this replaces failed 29 of 32 jerseys
 // below 4.5:1 in dark mode before this fix.
-function PlayerAvatar({ name, nflTeam }) {
+function PlayerAvatar({ name, nflTeam, photoUrl }) {
   const kit = NFL_TEAM_COLORS[nflTeam] || FALLBACK_KIT;
   return (
     <Avatar
       aria-hidden="true"
+      src={photoUrl || undefined}
+      imgProps={{ loading: 'lazy', 'data-testid': 'ledger-headshot' }}
       sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
     >
       {initialsFor(name)}
@@ -303,7 +308,7 @@ export default function LedgerRow({
           <Typography sx={{ flexGrow: 1, fontSize: '13px', color: 'var(--dash-faint)' }}>Empty</Typography>
         ) : (
           <>
-            <PlayerAvatar name={entry.name} nflTeam={entry.nflTeam} />
+            <PlayerAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
 
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>

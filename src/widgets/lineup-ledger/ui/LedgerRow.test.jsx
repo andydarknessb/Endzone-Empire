@@ -461,3 +461,19 @@ test('the drop control is a sibling of the select button, not nested inside it (
   const selectButton = screen.getByTestId('row-select');
   expect(selectButton).not.toContainElement(dropButton);
 });
+
+// The headshot rides the lineup entry's own `photoUrl` (the players row's
+// `photo_url`, selected by getLineup). With one, the avatar is the image;
+// without one (a team defense, or a player the sync never resolved) it is
+// the initials monogram on the jersey colour, exactly as before.
+test('an entry with a photoUrl renders the headshot image', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ photoUrl: 'https://cdn.example/josh-allen.png' })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-headshot')).toHaveAttribute('src', 'https://cdn.example/josh-allen.png');
+  expect(screen.queryByText('JA')).toBeNull();
+});
+
+test('an entry without a photoUrl falls back to the initials monogram', () => {
+  render(<LedgerRow slotLabel="D/ST" entry={entry({ name: 'Denver Broncos', position: 'DEF', nflTeam: 'DEN', photoUrl: null })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.queryByTestId('ledger-headshot')).toBeNull();
+  expect(screen.getByText('DB')).toBeInTheDocument();
+});
