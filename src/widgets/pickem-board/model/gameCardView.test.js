@@ -108,6 +108,19 @@ test('a tie credits nobody, even a manager who picked', () => {
   expect(view.outcome).toBe('tie');
 });
 
+// The invariant #1318 exists to check: a game cannot be final without also
+// being locked. `dim` (GameCard.jsx's sideProps) is derived from `phase`
+// alone and `disabled` from `lock` alone, and it is this invariant - not
+// convention - that keeps a dimmed monogram always also disabled (WCAG
+// 1.4.3's inactive-component exemption). A wire row that is final but not
+// locked would break that; the model must never produce it.
+test('a final status with the game not yet locked never reaches phase final', () => {
+  const game = { ...baseGame(), locked: false, status: 'final', winner: 'DAL' };
+  const view = gameCardView({ game, myPicks: [], draftFor: () => null, othersPicksForWeek: {} });
+  expect(view.phase).toBe('open');
+  expect(view.lock).toBe(false);
+});
+
 test('flagged passes through as given', () => {
   const view = gameCardView({
     game: baseGame(),
