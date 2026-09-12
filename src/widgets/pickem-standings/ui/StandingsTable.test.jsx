@@ -229,5 +229,5 @@ test('house style: no em-dash anywhere in the rendered card', () => {
   });
   const { container } = render(<StandingsTable leagueId={7} />);
   // U+2014 as an escape, so this file never carries the character itself.
-  expect(container).not.toHaveTextContent('—');
+  expect(container).not.toHaveTextContent('\u2014');
 });
